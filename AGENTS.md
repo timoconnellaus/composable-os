@@ -18,6 +18,22 @@ vocabulary in [`CONTEXT.md`](CONTEXT.md), and respect the decisions in [`docs/ad
   changes, amend the old ADR with a dated note rather than deleting it.
 - Keep `docs/architecture.md` and `CONTEXT.md` true when you change what they describe.
 
+## Skills
+
+Step-by-step instructions for common work are in [`skills/`](skills/), one folder each with a
+`SKILL.md` (plain Markdown, for any agent; linked into `.claude/skills/`). Read the skill in full
+before starting the work it names.
+
+- Writing a new extension, a new kind of record, or fields on other objects:
+  [`skills/write-extension/SKILL.md`](skills/write-extension/SKILL.md).
+- Adding tools, automations or dashboards to an extension:
+  [`skills/add-automations-tools-dashboards/SKILL.md`](skills/add-automations-tools-dashboards/SKILL.md).
+
+Both end in `pnpm cos ext check extensions/<id>` and `pnpm cos ext test extensions/<id>`: the
+checks the host runs on an extension, and its tests. When the platform, the contract or a skill
+lacks what the work needs, changing it properly is part of the work; a shortcut or workaround in
+extension code is never acceptable (ADR 0405).
+
 ## Rules that hold everywhere
 
 - **Operations first.** Anything a user can do is an operation in the registry (`packages/core`) with
