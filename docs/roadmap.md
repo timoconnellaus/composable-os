@@ -27,7 +27,7 @@ risk for the next.
 | 20 | Move in | The repository renamed `composable-os`, scope `@composable-os/*`; the earlier brand retired; the CRM as the first product in `products/crm`, Workers named by product; the contract renamed to `codemode:ops`, `ctx.ops` and `rec_*` views; legacy-install code deleted; the Composable OS site | built (needs a human: the repository rename, the site's deploy and the real-account install) |
 | 21 | Extension skills | Two installable skills (`write-extension`, `add-automations-tools-dashboards`) in a plain `skills/` folder; `cos ext check` and `cos ext test` sharing the host's checks; a version guard; no eval | spec agreed |
 | 22 | Customers and audiences | The `staff`, `customer` and `public` audiences on every operation; the visibility seam's first door; customer accounts linked to a Person, signed in by email code; the `customer` key on objects with field-by-field reads; account deletion as an erase request | spec agreed |
-| 23 | HTTP surface and typed client | Operations over HTTP through `invoke()`; the generated client for TanStack Start and React Native; idempotency keys; native sessions | spec proposed |
+| 23 | HTTP surface and typed client | Operations over HTTP through `invoke()`, one route each, for staff, customers and the public together; a typed client generated per product for TanStack Start and React Native, split by audience; idempotency keys required on writes; rotating tokens for phones; current and previous API version served | spec agreed |
 | 24 | Client apps | The client repo template (TanStack Start web, Expo mobile); the service binding to the host; packs as packages with headless hooks; the block registry | spec proposed |
 | 25 | States, orders and payments | The `states` behaviour; the Order base record; a payments gatekeeper with webhooks and refunds | spec proposed |
 | 26 | Capacity and holds | The `capacity` behaviour: places that never go below zero, holds that expire, in the write's own batch | spec proposed |
@@ -110,7 +110,7 @@ in [`parallel-work.md`](parallel-work.md) as usual.
 | 20 | Nothing | Cut-over is `main` as it stands (agreed 2026-11-20) |
 | 21 | 20 | Written against the renamed contract |
 | 22 | 20 | Builds the visibility seam's first door itself; stage 14a extends it later |
-| 23 | 22 | The surface is useful to staff apps with 20 alone; customer calls need 22 |
+| 23 | 22 | Ships for all three audiences together, so it waits for 22 |
 | 24 | 23 | |
 | 25 | 22 | Payments webhooks need no client app |
 | 26 | 20 | Independent of 22 to 25 |
