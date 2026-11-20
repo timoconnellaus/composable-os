@@ -49,7 +49,7 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    `idInput`, and `confirm`, `ask` (one choice first) or `hideWhen` as needed. An output with
    `open: { object, id }` opens that record afterwards. See Leads: `convert`, `disqualify`.
 4. **Write an automation** with `defineAutomation`: `label`, `description`, a `trigger`
-   (`AutomationTrigger` lists every type; the README's "Triggers" table explains most),
+   (`AutomationTrigger` lists every type; the README's "Triggers" table explains each),
    `conditions` on the trigger record when only some records should start a run, `steps` and
    `run`. A `dateRelative` trigger's `offsetDays` is negative before the date and positive
    after it, in days only (a month before is `-30`). An automation the request itself asks for
