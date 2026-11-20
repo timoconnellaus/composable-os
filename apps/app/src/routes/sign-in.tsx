@@ -1,13 +1,14 @@
-import { Button } from "@relationship-os/ui/components/button";
+import { product } from "@composable-os/products/active";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/card";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 import { authClient } from "../lib/auth-client.ts";
@@ -66,7 +67,9 @@ function SignInPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>
-            {methods.firstAccount ? "Create the first account" : "Sign in to Relationship OS"}
+            {methods.firstAccount
+              ? "Create the first account"
+              : `Sign in to ${product.strings.name}`}
           </CardTitle>
           <CardDescription>
             {methods.firstAccount

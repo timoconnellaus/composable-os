@@ -7,7 +7,7 @@
 #   publish    the draft goes public; stable releases become "latest", betas are pre-releases
 #
 # Everything a deployment downloads comes from the published release, and is verified against
-# SHA256SUMS and the attestation made here (create-relationship-os and Settings → Updates refuse anything else).
+# SHA256SUMS and the attestation made here (create-composable-os and Settings → Updates refuse anything else).
 name: Release
 
 on:
@@ -55,7 +55,7 @@ jobs:
           if [[ "$tag" == *-beta.* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Release tooling tests (golden manifest, verification, CLI)
-        run: pnpm --filter @relationship-os/release --filter @relationship-os/release-scripts --filter create-relationship-os test
+        run: pnpm --filter @composable-os/release --filter @composable-os/release-scripts --filter create-composable-os test
 
       - name: Build the release
         run: node scripts/release/build-release.ts --version "${{ steps.version.outputs.version }}" --out release-out
@@ -72,8 +72,8 @@ jobs:
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
-            release-out/relationship-os-*.tar.gz
-            release-out/relationship-os-*.manifest.json
+            release-out/composable-os-*.tar.gz
+            release-out/composable-os-*.manifest.json
 
       - name: Changelog from PR titles
         run: node scripts/release/changelog.ts --tag "${GITHUB_REF_NAME}" > release-notes.md
@@ -121,7 +121,7 @@ jobs:
           fi
 
   npm:
-    # `npx create-relationship-os` runs the CLI published to npm. Needs the NPM_TOKEN secret (and the package
+    # `npx create-composable-os` runs the CLI published to npm. Needs the NPM_TOKEN secret (and the package
     # name; see docs/deploying.md). Skipped cleanly without it.
     name: Publish the CLI to npm
     needs: [build, publish]
@@ -151,7 +151,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build and publish
         if: steps.check.outputs.enabled == 'true'
-        working-directory: packages/create-relationship-os
+        working-directory: packages/create-composable-os
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |

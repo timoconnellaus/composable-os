@@ -10,7 +10,7 @@ import {
   type InvocationContext,
   invokeByName,
   memoryEventSink,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { dispatchAutomationMessages } from "../src/automations/dispatch.ts";
 import { automationHost } from "../src/automations/host.ts";
 import { context, db } from "./helpers.ts";
@@ -19,10 +19,10 @@ export const FIXTURE_ID = "autot";
 export const ITEM = `${FIXTURE_ID}.item`;
 
 const task = (title: string) =>
-  `ctx.crm.call("task.create", { title: ${title}, links: event.record ? [{ object: event.record.object, id: event.record.id }] : [] })`;
+  `ctx.ops.call("task.create", { title: ${title}, links: event.record ? [{ object: event.record.object, id: event.record.id }] : [] })`;
 
 export const FIXTURE_FILES: Record<string, string> = {
-  "index.ts": `import { defineAutomation, defineExtension } from "@relationship-os/sdk";
+  "index.ts": `import { defineAutomation, defineExtension } from "@composable-os/sdk";
 
 export default defineExtension({
   id: "${FIXTURE_ID}",
@@ -46,7 +46,7 @@ export default defineExtension({
     read: ["person", "task"],
     write: ["task", "person"],
     operations: ["notification.send"],
-    modules: ["crm", "log"],
+    modules: ["ops", "log"],
   },
   automations: {
     onCreate: defineAutomation({
@@ -121,9 +121,9 @@ export default defineExtension({
       onRejected: "stop",
       async run(event, step, ctx) {
         await step.do("bulk", async () => {
-          const people = await ctx.crm.call<{ items: { id: string }[] }>("person.list", { limit: 100 });
+          const people = await ctx.ops.call<{ items: { id: string }[] }>("person.list", { limit: 100 });
           const ids = people.items.map((p) => p.id);
-          return ctx.crm.call("person.updateMany", { ids, set: { location: "Moved" } });
+          return ctx.ops.call("person.updateMany", { ids, set: { location: "Moved" } });
         });
         return step.do("after", () => ${task('"After bulk"')});
       },

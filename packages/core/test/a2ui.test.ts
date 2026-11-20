@@ -5,9 +5,9 @@ import {
   type A2uiPart,
   prepareCard,
   producerRef,
-} from "@relationship-os/agent-a2ui";
-import { sampleDocument } from "@relationship-os/agent-a2ui/samples";
-import type { ThreadMessage } from "@relationship-os/agent-core";
+} from "@composable-os/agent-a2ui";
+import { sampleDocument } from "@composable-os/agent-a2ui/samples";
+import type { ThreadMessage } from "@composable-os/agent-core";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,

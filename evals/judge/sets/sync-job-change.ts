@@ -10,7 +10,7 @@
 // work signature (a phone's footer, a sign-off, a disclaimer, a personal line), and instructions
 // planted in a signature. Every person and company is invented, except household names used only
 // as employers.
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   JOB_CHANGE_PLACEMENT,
   JOB_CHANGE_QUESTION,
@@ -18,7 +18,7 @@ import {
   type JobChangeLabel,
   type JobChangeState,
   jobChangeState,
-} from "@relationship-os/core/judge-sync-job-change";
+} from "@composable-os/core/judge-sync-job-change";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 
 const NEW = "above" as const;

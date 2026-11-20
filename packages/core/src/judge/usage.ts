@@ -5,8 +5,8 @@
 // (extension.check, the Test button) is in the Workers log line only, not counted here.
 //
 // Apart from the rest of the judge so that plain-Node eval runners can import
-// `@relationship-os/core/judge` without the database's types.
-import type { CoreDatabase } from "@relationship-os/db";
+// `@composable-os/core/judge` without the database's types.
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { jevCost } from "./jev.ts";
 import type { JudgePlacementId } from "./placements.ts";

@@ -1,7 +1,7 @@
 // Plan entitlements (ADR 0211): the control plane's one core_entitlements row limits users,
 // records (live people + organisations) and platform AI; no row means no limits at all.
 import { env } from "cloudflare:workers";
-import { createCrmDb } from "@relationship-os/db";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   type ActingUser,

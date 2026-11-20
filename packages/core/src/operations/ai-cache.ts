@@ -2,7 +2,7 @@
 // lifetimes and the admin rails, the review export, and the bookkeeping write the thread uses when
 // it has no turn to ride on (an idle alarm, a compaction).
 
-import { cacheReportExportSchema } from "@relationship-os/agent-core/compaction";
+import { cacheReportExportSchema } from "@composable-os/agent-core/compaction";
 import { z } from "zod";
 import {
   buildCacheReport,

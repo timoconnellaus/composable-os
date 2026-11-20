@@ -1,7 +1,7 @@
 // A known-good answer to each case: the extension source a capable model would write. smoke.ts
 // writes them to a real deployment (and can propose them), and the unit tests use them as the
 // stand-in model's answers. Each is generated from a compact description, so the 10 stay uniform.
-import type { ChatCompletionResponse, ModelClient } from "@relationship-os/evals-mcp/lib/model.ts";
+import type { ChatCompletionResponse, ModelClient } from "@composable-os/evals-mcp/lib/model.ts";
 import type { AutomationCase } from "../prompts.ts";
 
 interface ReferenceAutomation {
@@ -54,7 +54,7 @@ export const REFERENCES: Record<string, ReferenceAutomation> = {
     run: `${linkTrigger}
     ${owner}
     await step.do("createThankYouTask", () =>
-      ctx.crm.call("task.create", { title: "Send a thank-you note", assigneeId: owner, links }),
+      ctx.ops.call("task.create", { title: "Send a thank-you note", assigneeId: owner, links }),
     );
     await step.do("notifyOwner", () => ctx.notify({ field: "owner" }, { title: "Deal won: thank {record}", link: "record" }));`,
   },
@@ -86,7 +86,7 @@ export const REFERENCES: Record<string, ReferenceAutomation> = {
     permissions: { read: ["person"], write: ["task"] },
     run: `${linkTrigger}
     await step.do("createWelcomeTask", () =>
-      ctx.crm.call("task.create", { title: "Send a welcome email", links }),
+      ctx.ops.call("task.create", { title: "Send a welcome email", links }),
     );`,
   },
   "org-check-in": {
@@ -101,7 +101,7 @@ export const REFERENCES: Record<string, ReferenceAutomation> = {
     permissions: { read: ["organisation"], write: ["task"] },
     run: `${linkTrigger}
     await step.sleep("waitTwoDays", "2 days");
-    await step.do("createCheckInTask", () => ctx.crm.call("task.create", { title: "Check in", links }));`,
+    await step.do("createCheckInTask", () => ctx.ops.call("task.create", { title: "Check in", links }));`,
   },
   "close-date-reminder": {
     key: "closeSoon",
@@ -155,7 +155,7 @@ export const REFERENCES: Record<string, ReferenceAutomation> = {
     permissions: { read: ["organisation"], write: ["task"] },
     run: `${linkTrigger}
     await step.do("createRenewalTask", () =>
-      ctx.crm.call("task.create", { title: "Discuss the renewal", links }),
+      ctx.ops.call("task.create", { title: "Discuss the renewal", links }),
     );`,
   },
   "rejected-change": {
@@ -197,7 +197,7 @@ export const REFERENCES: Record<string, ReferenceAutomation> = {
     ${owner}
     await step.do("createTasks", async () => {
       for (const title of ["Qualify the lead", "Book a demo"]) {
-        await ctx.crm.call("task.create", { title, assigneeId: owner, links });
+        await ctx.ops.call("task.create", { title, assigneeId: owner, links });
       }
     });
     await step.sleep("waitOneDay", "1 day");
@@ -211,8 +211,8 @@ const json = (value: unknown) => JSON.stringify(value);
 export function referenceSource(c: AutomationCase, extensionId: string): string {
   const ref = REFERENCES[c.id];
   if (!ref) throw new Error(`no reference for ${c.id}`);
-  const permissions = { ...ref.permissions, modules: ["crm"] };
-  return `import { defineAutomation, defineExtension } from "@relationship-os/sdk";
+  const permissions = { ...ref.permissions, modules: ["ops"] };
+  return `import { defineAutomation, defineExtension } from "@composable-os/sdk";
 
 export default defineExtension({
   id: ${json(extensionId)},

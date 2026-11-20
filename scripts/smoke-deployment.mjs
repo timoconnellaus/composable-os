@@ -2,7 +2,7 @@
 // Read-only smoke test of a live deployment. It sends GET requests only and needs no credentials,
 // so it is safe against production:
 //
-//   /api/health     status ok, database migrated, ros-runner reachable
+//   /api/health     status ok, database migrated, cos-runner reachable
 //   /sign-in        the sign-in page renders
 //   static assets   the page's scripts and stylesheets are served
 //
@@ -16,7 +16,7 @@ const TIMEOUT_MS = 15_000;
 const get = (url) =>
   fetch(url, {
     redirect: "manual",
-    headers: { "user-agent": "ros-smoke-deployment" },
+    headers: { "user-agent": "cos-smoke-deployment" },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
 

@@ -1,12 +1,12 @@
 import { introspectWorkflowInstance } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
-import { applyMigrations, getMigrationLevel } from "@relationship-os/db";
+import { applyMigrations, getMigrationLevel } from "@composable-os/db";
 import { describe, expect, it } from "vitest";
 
-describe("ros-runner RPC", () => {
+describe("cos-runner RPC", () => {
   it("answers ping", async () => {
     const result = await exports.default.ping();
-    expect(result).toMatchObject({ ok: true, worker: "ros-runner" });
+    expect(result).toMatchObject({ ok: true, worker: "cos-runner" });
     expect(Date.parse(result.time)).not.toBeNaN();
   });
 

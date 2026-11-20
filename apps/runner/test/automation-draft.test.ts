@@ -3,7 +3,7 @@
 // extension is written and proposed (committed, an extension.apply pending action), never
 // installed; automation.test with `proposal` runs its automation at the proposed commit.
 import { env } from "cloudflare:workers";
-import type { ActingUser, AutomationTestReport } from "@relationship-os/core";
+import type { ActingUser, AutomationTestReport } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { automationHost } from "../src/automations/host.ts";
 import { toolWorkerId } from "../src/executor/worker-code.ts";
@@ -17,7 +17,7 @@ let commit: string;
 let personId: string;
 
 const files = (id: string): Record<string, string> => ({
-  "index.ts": `import { defineAutomation, defineExtension } from "@relationship-os/sdk";
+  "index.ts": `import { defineAutomation, defineExtension } from "@composable-os/sdk";
 
 export default defineExtension({
   id: "${id}",
@@ -28,7 +28,7 @@ export default defineExtension({
     read: ["person", "task"],
     write: ["task"],
     operations: [],
-    modules: ["crm", "log"],
+    modules: ["ops", "log"],
   },
   automations: {
     welcome: defineAutomation({
@@ -38,7 +38,7 @@ export default defineExtension({
       steps: [{ name: "makeTask", writes: [{ object: "task" }] }],
       async run(event, step, ctx) {
         return step.do("makeTask", () =>
-          ctx.crm.call("task.create", {
+          ctx.ops.call("task.create", {
             title: \`Welcome \${String(event.record?.title ?? "")}\`,
             links: event.record ? [{ object: "person", id: event.record.id }] : [],
           }),
@@ -133,7 +133,7 @@ describe("automation.test on a proposed automation", () => {
       userId: admin.id,
     });
     expect(report.ok).toBe(true);
-    const id = await toolWorkerId({ extensionId, commit, modules: ["crm", "log"] });
+    const id = await toolWorkerId({ extensionId, commit, modules: ["ops", "log"] });
     expect(gets).toContain(id);
     expect(loads).toBe(0);
   });

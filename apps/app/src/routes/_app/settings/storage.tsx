@@ -9,19 +9,19 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+} from "@composable-os/ui/components/alert-dialog";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Label } from "@relationship-os/ui/components/label";
-import { RadioGroup, RadioGroupItem } from "@relationship-os/ui/components/radio-group";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/card";
+import { Label } from "@composable-os/ui/components/label";
+import { RadioGroup, RadioGroupItem } from "@composable-os/ui/components/radio-group";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute } from "@tanstack/react-router";
 import { LockIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useState } from "react";

@@ -1,4 +1,4 @@
-// ros-runner entrypoint. ros-app calls it over the RUNNER service binding using RPC: liveness, the
+// cos-runner entrypoint. cos-app calls it over the RUNNER service binding using RPC: liveness, the
 // stage 0 Workflow, and the extension host. Since ADR 0043 the host is split: code runs here, in
 // the stateless entrypoint (the executor: tools, manifest evaluation, type checks, Code Mode), so
 // runs proceed in parallel; git, working copies and the build cache stay in the workspace DO.
@@ -30,8 +30,8 @@ import {
   type WorkingCopyOptions,
   type WorkspaceEntry,
   type WorkspaceWrite,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { dispatchAutomationMessages } from "./automations/dispatch.ts";
 import { automationHost } from "./automations/host.ts";
 import { pollIntegrationEvents } from "./automations/integration-events.ts";
@@ -104,7 +104,7 @@ export function extensionHost(env: Env, options: ExecutorOptions = {}): Extensio
 
 export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
   async ping(): Promise<PingResult> {
-    return { ok: true, worker: "ros-runner", time: new Date().toISOString() };
+    return { ok: true, worker: "cos-runner", time: new Date().toISOString() };
   }
 
   async startHelloWorkflow(name: string): Promise<{ id: string }> {
@@ -179,7 +179,7 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     });
   }
 
-  // Integrations (ADR 0050, ADR 0110): the IntegrationRuntime port for ros-app, one method.
+  // Integrations (ADR 0050, ADR 0110): the IntegrationRuntime port for cos-app, one method.
   integration<K extends keyof IntegrationRuntime>(
     method: K,
     input: Parameters<IntegrationRuntime[K]>[0],
@@ -189,7 +189,7 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     return (runtime[method] as (i: typeof input) => ReturnType<IntegrationRuntime[K]>)(input);
   }
 
-  /** ros-app proxies /gatekeeper/<vendor>/* here: OAuth redirects, connect pages, pushes. */
+  /** cos-app proxies /gatekeeper/<vendor>/* here: OAuth redirects, connect pages, pushes. */
   async gatekeeperFetch(vendor: string, request: Request): Promise<Response> {
     if (vendor === "fake") {
       if (this.env.INTEGRATIONS_FAKE_PROVIDER !== "true")
@@ -208,7 +208,7 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     return binding ? binding.fetch(request) : new Response("Not found", { status: 404 });
   }
 
-  // AutomationHost (ADR 0130): automation.test, run, retry, replay and cancel from ros-app.
+  // AutomationHost (ADR 0130): automation.test, run, retry, replay and cancel from cos-app.
   testAutomation(input: AutomationTestInput): Promise<AutomationTestReport> {
     return automationHost(this.env).testAutomation(input);
   }
@@ -253,7 +253,7 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
   }
 
   override async fetch(_request: Request): Promise<Response> {
-    return new Response("ros-runner is reached over RPC", { status: 404 });
+    return new Response("cos-runner is reached over RPC", { status: 404 });
   }
 }
 

@@ -12,8 +12,9 @@ interface Props {
 const { home = false } = Astro.props;
 const at = (hash: string) => (home ? hash : `/${hash}`);
 const links = [
-  { href: at("#how"), label: "Product" },
-  { href: at("#self-host"), label: "Self-host" },
+  { href: at("#platform"), label: "Platform" },
+  { href: at("#crm"), label: "CRM" },
+  { href: at("#install"), label: "Install" },
   { href: at("#pricing"), label: "Pricing" },
   { href: at("#enterprise"), label: "Enterprise" },
   { href: REPO_URL, label: "GitHub" },
@@ -22,17 +23,17 @@ const links = [
 
 <header class="site" id="top">
   <div class="wrap nav">
-    <a class="logo" href={home ? "#top" : "/"}><i aria-hidden="true"></i>Relationship OS</a>
+    <a class="logo" href={home ? "#top" : "/"}><i aria-hidden="true"></i>Composable OS</a>
     <nav class="links" aria-label="Main">
       {links.map((link) => <a href={link.href}>{link.label}</a>)}
     </nav>
-    <a class="btn" href={at("#waitlist")}>Join the waitlist</a>
+    <a class="btn" href={at("#install")}>Install it</a>
     <button class="menu-btn" type="button" aria-expanded="false" aria-controls="mm" aria-label="Open menu">
       <Icon name="menu" />
     </button>
   </div>
   <nav class="mobile-menu" id="mm" aria-label="Menu">
     {links.map((link) => <a href={link.href}>{link.label}</a>)}
-    <a class="btn" href={at("#waitlist")}>Join the waitlist</a>
+    <a class="btn" href={at("#install")}>Install it</a>
   </nav>
 </header>

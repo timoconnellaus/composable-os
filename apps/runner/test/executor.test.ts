@@ -10,7 +10,7 @@ import {
   memoryRateLimit,
   PERMISSIONS,
   withCodeModeRateLimit,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Executor } from "../src/executor/executor.ts";
 import { checkerWorkerId, manifestWorkerId, toolWorkerId } from "../src/executor/worker-code.ts";
@@ -55,11 +55,11 @@ function callWith(host: ExtensionHost, user: ActingUser, name: string, input: un
 
 describe("stable loader ids", () => {
   it("are deterministic: same extension + commit + modules, same id; any change, a new one", async () => {
-    const base = { extensionId: "proj", commit: "a".repeat(40), modules: ["crm", "log"] };
+    const base = { extensionId: "proj", commit: "a".repeat(40), modules: ["ops", "log"] };
     const id = await toolWorkerId(base);
-    expect(await toolWorkerId({ ...base, modules: ["log", "crm", "crm"] })).toBe(id);
+    expect(await toolWorkerId({ ...base, modules: ["log", "ops", "ops"] })).toBe(id);
     expect(await toolWorkerId({ ...base, commit: "b".repeat(40) })).not.toBe(id);
-    expect(await toolWorkerId({ ...base, modules: ["crm"] })).not.toBe(id);
+    expect(await toolWorkerId({ ...base, modules: ["ops"] })).not.toBe(id);
     expect(await toolWorkerId({ ...base, extensionId: "other" })).not.toBe(id);
     expect(id).toMatch(/^ext:proj:aaaaaaaaaaaa:[0-9a-f]{32}$/);
     const manifest = await manifestWorkerId({ extensionId: "proj", sourceHash: "abc" });

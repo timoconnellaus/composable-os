@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cloudflare } from "@cloudflare/vite-plugin";
+import { productAlias } from "@composable-os/product/node";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
@@ -27,18 +28,21 @@ const PORT = Number(process.env.PORT ?? 5173);
 
 export default defineConfig(({ command }) => ({
   // `#/…` is src/ (tsconfig paths), as in `import { callOp } from "#/lib/operations"`.
-  resolve: { alias: { "#": fileURLToPath(new URL("./src", import.meta.url)) } },
+  // COS_PRODUCT builds for another product: the active product module becomes its definition.
+  resolve: {
+    alias: { "#": fileURLToPath(new URL("./src", import.meta.url)), ...productAlias() },
+  },
   server: { port: PORT, strictPort: true },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __APP_COMMIT__: JSON.stringify(gitCommit()),
   },
   plugins: [
-    // ros-runner runs in the same local runtime as an auxiliary Worker, so `pnpm dev` starts both
+    // cos-runner runs in the same local runtime as an auxiliary Worker, so `pnpm dev` starts both
     // and the RUNNER service binding resolves locally.
     cloudflare({
       // scripts/deploy.mjs builds with a generated config that adds the AI bindings (ADR 0150).
-      ...(process.env.ROS_WRANGLER_CONFIG ? { configPath: process.env.ROS_WRANGLER_CONFIG } : {}),
+      ...(process.env.COS_WRANGLER_CONFIG ? { configPath: process.env.COS_WRANGLER_CONFIG } : {}),
       viteEnvironment: { name: "ssr" },
       // Local dev only: declared secrets would otherwise keep optional ones in .dev.vars (provider
       // keys and the like) from reaching the Worker. Builds keep wrangler.jsonc's declaration, so
@@ -63,7 +67,7 @@ export default defineConfig(({ command }) => ({
                     ...(runner.services ?? []),
                     {
                       binding: "GATEKEEPER_WEBHOOK",
-                      service: "ros-gatekeeper-webhook",
+                      service: "cos-gatekeeper-webhook",
                       entrypoint: "GatekeeperVendor",
                     },
                   ],

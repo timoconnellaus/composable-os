@@ -32,11 +32,11 @@
 import {
   ActionApplyError, ActionOutcomeUnknownError, APPLY_OUTCOME_UNKNOWN_MESSAGE, defineActions,
   type ActionDefinition,
-} from "@relationship-os/gatekeeper-kit/actions";
+} from "@composable-os/gatekeeper-kit/actions";
 import {
   buildDescription, plainInline, sanitizeTitle,
-} from "@relationship-os/gatekeeper-kit/action-description";
-import type { ActionKind } from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-kit/action-description";
+import type { ActionKind } from "@composable-os/gatekeeper-interface/gatekeeper";
 import { obsContext } from "./observability";
 import { SheetsWriteRefused, type GoogleSheetsApi } from "./sheets-api";
 import { cellName, columnLetters, isFormula, rectName } from "./sheets-model";

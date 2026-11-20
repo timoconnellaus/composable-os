@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   GatekeeperUserVerifier,
   ObservationAuthorizer,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 import type { RpcStub } from "cloudflare:workers";
 import {
   aclObservers,

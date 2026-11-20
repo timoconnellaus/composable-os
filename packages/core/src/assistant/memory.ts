@@ -5,8 +5,8 @@
 // deterministic checks used when the judge is off, and the erase index.
 //
 // Customer facts never live here: they go on the record as a note (ADR 0342 decision 5).
-import { type PendingLine, pendingTailBlock, type TailBlock } from "@relationship-os/agent-core";
-import type { CoreDatabase } from "@relationship-os/db";
+import { type PendingLine, pendingTailBlock, type TailBlock } from "@composable-os/agent-core";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { ValidationError } from "../errors.ts";

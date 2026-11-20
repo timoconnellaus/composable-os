@@ -4,7 +4,9 @@
 // Overview lives in code (dashboards/overview.ts), is visible to all and is every user's Home
 // until they choose another. Widgets run through the query.sql guards with bound named params,
 // row and time limits, and a 60 s Cache API result cache; nothing here writes on read.
-import type { CoreDatabase } from "@relationship-os/db";
+
+import type { CoreDatabase } from "@composable-os/db";
+import { product } from "@composable-os/products/active";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { describePrompt, extractJson } from "../dashboards/describe.ts";
@@ -197,7 +199,7 @@ async function requireEditable(ctx: HandlerContext, id: string): Promise<Dashboa
   const dashboard = await requireVisible(ctx, id);
   if (dashboard.builtIn) {
     throw new ValidationError(
-      `${dashboard.title} ships with Relationship OS and cannot be changed; copy it with dashboard.create { copyFrom: "${id}" }`,
+      `${dashboard.title} ships with ${product.strings.name} and cannot be changed; copy it with dashboard.create { copyFrom: "${id}" }`,
       { field: "id" },
     );
   }
@@ -317,7 +319,7 @@ export const dashboardCreate = defineOperation({
   name: "dashboard.create",
   description:
     "Create a dashboard: a title, filters and widgets. Each data widget has read-only SQL over " +
-    "the crm_* views (checked like query.sql) using named params from the filters (:date_from, " +
+    "the rec_* views (checked like query.sql) using named params from the filters (:date_from, " +
     ":date_to, :owner, …) and :now, :today, :me; a chart mapping; and optionally a " +
     "click-through { object, filter } whose filter values may be { $row } or { $param } " +
     "placeholders. Personal by default; shared: true makes it visible to every member. " +
@@ -627,7 +629,7 @@ export const widgetDescribe = defineOperation({
       return {
         status: "unavailable" as const,
         message:
-          "AI is not configured for this deployment: add an `ai` binding to ros-app " +
+          "AI is not configured for this deployment: add an `ai` binding to cos-app " +
           "(docs/deploying.md). You can still build the widget by hand.",
       };
     }

@@ -8,33 +8,33 @@ import {
   type FilterValue,
   resolveClickThrough,
   type WidgetSpec,
-} from "@relationship-os/core/client";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+} from "@composable-os/core/client";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@relationship-os/ui/components/dialog";
+} from "@composable-os/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@relationship-os/ui/components/dropdown-menu";
-import { Input } from "@relationship-os/ui/components/input";
+} from "@composable-os/ui/components/dropdown-menu";
+import { Input } from "@composable-os/ui/components/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/select";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { cn } from "@composable-os/ui/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -519,7 +519,7 @@ function WidgetCard({
           <DialogHeader>
             <DialogTitle>{widget.title}</DialogTitle>
             <DialogDescription>
-              Read-only SQL over the crm_* views, with named parameters.
+              Read-only SQL over the rec_* views, with named parameters.
             </DialogDescription>
           </DialogHeader>
           <pre

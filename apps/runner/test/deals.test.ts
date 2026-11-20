@@ -11,7 +11,7 @@ import {
   invokeByName,
   PERMISSIONS,
   seedRecordId,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   auditFor,
@@ -321,10 +321,10 @@ describe("stage rules for every actor (AC2)", () => {
     const result = (await invokeByName(
       "code.run",
       {
-        code: `import { crm } from "codemode:crm";
+        code: `import { ops } from "codemode:ops";
 export default async function () {
   try {
-    await crm.call("record.update", { object: "deals.deal", id: ${JSON.stringify(deal.id)}, values: { stage: ${JSON.stringify(S.lost)} } });
+    await ops.call("record.update", { object: "deals.deal", id: ${JSON.stringify(deal.id)}, values: { stage: ${JSON.stringify(S.lost)} } });
     return "applied";
   } catch (error) {
     const e = error as { code?: string; details?: { field?: string } };
@@ -344,21 +344,21 @@ export default async function () {
     });
   });
 
-  it("extensions: another extension's tool is refused through codemode:crm", async () => {
+  it("extensions: another extension's tool is refused through codemode:ops", async () => {
     const id = unique("dx");
     await install(
       admin,
       id,
       source(
         id,
-        `permissions: { write: ["deals.deal"], modules: ["crm"] },
+        `permissions: { write: ["deals.deal"], modules: ["ops"] },
   tools: {
     lose: defineTool({
       description: "Marks a deal as lost, optionally with a reason.",
       input: z.object({ dealId: z.string(), reason: z.string().optional() }),
       output: z.object({ status: z.string() }),
       async handler({ dealId, reason }, ctx) {
-        const out = await ctx.crm.call<{ values: { status: string } }>("record.update", {
+        const out = await ctx.ops.call<{ values: { status: string } }>("record.update", {
           object: "deals.deal", id: dealId,
           values: { stage: ${JSON.stringify(S.lost)}, ...(reason ? { lostReason: reason } : {}) },
         });
@@ -426,7 +426,7 @@ describe("stage history: time in stage and velocity on a seeded dataset (AC3)", 
 
   it("records entered and left times per stage", async () => {
     const { results } = await env.DB.prepare(
-      "SELECT d.name, s.name AS stage, h.entered_at, h.left_at FROM crm_stage_history h JOIN crm_x_deals_deal d ON d.id = h.record_id JOIN crm_x_deals_stage s ON s.id = h.stage_id WHERE d.pipeline = ? ORDER BY d.name, h.entered_at",
+      "SELECT d.name, s.name AS stage, h.entered_at, h.left_at FROM rec_stage_history h JOIN rec_x_deals_deal d ON d.id = h.record_id JOIN rec_x_deals_stage s ON s.id = h.stage_id WHERE d.pipeline = ? ORDER BY d.name, h.entered_at",
     )
       .bind(pipelineId)
       .all<{ name: string; stage: string; entered_at: string; left_at: string | null }>();

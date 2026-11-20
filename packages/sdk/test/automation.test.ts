@@ -15,7 +15,7 @@ const base = {
   id: "acme",
   version: "1.0.0",
   contractVersion: 1,
-  permissions: { write: ["task"], operations: ["notification.send"], modules: ["crm"] },
+  permissions: { write: ["task"], operations: ["notification.send"], modules: ["ops"] },
   objects: {
     deal: {
       label: "Deal",
@@ -140,7 +140,7 @@ describe("automation contract checks", () => {
     expect(
       issues(
         { connections: [{ id: "mailbox", gatekeeper: "email-send", purpose: "Send" }] },
-        { permissions: { ...base.permissions, modules: ["crm", "email-send"] } },
+        { permissions: { ...base.permissions, modules: ["ops", "email-send"] } },
       ),
     ).toEqual([]);
   });
@@ -215,7 +215,7 @@ describe("automation contract checks", () => {
             },
           ],
         },
-        { permissions: { modules: ["crm"] } },
+        { permissions: { modules: ["ops"] } },
       ),
     ).toEqual([
       'automations.thing.steps.0.writes.0.object: Step writes organisation: add "organisation" to permissions.write',
@@ -358,7 +358,7 @@ describe("notificationInput", () => {
 describe("the automation harness", () => {
   const extension = defineExtension({
     ...base,
-    permissions: { write: ["task"], operations: ["notification.send"], modules: ["crm"] },
+    permissions: { write: ["task"], operations: ["notification.send"], modules: ["ops"] },
     objects: { deal: base.objects.deal as never },
     automations: {
       chase: defineAutomation({
@@ -374,7 +374,7 @@ describe("the automation harness", () => {
         ],
         async run(event, step, ctx) {
           const task = await step.do("makeTask", () =>
-            ctx.crm.call<{ id: string }>("task.create", { title: "Chase" }),
+            ctx.ops.call<{ id: string }>("task.create", { title: "Chase" }),
           );
           const reply = await step.waitForEvent<{ text: string }>("reply");
           await step.sleep("pause", "1 hour");
@@ -388,7 +388,7 @@ describe("the automation harness", () => {
         trigger: { type: "manual", object: "acme.deal", label: "Sneak" },
         steps: [{ name: "tell", notifies: [{ to: "admins", message: "x" }] }],
         async run(_event, step, ctx) {
-          await step.do("tell", () => ctx.crm.call("task.create", { title: "Surprise" }));
+          await step.do("tell", () => ctx.ops.call("task.create", { title: "Surprise" }));
           await step.sleep("nap", "1 day");
         },
       }),

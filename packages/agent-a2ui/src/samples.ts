@@ -536,7 +536,7 @@ export const SAMPLES: Record<ComponentType, A2uiNode> = {
   pluginInstall: {
     type: "pluginInstall",
     name: "Pipeline hygiene",
-    publisher: "Relationship OS",
+    publisher: "Composable OS",
     adds: [
       { kind: "Skill", label: "Stale deal review" },
       { kind: "Routine", label: "Monday pipeline check" },

@@ -1,19 +1,19 @@
 // Settings → AI's prompt cache and compaction card (ADR 0341): the cache lifetime in use per
 // provider and model, read-only, the admin rails, and the review export for `pnpm ai:replay-cache`.
 // Admins only; the rails change through the audited ai.updateCacheRails.
-import type { CoreOutput } from "@relationship-os/core";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+import type { CoreOutput } from "@composable-os/core";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/card";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import {
   Table,
   TableBody,
@@ -21,7 +21,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@relationship-os/ui/components/table";
+} from "@composable-os/ui/components/table";
 import { DownloadIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";

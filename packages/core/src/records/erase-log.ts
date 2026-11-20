@@ -8,7 +8,7 @@
 // - The blob deletion queue (core_blob_deletion): R2 objects (synced email bodies) whose activity
 //   was deleted or lost its body. Filled by trigger in the deleting batch, drained right after the
 //   commit and by the 10-minute cron, with retries, like the embedding queue.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import type { BlobStore } from "../integrations/runtime.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -46,7 +46,7 @@ export async function putEraseLog(blobs: BlobStore, entry: EraseLogEntry): Promi
  * The erase's log entry, written before the commit (a failure fails the erase, which can be
  * retried; an entry for an erase whose commit then failed only erases that record again on a
  * re-apply, which is what was asked for). Without blob storage (tests, scripts) there is nothing
- * outside the database to write to, and it is skipped: ros-app always binds BLOBS.
+ * outside the database to write to, and it is skipped: cos-app always binds BLOBS.
  */
 export async function writeEraseLog(
   ctx: HandlerContext,

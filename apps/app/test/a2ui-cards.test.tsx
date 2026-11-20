@@ -6,8 +6,8 @@ import {
   type ComponentType,
   prepareCard,
   RESERVED_COMPONENTS,
-} from "@relationship-os/agent-a2ui";
-import { sampleDocument } from "@relationship-os/agent-a2ui/samples";
+} from "@composable-os/agent-a2ui";
+import { sampleDocument } from "@composable-os/agent-a2ui/samples";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";

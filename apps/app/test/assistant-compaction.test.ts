@@ -3,16 +3,16 @@
 // tests in agent-core; these cover what the object does with it.
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { replayCacheReport } from "@relationship-os/agent-core";
-import type { Principal } from "@relationship-os/auth";
+import { replayCacheReport } from "@composable-os/agent-core";
+import type { Principal } from "@composable-os/auth";
 import {
   type AssistantEvent,
   type AssistantThreadState,
   fakeStandIn,
   invokeByName,
   resolveActingUser,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type AssistantHttpEnv,
@@ -473,7 +473,7 @@ describe("compaction in the live thread", () => {
         observations: unknown[];
       };
     };
-    expect(json.report).toMatchObject({ format: "relationship-os.ai-cache-report", version: 1 });
+    expect(json.report).toMatchObject({ format: "composable-os.ai-cache-report", version: 1 });
     expect(json.report.observations.length).toBeGreaterThan(5);
     expect(json.report.decisions.length).toBeGreaterThan(5);
 

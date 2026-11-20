@@ -6,7 +6,7 @@ import { D1Dialect } from "./dialect.ts";
 import type { CoreDatabase } from "./schema.ts";
 
 export interface CrmDb {
-  /** Typed query builder over core tables and crm_* views. Executing it runs immediately. */
+  /** Typed query builder over core tables and rec_* views. Executing it runs immediately. */
   readonly query: Kysely<CoreDatabase>;
   /**
    * Runs the statements in order as one transaction: all apply or none do. Statements see the

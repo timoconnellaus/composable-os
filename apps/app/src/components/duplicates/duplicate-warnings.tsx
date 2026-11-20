@@ -2,7 +2,7 @@
 // are filled, and the form shows what an existing record has in common, with "Open". Nothing
 // blocks except the existing uniqueness (an email or a domain that belongs to someone else); the
 // form's button reads "Create anyway" while a warning shows.
-import type { CoreInput, CoreOutput } from "@relationship-os/core";
+import type { CoreInput, CoreOutput } from "@composable-os/core";
 import { keepPreviousData } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { CircleAlertIcon, CopyIcon } from "lucide-react";

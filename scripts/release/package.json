@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/release-scripts",
+  "name": "@composable-os/release-scripts",
   "version": "0.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
@@ -11,10 +11,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@relationship-os/release": "workspace:*"
+    "@composable-os/product": "workspace:*",
+    "@composable-os/products": "workspace:*",
+    "@composable-os/release": "workspace:*"
   },
   "devDependencies": {
-    "@relationship-os/config": "workspace:*",
+    "@composable-os/config": "workspace:*",
     "@types/node": "24.19.2",
     "typescript": "6.0.3",
     "vitest": "5.1.0"

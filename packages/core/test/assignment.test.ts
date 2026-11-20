@@ -4,10 +4,10 @@
 // rows_read budget. The record's owner is in the record's own insert: the audit row of the create
 // already carries it, and nothing writes the owner afterwards.
 import { env } from "cloudflare:workers";
-import { createCrmDb } from "@relationship-os/db";
-import deals from "@relationship-os/extension-deals";
-import leads from "@relationship-os/extension-leads";
-import { toManifest } from "@relationship-os/sdk";
+import { createCrmDb } from "@composable-os/db";
+import deals from "@composable-os/extension-deals";
+import leads from "@composable-os/extension-leads";
+import { toManifest } from "@composable-os/sdk";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { type ActingUser, invokeByName, type Role } from "../src/index.ts";
 import { manifest, reconcile } from "./extension-helpers.ts";

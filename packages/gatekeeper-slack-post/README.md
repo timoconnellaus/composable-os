@@ -1,9 +1,9 @@
-# @relationship-os/gatekeeper-slack-post
+# @composable-os/gatekeeper-slack-post
 
-Worker `ros-gatekeeper-slack-post`: an outbound gatekeeper that posts Slack channel messages and
+Worker `cos-gatekeeper-slack-post`: an outbound gatekeeper that posts Slack channel messages and
 DMs with a **bot token**. It is ours, not vendored, and complements the vendored read-only
-`@relationship-os/gatekeeper-slack`. Every message is an approval-queue action, and nothing is posted until the
-host applies that action. It is built on `@relationship-os/gatekeeper-kit`. See
+`@composable-os/gatekeeper-slack`. Every message is an approval-queue action, and nothing is posted until the
+host applies that action. It is built on `@composable-os/gatekeeper-kit`. See
 `docs/stages/06-integrations.md`, "Own outbound gatekeepers".
 
 ## Shares the Slack OAuth app/connection

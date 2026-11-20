@@ -4,8 +4,8 @@
 // quiet when there is nothing to send, and a failure shows on the routine, not in the chat.
 import { createMessageBatch, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import type { A2uiPart } from "@relationship-os/agent-a2ui";
-import type { Principal } from "@relationship-os/auth";
+import type { A2uiPart } from "@composable-os/agent-a2ui";
+import type { Principal } from "@composable-os/auth";
 import {
   type AssistantEvent,
   type AssistantThreadState,
@@ -14,8 +14,8 @@ import {
   resolveActingUser,
   routineDefinitionSchema,
   type TranscriptItem,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { describe, expect, it } from "vitest";
 import { type AssistantHttpEnv, handleState, handleTurn } from "../src/server/assistant/http.ts";
 import { handleRoutineDeliveries } from "../src/server/assistant/routines.ts";
@@ -191,7 +191,7 @@ describe("delivery", () => {
   it("delivers from the queue, and acks", async () => {
     const person = await member();
     const routineId = await create(person, turnDefinition);
-    const batch = createMessageBatch<RoutineDeliveryMessage>("ros-routine-delivery", [
+    const batch = createMessageBatch<RoutineDeliveryMessage>("cos-routine-delivery", [
       {
         id: "m1",
         timestamp: new Date(),

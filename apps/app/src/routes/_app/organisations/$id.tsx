@@ -2,7 +2,7 @@
 // domain) with actions, tabs (Overview, Timeline, People, Tasks, History), and details, people,
 // related organisations and tasks in the side panel. Deleted organisations stay viewable here
 // with a Restore banner.
-import { organisationObject } from "@relationship-os/core/client";
+import { organisationObject } from "@composable-os/core/client";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,15 +12,15 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Button } from "@relationship-os/ui/components/button";
+} from "@composable-os/ui/components/alert-dialog";
+import { Button } from "@composable-os/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@relationship-os/ui/components/dropdown-menu";
+} from "@composable-os/ui/components/dropdown-menu";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Building2Icon,

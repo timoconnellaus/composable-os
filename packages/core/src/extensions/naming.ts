@@ -1,7 +1,7 @@
 // Physical names for extension schema (ADR 0024). Every identifier the reconciler and the
 // registry splice into SQL comes from here, built from names the manifest check has already
 // validated (`[a-z][a-z0-9]*` ids and objects, camelCase fields) and re-checked by `ident`.
-import { EXTENSION_ID_RE, FIELD_NAME_RE, OBJECT_NAME_RE } from "@relationship-os/sdk";
+import { EXTENSION_ID_RE, FIELD_NAME_RE, OBJECT_NAME_RE } from "@composable-os/sdk";
 
 const IDENT_RE = /^[a-z][a-z0-9_]{0,120}$/;
 
@@ -13,10 +13,10 @@ export function ident(name: string): string {
 
 /** Core objects that extension fields can extend, with their base and read views. */
 export const CORE_TARGETS = {
-  person: { base: "core_base_people", view: "crm_people" },
-  organisation: { base: "core_base_organisations", view: "crm_organisations" },
-  activity: { base: "core_base_activities", view: "crm_activities" },
-  task: { base: "core_base_tasks", view: "crm_tasks" },
+  person: { base: "core_base_people", view: "rec_person" },
+  organisation: { base: "core_base_organisations", view: "rec_organisation" },
+  activity: { base: "core_base_activities", view: "rec_activity" },
+  task: { base: "core_base_tasks", view: "rec_task" },
 } as const;
 export type CoreTarget = keyof typeof CORE_TARGETS;
 
@@ -42,9 +42,9 @@ export function objectTable(extension: string, object: string): string {
   return ident(`x_${assertExtensionId(extension)}_${object}`);
 }
 
-/** Read view of an extension object: `crm_x_<ext>_<object>`. */
+/** Read view of an extension object: `rec_x_<ext>_<object>`. */
 export function objectView(extension: string, object: string): string {
-  return ident(`crm_x_${assertExtensionId(extension)}_${object}`);
+  return ident(`rec_x_${assertExtensionId(extension)}_${object}`);
 }
 
 /** The read view of any object (core or extension). */
@@ -74,7 +74,7 @@ export function registryFieldName(extension: string, target: string, local: stri
   return target.startsWith(`${extension}.`) ? local : `${extension}.${local}`;
 }
 
-/** Column of a field in its object's crm_* view: own fields keep theirs, others get `<ext>__`. */
+/** Column of a field in its object's rec_* view: own fields keep theirs, others get `<ext>__`. */
 export function viewColumnName(extension: string, target: string, local: string): string {
   const column = columnName(local);
   return target.startsWith(`${extension}.`) ? column : ident(`${extension}__${column}`);

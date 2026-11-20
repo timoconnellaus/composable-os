@@ -6,7 +6,7 @@
 // The cases cover: plain matches; a field that means the person's word; the classic slips (a
 // different comparison, value, field or record type; part of the condition dropped or added; and
 // against or), and words that give no condition at all.
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   MEMORY_CONDITION_PLACEMENT,
   MEMORY_CONDITION_QUESTION,
@@ -14,7 +14,7 @@ import {
   type MemoryConditionLabel,
   type MemoryConditionState,
   memoryConditionState,
-} from "@relationship-os/core/judge-memory-condition";
+} from "@composable-os/core/judge-memory-condition";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 
 interface Answers {

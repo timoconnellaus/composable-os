@@ -12,7 +12,7 @@
 //
 // Hosted deployments use hostedAiAdmin (hosted-admin.ts) instead: no Cloudflare API token, keys
 // set through the control plane, usage from the workspace's own counts.
-import { CloudflareClient } from "@relationship-os/release";
+import { CloudflareClient } from "@composable-os/release";
 import type { CustomerGateway } from "./platform.ts";
 import { type ModelRole, normalizeRole, PROVIDER_INFO, type ProviderId } from "./roles.ts";
 import type { ProviderUsage } from "./usage.ts";
@@ -37,7 +37,7 @@ export interface AiAdminEnv {
   /** Secret. A Cloudflare API token; see docs/deploying.md for the permissions it needs. */
   CLOUDFLARE_API_TOKEN?: string;
   AI_GATEWAY_ID?: string;
-  /** Worker scripts that get provider secrets (comma-separated). Default ros-app,ros-runner. */
+  /** Worker scripts that get provider secrets (comma-separated). Default cos-app,cos-runner. */
   AI_SECRET_SCRIPTS?: string;
 }
 
@@ -102,7 +102,7 @@ export interface AiAdmin {
   /** Hosted only: connect (or, with null, disconnect) the customer's own AI Gateway. */
   setCustomerGateway?(gateway: CustomerGateway | null): Promise<void>;
   /**
-   * The judge's key (ADR 0230, ADR 0234): the secret TYPESAFE_API_KEY on ros-app and ros-runner
+   * The judge's key (ADR 0230, ADR 0234): the secret TYPESAFE_API_KEY on cos-app and cos-runner
    * (self-hosted, through the Cloudflare API) or on the workspace's Workers (hosted, through the
    * control plane). Null removes it. The key is only ever in the request that sets it.
    */
@@ -140,7 +140,7 @@ export function cloudflareAiAdmin(
   const account = env.CLOUDFLARE_ACCOUNT_ID?.trim();
   const token = env.CLOUDFLARE_API_TOKEN?.trim();
   const gateway = env.AI_GATEWAY_ID?.trim() || null;
-  const scripts = (env.AI_SECRET_SCRIPTS?.trim() || "ros-app,ros-runner")
+  const scripts = (env.AI_SECRET_SCRIPTS?.trim() || "cos-app,cos-runner")
     .split(",")
     .map((s) => s.trim())
     .filter((s) => /^[a-z0-9-_]{1,63}$/i.test(s));
@@ -199,7 +199,7 @@ export function cloudflareAiAdmin(
           );
         }
         if (!account || !token) throw new AiAdminError("The Cloudflare API is not configured");
-        // ADR 0180's path, shared with `create-relationship-os --provider-key`: attaches (or
+        // ADR 0180's path, shared with `create-composable-os --provider-key`: attaches (or
         // creates) the gateway's Secrets Store, replaces any key stored for the provider, and
         // stores this one under the `default` alias. The key is only ever in the request body.
         const client = new CloudflareClient({ token, apiBase: API, fetch: doFetch });

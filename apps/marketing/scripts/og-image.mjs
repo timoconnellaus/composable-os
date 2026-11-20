@@ -2,7 +2,7 @@
 // Renders public/og.png (1200x630, the social card) and public/apple-touch-icon.png (180x180) in
 // headless Chromium, with the site's own fonts and colours. The PNGs are committed; run this again
 // after changing the brand or the headline:
-//   pnpm --filter @relationship-os/marketing og-image
+//   pnpm --filter @composable-os/marketing og-image
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -43,9 +43,9 @@ const og = `<style>${base}
 </style>
 <div class="orb big"></div>
 <div class="wrap">
-  <div class="logo"><span class="orb"></span>Relationship OS</div>
-  <h1>The operating system for your <span>customer relationships.</span></h1>
-  <p>An AI-native CRM you can run in your own Cloudflare account.</p>
+  <div class="logo"><span class="orb"></span>Composable OS</div>
+  <h1>Compose the software <span>your company runs on.</span></h1>
+  <p>A trusted host in your own Cloudflare account. First product: the CRM.</p>
 </div>`;
 
 const icon = `<style>${base}

@@ -10,7 +10,7 @@
 // and recipients other than the ones asked for. Around them: sentences the request or the facts
 // support, greetings and sign-offs, questions, a promise the request itself gives, a recipient
 // described rather than named, and an instruction planted in a note and in the message.
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   askOutbound,
   type OutboundState,
@@ -23,7 +23,7 @@ import {
   RECIPIENTS_QUESTION,
   RECIPIENTS_THRESHOLD,
   recipientsFault,
-} from "@relationship-os/core/judge-outbound-message";
+} from "@composable-os/core/judge-outbound-message";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 import { GLOBEX_MEETING, INITECH, LENA_PLANTED, NORTHWIND, SAM, TODAY } from "./facts.ts";
 

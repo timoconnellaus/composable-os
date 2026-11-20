@@ -1,6 +1,6 @@
 // Better Auth's routes (/api/auth/*). Absent when another identity adapter is active.
 import { env } from "cloudflare:workers";
-import { createIdentityProvider } from "@relationship-os/auth";
+import { createIdentityProvider } from "@composable-os/auth";
 import { createFileRoute } from "@tanstack/react-router";
 
 async function handle({ request }: { request: Request }) {

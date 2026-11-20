@@ -1,4 +1,4 @@
-# Relationship OS Contributor License Agreement
+# Composable OS Contributor License Agreement
 
 Version 1.0, 2026-11-05
 
@@ -7,7 +7,7 @@ Version 1.0, 2026-11-05
 > license contributions under other terms, which is what lets the project offer commercial and
 > enterprise licences.
 
-Thank you for contributing to Relationship OS (the "Project"), maintained by Tim O'Connell ("We" or
+Thank you for contributing to Composable OS (the "Project"), maintained by Tim O'Connell ("We" or
 "Us"). This agreement records the terms under which You contribute. It protects You and Us, and
 lets Us keep the Project available to everyone under the Functional Source License (FSL-1.1-ALv2,
 converting to Apache-2.0) while also offering it under other terms. You keep the copyright in Your

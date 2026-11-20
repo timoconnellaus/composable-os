@@ -2,8 +2,8 @@
 // core_extension_fields: Deals' deal.organisation and participant.person, and a fixture
 // extension declaring single and many relations to people (acceptance criterion 6).
 import { env } from "cloudflare:workers";
-import deals from "@relationship-os/extension-deals";
-import { toManifest } from "@relationship-os/sdk";
+import deals from "@composable-os/extension-deals";
+import { toManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invoke } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";

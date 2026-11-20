@@ -1,9 +1,9 @@
 // The policy adjudicator's verdict beside a pending action in the Approvals inbox (ADR 0204):
 // approve / deny / escalate, its confidence and reason, whether it was a shadow verdict, and what
 // it did in active mode. Only human approvers ever receive verdicts from the server.
-import type { CoreOutput } from "@relationship-os/core";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { cn } from "@relationship-os/ui/lib/utils";
+import type { CoreOutput } from "@composable-os/core";
+import { Badge } from "@composable-os/ui/components/badge";
+import { cn } from "@composable-os/ui/lib/utils";
 import { GavelIcon } from "lucide-react";
 
 type Verdict = NonNullable<CoreOutput<"approval.get">["actions"][number]["adjudication"]>;

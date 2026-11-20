@@ -6,7 +6,7 @@
 // (a number held by more than a small fixed number of people is not used), and same name only
 // (never pre-selected for bulk merge). Organisations: same domain (creation and import; in the
 // scan, one's website at a domain the other holds) and same name.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { jsonList } from "../records/common.ts";

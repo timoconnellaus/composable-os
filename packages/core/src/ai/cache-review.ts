@@ -15,8 +15,8 @@ import {
   estimateCacheLifetime,
   observeCache,
   parseCacheReportExport,
-} from "@relationship-os/agent-core/compaction";
-import type { CoreDatabase } from "@relationship-os/db";
+} from "@composable-os/agent-core/compaction";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import type { HandlerContext } from "../operation.ts";
@@ -353,7 +353,7 @@ export async function buildCacheReport(
   for (const row of [...observations, ...decisions, ...history]) seen(row.provider, row.model);
 
   const report = parseCacheReportExport({
-    format: "relationship-os.ai-cache-report",
+    format: "composable-os.ai-cache-report",
     version: 1,
     exportedAt: options.now,
     models: [...models.values()],

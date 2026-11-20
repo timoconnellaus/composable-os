@@ -12,7 +12,7 @@ function post(fields: Record<string, string>, init: { json?: boolean; ip?: strin
   const body = new FormData();
   for (const [k, v] of Object.entries(fields)) body.set(k, v);
   return worker.fetch(
-    new Request("https://relationshiposcrm.com/api/signup", {
+    new Request("https://composableos.dev/api/signup", {
       method: "POST",
       body,
       redirect: "manual",
@@ -39,7 +39,7 @@ describe("POST /api/signup", () => {
   it("stores a waitlist signup and sends a browser back to its form's message", async () => {
     const response = await post({ email: "  Ada@Example.com ", kind: "waitlist", source: "hero" });
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("https://relationshiposcrm.com/#joined-hero");
+    expect(response.headers.get("location")).toBe("https://composableos.dev/#joined-hero");
     expect(await rows()).toEqual([
       {
         kind: "waitlist",
@@ -52,7 +52,7 @@ describe("POST /api/signup", () => {
     ]);
     // Without a source, a browser lands on the final waitlist form.
     const plain = await post({ email: "lin@example.com" });
-    expect(plain.headers.get("location")).toBe("https://relationshiposcrm.com/#joined-waitlist");
+    expect(plain.headers.get("location")).toBe("https://composableos.dev/#joined-waitlist");
   });
 
   it("stores the optional team size, and refuses a value the select doesn't offer", async () => {
@@ -72,7 +72,7 @@ describe("POST /api/signup", () => {
 
   it("sends a browser's sales request to /thanks/", async () => {
     const response = await post({ email: "sam@example.com", kind: "sales" });
-    expect(response.headers.get("location")).toBe("https://relationshiposcrm.com/thanks/");
+    expect(response.headers.get("location")).toBe("https://composableos.dev/thanks/");
   });
 
   it("answers JSON callers with JSON, and a repeat updates the same row", async () => {
@@ -97,7 +97,7 @@ describe("POST /api/signup", () => {
   it("refuses an invalid email and stores nothing", async () => {
     const browser = await post({ email: "not-an-email" });
     expect(browser.status).toBe(303);
-    expect(browser.headers.get("location")).toBe("https://relationshiposcrm.com/check-form/");
+    expect(browser.headers.get("location")).toBe("https://composableos.dev/check-form/");
     const json = await post({ email: "nope", kind: "partners" }, { json: true });
     expect(json.status).toBe(400);
     expect(await json.json()).toEqual({ ok: false, error: "invalid" });
@@ -110,7 +110,7 @@ describe("POST /api/signup", () => {
       website: "https://spam.test",
       source: "hero",
     });
-    expect(response.headers.get("location")).toBe("https://relationshiposcrm.com/#joined-hero");
+    expect(response.headers.get("location")).toBe("https://composableos.dev/#joined-hero");
     expect(await rows()).toEqual([]);
   });
 
@@ -125,11 +125,11 @@ describe("POST /api/signup", () => {
   });
 
   it("only accepts POST, and leaves every other path to the static assets", async () => {
-    const get = await worker.fetch(new Request("https://relationshiposcrm.com/api/signup"));
+    const get = await worker.fetch(new Request("https://composableos.dev/api/signup"));
     expect(get.status).toBe(405);
-    const other = await worker.fetch(new Request("https://relationshiposcrm.com/api/other"));
+    const other = await worker.fetch(new Request("https://composableos.dev/api/other"));
     expect(other.status).toBe(404);
-    const page = await worker.fetch(new Request("https://relationshiposcrm.com/"));
+    const page = await worker.fetch(new Request("https://composableos.dev/"));
     expect(await page.text()).toBe("static asset");
   });
 });

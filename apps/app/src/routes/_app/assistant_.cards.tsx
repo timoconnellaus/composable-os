@@ -1,8 +1,8 @@
 // A gallery of every catalogue card (ADR 0346), for development and the width tests: every sample
 // at the docked panel's width (?width=384), or at the page's width on a phone. Not in production
 // builds: there it is a 404.
-import { CATALOGUE, prepareCard } from "@relationship-os/agent-a2ui";
-import { sampleDocument } from "@relationship-os/agent-a2ui/samples";
+import { CATALOGUE, prepareCard } from "@composable-os/agent-a2ui";
+import { sampleDocument } from "@composable-os/agent-a2ui/samples";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { useState } from "react";
 import { z } from "zod";

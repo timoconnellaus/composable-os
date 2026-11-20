@@ -6,17 +6,17 @@
 // knows the page, its record and the list selection (AssistantProvider); and opens pre-filled
 // from "Ask AI", "Ask about N selected" and every "Ask the assistant" link. Its header is exactly
 // as tall as the shell header beside it (SHELL_HEADER_HEIGHT), so their borders meet.
-import { Button } from "@relationship-os/ui/components/button";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@relationship-os/ui/components/sheet";
-import { useSidebar } from "@relationship-os/ui/components/sidebar";
-import { useIsMobile } from "@relationship-os/ui/hooks/use-mobile";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/sheet";
+import { useSidebar } from "@composable-os/ui/components/sidebar";
+import { useIsMobile } from "@composable-os/ui/hooks/use-mobile";
+import { cn } from "@composable-os/ui/lib/utils";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ChevronUpIcon, MaximizeIcon, SearchIcon, SparklesIcon, XIcon } from "lucide-react";
 import {

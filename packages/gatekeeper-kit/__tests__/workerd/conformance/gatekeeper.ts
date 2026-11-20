@@ -13,7 +13,7 @@ import type {
   ActionDescription,
   GitCache,
   ObservationDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 import {
   ActionApplyError,
   ActionOutcomeUnknownError,

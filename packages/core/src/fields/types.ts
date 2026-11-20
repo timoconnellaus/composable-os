@@ -34,7 +34,7 @@ export interface FieldDefinition {
   type: FieldType;
   /** Allowed values for `enum` fields. */
   enumValues?: readonly string[];
-  /** Column on the object's list source (its crm_* view), for single-valued fields. */
+  /** Column on the object's list source (its rec_* view), for single-valued fields. */
   column?: string;
   /** For multi-valued fields: how to reach the values. */
   related?: RelatedSource;

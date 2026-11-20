@@ -12,7 +12,7 @@ const LABEL = "Welcome email";
 
 /** An extension whose automation needs a fake-provider connection (it never fires here). */
 function runAsSource(id: string, endpoint: string): string {
-  return `import { defineAutomation, defineExtension } from "@relationship-os/sdk";
+  return `import { defineAutomation, defineExtension } from "@composable-os/sdk";
 
 // Written over MCP by the stage 6b run-as e2e spec.
 export default defineExtension({
@@ -21,7 +21,7 @@ export default defineExtension({
   contractVersion: 1,
   label: "Run-as test",
   description: "An automation that sends mail through a connection it is allowed to use.",
-  permissions: { read: ["person"], modules: ["crm", "fake"] },
+  permissions: { read: ["person"], modules: ["ops", "fake"] },
   automations: {
     welcome: defineAutomation({
       label: "${LABEL}",

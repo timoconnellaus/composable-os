@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/evals-mcp",
+  "name": "@composable-os/evals-mcp",
   "version": "0.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
@@ -19,8 +19,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261104.1",
-    "@relationship-os/config": "workspace:*",
-    "@relationship-os/core": "workspace:*",
+    "@composable-os/config": "workspace:*",
+    "@composable-os/core": "workspace:*",
     "@types/node": "24.19.2",
     "typescript": "6.0.3",
     "vitest": "5.1.0"

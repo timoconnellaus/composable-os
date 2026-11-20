@@ -1,7 +1,7 @@
 // duplicate.* operations (stage 16, ADR 0247): the creation check, the scan's suggestions, review
 // (list, dismiss) and bulk merge. Duplicates are found by plain rules with a stated reason, never
 // by a score; merging always goes through person.merge / organisation.merge.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
 import {
@@ -205,7 +205,7 @@ async function loadMembers(
   const activity = new Map(counts.map((c) => [c.record_id, Number(c.n)]));
   if (object === "person") {
     const rows = await db
-      .selectFrom("crm_people")
+      .selectFrom("rec_person")
       .select([
         "id",
         "display_name",
@@ -240,7 +240,7 @@ async function loadMembers(
     }
   } else {
     const rows = await db
-      .selectFrom("crm_organisations")
+      .selectFrom("rec_organisation")
       .select([
         "id",
         "name",

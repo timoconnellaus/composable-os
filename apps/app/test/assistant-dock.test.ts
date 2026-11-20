@@ -83,9 +83,9 @@ describe("remembered state", () => {
 
   it("ignores junk and storage that throws", () => {
     const store = memoryStore();
-    store.setItem("ros.assistant.dock.width", "wide");
+    store.setItem("cos.assistant.dock.width", "wide");
     expect(readDockWidth(store)).toBe(PANEL_DEFAULT);
-    store.setItem("ros.assistant.dock.width", "99999");
+    store.setItem("cos.assistant.dock.width", "99999");
     expect(readDockWidth(store)).toBe(PANEL_MAX);
     expect(readDockOpen(throwing)).toBe(false);
     expect(readDockWidth(throwing)).toBe(PANEL_DEFAULT);

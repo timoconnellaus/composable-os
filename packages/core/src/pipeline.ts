@@ -7,8 +7,8 @@
 // A gate `review` dry-runs the handler and queues a pending action instead (approvals/queue.ts);
 // reads by an MCP session see its pending actions applied (approvals/simulation.ts).
 
-import type { AuditChangeAction, CrmDb, ReviewSource } from "@relationship-os/db";
-import { checkGrant } from "@relationship-os/sdk";
+import type { AuditChangeAction, CrmDb, ReviewSource } from "@composable-os/db";
+import { checkGrant } from "@composable-os/sdk";
 import { type Compilable, type CompiledQuery, sql } from "kysely";
 import type { AiAdmin } from "./ai/admin.ts";
 import type { AiEnv } from "./ai/client.ts";
@@ -135,13 +135,13 @@ export interface InvocationContext {
   /** The self-updater (ADR 0164): GitHub Releases and the Cloudflare API. */
   updater?: UpdaterRuntime;
   /**
-   * Where committed record changes go as automation events (ADR 0130): ros-app and ros-runner
+   * Where committed record changes go as automation events (ADR 0130): cos-app and cos-runner
    * pass a Queue producer. Absent: no events (tests, scripts). Nested invocations inherit it.
    */
   events?: EventSink;
-  /** ros-runner's automation host (automation.test, run, retry, replay, cancel). */
+  /** cos-runner's automation host (automation.test, run, retry, replay, cancel). */
   automationHost?: AutomationHost;
-  /** The assistant threads (ros-app): thread.* operations and erase reach them (ADR 0340). */
+  /** The assistant threads (cos-app): thread.* operations and erase reach them (ADR 0340). */
   assistantThreads?: AssistantThreadStore;
   /** Speech providers (ADR 0349). Absent: voice is off. */
   voice?: VoiceRuntime;
@@ -162,7 +162,7 @@ export interface InvocationContext {
   vectors?: VectorStore;
   /**
    * Set where the automation events consumer embeds committed changes (a Vectorize binding on
-   * ros-runner, ADR 0154 amendment): with `events`, the pipeline then writes no embedding queue
+   * cos-runner, ADR 0154 amendment): with `events`, the pipeline then writes no embedding queue
    * row, so every write is embedded exactly once, from its event.
    */
   embedViaEvents?: boolean;
@@ -171,13 +171,13 @@ export interface InvocationContext {
   /** The Worker's AI environment, for provider readiness in Settings → AI. */
   aiEnv?: AiEnv;
   /**
-   * Called after a successful commit (ADR 0154): the post-commit hook. ros-app uses it to drain
+   * Called after a successful commit (ADR 0154): the post-commit hook. cos-app uses it to drain
    * the embedding queue in the background when the call queued anything (only without an event
    * sink, and for operations that queue themselves: erase, sync).
    */
   onCommitted?: (event: CommitEvent) => void;
   /**
-   * Called after a gate `review` committed a pending action (ADR 0204), with this context. ros-app
+   * Called after a gate `review` committed a pending action (ADR 0204), with this context. cos-app
    * runs the policy adjudicator on it in the background (`waitUntil`): never awaited, so the
    * caller gets `pending_approval` exactly as before. Not called in test mode.
    */
@@ -979,7 +979,7 @@ async function invokeOnce<O extends AnyOperation>(
   }
 
   // The record changes become automation events (ADR 0130), written to the outbox in this same
-  // batch (ADR 0171) and sent after commit: a failed send is retried by ros-runner's cron.
+  // batch (ADR 0171) and sent after commit: a failed send is retried by cos-runner's cron.
   let outbox: OutboxEntry[] = [];
   if (ctx.events && changes.length) {
     const origin = eventOriginOf({

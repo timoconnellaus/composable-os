@@ -3,10 +3,10 @@
 // role until the grant expires (at most 3 days), and everything they do is in the audit log.
 // Approve, deny and revoke are support.grant.* operations (human admins only).
 
-import type { CoreOutput } from "@relationship-os/core";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+import type { CoreOutput } from "@composable-os/core";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute } from "@tanstack/react-router";
 import { LifeBuoyIcon, LockIcon } from "lucide-react";
 import { toast } from "sonner";

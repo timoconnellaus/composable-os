@@ -1,4 +1,4 @@
-import { cn } from "@relationship-os/ui/lib/utils";
+import { cn } from "@composable-os/ui/lib/utils";
 import type * as React from "react";
 
 function Card({ className, ...props }: React.ComponentProps<"div">) {

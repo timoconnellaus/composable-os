@@ -1,5 +1,5 @@
 // Reference answer for the `vendors` prompt.
-import { defineExtension } from "@relationship-os/sdk";
+import { defineExtension } from "@composable-os/sdk";
 
 export default defineExtension({
   id: "vendors",

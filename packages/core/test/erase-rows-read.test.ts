@@ -5,8 +5,8 @@
 // erased-address check is one primary-key lookup per batch, so it adds at most one row per
 // distinct address.
 import { env } from "cloudflare:workers";
-import { createCrmDb } from "@relationship-os/db";
-import { seedDatabase } from "@relationship-os/db/seed";
+import { createCrmDb } from "@composable-os/db";
+import { seedDatabase } from "@composable-os/db/seed";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, erasedAddresses, invokeByName, newId } from "../src/index.ts";
 import { erasedAddressHash } from "../src/records/erase-subject.ts";

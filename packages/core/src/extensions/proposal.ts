@@ -1,7 +1,7 @@
 // What a reviewer sees for an extension proposal (stage 3b, ADR 0041): the per-file diff from the
 // installed version, and the impact the host computes from the manifests and the reconcile plan
 // (never from anything the extension says about itself).
-import type { ExtensionManifest, PermissionsManifest } from "@relationship-os/sdk";
+import type { ExtensionManifest, PermissionsManifest } from "@composable-os/sdk";
 import { automationSummary, manifestSummaryContext, triggerText } from "../automations/summary.ts";
 import type { SchemaChange } from "./reconciler.ts";
 
@@ -253,7 +253,7 @@ export interface ExtensionImpact {
     /** True when anything was widened over an installed version. */
     widens: boolean;
   };
-  /** Host modules the code can import (`crm`, `storage`, `log`, `ai`). */
+  /** Host modules the code can import (`ops`, `storage`, `log`, `ai`). */
   modules: string[];
   /**
    * Automations: the trigger in one line and the host-generated plain-English summary (ADR 0131),

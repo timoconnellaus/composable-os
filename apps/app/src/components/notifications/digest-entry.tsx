@@ -3,7 +3,7 @@
 // approvals waiting, unread notifications) of items that link into the app, and, when the
 // deployment has AI, a labelled overview first. The inbox shows it in full; the bell shows the
 // title and counts and opens the inbox. Links navigate inside the app and mark the digest read.
-import { cn } from "@relationship-os/ui/lib/utils";
+import { cn } from "@composable-os/ui/lib/utils";
 import { Link, useRouter } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import { AiGeneratedBadge } from "#/components/ai/summary";

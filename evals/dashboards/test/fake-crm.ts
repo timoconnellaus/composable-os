@@ -2,7 +2,7 @@
 // widget.preview (through call_operation) returns the columns the SELECT names and some rows, or
 // an invalid_input error for SQL the server would refuse (a parameter no filter binds, a bad
 // view); dashboard.create returns an id; dashboard.delete deletes it.
-import { fakeSession, type Handler } from "@relationship-os/evals-mcp/test/fakes.ts";
+import { fakeSession, type Handler } from "@composable-os/evals-mcp/test/fakes.ts";
 
 const SYSTEM = ["now", "today", "me", "record_id"];
 
@@ -38,7 +38,7 @@ function preview(input: Record<string, unknown>) {
   if (!sql.trim()) return fail(`widget: ${widget.type} widgets need sql`);
   if (!/^\s*(select|with)\b/i.test(sql)) return fail("Only SELECT queries are allowed");
   const view = /\bfrom\s+(\w+)/i.exec(sql)?.[1] ?? "";
-  if (!view.startsWith("crm_")) return fail(`no such table: ${view}`);
+  if (!view.startsWith("rec_")) return fail(`no such table: ${view}`);
   const filters = (input.dashboardFilters ?? []) as { type: string; id: string }[];
   const allowed = [
     ...SYSTEM,

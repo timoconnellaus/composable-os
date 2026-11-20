@@ -1,24 +1,26 @@
 ---
-import Demo from "./Demo.astro";
-import WaitlistForm from "./WaitlistForm.astro";
+// The top of the page: what Composable OS is, and the two things a visitor can do next.
 ---
 
 <section class="hero" aria-labelledby="hero-title">
   <div class="orb" aria-hidden="true"></div>
   <div class="orb s" aria-hidden="true"></div>
   <div class="wrap">
-    <span class="eyebrow">An AI-native CRM</span>
+    <span class="eyebrow">A platform for company software</span>
     <h1 id="hero-title">
-      The operating system for your <span class="chrome-text">customer relationships.</span>
+      Compose the software <span class="chrome-text">your company runs on.</span>
     </h1>
     <p class="lead">
-      Ask for a field, a dashboard or an automation. Your AI builds it, you approve it, and it runs
-      on infrastructure you own.
+      Composable OS is a trusted host that runs in your own Cloudflare account. Products are
+      composed on it from records, rules and screens. Your AI drafts each change, and a person
+      approves it before it runs.
     </p>
-    <WaitlistForm source="hero" />
+    <div class="hero-actions">
+      <a class="btn" href="#crm">See the first product: the CRM</a>
+      <a class="btn ghost" href="#install">Install it</a>
+    </div>
     <p class="sub2">
-      Or <a class="textlink" href="#self-host">self-host it on Cloudflare today</a>, free.
+      Source available, free to self-host. <a class="textlink" href="#platform">What the platform does</a>
     </p>
   </div>
-  <Demo />
 </section>

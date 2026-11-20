@@ -8,6 +8,7 @@
 // email is a seam (`DigestComposer`). The optional AI overview is one `summarise` call made by the
 // delivery cron (`digestOverview`); it is labelled AI-generated wherever it shows, and on any
 // error, or without AI, the digest goes out without it.
+import { product } from "@composable-os/products/active";
 import type { ModelMessage, ModelRunner } from "../ai/client.ts";
 import { NOTIFICATION_TYPES, type NotificationType } from "./types.ts";
 
@@ -155,7 +156,7 @@ export function digestHasNews(input: DigestInput): boolean {
 export const plainDigest: DigestComposer = (input) => {
   const counts = digestCounts(input);
   const lines = [
-    `Your Relationship OS digest for ${input.date}`,
+    `Your ${product.strings.name} digest for ${input.date}`,
     "",
     `${counts.join(", ") || "Nothing new"}.`,
   ];
@@ -197,7 +198,7 @@ export const plainDigest: DigestComposer = (input) => {
   const more = input.unreadTotal - input.items.length;
   if (more > 0) lines.push("", `…and ${plural(more, "more", "more")} in the CRM.`);
   return {
-    subject: `[Relationship OS] Daily digest: ${counts.join(", ") || "nothing new"}`,
+    subject: `[${product.strings.name}] Daily digest: ${counts.join(", ") || "nothing new"}`,
     text: lines.join("\n"),
   };
 };

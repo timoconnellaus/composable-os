@@ -1,0 +1,47 @@
+# ADR 0401: Platform, packs and screens, and where each lives
+
+Status: proposed, 2026-11-20 (design conversation). To be settled at the stage 24 interview.
+
+## Context
+A product for a company could be built by forking the whole platform, or by depending on it. A fork
+puts platform code in every client's repo: a fix to billing or the approval pipeline becomes one
+merge per client, into codebases that have each drifted, and an agent working in a client repo can
+edit the trust floor by accident. But customer-facing screens must differ per client, and a shared
+component library makes every product feel the same.
+
+## Decision
+Code is split by who needs to own change.
+
+| Kind | What | How it ships | Owned by |
+| --- | --- | --- | --- |
+| **Platform** | Operations pipeline, identity, audit, behaviours, gatekeepers, the typed client | Versioned packages and verified release bundles | The platform |
+| **Pack** | A shipped extension (objects, behaviours, automations, tools) plus its headless client hooks | Versioned packages, chosen per product | The platform |
+| **Block** | A screen or part of one for a pack, in a web skin and a native skin | Copied into the client repo from a registry | The client, once copied |
+
+- **Each client has their own repository, started from a template, not a fork.** It holds the web
+  app (TanStack Start), the mobile app (Expo) where there is one, the org's own extensions and a
+  product definition naming the packs and platform version.
+- **The host runs as its own Workers, deployed from a release.** The client's web app is a separate
+  Worker that reaches the host over a service binding. Client code never opens the database, the
+  same rule extensions follow.
+- **Web and native share the contract and the logic, never the screens.** A block has a headless
+  part (operation calls and state, in the pack), a web skin (Radix or Base UI under shadcn-style
+  components) and a native skin (React Native).
+- **Pages are code.** There is no page builder. An agent writes each client's pages; content they
+  show comes from records.
+
+## Why
+Rules need fixes delivered by updating. Screens need to diverge. Putting each where its owner can
+change it freely gives both. The host as separate Workers means it updates without a client code
+change, and the staff admin and the MCP surface come with it, so only customer-facing screens are
+written per client.
+
+## Consequences
+- The platform must publish a stable client contract and keep the current and previous versions
+  working, as it does for extensions (ADR 0023).
+- A copied block does not receive fixes. Blocks stay thin: anything that must be right (prices,
+  capacity, what a customer may see) is enforced in the host, never in a block.
+- Open: the licence for blocks. The platform is FSL-1.1-ALv2; code copied into a client's repo
+  probably wants a permissive licence, as `packages/agent-*` already carry MIT (ADR 0350).
+- Open: where the block registry is served from, and whether client repos get platform packages
+  from npm or from the release bundle.

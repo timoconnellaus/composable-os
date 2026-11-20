@@ -1,11 +1,11 @@
-// ros-marketing: the landing page for relationshiposcrm.com (ADR 0191, Stage 9). Astro builds the
+// cos-site: the landing page for composableos.dev (ADR 0191, Stage 9). Astro builds the
 // static site into dist/; this Worker serves it as static assets and answers only /api/* itself
 // (the waitlist and contact-sales form, stored in D1). No account or resource IDs are committed:
 // wrangler provisions the D1 database by name on the first deploy. Deployed by
 // .github/workflows/marketing.yml when its token secret is set; never from a laptop by default.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "ros-marketing",
+  "name": "cos-site",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
@@ -16,13 +16,13 @@
     "not_found_handling": "404-page",
     "run_worker_first": ["/api/*"]
   },
-  "routes": [{ "pattern": "relationshiposcrm.com", "custom_domain": true }],
+  "routes": [{ "pattern": "composableos.dev", "custom_domain": true }],
   "workers_dev": false,
   "preview_urls": false,
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "ros-marketing",
+      "database_name": "cos-site",
       "migrations_dir": "./migrations",
       "migrations_table": "marketing_migrations"
     }

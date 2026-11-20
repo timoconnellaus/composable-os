@@ -4,7 +4,7 @@
 // Approving creates a support user — its own core_user row, never a customer's account — which
 // is the only identity a support session can act as. Every request re-checks the grant (one PK
 // read, support users only), so revocation and expiry bite on the next request.
-import type { CoreDatabase, CoreSupportGrantsTable } from "@relationship-os/db";
+import type { CoreDatabase, CoreSupportGrantsTable } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
 
 /** The longest a grant may last once approved: 3 days, whatever was requested. */
@@ -14,7 +14,7 @@ export const SUPPORT_MAX_MINUTES = 4320;
 export const SUPPORT_GRANT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** Support users' email domain: reserved (.invalid), so it can never be a real mailbox. */
-export const SUPPORT_EMAIL_DOMAIN = "support.relationshiposcrm.invalid";
+export const SUPPORT_EMAIL_DOMAIN = "support.composableos.invalid";
 
 export type SupportGrant = Selectable<CoreSupportGrantsTable>;
 

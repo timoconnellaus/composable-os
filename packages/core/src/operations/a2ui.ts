@@ -14,7 +14,7 @@ import {
   prepareCard,
   producerRef,
   producerSupported,
-} from "@relationship-os/agent-a2ui";
+} from "@composable-os/agent-a2ui";
 import { z } from "zod";
 import { CARD_STATUS } from "../assistant/events.ts";
 import { producers } from "../assistant/producers.ts";

@@ -1,5 +1,5 @@
 // Reference answer for the `renewal-date` prompt.
-import { defineExtension } from "@relationship-os/sdk";
+import { defineExtension } from "@composable-os/sdk";
 
 export default defineExtension({
   id: "renewal",

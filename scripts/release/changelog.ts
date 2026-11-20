@@ -3,18 +3,14 @@
 // subject is "<PR title> (#<number>)" (or as merge commits "Merge pull request #<n> …" with the
 // title in the body); each release's notes list the PRs since the previous release tag on the same
 // or a more stable channel. The notes are the GitHub Release body, which is what Settings →
-// Updates and `ros status` show.
+// Updates and `cos status` show.
 //
 // Usage:
 //   node scripts/release/changelog.ts --tag v1.2.0 [--repo owner/repo]   notes for one release
 //   node scripts/release/changelog.ts --all > CHANGELOG.md               every release tag
 import { execFileSync } from "node:child_process";
-import {
-  bareVersion,
-  compareVersions,
-  DEFAULT_REPOSITORY,
-  isVersion,
-} from "@relationship-os/release";
+import { DEFAULT_PRODUCT, products } from "@composable-os/products";
+import { bareVersion, compareVersions, isVersion } from "@composable-os/release";
 
 export interface Commit {
   subject: string;
@@ -59,9 +55,9 @@ export function releaseNotes(input: {
   }
   lines.push(
     "",
-    "Install with `npx create-relationship-os --version " +
+    "Install with `npx create-composable-os --version " +
       bareVersion(input.tag) +
-      "`, or update from Settings → Updates or with `npx create-relationship-os upgrade`.",
+      "`, or update from Settings → Updates or with `npx create-composable-os upgrade`.",
   );
   return `${lines.join("\n")}\n`;
 }
@@ -102,7 +98,7 @@ function main() {
   const args = process.argv.slice(2);
   const repository = args.includes("--repo")
     ? (args[args.indexOf("--repo") + 1] as string)
-    : (process.env.GITHUB_REPOSITORY ?? DEFAULT_REPOSITORY);
+    : (process.env.GITHUB_REPOSITORY ?? products[DEFAULT_PRODUCT]?.updateRepository ?? "");
   const tags = releaseTags();
   if (args.includes("--all")) {
     const sections = [

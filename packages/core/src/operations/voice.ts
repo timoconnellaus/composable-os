@@ -12,7 +12,7 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 export const VOICE_MODES = ["push_to_talk", "hands_free"] as const;
 export type VoiceMode = (typeof VOICE_MODES)[number];
 
-/** What `ctx.voice` offers; ros-app implements it over the speech providers. */
+/** What `ctx.voice` offers; cos-app implements it over the speech providers. */
 export interface VoiceRuntime {
   supportsSpeed: boolean;
   voices: readonly { id: string; name: string; description: string }[];
@@ -244,7 +244,7 @@ async function mentionedNames(ctx: HandlerContext): Promise<string[]> {
   const found = [
     ...(people.length
       ? await ctx.db
-          .selectFrom("crm_people")
+          .selectFrom("rec_person")
           .select(["display_name as name", "updated_at"])
           .where("id", "in", people)
           .orderBy("updated_at", "desc")
@@ -253,7 +253,7 @@ async function mentionedNames(ctx: HandlerContext): Promise<string[]> {
       : []),
     ...(organisations.length
       ? await ctx.db
-          .selectFrom("crm_organisations")
+          .selectFrom("rec_organisation")
           .select(["name", "updated_at"])
           .where("id", "in", organisations)
           .orderBy("updated_at", "desc")

@@ -4,6 +4,7 @@
 // sends waiting in the approvals inbox until approved or until an admin enables auto-approval of
 // the internal kind, the org route "deal won → #sales" fired by the automation consumer exactly
 // once, and the minute cron's tick.
+
 import { env, exports } from "cloudflare:workers";
 import {
   type ActingUser,
@@ -11,7 +12,8 @@ import {
   invokeByName,
   notifyStatements,
   seedRecordId,
-} from "@relationship-os/core";
+} from "@composable-os/core";
+import { product } from "@composable-os/products/active";
 import { beforeAll, describe, expect, it } from "vitest";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
@@ -158,8 +160,10 @@ describe("email through the email-send gatekeeper", () => {
     expect(next.notifications).toEqual([{ key: `n:${second}:email`, status: "sent" }]);
     const sent = await env.TEST_EMAIL_OUTBOX.list();
     expect(sent).toHaveLength(2);
-    expect(sent[1]?.subject).toMatch(/^\[Relationship OS\] Second notice/);
-    expect(sent[1]?.text).toContain(`Open in Relationship OS: http://crm.test/people/${personId}`);
+    expect(sent[1]?.subject).toMatch(new RegExp(`^\\[${product.strings.name}\\] Second notice`));
+    expect(sent[1]?.text).toContain(
+      `Open in ${product.strings.name}: http://crm.test/people/${personId}`,
+    );
     // Exactly once across repeated ticks.
     await tick();
     await tick();

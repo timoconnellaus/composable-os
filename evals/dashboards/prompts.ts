@@ -48,7 +48,7 @@ export const tasks: DashboardTask[] = [
       id: "tasks-by-status",
       type: "bar",
       title: "Tasks by status",
-      sql: "SELECT status AS label, COUNT(*) AS value FROM crm_tasks GROUP BY status ORDER BY status",
+      sql: "SELECT status AS label, COUNT(*) AS value FROM rec_task GROUP BY status ORDER BY status",
       mapping: { x: "label", y: "value" },
     },
   },
@@ -61,7 +61,7 @@ export const tasks: DashboardTask[] = [
       id: "activity-share",
       type: "donut",
       title: "Activities by type",
-      sql: "SELECT type AS label, COUNT(*) AS value FROM crm_activities WHERE type <> 'system' GROUP BY type ORDER BY value DESC",
+      sql: "SELECT type AS label, COUNT(*) AS value FROM rec_activity WHERE type <> 'system' GROUP BY type ORDER BY value DESC",
       mapping: { label: "label", value: "value" },
     },
   },
@@ -74,7 +74,7 @@ export const tasks: DashboardTask[] = [
       id: "people-this-month",
       type: "kpi",
       title: "People added this month",
-      sql: "SELECT COUNT(*) AS value FROM crm_people WHERE created_at >= substr(:today, 1, 7) || '-01'",
+      sql: "SELECT COUNT(*) AS value FROM rec_person WHERE created_at >= substr(:today, 1, 7) || '-01'",
       mapping: { value: "value" },
     },
   },
@@ -89,7 +89,7 @@ export const tasks: DashboardTask[] = [
       id: "people-trend",
       type: "line",
       title: "People added by month",
-      sql: "SELECT substr(created_at, 1, 7) AS month, COUNT(*) AS value FROM crm_people GROUP BY month ORDER BY month",
+      sql: "SELECT substr(created_at, 1, 7) AS month, COUNT(*) AS value FROM rec_person GROUP BY month ORDER BY month",
       mapping: { x: "month", y: "value" },
     },
   },
@@ -103,7 +103,7 @@ export const tasks: DashboardTask[] = [
       id: "top-organisations",
       type: "leaderboard",
       title: "Top organisations",
-      sql: "SELECT name AS label, current_people_count AS value FROM crm_organisations ORDER BY current_people_count DESC LIMIT 5",
+      sql: "SELECT name AS label, current_people_count AS value FROM rec_organisation ORDER BY current_people_count DESC LIMIT 5",
       mapping: { label: "label", value: "value" },
       options: { limit: 5 },
     },
@@ -121,9 +121,9 @@ export const tasks: DashboardTask[] = [
       type: "funnel",
       title: "Tasks",
       sql:
-        "SELECT 'All tasks' AS label, COUNT(*) AS value FROM crm_tasks " +
-        "UNION ALL SELECT 'With a due date', COUNT(*) FROM crm_tasks WHERE due_at IS NOT NULL " +
-        "UNION ALL SELECT 'Done', COUNT(*) FROM crm_tasks WHERE status = 'done'",
+        "SELECT 'All tasks' AS label, COUNT(*) AS value FROM rec_task " +
+        "UNION ALL SELECT 'With a due date', COUNT(*) FROM rec_task WHERE due_at IS NOT NULL " +
+        "UNION ALL SELECT 'Done', COUNT(*) FROM rec_task WHERE status = 'done'",
       mapping: { label: "label", value: "value" },
     },
   },
@@ -141,7 +141,7 @@ export const tasks: DashboardTask[] = [
       type: "bar",
       title: "Activities by month",
       sql:
-        "SELECT substr(occurred_at, 1, 7) AS month, type, COUNT(*) AS value FROM crm_activities " +
+        "SELECT substr(occurred_at, 1, 7) AS month, type, COUNT(*) AS value FROM rec_activity " +
         "WHERE type <> 'system' GROUP BY month, type ORDER BY month, type",
       mapping: { x: "month", y: "value", series: "type" },
       options: { stacked: true },
@@ -156,7 +156,7 @@ export const tasks: DashboardTask[] = [
       id: "overdue-tasks",
       type: "kpi",
       title: "Overdue tasks",
-      sql: "SELECT COUNT(*) AS value FROM crm_tasks WHERE status = 'open' AND due_at < :now",
+      sql: "SELECT COUNT(*) AS value FROM rec_task WHERE status = 'open' AND due_at < :now",
       mapping: { value: "value" },
       options: { compare: false },
     },
@@ -174,7 +174,7 @@ export const tasks: DashboardTask[] = [
       id: "organisations-by-industry",
       type: "bar",
       title: "Organisations by industry",
-      sql: "SELECT coalesce(industry, 'Unknown') AS label, COUNT(*) AS value FROM crm_organisations GROUP BY label ORDER BY value DESC",
+      sql: "SELECT coalesce(industry, 'Unknown') AS label, COUNT(*) AS value FROM rec_organisation GROUP BY label ORDER BY value DESC",
       mapping: { x: "label", y: "value" },
       options: { orientation: "horizontal" },
     },
@@ -189,7 +189,7 @@ export const tasks: DashboardTask[] = [
       id: "tasks-due-soon",
       type: "table",
       title: "Due soonest",
-      sql: "SELECT title, due_at FROM crm_tasks WHERE status = 'open' AND due_at IS NOT NULL ORDER BY due_at LIMIT 10",
+      sql: "SELECT title, due_at FROM rec_task WHERE status = 'open' AND due_at IS NOT NULL ORDER BY due_at LIMIT 10",
       mapping: { columns: ["title", "due_at"] },
     },
   },

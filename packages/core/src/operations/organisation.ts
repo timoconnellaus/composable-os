@@ -1,7 +1,7 @@
 // organisation.* operations, mirroring person.*: create/get/update/list/delete/restore, the batch
 // variants, merge and erase. Name, domains, parent and owner are timeline-worthy (the field
 // registry flags them), so updates to them post system activities automatically.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
@@ -685,7 +685,7 @@ export const organisationList = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const page = await runListQuery(
-      ctx.db.selectFrom("crm_organisations").selectAll(),
+      ctx.db.selectFrom("rec_organisation").selectAll(),
       getObject("organisation") ?? organisationObject,
       input,
     );

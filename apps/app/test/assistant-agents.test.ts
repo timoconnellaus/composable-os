@@ -4,7 +4,7 @@
 // `grant.leastPrivilege` and `approval.intent` (AI_FAKE_MODEL).
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import type { Principal } from "@relationship-os/auth";
+import type { Principal } from "@composable-os/auth";
 import {
   type AssistantEvent,
   type AssistantThreadState,
@@ -17,8 +17,8 @@ import {
   purgeAgentJobs,
   resolveActingUser,
   routineAgentStarter,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type AssistantHttpEnv,

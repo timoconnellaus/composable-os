@@ -14,7 +14,7 @@ import {
   memoryEventSink,
   recordIntegrationEvents,
   retryOutbox,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchAutomationMessages } from "../src/automations/dispatch.ts";
 import { pollIntegrationEvents } from "../src/automations/integration-events.ts";
@@ -36,7 +36,7 @@ const EMAILED = `${EXT}.emailed`;
 const ENDPOINT = "runas-billing";
 
 const FILES: Record<string, string> = {
-  "index.ts": `import { defineAutomation, defineExtension } from "@relationship-os/sdk";
+  "index.ts": `import { defineAutomation, defineExtension } from "@composable-os/sdk";
 
 export default defineExtension({
   id: "${EXT}",
@@ -49,7 +49,7 @@ export default defineExtension({
   permissions: {
     read: ["person", "task", "activity"],
     write: ["task"],
-    modules: ["crm", "fake"],
+    modules: ["ops", "fake"],
   },
   automations: {
     welcome: defineAutomation({
@@ -76,7 +76,7 @@ export default defineExtension({
       steps: [{ name: "note", writes: [{ object: "task" }] }],
       async run(event, step, ctx) {
         const body = (event.integration?.payload as { payload?: { amount?: number } } | null)?.payload;
-        return step.do("note", () => ctx.crm.call("task.create", { title: \`Paid \${body?.amount}\` }));
+        return step.do("note", () => ctx.ops.call("task.create", { title: \`Paid \${body?.amount}\` }));
       },
     }),
     emailed: defineAutomation({
@@ -86,7 +86,7 @@ export default defineExtension({
       steps: [{ name: "note", writes: [{ object: "task" }] }],
       async run(event, step, ctx) {
         return step.do("note", () =>
-          ctx.crm.call("task.create", { title: \`Reply to \${event.record?.id}\` }),
+          ctx.ops.call("task.create", { title: \`Reply to \${event.record?.id}\` }),
         );
       },
     }),
@@ -355,8 +355,8 @@ describe("AC4: run-as bindings", () => {
     });
     expect(result.pausedAutomations).toEqual([WELCOME]);
     expect((await automationRow(WELCOME)).paused_reason).toMatch(/was deactivated/);
-    const { resolveActingUser } = await import("@relationship-os/core");
-    const { createCrmDb } = await import("@relationship-os/db");
+    const { resolveActingUser } = await import("@composable-os/core");
+    const { createCrmDb } = await import("@composable-os/db");
     await expect(
       resolveActingUser(createCrmDb(env.DB), {
         userId: leaver.id,
@@ -454,7 +454,7 @@ describe("AC5: webhook and sync-event triggers", () => {
       .where("source", "=", "webhook")
       .where("type", "=", "invoice.paid")
       .executeTakeFirstOrThrow();
-    const { integrationEventMessage } = await import("@relationship-os/core");
+    const { integrationEventMessage } = await import("@composable-os/core");
     const again = await dispatchAutomationMessages(env, [integrationEventMessage(row)]);
     expect(again.runIds).toEqual(polled.runIds);
     expect((await runsOf(PAID)).length).toBe(1);
@@ -486,7 +486,7 @@ describe("AC5: webhook and sync-event triggers", () => {
       payload: { activityId, direction: "inbound", personIds, organisationIds: [] },
       occurredAt: now,
     });
-    const { createCrmDb } = await import("@relationship-os/db");
+    const { createCrmDb } = await import("@composable-os/db");
     await recordIntegrationEvents(createCrmDb(env.DB), [
       event(shared.id, [person.id]),
       event(hidden.id, [person.id]),

@@ -71,7 +71,7 @@ EVAL_MODEL=deepseek-flash      # DeepSeek V4.1 Flash; deepseek-v4-pro also avail
    not depend on the seed):
 
    ```sh
-   pnpm --filter @relationship-os/db seed -- --people 300 --organisations 80 --activities 200 --tasks 60
+   pnpm --filter @composable-os/db seed -- --people 300 --organisations 80 --activities 200 --tasks 60
    ```
 
 3. Leave the org's approval preset on **Balanced** (the default). The tasks expect single creates
@@ -83,7 +83,7 @@ EVAL_MODEL=deepseek-flash      # DeepSeek V4.1 Flash; deepseek-v4-pro also avail
    ```sh
    export CLOUDFLARE_ACCOUNT_ID=…  CLOUDFLARE_API_TOKEN=…
    node evals/mcp/runner.ts --base-url http://localhost:5173
-   # or: pnpm --filter @relationship-os/evals-mcp eval -- --base-url http://localhost:5173
+   # or: pnpm --filter @composable-os/evals-mcp eval -- --base-url http://localhost:5173
    ```
 
    Options: `--only id,id` runs some tasks (all of them must pass), `--model` (default
@@ -148,7 +148,7 @@ A task passes only when every check holds:
   that it told the user a change is waiting for approval), and `expectReason` patterns against the
   `reason` it gave a write.
 - **Outcome.** A check reads the CRM afterwards over the setup connection (`query_sql` on the
-  `crm_*` views, so real state without simulation), or the agent's own session for
+  `rec_*` views, so real state without simulation), or the agent's own session for
   `approval_status`.
 
 | Task | Covers |
@@ -190,7 +190,7 @@ A task passes only when every check holds:
 - `lib/grading.ts`, `lib/harness.ts`, `lib/report.ts`: grading, running a task, the report.
 - `test/`: unit tests (plain Node, no network). The loop is tested with a scripted model, the
   client against a fake `fetch`, and the task file against the tool names generated from
-  `@relationship-os/core`'s registry.
+  `@composable-os/core`'s registry.
 
-`lib/*` is exported (`@relationship-os/evals-mcp/lib/agent.ts` and so on) for the other eval packages;
+`lib/*` is exported (`@composable-os/evals-mcp/lib/agent.ts` and so on) for the other eval packages;
 `evals/extensions` reuses the OAuth, MCP, model, conversion and loop modules.

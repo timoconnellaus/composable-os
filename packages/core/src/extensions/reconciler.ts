@@ -1,5 +1,5 @@
 // The schema reconciler (ADR 0024): turns an extension's declared objects and fields into an
-// ordered DDL plan over x_* tables plus the regenerated crm_* views, which can be dry-run
+// ordered DDL plan over x_* tables plus the regenerated rec_* views, which can be dry-run
 // (`extension.check`) and is applied atomically in one D1 batch with the state rows.
 //
 // Rules:
@@ -11,13 +11,13 @@
 //   with a suggestion.
 // - It never touches core_* tables' schema. (Renaming an object re-points the object type of
 //   its tags, links and search entries: data, not schema.)
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import {
   type ExtensionManifest,
   type FieldManifest,
   type FieldTypeName,
   isLosslessChange,
-} from "@relationship-os/sdk";
+} from "@composable-os/sdk";
 import { CompiledQuery, type Kysely } from "kysely";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import {
@@ -25,6 +25,7 @@ import {
   ident,
   isCoreTarget,
   objectTable,
+  objectView,
   registryFieldName,
   sideTable,
   splitObjectName,
@@ -541,7 +542,7 @@ function finishPlan(
     .filter(
       (o) => !next.objects.some((n) => n.tableName === o.tableName && n.localName === o.localName),
     )
-    .map((o) => `DROP VIEW IF EXISTS crm_x_${ident(o.extensionId)}_${ident(o.localName)}`);
+    .map((o) => `DROP VIEW IF EXISTS ${objectView(o.extensionId, o.localName)}`);
   const ddl = [...new Set([...staleViews, ...views.drops]), ...tableDdl, ...views.creates];
 
   const touched = new Set([

@@ -1,4 +1,4 @@
-// ros-marketing: static assets (the Astro build) plus one endpoint, POST /api/signup, for the
+// cos-site: static assets (the Astro build) plus one endpoint, POST /api/signup, for the
 // waitlist and contact-sales forms. The forms work without JavaScript: a browser POST is answered
 // with a redirect. A waitlist signup goes back to the landing page, to its form's "You're on the
 // list" message (/#joined-hero or /#joined-waitlist); a sales request goes to /thanks/; a problem

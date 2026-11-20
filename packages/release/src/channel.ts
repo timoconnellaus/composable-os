@@ -5,23 +5,23 @@
 // this is the reverse, so a deployment cannot hold a signing key the control plane trusts for
 // every tenant. Instead each tenant has its own key:
 //
-//   ROS_CONTROL_KEY = base64url(HMAC-SHA256(CONTROL_CHANNEL_SECRET, "ros-deployment-channel:" + tenant))
+//   COS_CONTROL_KEY = base64url(HMAC-SHA256(CONTROL_CHANNEL_SECRET, "cos-deployment-channel:" + tenant))
 //
 // derived by the control plane from one master secret (so nothing per tenant is stored) and set
 // as a secret on the tenant's app Worker at provisioning. A request carries
 //
-//   x-ros-tenant     the tenant id
-//   x-ros-timestamp  unix seconds; refused when more than 5 minutes off
-//   x-ros-signature  v1=<hex HMAC-SHA256(ROS_CONTROL_KEY, "v1\n<tenant>\n<timestamp>\n<METHOD>\n<path>\n<sha256 hex of body>")>
+//   x-cos-tenant     the tenant id
+//   x-cos-timestamp  unix seconds; refused when more than 5 minutes off
+//   x-cos-signature  v1=<hex HMAC-SHA256(COS_CONTROL_KEY, "v1\n<tenant>\n<timestamp>\n<METHOD>\n<path>\n<sha256 hex of body>")>
 //
 // over HTTPS. A captured request can be replayed only within its 5 minutes, only for the same
 // tenant and only with the same body, and every operation on this channel is idempotent (set
 // this secret to this value), so a replay changes nothing. Shared here because both ends depend on
-// this package: the deployment signs (@relationship-os/core), the control plane verifies.
+// this package: the deployment signs (@composable-os/core), the control plane verifies.
 
-export const CONTROL_KEY_SECRET = "ROS_CONTROL_KEY";
-export const CONTROL_URL_VAR = "ROS_CONTROL_URL";
-export const TENANT_ID_VAR = "ROS_TENANT_ID";
+export const CONTROL_KEY_SECRET = "COS_CONTROL_KEY";
+export const CONTROL_URL_VAR = "COS_CONTROL_URL";
+export const TENANT_ID_VAR = "COS_TENANT_ID";
 /** The path the control plane serves the AI secret call on. */
 export const AI_SECRET_PATH = "/api/deployment/ai-secret";
 export const CHANNEL_MAX_SKEW_SECONDS = 300;
@@ -74,7 +74,7 @@ async function hmac(key: string, message: string): Promise<ArrayBuffer> {
 /** A tenant's channel key, derived from the control plane's master secret. */
 export async function deploymentChannelKey(masterSecret: string, tenant: string): Promise<string> {
   if (!masterSecret) throw new Error("the deployment channel needs CONTROL_CHANNEL_SECRET");
-  return base64url(await hmac(masterSecret, `ros-deployment-channel:${tenant}`));
+  return base64url(await hmac(masterSecret, `cos-deployment-channel:${tenant}`));
 }
 
 async function signature(
@@ -104,9 +104,9 @@ export async function signDeploymentRequest(input: {
 }): Promise<Record<string, string>> {
   const timestamp = String(Math.floor((input.now ?? new Date()).getTime() / 1000));
   return {
-    "x-ros-tenant": input.tenant,
-    "x-ros-timestamp": timestamp,
-    "x-ros-signature": await signature(input.key, { ...input, timestamp }),
+    "x-cos-tenant": input.tenant,
+    "x-cos-timestamp": timestamp,
+    "x-cos-signature": await signature(input.key, { ...input, timestamp }),
   };
 }
 
@@ -128,9 +128,9 @@ export async function verifyDeploymentRequest(
   keyFor: (tenant: string) => Promise<string | null>,
   options: { now?: Date } = {},
 ): Promise<{ ok: true; tenant: string; body: string } | { ok: false; reason: string }> {
-  const tenant = request.headers.get("x-ros-tenant") ?? "";
-  const timestamp = request.headers.get("x-ros-timestamp") ?? "";
-  const given = request.headers.get("x-ros-signature") ?? "";
+  const tenant = request.headers.get("x-cos-tenant") ?? "";
+  const timestamp = request.headers.get("x-cos-timestamp") ?? "";
+  const given = request.headers.get("x-cos-signature") ?? "";
   if (!TENANT.test(tenant) || !/^\d{1,12}$/.test(timestamp) || !given.startsWith("v1=")) {
     return { ok: false, reason: "unsigned request" };
   }

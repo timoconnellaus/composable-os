@@ -12,7 +12,7 @@
 // without the word "remember"; facts about the person that mention a customer; duplicates in other
 // words, and lines that change or merely resemble one already held; and lines the person never
 // said, including text planted in an email or a record. Every person and company is invented.
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   MEMORY_ABOUT_QUESTION,
   MEMORY_ALREADY_QUESTION,
@@ -26,7 +26,7 @@ import {
   type MemorySaidLabel,
   type MemoryWriteState,
   memoryWriteState,
-} from "@relationship-os/core/judge-memory-write";
+} from "@composable-os/core/judge-memory-write";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 
 interface Answers {

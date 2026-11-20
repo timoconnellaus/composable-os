@@ -19,9 +19,9 @@ import {
 import { context, createUser } from "./helpers.ts";
 
 const BAR =
-  '{"id":"people-months","type":"bar","title":"People this month and last","sql":"SELECT substr(created_at, 1, 7) AS label, COUNT(*) AS value FROM crm_people GROUP BY 1","mapping":{"x":"label","y":"value"}}';
+  '{"id":"people-months","type":"bar","title":"People this month and last","sql":"SELECT substr(created_at, 1, 7) AS label, COUNT(*) AS value FROM rec_person GROUP BY 1","mapping":{"x":"label","y":"value"}}';
 const KPI =
-  '{"id":"people-this-month","type":"kpi","title":"People added this month","sql":"SELECT COUNT(*) AS value FROM crm_people","mapping":{"value":"value"}}';
+  '{"id":"people-this-month","type":"kpi","title":"People added this month","sql":"SELECT COUNT(*) AS value FROM rec_person","mapping":{"value":"value"}}';
 const BROKEN =
   '{"id":"x","type":"kpi","title":"Bad","sql":"SELECT COUNT(*) AS value FROM core_person","mapping":{"value":"value"}}';
 const PROMPT = "The number of people added this month, compared with last month.";

@@ -1,4 +1,4 @@
-# `@relationship-os/gatekeeper-kit`
+# `@composable-os/gatekeeper-kit`
 
 Shared building blocks for gatekeeper connect flows, credentials, actions, observations, cursors,
 caching, and simulation. These modules replace security-sensitive plumbing that gatekeepers had
@@ -63,7 +63,7 @@ Import from the narrow subpath:
 import {
   CredentialCoordinator,
   CredentialSource,
-} from "@relationship-os/gatekeeper-kit/credentials";
+} from "@composable-os/gatekeeper-kit/credentials";
 ```
 
 ## Module inventory

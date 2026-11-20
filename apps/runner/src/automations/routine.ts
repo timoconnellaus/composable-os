@@ -1,9 +1,9 @@
 // A routine's run (ADR 0343). A routine has no extension code, so its Workflow does two things:
 //
 //   checks ─► plain gates, then Jev gates, before any model call
-//   deliver ─► one message on ROUTINE_DELIVERY for ros-app, which owns the person's thread
+//   deliver ─► one message on ROUTINE_DELIVERY for cos-app, which owns the person's thread
 //
-// ros-runner cannot reach the AssistantAgent directly: ros-app already binds to ros-runner, and a
+// cos-runner cannot reach the AssistantAgent directly: cos-app already binds to cos-runner, and a
 // binding back would make the first deploy of either Worker fail. A queue has no such order, and
 // retries a delivery that fails. The message holds ids only: nothing about a person sits in the
 // queue. The checks stay in the run's `report`, where the why panel and an erase find them.
@@ -16,8 +16,8 @@ import {
   type RoutineDeliveryMessage,
   type RoutineRunReport,
   runRoutineChecks,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { runnerJudge } from "../extensions/ai.ts";
 import type { AutomationRunParams } from "./dispatch.ts";
 import { PermanentStepError, type RunEnv } from "./run.ts";
@@ -80,7 +80,7 @@ export async function checkRoutineRun(
   return { deliver: result.pass, ...(result.reason ? { reason: result.reason } : {}) };
 }
 
-/** Step `deliver`: hands the message to ros-app. A repeat is harmless: delivery is per run. */
+/** Step `deliver`: hands the message to cos-app. A repeat is harmless: delivery is per run. */
 export async function queueRoutineDelivery(
   env: RoutineRunEnv,
   params: AutomationRunParams,

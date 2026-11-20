@@ -3,10 +3,10 @@
 // modules, tools, triggers), the authoring.intent check against the request (ADR 0230, when one
 // ran), the check result, and the git diff per file, syntax-highlighted.
 // Everything but the AI summary is computed by the host from the manifests and the reconcile plan.
-import type { CoreOutput, ExtensionImpact, FileDiff } from "@relationship-os/core";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { cn } from "@relationship-os/ui/lib/utils";
+import type { CoreOutput, ExtensionImpact, FileDiff } from "@composable-os/core";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { cn } from "@composable-os/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import {
   AlertTriangleIcon,

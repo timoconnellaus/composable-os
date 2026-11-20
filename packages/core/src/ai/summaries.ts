@@ -8,7 +8,7 @@
 // request (a button, or a batch for the visible part of a timeline), never per keystroke.
 // Private activities are never summarised or used as input; synced email bodies are read from R2
 // only when their mailbox shares full content.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
@@ -69,7 +69,7 @@ async function titles(
   if (!unique.length) return out;
   if (object === "person") {
     const rows = await db
-      .selectFrom("crm_people")
+      .selectFrom("rec_person")
       .select(["id", "display_name"])
       .where("id", "in", jsonList(unique))
       .execute();
@@ -78,7 +78,7 @@ async function titles(
   }
   if (object === "organisation") {
     const rows = await db
-      .selectFrom("crm_organisations")
+      .selectFrom("rec_organisation")
       .select(["id", "name"])
       .where("id", "in", jsonList(unique))
       .execute();
@@ -178,7 +178,7 @@ async function timelineFacts(
     occurred_at: string;
   }>`
     SELECT DISTINCT a.id, a.type, a.subject, a.body, a.occurred_at
-    FROM crm_activity_links l JOIN crm_activities a ON a.id = l.activity_id
+    FROM rec_activity_link l JOIN rec_activity a ON a.id = l.activity_id
     WHERE ${linkedTo(refs)}
     ORDER BY a.occurred_at DESC, a.id DESC LIMIT ${limit}`.execute(db);
   return {
@@ -195,7 +195,7 @@ async function openTaskFacts(
 ): Promise<{ facts: string[]; ids: string[] }> {
   if (!refs.length) return { facts: [], ids: [] };
   const rows = await sql<{ id: string; title: string; due_at: string | null }>`
-    SELECT DISTINCT t.id, t.title, t.due_at FROM crm_task_links l JOIN crm_tasks t ON t.id = l.task_id
+    SELECT DISTINCT t.id, t.title, t.due_at FROM rec_task_link l JOIN rec_task t ON t.id = l.task_id
     WHERE t.status = 'open' AND ${linkedTo(refs)}
     ORDER BY t.due_at IS NULL, t.due_at LIMIT 5`.execute(db);
   return {
@@ -270,7 +270,7 @@ export async function meetingPrepInput(
   activityId: string,
 ): Promise<SummaryInput> {
   const meeting = await db
-    .selectFrom("crm_activities")
+    .selectFrom("rec_activity")
     .select(["id", "type", "subject", "body", "occurred_at", "payload"])
     .where("id", "=", activityId)
     .executeTakeFirst();
@@ -278,7 +278,7 @@ export async function meetingPrepInput(
   if (meeting.type !== "meeting")
     throw new ValidationError("Meeting prep is for meeting activities");
   const links = await db
-    .selectFrom("crm_activity_links")
+    .selectFrom("rec_activity_link")
     .select(["object_type", "record_id"])
     .where("activity_id", "=", activityId)
     .execute();
@@ -293,7 +293,7 @@ export async function meetingPrepInput(
   for (const link of links) {
     if (link.object_type === "person") {
       const p = await db
-        .selectFrom("crm_people")
+        .selectFrom("rec_person")
         .select(["id", "display_name", "job_title", "organisation_name", "organisation_id"])
         .where("id", "=", link.record_id)
         .executeTakeFirst();

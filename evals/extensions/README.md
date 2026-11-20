@@ -46,7 +46,7 @@ Proposals are left pending in the Approvals inbox; the eval does not approve or 
 | `lead-source` | lead source on people with five options | person `select` mentioning source, with those options |
 | `vendors` | a Vendors object: name, website, email, phone, contract end | object with a text title field, `url`, `email`, `phone`, `date` |
 | `interests` | interests on people, several allowed | person `multiSelect` mentioning interests, with the four options |
-| `ticket-tool` | a Tickets object and a read-only tool counting open tickets per organisation | object with status `select` (open, closed) and `relation` to organisation; a counting tool with risk `read` and an organisation input; the `crm` module |
+| `ticket-tool` | a Tickets object and a read-only tool counting open tickets per organisation | object with status `select` (open, closed) and `relation` to organisation; a counting tool with risk `read` and an organisation input; the `ops` module |
 | `linkedin-url` | a LinkedIn URL on people | person `url` mentioning LinkedIn |
 | `discount` | annual contract value, discount percent, discounted-value formula on organisations | `currency`, `percent`, and a `formula` using both |
 
@@ -68,7 +68,7 @@ only check what the user actually asked for.
    ```sh
    export CLOUDFLARE_ACCOUNT_ID=…  CLOUDFLARE_API_TOKEN=…
    node evals/extensions/runner.ts --base-url http://localhost:5173
-   # or: pnpm --filter @relationship-os/evals-extensions eval -- --base-url http://localhost:5173
+   # or: pnpm --filter @composable-os/evals-extensions eval -- --base-url http://localhost:5173
    ```
 
    Options: `--only id,id` (all of them must pass), `--model`, `--temperature`, `--max-tokens`,
@@ -108,4 +108,4 @@ The model client, provider selection and the default model are shared with the M
   manifests, the harness flow against a scripted model and a fake workspace, the CLI and report.
 
 Sign-in, OAuth, the MCP session, the OpenAI-compatible model client, tool conversion and the
-tool-use loop come from `@relationship-os/evals-mcp/lib/*`.
+tool-use loop come from `@composable-os/evals-mcp/lib/*`.

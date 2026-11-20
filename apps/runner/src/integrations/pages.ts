@@ -1,3 +1,4 @@
+import { product } from "@composable-os/products/active";
 // The fake provider's HTML responses. The handoff page mirrors gatekeeper-kit's
 // connectHandoffPageHtml (the final page of every connect flow): it sends the popup to
 // `<targetOrigin>/connect/handoff#<ticket>`, where the CRM redeems the ticket over the
@@ -23,7 +24,7 @@ export function connectHandoffPageHtml(handoff: { targetOrigin: string; ticket: 
   const literal = (s: string) => JSON.stringify(s).replace(/</g, "\\u003c");
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Connected</title></head>
-<body><main><h1>Connected</h1><p>Returning to Relationship OS…</p></main>
+<body><main><h1>Connected</h1><p>Returning to ${product.strings.name}…</p></main>
 <script>
 (function () {
   var ticket = ${literal(handoff.ticket)};

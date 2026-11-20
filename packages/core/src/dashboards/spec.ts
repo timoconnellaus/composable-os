@@ -1,5 +1,5 @@
 // The dashboard spec (ADR 0027, ADR 0057): filters, and widgets laid out on a 12-column grid.
-// Data widgets carry read-only SQL over the crm_* views with named parameters (`:date_from`,
+// Data widgets carry read-only SQL over the rec_* views with named parameters (`:date_from`,
 // `:owner`, …) bound from the dashboard's filters; a chart mapping says which result columns
 // are x, y, series and value; a click-through template turns a clicked row into list filter
 // JSON. Browser-safe: no database imports.
@@ -185,7 +185,7 @@ export const widgetSpecSchema = z
       .max(20_000)
       .nullish()
       .describe(
-        "Data widgets: one read-only SELECT over crm_* views. Use named params for filters " +
+        "Data widgets: one read-only SELECT over rec_* views. Use named params for filters " +
           "(:date_from, :date_to, :owner, …) and the system params :now, :today and :me",
       ),
     markdown: z.string().max(20_000).nullish().describe("Markdown widgets: the text"),

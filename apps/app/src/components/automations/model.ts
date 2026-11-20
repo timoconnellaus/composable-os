@@ -11,7 +11,7 @@ import type {
   RunItem,
   RunStatus,
   RunStepRecord,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 
 export type AutomationStatus = AutomationListItem["status"];
 

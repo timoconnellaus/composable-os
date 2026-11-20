@@ -1,22 +1,22 @@
-import { Button } from "@relationship-os/ui/components/button";
-import { Input } from "@relationship-os/ui/components/input";
-import { Separator } from "@relationship-os/ui/components/separator";
+import { Button } from "@composable-os/ui/components/button";
+import { Input } from "@composable-os/ui/components/input";
+import { Separator } from "@composable-os/ui/components/separator";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@relationship-os/ui/components/sheet";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/sheet";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@relationship-os/ui/components/tooltip";
-import { useIsMobile } from "@relationship-os/ui/hooks/use-mobile";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/tooltip";
+import { useIsMobile } from "@composable-os/ui/hooks/use-mobile";
+import { cn } from "@composable-os/ui/lib/utils";
 import { cva, type VariantProps } from "class-variance-authority";
 import { PanelLeftIcon } from "lucide-react";
 import { Slot } from "radix-ui";

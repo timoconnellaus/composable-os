@@ -53,9 +53,9 @@
                 "patterns": [
                   {
                     "group": [
-                      "@relationship-os/*",
-                      "!@relationship-os/agent-*",
-                      "!@relationship-os/config/*"
+                      "@composable-os/*",
+                      "!@composable-os/agent-*",
+                      "!@composable-os/config/*"
                     ],
                     "message": "agent-* packages are MIT and import no CRM code (ADR 0350). Inject what you need instead."
                   }

@@ -1,5 +1,5 @@
 // Reference answer for the `interests` prompt.
-import { defineExtension } from "@relationship-os/sdk";
+import { defineExtension } from "@composable-os/sdk";
 
 export default defineExtension({
   id: "interests",

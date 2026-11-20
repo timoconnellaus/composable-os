@@ -4,7 +4,7 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-describe("ros-gatekeeper-zoominfo vendor entrypoint", () => {
+describe("cos-gatekeeper-zoominfo vendor entrypoint", () => {
   const vendor = exports.GatekeeperVendor;
 
   it("describes itself", async () => {

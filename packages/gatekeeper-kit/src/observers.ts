@@ -7,7 +7,7 @@ import type {
   GatekeeperUserVerifier,
   ObservationAuthorizer,
   ObservationDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 import {
   asVerifier,
   DEFAULT_CONCURRENCY,

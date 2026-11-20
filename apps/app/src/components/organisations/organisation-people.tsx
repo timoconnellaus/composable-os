@@ -1,10 +1,10 @@
 // An organisation's people (its affiliations): the People tab lists current and past people with
 // their titles and dates; the side card shows the first few current ones. The child-organisations
 // card lists organisations whose parent this one is.
-import { Avatar, AvatarFallback } from "@relationship-os/ui/components/avatar";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@relationship-os/ui/components/card";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+import { Avatar, AvatarFallback } from "@composable-os/ui/components/avatar";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@composable-os/ui/components/card";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { Link } from "@tanstack/react-router";
 import { Building2Icon, UsersIcon } from "lucide-react";
 import { formatDate, initials } from "#/lib/format";

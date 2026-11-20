@@ -2,12 +2,12 @@
 // full-screen view on a phone, and dictation into the chat box. A call survives moving between
 // pages, because it lives here, above the routes. What is said lands in the one thread, so the
 // transcript needs nothing from here.
-import type { VoiceFacts } from "@relationship-os/agent-voice/client";
-import { type UseVoiceChat, useDictation, useVoiceChat } from "@relationship-os/agent-voice/react";
-import { splitSpoken } from "@relationship-os/agent-voice/text";
-import type { CoreOutput } from "@relationship-os/core";
-import type { AssistantContext, TranscriptItem } from "@relationship-os/core/client";
-import { Button } from "@relationship-os/ui/components/button";
+import type { VoiceFacts } from "@composable-os/agent-voice/client";
+import { type UseVoiceChat, useDictation, useVoiceChat } from "@composable-os/agent-voice/react";
+import { splitSpoken } from "@composable-os/agent-voice/text";
+import type { CoreOutput } from "@composable-os/core";
+import type { AssistantContext, TranscriptItem } from "@composable-os/core/client";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Dialog,
   DialogContent,
@@ -15,9 +15,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@relationship-os/ui/components/dialog";
-import { Label } from "@relationship-os/ui/components/label";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/dialog";
+import { Label } from "@composable-os/ui/components/label";
+import { cn } from "@composable-os/ui/lib/utils";
 import {
   AudioLinesIcon,
   HandIcon,
@@ -50,7 +50,7 @@ import { useThread } from "./thread-provider.tsx";
 type VoicePrefs = CoreOutput<"voice.prefs.get">;
 export type VoiceMode = VoicePrefs["mode"];
 
-const DEVICE_KEY = "ros.voice.device";
+const DEVICE_KEY = "cos.voice.device";
 
 /** This browser's id in the device list. */
 export function voiceDeviceId(): string {

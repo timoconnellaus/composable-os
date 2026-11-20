@@ -5,8 +5,8 @@
 // answer is unanswered. A run with any wrong or unanswered case fails.
 //
 // Everything here but `runPlacementSet` is arithmetic, and is unit-tested.
-import type { CalibrationRecord, Judge, Question } from "@relationship-os/core/judge";
-import { questionHash } from "@relationship-os/core/judge";
+import type { CalibrationRecord, Judge, Question } from "@composable-os/core/judge";
+import { questionHash } from "@composable-os/core/judge";
 import { withRun } from "./recorder.ts";
 
 /** A median this close to the threshold is a close call (ADR 0231). */

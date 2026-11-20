@@ -1,4 +1,4 @@
-// Where a registry field's value lives in its object's crm_* view.
+// Where a registry field's value lives in its object's rec_* view.
 import type { FieldDefinition } from "../fields/types.ts";
 
 /** The view column of a field: its `column`, or for a multi-valued extension field the JSON column. */

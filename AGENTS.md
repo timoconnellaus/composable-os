@@ -1,11 +1,15 @@
 # AGENTS.md
 
-An AI-native, self-hosted CRM on Cloudflare. Start with [`docs/architecture.md`](docs/architecture.md),
-use the vocabulary in [`CONTEXT.md`](CONTEXT.md), and respect the decisions in
-[`docs/adr/`](docs/adr/).
+Composable OS: a platform for composing products on a trusted host on Cloudflare. The first product
+is the CRM (`products/crm`). Start with [`docs/architecture.md`](docs/architecture.md), use the
+vocabulary in [`CONTEXT.md`](CONTEXT.md), and respect the decisions in [`docs/adr/`](docs/adr/).
 
 ## Working in a stage
 
+- Each stage runs as: **interview** (agree how it works) → **spec** in `docs/stages/NN-name.md` → a
+  **build session** in its own worktree → review → merge.
+- The specs of stages 21 to 28 are proposals. A stage is not built until its interview has settled
+  the questions listed at the end of its spec and its status in `docs/roadmap.md` says "spec agreed".
 - You will be pointed at a stage spec in `docs/stages/`. Build what it says. Its acceptance criteria
   are the definition of done.
 - If the spec turns out to be wrong or ambiguous, don't silently diverge. Stop and ask, or record the
@@ -26,6 +30,17 @@ use the vocabulary in [`CONTEXT.md`](CONTEXT.md), and respect the decisions in
 - **Identity and policy are not AI-configurable.** Auth secrets are env-only. Loosening approval
   policy is human-admin-only.
 - **Code asks for a model role, never a model id.**
+- **A name that depends on the product is written once,** in `products/<id>/product.ts`. Packages
+  name Workers and resources `cos-*`; a release, the installer and the UI read the product's names
+  from its definition. `pnpm lint` fails on a retired name (`scripts/check-stray-names.mjs`).
+- **Every operation declares its audiences.** `staff` is the default. Opening an operation to
+  `customer` or `public` is a reviewed change (ADR 0402).
+- **Rules live in the host.** Prices, places and what a customer may see are enforced by
+  behaviours and the visibility seam, never by a block or a client app (ADRs 0401, 0404).
+- **Client code never opens the database.** A client app reaches the host through the typed client
+  only (ADR 0403).
+- **A new behaviour is platform work.** A pack composes behaviours and does not hook writes.
+- **Web and native share logic, not screens.**
 - Vendored code (see `UPSTREAMS.md`) is edited deliberately. Note local changes in `UPSTREAMS.md`.
 
 ## Tooling

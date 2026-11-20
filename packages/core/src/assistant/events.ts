@@ -1,7 +1,7 @@
 // What the in-app assistant streams to the UI and how its thread is shown (ADR 0200, ADR 0340).
 // Browser-safe: no Workers or AI SDK imports, so the app's client bundle can use these types.
-import type { A2uiPart } from "@relationship-os/agent-a2ui";
-import type { Playout } from "@relationship-os/agent-core";
+import type { A2uiPart } from "@composable-os/agent-a2ui";
+import type { Playout } from "@composable-os/agent-core";
 import type { AssistantContext } from "./context.ts";
 
 /** A pending change the assistant's tool call created (the MCP `pending_approval` result). */

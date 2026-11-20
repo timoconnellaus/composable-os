@@ -6,8 +6,8 @@ if you are building alongside other sessions, then the spec of whatever you pick
 Last refreshed: 2026-11-05 (after Stage 7b merged).
 
 ## The product
-**Relationship OS** (formerly "CRM"), at relationshiposcrm.com. An AI-native CRM on Cloudflare:
-TanStack Start UI, an MCP server, AI-built custom objects, dashboards, automations and integrations,
+**Composable OS** (composableos.dev), a platform for composing products on Cloudflare. Its first
+product is the **CRM**, an AI-native CRM: TanStack Start UI, an MCP server, AI-built custom objects, dashboards, automations and integrations,
 an in-app assistant, and an approval pipeline in front of every AI write. Licensed FSL-1.1-ALv2
 (source available, each release becomes Apache 2.0 after two years) with a CLA. Self-hosted free on
 the user's own Cloudflare account; hosted SaaS on Workers for Platforms (built, not yet deployed);
@@ -48,9 +48,9 @@ enterprise hosting.
 | 6 | Integrations: gatekeepers, connections, outbound approvals, email/calendar sync, suggestions; 6b run-as, webhook/sync triggers, outbox, notification delivery |
 | 7a | Model role registry, Settings → AI, summaries, hybrid search, embeddings |
 | 7b | In-app assistant (Cmd-J, `/assistant`, DO per conversation), policy adjudicator (shadow mode, Judge seam), daily digest, gateway-first registry |
-| 8 | Release bundles, `create-relationship-os` CLI (`ros`), self-updater, setup wizard |
-| 9 | Rename to Relationship OS, FSL licence, CLA bot, `apps/marketing` landing page |
-| 10 | SaaS control plane (`apps/control`) on Workers for Platforms, built against fakes; not deployed |
+| 8 | Release bundles, `create-composable-os` CLI (`cos`), self-updater, setup wizard |
+| 9 | First rename of the project, FSL licence, CLA bot, `apps/marketing` landing page |
+| 10 | SaaS control plane (`products/crm/apps/control`) on Workers for Platforms, built against fakes; not deployed |
 | — | DeepSeek provider and `deepseek-flash` preset (ADR 0192); AI Gateway provisioned per deployment (ADR 0180); evals credentials file; automations eval fixes |
 | Specs | Stage 11 Jev (`docs/stages/11-jev.md`, ADRs 0230–0231); hosted AI decision (ADR 0213/0210 amendments) |
 

@@ -1,12 +1,12 @@
 // The saved A2UI producers this deployment can run (ADR 0346). First-party ones are here; plugins
 // (W7) register theirs in `producers` when they install. A version's source never changes: edit a
 // script, bump its version, and it gets a new stable worker id.
-import { createProducerRegistry, type SavedProducer } from "@relationship-os/agent-a2ui";
+import { createProducerRegistry, type SavedProducer } from "@composable-os/agent-a2ui";
 import { z } from "zod";
 
 const OVERDUE_TASKS = `
-export default async function (input, { crm, timezone }) {
-  const mine = await crm.call("task.listMine", { timezone });
+export default async function (input, { ops, timezone }) {
+  const mine = await ops.call("task.listMine", { timezone });
   const overdue = mine.buckets.overdue;
   if (!overdue.length) {
     return {
@@ -47,22 +47,22 @@ const STALE_DEALS = `
 const SQL = \`
 WITH last AS (
   SELECT l.record_id AS id, max(a.occurred_at) AS at
-  FROM crm_activity_links l JOIN crm_activities a ON a.id = l.activity_id
+  FROM rec_activity_link l JOIN rec_activity a ON a.id = l.activity_id
   WHERE l.object_type = 'deals.deal' GROUP BY l.record_id
 )
 SELECT d.id AS id, d.name AS name, d.value AS value, s.name AS stage,
   coalesce(last.at, d.updated_at) AS last_at
-FROM crm_x_deals_deal d
-JOIN crm_x_deals_stage s ON s.id = d.stage
+FROM rec_x_deals_deal d
+JOIN rec_x_deals_stage s ON s.id = d.stage
 LEFT JOIN last ON last.id = d.id
 WHERE d.status = 'open' AND coalesce(last.at, d.updated_at) < ?
 ORDER BY last_at
 \`;
 
-export default async function (input, { crm, now }) {
+export default async function (input, { ops, now }) {
   const nowMs = new Date(now).getTime();
   const cutoff = new Date(nowMs - input.days * 86400000).toISOString();
-  const result = await crm.call("query.sql", { sql: SQL, params: [cutoff], maxRows: 200 });
+  const result = await ops.call("query.sql", { sql: SQL, params: [cutoff], maxRows: 200 });
   const rows = result.rows;
   if (!rows.length) {
     return {
@@ -107,16 +107,16 @@ export default async function (input, { crm, now }) {
 const MORNING_BRIEFING = `
 const MEETINGS = \`
 SELECT a.id AS id, a.subject AS subject, a.occurred_at AS at
-FROM crm_activities a
+FROM rec_activity a
 WHERE a.type = 'meeting' AND a.occurred_at >= ? AND a.occurred_at < ?
 ORDER BY a.occurred_at LIMIT 10
 \`;
 
-export default async function (input, { crm, now, timezone }) {
+export default async function (input, { ops, now, timezone }) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date(now));
   const tomorrow = new Date(Date.parse(today + "T00:00:00Z") + 86400000).toISOString().slice(0, 10);
-  const mine = await crm.call("task.listMine", { timezone });
-  const meetings = await crm.call("query.sql", { sql: MEETINGS, params: [today, tomorrow], maxRows: 10 });
+  const mine = await ops.call("task.listMine", { timezone });
+  const meetings = await ops.call("query.sql", { sql: MEETINGS, params: [today, tomorrow], maxRows: 10 });
   const due = [...mine.buckets.overdue, ...mine.buckets.today];
   if (!due.length && !meetings.rows.length) {
     return {

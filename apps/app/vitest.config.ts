@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
-import { defineWorkersTestConfig } from "@relationship-os/config/vitest";
+import { defineWorkersTestConfig } from "@composable-os/config/vitest";
 import { mergeConfig } from "vitest/config";
 import { configuratorSpecs } from "./src/components/integrations/configurator/vite-plugin.ts";
 
@@ -17,12 +17,12 @@ function liveVoiceBindings(): Record<string, string> {
   return line?.[1] ? { ASSEMBLYAI_LIVE: "1", AI_KEY_ASSEMBLYAI: line[1].trim() } : {};
 }
 
-// A stand-in ros-runner for the RUNNER service binding: the real one is tested in apps/runner and
+// A stand-in cos-runner for the RUNNER service binding: the real one is tested in apps/runner and
 // end to end by the Playwright smoke test.
 const RUNNER_STUB = `
 import { WorkerEntrypoint } from "cloudflare:workers";
 export default class extends WorkerEntrypoint {
-  async ping() { return { ok: true, worker: "ros-runner", time: new Date().toISOString() }; }
+  async ping() { return { ok: true, worker: "cos-runner", time: new Date().toISOString() }; }
   async installShipped() { return []; }
   async shipped() { return []; }
   async listWorkspace() { return []; }
@@ -56,12 +56,12 @@ export default mergeConfig(
           AI_FAKE_VOICE: "true",
           ...liveVoiceBindings(),
         },
-        serviceBindings: { RUNNER: "ros-runner" },
+        serviceBindings: { RUNNER: "cos-runner" },
         // The fake Cloudflare account's D1 database in the self-updater tests.
         d1Databases: { UPDATER_FAKE_D1: "updater-fake-d1" },
         workers: [
           {
-            name: "ros-runner",
+            name: "cos-runner",
             modules: true,
             script: RUNNER_STUB,
             compatibilityDate: "2026-10-01",

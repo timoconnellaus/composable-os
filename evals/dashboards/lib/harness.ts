@@ -10,16 +10,16 @@
 //
 // Either way the final widget is then re-run through widget.preview on a separate grader
 // connection and graded (lib/grading.ts). Dashboards the model saved are deleted afterwards.
-import { type ModelClient, runAgent } from "@relationship-os/evals-mcp/lib/agent.ts";
-import { toOpenAiTools } from "@relationship-os/evals-mcp/lib/convert.ts";
-import { callLabel, callMatches } from "@relationship-os/evals-mcp/lib/grading.ts";
-import { systemPrompt, todayUtc } from "@relationship-os/evals-mcp/lib/harness.ts";
-import { isPending, type McpSession, parseResult } from "@relationship-os/evals-mcp/lib/mcp.ts";
+import { type ModelClient, runAgent } from "@composable-os/evals-mcp/lib/agent.ts";
+import { toOpenAiTools } from "@composable-os/evals-mcp/lib/convert.ts";
+import { callLabel, callMatches } from "@composable-os/evals-mcp/lib/grading.ts";
+import { systemPrompt, todayUtc } from "@composable-os/evals-mcp/lib/harness.ts";
+import { isPending, type McpSession, parseResult } from "@composable-os/evals-mcp/lib/mcp.ts";
 import {
   type ChatMessage,
   type ModelParams,
   samplingFields,
-} from "@relationship-os/evals-mcp/lib/model.ts";
+} from "@composable-os/evals-mcp/lib/model.ts";
 import type { DashboardTask } from "../prompts.ts";
 import type { DashboardFilter, DashboardsCore, WidgetSpec } from "./core.ts";
 import {

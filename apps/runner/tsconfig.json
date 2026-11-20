@@ -1,5 +1,5 @@
 {
-  "extends": "@relationship-os/config/tsconfig.base.json",
+  "extends": "@composable-os/config/tsconfig.base.json",
   "compilerOptions": {
     // ESNext: Symbol.dispose, which gatekeeper sessions use (explicit resource management).
     "lib": ["ESNext"],

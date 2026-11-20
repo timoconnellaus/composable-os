@@ -1,12 +1,12 @@
 // record.* operations: generic records of extension objects, and extension fields on any object
-// (ADR 0023). They read the crm_* views and write x_* tables, validated against the field registry
+// (ADR 0023). They read the rec_* views and write x_* tables, validated against the field registry
 // and the field-type registry, so lists, filters, search, saved views, history (audit diffs) and
 // timeline tracking work for extension schema exactly as for core objects.
 //
 // Core objects keep their own operations (person.update, …); `record.update` on a core object
 // writes only extension fields (into side tables), and `record.get` returns them.
-import type { CoreDatabase } from "@relationship-os/db";
-import type { FieldManifest } from "@relationship-os/sdk";
+import type { CoreDatabase } from "@composable-os/db";
+import type { FieldManifest } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely, type SelectQueryBuilder, sql } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
@@ -44,7 +44,7 @@ export const recordSchema = z.object({
 });
 export type RecordOutput = z.infer<typeof recordSchema>;
 
-// biome-ignore lint/suspicious/noExplicitAny: x_* tables and crm_x_* views are not in CoreDatabase; names come from the registry.
+// biome-ignore lint/suspicious/noExplicitAny: x_* tables and rec_x_* views are not in CoreDatabase; names come from the registry.
 type AnyDb = Kysely<any>;
 
 function requireObject(name: string): ObjectDefinition {
@@ -792,7 +792,7 @@ export const objectInfoSchema = z.object({
   titleField: z.string().nullable(),
   extension: z.string().nullable(),
   description: z.string().nullable(),
-  /** The crm_* view, for query.sql. */
+  /** The rec_* view, for query.sql. */
   view: z.string(),
   fields: z.array(fieldInfoSchema),
   /** Where the UI lists it: main navigation, Settings, or nowhere (ADR 0100). */

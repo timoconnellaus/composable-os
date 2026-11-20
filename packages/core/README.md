@@ -1,4 +1,4 @@
-# @relationship-os/core
+# @composable-os/core
 
 The operations registry and everything an operation needs: ids, the field registry, filter JSON,
 list pagination, the gate, and the invocation pipeline (validate → gate → role → handler → audit +
@@ -30,7 +30,7 @@ src/
                        field-types.ts: storage, zod, filter type, CSV and widget per extension
                        field type
   extensions/          stage 3 (ADR 0040): naming (x_* tables, columns), schema.ts (state,
-                       registry refresh, crm_* view generation), reconciler.ts (plans, dry run,
+                       registry refresh, rec_* view generation), reconciler.ts (plans, dry run,
                        apply, hide/drop), install.ts (check + installExtension), tools.ts
                        (x.<ext>.<tool> operations), host.ts (the ExtensionHost port the runner
                        implements), shipped.ts (boot install of shipped extensions),
@@ -106,7 +106,7 @@ src/
    `.describe()`, keep outputs JSON (strings for timestamps), and keep inputs strict.
 
 3. **Handler rules.**
-   - Read with `ctx.db` (Kysely over `core_*` tables and `crm_*` views). Throw `NotFoundError`,
+   - Read with `ctx.db` (Kysely over `core_*` tables and `rec_*` views). Throw `NotFoundError`,
      `ValidationError` or `ConflictError` for expected failures.
    - **Queue** writes with `ctx.write(ctx.db.insertInto(…)…)`; never `.execute()` a write. The
      pipeline commits them, the audit row and timeline activities in one D1 batch, so a failure
@@ -141,7 +141,7 @@ src/
    (ADR 0018 amendment).
 
 6. **Lists.** Take `listInputSchema` (filter, sort, cursor, limit, fields), select from the
-   object's `crm_*` view and call `runListQuery(query, organisationObject, input)`; return
+   object's `rec_*` view and call `runListQuery(query, organisationObject, input)`; return
    `pageSchema(itemSchema.partial().required({ id: true }))` with `selectFields(...)`. Filterable
    and sortable fields come from the field registry; add fields there, not in the handler.
 
@@ -201,8 +201,8 @@ batch as the change. Tests: `test/approvals.test.ts`.
 - **UI**: `callOp("person.create", input)` from `apps/app/src/lib/operations.ts` — typed from the
   schemas, runs as actor `human` through one server function. In components, use `useOp` /
   `useOpMutation` from `apps/app/src/lib/query.ts` (TanStack Query keyed by operation name). UI code
-  that needs registry values (fields, filter ops, presets) imports `@relationship-os/core/client`, the
-  browser-safe entry without handlers or `@relationship-os/db`; type-only imports from `@relationship-os/core` are fine.
+  that needs registry values (fields, filter ops, presets) imports `@composable-os/core/client`, the
+  browser-safe entry without handlers or `@composable-os/db`; type-only imports from `@composable-os/core` are fine.
 - **Server code / tests**: `invoke(name, input, { actor, user, origin, db: createCrmDb(env.DB),
   floor })`. Add `grantedPermissions` (token scopes), `reason` and `approvalExpiryDays` for MCP
   callers. A queued call rejects with `PendingApprovalError` (`code: "pending_approval"`).

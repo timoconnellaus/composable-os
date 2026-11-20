@@ -9,7 +9,7 @@
 //
 // A grader that cannot answer is "could not be checked": never a pass, and the case fails.
 
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   askIntent,
   findingMessage,
@@ -17,10 +17,10 @@ import {
   type IntentCheck,
   type IntentQuestionId,
   intentState,
-} from "@relationship-os/core/judge-authoring-intent";
-import deals from "@relationship-os/extension-deals";
-import type { AutomationManifest } from "@relationship-os/sdk";
-import { toManifest } from "@relationship-os/sdk";
+} from "@composable-os/core/judge-authoring-intent";
+import deals from "@composable-os/extension-deals";
+import type { AutomationManifest } from "@composable-os/sdk";
+import { toManifest } from "@composable-os/sdk";
 import type { AutomationCase } from "../prompts.ts";
 
 /** Object and field labels for the summary (Deals is installed where the eval runs). */

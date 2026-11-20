@@ -3,7 +3,7 @@
 // logging off, ADR 0330, else the binding; other providers through its unified endpoint). Hosted
 // deployments have `aiGateway: false` and use the control plane's shared Platform AI gateway
 // instead (ADR 0213 amendment). Used by
-// `create-relationship-os` (install and repair) and by runUpdate (`ros upgrade` and the self-updater), so an
+// `create-composable-os` (install and repair) and by runUpdate (`cos upgrade` and the self-updater), so an
 // upgrade creates whatever is missing.
 //
 //   gateway          find by id, else create (logging on, authentication on)
@@ -53,17 +53,17 @@ function workerName(state: DeploymentState, name: string) {
 
 /**
  * The gateway id of a deployment: the one it chose, else its install name, the app Worker's
- * deployed name without `-app` (`ros-app` → `ros`, `acme-ros-app` → `acme-ros`; a pre-rename `crm-app` → `crm`).
+ * deployed name without `-app` (`demo-app` → `demo`, `acme-demo-app` → `acme-demo`).
  */
 export function gatewayIdFor(state: DeploymentState, manifest: ReleaseManifest): string {
   if (typeof state.aiGateway === "string" && state.aiGateway) return state.aiGateway;
-  const app = manifest.workers.find((w) => w.role === "app")?.name ?? "ros-app";
+  const app = manifest.workers.find((w) => w.role === "app")?.name ?? "";
   const base = workerName(state, app)
     .toLowerCase()
     .replace(/-app$/, "")
     .replace(/[^a-z0-9-]/g, "-")
     .replace(/^-+|-+$/g, "");
-  return (base || "ros").slice(0, 64);
+  return (base || manifest.product).slice(0, 64);
 }
 
 /** Workers that read AI_GATEWAY_ID (and so get AI_GATEWAY_TOKEN), by manifest name. */
@@ -342,7 +342,7 @@ export async function provisionAiGateway(
         const [read] = await api.permissionGroups(accountId, WORKERS_AI_READ_PERMISSION);
         const token = await api.createAccountToken(
           accountId,
-          `${id} AI Gateway (Relationship OS)`,
+          `${id} AI Gateway (${manifest.productLabel})`,
           read ? [run.id, read.id] : [run.id],
         );
         setAll(token.value);

@@ -16,9 +16,9 @@
 // arguments that claim approval or tell the reviewer what to answer. Where a side is genuinely
 // arguable, the question is left out for that case. Every person, company and value is invented.
 
-import type { ReviewItem } from "@relationship-os/core/adjudicator-review";
-import type { Judge, PolicyRule } from "@relationship-os/core/judge";
-import { policyRules } from "@relationship-os/core/judge";
+import type { ReviewItem } from "@composable-os/core/adjudicator-review";
+import type { Judge, PolicyRule } from "@composable-os/core/judge";
+import { policyRules } from "@composable-os/core/judge";
 import {
   askPolicy,
   POLICY_PLACEMENT,
@@ -29,7 +29,7 @@ import {
   type PolicyState,
   policyQuestions,
   policyState,
-} from "@relationship-os/core/judge-adjudicator-policy";
+} from "@composable-os/core/judge-adjudicator-policy";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 
 // --- Three written policies, one rule per line ---------------------------------------------------

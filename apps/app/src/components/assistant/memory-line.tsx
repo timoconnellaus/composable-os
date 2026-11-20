@@ -2,9 +2,9 @@
 // with Undo, or, for a line the person has to check, a read-back with Save and Cancel. It follows
 // the line's current state from `memory.list`, so it stays true after a reload or an edit on
 // What your assistant remembers.
-import type { AssistantMemorySave } from "@relationship-os/core/client";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+import type { AssistantMemorySave } from "@composable-os/core/client";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import { Link } from "@tanstack/react-router";
 import { BookmarkIcon, CheckIcon, ShieldCheckIcon } from "lucide-react";
 import type { ReactNode } from "react";

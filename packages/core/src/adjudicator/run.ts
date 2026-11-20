@@ -1,5 +1,5 @@
 // Running the policy adjudicator (ADR 0031, ADR 0204): its settings and written policy, judging a
-// pending action after the review path queued it (ros-app's post-queue hook, in the background)
+// pending action after the review path queued it (cos-app's post-queue hook, in the background)
 // or in the cron's catch-up sweep, recording and auditing each verdict, and, in active mode,
 // applying an approved action through the approval machinery as its original actor, attributed
 // to the adjudicator.
@@ -13,7 +13,7 @@ import type {
   CoreDatabase,
   CrmDb,
   ReviewSource,
-} from "@relationship-os/db";
+} from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { z } from "zod";
 import type { ModelRunner } from "../ai/client.ts";
@@ -628,7 +628,7 @@ export const SWEEP_GRACE_MS = 2 * 60_000;
 
 /**
  * Judges pending actions the post-queue run missed (it timed out, the isolate died, or they were
- * queued by ros-runner, which has no hook): queued since the adjudicator was switched on, older
+ * queued by cos-runner, which has no hook): queued since the adjudicator was switched on, older
  * than the grace period, still pending and without a verdict. Oldest first, at most `limit`.
  */
 export async function runAdjudicatorSweep(

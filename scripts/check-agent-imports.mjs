@@ -4,7 +4,7 @@
 // `packages/agent-*` are MIT licensed and reusable outside the CRM, so they may depend only on each
 // other, `zod`, `ai`, `agents` and React (as a peer). This check, run by `pnpm lint`, fails when:
 // - a package.json lists any other runtime or peer dependency (dev dependencies may hold test
-//   tooling, but never another @relationship-os package except the shared config);
+//   tooling, but never another @composable-os package except the shared config);
 // - a source file imports anything else (static, dynamic, `export … from` and `require`);
 // - a relative import leaves the package directory, or any import points into packages/core or
 //   apps/.
@@ -15,7 +15,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ALLOWED = [
-  /^@relationship-os\/agent-[a-z0-9-]+(\/.*)?$/,
+  /^@composable-os\/agent-[a-z0-9-]+(\/.*)?$/,
   /^zod(\/.*)?$/,
   /^ai(\/.*)?$/,
   /^agents(\/.*)?$/,
@@ -86,9 +86,9 @@ export function checkAgentImports(root) {
     const devDeps = Object.keys(pkg.devDependencies ?? {});
     for (const dep of devDeps) {
       if (
-        dep.startsWith("@relationship-os/") &&
+        dep.startsWith("@composable-os/") &&
         !allowedRuntime(dep) &&
-        dep !== "@relationship-os/config"
+        dep !== "@composable-os/config"
       ) {
         problems.push(
           `${relative(root, pkgPath)}: devDependencies may not include "${dep}" (ADR 0350)`,
@@ -121,8 +121,8 @@ export function checkAgentImports(root) {
           if (
             inTests &&
             (pkgOf === "vitest" ||
-              (devDeps.includes(pkgOf) && !pkgOf.startsWith("@relationship-os/")) ||
-              pkgOf === "@relationship-os/config")
+              (devDeps.includes(pkgOf) && !pkgOf.startsWith("@composable-os/")) ||
+              pkgOf === "@composable-os/config")
           ) {
             continue;
           }

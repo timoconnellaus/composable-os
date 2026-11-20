@@ -1,18 +1,18 @@
-// The RPC surface ros-app calls over the RUNNER service binding. Kept free of the Worker's Env so
-// ros-app can import the types without type-checking runner source against its own Env.
+// The RPC surface cos-app calls over the RUNNER service binding. Kept free of the Worker's Env so
+// cos-app can import the types without type-checking runner source against its own Env.
 import type {
   AutomationHost,
   ExtensionHost,
   IntegrationRuntime,
   ShippedInstallResult,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import type { HelloOutput } from "./hello-workflow.ts";
 
 export type { HelloOutput } from "./hello-workflow.ts";
 
 export interface PingResult {
   ok: true;
-  worker: "ros-runner";
+  worker: "cos-runner";
   time: string;
 }
 
@@ -34,11 +34,11 @@ export interface WorkflowRunStatus {
 }
 
 /**
- * ros-runner's RPC: liveness, the stage 0 Workflow smoke test, and the extension host (ADR 0025),
+ * cos-runner's RPC: liveness, the stage 0 Workflow smoke test, and the extension host (ADR 0025),
  * which forwards to the extension workspace Durable Object.
  */
 export interface RunnerRpc extends ExtensionHost, AutomationHost {
-  /** Liveness check, shown on ros-app's /api/health. */
+  /** Liveness check, shown on cos-app's /api/health. */
   ping(): Promise<PingResult>;
   /** Starts the hello-world Workflow (stage 0 smoke test). */
   startHelloWorkflow(name: string): Promise<{ id: string }>;

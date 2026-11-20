@@ -36,7 +36,7 @@ const TRACKERS = [
 ];
 
 /** Origins a page may link to with <a href> (navigation, not loading). */
-const LINKABLE = ["https://relationshiposcrm.com", "https://github.com/timoconnellaus/"];
+const LINKABLE = ["https://composableos.dev", "https://github.com/timoconnellaus/"];
 
 function* files(dir) {
   for (const name of readdirSync(dir)) {

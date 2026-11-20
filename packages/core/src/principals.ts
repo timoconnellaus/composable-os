@@ -14,7 +14,7 @@ export const RISK_CLASSES = [
 export type RiskClass = (typeof RISK_CLASSES)[number];
 
 /** Who initiated an operation. */
-/** `extension`: extension code calling operations through `codemode:crm` (ADR 0025). */
+/** `extension`: extension code calling operations through `codemode:ops` (ADR 0025). */
 export const ACTORS = ["human", "assistant", "mcp", "automation", "extension"] as const;
 export type Actor = (typeof ACTORS)[number];
 

@@ -1,7 +1,7 @@
 # Deals (shipped extension)
 
 Pipelines of ordered, typed stages; deals that move through them; and the people on each deal
-(ADR 0026). It is built only on the public contract (`@relationship-os/sdk`) and runs through the same runtime
+(ADR 0026). It is built only on the public contract (`@composable-os/sdk`) and runs through the same runtime
 and permission model as AI-written extensions, as principal `extension:deals`.
 
 ## Objects
@@ -33,14 +33,14 @@ multi-select of deal fields.
 - Probability follows the stage unless set by hand; clear "Probability set by hand" to reset it.
 - Status mirrors the stage type; the won/lost date is set on entering Won/Lost and cleared on
   reopening. Both are read-only.
-- Every move is recorded in stage history (`crm_stage_history`) and posted as "Moved to <stage>" on
+- Every move is recorded in stage history (`rec_stage_history`) and posted as "Moved to <stage>" on
   the deal and its organisation.
 
 ## Tools
 
 - `x.deals.stageMetrics { pipelineId, since? }` (read): per stage, deals entered, in it now and
   average days in it; for won deals, the count, average days from entering the pipeline to winning
-  and the value won. It reads `crm_stage_history` through `query.sql`.
+  and the value won. It reads `rec_stage_history` through `query.sql`.
 
 ## Automations (stage 5, ADR 0028)
 

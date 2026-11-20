@@ -4,7 +4,7 @@
 import type {
   ConfiguratorUISpec,
   ConfiguratorUIValues,
-} from "@relationship-os/gatekeeper-configurator-ui";
+} from "@composable-os/gatekeeper-configurator-ui";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";

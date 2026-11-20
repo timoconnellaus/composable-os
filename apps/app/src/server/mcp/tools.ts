@@ -3,7 +3,6 @@
 // and operations marked `mcp: { expose: false }` are invisible and uncallable. Every reviewable
 // (non-read) call takes a required `reason`, stored on the pending action when it is queued.
 
-import { McpServer, type StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import {
   type AnyOperation,
   coreRegistry,
@@ -23,22 +22,25 @@ import {
   toOperationError,
   UnknownOperationError,
   ValidationError,
-} from "@relationship-os/core";
-import type { CrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import type { CrmDb } from "@composable-os/db";
+import { product } from "@composable-os/products/active";
+import { McpServer, type StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
-export const SERVER_NAME = "relationship-os";
+/** The server's name: the product's id. */
+export const SERVER_NAME = product.id;
 export const SCHEMA_RESOURCE_URI = "crm://schema";
 
-export const SERVER_INSTRUCTIONS = `This server is Relationship OS, an AI-native CRM: people, organisations, their activities (notes, emails, calls, meetings) and tasks.
+export const SERVER_INSTRUCTIONS = `This server is ${product.strings.name}, built on Composable OS: people, organisations, their activities (notes, emails, calls, meetings) and tasks.
 
 - Search before you create. Use search_global (or person_get / organisation_get) to find a record first; emails and domains are unique, so creating a duplicate fails with a conflict.
 - Always give a reason. Every tool that changes data takes a required "reason": one sentence a person reviewing the change will read. Make it specific ("Logged the call Ada described in her email of 3 Nov").
 - Some changes need approval. Depending on the org's approval policy, a write may come back as {"status": "pending_approval", ...} instead of applying. It is NOT done: it waits in a change set for a person to approve it in the CRM's Approvals inbox. Say so plainly to the user. Until it is decided, your own reads in this session show it as if applied, and a created record has a provisional id (per_pending_…) you can link activities and tasks to. Check progress with approval_status; once applied, its bindings give the real ids.
 - Group a task with changeset_begin (give it a title) and changeset_commit when done, so the reviewer sees one coherent change set.
-- Analysis: query_sql runs read-only SQL (one SELECT or WITH) over the crm_* views (crm_people, crm_organisations, crm_affiliations, crm_activities, crm_activity_links, crm_tasks, crm_task_links, crm_record_tags, crm_users). Read the crm://schema resource for objects, fields and operations.
-- Code Mode: the code tool runs a short ES module that calls operations through import { crm } from "codemode:crm", as you and under the same approval rules. Use it for work that needs many calls or some logic; for many records use one *Many operation (one reviewable change), not a loop.
-- Extensions reshape the CRM with code: new objects, fields on people and organisations, formula fields, views and tools. Write the files with extension_write (index.ts default-exports defineExtension({...}) from @relationship-os/sdk; extension_read id "deals" shows a complete one), run extension_check and fix every issue, then extension_propose. Nothing is installed until a person approves the proposal in the Approvals inbox. Authoring needs the admin scope.
+- Analysis: query_sql runs read-only SQL (one SELECT or WITH) over the rec_* views (rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user). Read the crm://schema resource for objects, fields and operations.
+- Code Mode: the code tool runs a short ES module that calls operations through import { ops } from "codemode:ops", as you and under the same approval rules. Use it for work that needs many calls or some logic; for many records use one *Many operation (one reviewable change), not a loop.
+- Extensions reshape the CRM with code: new objects, fields on people and organisations, formula fields, views and tools. Write the files with extension_write (index.ts default-exports defineExtension({...}) from @composable-os/sdk; extension_read id "deals" shows a complete one), run extension_check and fix every issue, then extension_propose. Nothing is installed until a person approves the proposal in the Approvals inbox. Authoring needs the admin scope.
 - Automations (defineAutomation in an extension) do exactly what the user asked, no more. Add no condition, filter, recipient, assignee or step they did not ask for: no "only open deals", no assignTo when they named no assignee, the admins when they said admins (not a manager). The shipped automations (e.g. in "deals") show the API, not what to build: copy their shape, not their conditions or recipients. If something you need is unspecified, ask, or pick the plainest reading and say what you assumed. Recipients: "admins" (a plain string) is every admin; { field: "owner" } is the user in a user field of the trigger record; { managerOf: "owner" } is that user's manager; { userId } is one user. Declare every write, notification and wait: the host writes the summary approvers read from those declarations, and extension_propose returns it (impact.triggers[].summary). Check it covers each thing asked (trigger, timing, records, links, recipients) and adds nothing, and restate each of them in your reply.
 - The curated tools cover common work. For anything else, describe_operations lists every operation you may call with its input schema, and call_operation runs one by name.`;
 
@@ -164,7 +166,7 @@ function passthroughSchema(json: JsonSchema): StandardSchemaWithJSON<Args, Args>
   return {
     "~standard": {
       version: 1 as const,
-      vendor: "relationship-os",
+      vendor: "composable-os",
       validate: (value: unknown) =>
         value && typeof value === "object" && !Array.isArray(value)
           ? { value: value as Args }
@@ -300,7 +302,7 @@ const callInput = z.object({
 /** Builds the MCP server for one request. */
 export function createCrmMcpServer(caller: McpCaller, version: string): McpServer {
   const server = new McpServer(
-    { name: SERVER_NAME, title: "Relationship OS", version },
+    { name: SERVER_NAME, title: `${product.strings.name}`, version },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
@@ -390,7 +392,7 @@ export function createCrmMcpServer(caller: McpCaller, version: string): McpServe
     "schema",
     SCHEMA_RESOURCE_URI,
     {
-      title: "Relationship OS schema",
+      title: `${product.strings.name} schema`,
       description:
         "Objects and their fields, and the operations you can call with their risk classes.",
       mimeType: "application/json",

@@ -3,14 +3,14 @@
 // Reject for people who may approve them, test-mode reports of proposed automations, day dividers,
 // times, and Delete on each message), "Search this chat", and the composer.
 
-import { splitSpoken } from "@relationship-os/agent-voice/text";
-import type { AssistantContext, RoutineWhy, TranscriptItem } from "@relationship-os/core/client";
-import { memorySaveOf } from "@relationship-os/core/client";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { Input } from "@relationship-os/ui/components/input";
-import { Textarea } from "@relationship-os/ui/components/textarea";
-import { cn } from "@relationship-os/ui/lib/utils";
+import { splitSpoken } from "@composable-os/agent-voice/text";
+import type { AssistantContext, RoutineWhy, TranscriptItem } from "@composable-os/core/client";
+import { memorySaveOf } from "@composable-os/core/client";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { Input } from "@composable-os/ui/components/input";
+import { Textarea } from "@composable-os/ui/components/textarea";
+import { cn } from "@composable-os/ui/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import {

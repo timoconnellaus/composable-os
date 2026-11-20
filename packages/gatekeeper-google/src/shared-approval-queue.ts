@@ -11,7 +11,7 @@ import { RpcStub, RpcTarget } from "cloudflare:workers";
 import { skipRpcValidation, validateRpc } from "capnweb-validate";
 import type {
   ActionDescription, ApprovalQueue, Cursor, HookController, HookDescription, ObservationDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 import type { Pager } from "./cursor";
 
 export class SharedApprovalQueue {

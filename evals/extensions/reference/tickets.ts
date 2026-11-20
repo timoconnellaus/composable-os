@@ -1,5 +1,5 @@
 // Reference answer for the `ticket-tool` prompt: an object and a read-only tool over it.
-import { defineExtension, defineTool, z } from "@relationship-os/sdk";
+import { defineExtension, defineTool, z } from "@composable-os/sdk";
 
 const countOpenTickets = defineTool({
   description: "Count the open tickets of one organisation. Read-only.",
@@ -7,7 +7,7 @@ const countOpenTickets = defineTool({
   input: z.object({ organisationId: z.string().min(1) }),
   output: z.object({ organisationId: z.string(), open: z.number() }),
   async handler({ organisationId }, ctx) {
-    const page = await ctx.crm.call<{ items: unknown[] }>("record.list", {
+    const page = await ctx.ops.call<{ items: unknown[] }>("record.list", {
       object: "tickets.ticket",
       filter: {
         and: [
@@ -26,7 +26,7 @@ export default defineExtension({
   version: "1.0.0",
   contractVersion: 1,
   label: "Tickets",
-  permissions: { read: ["organisation"], modules: ["crm"] },
+  permissions: { read: ["organisation"], modules: ["ops"] },
   objects: {
     ticket: {
       label: "Ticket",

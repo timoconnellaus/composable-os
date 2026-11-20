@@ -1,5 +1,5 @@
 // The deploy engine (ADR 0163): puts a verified release bundle into a Cloudflare account through
-// the REST API. Used by `create-relationship-os` (install), `ros upgrade` and the self-updater.
+// the REST API. Used by `create-composable-os` (install), `cos upgrade` and the self-updater.
 //
 //   provision resources (find by name, else create)   idempotent
 //   apply pending core migrations                      bookkept in core_migrations
@@ -12,7 +12,6 @@
 import type { ReleaseBundle } from "./bundle.ts";
 import { CloudflareApiError, type CloudflareClient, type ModulePart } from "./cloudflare.ts";
 import { toBase64 } from "./hash.ts";
-import { currentName, legacyName } from "./legacy.ts";
 import {
   type DurableObjectMigration,
   deployOrder,
@@ -60,7 +59,7 @@ export interface DeploymentState {
    * with `--ai-gateway off`. Absent means the default, named after the install.
    */
   aiGateway?: string | false;
-  /** The gateway was created by this deployment (so `ros uninstall` deletes it). */
+  /** The gateway was created by this deployment (so `cos uninstall` deletes it). */
   aiGatewayCreated?: boolean;
   /** The id of the generated gateway token stored as AI_GATEWAY_TOKEN. */
   aiGatewayTokenId?: string;
@@ -73,12 +72,12 @@ export interface DeploymentState {
   workerNames: Record<string, string>;
   /**
    * Deployed resource names (D1, R2, KV, queues, Vectorize, Workflows) when they differ from the
-   * manifest's: a pre-rename install keeps its `crm-*` names (legacy.ts, ADR 0190).
+   * manifest's: a hosted tenant's carry its id (ADR 0210).
    */
   resourceNames?: Record<string, string>;
   /** Plain var overrides per Worker (e.g. IDENTITY_PROVIDER, APPROVAL_FLOOR). */
   vars: Record<string, Record<string, string>>;
-  /** Resolved resource placeholders, e.g. `D1_ID(ros)` → its uuid. */
+  /** Resolved resource placeholders, e.g. `D1_ID(demo)` → its uuid. */
   resources: Record<string, string>;
   /** sha256 of the installed bundle. */
   bundleDigest?: string;
@@ -194,17 +193,17 @@ export function neededResources(
   gatekeepers: string[],
   features: Pick<DeploymentState, "ai"> = {},
 ): ResourceEntry[] {
-  const installed = new Set(gatekeepers.map(currentName));
+  const installed = new Set(gatekeepers);
   return manifest.resources.filter(
     (r) =>
-      (!r.optional || r.usedBy.some((worker) => installed.has(currentName(worker)))) &&
+      (!r.optional || r.usedBy.some((worker) => installed.has(worker))) &&
       (!r.feature || featureOn(features, r.feature)),
   );
 }
 
 /**
  * Finds or creates each resource by its deployed name (`names`, else the manifest's). Returns
- * resolved placeholders (`D1_ID(ros)` → id).
+ * resolved placeholders (`D1_ID(demo)` → id).
  */
 export async function provisionResources(
   api: CloudflareClient,
@@ -286,14 +285,7 @@ export async function provisionResources(
 export function databaseIdOf(manifest: ReleaseManifest, resources: Record<string, string>): string {
   const d1 = manifest.resources.find((r) => r.type === "d1");
   const key = d1?.placeholder?.slice(1);
-  // Across the rename (ADR 0190) the state and the manifest may name the database differently.
-  const renamed = (k: string, to: (name: string) => string) =>
-    k.replace(/\((.*)\)$/, (_, name: string) => `(${to(name)})`);
-  const id = key
-    ? (resources[key] ??
-      resources[renamed(key, currentName)] ??
-      resources[renamed(key, legacyName)])
-    : undefined;
+  const id = key ? resources[key] : undefined;
   if (!id) throw new Error("the release has no D1 database, or it was not provisioned");
   return id;
 }
@@ -344,9 +336,7 @@ export function placeholderValues(
     hostname: state.hostname,
     workerName: (name) => workerName(state, name),
     resource: (kind, name) => {
-      // A pre-rename release's manifest (a rollback across the rename) names `crm…` resources.
-      const value =
-        state.resources[`${kind}(${name})`] ?? state.resources[`${kind}(${currentName(name)})`];
+      const value = state.resources[`${kind}(${name})`];
       if (value === undefined) throw new Error(`resource ${kind}(${name}) was not provisioned`);
       return value;
     },
@@ -362,7 +352,7 @@ export function workerBindings(
   secrets: Record<string, string>,
 ): ManifestBinding[] {
   const values = placeholderValues(state, secrets);
-  const overrides = state.vars[worker.name] ?? state.vars[currentName(worker.name)] ?? {};
+  const overrides = state.vars[worker.name] ?? {};
   const wanted = worker.bindings
     .filter((b) => !b.feature || featureOn(state, b.feature))
     .map(({ feature: _feature, ...binding }) => binding as ManifestBinding);
@@ -371,7 +361,7 @@ export function workerBindings(
     if (binding.type === "plain_text" && overrides[binding.name] !== undefined) {
       return { ...binding, text: overrides[binding.name] };
     }
-    // Workflows are named in the binding itself; a pre-rename install keeps its names.
+    // Workflows are named in the binding itself, so a deployed name is written into it.
     const workflow = (binding as { workflow_name?: string }).workflow_name;
     if (binding.type === "workflow" && workflow && deployedNames[workflow]) {
       return { ...binding, workflow_name: deployedNames[workflow] } as ManifestBinding;
@@ -384,13 +374,14 @@ export function workerBindings(
   if (worker.gatekeeperBindings) {
     const { prefix, entrypoint } = worker.gatekeeperBindings;
     for (const gk of manifest.workers) {
-      if (gk.role !== "gatekeeper" || !gk.shortName || !hasGatekeeper(state, gk.name)) continue;
+      if (gk.role !== "gatekeeper" || !gk.shortName || !state.gatekeepers.includes(gk.name))
+        continue;
       const name = gatekeeperBindingName(prefix, gk.shortName);
       if (bindings.some((b) => b.name === name)) continue;
       bindings.push({ type: "service", name, service: workerName(state, gk.name), entrypoint });
     }
   }
-  // Any secret value supplied but not declared in the manifest (e.g. ROS_UPDATE_TOKEN set late).
+  // Any secret value supplied but not declared in the manifest (e.g. COS_UPDATE_TOKEN set late).
   for (const [name, text] of Object.entries(secrets)) {
     if (!bindings.some((b) => b.name === name)) bindings.push({ type: "secret_text", name, text });
   }
@@ -449,17 +440,11 @@ export interface DeployResult {
   workers: { name: string; deployedAs: string; via: "version" | "upload" }[];
 }
 
-/**
- * Whether the gatekeeper `name` is installed. Compared across the rename (ADR 0190), so a
- * pre-rename state and a renamed manifest, or the other way round in a rollback, agree.
- */
-function hasGatekeeper(state: Pick<DeploymentState, "gatekeepers">, name: string): boolean {
-  return state.gatekeepers.some((g) => currentName(g) === currentName(name));
-}
-
 /** Workers this deployment runs: every required Worker plus installed gatekeepers. */
 export function selectedWorkers(manifest: ReleaseManifest, state: DeploymentState): WorkerEntry[] {
-  return deployOrder(manifest.workers).filter((w) => !w.optional || hasGatekeeper(state, w.name));
+  return deployOrder(manifest.workers).filter(
+    (w) => !w.optional || state.gatekeepers.includes(w.name),
+  );
 }
 
 /** The client for this deployment's scripts: its dispatch namespace, if it has one (ADR 0210). */
@@ -515,7 +500,7 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
       ...(worker.observability ? { observability: worker.observability } : {}),
       ...(assetsJwt ? { assets: { jwt: assetsJwt, config: worker.assets?.config ?? {} } } : {}),
       annotations: {
-        "workers/message": `Relationship OS ${manifest.version}`,
+        "workers/message": `${manifest.productLabel} ${manifest.version}`,
         "workers/tag": manifest.version,
       },
       ...(namespaced && state.tags?.length ? { tags: state.tags } : {}),
@@ -550,7 +535,7 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
         state.accountId,
         item.deployedName,
         item.versionId,
-        `Relationship OS ${manifest.version}`,
+        `${manifest.productLabel} ${manifest.version}`,
       );
       result.push({ name: item.worker.name, deployedAs: item.deployedName, via: "version" });
     } else {
@@ -594,17 +579,21 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
   return { url: `https://${state.hostname}`, workers: result };
 }
 
-/** Resolves the public hostname for workers.dev mode: `<app>.<subdomain>.workers.dev`. */
+/**
+ * Resolves the public hostname for workers.dev mode: `<app>.<subdomain>.workers.dev`. An account
+ * with no workers.dev subdomain gets `<subdomainPrefix>-<start of the account id>`.
+ */
 export async function workersDevHostname(
   api: CloudflareClient,
   accountId: string,
   appWorker: string,
+  subdomainPrefix: string,
 ): Promise<string> {
   let subdomain = await api.workersSubdomain(accountId);
   if (!subdomain) {
     subdomain = await api.createWorkersSubdomain(
       accountId,
-      `ros-${accountId.slice(0, 8).toLowerCase()}`,
+      `${subdomainPrefix}-${accountId.slice(0, 8).toLowerCase()}`,
     );
   }
   return `${appWorker}.${subdomain}.workers.dev`;

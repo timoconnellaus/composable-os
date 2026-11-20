@@ -11,7 +11,7 @@
 // check still moves with each day of a schedule. Typed checks cost a call each, so they run only on
 // the newest few events, and the card says the count is from before them. Deterministic flags say
 // when there is no data, or when the trigger is very broad.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { addDaysToDate, cronFires, zonedTime } from "../automations/cron.ts";
 import { idsMatchingConditions, loadTriggerRecord, recordsOnDate } from "../automations/records.ts";
@@ -169,7 +169,7 @@ async function syncEvents(
 ): Promise<PastEvent[]> {
   const type = event.startsWith("email") ? "email" : "meeting";
   const rows = await sql<{ id: string; occurred_at: string }>`
-    SELECT id, occurred_at FROM crm_activities
+    SELECT id, occurred_at FROM rec_activity
     WHERE type = ${type} AND occurred_at >= ${since}
     ORDER BY occurred_at DESC LIMIT ${MAX_EVENTS}
   `.execute(db);

@@ -13,9 +13,8 @@
 // Fulcio, transparency log inclusion) is `gh attestation verify`, which the CLI also runs when
 // `gh` is installed; the Workers-side updater relies on the store check. See ADR 0162.
 import { parseSums, releaseAssetNames } from "./bundle.ts";
-import { type GitHubOptions, githubJson } from "./github.ts";
+import { githubJson, type RequestOptions } from "./github.ts";
 import { fromBase64, sameDigest, sha256Hex } from "./hash.ts";
-import { legacyReleaseAssetNames, sameRepository } from "./legacy.ts";
 
 export const RELEASE_WORKFLOW_PATH = ".github/workflows/release.yml";
 export const SLSA_PROVENANCE_V1 = "https://slsa.dev/provenance/v1";
@@ -102,7 +101,7 @@ export function snappyDecompress(input: Uint8Array): Uint8Array {
 
 async function loadBundle(
   attestation: NonNullable<AttestationsResponse["attestations"]>[number],
-  options: GitHubOptions,
+  options: RequestOptions,
 ): Promise<unknown> {
   if (attestation.bundle) return attestation.bundle;
   if (!attestation.bundle_url) return null;
@@ -138,7 +137,7 @@ export function decodeStatement(bundle: unknown): InTotoStatement | null {
 export async function verifyProvenance(
   digest: string,
   expected: { repository: string; version: string },
-  options: GitHubOptions = {},
+  options: RequestOptions = {},
 ): Promise<ProvenanceCheck> {
   let response: AttestationsResponse;
   try {
@@ -152,7 +151,6 @@ export async function verifyProvenance(
     );
   }
   const wantRepo = `https://github.com/${expected.repository}`;
-  // A release built before a repo rename names the old repository (legacy.ts).
   const wantRef = `refs/tags/v${expected.version}`;
   const reasons: string[] = [];
   for (const attestation of response.attestations ?? []) {
@@ -206,10 +204,19 @@ export async function verifyProvenance(
 }
 
 /** A full (Sigstore) verifier the CLI may add, e.g. one that shells out to `gh attestation verify`. */
+/** Whether `actual` (an `owner/repo` or its github.com URL) is the repository `expected`. */
+export function sameRepository(actual: string | undefined, expected: string): boolean {
+  if (!actual) return false;
+  const norm = (r: string) => r.toLowerCase().replace(/^https:\/\/github\.com\//, "");
+  return norm(actual) === norm(expected);
+}
+
 export type ExtraVerifier = (input: {
   bytes: Uint8Array;
   digest: string;
   repository: string;
+  /** The product's id. */
+  product: string;
   version: string;
 }) => Promise<void>;
 
@@ -224,17 +231,18 @@ export interface VerifiedArtifact {
  */
 export async function verifyBundleBytes(input: {
   bytes: Uint8Array;
+  /** The product's id, which names the bundle in SHA256SUMS. */
+  product: string;
   version: string;
   sums: string;
   repository: string;
-  github?: GitHubOptions;
+  github?: RequestOptions;
   extra?: ExtraVerifier;
   skipProvenance?: boolean;
 }): Promise<VerifiedArtifact> {
   const digest = await sha256Hex(input.bytes);
   const sums = parseSums(input.sums);
-  const legacyName = legacyReleaseAssetNames(input.version).bundle;
-  const name = sums.has(legacyName) ? legacyName : releaseAssetNames(input.version).bundle;
+  const name = releaseAssetNames(input.product, input.version).bundle;
   const listed = sums.get(name);
   if (!listed) throw new VerificationError(`SHA256SUMS does not list ${name}`);
   if (!sameDigest(listed, digest)) {
@@ -246,13 +254,14 @@ export async function verifyBundleBytes(input: {
   const provenance = await verifyProvenance(
     digest,
     { repository: input.repository, version: input.version },
-    { ...input.github, repository: input.repository },
+    input.github ?? {},
   );
   if (input.extra) {
     await input.extra({
       bytes: input.bytes,
       digest,
       repository: input.repository,
+      product: input.product,
       version: input.version,
     });
   }

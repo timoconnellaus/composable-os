@@ -1,5 +1,5 @@
 // The prompt file is valid: 10 prompts, unique ids, accepted types the CRM has, and a reference
-// widget whose type is accepted. @relationship-os/core is loaded at runtime (vitest transforms its sources).
+// widget whose type is accepted. @composable-os/core is loaded at runtime (vitest transforms its sources).
 import { describe, expect, it } from "vitest";
 import { loadCore } from "../lib/core.ts";
 import { DESCRIBE_OPENING } from "../lib/harness.ts";
@@ -32,11 +32,11 @@ describe("prompts", () => {
     }
   });
 
-  it("reads only crm_* views in the reference SQL", () => {
+  it("reads only rec_* views in the reference SQL", () => {
     for (const task of tasks) {
       const views = [...String(task.reference.sql).matchAll(/\bfrom\s+(\w+)/gi)].map((m) => m[1]);
       expect(views.length, task.id).toBeGreaterThan(0);
-      for (const view of views) expect(view, task.id).toMatch(/^crm_/);
+      for (const view of views) expect(view, task.id).toMatch(/^rec_/);
     }
   });
 

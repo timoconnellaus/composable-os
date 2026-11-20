@@ -2,29 +2,47 @@
 
 Use these words exactly, in code, docs and UI copy. Add to this file when a new term earns its place.
 
-**Relationship OS**
-The product: an AI-native CRM that runs in your own Cloudflare account (ADR 0190). Short name
-`ros` in Worker and resource names (`ros-app`, `ros-runner`, `ros-records`), `relationship-os` in
-package names (`@relationship-os/*`, `create-relationship-os`). "CRM" stays the category word, and
-the name of the operations API inside extension code (`codemode:crm`, `ctx.crm`, the `crm_*` views).
-_Avoid_: "the CRM" as the product name in UI copy
+**Composable OS** (the **platform**)
+The platform: a trusted host on Cloudflare that products are composed on (ADR 0400). It is the
+host, the SDK and contract, the gatekeepers, the release and install machinery and, from stage 23,
+the typed client. Packages and local development name Workers and resources with its local prefix
+`cos` (`cos-app`, `cos-runner`, `cos-records`); packages are `@composable-os/*`, and the installer
+is `create-composable-os` (its command is `cos`). Site: composableos.dev.
+_Avoid_: framework, engine
 
-**Pre-rename install**
-A deployment made by a release from before the rename: Workers `crm-app`, `crm-runner`,
-`crm-gatekeeper-*`, the D1 database `crm` and `crm-*` resources. It keeps those names for good; the
-deploy engine maps the new names onto them (`workerNames`, `resourceNames`).
+**Product**
+A named composition: which packs are on, the org's own extensions, names and branding, and (from
+stage 24) client apps. It is defined in a **product definition**, today `products/<id>/product.ts`
+in this repository and, from stage 24, in the product's client repo. The CRM is a product sold to
+many orgs; Ghetto Movement (stage 27) is a product for one org. A product's id names its
+deployment's Workers and resources (`crm-app`, `ghetto-app`). Nothing in the data model knows about
+products.
+
+**CRM**
+The first product on Composable OS: an AI-native CRM that runs in your own Cloudflare account,
+defined in `products/crm/product.ts`. Its name is "CRM", and "the CRM" is fine as the product's name
+in prose and UI copy. A deployment of it is named for it (`crm-app`, `crm-runner`, database `crm`).
+The operations API inside extension code is the platform's, not the CRM's: `codemode:ops`,
+`ctx.ops` and the `rec_*` views.
 
 **Deployment**
-One installed copy of the CRM in one organisation's Cloudflare account. It holds one org's data and is
-the isolation boundary. There is no tenant id in the data model.
+One installed copy of a product (today, the CRM) in one organisation's Cloudflare account. It holds
+one org's data and is the isolation boundary. There is no tenant id in the data model.
 _Avoid_: tenant, instance (except "Cloudflare OS instance" when quoting upstream)
+
+**Host**
+The trusted Workers of one deployment: the app Worker (staff UI, `/mcp`, the operations registry
+and approval pipeline and, from stage 23, the HTTP surface), the runner Worker and the gatekeeper
+Workers. Client apps and extension code reach it only through operations.
 
 **Org**
 The organisation that owns a deployment. Its users, settings and policy live in that deployment.
 
-**Core object**
+**Core object** / **base record**
 A built-in record type with core tables and migrations: **Person**, **Organisation**, **Activity**,
-**Task**.
+**Task**. They were the CRM's core objects and are now every product's **base records** (ADR
+0400): a record type every product has. "Core object" is the word in code and in the earlier
+documents; "base record" is the word when talking about products. Stage 25 adds **Order**.
 _Avoid_: Contact (use Person), Company/Account (use Organisation)
 
 **Affiliation**
@@ -52,7 +70,7 @@ while Deals is installed, else the Overview.
 
 **Widget**
 One tile on a dashboard: KPI, bar, line, donut, funnel, table, leaderboard or markdown. Data
-widgets run read-only SQL over `crm_*` views with named params bound from the dashboard's filters.
+widgets run read-only SQL over `rec_*` views with named params bound from the dashboard's filters.
 
 **Click-through**
 A widget's filter template: clicking a segment, KPI or row opens the matching records as a
@@ -145,7 +163,8 @@ One entry on a record's timeline: a note, email, call, meeting or system event.
 **Operation**
 One thing a user or AI can do, defined once in the operations registry with zod input/output, a
 model-facing description, a permission and a risk class. It is exposed as a server function, an MCP
-tool and a host module.
+tool and a host module and, from stage 23, over HTTP (each is a **surface**). From stage 22 it also
+declares its **audiences**.
 _Avoid_: endpoint, action (an "action" is a gatekeeper term, below)
 
 **Permission**
@@ -162,7 +181,7 @@ How dangerous an operation is: `read`, `write`, `bulk-write`, `destructive`, `sc
 
 **Actor**
 Who initiated an operation: `human`, `assistant` (in-app AI), `mcp` (an external MCP client),
-`automation`, `extension` (extension code through `codemode:crm`).
+`automation`, `extension` (extension code through `codemode:ops`).
 
 **Approval pipeline**
 Gate → policy adjudicator → human queue, configured per org. It decides whether an operation applies
@@ -234,9 +253,12 @@ never met (ADR 0233).
 _Avoid_: prompt, rules file
 
 **Extension**
-A unit of customisation written as code against the SDK contract (`defineObject`, `defineDashboard`,
-`defineAutomation`, `defineTool`). A **shipped extension** lives in `extensions/`. A **runtime
-extension** is written by AI and stored in the extension workspace.
+A unit of customisation written as code against the SDK contract: one `defineExtension` manifest
+and its files (objects, fields, views, automations, tools; `defineObject`, `defineDashboard`,
+`defineAutomation`, `defineTool`). The unit of the contract (ADR 0023). A **shipped extension**
+ships with the platform: today in `extensions/`, and from stage 24 as part of a **pack** (an org's
+own extensions in its client repo are shipped extensions of its product). A **runtime extension**
+is written by AI in a deployment, approved there and stored in the extension workspace.
 _Avoid_: package (that means a pnpm workspace package), plugin, app
 
 **Extension workspace**
@@ -245,7 +267,7 @@ source and the build cache. A commit is a version, approval reviews a diff, and 
 revert. It runs no code: the executor does.
 
 **Executor**
-What runs extension code, from ros-runner's stateless entrypoint (and from Workflow steps in stage
+What runs extension code, from cos-runner's stateless entrypoint (and from Workflow steps in stage
 5). Each run gets a Dynamic Worker from `LOADER.get` with a **stable loader id**, and its context
 arrives as RPC arguments.
 _Avoid_: sandbox host (for the DO)
@@ -288,7 +310,7 @@ _Avoid_: fork
 
 **Code Mode**
 The MCP `code` tool: a short ES module the client model writes runs in a throwaway sandbox as the
-connected user (actor `mcp`), calling operations through `codemode:crm` under the same gate and
+connected user (actor `mcp`), calling operations through `codemode:ops` under the same gate and
 simulation as the other tools. It needs write permission, runs one script per user at a time, and
 is rate limited.
 
@@ -299,7 +321,7 @@ and runs in the sandbox.
 **Formula field**
 An extension field computed from other fields of the same record by a small typed expression
 (`coalesce(budget, 0) - coalesce(spent, 0)`). It is parsed and type-checked by `extension.check`,
-compiled to SQL in the `crm_*` view, so it can be filtered and sorted, and it is never written. No
+compiled to SQL in the `rec_*` view, so it can be filtered and sorted, and it is never written. No
 cross-record rollups.
 
 **Deal**
@@ -358,7 +380,7 @@ records with stage rules, probability, status, a closed date, stage history and 
 Deals uses it; AI-written extensions can too.
 
 **Stage history**
-One row per stage a record has been in, with entered and left times (`crm_stage_history`). It powers
+One row per stage a record has been in, with entered and left times (`rec_stage_history`). It powers
 time in stage and velocity.
 
 **Base currency**
@@ -428,7 +450,7 @@ _Avoid_: emergency stop, pause all
 A typed message to one user in the in-app notification centre (the bell and inbox), with a link
 to a record, approval, automation or run, read or unread. Sent with `notification.send` by
 automations, approvals and the system. Its type routes it to email or Slack per the recipient's
-preferences (ros-runner's minute cron delivers them, ADR 0172).
+preferences (cos-runner's minute cron delivers them, ADR 0172).
 _Avoid_: alert, message (when you mean the stored notification)
 
 **Notification preference**
@@ -456,7 +478,7 @@ escalation is never escalated.
 
 **Host module**
 A `codemode:*` import that extension code can call, backed by trusted host code. Examples:
-`codemode:crm` (operations), `codemode:ai` (model roles), `codemode:<gatekeeper>`.
+`codemode:ops` (operations), `codemode:ai` (model roles), `codemode:<gatekeeper>`.
 
 **Gatekeeper**
 A Worker that mediates all access to one external service. It handles OAuth accounts, exposes a
@@ -476,7 +498,7 @@ endpoint), each served by one gatekeeper facet. Settings → Integrations manage
 _Avoid_: connected app (that is an MCP client), account (the provider's side)
 
 **Integration host**
-The Durable Object in ros-runner, one per connection, that implements the Workshop side of the
+The Durable Object in cos-runner, one per connection, that implements the Workshop side of the
 gatekeeper interface: it owns the connection's account, facets and hooks, runs the connect handoff,
 decides outbound actions and observations, and runs sync. D1 only mirrors its state for the UI.
 
@@ -501,12 +523,12 @@ a new domain), applied with `person.changeJob` on confirmation.
 
 **Integration event**
 An inbound event for automations: a verified webhook delivery (typed, e.g. `invoice.paid`) or a sync
-event (`email.received`, `meeting.updated`). Kept 90 days; ros-runner's minute cron turns them
+event (`email.received`, `meeting.updated`). Kept 90 days; cos-runner's minute cron turns them
 into `webhook` and `syncEvent` triggers and marks them consumed.
 
 **Outbox** (automation events)
 Where an operation's automation events are written in the same batch as its change, sent to the
-queue after commit and deleted; ros-runner's cron retries any that are left, so a failed send
+queue after commit and deleted; cos-runner's cron retries any that are left, so a failed send
 never loses an event.
 
 **Principal**
@@ -705,7 +727,7 @@ _Avoid_: test set, golden set
 
 **Model role preset**
 A named, ready deploy-config layer (`ROLE_PRESETS` in `roles.ts`) that one deployment chooses
-with `create-relationship-os --model-roles <name>` (or `ROS_AI_MODEL_ROLES` for `pnpm run deploy`). It
+with `create-composable-os --model-roles <name>` (or `COS_AI_MODEL_ROLES` for `pnpm run deploy`). It
 becomes that deployment's `AI_MODEL_ROLES` and never changes the shipped defaults. The first is
 `deepseek-flash`: every role but `embed` on DeepSeek V4.1 Flash with Workers AI fallbacks
 (ADR 0192).
@@ -725,16 +747,15 @@ _Avoid_: vector search (for the feature; Vectorize is the store)
 
 **View spec**
 The JSON a view is made of, rendered by our components: a discriminated union of `table`, `board`,
-`calendar`, `gallery` and `dashboard` (filters and widgets with read-only SQL over `crm_*` views
+`calendar`, `gallery` and `dashboard` (filters and widgets with read-only SQL over `rec_*` views
 and a chart mapping). See ADR 0056 and ADR 0057.
 
 **Release bundle**
-One versioned, reproducible `relationship-os-<version>.tar.gz` (`crm-<version>.tar.gz` before the
-rename, ADR 0190) holding every Worker's modules, ros-app's static
-assets, the core migrations and the **release manifest** (generated from the `wrangler.jsonc` files,
-with placeholders such as `$ACCOUNT_ID` and `$D1_ID(ros)` for account-specific values). Published as
-a GitHub Release asset with SHA256SUMS and a build attestation; `create-relationship-os` installs it and the
-**self-updater** upgrades to it. See ADR 0053 and ADR 0160.
+One versioned, reproducible `composable-os-crm-<version>.tar.gz` (for the CRM) holding every
+Worker's modules, cos-app's static assets, the core migrations and the **release manifest**
+(generated from the `wrangler.jsonc` files, with placeholders such as `$ACCOUNT_ID` and
+`$D1_ID(crm)` for account-specific values). Published as a GitHub Release asset with SHA256SUMS
+and a build attestation; `create-composable-os` installs it and the **self-updater** upgrades to it. See ADR 0053 and ADR 0160.
 _Avoid_: build, artifact (for the bundle as a whole), package
 
 **Channel**
@@ -748,7 +769,7 @@ secrets or inputs. A **blocker** refuses the update and says what to do. See ADR
 
 **Self-updater**
 Settings → Updates: a deployment updating itself from GitHub Releases with an optional scoped API
-token (`ROS_UPDATE_TOKEN`). It runs the same procedure as `ros upgrade`: pause automations, take a D1
+token (`COS_UPDATE_TOKEN`). It runs the same procedure as `cos upgrade`: pause automations, take a D1
 Time Travel bookmark, migrate, switch all Workers together, smoke-check, resume; **rollback**
 redeploys the previous bundle and restores the bookmark. See ADR 0054 and ADR 0164.
 
@@ -763,16 +784,16 @@ separate build session.
 
 **Hosted deployment**
 A deployment we run for a customer in our Cloudflare account (ADR 0210): user Workers in the
-Workers for Platforms dispatch namespace, reached at `<org>.relationshiposcrm.com`. Only the
+Workers for Platforms dispatch namespace, reached at `<org>.` on the hosted CRM's domain. Only the
 **control plane** calls it an *instance* (`cp_instances`) and knows its **tenant id** (`t…`), which
 prefixes its Worker and resource names and never appears in the deployment's data. The deployment
-sees it only as a deploy var (`ROS_TENANT_ID`), for the **tenant tag** on Platform AI calls and
+sees it only as a deploy var (`COS_TENANT_ID`), for the **tenant tag** on Platform AI calls and
 for signing its calls back to the control plane.
 
 **Control plane**
-`ros-control` at app.relationshiposcrm.com (`apps/control`): sign-up, plans, billing, provisioning,
-rollouts, support grants, export and delete. It never holds customer data. The **dispatch Worker**
-(`ros-dispatch`) routes each verified hostname to its deployment and runs tenants' crons.
+`crm-control` on the hosted CRM's `app.` host (`products/crm/apps/control`): sign-up, plans,
+billing, provisioning, rollouts, support grants, export and delete. It never holds customer data.
+The **dispatch Worker** (`crm-dispatch`) routes each verified hostname to its deployment and runs tenants' crons.
 
 **Plan**
 Free, Team, Business or Enterprise (ADR 0211). Its limits reach a hosted deployment as
@@ -810,3 +831,80 @@ _Avoid_: impersonation
 **Rollout**
 A new release reaching hosted deployments in **waves**: the **canary** cohort, 10%, then all
 (ADR 0215).
+
+## Products, customers and client apps (stages 20 to 28)
+
+These terms come from the platform's design (ADRs 0400 to 0405). Most name things stages 21 to 28
+build; the entries say which.
+
+**Primitive**
+Something products are composed from, provided by the platform: an object with fields, a
+behaviour, an automation, a view, a dashboard, a gatekeeper capability, or a base record type.
+
+**Behaviour**
+A declarative rule set an object opts into in its manifest, enforced by the host in the same batch
+as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**, which exists),
+`states`, `capacity`, `sellable`, `publishable`, `recurring`, `allowance`.
+_Avoid_: hook, trigger (a trigger starts an automation), plugin
+
+**Pack**
+A shipped extension plus its headless client hooks, versioned and released by the platform, turned
+on per product: Deals, Leads, Ticketing, Content (stage 24, ADR 0401).
+_Avoid_: module, plugin (a plugin is an assistant plugin, ADR 0347), app
+
+**Block**
+A screen, or part of one, for a pack, in a web skin or a native skin. Copied into a client repo
+from the registry; the client owns the copy (stage 24, ADR 0401).
+_Avoid_: component (too general), widget (a widget is a dashboard tile), template
+
+**Client app**
+A company's own code that its customers or staff use, in the company's repository: a web app, a
+mobile app, a TV app. It reaches the host only through the typed client (stage 24).
+_Avoid_: frontend, site (a site is one kind of client app)
+
+**Client repo**
+The repository holding one product's client apps, its own extensions and its product definition.
+Started from the template, not a fork of the platform (stage 24).
+
+**Audience**
+Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402).
+
+**Staff**
+A signed-in user of the org with a role. Every user of the existing code is staff.
+
+**Customer**
+A Person who can sign in to a client app (stage 22). Sees and changes only their own records,
+through operations open to the `customer` audience. In the hosted entries above (Hosted
+deployment, Own key, Support grant) "customer" still means the org a hosted deployment is run for;
+where the two could be confused, say "the org" for that one.
+_Avoid_: end user, member (a member is a gym's word for one kind of customer), client (in this
+repo a client is the company a product is built for)
+
+**Public**
+A caller with no account: a visitor reading a published page or starting a checkout (stage 22).
+
+**Surface**
+A way an operation is reached from its one definition: server function, MCP tool, host module,
+HTTP (the last from stage 23).
+
+**Typed client**
+The package generated from the operations registry: types and TanStack Query option factories for
+each operation, usable in TanStack Start and React Native (stage 23, ADR 0403).
+
+**Hold**
+Places taken out of a capacity for a short time while someone pays. It expires by itself (stage 26).
+_Avoid_: reservation (a reservation is a booking a customer keeps), lock
+
+**Order**
+What a customer is buying and its state: `pending`, `paid`, `cancelled`, `refunded`. One order has
+lines; a paid line grants something (a ticket, later a pass). A base record from stage 25.
+
+**Allowance**
+What a pass or membership grants: a number of uses, or unlimited uses over a period. A booking
+spends one (later; ADR 0404).
+_Avoid_: entitlement (a hosted plan's limits, ADR 0211), credit (account credit is money)
+
+**Skill**
+Installable instructions for an agent building on the platform, in `skills/`, versioned with the
+contract and ending in a checker (stage 21, ADR 0405). Not the skills a plugin bundles for the
+in-app assistant (ADR 0347).

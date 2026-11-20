@@ -14,7 +14,7 @@ import {
   type ThreadClientFrame,
   type ThreadServerFrame,
   type TranscriptItem,
-} from "@relationship-os/core/client";
+} from "@composable-os/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,

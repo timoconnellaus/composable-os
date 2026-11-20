@@ -27,19 +27,19 @@ beforeAll(async () => {
     id,
     source(
       id,
-      `permissions: { read: ["organisation"], modules: ["crm"] },
+      `permissions: { read: ["organisation"], modules: ["ops"] },
   objects: {
     note: { label: "Note", plural: "Notes", titleField: "title", fields: { title: { type: "text", label: "Title" } } },
   },
   fields: { organisation: { flag: { type: "boolean", label: "Flag" } } },
   tools: {
-    ${tool("readOrg", `return (await ctx.crm.call<{ name: string }>("organisation.get", { id })).name;`)}
-    ${tool("writeOrg", `return ctx.crm.call("record.update", { object: "organisation", id, values: { "${id}.flag": true } });`)}
-    ${tool("readPerson", `return ctx.crm.call("person.get", { id });`)}
-    ${tool("ownObject", `return (await ctx.crm.call<{ title: string }>("record.create", { object: "${id}.note", values: { title: id } })).title;`)}
-    ${tool("adminOp", `return ctx.crm.call("extension.list", {});`)}
-    ${tool("search", `return ctx.crm.call("search.global", { query: "x" });`)}
-    ${tool("deleteOrg", `return ctx.crm.call("organisation.delete", { id });`)}
+    ${tool("readOrg", `return (await ctx.ops.call<{ name: string }>("organisation.get", { id })).name;`)}
+    ${tool("writeOrg", `return ctx.ops.call("record.update", { object: "organisation", id, values: { "${id}.flag": true } });`)}
+    ${tool("readPerson", `return ctx.ops.call("person.get", { id });`)}
+    ${tool("ownObject", `return (await ctx.ops.call<{ title: string }>("record.create", { object: "${id}.note", values: { title: id } })).title;`)}
+    ${tool("adminOp", `return ctx.ops.call("extension.list", {});`)}
+    ${tool("search", `return ctx.ops.call("search.global", { query: "x" });`)}
+    ${tool("deleteOrg", `return ctx.ops.call("organisation.delete", { id });`)}
   },`,
     ),
   );
@@ -89,7 +89,7 @@ describe("declared permissions", () => {
       "extension.check",
       {
         id: other,
-        files: source(other, `permissions: { operations: ["policy.update"], modules: ["crm"] },`),
+        files: source(other, `permissions: { operations: ["policy.update"], modules: ["ops"] },`),
       },
     );
     expect(result.ok).toBe(false);

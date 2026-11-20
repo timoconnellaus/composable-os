@@ -1,8 +1,8 @@
 // Every reference answer passes the SDK contract check (validateManifest, with the automation
 // checks) against an install that has Deals, so the stand-in model's answers are ones the real
 // `extension.check` accepts.
-import deals from "@relationship-os/extension-deals";
-import { type FieldTypeName, toManifest, validateManifest } from "@relationship-os/sdk";
+import deals from "@composable-os/extension-deals";
+import { type FieldTypeName, toManifest, validateManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { REFERENCES } from "../lib/reference.ts";
 
@@ -22,7 +22,7 @@ describe("reference answers", () => {
         id: "evalauto",
         version: "1.0.0",
         contractVersion: 1,
-        permissions: { ...ref.permissions, modules: ["crm"] },
+        permissions: { ...ref.permissions, modules: ["ops"] },
         automations: {
           [ref.key]: {
             label: ref.label,

@@ -2,8 +2,8 @@
 // threading, deletes, each sharing level, mark-private, suggestion thresholds, job-change
 // signals, sync events, and the rows-read budget of one batch.
 import { env } from "cloudflare:workers";
-import { createCrmDb } from "@relationship-os/db";
-import { seedDatabase } from "@relationship-os/db/seed";
+import { createCrmDb } from "@composable-os/db";
+import { seedDatabase } from "@composable-os/db/seed";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { type ActingUser, invokeByName, newId, type SyncItem } from "../src/index.ts";
 import { context, createUser, db, unique } from "./helpers.ts";
@@ -310,7 +310,7 @@ describe("mark private", () => {
       .bind(id)
       .first<{ n: number }>();
     expect(docs?.n).toBe(0);
-    const view = await env.DB.prepare("SELECT count(*) AS n FROM crm_activities WHERE id = ?")
+    const view = await env.DB.prepare("SELECT count(*) AS n FROM rec_activity WHERE id = ?")
       .bind(id)
       .first<{ n: number }>();
     expect(view?.n).toBe(0);

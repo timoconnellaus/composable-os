@@ -40,6 +40,6 @@ jobs:
           allowlist: timoconnellaus,*[bot]
           custom-notsigned-prcomment: >-
             Thanks for your pull request. Before it can be merged, please read the
-            [Relationship OS Contributor License Agreement](https://github.com/${{ github.repository }}/blob/main/CLA.md)
+            [Composable OS Contributor License Agreement](https://github.com/${{ github.repository }}/blob/main/CLA.md)
             and sign it by commenting the sentence below. You only need to do this once.
           custom-allsigned-prcomment: All contributors have signed the CLA.

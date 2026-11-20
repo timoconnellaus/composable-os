@@ -27,7 +27,7 @@ async function requestGrant(
   options: { role?: "admin" | "member" | "viewer"; minutes?: number; email?: string } = {},
 ) {
   const id = `sgr_${unique()}`;
-  const email = options.email ?? `${unique("staff")}@relationshiposcrm.com`;
+  const email = options.email ?? `${unique("staff")}@hosted.example`;
   await env.DB.prepare(
     "INSERT INTO core_support_grants (id, staff_email, reason, role, requested_minutes, status, requested_at) VALUES (?, ?, 'Customer ticket #42', ?, ?, 'requested', ?)",
   )
@@ -68,7 +68,7 @@ describe("support.grant lifecycle", () => {
       .bind(approved.userId)
       .first<Record<string, unknown>>();
     expect(user).toMatchObject({
-      email: `support+${id}@support.relationshiposcrm.invalid`,
+      email: `support+${id}@support.composableos.invalid`,
       name: `Support (${email})`,
       role: "admin",
       kind: "human",

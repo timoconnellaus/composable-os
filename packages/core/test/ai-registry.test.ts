@@ -152,14 +152,14 @@ describe("capability checks", () => {
 
 describe("running roles", () => {
   it("calls Workers AI through the binding and AI Gateway with the role as metadata", async () => {
-    const { models, binding } = testRunner({ env: { AI_GATEWAY_ID: "ros-gw" } });
+    const { models, binding } = testRunner({ env: { AI_GATEWAY_ID: "cos-gw" } });
     const answer = await models.run("summarise", [{ role: "user", content: "Summarise this" }]);
     expect(answer).toMatchObject({
       text: `OK from ${SHIPPED_ROLES.summarise.model}`,
       provider: "workers-ai",
     });
     expect(binding.calls[0]?.options).toMatchObject({
-      gateway: { id: "ros-gw", metadata: { role: "summarise" } },
+      gateway: { id: "cos-gw", metadata: { role: "summarise" } },
     });
     const embedded = await models.embed?.(["hello world", "another"]);
     expect(embedded?.vectors).toHaveLength(2);

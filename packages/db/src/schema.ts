@@ -386,7 +386,7 @@ export interface CoreSearchTable {
   rank: number;
 }
 
-// --- crm_* read views (migration 0007). Read-only: never write to these. ----------------------
+// --- rec_* read views (migration 0007). Read-only: never write to these. ----------------------
 
 export interface CrmUsersView {
   id: string;
@@ -951,7 +951,7 @@ export interface CoreExtensionFieldsTable {
 }
 
 /**
- * Every core table and crm_* view, keyed by name. Extension (`x_*`) tables are never listed here.
+ * Every core table and rec_* view, keyed by name. Extension (`x_*`) tables are never listed here.
  */
 export type ChangeSetState = "open" | "committed" | "closed";
 export type PendingActionStatus =
@@ -1584,14 +1584,14 @@ export interface CoreDatabase {
   core_assignment_state: CoreAssignmentStateTable;
   core_assignment_fallback: CoreAssignmentFallbackTable;
   core_field_options: CoreFieldOptionsTable;
-  crm_stage_history: CrmStageHistoryView;
-  crm_users: CrmUsersView;
-  crm_people: CrmPeopleView;
-  crm_organisations: CrmOrganisationsView;
-  crm_affiliations: CrmAffiliationsView;
-  crm_activities: CrmActivitiesView;
-  crm_activity_links: CrmActivityLinksView;
-  crm_tasks: CrmTasksView;
-  crm_task_links: CrmTaskLinksView;
-  crm_record_tags: CrmRecordTagsView;
+  rec_stage_history: CrmStageHistoryView;
+  rec_user: CrmUsersView;
+  rec_person: CrmPeopleView;
+  rec_organisation: CrmOrganisationsView;
+  rec_affiliation: CrmAffiliationsView;
+  rec_activity: CrmActivitiesView;
+  rec_activity_link: CrmActivityLinksView;
+  rec_task: CrmTasksView;
+  rec_task_link: CrmTaskLinksView;
+  rec_record_tag: CrmRecordTagsView;
 }

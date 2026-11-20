@@ -3,14 +3,14 @@
 // fixed header and single scroll region (PageLayout), and the assistant docked on the right when
 // open (a sheet on phones). It sits outside the page, so it stays put across page changes. Plus
 // the app-wide command palette, shortcut sheet and create dialogs.
-import { Button } from "@relationship-os/ui/components/button";
-import { Kbd } from "@relationship-os/ui/components/kbd";
+import { Button } from "@composable-os/ui/components/button";
+import { Kbd } from "@composable-os/ui/components/kbd";
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
-} from "@relationship-os/ui/components/sidebar";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/sidebar";
+import { cn } from "@composable-os/ui/lib/utils";
 import { createFileRoute, Outlet, redirect, useRouterState } from "@tanstack/react-router";
 import { SearchIcon, SparklesIcon } from "lucide-react";
 import { useEffect, useRef } from "react";

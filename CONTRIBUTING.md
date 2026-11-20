@@ -1,4 +1,4 @@
-# Contributing to Relationship OS
+# Contributing to Composable OS
 
 Thanks for helping. This page is for people; coding agents also follow [`AGENTS.md`](AGENTS.md).
 
@@ -10,7 +10,7 @@ Thanks for helping. This page is for people; coding agents also follow [`AGENTS.
 
 ## Licence and the CLA
 
-Relationship OS is licensed under FSL-1.1-ALv2 (see [`LICENSE`](LICENSE) and the licence section of
+Composable OS is licensed under FSL-1.1-ALv2 (see [`LICENSE`](LICENSE) and the licence section of
 the [`README`](README.md)). Every contributor signs the [Contributor License Agreement](CLA.md) once.
 On your first pull request the CLA bot posts a comment; reply with the sentence it gives you, and
 the check turns green. You keep the copyright in your work; the CLA lets the project use it under

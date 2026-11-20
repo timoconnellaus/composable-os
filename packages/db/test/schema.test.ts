@@ -324,8 +324,8 @@ describe("audit log", () => {
   });
 });
 
-describe("crm_* read views", () => {
-  it("crm_people shows live people with primary email, job and tags", async () => {
+describe("rec_* read views", () => {
+  it("rec_person shows live people with primary email, job and tags", async () => {
     await addPerson("per_1", "Ada", ["ada@example.com", "ada2@example.com"]);
     await addPerson("per_2", "Gone", []);
     await run("UPDATE core_person SET deleted_at = ? WHERE id = 'per_2'", NOW);
@@ -345,7 +345,7 @@ describe("crm_* read views", () => {
       NOW,
     );
 
-    const { results } = await db().prepare("SELECT * FROM crm_people").all();
+    const { results } = await db().prepare("SELECT * FROM rec_person").all();
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       id: "per_1",
@@ -357,8 +357,8 @@ describe("crm_* read views", () => {
     });
   });
 
-  it("crm_users exposes no auth columns", async () => {
-    const { results } = await db().prepare("SELECT name FROM pragma_table_info('crm_users')").all<{
+  it("rec_user exposes no auth columns", async () => {
+    const { results } = await db().prepare("SELECT name FROM pragma_table_info('rec_user')").all<{
       name: string;
     }>();
     expect(results.map((r) => r.name).sort()).toEqual(

@@ -1,4 +1,4 @@
-# Upstream: `@relationship-os/gatekeeper-kit`
+# Upstream: `@composable-os/gatekeeper-kit`
 
 | | |
 | --- | --- |
@@ -14,20 +14,20 @@
 ## Local modifications
 
 - **Scope rename.** Imports of `@gadgets/workshop-shared/gatekeeper` now point at
-  `@relationship-os/gatekeeper-interface/gatekeeper`, and `@gadgets/observability/*` at
-  `@relationship-os/gatekeeper-observability/*`. Every source file this touched starts with a
+  `@composable-os/gatekeeper-interface/gatekeeper`, and `@gadgets/observability/*` at
+  `@composable-os/gatekeeper-observability/*`. Every source file this touched starts with a
   `// Vendored from cloudflare/cloudflare-os@… Modified locally` comment (18 files; list them with
   `grep -rl "^// Vendored from cloudflare" src __tests__`). The Markdown docs are rewritten the same
   way. Other `@gadgets/*` mentions in them, such as `@gadgets/scripts`, are left as upstream wrote
   them.
 - **Replaced (ours):** `package.json` (scope, exact dependency versions, `typecheck` and `test`
-  scripts for Turborepo), and `tsconfig.json` (extends `@relationship-os/config/tsconfig.vendored.json`
+  scripts for Turborepo), and `tsconfig.json` (extends `@composable-os/config/tsconfig.vendored.json`
   instead of upstream's root config; no `paths`).
 - **Removed:** `vite.config.ts`, which holds upstream's Vite+ task definitions.
 - **Test configs:** `vitest.config.ts` is upstream's except `testTimeout` raised to 30s: the
   CPU-heavy `ci.test.ts` stream test timed out at vitest's 5s default once `pnpm test` ran all
   twelve vendored packages at once. `vitest.worker.config.ts` takes
-  `assert-workerd` from `@relationship-os/gatekeeper-interface/testing/assert-workerd` instead of
+  `assert-workerd` from `@composable-os/gatekeeper-interface/testing/assert-workerd` instead of
   `@gadgets/scripts`.
 - **Not vendored:** `plans/gatekeeper-kit.md` (the Layer 2 proposal), which the README links to.
 - **No shims.**

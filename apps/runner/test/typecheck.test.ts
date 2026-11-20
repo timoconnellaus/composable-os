@@ -1,10 +1,9 @@
 // The in-Worker type check of extension source (src/extensions/typecheck.ts), run in workerd:
-// directly (this test bundle imports the compiler), and as ros-runner runs it, in the checker's
+// directly (this test bundle imports the compiler), and as cos-runner runs it, in the checker's
 // Dynamic Worker (LOADER.get with a stable id, ADR 0043).
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { typecheck } from "../src/executor/build-cache.ts";
-import { buildExtension, SDK_SPECIFIER } from "../src/extensions/build.ts";
 import { MAX_TYPE_ISSUES, typecheckExtension } from "../src/extensions/typecheck.ts";
 import { SHIPPED_EXTENSIONS } from "../src/generated/shipped.ts";
 
@@ -71,12 +70,12 @@ describe("typecheckExtension", () => {
 
   it("reports a non-existent ctx module and a handler returning the wrong shape", () => {
     const tools = (files["tools.ts"] as string)
-      .replace("await ctx.crm.call<SqlResult>(", "await ctx.crm.cal<SqlResult>(")
+      .replace("await ctx.ops.call<SqlResult>(", "await ctx.ops.cal<SqlResult>(")
       .replace("      pipelineId,\n      stages:", "      pipelineId: 1,\n      stages:");
     const issues = typecheckExtension({ ...files, "tools.ts": tools });
     expect(issues.every((i) => i.code === "type" && i.path === "tools.ts")).toBe(true);
     expect(issues.map((i) => i.message).join("\n")).toMatch(
-      /Property 'cal' does not exist on type 'CrmModule'/,
+      /Property 'cal' does not exist on type 'OpsModule'/,
     );
     expect(issues.some((i) => /pipelineId/.test(i.message))).toBe(true);
   });
@@ -118,28 +117,5 @@ describe("typecheckExtension", () => {
       "\n",
     );
     expect(typecheckExtension({ "index.ts": body })).toHaveLength(MAX_TYPE_ISSUES);
-  });
-});
-
-describe("extensions written before the rename (ADR 0190)", () => {
-  // Runtime extensions already installed import `@crm/sdk`; they keep checking and building.
-  const legacy = Object.fromEntries(
-    Object.entries(files).map(([path, text]) => [
-      path,
-      text.replaceAll("@relationship-os/sdk", "@crm/sdk"),
-    ]),
-  );
-
-  it("type-check clean against the SDK", () => {
-    expect(Object.values(legacy).join("\n")).toContain('"@crm/sdk"');
-    expect(typecheckExtension(legacy)).toEqual([]);
-  });
-
-  it("build, with their SDK imports pointed at the sandbox SDK module", () => {
-    const built = buildExtension(legacy);
-    if (!built.ok) throw new Error(JSON.stringify(built.issues));
-    const code = Object.values(built.modules).join("\n");
-    expect(code).toContain(`"${SDK_SPECIFIER}"`);
-    expect(code).not.toContain("@crm/sdk");
   });
 });

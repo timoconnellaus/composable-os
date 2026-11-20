@@ -24,12 +24,12 @@ import { DurableObject, RpcStub, RpcTarget, restore } from "cloudflare:workers";
 import { validateRpc } from "capnweb-validate";
 import {
   buildDescription, codeSpan, plainInline, sanitizeTitle,
-} from "@relationship-os/gatekeeper-kit/action-description";
-import { SingleFlight } from "@relationship-os/gatekeeper-kit/single-flight";
+} from "@composable-os/gatekeeper-kit/action-description";
+import { SingleFlight } from "@composable-os/gatekeeper-kit/single-flight";
 import type {
   ActionDescription, ActionKind, ApprovalQueue, Gatekeeper, GatekeeperUserVerifier,
   ResourceDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 import {
   ChatApi, ChatApiError, ChatPage, DeletedChatMessageError, MAX_CHAT_MESSAGE_BYTES, isChatNoAccessError,
   chatAttachmentInfoFromRaw, chatAttachmentMediaName, chatMessageInfoFromRaw, chatMessageParts,

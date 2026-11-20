@@ -1,5 +1,5 @@
 // A non-interactive install of a release bundle from a complete deployment state: the same steps
-// `create-relationship-os` runs (ADR 0165), for callers that have already made every choice. The
+// `create-composable-os` runs (ADR 0165), for callers that have already made every choice. The
 // hosted control plane provisions each customer this way (ADR 0210).
 //
 //   provision resources → AI Gateway → core migrations → record the state → deploy every Worker

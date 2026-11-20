@@ -36,8 +36,8 @@ test("from a read-back to a delivered message, and back out", async ({ page }) =
   await readBack.getByRole("button", { name: "Turn on" }).click();
   await expect(readBack).toContainText("Turned on");
 
-  // The real path: the record event starts a run in ros-runner, its Workflow queues the delivery,
-  // and ros-app posts the message into the thread.
+  // The real path: the record event starts a run in cos-runner, its Workflow queues the delivery,
+  // and cos-app posts the message into the thread.
   const dots = panel.getByTestId("routine-why-dot");
   const delivered = await dots.count();
   await createPerson(page, { given: unique("Arrives") });

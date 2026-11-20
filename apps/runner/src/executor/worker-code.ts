@@ -12,7 +12,7 @@ import {
   GATEKEEPER_MODULES,
   type GatekeeperModuleName,
   SUPPORTED_CONTRACT_VERSIONS,
-} from "@relationship-os/sdk";
+} from "@composable-os/sdk";
 import { SDK_SPECIFIER } from "../extensions/build.ts";
 import {
   CHECKER_HASH,
@@ -27,18 +27,14 @@ export { SDK_BUNDLE, SDK_SPECIFIER };
 /** Pinned for every Dynamic Worker; part of each id. No flags: extension code needs no Node APIs. */
 export const COMPATIBILITY_DATE = "2026-10-01";
 export const COMPATIBILITY_FLAGS: readonly string[] = [];
-const ENTRY = "ros-entry.js";
+const ENTRY = "cos-entry.js";
 /** The SDK bundle's module name (workerd resolves bare specifiers per directory, so modules
  * import it by a relative path; see sdkImports). */
-const SDK_MODULE = "ros-sdk.js";
+const SDK_MODULE = "cos-sdk.js";
 const EXT_DIR = "ext";
-// `crm-sdk`: modules built before the rename (ADR 0190) and still in a build cache.
-const SDK_IMPORT_RE = new RegExp(
-  `(\\b(?:from|import)\\s*)(["'])(?:${SDK_SPECIFIER}|crm-sdk)\\2`,
-  "g",
-);
+const SDK_IMPORT_RE = new RegExp(`(\\b(?:from|import)\\s*)(["'])${SDK_SPECIFIER}\\2`, "g");
 
-/** Points a built module's `ros-sdk` imports (build.ts writes them) at the root SDK module. */
+/** Points a built module's `cos-sdk` imports (build.ts writes them) at the root SDK module. */
 function sdkImports(path: string, code: string): string {
   const depth = path.split("/").length; // ext/ plus any subdirectories
   const relative = `${"../".repeat(depth)}${SDK_MODULE}`;
@@ -52,7 +48,7 @@ function sdkImports(path: string, code: string): string {
 const GATEKEEPER_METHODS = ["connections", "call", "types"] as const;
 
 export const HOST_METHODS = {
-  crm: ["call"],
+  ops: ["call"],
   storage: ["get", "set", "del", "list"],
   log: ["write"],
   ai: ["summarise", "extract", "classify"],

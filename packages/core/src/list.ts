@@ -141,7 +141,7 @@ function indexOrdered(object: ObjectDefinition, field: FieldDefinition): boolean
 }
 
 /**
- * Any other sort needs a temp B-tree, and SQLite computes every selected column (the crm_*
+ * Any other sort needs a temp B-tree, and SQLite computes every selected column (the rec_*
  * views' correlated subqueries: emails, phones, tags, counts) for every matching row before
  * sorting. Here it sorts ids alone, then loads the page's rows by primary key. For person.list
  * sorted by createdAt on 20k people, that cuts rows read from about 180k to about 20k
@@ -176,7 +176,7 @@ async function pageByIds<DB, TB extends keyof DB, Row extends { id: string }>(
 /**
  * Applies filter, cursor, sort and limit to `query` (a select over `object.source`, aliased
  * `alias`), runs it and returns one page. The query must select the `id` column and the sort
- * field's column under their own names (e.g. `selectAll()` on the crm_* view).
+ * field's column under their own names (e.g. `selectAll()` on the rec_* view).
  */
 export async function runListQuery<DB, TB extends keyof DB, Row extends { id: string }>(
   query: SelectQueryBuilder<DB, TB, Row>,

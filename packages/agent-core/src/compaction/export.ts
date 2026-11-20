@@ -8,7 +8,7 @@
 import { z } from "zod";
 import type { PlanInput } from "./plan.ts";
 
-export const CACHE_REPORT_FORMAT = "relationship-os.ai-cache-report";
+export const CACHE_REPORT_FORMAT = "composable-os.ai-cache-report";
 export const CACHE_REPORT_VERSION = 1;
 
 const nonNegative = z.number().finite().nonnegative();

@@ -50,6 +50,13 @@
 .hero .lead {
   margin: 22px auto 0;
 }
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 28px;
+}
 .hero .sub2 {
   margin-top: 16px;
   font-size: 15px;

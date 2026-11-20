@@ -20,14 +20,14 @@ import {
   type RunToolInput,
   type RunToolResult,
   type SourceIssue,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import {
   type AutomationRunRequest,
   type ExtensionManifest,
   GATEKEEPER_MODULES,
   type RunResponse,
-} from "@relationship-os/sdk";
+} from "@composable-os/sdk";
 import { runBuildRole } from "../extensions/ai.ts";
 import {
   buildScript,
@@ -542,9 +542,9 @@ export class Executor {
       runId: `code-${crypto.randomUUID()}`,
       extensionId: "(code)",
       code: { caller: input.caller, pending: [], calls: 0 },
-      modules: new Set(["crm", ...GATEKEEPER_MODULES]),
+      modules: new Set(["ops", ...GATEKEEPER_MODULES]),
       user: input.caller.user,
-      permissions: { read: [], write: [], operations: [], modules: ["crm"] },
+      permissions: { read: [], write: [], operations: [], modules: ["ops"] },
       deadline: Date.now() + this.#codeTimeoutMs,
       logs: [],
       operations: [],
@@ -632,9 +632,9 @@ export class Executor {
       runId: `producer-${crypto.randomUUID()}`,
       extensionId: `(producer ${input.ref})`,
       code: { caller: input.caller, pending: [], calls: 0, readOnly: true },
-      modules: new Set(["crm"]),
+      modules: new Set(["ops"]),
       user: input.caller.user,
-      permissions: { read: [], write: [], operations: [], modules: ["crm"] },
+      permissions: { read: [], write: [], operations: [], modules: ["ops"] },
       deadline: Date.now() + this.#codeTimeoutMs,
       logs: [],
       operations: [],

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
-import { defineWorkersTestConfig } from "@relationship-os/config/vitest";
+import { defineWorkersTestConfig } from "@composable-os/config/vitest";
 import { build } from "esbuild";
 
 const migrationsDir = fileURLToPath(new URL("../../packages/db/migrations", import.meta.url));
@@ -88,16 +88,16 @@ export default defineWorkersTestConfig({
         APP_ORIGIN: "http://crm.test",
       },
       serviceBindings: {
-        GATEKEEPER_WEBHOOK: { name: "ros-gatekeeper-webhook", entrypoint: "GatekeeperVendor" },
+        GATEKEEPER_WEBHOOK: { name: "cos-gatekeeper-webhook", entrypoint: "GatekeeperVendor" },
         GATEKEEPER_EMAIL_SEND: {
-          name: "ros-gatekeeper-email-send",
+          name: "cos-gatekeeper-email-send",
           entrypoint: "GatekeeperVendor",
         },
         TEST_EMAIL_OUTBOX: { name: "fake-email-service", entrypoint: "Outbox" },
       },
       workers: [
         {
-          name: "ros-gatekeeper-webhook",
+          name: "cos-gatekeeper-webhook",
           modules: true,
           scriptPath: await bundleGatekeeper("webhook"),
           compatibilityDate: "2026-09-04",
@@ -113,7 +113,7 @@ export default defineWorkersTestConfig({
           },
         },
         {
-          name: "ros-gatekeeper-email-send",
+          name: "cos-gatekeeper-email-send",
           modules: true,
           scriptPath: await bundleGatekeeper("email-send"),
           compatibilityDate: "2026-09-04",

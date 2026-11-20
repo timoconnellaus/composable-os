@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/auth",
+  "name": "@composable-os/auth",
   "version": "0.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
@@ -12,15 +12,15 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@relationship-os/core": "workspace:*",
-    "@relationship-os/db": "workspace:*",
+    "@composable-os/core": "workspace:*",
+    "@composable-os/db": "workspace:*",
     "better-auth": "1.7.16",
     "jose": "6.2.15"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.5.1",
     "@cloudflare/workers-types": "5.20261104.1",
-    "@relationship-os/config": "workspace:*",
+    "@composable-os/config": "workspace:*",
     "typescript": "6.0.3",
     "vitest": "5.1.0"
   }

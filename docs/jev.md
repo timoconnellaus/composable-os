@@ -1,6 +1,6 @@
 # Jev
 
-How Relationship OS uses Jev: what it is for, where it goes and where it does not, how to ask it,
+How the CRM uses Jev: what it is for, where it goes and where it does not, how to ask it,
 what happens when it cannot answer, and how its answers are tested. Anyone adding a model
 decision reads this first. The decisions behind it are in
 [ADR 0230](adr/0230-jev-as-the-typed-judge.md) (the seam, configuration and fail rules) and
@@ -91,7 +91,7 @@ rule, kept as it is.
 4. **Code composes the answer.** Code sets the threshold, the veto, what happens on failure and
    what the system then does. Jev's answer is a judgement, never permission.
 
-In Relationship OS that rule puts Jev in five kinds of place:
+In the CRM that rule puts Jev in five kinds of place:
 
 - **Where a model has produced something that must meet a request:** an automation or extension a
   model wrote, a widget it described. Jev reads the artifact (the manifest, the widget) beside the

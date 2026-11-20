@@ -4,7 +4,7 @@ import {
   organisationObject,
   personObject,
   taskObject,
-} from "@relationship-os/core/client";
+} from "@composable-os/core/client";
 import { describe, expect, it } from "vitest";
 import {
   appendChild,

@@ -1,7 +1,7 @@
 // Entry points into the assistant (ADR 0030, ADR 0200): "Ask AI" in record headers, "Ask about N
 // selected" on lists, and "Ask the assistant" links that open the panel pre-filled. Outside the
 // signed-in shell (no AssistantProvider) they render nothing.
-import { Button } from "@relationship-os/ui/components/button";
+import { Button } from "@composable-os/ui/components/button";
 import { MessageSquareIcon, SparklesIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import {

@@ -265,7 +265,7 @@ export const judgeSetKey = defineOperation({
   name: "judge.setKey",
   description:
     "Store or remove the judge's TypeSafe API key (admins): the Worker secret TYPESAFE_API_KEY on " +
-    "ros-app and ros-runner through the Cloudflare API, or, on a hosted workspace, a workspace " +
+    "cos-app and cos-runner through the Cloudflare API, or, on a hosted workspace, a workspace " +
     "secret set through the control plane. It takes effect within seconds. The key is never " +
     "written to the database, the audit log or any response. Removing it turns the judge off, " +
     "and the policy adjudicator falls back to the LLM reviewer unless it is set to Jev.",

@@ -6,8 +6,8 @@
 // The policy is written about the change itself (6 November 2026, the user's decision, ADR 0235):
 // its object, fields, count and operation, and who the agent acts for. Every change acts for Ada
 // Lovelace, a member, as every pending action acts for its user; both reviewers are told so.
-import type { ReviewItem } from "@relationship-os/core/adjudicator-review";
-import { ACME_POLICY } from "@relationship-os/evals-judge/sets/adjudicator-policy.ts";
+import type { ReviewItem } from "@composable-os/core/adjudicator-review";
+import { ACME_POLICY } from "@composable-os/evals-judge/sets/adjudicator-policy.ts";
 
 // One rule per line (ADR 0232 decision 5, ADR 0233), so the Jev reviewer reads the same rules the
 // LLM reviewer does: the same text as the judge's labelled set (evals/judge/sets). Until 6

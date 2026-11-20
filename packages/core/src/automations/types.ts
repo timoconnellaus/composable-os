@@ -1,15 +1,15 @@
 // Shared automation types (ADR 0028, ADR 0130): post-commit events, the queue message union,
-// trigger sources, the automation host (ros-runner RPC), run statuses and step records.
+// trigger sources, the automation host (cos-runner RPC), run statuses and step records.
 //
 // Data flow:
 //   pipeline commit ─► EventSink.send(batched AutomationQueueMessage[]) ─► Queue AUTOMATION_EVENTS
-//   ─► ros-runner consumer ─► TriggerSource.match(message) per kind ─► rails (depth, cycle,
+//   ─► cos-runner consumer ─► TriggerSource.match(message) per kind ─► rails (depth, cycle,
 //   debounce, rate, kill switch, fan-out budget) ─► run row + Workflow AutomationWorkflow
 //   (id = workflowInstanceId(...)) ─► each step.do in a Dynamic Worker via the executor.
 //
 // Stage 6b adds the `integration` message kind (webhooks, sync events) and its TriggerSource; the
 // consumer dispatches by `kind`, so nothing else changes.
-import type { AutomationManifest, AutomationTestStep, RecordEventType } from "@relationship-os/sdk";
+import type { AutomationManifest, AutomationTestStep, RecordEventType } from "@composable-os/sdk";
 import type { FieldDiff } from "../diff.ts";
 import type { Actor, Origin } from "../principals.ts";
 
@@ -147,7 +147,7 @@ export type AutomationQueueMessage =
   | IntegrationEventMessage;
 
 /**
- * Where the pipeline sends post-commit events. ros-app and ros-runner pass a Queue producer
+ * Where the pipeline sends post-commit events. cos-app and cos-runner pass a Queue producer
  * (`queueEventSink(env.AUTOMATION_EVENTS)`); absent, no events are emitted (tests, scripts).
  * Implementations batch: one `send` call per operation, at most QUEUE_BATCH_MESSAGES per
  * sendBatch. `delaySeconds` debounces `updated` events.
@@ -327,7 +327,7 @@ export interface AutomationDraftTarget {
 export const DRAFT_TARGET_ERRORS: readonly string[] = ["unknown_automation", "evaluate_failed"];
 
 // ---------------------------------------------------------------------------------------------
-// The automation host: ros-runner RPC used by automation.* operations (and the UI through them)
+// The automation host: cos-runner RPC used by automation.* operations (and the UI through them)
 
 /** What to test: an installed automation, or a proposed one (`draft`). */
 export type AutomationTestInput = (
@@ -362,7 +362,7 @@ export interface AutomationHost {
   cancelRun(runId: string): Promise<{ runId: string }>;
 }
 
-/** What the runner queues for ros-app to deliver (ADR 0343). Ids only: it reads the rest. */
+/** What the runner queues for cos-app to deliver (ADR 0343). Ids only: it reads the rest. */
 export interface RoutineDeliveryMessage {
   v: 1;
   routineId: string;

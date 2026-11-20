@@ -1,4 +1,4 @@
-# @relationship-os/agent-core
+# @composable-os/agent-core
 
 One long-lived assistant thread per person, with no CRM in it. Models, tools, stores and channels
 are injected by the host.
@@ -19,5 +19,5 @@ The compaction planner and cache-lifetime learner live in `src/compaction/` (sta
 
 Part of the assistant packages described in
 [ADR 0350](../../docs/adr/0350-agent-package-boundary.md). MIT licensed (see `LICENSE`), unlike the
-rest of the repository. It may import only other `@relationship-os/agent-*` packages, `zod`, `ai`,
+rest of the repository. It may import only other `@composable-os/agent-*` packages, `zod`, `ai`,
 `agents` and React (as a peer); `pnpm lint` checks this.

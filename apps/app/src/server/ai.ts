@@ -1,4 +1,4 @@
-// In-app AI for ros-app (ADRs 0150-0155): the model role registry, the vector store, Settings →
+// In-app AI for cos-app (ADRs 0150-0155): the model role registry, the vector store, Settings →
 // AI's Cloudflare API access, and the post-commit hook that drains the embedding queue.
 //
 // Every binding is optional. Without `AI` (and no other provider configured) there is no model
@@ -38,8 +38,8 @@ import {
   type VectorizeLike,
   type VectorStore,
   vectorizeStore,
-} from "@relationship-os/core";
-import { type CrmDb, createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { voiceContextFor } from "./assistant/voice.ts";
 
 export interface AiAppEnv extends AiEnv, HostedAiAdminEnv {
@@ -49,7 +49,7 @@ export interface AiAppEnv extends AiEnv, HostedAiAdminEnv {
   VECTORIZE?: unknown;
   /** Secret: Cloudflare API token for Settings → AI (keys, usage). */
   CLOUDFLARE_API_TOKEN?: string;
-  /** Worker scripts that get provider key secrets. Default ros-app,ros-runner. */
+  /** Worker scripts that get provider key secrets. Default cos-app,cos-runner. */
   AI_SECRET_SCRIPTS?: string;
 }
 
@@ -129,7 +129,7 @@ export function aiEnvView(env: AiAppEnv): AiEnv {
     ...(env.AI_PLATFORM_GATEWAY_ID ? { AI_PLATFORM_GATEWAY_ID: env.AI_PLATFORM_GATEWAY_ID } : {}),
     ...(env.AI_PLATFORM_ACCOUNT_ID ? { AI_PLATFORM_ACCOUNT_ID: env.AI_PLATFORM_ACCOUNT_ID } : {}),
     ...(env.AI_PLATFORM_TOKEN ? { AI_PLATFORM_TOKEN: "set" } : {}),
-    ...(env.ROS_TENANT_ID ? { ROS_TENANT_ID: env.ROS_TENANT_ID } : {}),
+    ...(env.COS_TENANT_ID ? { COS_TENANT_ID: env.COS_TENANT_ID } : {}),
     ...(customerGatewayView(env) ? { AI_CUSTOMER_GATEWAY: customerGatewayView(env) } : {}),
   };
   for (const [key, value] of Object.entries(env)) {
@@ -241,7 +241,7 @@ export function aiContextFor(env: AiAppEnv, db: CrmDb) {
   const models = modelsFor(env, db);
   const vectors = vectorStoreFor(env);
   const onCommitted = embeddingHook(db, models, vectors);
-  // With a real Vectorize binding, ros-runner's events consumer embeds committed changes (it has
+  // With a real Vectorize binding, cos-runner's events consumer embeds committed changes (it has
   // the same bindings, ADR 0154 amendment); the in-memory dev store is filled here instead.
   const index = env.VECTORIZE as VectorizeLike | undefined;
   const viaEvents = Boolean(index && typeof index.query === "function" && models?.embed);

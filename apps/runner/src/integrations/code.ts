@@ -11,7 +11,7 @@ import {
   type PendingApproval,
   ROLES,
   type Role,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { integrationRuntime } from "./runtime.ts";
 
 export interface GatekeeperCall {

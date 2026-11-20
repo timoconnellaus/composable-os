@@ -1,9 +1,9 @@
-// ros-app: TanStack Start UI and server functions (ADR 0004). Self-contained and account-agnostic:
+// cos-app: TanStack Start UI and server functions (ADR 0004). Self-contained and account-agnostic:
 // no account or resource IDs are committed (ADR 0012); wrangler provisions the D1 database by name
 // on first deploy. Secrets are listed in .dev.vars.example and docs/deploying.md.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "ros-app",
+  "name": "cos-app",
   // TanStack Start's entry plus a `scheduled` handler (src/server.ts).
   "main": "./src/server.ts",
   // Daily maintenance: Trash purge (ADR 0018), approvals, storage retention (ADR 0090). Every 10
@@ -16,7 +16,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "ros",
+      "database_name": "cos",
       "migrations_dir": "../../packages/db/migrations",
       "migrations_table": "core_migrations"
     }
@@ -25,25 +25,25 @@
   // GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD) are listed in
   // .dev.vars.example and docs/deploying.md.
   "secrets": { "required": ["BETTER_AUTH_SECRET"] },
-  "services": [{ "binding": "RUNNER", "service": "ros-runner" }],
+  "services": [{ "binding": "RUNNER", "service": "cos-runner" }],
   // Automation events (ADR 0130): committed record changes and approval decisions go to this
-  // queue; ros-runner consumes it and starts automation runs.
+  // queue; cos-runner consumes it and starts automation runs.
   "queues": {
-    "producers": [{ "binding": "AUTOMATION_EVENTS", "queue": "ros-automation-events" }],
-    // A routine's messages (ADR 0343): ros-runner produces them, and this Worker delivers each
-    // into its owner's thread. ros-runner cannot bind back to ros-app (a cycle on first deploy).
+    "producers": [{ "binding": "AUTOMATION_EVENTS", "queue": "cos-automation-events" }],
+    // A routine's messages (ADR 0343): cos-runner produces them, and this Worker delivers each
+    // into its owner's thread. cos-runner cannot bind back to cos-app (a cycle on first deploy).
     "consumers": [
       {
-        "queue": "ros-routine-delivery",
+        "queue": "cos-routine-delivery",
         "max_batch_size": 10,
         "max_batch_timeout": 5,
         "max_retries": 3,
-        "dead_letter_queue": "ros-routine-delivery-dlq"
+        "dead_letter_queue": "cos-routine-delivery-dlq"
       }
     ]
   },
-  // Synced email bodies (ADR 0112), shared with ros-runner: D1 keeps a snippet only.
-  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "ros-blobs" }],
+  // Synced email bodies (ADR 0112), shared with cos-runner: D1 keeps a snippet only.
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "cos-blobs" }],
   // OAuth 2.1 for /mcp (ADR 0021): clients, grants and hashed tokens. Provisioned by name on
   // first deploy, like the D1 database.
   "kv_namespaces": [{ "binding": "OAUTH_KV" }],
@@ -95,7 +95,7 @@
     // MCP access token lifetime in seconds; refresh tokens last 30 days.
     "MCP_ACCESS_TOKEN_TTL": "3600",
     // In-app AI (ADRs 0009, 0150-0155). Model roles need an `ai` binding and semantic search a
-    // `vectorize` binding; both are optional and added by `pnpm run deploy` (ROS_AI, see
+    // `vectorize` binding; both are optional and added by `pnpm run deploy` (COS_AI, see
     // docs/deploying.md). Without them AI features say AI is not configured.
     // AI Gateway id: every model call goes through it when set (usage and spend per role).
     "AI_GATEWAY_ID": "",
@@ -104,7 +104,7 @@
     "CLOUDFLARE_ACCOUNT_ID": "",
     // Deploy-config layer of the model registry: JSON role → { provider, model, params, fallback }.
     // Empty means the shipped defaults (all Workers AI). A deployment sets it, e.g. with
-    // `create-relationship-os --model-roles deepseek-flash` (ADR 0192); never commit a choice here.
+    // `create-composable-os --model-roles deepseek-flash` (ADR 0192); never commit a choice here.
     "AI_MODEL_ROLES": "",
     // Base URLs for the `openai-compatible` provider: JSON { "<provider>": { "baseURL" } }.
     "AI_PROVIDERS": "",
@@ -113,46 +113,47 @@
     // (ADR 0330); empty keeps Workers AI on the `ai` binding.
     "AI_GATEWAY_REST": "",
     // Providers whose key is stored in AI Gateway as BYOK, comma-separated (e.g. "deepseek").
-    // Set by `create-relationship-os --provider-key` (ADR 0192).
+    // Set by `create-composable-os --provider-key` (ADR 0192).
     "AI_GATEWAY_BYOK": "",
     // The judge (Jev, ADR 0230): "true" when AI Gateway holds TypeSafe's key as BYOK under
-    // `custom-typesafe` (set by `create-relationship-os --provider-key typesafe=…`). Otherwise the
+    // `custom-typesafe` (set by `create-composable-os --provider-key typesafe=…`). Otherwise the
     // key is the TYPESAFE_API_KEY secret; with neither, the judge is off.
     "JUDGE_BYOK": "",
     // Deploy layer of the judge's placement switches: JSON { "<placement>": true | false }, e.g.
     // '{"summary.statements":true}' to turn on a placement that sends record content. Empty: the
     // shipped defaults. Admins override it in Settings → AI.
     "JUDGE_PLACEMENTS": "",
-    // Size of the Vectorize index (`ros-records`); the embed role must produce this many dims.
+    // Size of the Vectorize index (`cos-records`); the embed role must produce this many dims.
     "VECTORIZE_DIMENSIONS": "384",
     // Worker scripts Settings → AI stores provider keys on (as Workers secrets).
-    "AI_SECRET_SCRIPTS": "ros-app,ros-runner",
+    "AI_SECRET_SCRIPTS": "cos-app,cos-runner",
     // Local dev and e2e only (.dev.vars sets it): "true" answers the build role with a
     // deterministic stand-in when there is no `ai` binding. Never set it in production.
     "AI_FAKE_MODEL": "",
     // Release (stage 8, ADR 0160): the installed release's version, set by the release manifest.
     // Empty means a source deploy (`pnpm run deploy`), which the self-updater cannot update.
-    "ROS_RELEASE_VERSION": "",
-    // Where Settings → Updates reads releases from (public GitHub Releases, no telemetry).
-    // Forks that publish their own releases change it.
-    "ROS_RELEASE_REPO": "timoconnellaus/relationship-os",
+    "COS_RELEASE_VERSION": "",
+    // Where Settings → Updates reads releases from (public GitHub Releases, no telemetry). Empty
+    // means the product's own repository (products/<id>/product.ts). Forks that publish their own
+    // releases set it.
+    "COS_RELEASE_REPO": "",
     // The Cloudflare account the self-updater deploys to. Filled in by the installer from the
     // release manifest's $ACCOUNT_ID placeholder; never committed.
-    "ROS_ACCOUNT_ID": "",
+    "COS_ACCOUNT_ID": "",
     // Hosted SaaS only (ADR 0212): the control plane's Ed25519 public key (raw 32 bytes,
     // base64url) that signs support-access tokens for /support/enter. Empty (self-hosted) means
     // there is no support access at all: the route is a 404.
-    "ROS_SUPPORT_PUBLIC_KEY": "",
+    "COS_SUPPORT_PUBLIC_KEY": "",
     // Hosted SaaS only (ADR 0213 amendment), set by the control plane at provisioning; empty on a
     // self-hosted install, which uses AI_GATEWAY_ID above. The shared platform gateway and the
-    // platform account: every Workers AI role becomes Platform AI, tagged with ROS_TENANT_ID and
+    // platform account: every Workers AI role becomes Platform AI, tagged with COS_TENANT_ID and
     // the plan. The platform token (AI_PLATFORM_TOKEN) is a secret.
     "AI_PLATFORM_GATEWAY_ID": "",
     "AI_PLATFORM_ACCOUNT_ID": "",
-    "ROS_TENANT_ID": "",
+    "COS_TENANT_ID": "",
     // Hosted SaaS only (ADR 0250): the control plane's origin, for the signed deployment channel
-    // (Settings → AI stores the customer's own keys through it). The key, ROS_CONTROL_KEY, is a
+    // (Settings → AI stores the customer's own keys through it). The key, COS_CONTROL_KEY, is a
     // secret.
-    "ROS_CONTROL_URL": ""
+    "COS_CONTROL_URL": ""
   }
 }

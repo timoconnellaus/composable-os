@@ -3,9 +3,9 @@ import { DurableObject, RpcStub, RpcTarget } from "cloudflare:workers";
 import type {
   ActionDescription, ActionField, ActionKind, ApprovalQueue, Gatekeeper, GitCache, HookController,
   HookDescription, ObservationDescription, ResourceDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 import { TestGitCache } from "./test-git-cache";
-import { ActionJournal } from "@relationship-os/gatekeeper-kit/actions";
+import { ActionJournal } from "@composable-os/gatekeeper-kit/actions";
 import type { GoogleAccessToken } from "../src/google-api";
 import type { GoogleDocSession, GoogleDocTab } from "../src/docs-types";
 import type { MarkerEntry } from "../src/sheets-actions";

@@ -8,7 +8,7 @@ import {
   h,
   Section,
   TextInput,
-} from "@relationship-os/gatekeeper-configurator-ui";
+} from "@composable-os/gatekeeper-configurator-ui";
 import { isEmailAddress } from "../address";
 import { senderFromUrl, senderUrl } from "../sender";
 import type { SenderConfiguratorRpc, SenderConfiguratorValues } from "./sender-configurator-types";

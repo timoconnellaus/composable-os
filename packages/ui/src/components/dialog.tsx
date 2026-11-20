@@ -1,5 +1,5 @@
-import { Button } from "@relationship-os/ui/components/button";
-import { cn } from "@relationship-os/ui/lib/utils";
+import { Button } from "@composable-os/ui/components/button";
+import { cn } from "@composable-os/ui/lib/utils";
 import { XIcon } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as React from "react";

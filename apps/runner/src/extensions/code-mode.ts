@@ -1,10 +1,10 @@
 // Code Mode scripts (ADR 0042, ADR 0043): a short ES module an MCP client model writes, run in a
 // throwaway Dynamic Worker (new code every time, so LOADER.load() with no id) with no network,
-// acting as the connected user. The script may import only `codemode:crm`, which is rewritten to a
-// small wrapper over the per-run host RpcTarget so `crm.call` returns values and throws errors.
+// acting as the connected user. The script may import only `codemode:ops`, which is rewritten to a
+// small wrapper over the per-run host RpcTarget so `ops.call` returns values and throws errors.
 // The entry captures console output and returns the script's default export. Patching console is
 // fine here: the worker runs once and is thrown away.
-import { GATEKEEPER_MODULES } from "@relationship-os/sdk";
+import { GATEKEEPER_MODULES, renamedMessage } from "@composable-os/sdk";
 import { transform } from "sucrase";
 
 export const CODE_TIMEOUT_MS = 30_000;
@@ -21,7 +21,7 @@ function stripComments(code: string): string {
   return code.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:\\])\/\/.*$/gm, "$1");
 }
 
-/** Transpiles the script (TypeScript allowed) and points `codemode:crm` at the wrapper. */
+/** Transpiles the script (TypeScript allowed) and points `codemode:ops` at the wrapper. */
 export function buildScript(source: string): ScriptBuild {
   let code: string;
   try {
@@ -38,12 +38,12 @@ export function buildScript(source: string): ScriptBuild {
   if (/\brequire\s*\(/.test(scan)) {
     return {
       ok: false,
-      message: 'require() is not available; use import { crm } from "codemode:crm"',
+      message: 'require() is not available; use import { ops } from "codemode:ops"',
     };
   }
   let bad: string | null = null;
   const rewrite = (_m: string, head: string, quote: string, specifier: string) => {
-    if (specifier === "codemode:crm") return `${head}${quote}./crm.js${quote}`;
+    if (specifier === "codemode:ops") return `${head}${quote}./ops.js${quote}`;
     const gatekeeper = specifier.startsWith("codemode:") ? specifier.slice(9) : "";
     if ((GATEKEEPER_MODULES as readonly string[]).includes(gatekeeper)) {
       return `${head}${quote}./gk-${gatekeeper}.js${quote}`;
@@ -55,18 +55,20 @@ export function buildScript(source: string): ScriptBuild {
   if (bad) {
     return {
       ok: false,
-      message: `Cannot import "${bad}": a Code Mode script may import only "codemode:crm" and codemode:<gatekeeper> (${GATEKEEPER_MODULES.join(", ")})`,
+      message:
+        renamedMessage(bad) ??
+        `Cannot import "${bad}": a Code Mode script may import only "codemode:ops" and codemode:<gatekeeper> (${GATEKEEPER_MODULES.join(", ")})`,
     };
   }
   return { ok: true, script };
 }
 
 /** Holds the run's host RpcTarget; only the entry and the wrapper import it. */
-export const CRM_HOST = `let host = null;
+export const OPS_HOST = `let host = null;
 export function bind(value) { host = value; }
 export function call(operation, input) {
-  if (!host) throw new Error("codemode:crm is not available until the script runs");
-  return host.call("crm", "call", [operation, input]);
+  if (!host) throw new Error("codemode:ops is not available until the script runs");
+  return host.call("ops", "call", [operation, input]);
 }
 export function gatekeeper(name, method, args) {
   if (!host) throw new Error("codemode modules are not available until the script runs");
@@ -76,7 +78,7 @@ export function gatekeeper(name, method, args) {
 
 /** `codemode:<gatekeeper>` over the host (stage 6a): connections, call and types. */
 export function gatekeeperWrapper(name: string): string {
-  return `import { gatekeeper } from "./crm-host.js";
+  return `import { gatekeeper } from "./ops-host.js";
 const NAME = ${JSON.stringify(name)};
 export class GatekeeperCallError extends Error {
   constructor(error) { super(error.message); this.name = "GatekeeperCallError"; this.code = error.code; }
@@ -92,12 +94,12 @@ export default { connections, types, call };
 `;
 }
 
-/** `crm.call` over the host: returns the value, throws a CrmCallError on failure. */
-export const CRM_WRAPPER = `import * as host from "./crm-host.js";
-export class CrmCallError extends Error {
+/** `ops.call` over the host: returns the value, throws a OpsCallError on failure. */
+export const OPS_WRAPPER = `import * as host from "./ops-host.js";
+export class OpsCallError extends Error {
   constructor(error) {
     super(error.message);
-    this.name = "CrmCallError";
+    this.name = "OpsCallError";
     this.code = error.code;
     this.details = error.details;
   }
@@ -105,15 +107,15 @@ export class CrmCallError extends Error {
 async function call(operation, input) {
   const reply = await host.call(String(operation), input ?? {});
   if (reply && reply.ok) return reply.value;
-  throw new CrmCallError((reply && reply.error) || { code: "internal", message: "No reply" });
+  throw new OpsCallError((reply && reply.error) || { code: "internal", message: "No reply" });
 }
-export const crm = { call };
-export default crm;
+export const ops = { call };
+export default ops;
 `;
 
 /** The entry: console capture, then the script's default export (called if a function). */
 export const CODE_ENTRY = `import { WorkerEntrypoint } from "cloudflare:workers";
-import { bind } from "./crm-host.js";
+import { bind } from "./ops-host.js";
 import * as script from "./script.js";
 const MAX_LOGS = ${CODE_MAX_LOGS};
 async function main() {
@@ -159,8 +161,8 @@ export function codeWorkerCode(script: string): WorkerLoaderWorkerCode {
     modules: {
       "entry.js": CODE_ENTRY,
       "script.js": script,
-      "crm.js": CRM_WRAPPER,
-      "crm-host.js": CRM_HOST,
+      "ops.js": OPS_WRAPPER,
+      "ops-host.js": OPS_HOST,
       ...Object.fromEntries(GATEKEEPER_MODULES.map((g) => [`gk-${g}.js`, gatekeeperWrapper(g)])),
     },
     // No network (ADR 0025); the per-run host RpcTarget is the only way out.

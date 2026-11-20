@@ -1,9 +1,9 @@
 // AC7: the host-generated summary and step diagram are deterministic and cover every trigger type
 // and declared step kind. The Deals onboarding automation must read exactly as the reference
 // design (docs/stages/assets/05-automation-page.html) shows it.
-import deals from "@relationship-os/extension-deals";
-import type { AutomationManifest } from "@relationship-os/sdk";
-import { toManifest } from "@relationship-os/sdk";
+import deals from "@composable-os/extension-deals";
+import type { AutomationManifest } from "@composable-os/sdk";
+import { toManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import {
   automationDiagram,

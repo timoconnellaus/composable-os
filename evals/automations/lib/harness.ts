@@ -9,25 +9,25 @@
 //              the automation to be installed, runs automation.test on the seeded record, reads
 //              the host summary with automation.get, judges it, and disables the automation.
 
-import type { Judge } from "@relationship-os/core/judge";
-import type { IntentCheck } from "@relationship-os/core/judge-authoring-intent";
+import type { Judge } from "@composable-os/core/judge";
+import type { IntentCheck } from "@composable-os/core/judge-authoring-intent";
 import {
   emptyRun,
   type ModelClient,
   type RecordedCall,
   runAgent,
-} from "@relationship-os/evals-mcp/lib/agent.ts";
-import { toOpenAiTools } from "@relationship-os/evals-mcp/lib/convert.ts";
-import { callLabel, callMatches } from "@relationship-os/evals-mcp/lib/grading.ts";
-import { makeSuffix, systemPrompt, todayUtc } from "@relationship-os/evals-mcp/lib/harness.ts";
-import { type McpSession, parseResult } from "@relationship-os/evals-mcp/lib/mcp.ts";
+} from "@composable-os/evals-mcp/lib/agent.ts";
+import { toOpenAiTools } from "@composable-os/evals-mcp/lib/convert.ts";
+import { callLabel, callMatches } from "@composable-os/evals-mcp/lib/grading.ts";
+import { makeSuffix, systemPrompt, todayUtc } from "@composable-os/evals-mcp/lib/harness.ts";
+import { type McpSession, parseResult } from "@composable-os/evals-mcp/lib/mcp.ts";
 import {
   clockMark,
   describeError,
   type ModelParams,
   sleepNote,
-} from "@relationship-os/evals-mcp/lib/model.ts";
-import type { AutomationManifest } from "@relationship-os/sdk";
+} from "@composable-os/evals-mcp/lib/model.ts";
+import type { AutomationManifest } from "@composable-os/sdk";
 import { type AutomationCase, extensionIdFor, promptText } from "../prompts.ts";
 import {
   type AutomationListing,

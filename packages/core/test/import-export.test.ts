@@ -202,7 +202,7 @@ describe("import.csv: people", () => {
     ).toBe(5000);
     expect(
       await count(
-        "SELECT COUNT(*) AS n FROM crm_people WHERE primary_email LIKE ? AND organisation_id IS NOT NULL",
+        "SELECT COUNT(*) AS n FROM rec_person WHERE primary_email LIKE ? AND organisation_id IS NOT NULL",
         `${run}.%`,
       ),
     ).toBe(5000);
@@ -211,19 +211,16 @@ describe("import.csv: people", () => {
     ).toBe(40);
     expect(
       await count(
-        "SELECT COUNT(*) AS n FROM crm_affiliations WHERE organisation_id = ?",
+        "SELECT COUNT(*) AS n FROM rec_affiliation WHERE organisation_id = ?",
         byDomain.id,
       ),
     ).toBe(500);
     expect(
-      await count(
-        "SELECT COUNT(*) AS n FROM crm_affiliations WHERE organisation_id = ?",
-        byName.id,
-      ),
+      await count("SELECT COUNT(*) AS n FROM rec_affiliation WHERE organisation_id = ?", byName.id),
     ).toBe(500);
     // Existing people were updated in place: names filled in, primary affiliation added.
     const updated = await env.DB.prepare(
-      "SELECT display_name, given_name, job_title, organisation_name FROM crm_people WHERE primary_email = ?",
+      "SELECT display_name, given_name, job_title, organisation_name FROM rec_person WHERE primary_email = ?",
     )
       .bind(`${run}.3@people.example`)
       .first();
@@ -648,7 +645,7 @@ describe("export.csv", () => {
     expect(second.csv).toContain("'=Boss");
     expect(
       await count(
-        "SELECT COUNT(*) AS n FROM crm_people WHERE job_title = '=Boss' AND primary_email LIKE ?",
+        "SELECT COUNT(*) AS n FROM rec_person WHERE job_title = '=Boss' AND primary_email LIKE ?",
         `${tag}.%`,
       ),
     ).toBe(12);

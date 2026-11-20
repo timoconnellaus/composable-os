@@ -1,4 +1,4 @@
-# @relationship-os/auth
+# @composable-os/auth
 
 Deploy-time identity (ADR 0008).
 

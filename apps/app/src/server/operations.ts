@@ -3,7 +3,7 @@
 // workerd; `call-operation.ts` wraps it in a TanStack Start server function, and `#/lib/operations`
 // is the typed client. The MCP (stage 2) and host-module (stage 3) adapters follow the same shape
 // with a different actor and origin.
-import type { Principal } from "@relationship-os/auth";
+import type { Principal } from "@composable-os/auth";
 import {
   type AgentJobHost,
   type AssistantThreadStore,
@@ -20,8 +20,8 @@ import {
   type SerializedOperationError,
   toOperationError,
   withCodeModeRateLimit,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { getAgentByName } from "agents";
 import { type AiAppEnv, aiContextFor } from "./ai.ts";
 import { type AssistantAgent, threadName } from "./assistant/agent.ts";
@@ -39,22 +39,20 @@ export interface OperationsEnv extends AiAppEnv {
   APPROVAL_EXPIRY_DAYS?: string;
   /** The OAuth provider's store, so revoking a connected app also deletes its tokens. */
   OAUTH_KV?: KVNamespace;
-  /** ros-runner: the extension host (ADR 0025). */
+  /** cos-runner: the extension host (ADR 0025). */
   RUNNER?: Fetcher;
-  /** The automation events queue (ADR 0130): committed changes start automations in ros-runner. */
+  /** The automation events queue (ADR 0130): committed changes start automations in cos-runner. */
   AUTOMATION_EVENTS?: Queue;
   /** Code Mode runs per user (Workers Rate Limiting, ADR 0043). */
   CODE_MODE_RATE_LIMIT?: RateLimitBinding;
   /** Synced email bodies (R2, ADR 0112). */
   BLOBS?: R2Bucket;
   /** Release (stage 8): the installed version, release repository and account (ADR 0164). */
-  ROS_RELEASE_VERSION?: string;
-  ROS_RELEASE_REPO?: string;
-  ROS_ACCOUNT_ID?: string;
+  COS_RELEASE_VERSION?: string;
+  COS_RELEASE_REPO?: string;
+  COS_ACCOUNT_ID?: string;
   /** Optional scoped token for in-app updates (a secret). */
-  ROS_UPDATE_TOKEN?: string;
-  /** The same token on an install from before the rename (ADR 0190); read when ROS_UPDATE_TOKEN is unset. */
-  CRM_UPDATE_TOKEN?: string;
+  COS_UPDATE_TOKEN?: string;
   /** Each person's assistant thread (ADR 0340): thread.* operations and erase reach it. */
   ASSISTANT?: DurableObjectNamespace<AssistantAgent>;
   /** One object per agent (ADR 0344). */
@@ -121,8 +119,8 @@ export function assistantThreadsFor(env: OperationsEnv): AssistantThreadStore | 
 }
 
 /**
- * The extension runtime as seen from ros-app: ros-runner's RPC over the RUNNER service binding
- * (code runs in ros-runner's stateless entrypoint; git and builds in its workspace DO), with Code
+ * The extension runtime as seen from cos-app: cos-runner's RPC over the RUNNER service binding
+ * (code runs in cos-runner's stateless entrypoint; git and builds in its workspace DO), with Code
  * Mode's per-user rate limit applied here, where the binding lives.
  */
 export function extensionHostFor(env: OperationsEnv): ExtensionHost | undefined {
@@ -133,7 +131,7 @@ export function extensionHostFor(env: OperationsEnv): ExtensionHost | undefined 
 
 /**
  * The automation wiring for an invocation (ADR 0130): committed record changes go to the
- * AUTOMATION_EVENTS queue, and automation.test / run / retry / replay / cancel reach ros-runner.
+ * AUTOMATION_EVENTS queue, and automation.test / run / retry / replay / cancel reach cos-runner.
  */
 export function automationWiring(env: OperationsEnv): {
   events?: EventSink;
@@ -179,7 +177,7 @@ let shippedInstall: Promise<void> | null = null;
 
 /**
  * Installs the shipped extensions bundled with this release once per isolate, through
- * `extension.install` in ros-runner (ADR 0025). A failure is logged and retried on a later call;
+ * `extension.install` in cos-runner (ADR 0025). A failure is logged and retried on a later call;
  * operations still run meanwhile.
  */
 export function ensureShippedExtensions(env: OperationsEnv): Promise<void> {

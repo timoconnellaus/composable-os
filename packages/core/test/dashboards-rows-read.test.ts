@@ -2,8 +2,8 @@
 // widget query walks an index (EXPLAIN QUERY PLAN shows no full table scan), and rows read stay
 // within budgets on a seeded database, so the default Home never scans whole tables.
 import { env } from "cloudflare:workers";
-import { createCrmDb } from "@relationship-os/db";
-import { seedDatabase } from "@relationship-os/db/seed";
+import { createCrmDb } from "@composable-os/db";
+import { seedDatabase } from "@composable-os/db/seed";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,
@@ -126,7 +126,7 @@ describe("Overview dashboard cost", () => {
 
   it("reads only the rows in the default 90-day window", async () => {
     // NOW is 19 days after the seed, so every seeded record is in the window: the budgets are
-    // the matching rows, times the rows each match visits (index entry, row, and the crm_*
+    // the matching rows, times the rows each match visits (index entry, row, and the rec_*
     // view's primary-affiliation and organisation joins for people), never the table again.
     const budgets: Record<string, number> = {
       "people-added": PEOPLE * 3.2,

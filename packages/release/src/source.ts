@@ -1,16 +1,20 @@
 // Getting a release you can trust: download its assets from GitHub Releases, verify the bundle
 // (SHA256SUMS + build attestation, ADR 0162), then open it (every file checked against the
 // manifest). Shared by the CLI and the self-updater, so both refuse the same tampered bundles.
-import { type ExtraVerifier, VerificationError, verifyBundleBytes } from "./attestation.ts";
+import {
+  type ExtraVerifier,
+  sameRepository,
+  VerificationError,
+  verifyBundleBytes,
+} from "./attestation.ts";
 import { openBundle, type ReleaseBundle } from "./bundle.ts";
 import {
-  DEFAULT_REPOSITORY,
   downloadAsset,
   type GitHubOptions,
   getRelease,
   type ReleaseInfo,
+  type RequestOptions,
 } from "./github.ts";
-import { sameRepository } from "./legacy.ts";
 import { parseManifest } from "./manifest.ts";
 
 export interface VerifiedRelease {
@@ -21,9 +25,9 @@ export interface VerifiedRelease {
 
 export async function fetchVerifiedRelease(
   version: string,
-  options: GitHubOptions & { extra?: ExtraVerifier; downloadFetch?: typeof fetch } = {},
+  options: GitHubOptions & { extra?: ExtraVerifier; downloadFetch?: typeof fetch },
 ): Promise<VerifiedRelease> {
-  const repository = options.repository ?? DEFAULT_REPOSITORY;
+  const { repository, product } = options;
   const info = await getRelease(version, options);
   if (!info.assets.bundle || !info.assets.sums) {
     throw new VerificationError(`release ${info.tag} has no bundle or SHA256SUMS asset`);
@@ -35,6 +39,7 @@ export async function fetchVerifiedRelease(
   ]);
   const { digest } = await verifyBundleBytes({
     bytes,
+    product,
     version: info.version,
     sums: new TextDecoder().decode(sumsBytes),
     repository,
@@ -47,6 +52,11 @@ export async function fetchVerifiedRelease(
       `bundle says it is ${bundle.manifest.version}, but the release is ${info.version}`,
     );
   }
+  if (bundle.manifest.product !== product) {
+    throw new VerificationError(
+      `bundle is a release of ${bundle.manifest.product}, not ${product}`,
+    );
+  }
   if (!sameRepository(bundle.manifest.repository, repository)) {
     throw new VerificationError(
       `bundle was built for ${bundle.manifest.repository}, not ${repository}`,
@@ -56,7 +66,7 @@ export async function fetchVerifiedRelease(
 }
 
 /** The release manifest alone (for preflight), without downloading the bundle. */
-export async function fetchReleaseManifest(info: ReleaseInfo, options: GitHubOptions = {}) {
+export async function fetchReleaseManifest(info: ReleaseInfo, options: RequestOptions = {}) {
   if (!info.assets.manifest) throw new Error(`release ${info.tag} has no manifest asset`);
   return parseManifest(
     new TextDecoder().decode(await downloadAsset(info.assets.manifest, options)),

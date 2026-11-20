@@ -11,23 +11,23 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { configureVia } from "@relationship-os/evals-mcp/lib/assistant.ts";
+import { configureVia } from "@composable-os/evals-mcp/lib/assistant.ts";
 import {
   checkCredentials,
   modelCliOptions,
   parseModelArgs,
   parseOnly,
   parsePositiveInt,
-} from "@relationship-os/evals-mcp/lib/cli.ts";
-import { loadEvalEnvFile } from "@relationship-os/evals-mcp/lib/env-file.ts";
-import { openMcpSession } from "@relationship-os/evals-mcp/lib/mcp.ts";
+} from "@composable-os/evals-mcp/lib/cli.ts";
+import { loadEvalEnvFile } from "@composable-os/evals-mcp/lib/env-file.ts";
+import { openMcpSession } from "@composable-os/evals-mcp/lib/mcp.ts";
 import {
   chatCompletionsModel,
   isFatalModelError,
   type ModelParams,
-} from "@relationship-os/evals-mcp/lib/model.ts";
-import { authorize, type EvalUser, signIn } from "@relationship-os/evals-mcp/lib/oauth.ts";
-import { summaryLine } from "@relationship-os/evals-mcp/lib/report.ts";
+} from "@composable-os/evals-mcp/lib/model.ts";
+import { authorize, type EvalUser, signIn } from "@composable-os/evals-mcp/lib/oauth.ts";
+import { summaryLine } from "@composable-os/evals-mcp/lib/report.ts";
 import {
   AUTHORING_TOOLS,
   type ExtensionsHarnessDeps,

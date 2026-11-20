@@ -19,7 +19,7 @@ export interface PlatformAiEnv {
   /** Secret: the platform token (Workers AI and AI Gateway Run), shared by every tenant. */
   AI_PLATFORM_TOKEN?: string;
   /** Var: this deployment's tenant id (`t` + 9 characters), for the tenant tag. */
-  ROS_TENANT_ID?: string;
+  COS_TENANT_ID?: string;
   /**
    * Secret, optional: the customer's own AI Gateway for their own keys, JSON
    * `{ "accountId", "gatewayId", "token"? }`. Set from Settings → AI through the control plane.
@@ -44,12 +44,12 @@ export function platformConfig(env: PlatformAiEnv): PlatformConfig | { missing: 
   const accountId = env.AI_PLATFORM_ACCOUNT_ID?.trim() ?? "";
   const gatewayId = env.AI_PLATFORM_GATEWAY_ID?.trim() ?? "";
   const token = env.AI_PLATFORM_TOKEN?.trim() ?? "";
-  const tenant = env.ROS_TENANT_ID?.trim() ?? "";
+  const tenant = env.COS_TENANT_ID?.trim() ?? "";
   const missing = [
     ...(gatewayId ? [] : ["AI_PLATFORM_GATEWAY_ID"]),
     ...(accountId ? [] : ["AI_PLATFORM_ACCOUNT_ID"]),
     ...(token ? [] : ["AI_PLATFORM_TOKEN"]),
-    ...(tenant ? [] : ["ROS_TENANT_ID"]),
+    ...(tenant ? [] : ["COS_TENANT_ID"]),
   ];
   return missing.length ? { missing } : { accountId, gatewayId, token, tenant };
 }

@@ -4,7 +4,7 @@
 // email delivery, the in-app preference, exactly once per person per day across repeated ticks
 // and a lost cron state, the labelled AI overview and its fallback, and the reads it costs.
 import { env } from "cloudflare:workers";
-import { createCrmDb } from "@relationship-os/db";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,

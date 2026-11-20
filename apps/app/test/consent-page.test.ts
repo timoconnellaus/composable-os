@@ -1,5 +1,6 @@
 // /oauth/consent renders as the app does (its one script allowed by hash, nothing else) and keeps
 // the form fields the OAuth flow relies on.
+import { product } from "@composable-os/products/active";
 import { describe, expect, it } from "vitest";
 import { appFor, openConsent, registerClient, signUp, testEnv } from "./mcp-helpers.ts";
 
@@ -17,7 +18,7 @@ describe("consent page", () => {
     const clientId = await registerClient(fetchApp, "Claude Desktop");
     const page = await openConsent(fetchApp, member, clientId, "x".repeat(43), "read write");
     expect(page.response.status).toBe(200);
-    expect(page.html).toContain("Connect Claude Desktop to Relationship OS?");
+    expect(page.html).toContain(`Connect Claude Desktop to ${product.strings.name}?`);
     expect(page.html).toContain(member.email);
     expect(page.html).toMatch(/name="scope" value="read" checked disabled/);
     expect(page.html).toMatch(/name="scope" value="write" checked/);

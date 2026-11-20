@@ -5,8 +5,8 @@
 //
 // What cannot be made is recorded on the routine (My routines shows it as failing) and acked. Only
 // a failure to reach the thread is retried, by the queue.
-import type { A2uiPart } from "@relationship-os/agent-a2ui";
-import type { MessagePart } from "@relationship-os/agent-core";
+import type { A2uiPart } from "@composable-os/agent-a2ui";
+import type { MessagePart } from "@composable-os/agent-core";
 import {
   type ActingUser,
   errorForLog,
@@ -27,8 +27,8 @@ import {
   routineSkills,
   routinesQuery,
   routineWhy,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import type { OperationsEnv } from "../operations.ts";
 import { assistantThreadsFor, extensionHostFor } from "../operations.ts";
 
@@ -182,7 +182,7 @@ export async function deliverRoutineMessage(
   return { outcome: "delivered", seq: posted.seq };
 }
 
-/** The ros-routine-delivery consumer: each message into its owner's thread. */
+/** The cos-routine-delivery consumer: each message into its owner's thread. */
 export async function handleRoutineDeliveries(
   batch: MessageBatch<RoutineDeliveryMessage>,
   env: OperationsEnv,

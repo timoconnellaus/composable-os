@@ -7,7 +7,7 @@
 
 import { RpcTarget, type RpcStub } from "cloudflare:workers";
 import type { ActionDescription, ActionKind, ApprovalQueue }
-  from "@relationship-os/gatekeeper-interface/gatekeeper";
+  from "@composable-os/gatekeeper-interface/gatekeeper";
 
 import {
   MAX_TOOL_NAME_CHARS,

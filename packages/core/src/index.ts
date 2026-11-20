@@ -1,4 +1,4 @@
-// @relationship-os/core: the operations registry and everything an operation needs. See README.md.
+// @composable-os/core: the operations registry and everything an operation needs. See README.md.
 
 export * from "./adjudicator/agreement.ts";
 export * from "./adjudicator/review.ts";

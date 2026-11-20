@@ -221,7 +221,7 @@ export const prompts: AuthoringPrompt[] = [
   {
     id: "ticket-tool",
     title: "A Tickets object and a read-only tool that counts open tickets",
-    covers: ["new object", "tool", "risk read", "ctx.crm", "permissions.modules"],
+    covers: ["new object", "tool", "risk read", "ctx.ops", "permissions.modules"],
     idBase: "tickets",
     request:
       "Create a Tickets object with a subject, a status (open or closed) and the organisation it " +
@@ -258,8 +258,8 @@ export const prompts: AuthoringPrompt[] = [
         );
       }
       need(
-        m.permissions?.modules?.includes("crm"),
-        `permissions.modules does not include "crm" (has: ${m.permissions?.modules?.join(", ") || "none"})`,
+        m.permissions?.modules?.includes("ops"),
+        `permissions.modules does not include "ops" (has: ${m.permissions?.modules?.join(", ") || "none"})`,
       );
       return failures;
     },

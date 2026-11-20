@@ -1,5 +1,5 @@
-// The port between the operations registry and the extension runtime (ADR 0025). ros-runner
-// implements it (the extension workspace Durable Object: files, git, the sandbox); ros-app
+// The port between the operations registry and the extension runtime (ADR 0025). cos-runner
+// implements it (the extension workspace Durable Object: files, git, the sandbox); cos-app
 // reaches the same implementation over the RUNNER service binding. Extension operations receive
 // it through the invocation context, so packages/core never imports the runtime.
 
@@ -51,7 +51,7 @@ export interface ShippedExtension {
    * (`extension.install { shipped: true }`), and from then on releases upgrade it like any other.
    */
   optional?: boolean;
-  /** For the Available list before it is installed (package.json `relationshipOs`). */
+  /** For the Available list before it is installed (package.json `composableOs`). */
   label?: string;
   description?: string;
 }

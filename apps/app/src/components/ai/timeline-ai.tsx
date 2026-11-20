@@ -3,7 +3,7 @@
 // and the missing ones generated in one batch of at most 10 (summary.activities), never per
 // render or keystroke.
 
-import { Button } from "@relationship-os/ui/components/button";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@relationship-os/ui/components/dialog";
+} from "@composable-os/ui/components/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { NotebookPenIcon } from "lucide-react";
 import { useMemo, useState } from "react";

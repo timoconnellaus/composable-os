@@ -1,4 +1,4 @@
-# @relationship-os/agent-voice
+# @composable-os/agent-voice
 
 Voice for an assistant, as [ADR 0349](../../docs/adr/0349-voice-on-agents-voice.md) describes:
 
@@ -14,5 +14,5 @@ Sentence chunking is the SDK's; each sentence is flushed to speech on its own.
 
 Part of the assistant packages described in
 [ADR 0350](../../docs/adr/0350-agent-package-boundary.md). MIT licensed (see `LICENSE`), unlike the
-rest of the repository. It may import only other `@relationship-os/agent-*` packages, `zod`, `ai`,
+rest of the repository. It may import only other `@composable-os/agent-*` packages, `zod`, `ai`,
 `agents` and React (as a peer); `pnpm lint` checks this.

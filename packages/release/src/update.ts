@@ -1,5 +1,5 @@
 // The upgrade and rollback procedures (ADR 0054, ADR 0164), shared by the self-updater and
-// `ros upgrade` so both do exactly the same thing:
+// `cos upgrade` so both do exactly the same thing:
 //
 //   1. pause automations          (AutomationControl: the automations kill switch)
 //   2. take a D1 Time Travel bookmark
@@ -33,7 +33,6 @@ import {
   provisionAiGateway,
   retireGatewayToken,
 } from "./gateway.ts";
-import { adoptLegacyNames } from "./legacy.ts";
 
 /** Pauses and resumes automations around an update. */
 export interface AutomationControl {
@@ -79,7 +78,7 @@ export function killSwitchControl(store: KillSwitchStore): AutomationControl {
   };
 }
 
-/** The kill switch over the D1 REST API, for `ros upgrade` and `ros rollback`. */
+/** The kill switch over the D1 REST API, for `cos upgrade` and `cos rollback`. */
 export function apiKillSwitchStore(
   api: CloudflareClient,
   accountId: string,
@@ -166,8 +165,7 @@ export async function runUpdate(input: UpdateInput): Promise<UpdateOutcome> {
   const log = input.log ?? (() => {});
   const automations = input.automations ?? noAutomationControl;
   const { api, databaseId, target } = input;
-  // An install from before the rename keeps its deployed names (ADR 0190).
-  const state = adoptLegacyNames(input.state, target.manifest);
+  const state = input.state;
   const outcome: UpdateOutcome = {
     status: "failed",
     from: state.version,

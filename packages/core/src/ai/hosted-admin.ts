@@ -1,17 +1,17 @@
 // Settings → AI on a hosted deployment (ADR 0213 amendment, ADR 0250). There is no Cloudflare API
 // token in a hosted workspace: the customer's key goes to the control plane in one signed request
-// (`POST <ROS_CONTROL_URL>/api/deployment/ai-secret`), which sets it as the secret
+// (`POST <COS_CONTROL_URL>/api/deployment/ai-secret`), which sets it as the secret
 // `AI_KEY_<PROVIDER>` on this tenant's Workers through the Workers for Platforms script-secrets
 // API. The key is only ever in that request's body: never in D1, a log, an error or a response.
 // Calls with it go directly to the provider (or through the customer's own AI Gateway), never
 // through the platform gateway, and are never billed. Usage comes from the workspace's own counts.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import {
   AI_SECRET_PATH,
   type AiSecretRequest,
   CUSTOMER_GATEWAY_SECRET,
   signDeploymentRequest,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import type { Kysely } from "kysely";
 import { type AiAdmin, AiAdminError, JUDGE_KEY_SECRET, type UsageReport } from "./admin.ts";
 import { customerGateway, customerGatewayProblems } from "./platform.ts";
@@ -19,12 +19,12 @@ import { PROVIDER_INFO } from "./roles.ts";
 import { workspaceUsage } from "./usage.ts";
 
 export interface HostedAiAdminEnv {
-  /** Var: the control plane's origin (https://app.relationshiposcrm.com). */
-  ROS_CONTROL_URL?: string;
+  /** Var: the control plane's origin. */
+  COS_CONTROL_URL?: string;
   /** Secret: this tenant's deployment-channel key (ADR 0250). */
-  ROS_CONTROL_KEY?: string;
+  COS_CONTROL_KEY?: string;
   /** Var: this deployment's tenant id. */
-  ROS_TENANT_ID?: string;
+  COS_TENANT_ID?: string;
   /** Secret: the customer's own AI Gateway, if connected (platform.ts). */
   AI_CUSTOMER_GATEWAY?: string;
 }
@@ -34,13 +34,13 @@ export function hostedAiAdmin(
   options: { db?: Kysely<CoreDatabase>; fetch?: typeof fetch; now?: () => Date } = {},
 ): AiAdmin {
   const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
-  const url = env.ROS_CONTROL_URL?.trim().replace(/\/+$/, "") ?? "";
-  const key = env.ROS_CONTROL_KEY?.trim() ?? "";
-  const tenant = env.ROS_TENANT_ID?.trim() ?? "";
+  const url = env.COS_CONTROL_URL?.trim().replace(/\/+$/, "") ?? "";
+  const key = env.COS_CONTROL_KEY?.trim() ?? "";
+  const tenant = env.COS_TENANT_ID?.trim() ?? "";
   const missing = [
-    ...(url ? [] : ["ROS_CONTROL_URL (var)"]),
-    ...(key ? [] : ["ROS_CONTROL_KEY (secret)"]),
-    ...(tenant ? [] : ["ROS_TENANT_ID (var)"]),
+    ...(url ? [] : ["COS_CONTROL_URL (var)"]),
+    ...(key ? [] : ["COS_CONTROL_KEY (secret)"]),
+    ...(tenant ? [] : ["COS_TENANT_ID (var)"]),
   ];
   const api = missing.length === 0;
 

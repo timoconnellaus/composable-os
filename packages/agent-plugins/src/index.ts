@@ -1,4 +1,4 @@
-// @relationship-os/agent-plugins (ADR 0347, ADR 0350): assistant plugins. The `plugin.json`
+// @composable-os/agent-plugins (ADR 0347, ADR 0350): assistant plugins. The `plugin.json`
 // schema, Agent Plugins import, fingerprinting, the three-way diff, the merge-proposal protocol and
 // scope resolution arrive in stage 17's W7. Until then this is the package's home.
 

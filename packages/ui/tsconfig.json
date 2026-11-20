@@ -1,8 +1,8 @@
 {
-  "extends": "@relationship-os/config/tsconfig.react.json",
+  "extends": "@composable-os/config/tsconfig.react.json",
   "compilerOptions": {
     "paths": {
-      "@relationship-os/ui/*": ["./src/*"]
+      "@composable-os/ui/*": ["./src/*"]
     }
   },
   "include": ["src"]

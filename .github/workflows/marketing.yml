@@ -1,6 +1,6 @@
-# Deploys the landing page (apps/marketing, Worker ros-marketing) to relationshiposcrm.com when
+# Deploys the Composable OS site (apps/marketing, Worker cos-site) to composableos.dev when
 # main changes it (ADR 0191). Needs the repository secrets MARKETING_CLOUDFLARE_API_TOKEN (Workers
-# Scripts: Edit, D1: Edit, Workers Routes / custom domains on the relationshiposcrm.com zone) and
+# Scripts: Edit, D1: Edit, Workers Routes / custom domains on the composableos.dev zone) and
 # MARKETING_CLOUDFLARE_ACCOUNT_ID. Without them the deploy job is skipped and the workflow passes.
 name: Marketing site
 
@@ -54,7 +54,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @relationship-os/marketing test
+      - run: pnpm --filter @composable-os/marketing test
       # Builds the site (failing on any tracker), deploys (wrangler creates the D1 database by name
       # the first time), then applies the form's D1 migrations.
-      - run: pnpm --filter @relationship-os/marketing run deploy
+      - run: pnpm --filter @composable-os/marketing run deploy

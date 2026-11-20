@@ -8,7 +8,7 @@
 // replay is ours (ADR 0231). Without a gateway it calls https://api.typesafe.ai directly.
 //
 // Keys, never in D1, never logged or returned (ADR 0151): BYOK in the gateway under
-// `custom-typesafe` (JUDGE_BYOK=true, set by `create-relationship-os --provider-key typesafe=…`),
+// `custom-typesafe` (JUDGE_BYOK=true, set by `create-composable-os --provider-key typesafe=…`),
 // so no key reaches the Worker; otherwise the Worker secret TYPESAFE_API_KEY, sent as
 // `Authorization: Bearer`. With neither, the judge is off.
 //

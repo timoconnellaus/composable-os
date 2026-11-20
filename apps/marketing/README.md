@@ -1,19 +1,19 @@
 # apps/marketing
 
-The landing page for [relationshiposcrm.com](https://relationshiposcrm.com) (ADR 0191): a static
-Astro site served by the `ros-marketing` Worker, which also answers `POST /api/signup` (the
+The landing page for [composableos.dev](https://composableos.dev) (ADR 0191): a static
+Astro site served by the `cos-site` Worker, which also answers `POST /api/signup` (the
 waitlist and contact-sales form) and stores submissions in its own D1 database. No trackers: the
 build fails if any page loads anything from another origin or mentions a known analytics tool
 (`scripts/check-static.mjs`).
 
 ```sh
-pnpm --filter @relationship-os/marketing dev          # http://localhost:4321 (pages only, no form API)
-pnpm --filter @relationship-os/marketing build        # dist/, then the no-tracker check
-pnpm --filter @relationship-os/marketing test         # the form endpoint in workerd against local D1
-pnpm --filter @relationship-os/marketing preview      # build + local D1 migrations + wrangler dev
-pnpm --filter @relationship-os/marketing test:e2e     # Playwright against the built site and Worker
-pnpm --filter @relationship-os/marketing screenshots  # screenshots/{390,834,1280}-{light,dark}.jpg
-pnpm --filter @relationship-os/marketing og-image     # re-render public/og.png and the touch icon
+pnpm --filter @composable-os/marketing dev          # http://localhost:4321 (pages only, no form API)
+pnpm --filter @composable-os/marketing build        # dist/, then the no-tracker check
+pnpm --filter @composable-os/marketing test         # the form endpoint in workerd against local D1
+pnpm --filter @composable-os/marketing preview      # build + local D1 migrations + wrangler dev
+pnpm --filter @composable-os/marketing test:e2e     # Playwright against the built site and Worker
+pnpm --filter @composable-os/marketing screenshots  # screenshots/{390,834,1280}-{light,dark}.jpg
+pnpm --filter @composable-os/marketing og-image     # re-render public/og.png and the touch icon
 ```
 
 ## Layout
@@ -44,4 +44,4 @@ pnpm --filter @relationship-os/marketing og-image     # re-render public/og.png 
 
 Deploys go through `.github/workflows/marketing.yml` on pushes to `main`, once the
 `MARKETING_CLOUDFLARE_API_TOKEN` and `MARKETING_CLOUDFLARE_ACCOUNT_ID` secrets exist. Read
-submissions with `wrangler d1 execute ros-marketing --remote --command "SELECT * FROM marketing_signup"`.
+submissions with `wrangler d1 execute cos-site --remote --command "SELECT * FROM marketing_signup"`.

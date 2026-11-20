@@ -2,7 +2,7 @@
 import {
   Button, Fragment, h, Notice, Section,
   type ConfiguratorUIRenderContext, type ConfiguratorUISpec,
-} from "@relationship-os/gatekeeper-configurator-ui";
+} from "@composable-os/gatekeeper-configurator-ui";
 import type {
   CalendarColleague as Colleague,
   CalendarConfiguratorAccess as Access,

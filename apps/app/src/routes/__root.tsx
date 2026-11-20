@@ -1,5 +1,6 @@
-import { Toaster } from "@relationship-os/ui/components/sonner";
-import { TooltipProvider } from "@relationship-os/ui/components/tooltip";
+import { product } from "@composable-os/products/active";
+import { Toaster } from "@composable-os/ui/components/sonner";
+import { TooltipProvider } from "@composable-os/ui/components/tooltip";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,
@@ -22,7 +23,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: "Relationship OS" },
+      { title: product.strings.name },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
   }),

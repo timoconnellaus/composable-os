@@ -1,7 +1,7 @@
 // Reading the judge's admin layer from D1 (core_settings `judge_settings`). Apart from the rest of
-// the judge so that plain-Node eval runners can import `@relationship-os/core/judge` without the
+// the judge so that plain-Node eval runners can import `@composable-os/core/judge` without the
 // database's Worker types.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import {
   EMPTY_JUDGE_SETTINGS,

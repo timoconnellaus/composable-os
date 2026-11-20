@@ -1,6 +1,6 @@
 // "Assign by rules" in a list's bulk actions (ADR 0246): re-runs the assignment rules on the
 // selected records with assignment.apply, 200 per call.
-import { Button } from "@relationship-os/ui/components/button";
+import { Button } from "@composable-os/ui/components/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { UserCheckIcon } from "lucide-react";
 import { useState } from "react";

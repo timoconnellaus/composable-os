@@ -1,5 +1,5 @@
 {
-  "extends": "@relationship-os/config/tsconfig.vendored.json",
+  "extends": "@composable-os/config/tsconfig.vendored.json",
   "compilerOptions": {
     "lib": ["ES2022", "ES2024.Promise", "DOM", "DOM.Iterable"],
     "types": []

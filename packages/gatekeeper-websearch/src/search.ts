@@ -2,8 +2,8 @@
 // Web Search request handling, separate from the Worker's RPC entrypoints.
 
 import { z } from "zod";
-import { buildDescription } from "@relationship-os/gatekeeper-kit/action-description";
-import type { ObservationDescription } from "@relationship-os/gatekeeper-interface/gatekeeper";
+import { buildDescription } from "@composable-os/gatekeeper-kit/action-description";
+import type { ObservationDescription } from "@composable-os/gatekeeper-interface/gatekeeper";
 import type { WebSearchResult } from "./types.js";
 
 // Pinned rather than left to the API's default. Credit-billed Ceramic searches have zero data

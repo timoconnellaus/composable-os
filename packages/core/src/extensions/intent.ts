@@ -6,7 +6,7 @@
 // The request: in the assistant, the person's own words, passed by its Durable Object's code
 // (`ctx.personsWords`), which win over anything the model passes. Over MCP, the client may pass
 // `request` itself; it is labelled "as the client reported it" wherever it is shown.
-import type { ExtensionManifest } from "@relationship-os/sdk";
+import type { ExtensionManifest } from "@composable-os/sdk";
 import { z } from "zod";
 import {
   checkIntent,

@@ -2,7 +2,7 @@
 //
 // - Changes on my records: the newest DIGEST_AUDIT_SCAN audit rows of the last 24 hours through
 //   core_audit_at_idx, their field changes through core_audit_changes_audit_idx (at most
-//   DIGEST_CHANGE_SCAN), then the changed records' owners by primary key from each object's crm_*
+//   DIGEST_CHANGE_SCAN), then the changed records' owners by primary key from each object's rec_*
 //   view (so deleted and erased records drop out). Read once per tick and shared by the tick's
 //   people (≤ 50), never per person. A day busier than the scan shows its newest changes only.
 // - Tasks due: open tasks assigned to the person due before the end of their local day, through
@@ -13,7 +13,7 @@
 // Activities are never part of it: they have no owner, and private ones stay private. A change I
 // made myself (actor human, my user id) is left out; changes by the assistant, an automation or a
 // connected app are listed even when they acted for me.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { refreshSchemaRegistry } from "../extensions/schema.ts";
 import { getField, getObject, isCoreObject, type ObjectDefinition } from "../fields/index.ts";

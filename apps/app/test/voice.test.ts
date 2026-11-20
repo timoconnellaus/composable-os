@@ -4,7 +4,7 @@
 // logged, and erase reaches the words not heard.
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import type { Principal } from "@relationship-os/auth";
+import type { Principal } from "@composable-os/auth";
 import {
   type AssistantThreadState,
   fakeModels,
@@ -12,8 +12,8 @@ import {
   resolveActingUser,
   type TranscriptItem,
   type VoicePrefs,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { describe, expect, it } from "vitest";
 import {
   type AssistantHttpEnv,

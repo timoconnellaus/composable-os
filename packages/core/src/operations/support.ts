@@ -229,7 +229,7 @@ export const supportGrantRevoke = decide(
 );
 
 /**
- * Records the start of a support session in the customer's audit log. Called by ros-app's
+ * Records the start of a support session in the customer's audit log. Called by cos-app's
  * /support/enter route after it verified the control plane's signed token; it acts as the
  * support user, and refuses anyone else (so a person cannot write fake entries).
  */

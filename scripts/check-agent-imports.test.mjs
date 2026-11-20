@@ -18,11 +18,11 @@ function fixture(files) {
 }
 
 const okPackage = JSON.stringify({
-  name: "@relationship-os/agent-x",
+  name: "@composable-os/agent-x",
   license: "MIT",
-  dependencies: { zod: "4", ai: "7", "@relationship-os/agent-core": "workspace:*" },
+  dependencies: { zod: "4", ai: "7", "@composable-os/agent-core": "workspace:*" },
   peerDependencies: { react: "19" },
-  devDependencies: { vitest: "5", "@relationship-os/config": "workspace:*" },
+  devDependencies: { vitest: "5", "@composable-os/config": "workspace:*" },
 });
 
 test("the repository's agent packages pass", () => {
@@ -38,7 +38,7 @@ test("allowed imports pass", () => {
       'import { streamText } from "ai";',
       'import type { Agent } from "agents";',
       'import { useState } from "react";',
-      'export * from "@relationship-os/agent-core";',
+      'export * from "@composable-os/agent-core";',
       'export { thing } from "./thing.ts";',
     ].join("\n"),
     "packages/agent-x/test/x.test.ts": 'import { it } from "vitest";\nimport "../src/index.ts";',
@@ -53,12 +53,12 @@ test("allowed imports pass", () => {
 test("a planted CRM import fails", () => {
   const root = fixture({
     "packages/agent-x/package.json": okPackage,
-    "packages/agent-x/src/index.ts": 'import { invokeByName } from "@relationship-os/core";',
+    "packages/agent-x/src/index.ts": 'import { invokeByName } from "@composable-os/core";',
   });
   try {
     const problems = checkAgentImports(root);
     assert.equal(problems.length, 1);
-    assert.match(problems[0], /imports "@relationship-os\/core"/);
+    assert.match(problems[0], /imports "@composable-os\/core"/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -67,14 +67,14 @@ test("a planted CRM import fails", () => {
 test("dynamic imports, require and relative escapes fail", () => {
   const root = fixture({
     "packages/agent-x/package.json": okPackage,
-    "packages/agent-x/src/a.ts": 'const db = await import("@relationship-os/db");',
+    "packages/agent-x/src/a.ts": 'const db = await import("@composable-os/db");',
     "packages/agent-x/src/b.ts": 'const k = require("kysely");',
     "packages/agent-x/src/c.ts": 'import { x } from "../../core/src/index.ts";',
     "packages/agent-x/src/d.ts": 'export { y } from "../../../apps/app/src/server.ts";',
   });
   try {
     const problems = checkAgentImports(root).join("\n");
-    assert.match(problems, /@relationship-os\/db/);
+    assert.match(problems, /@composable-os\/db/);
     assert.match(problems, /kysely/);
     assert.match(problems, /\.\.\/\.\.\/core\/src\/index\.ts" leaves/);
     assert.match(problems, /apps\/app\/src\/server\.ts" leaves/);
@@ -86,16 +86,16 @@ test("dynamic imports, require and relative escapes fail", () => {
 test("a forbidden dependency in package.json fails", () => {
   const root = fixture({
     "packages/agent-x/package.json": JSON.stringify({
-      name: "@relationship-os/agent-x",
+      name: "@composable-os/agent-x",
       license: "MIT",
-      dependencies: { "@relationship-os/core": "workspace:*" },
-      devDependencies: { "@relationship-os/db": "workspace:*" },
+      dependencies: { "@composable-os/core": "workspace:*" },
+      devDependencies: { "@composable-os/db": "workspace:*" },
     }),
   });
   try {
     const problems = checkAgentImports(root).join("\n");
-    assert.match(problems, /dependencies may not include "@relationship-os\/core"/);
-    assert.match(problems, /devDependencies may not include "@relationship-os\/db"/);
+    assert.match(problems, /dependencies may not include "@composable-os\/core"/);
+    assert.match(problems, /devDependencies may not include "@composable-os\/db"/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -104,7 +104,7 @@ test("a forbidden dependency in package.json fails", () => {
 test("a package that is not MIT fails", () => {
   const root = fixture({
     "packages/agent-x/package.json": JSON.stringify({
-      name: "@relationship-os/agent-x",
+      name: "@composable-os/agent-x",
       license: "FSL-1.1-ALv2",
     }),
   });

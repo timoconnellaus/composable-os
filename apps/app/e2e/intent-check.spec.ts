@@ -12,7 +12,7 @@ const REQUEST = "When an organisation is created, notify the admins.";
 
 /** Notifies the owner's manager: not the admins the request names. */
 function source(id: string): string {
-  return `import { defineAutomation, defineExtension } from "@relationship-os/sdk";
+  return `import { defineAutomation, defineExtension } from "@composable-os/sdk";
 
 // Written over MCP by the stage 11 intent-check e2e spec.
 export default defineExtension({
@@ -21,7 +21,7 @@ export default defineExtension({
   contractVersion: 1,
   label: "Intent check test",
   description: "Tells someone about new organisations.",
-  permissions: { read: ["organisation"], operations: ["notification.send"], modules: ["crm"] },
+  permissions: { read: ["organisation"], operations: ["notification.send"], modules: ["ops"] },
   automations: {
     newOrg: defineAutomation({
       label: "New organisation",

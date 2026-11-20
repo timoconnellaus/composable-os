@@ -3,7 +3,7 @@
 // from. Code decides everything exact here: whether the text came from an AI actor, which fields
 // of the gatekeeper's description are the message (recipients, subject, body), which CRM people
 // the addresses belong to, and which records' facts go with it. Jev only judges meaning.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { recordSummaryInput } from "../ai/summaries.ts";
 import { findIds } from "../ids.ts";
@@ -99,7 +99,7 @@ async function peopleByAddress(
   if (!emails.length) return out;
   const rows = await db
     .selectFrom("core_person_emails as e")
-    .innerJoin("crm_people as p", "p.id", "e.person_id")
+    .innerJoin("rec_person as p", "p.id", "e.person_id")
     .select(["e.email", "p.id", "p.display_name"])
     .where("e.live", "=", 1)
     .where((eb) => eb(eb.fn("lower", ["e.email"]), "in", jsonList(emails)))

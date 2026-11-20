@@ -7,9 +7,9 @@ import {
   AccountDescription, SupportedResource, ResourceConfiguratorFrame, ActionKind, Cursor,
   GatekeeperUserVerifier, ObservationDescription,
   stripTrailingSlashes, workerVersionTag, type ConnectHandoff,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
-import { connectHandoffPageHtml, htmlResponse } from "@relationship-os/gatekeeper-kit/connect-pages";
-import { commitStagedCredentials, stageCredentials } from "@relationship-os/gatekeeper-kit/credential-stage";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
+import { connectHandoffPageHtml, htmlResponse } from "@composable-os/gatekeeper-kit/connect-pages";
+import { commitStagedCredentials, stageCredentials } from "@composable-os/gatekeeper-kit/credential-stage";
 import {
   SlackApi, SlackApiError, SlackAccessToken, SlackConversationTypeFilter, SlackOAuthGrant,
   exchangeAuthCode, refreshAccessToken, revokeToken, isWorkspaceId, type SlackInstallation,

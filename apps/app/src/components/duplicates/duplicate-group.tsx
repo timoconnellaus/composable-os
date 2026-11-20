@@ -1,12 +1,12 @@
 // One group of likely duplicates on the Duplicates page (stage 16, ADR 0247): the records side by
 // side with the fields that differ marked, why they matched, and who would remain. There is no
 // score: the reasons are the rules.
-import type { CoreOutput } from "@relationship-os/core";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
-import { Label } from "@relationship-os/ui/components/label";
-import { RadioGroup, RadioGroupItem } from "@relationship-os/ui/components/radio-group";
+import type { CoreOutput } from "@composable-os/core";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
+import { Label } from "@composable-os/ui/components/label";
+import { RadioGroup, RadioGroupItem } from "@composable-os/ui/components/radio-group";
 import { Link } from "@tanstack/react-router";
 import { useId } from "react";
 

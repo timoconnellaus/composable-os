@@ -1,0 +1,22 @@
+{
+  "name": "@composable-os/products",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "description": "The products composed on the platform (ADR 0400), one directory each, and which of them a build is for.",
+  "exports": {
+    ".": "./index.ts",
+    "./active": "./active.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@composable-os/product": "workspace:*"
+  },
+  "devDependencies": {
+    "@composable-os/config": "workspace:*",
+    "typescript": "6.0.3"
+  }
+}

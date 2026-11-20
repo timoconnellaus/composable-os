@@ -1,11 +1,11 @@
 // Stage 15 (local half): the Leads extension passes its contract checks against an installed
-// Deals, and its tools work against @relationship-os/sdk/testing's in-memory host: conversion
+// Deals, and its tools work against @composable-os/sdk/testing's in-memory host: conversion
 // links without copying, is idempotent across an injected failure, refuses a converted lead, and
 // moves the person's lifecycle stage when that field exists. apps/runner/test/leads.test.ts runs
 // the same extension through the real runtime.
-import deals from "@relationship-os/extension-deals";
-import { toManifest } from "@relationship-os/sdk";
-import { createTestHost, ExtensionToolError, type TestHost } from "@relationship-os/sdk/testing";
+import deals from "@composable-os/extension-deals";
+import { toManifest } from "@composable-os/sdk";
+import { createTestHost, ExtensionToolError, type TestHost } from "@composable-os/sdk/testing";
 import { describe, expect, it } from "vitest";
 import extension from "../index.ts";
 

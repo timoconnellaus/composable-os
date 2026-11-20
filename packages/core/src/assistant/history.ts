@@ -1,7 +1,7 @@
 // The thread's stored messages, for the CRM (ADR 0200, ADR 0201, ADR 0340). The thread model,
-// context assembly and the reasoning policy live in @relationship-os/agent-core; this module says
+// context assembly and the reasoning policy live in @composable-os/agent-core; this module says
 // how the thread is shown in the app and what counts as the person's own words.
-import { messageText, type ThreadMessage, withReasoningPolicy } from "@relationship-os/agent-core";
+import { messageText, type ThreadMessage, withReasoningPolicy } from "@composable-os/agent-core";
 import type { ModelMessage } from "ai";
 import {
   type AssistantPending,

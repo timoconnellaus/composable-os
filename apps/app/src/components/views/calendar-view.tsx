@@ -2,14 +2,14 @@
 // month, week and agenda modes. Dragging a record (or "Move to date" on it) to another day
 // updates the field through the object's update operation, keeping a datetime's time of day.
 // Days are local to the browser; date-only values stay date-only.
-import type { Filter } from "@relationship-os/core/client";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { Input } from "@relationship-os/ui/components/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@relationship-os/ui/components/popover";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@relationship-os/ui/components/tabs";
-import { cn } from "@relationship-os/ui/lib/utils";
+import type { Filter } from "@composable-os/core/client";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { Input } from "@composable-os/ui/components/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@composable-os/ui/components/popover";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@composable-os/ui/components/tabs";
+import { cn } from "@composable-os/ui/lib/utils";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDaysIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useMemo, useState } from "react";

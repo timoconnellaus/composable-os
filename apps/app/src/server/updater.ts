@@ -1,12 +1,13 @@
-// The self-updater's runtime in ros-app (ADR 0054, ADR 0164): the UpdaterRuntime port update.*
+// The self-updater's runtime in demo-app (ADR 0054, ADR 0164): the UpdaterRuntime port update.*
 // operations call. It reads public GitHub Releases (no telemetry, ADR 0166) and, with the scoped
-// token stored as the ROS_UPDATE_TOKEN secret, drives the Cloudflare API with the same code as
-// `ros upgrade` (@relationship-os/release). Downloads are verified (SHA256SUMS + build attestation) before
+// token stored as the COS_UPDATE_TOKEN secret, drives the Cloudflare API with the same code as
+// `cos upgrade` (@composable-os/release). Downloads are verified (SHA256SUMS + build attestation) before
 // anything is deployed, so a tampered bundle is refused here exactly as in the CLI.
-import type { UpdaterRuntime } from "@relationship-os/core";
+import type { UpdaterRuntime } from "@composable-os/core";
+import type { ProductDefinition } from "@composable-os/product";
+import { product as activeProduct } from "@composable-os/products/active";
 import {
   CloudflareClient,
-  DEFAULT_REPOSITORY,
   type DeploymentState,
   d1ApiMigrations,
   databaseIdOf,
@@ -19,19 +20,17 @@ import {
   type ReleaseBundle,
   runRollback,
   runUpdate,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import { runner } from "./runner.ts";
 
 export interface UpdaterEnv {
   DB: D1Database;
   RUNNER?: Fetcher;
-  ROS_RELEASE_VERSION?: string;
-  ROS_RELEASE_REPO?: string;
-  ROS_ACCOUNT_ID?: string;
+  COS_RELEASE_VERSION?: string;
+  COS_RELEASE_REPO?: string;
+  COS_ACCOUNT_ID?: string;
   /** Optional scoped Cloudflare API token (a secret). Without it, updates use the CLI. */
-  ROS_UPDATE_TOKEN?: string;
-  /** The same token on an install from before the rename (ADR 0190); read when ROS_UPDATE_TOKEN is unset. */
-  CRM_UPDATE_TOKEN?: string;
+  COS_UPDATE_TOKEN?: string;
 }
 
 export interface UpdaterDeps {
@@ -43,12 +42,14 @@ export interface UpdaterDeps {
   cloudflareApi?: string;
   /** Post-switch smoke check; default checks the runner, the schema and /api/health. */
   smoke?: (hostname: string, version: string) => Promise<void>;
+  /** The product this deployment is of; the build's own by default (tests: a fixture product). */
+  product?: Pick<ProductDefinition, "id" | "updateRepository">;
 }
 
 /**
  * The default smoke check, from inside the Worker being replaced: the runner answers over its
  * service binding (which reaches the newly deployed runner), and the public /api/health of the
- * new ros-app reports the target version. A Worker cannot always fetch its own workers.dev
+ * new demo-app reports the target version. A Worker cannot always fetch its own workers.dev
  * hostname, so an unreachable health URL is tolerated when the runner check passed.
  */
 async function defaultSmoke(env: UpdaterEnv, hostname: string, version: string) {
@@ -72,16 +73,18 @@ async function defaultSmoke(env: UpdaterEnv, hostname: string, version: string) 
 }
 
 export function updaterRuntimeFor(env: UpdaterEnv, deps: UpdaterDeps = {}): UpdaterRuntime {
-  const repository = env.ROS_RELEASE_REPO || DEFAULT_REPOSITORY;
+  const product = deps.product ?? activeProduct;
+  const repository = env.COS_RELEASE_REPO || product.updateRepository;
   const currentVersion =
-    env.ROS_RELEASE_VERSION && isVersion(env.ROS_RELEASE_VERSION) ? env.ROS_RELEASE_VERSION : null;
+    env.COS_RELEASE_VERSION && isVersion(env.COS_RELEASE_VERSION) ? env.COS_RELEASE_VERSION : null;
   const github: GitHubOptions = {
     repository,
+    product: product.id,
     ...(deps.githubApi ? { apiBase: deps.githubApi } : {}),
     ...(deps.githubFetch ? { fetch: deps.githubFetch } : {}),
   };
-  const token = env.ROS_UPDATE_TOKEN || env.CRM_UPDATE_TOKEN;
-  const accountId = env.ROS_ACCOUNT_ID;
+  const token = env.COS_UPDATE_TOKEN;
+  const accountId = env.COS_ACCOUNT_ID;
   const canUpdate = Boolean(token && accountId && currentVersion);
   const api = () => {
     if (!token || !accountId) throw new Error("no update token is stored");
@@ -112,7 +115,7 @@ export function updaterRuntimeFor(env: UpdaterEnv, deps: UpdaterDeps = {}): Upda
       const client = api();
       const scripts = new Set((await client.listScripts(state.accountId)).map((s) => s.id));
       const out: Record<string, string[]> = {};
-      for (const name of ["ros-app", "ros-runner", ...state.gatekeepers]) {
+      for (const name of ["demo-app", "demo-runner", ...state.gatekeepers]) {
         const deployed = state.workerNames[name] ?? name;
         if (scripts.has(deployed)) out[name] = await client.listSecrets(state.accountId, deployed);
       }

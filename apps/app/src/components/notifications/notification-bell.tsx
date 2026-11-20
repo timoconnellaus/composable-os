@@ -2,10 +2,10 @@
 // polled every 60 s while the tab is visible, like the approvals badge) and a popover of recent
 // notifications. Clicking one marks it read and opens its link; "Mark all read"; "View all" opens
 // the inbox. Fits phone widths.
-import { Button } from "@relationship-os/ui/components/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@relationship-os/ui/components/popover";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { cn } from "@relationship-os/ui/lib/utils";
+import { Button } from "@composable-os/ui/components/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@composable-os/ui/components/popover";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { cn } from "@composable-os/ui/lib/utils";
 import { Link, useRouter } from "@tanstack/react-router";
 import { BellIcon, CheckCheckIcon } from "lucide-react";
 import { useState } from "react";

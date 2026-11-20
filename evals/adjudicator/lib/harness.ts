@@ -3,13 +3,13 @@
 // real `review` model through an OpenAI-compatible endpoint, runner.ts), Jev (core's
 // jevPolicyReviewer over the judge, recorded and replayed, ADR 0233), or a deterministic fake
 // (tests). Both reviewers are scored the same way.
-import { computeAgreement } from "@relationship-os/core/adjudicator-agreement";
+import { computeAgreement } from "@composable-os/core/adjudicator-agreement";
 import {
   type PolicyReviewer,
   type ReviewModel,
   type ReviewResult,
   reviewPendingItem,
-} from "@relationship-os/core/adjudicator-review";
+} from "@composable-os/core/adjudicator-review";
 import type { EvalCase, Label } from "../fixtures.ts";
 
 /** The bar (stage 7, acceptance criterion 8): precision on auto-approve of at least 0.95. */

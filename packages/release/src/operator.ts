@@ -1,32 +1,24 @@
-// The operator's view of a deployment over the REST API (the CLI's `ros upgrade`, `ros rollback`
-// and `ros status`): its stored state, installed extensions and update history in D1
+// The operator's view of a deployment over the REST API (the CLI's `cos upgrade`, `cos rollback`
+// and `cos status`): its stored state, installed extensions and update history in D1
 // (core_install, core_extensions, core_update_runs from migration 0160). The self-updater reads
 // the same tables through its own D1 binding.
 import { CloudflareApiError, type CloudflareClient } from "./cloudflare.ts";
 import { type DeploymentState, readDeploymentState } from "./deploy.ts";
-import { LEGACY_DATABASE_NAME } from "./legacy.ts";
 import type { InstalledExtension } from "./preflight.ts";
-
-export const DATABASE_NAME = "ros";
 
 export interface Located {
   databaseId: string;
   state: DeploymentState | null;
 }
 
-/** Finds the deployment's database and stored state in an account. */
+/** Finds a product's deployment in an account: its database (by the product's name for it) and stored state. */
 export async function locateDeployment(
   api: CloudflareClient,
   accountId: string,
-  databaseName = DATABASE_NAME,
+  databaseName: string,
 ): Promise<Located | null> {
   const databases = await api.listD1(accountId);
-  // An install from before the rename (ADR 0190) keeps its `crm` database.
-  const db =
-    databases.find((d) => d.name === databaseName) ??
-    (databaseName === DATABASE_NAME
-      ? databases.find((d) => d.name === LEGACY_DATABASE_NAME)
-      : undefined);
+  const db = databases.find((d) => d.name === databaseName);
   if (!db) return null;
   return { databaseId: db.uuid, state: await readDeploymentState(api, accountId, db.uuid) };
 }

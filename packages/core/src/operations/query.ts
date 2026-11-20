@@ -1,17 +1,18 @@
-// query.sql: read-only SQL over the crm_* views (ADR 0010, ADR 0020).
+// query.sql: read-only SQL over the rec_* views (ADR 0010, ADR 0020).
 //
 // D1 has no read-only connections, so this validator is the boundary. It lexes the SQL exactly as
 // SQLite does (no backslash escapes, no `#` comments) and then checks, fail-closed:
 //   1. one statement, starting with SELECT or WITH; balanced parentheses;
 //   2. no statement keywords that write or change the connection (INSERT, PRAGMA, ATTACH, …),
 //      no INTO, no RECURSIVE and no self-referencing CTE;
-//   3. every table in a FROM/JOIN position is a crm_* view, a CTE of the query, or json_each /
+//   3. every table in a FROM/JOIN position is a rec_* view, a CTE of the query, or json_each /
 //      json_tree; no schema-qualified names;
-//   4. no identifier anywhere (bare or quoted) names a non-crm_* schema object or uses a reserved
+//   4. no identifier anywhere (bare or quoted) names a non-rec_* schema object or uses a reserved
 //      prefix (sqlite_, pragma_, core_, x_, _cf_, d1_), and no dangerous functions;
 //   5. only `?` / `?NNN` parameters, bound by D1.
 // The checked SQL then runs wrapped as `SELECT * FROM (\n<sql>\n) LIMIT n+1` under a time limit.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
+import { OLD_VIEW_PREFIX, renamedMessage, renamedView, VIEW_PREFIX } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { OperationError, ValidationError } from "../errors.ts";
@@ -227,15 +228,15 @@ export interface ValidatedSql {
   sql: string;
   /** Number of parameters the query expects. */
   parameterCount: number;
-  /** crm_* views the query reads. */
+  /** rec_* views the query reads. */
   views: string[];
 }
 
 export const MAX_SQL_LENGTH = 20_000;
 
 /**
- * Validates read-only SQL over crm_* views. `schemaObjects` is every name in sqlite_master (any
- * case): identifiers naming one that is not a crm_* view are refused even outside FROM.
+ * Validates read-only SQL over rec_* views. `schemaObjects` is every name in sqlite_master (any
+ * case): identifiers naming one that is not a rec_* view are refused even outside FROM.
  */
 export function validateReadOnlySql(
   source: string,
@@ -257,11 +258,11 @@ export function validateReadOnlySql(
     throw new SqlRejectedError("only SELECT or WITH queries are allowed");
   }
 
-  const crmViews = new Set(
-    [...schemaObjects].map((n) => n.toLowerCase()).filter((n) => n.startsWith("crm_")),
+  const recordViews = new Set(
+    [...schemaObjects].map((n) => n.toLowerCase()).filter((n) => n.startsWith(VIEW_PREFIX)),
   );
   const others = new Set(
-    [...schemaObjects].map((n) => n.toLowerCase()).filter((n) => !n.startsWith("crm_")),
+    [...schemaObjects].map((n) => n.toLowerCase()).filter((n) => !n.startsWith(VIEW_PREFIX)),
   );
   const isIdentifier = (t: Token | undefined): t is Token =>
     t?.kind === "word" || t?.kind === "quoted";
@@ -289,11 +290,14 @@ export function validateReadOnlySql(
     }
     if (isIdentifier(t)) {
       const name = t.value;
+      // A query written against the old contract is told the view's new name.
+      const renamed = name.startsWith(OLD_VIEW_PREFIX) ? renamedMessage(name) : null;
+      if (renamed) throw new SqlRejectedError(renamed, { name, renamedTo: renamedView(name) });
       if (RESERVED_NAMES.has(name) || RESERVED_PREFIXES.some((p) => name.startsWith(p))) {
-        throw new SqlRejectedError(`${name} is not readable; query the crm_* views`, { name });
+        throw new SqlRejectedError(`${name} is not readable; query the rec_* views`, { name });
       }
       if (others.has(name)) {
-        throw new SqlRejectedError(`${name} is not readable; query the crm_* views`, { name });
+        throw new SqlRejectedError(`${name} is not readable; query the rec_* views`, { name });
       }
     }
   }
@@ -330,7 +334,7 @@ export function validateReadOnlySql(
     }
   }
 
-  // Tables in FROM / JOIN positions: crm_* views, CTEs or allowed table functions only.
+  // Tables in FROM / JOIN positions: rec_* views, CTEs or allowed table functions only.
   const views = new Set<string>();
   const checkTable = (index: number) => {
     const t = body[index];
@@ -342,14 +346,14 @@ export function validateReadOnlySql(
     const name = t.value;
     if (ctes.has(name)) return;
     if (TABLE_FUNCTIONS.has(name) && body[index + 1]?.text === "(") return;
-    if (name.startsWith("crm_") && crmViews.has(name)) {
+    if (name.startsWith(VIEW_PREFIX) && recordViews.has(name)) {
       views.add(name);
       return;
     }
     throw new SqlRejectedError(
-      name.startsWith("crm_")
+      name.startsWith(VIEW_PREFIX)
         ? `there is no view named ${name}`
-        : `${name} is not readable; query the crm_* views`,
+        : `${name} is not readable; query the rec_* views`,
       { name },
     );
   };
@@ -417,10 +421,10 @@ const paramSchema = z.union([z.string().max(10_000), z.number(), z.boolean(), z.
 export const querySql = defineOperation({
   name: "query.sql",
   description:
-    "Run one read-only SQL query (SQLite dialect) over the crm_* views: crm_people, " +
-    "crm_organisations, crm_affiliations, crm_activities, crm_activity_links, crm_tasks, " +
-    "crm_task_links, crm_record_tags, crm_users, crm_stage_history (stage entered/left times, " +
-    "days_in_stage) and extension objects as crm_x_<ext>_<object> (e.g. crm_x_deals_deal; see " +
+    "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, " +
+    "rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, " +
+    "rec_task_link, rec_record_tag, rec_user, rec_stage_history (stage entered/left times, " +
+    "days_in_stage) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see " +
     "schema.objects). Only a single SELECT or WITH is allowed; " +
     "core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters " +
     "are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting " +
@@ -445,7 +449,7 @@ export const querySql = defineOperation({
     rows: z.array(z.record(z.string(), z.unknown())),
     rowCount: z.number(),
     truncated: z.boolean(),
-    views: z.array(z.string()).describe("The crm_* views the query read"),
+    views: z.array(z.string()).describe("The rec_* views the query read"),
   }),
   permission: "records:read",
   risk: "read",
@@ -470,7 +474,7 @@ export interface ReadOnlySqlResult {
 }
 
 /**
- * Validates and runs read-only SQL over the crm_* views (ADR 0020): the query.sql guards, bound
+ * Validates and runs read-only SQL over the rec_* views (ADR 0020): the query.sql guards, bound
  * positional params, at most `maxRows` rows (`truncated` when there were more) and a deadline.
  * Dashboard widgets run through this too (ADR 0057).
  */

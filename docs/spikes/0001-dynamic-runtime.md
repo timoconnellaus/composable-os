@@ -9,7 +9,7 @@ In `apps/runner`, behind the dev-only `/dev/spike/*` routes (served only when `D
 - `SpikeWorkspace` ([`src/spike/workspace.ts`](../../apps/runner/src/spike/workspace.ts)): a
   Durable Object holding a `Workspace` (DO SQLite filesystem, `createGitClient()`) with one
   `WorkerJavaScriptBackend` on the `LOADER` Worker Loader binding, `globalOutbound: null`.
-- Host modules: `codemode:crm` with a fake `getPerson(id)`, and `codemode:git`
+- Host modules: `codemode:ops` with a fake `getPerson(id)`, and `codemode:git`
   (`createGitModule()`).
 - `GET /dev/spike/bench` ([`src/spike/routes.ts`](../../apps/runner/src/spike/routes.ts)) runs every
   scenario below and returns JSON; [`scripts/spike-bench.mjs`](../../apps/runner/scripts/spike-bench.mjs)
@@ -29,7 +29,7 @@ Reproduce:
 
 ```sh
 cp apps/runner/.dev.vars.example apps/runner/.dev.vars
-pnpm --filter @relationship-os/runner exec wrangler dev --port 18787
+pnpm --filter @composable-os/runner exec wrangler dev --port 18787
 node apps/runner/scripts/spike-bench.mjs http://127.0.0.1:18787 10 50
 ```
 
@@ -53,7 +53,7 @@ the result round trip; the DO RPC hop adds well under 1 ms locally. "Cold" here 
 already-running process; the very first execution after `wrangler dev` starts was not separated
 out.
 
-### Host module call (`codemode:crm.getPerson`)
+### Host module call (`codemode:ops.getPerson`)
 
 Timed inside the isolate with `Date.now()` (which only advances across I/O, so it measures the
 calls themselves):
@@ -119,7 +119,7 @@ library docs and what we saw:
   hot automations: shard executions across DOs, or keep the workspace DO for storage and git only.
 - Per-execution timeout defaults to 3 min (`maxTimeoutMs`); longer runs need Workflows (as ADR
   0006 already says).
-- Worker sizes: ros-runner uploads 1.41 MiB (286 KiB gzip) including the library and the spike.
+- Worker sizes: cos-runner uploads 1.41 MiB (286 KiB gzip) including the library and the spike.
 
 ## Recommendation
 

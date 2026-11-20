@@ -12,7 +12,7 @@ import {
   type ObjectDefinition,
   type ObjectViewType,
   type Sort,
-} from "@relationship-os/core/client";
+} from "@composable-os/core/client";
 import { useCallback, useMemo } from "react";
 
 /** A new sort, or a function of the current one (e.g. a header click toggling direction). */

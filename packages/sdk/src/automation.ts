@@ -644,7 +644,7 @@ export interface AutomationRunRequest {
 
 /** What one advance did. */
 export type AutomationAdvance =
-  /** Ran the step.do `name` (the host calls `operations` it made through codemode:crm). */
+  /** Ran the step.do `name` (the host calls `operations` it made through codemode:ops). */
   | { kind: "do"; name: string; value: unknown }
   /** Stopped at a sleep: the host sleeps `ms`, journals it and advances again. */
   | { kind: "sleep"; name: string; ms: number }

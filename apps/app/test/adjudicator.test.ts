@@ -1,10 +1,10 @@
-// The policy adjudicator's wiring in ros-app (ADR 0204): the post-queue hook judges a queued
+// The policy adjudicator's wiring in cos-app (ADR 0204): the post-queue hook judges a queued
 // action in the background with the caller's context (the caller still gets pending_approval at
 // once), and the 10-minute cron's sweep is one settings read when the adjudicator is off.
 import { env } from "cloudflare:workers";
-import type { Principal } from "@relationship-os/auth";
-import { invoke, PendingApprovalError, resolveActingUser } from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+import type { Principal } from "@composable-os/auth";
+import { invoke, PendingApprovalError, resolveActingUser } from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { describe, expect, it } from "vitest";
 import { runAdjudicatorCron } from "../src/server/adjudicator.ts";
 import { aiContextFor } from "../src/server/ai.ts";

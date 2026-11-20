@@ -1,5 +1,5 @@
 // List view state ↔ URL search params.
-import { personObject } from "@relationship-os/core/client";
+import { personObject } from "@composable-os/core/client";
 import { describe, expect, it } from "vitest";
 import {
   parseViewSearch,

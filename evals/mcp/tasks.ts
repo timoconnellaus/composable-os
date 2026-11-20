@@ -24,7 +24,7 @@ const digits = (value: unknown) => String(value ?? "").replace(/\D/g, "");
 async function activitiesOn(ctx: CheckContext, recordId: string, type: string): Promise<Row[]> {
   return ctx.sql(
     `SELECT a.id, a.type, a.subject, a.body, a.payload, a.occurred_at
-       FROM crm_activities a JOIN crm_activity_links l ON l.activity_id = a.id
+       FROM rec_activity a JOIN rec_activity_link l ON l.activity_id = a.id
       WHERE l.record_id = ? AND a.type = ?`,
     [recordId, type],
   );
@@ -32,14 +32,14 @@ async function activitiesOn(ctx: CheckContext, recordId: string, type: string): 
 
 async function tasksOn(ctx: CheckContext, recordId: string): Promise<Row[]> {
   return ctx.sql(
-    `SELECT t.* FROM crm_tasks t JOIN crm_task_links l ON l.task_id = t.id
+    `SELECT t.* FROM rec_task t JOIN rec_task_link l ON l.task_id = t.id
       WHERE l.record_id = ?`,
     [recordId],
   );
 }
 
 async function personLive(ctx: CheckContext, id: string | undefined): Promise<boolean> {
-  return (await ctx.sql("SELECT id FROM crm_people WHERE id = ?", [id])).length === 1;
+  return (await ctx.sql("SELECT id FROM rec_person WHERE id = ?", [id])).length === 1;
 }
 
 interface ActionView {
@@ -92,7 +92,7 @@ export const tasks: EvalTask[] = [
     ],
     async check(ctx) {
       const rows = await ctx.sql(
-        "SELECT id FROM crm_people WHERE given_name = 'Priya' AND family_name = ?",
+        "SELECT id FROM rec_person WHERE given_name = 'Priya' AND family_name = ?",
         [ctx.fixture.suffix],
       );
       return fail(
@@ -110,7 +110,7 @@ export const tasks: EvalTask[] = [
     ],
     expectTools: ["person_create"],
     async check(ctx) {
-      const rows = await ctx.sql("SELECT * FROM crm_people WHERE primary_email = ?", [
+      const rows = await ctx.sql("SELECT * FROM rec_person WHERE primary_email = ?", [
         `tomas@${ctx.fixture.slug}-herrera.example`,
       ]);
       const person = rows[0];
@@ -170,7 +170,7 @@ export const tasks: EvalTask[] = [
     ],
     expectTools: ["organisation_create"],
     async check(ctx) {
-      const rows = await ctx.sql("SELECT * FROM crm_organisations WHERE name LIKE ?", [
+      const rows = await ctx.sql("SELECT * FROM rec_organisation WHERE name LIKE ?", [
         `%${ctx.fixture.suffix} Biotics%`,
       ]);
       const org = rows[0];
@@ -210,11 +210,11 @@ export const tasks: EvalTask[] = [
     ],
     expectTools: ["op:person.changeJob"],
     async check(ctx) {
-      const [person] = await ctx.sql("SELECT * FROM crm_people WHERE id = ?", [
+      const [person] = await ctx.sql("SELECT * FROM rec_person WHERE id = ?", [
         ctx.fixture.personId,
       ]);
       const old = await ctx.sql(
-        "SELECT is_current FROM crm_affiliations WHERE person_id = ? AND organisation_id = ?",
+        "SELECT is_current FROM rec_affiliation WHERE person_id = ? AND organisation_id = ?",
         [ctx.fixture.personId, ctx.fixture.oldOrgId],
       );
       return [
@@ -385,7 +385,7 @@ export const tasks: EvalTask[] = [
     ],
     expectTools: ["task_complete"],
     async check(ctx) {
-      const rows = await ctx.sql("SELECT id, status FROM crm_tasks WHERE id IN (?, ?)", [
+      const rows = await ctx.sql("SELECT id, status FROM rec_task WHERE id IN (?, ?)", [
         ctx.fixture.targetId,
         ctx.fixture.otherId,
       ]);
@@ -488,7 +488,7 @@ export const tasks: EvalTask[] = [
       const pending = await pendingActions(ctx, "person.updateMany");
       const queued = new Set(pending.flatMap((a) => (a.input.ids as string[] | undefined) ?? []));
       const rows = await ctx.sql(
-        `SELECT location FROM crm_people WHERE id IN (${ids.map(() => "?").join(",")})`,
+        `SELECT location FROM rec_person WHERE id IN (${ids.map(() => "?").join(",")})`,
         ids,
       );
       return [
@@ -611,7 +611,7 @@ export const tasks: EvalTask[] = [
     async check(ctx) {
       const failures: string[] = [];
       for (const name of ["ravi", "sofia", "liam"]) {
-        const [person] = await ctx.sql("SELECT id FROM crm_people WHERE primary_email = ?", [
+        const [person] = await ctx.sql("SELECT id FROM rec_person WHERE primary_email = ?", [
           `${name}@${ctx.fixture.slug}-pay.example`,
         ]);
         if (!person) failures.push(`${name} was not created`);
@@ -659,7 +659,7 @@ export const tasks: EvalTask[] = [
       const followedUp = ctx.run.calls.some(
         (c) => c.promptIndex === 1 && c.name === "approval_status" && !c.isError,
       );
-      const live = await ctx.sql("SELECT id FROM crm_organisations WHERE id = ?", [
+      const live = await ctx.sql("SELECT id FROM rec_organisation WHERE id = ?", [
         ctx.fixture.orgId,
       ]);
       return [

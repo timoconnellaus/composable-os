@@ -1,5 +1,5 @@
 {
-  "format": "relationship-os.ai-cache-report",
+  "format": "composable-os.ai-cache-report",
   "version": 1,
   "exportedAt": "2026-10-09T10:00:00.000Z",
   "models": [

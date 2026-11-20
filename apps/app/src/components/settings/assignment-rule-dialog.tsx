@@ -1,8 +1,8 @@
 // The assignment rule editor (ADR 0246): a name, conditions (a field of the record, or of a record
 // it links to, with an operator and value), and who it assigns: round-robin among chosen users, or
 // one user. Values use the same field widgets as a record's form.
-import { Button } from "@relationship-os/ui/components/button";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
+import { Button } from "@composable-os/ui/components/button";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -10,16 +10,16 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@relationship-os/ui/components/dialog";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/dialog";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
+} from "@composable-os/ui/components/select";
 import { Trash2Icon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";

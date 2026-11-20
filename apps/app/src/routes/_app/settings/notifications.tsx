@@ -2,18 +2,18 @@
 // whether it also reaches you by email or Slack DM (in-app is always on), and the daily digest in
 // the app (on by default) and by email (ADR 0206). A change saves at once. Channels an admin has
 // not set up yet are shown but disabled. Admins also get links to the org's delivery settings and Slack channel routes.
-import type { CoreOutput } from "@relationship-os/core";
+import type { CoreOutput } from "@composable-os/core";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
-import { Label } from "@relationship-os/ui/components/label";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { Switch } from "@relationship-os/ui/components/switch";
+} from "@composable-os/ui/components/card";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
+import { Label } from "@composable-os/ui/components/label";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { Switch } from "@composable-os/ui/components/switch";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronRightIcon, HashIcon, SendIcon } from "lucide-react";
 import type { ReactNode } from "react";

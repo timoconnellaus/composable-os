@@ -462,7 +462,7 @@ describe("judge.test and judge.setKey", () => {
         api: true,
         gateway: null,
         keyModes: ["secret" as const],
-        scripts: ["ros-app", "ros-runner"],
+        scripts: ["cos-app", "cos-runner"],
         missing: [],
       }),
       setProviderKey: async () => ({ stored: "secret" as const, targets: [] }),
@@ -477,11 +477,11 @@ describe("judge.test and judge.setKey", () => {
       }),
       async setJudgeKey(key: string | null) {
         stored.push(key);
-        return { targets: ["ros-app", "ros-runner"] };
+        return { targets: ["cos-app", "cos-runner"] };
       },
     };
     const out = await invoke("judge.setKey", { apiKey: KEY }, context(admin, { aiAdmin }));
-    expect(out).toEqual({ stored: true, targets: ["ros-app", "ros-runner"] });
+    expect(out).toEqual({ stored: true, targets: ["cos-app", "cos-runner"] });
     expect(stored).toEqual([KEY]);
     expect(JSON.stringify(out)).not.toContain(KEY);
     const removed = await invoke("judge.setKey", { apiKey: null }, context(admin, { aiAdmin }));
@@ -505,9 +505,9 @@ describe("judge.test and judge.setKey", () => {
     const sent: { url: string; body: string }[] = [];
     const admin2 = hostedAiAdmin(
       {
-        ROS_CONTROL_URL: "https://control.example",
-        ROS_CONTROL_KEY: "channel-key-123456",
-        ROS_TENANT_ID: "tnt_1",
+        COS_CONTROL_URL: "https://control.example",
+        COS_CONTROL_KEY: "channel-key-123456",
+        COS_TENANT_ID: "tnt_1",
       },
       {
         fetch: (async (url: string, init: RequestInit) => {

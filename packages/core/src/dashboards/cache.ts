@@ -38,7 +38,7 @@ export async function widgetCacheKey(parts: {
 
 /**
  * Who may see which rows. Today every role that can read records reads all of them (record-level
- * permissions belong in the crm_* views, ADR 0010), so the scope is the role; when per-user
+ * permissions belong in the rec_* views, ADR 0010), so the scope is the role; when per-user
  * visibility lands this returns the user's scope and cached results stay separated by it.
  */
 export function visibilityScope(user: { role: string }): string {

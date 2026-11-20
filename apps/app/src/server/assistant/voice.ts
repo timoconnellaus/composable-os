@@ -1,4 +1,4 @@
-// Voice wiring for ros-app (ADR 0349): which speech providers a deployment has, what a call runs
+// Voice wiring for cos-app (ADR 0349): which speech providers a deployment has, what a call runs
 // with, the speech part of the operations' context, and the usage log. Voice is off until
 // AI_KEY_ASSEMBLYAI is set. The sockets go straight to AssemblyAI with the key as a Workers secret
 // (AI Gateway cannot carry them: ADR 0349's amendment), so usage is counted here.
@@ -9,8 +9,8 @@ import {
   type SpeechProviders,
   type SpeechUsage,
   type VoiceCallPlan,
-} from "@relationship-os/agent-voice";
-import { fakeSpeechProviders } from "@relationship-os/agent-voice/fake";
+} from "@composable-os/agent-voice";
+import { fakeSpeechProviders } from "@composable-os/agent-voice/fake";
 import {
   type ActingUser,
   invokeByName,
@@ -19,8 +19,8 @@ import {
   recordVoiceUsage,
   type VoicePrefs,
   type VoiceRuntime,
-} from "@relationship-os/core";
-import { type CrmDb, createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { aiContextFor } from "../ai.ts";
 import type { OperationsEnv } from "../operations.ts";
 

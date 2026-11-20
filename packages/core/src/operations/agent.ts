@@ -3,9 +3,9 @@
 // starter), asks the judge whether it fits the brief, and queues the job; the AgentJob object does
 // the work and reports through `agent.report`. People can stop an agent, not chat with it.
 
-import { a2uiPartSchema, prepareCard } from "@relationship-os/agent-a2ui";
-import { type JobBudget, ordinal } from "@relationship-os/agent-core";
-import type { AgentJobState, CoreDatabase } from "@relationship-os/db";
+import { a2uiPartSchema, prepareCard } from "@composable-os/agent-a2ui";
+import { type JobBudget, ordinal } from "@composable-os/agent-core";
+import type { AgentJobState, CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { isModelRole, MODEL_ROLES, type ModelRole } from "../ai/roles.ts";

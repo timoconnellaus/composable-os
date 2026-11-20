@@ -1,5 +1,5 @@
 // Full-page screenshots for PR descriptions: phone, tablet and desktop, light and dark, saved under
-// screenshots/. Skipped unless SCREENSHOTS=1 (`pnpm --filter @relationship-os/marketing screenshots`).
+// screenshots/. Skipped unless SCREENSHOTS=1 (`pnpm --filter @composable-os/marketing screenshots`).
 // Reduced motion puts the demo on step 1's end state and shows every section without waiting for
 // it to scroll into view.
 import { fileURLToPath } from "node:url";

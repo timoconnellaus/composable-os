@@ -1,9 +1,9 @@
 // The hover info dot beside a delivered message's time, and the inline why panel it opens (ADR 0343,
 // the mockup's "Why you got this"): what you asked, when, the trigger, the checks that passed and
 // the Jev check. Plain facts, no scores. The panel takes the person to the rest: pause, change.
-import type { RoutineWhy } from "@relationship-os/core/client";
-import { Button } from "@relationship-os/ui/components/button";
-import { cn } from "@relationship-os/ui/lib/utils";
+import type { RoutineWhy } from "@composable-os/core/client";
+import { Button } from "@composable-os/ui/components/button";
+import { cn } from "@composable-os/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { CheckIcon, InfoIcon, PauseIcon } from "lucide-react";
 import { toast } from "sonner";

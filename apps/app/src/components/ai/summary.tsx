@@ -2,18 +2,18 @@
 // summary.get / summary.generate for one subject (a record, a meeting's prep brief, a change set),
 // and the cards and panels that show them. summary.get never calls a model; generating is always
 // a click.
-import type { CoreInput, CoreOutput } from "@relationship-os/core";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+import type { CoreInput, CoreOutput } from "@composable-os/core";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardAction,
   CardContent,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/card";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { cn } from "@composable-os/ui/lib/utils";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCwIcon, SparklesIcon } from "lucide-react";
 import { useEffect } from "react";

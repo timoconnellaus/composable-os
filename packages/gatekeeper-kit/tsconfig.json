@@ -1,5 +1,5 @@
 {
-  "extends": "@relationship-os/config/tsconfig.vendored.json",
+  "extends": "@composable-os/config/tsconfig.vendored.json",
   "compilerOptions": {
     "types": ["@cloudflare/workers-types/experimental"]
   },

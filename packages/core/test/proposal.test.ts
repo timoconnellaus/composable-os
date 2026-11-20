@@ -1,6 +1,6 @@
 // The reviewer's view of an extension proposal (ADR 0041): the per-file diff and the host-computed
 // impact, including permissions widened over the installed version (AC3).
-import { type ExtensionManifest, manifestSchema } from "@relationship-os/sdk";
+import { type ExtensionManifest, manifestSchema } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import {
   capDiff,
@@ -16,7 +16,7 @@ function manifest(overrides: Record<string, unknown> = {}): ExtensionManifest {
     id: "proj",
     version: "1.0.0",
     contractVersion: 1,
-    permissions: { read: ["organisation"], write: [], operations: [], modules: ["crm"] },
+    permissions: { read: ["organisation"], write: [], operations: [], modules: ["ops"] },
     objects: {},
     fields: {},
     views: {},
@@ -106,7 +106,7 @@ describe("computeImpact", () => {
       risks: ["extension", "schema"],
       schema: { newObjects: ["proj.project"], newFields: ["proj.project.budget"] },
       permissions: { widens: false, widened: { read: ["organisation"] } },
-      modules: ["crm"],
+      modules: ["ops"],
       files: { changed: 1, additions: 1 },
     });
   });
@@ -119,7 +119,7 @@ describe("computeImpact", () => {
         read: ["organisation"],
         write: ["person"],
         operations: ["task.create"],
-        modules: ["crm", "ai"],
+        modules: ["ops", "ai"],
       },
       automations: {},
     });

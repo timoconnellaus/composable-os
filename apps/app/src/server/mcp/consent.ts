@@ -5,14 +5,10 @@
 // HTML (no app bundle) styled with the app's design tokens, light and dark, down to phone width.
 
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
-import { createIdentityProvider, type IdentityEnv, type Principal } from "@relationship-os/auth";
-import {
-  grantableScopes,
-  MCP_SCOPES,
-  type McpScope,
-  resolveActingUser,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+import { createIdentityProvider, type IdentityEnv, type Principal } from "@composable-os/auth";
+import { grantableScopes, MCP_SCOPES, type McpScope, resolveActingUser } from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
+import { product } from "@composable-os/products/active";
 import { type OperationsEnv, runOperation } from "../operations.ts";
 
 export const CONSENT_PATH = "/oauth/consent";
@@ -110,7 +106,7 @@ async function page(
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>${escapeHtml(title)} · CRM</title>
 <script>${THEME_SCRIPT}</script><style>${STYLE}</style></head>
-<body><main><div class="brand">Relationship OS</div>${body}</main></body></html>`,
+<body><main><div class="brand">${product.strings.name}</div>${body}</main></body></html>`,
     { status, headers: h },
   );
 }
@@ -176,7 +172,7 @@ async function showConsent(
   return page(
     `Connect ${consent.clientName}`,
     `<div class="card">
-<div style="display:grid;gap:6px"><h1>Connect ${escapeHtml(consent.clientName)} to Relationship OS?</h1>
+<div style="display:grid;gap:6px"><h1>Connect ${escapeHtml(consent.clientName)} to ${product.strings.name}?</h1>
 <p class="muted">Signed in as <strong style="color:var(--fg)">${escapeHtml(user.name || user.email)}</strong>${user.name ? ` (${escapeHtml(user.email)})` : ""} · ${escapeHtml(user.role)}. The app will act as you.</p></div>
 <div class="box"><div><strong>${escapeHtml(consent.clientName)}</strong> · ${verified}</div>
 <div class="small muted">Sends you back to <code>${escapeHtml(consent.redirectHost)}</code></div></div>
@@ -201,7 +197,7 @@ async function decideConsent(
 ): Promise<Response> {
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin) {
-    return errorPage("This form must be submitted from Relationship OS itself.", 403);
+    return errorPage(`This form must be submitted from ${product.strings.name} itself.`, 403);
   }
   const auth = await signedIn(request, env);
   if ("response" in auth) return auth.response;

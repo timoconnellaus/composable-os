@@ -1,7 +1,7 @@
 // Layout, primitives and record components of the catalogue.
-import type { RendererProps } from "@relationship-os/agent-a2ui/react";
-import { Separator } from "@relationship-os/ui/components/separator";
-import { cn } from "@relationship-os/ui/lib/utils";
+import type { RendererProps } from "@composable-os/agent-a2ui/react";
+import { Separator } from "@composable-os/ui/components/separator";
+import { cn } from "@composable-os/ui/lib/utils";
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
 import { type ComponentProps, useMemo, useState } from "react";
 import { recordHref } from "#/lib/schema";

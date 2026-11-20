@@ -5,7 +5,7 @@
 // messages the way the audit log is redacted: a tool call or tool result that mentions the subject
 // loses its whole input or output, and free text (what the person and the assistant wrote, the
 // tail blocks and reasoning) has each mention replaced with "[erased]".
-import type { MessagePart } from "@relationship-os/agent-core";
+import type { MessagePart } from "@composable-os/agent-core";
 import type { ModelMessage } from "ai";
 
 export const ERASED = "[erased]";

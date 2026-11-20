@@ -16,11 +16,11 @@ import {
   type ActionDefinition,
   type ActionPresentation,
   type TaggedAction,
-} from "@relationship-os/gatekeeper-kit/actions";
-import { buildDescription, plainInline, sanitizeTitle } from "@relationship-os/gatekeeper-kit/action-description";
-import type { ActionFileReference } from "@relationship-os/gatekeeper-kit/action-files";
-import { diffTextLines, type GitDiffHunk } from "@relationship-os/gatekeeper-kit/git-diff";
-import type { ProvisionalIds } from "@relationship-os/gatekeeper-kit/simulation";
+} from "@composable-os/gatekeeper-kit/actions";
+import { buildDescription, plainInline, sanitizeTitle } from "@composable-os/gatekeeper-kit/action-description";
+import type { ActionFileReference } from "@composable-os/gatekeeper-kit/action-files";
+import { diffTextLines, type GitDiffHunk } from "@composable-os/gatekeeper-kit/git-diff";
+import type { ProvisionalIds } from "@composable-os/gatekeeper-kit/simulation";
 import { isProvisional, realId } from "./binding";
 import { GraphApiError, isOutcomeUnknown, type GraphApi } from "./graph-api";
 import { ITEM_SELECT, parseDriveItem, parseListItem, parseVersion, parsePage } from "./graph-parse";

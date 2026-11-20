@@ -2,14 +2,14 @@
 // every viewer; no model and no network; read operations only; and two people's concurrent runs
 // on one warm worker never mix.
 import { env } from "cloudflare:workers";
-import { prepareCard, producerRef } from "@relationship-os/agent-a2ui";
+import { prepareCard, producerRef } from "@composable-os/agent-a2ui";
 import {
   type ActingUser,
   type CodeCaller,
   FIRST_PARTY_PRODUCERS,
   invokeByName,
   type ProducerRun,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildProducer, producerWorkerId } from "../src/extensions/producers.ts";
 import { extensionHost } from "../src/index.ts";
@@ -120,7 +120,7 @@ describe("a producer's worker", () => {
 
   it("imports nothing", async () => {
     for (const source of [
-      `import { crm } from "codemode:crm"; export default () => crm;`,
+      `import { ops } from "codemode:ops"; export default () => ops;`,
       `export default async () => (await import("./x.js")).y;`,
       `const x = require("x"); export default () => x;`,
     ]) {
@@ -150,7 +150,7 @@ describe("a producer's worker", () => {
 describe("what a producer may do", () => {
   it("reads as the viewer", async () => {
     const result = await extensionHost(env).runProducer(
-      run(`export default async (_, { crm }) => crm.call("task.listMine", {});`),
+      run(`export default async (_, { ops }) => ops.call("task.listMine", {});`),
     );
     expect(result.ok).toBe(true);
     expect((result.value as { counts: unknown }).counts).toBeDefined();
@@ -167,7 +167,7 @@ describe("what a producer may do", () => {
     ] as const) {
       const result = await extensionHost(env).runProducer(
         run(
-          `export default async (input, { crm }) => crm.call(${JSON.stringify(operation)}, input);`,
+          `export default async (input, { ops }) => ops.call(${JSON.stringify(operation)}, input);`,
           { input },
         ),
       );
@@ -180,8 +180,8 @@ describe("what a producer may do", () => {
 
   it("stops at the call limit", async () => {
     const result = await extensionHost(env).runProducer(
-      run(`export default async (_, { crm }) => {
-        for (let i = 0; i < 200; i++) await crm.call("task.listMine", {});
+      run(`export default async (_, { ops }) => {
+        for (let i = 0; i < 200; i++) await ops.call("task.listMine", {});
       };`),
     );
     expect(result).toMatchObject({ ok: false, error: { code: "limit" } });
@@ -191,9 +191,9 @@ describe("what a producer may do", () => {
     const other = await createAdmin();
     const title = unique("Only mine ");
     await call(admin, "task.create", { title, assigneeId: admin.id, dueAt: "2020-01-06" });
-    const source = `export default async (input, { crm }) => {
+    const source = `export default async (input, { ops }) => {
       await new Promise((resolve) => setTimeout(resolve, input.wait));
-      const mine = await crm.call("task.listMine", {});
+      const mine = await ops.call("task.listMine", {});
       return mine.buckets.overdue.map((task) => task.title);
     };`;
     const ref = `test.${unique("two")}@1`;
@@ -259,7 +259,7 @@ describe("the first-party producers", () => {
   it("find deals with no activity for N days", async () => {
     const producer = first("pipeline.staleDealsCard");
     const deals = await call<{ columns: string[] }>(admin, "query.sql", {
-      sql: "SELECT id FROM crm_x_deals_deal LIMIT 1",
+      sql: "SELECT id FROM rec_x_deals_deal LIMIT 1",
     }).catch(() => null);
     const result = await extensionHost(env).runProducer(
       run(producer.source, {

@@ -34,10 +34,10 @@ The curated tools are generated from the operations registry. Tool names are ope
 | `organisation_get`, `organisation_create`, `organisation_update` | Organisations |
 | `activity_log`, `activity_listForRecord` | Activities (notes, emails, calls, meetings) |
 | `task_create`, `task_list`, `task_complete` | Tasks |
-| `query_sql` | Read-only SQL (one `SELECT` or `WITH`) over the `crm_*` views |
+| `query_sql` | Read-only SQL (one `SELECT` or `WITH`) over the `rec_*` views |
 | `approval_status` | What happened to queued changes |
 | `changeset_begin`, `changeset_commit` | Group a task's queued changes under one title |
-| `code` | Code Mode: run a short ES module that calls operations through `import { crm } from "codemode:crm"`, as you, under the same approval policy (ADR 0042) |
+| `code` | Code Mode: run a short ES module that calls operations through `import { ops } from "codemode:ops"`, as you, under the same approval policy (ADR 0042) |
 | `extension_list`, `extension_read` | Installed extensions, the extension workspace, and extension source (working copy or a commit) |
 | `extension_write`, `extension_check` | Write an extension's working copy; type-check, contract-check and dry-run it |
 | `extension_propose` | Commit the working copy and queue it for approval, with its diff and impact (ADR 0041) |
@@ -123,7 +123,7 @@ The sections below give the details for each client and each step.
 
 ## Connecting
 
-You need the deployment's public URL, for example `https://ros-app.<your-subdomain>.workers.dev`.
+You need the deployment's public URL, for example `https://crm-app.<your-subdomain>.workers.dev`.
 The MCP URL is that plus `/mcp`.
 
 claude.ai and Claude Desktop connect from Anthropic's cloud, not from your computer, so the

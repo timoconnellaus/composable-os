@@ -20,7 +20,7 @@ import { type FetchCall, fakeOpenAiServer, testRunner } from "./ai-helpers.ts";
 
 const ACCOUNT = "0123456789abcdef0123456789abcdef";
 const REST = {
-  AI_GATEWAY_ID: "ros",
+  AI_GATEWAY_ID: "cos",
   CLOUDFLARE_ACCOUNT_ID: ACCOUNT,
   AI_GATEWAY_TOKEN: "aig-and-workers-ai-token",
   AI_GATEWAY_REST: "true",
@@ -34,7 +34,7 @@ beforeEach(async () => {
 /** Every header this path must carry, on one recorded call. */
 function expectGatewayRest(call: FetchCall | undefined, role: string) {
   expect(call?.headers["cf-aig-collect-log-payload"]).toBe("false");
-  expect(call?.headers["cf-aig-gateway-id"]).toBe("ros");
+  expect(call?.headers["cf-aig-gateway-id"]).toBe("cos");
   expect(JSON.parse(call?.headers["cf-aig-metadata"] ?? "{}")).toEqual({ role });
   expect(call?.headers.authorization).toBe("Bearer aig-and-workers-ai-token");
   expect(call?.headers["cf-aig-authorization"]).toBe("Bearer aig-and-workers-ai-token");
@@ -44,7 +44,7 @@ describe("when Workers AI goes over REST", () => {
   it("needs the var, the gateway, the account and the token, and never on hosted", () => {
     expect(workersAiRest(REST)).toEqual({
       accountId: ACCOUNT,
-      gatewayId: "ros",
+      gatewayId: "cos",
       token: "aig-and-workers-ai-token",
     });
     expect(workersAiRest({ ...REST, AI_GATEWAY_REST: "" })).toBeNull();
@@ -137,7 +137,7 @@ describe("Workers AI over REST through the gateway", () => {
     for (const call of server.calls) {
       expect(call.url.startsWith(BASE)).toBe(true);
       expect(call.headers["cf-aig-collect-log-payload"]).toBe("false");
-      expect(call.headers["cf-aig-gateway-id"]).toBe("ros");
+      expect(call.headers["cf-aig-gateway-id"]).toBe("cos");
       expect(call.headers["cf-aig-skip-cache"]).toBeUndefined();
       expect(call.headers.authorization).toBe("Bearer aig-and-workers-ai-token");
     }
@@ -148,7 +148,7 @@ describe("Workers AI over REST through the gateway", () => {
   it("forces the headers on a Request as well as on init headers", async () => {
     const server = fakeOpenAiServer();
     const forced = workersAiRestFetch(
-      { accountId: ACCOUNT, gatewayId: "ros", token: "aig-and-workers-ai-token" },
+      { accountId: ACCOUNT, gatewayId: "cos", token: "aig-and-workers-ai-token" },
       "classify",
       server.fetch,
     );
@@ -196,7 +196,7 @@ describe("Workers AI over REST through the gateway", () => {
     });
     await models.run("summarise", [{ role: "user", content: "x" }]);
     expect(server.calls[0]?.url).toBe(
-      `https://gateway.ai.cloudflare.com/v1/${ACCOUNT}/ros/compat/chat/completions`,
+      `https://gateway.ai.cloudflare.com/v1/${ACCOUNT}/cos/compat/chat/completions`,
     );
     expect(server.calls[0]?.headers["cf-aig-collect-log-payload"]).toBe("false");
     expect(server.calls[0]?.headers.authorization).toBe("Bearer sk-deepseek");
@@ -215,8 +215,8 @@ describe("Workers AI stays on the binding", () => {
       await models.embed?.(["hello"]);
       expect(server.calls).toEqual([]);
       expect(binding.calls.map((c) => c.options)).toEqual([
-        expect.objectContaining({ gateway: { id: "ros", metadata: { role: "review" } } }),
-        expect.objectContaining({ gateway: { id: "ros", metadata: { role: "embed" } } }),
+        expect.objectContaining({ gateway: { id: "cos", metadata: { role: "review" } } }),
+        expect.objectContaining({ gateway: { id: "cos", metadata: { role: "embed" } } }),
       ]);
     });
   }

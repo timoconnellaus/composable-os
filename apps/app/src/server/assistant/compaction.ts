@@ -40,13 +40,13 @@ import {
   turnCost,
   type UsageState,
   usageProfile,
-} from "@relationship-os/agent-core";
+} from "@composable-os/agent-core";
 import {
   type CacheEstimate,
   type CacheRails,
   type CacheReview,
   scrubText,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 
 /** The role compaction runs on: the front agent's own, so the summary call reads its cache. */
 export const COMPACTION_ROLE = "assistant.core";

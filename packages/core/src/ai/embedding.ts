@@ -12,10 +12,10 @@
 // skipped. A record with nothing to embed has its vector deleted, which is also how an erase
 // (ADR 0019) removes vectors.
 //
-// The seam (`EmbeddingProducer`): today the pipeline enqueues and ros-app drains after the commit;
+// The seam (`EmbeddingProducer`): today the pipeline enqueues and cos-app drains after the commit;
 // stage 5's event queue can call `enqueueEmbeddings` / `drainEmbeddingQueue` from its consumer
 // instead, without changing what is embedded or how.
-import type { CoreDatabase, CrmDb } from "@relationship-os/db";
+import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import { type Compilable, type CompiledQuery, type Kysely, sql } from "kysely";
 
 type Statement = Compilable | CompiledQuery;
@@ -179,7 +179,7 @@ export async function embeddingTexts(
       description: string | null;
     }>`SELECT p.id, p.display_name, p.job_title, p.organisation_name, p.location, p.tags,
          cp.description
-       FROM crm_people p JOIN core_person cp ON cp.id = p.id WHERE p.id IN ${list}`.execute(db);
+       FROM rec_person p JOIN core_person cp ON cp.id = p.id WHERE p.id IN ${list}`.execute(db);
     for (const r of rows.rows) {
       out.set(
         r.id,
@@ -198,7 +198,7 @@ export async function embeddingTexts(
       tags: string | null;
       description: string | null;
     }>`SELECT o.id, o.name, o.industry, o.domains, o.tags, co.description
-       FROM crm_organisations o JOIN core_organisation co ON co.id = o.id
+       FROM rec_organisation o JOIN core_organisation co ON co.id = o.id
        WHERE o.id IN ${list}`.execute(db);
     for (const r of rows.rows) {
       out.set(
@@ -227,7 +227,7 @@ export async function embeddingTexts(
     }
   } else if (object === "task") {
     const rows = await sql<{ id: string; title: string; notes: string | null }>`
-      SELECT id, title, notes FROM crm_tasks WHERE id IN ${list}`.execute(db);
+      SELECT id, title, notes FROM rec_task WHERE id IN ${list}`.execute(db);
     for (const r of rows.rows) out.set(r.id, clip(`Task: ${r.title}\n${r.notes ?? ""}`));
   } else {
     const def = getObject(object);

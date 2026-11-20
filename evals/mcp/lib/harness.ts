@@ -36,7 +36,7 @@ export interface ToolJson {
 export interface CheckContext {
   fixture: Fixture;
   run: AgentRun;
-  /** Read-only SQL over the crm_* views, on the admin connection (real state, no simulation). */
+  /** Read-only SQL over the rec_* views, on the admin connection (real state, no simulation). */
   sql<T = Record<string, unknown>>(query: string, params?: unknown[]): Promise<T[]>;
   /** A tool call on the agent's own connection (its MCP session: approval_status sees its sets). */
   agentCall(tool: string, args: Record<string, unknown>): Promise<ToolJson>;

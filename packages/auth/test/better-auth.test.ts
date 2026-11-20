@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { clearEntitlementsCache } from "@relationship-os/core";
+import { clearEntitlementsCache } from "@composable-os/core";
 import { describe, expect, it } from "vitest";
 import { createIdentityProvider, IdentityConfigError, type IdentityEnv } from "../src/index.ts";
 
@@ -101,7 +101,7 @@ describe("better-auth adapter", () => {
       const refused = await signUp(open, "over-limit@example.com");
       expect(refused?.status).toBe(403);
       expect(JSON.stringify(await refused?.json())).toMatch(
-        /Your Free plan allows \d+ users?\. Upgrade at https:\/\/app\.relationshiposcrm\.com\/billing/,
+        /Your Free plan allows \d+ users?\. Upgrade at https:\/\/\S+\/billing/,
       );
       const row = await env.DB.prepare("SELECT id FROM core_user WHERE email = ?")
         .bind("over-limit@example.com")

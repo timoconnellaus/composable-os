@@ -1,6 +1,6 @@
 // The SDK's list of core fields formulas can read must match the host's field registry, so a
-// formula that passes @relationship-os/sdk/testing also passes extension.check.
-import { CORE_FORMULA_FIELDS } from "@relationship-os/sdk";
+// formula that passes @composable-os/sdk/testing also passes extension.check.
+import { CORE_FORMULA_FIELDS } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { CORE_TARGETS, coreFormulaFields } from "../src/index.ts";
 

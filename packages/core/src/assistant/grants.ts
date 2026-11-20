@@ -10,8 +10,8 @@
 //   outside  its own change set, so it comes back as its own card
 // The grant only ever tightens: the gate's own decision still applies, and a call it would review
 // or deny stays reviewed or denied (nothing here loosens policy).
-import type { CoreDatabase } from "@relationship-os/db";
-import { checkGrant } from "@relationship-os/sdk";
+import type { CoreDatabase } from "@composable-os/db";
+import { checkGrant } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { diffRecords } from "../diff.ts";

@@ -1,7 +1,7 @@
 // Agent profiles (ADR 0344): named kinds of agent, with instructions, a default grant, a budget and
 // a model role. Shipped ones are here; plugins (W7) register theirs in `agentProfiles` when they
 // install. A profile names a role, never a model.
-import type { JobBudget } from "@relationship-os/agent-core";
+import type { JobBudget } from "@composable-os/agent-core";
 import type { ModelRole } from "../ai/roles.ts";
 
 export interface AgentProfile {

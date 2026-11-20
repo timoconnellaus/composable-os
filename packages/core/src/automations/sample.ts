@@ -3,8 +3,8 @@
 // `event.approval` is missing, so test mode would show nothing. It is given a decision instead,
 // built from a recent real pending action that the trigger would match when there is one, or made
 // up when there is none, and the report says it is a sample.
-import type { CoreDatabase } from "@relationship-os/db";
-import type { AutomationEvent, AutomationManifest } from "@relationship-os/sdk";
+import type { CoreDatabase } from "@composable-os/db";
+import type { AutomationEvent, AutomationManifest } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
 
 type ApprovalTrigger = Extract<AutomationManifest["trigger"], { type: "approvalDecided" }>;

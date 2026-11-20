@@ -7,8 +7,9 @@
 // - update.apply       the update itself: human admins only, never from MCP, audited
 // - update.rollback    redeploy the previous release and restore its bookmark
 //
-// Everything that leaves the Worker goes through ctx.updater (src/server/updater.ts in ros-app).
+// Everything that leaves the Worker goes through ctx.updater (src/server/updater.ts in cos-app).
 // No telemetry: the only outbound reads are public GitHub release pages (ADR 0166).
+import { product } from "@composable-os/products/active";
 import {
   CHANNELS,
   type Channel,
@@ -20,7 +21,7 @@ import {
   preflight,
   type ReleaseInfo,
   type RunRecord,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
@@ -113,7 +114,7 @@ function requireUpdater(ctx: HandlerContext): UpdaterRuntime {
 }
 
 function cliCommand(version?: string) {
-  return `npx create-relationship-os upgrade${version ? ` --version ${version}` : ""}`;
+  return `npx create-composable-os upgrade${version ? ` --version ${version}` : ""}`;
 }
 
 const statusOutput = z.object({
@@ -146,7 +147,7 @@ export const updateStatus = defineOperation({
     return {
       currentVersion: ctx.updater?.currentVersion ?? state?.version ?? null,
       channel: await loadChannel(ctx, state),
-      repository: ctx.updater?.repository ?? "timoconnellaus/relationship-os",
+      repository: ctx.updater?.repository ?? product.updateRepository,
       canUpdateInApp: Boolean(ctx.updater?.canUpdate && state),
       installedFromRelease: Boolean(state),
       hostname: state?.hostname ?? null,
@@ -493,7 +494,7 @@ export const updateRollback = defineOperation({
     const updater = requireUpdater(ctx);
     const state = await loadDeploymentState(ctx);
     if (!state || !updater.canUpdate) {
-      throw new ValidationError("This deployment has no stored update token. Run `ros rollback`.");
+      throw new ValidationError("This deployment has no stored update token. Run `cos rollback`.");
     }
     const runs = await loadRuns(ctx, 50);
     const latest = runs.find((r) => r.status !== "running");

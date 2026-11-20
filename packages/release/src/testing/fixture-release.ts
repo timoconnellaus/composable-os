@@ -1,9 +1,9 @@
 // Small but complete release bundles for tests: the same shape as a real release (an app Worker
 // with assets, crons and secrets, a runner with Durable Object migrations, an optional gatekeeper,
 // D1/R2/KV resources and core migrations), with tiny module bodies.
+import type { ProductDefinition } from "@composable-os/product";
 import { formatSums, releaseAssetNames, writeBundle } from "../bundle.ts";
 import { assetHash, sha256Hex } from "../hash.ts";
-import { legacyReleaseAssetNames } from "../legacy.ts";
 import {
   MANIFEST_VERSION,
   type ManifestModule,
@@ -11,6 +11,26 @@ import {
   type WorkerEntry,
 } from "../manifest.ts";
 import { channelOf } from "../semver.ts";
+
+/** The product id the fixture release is of. */
+export const FIXTURE_PRODUCT = "demo";
+
+/** The fixture product's definition: what the fixture release's Workers and resources are named from. */
+export const FIXTURE_PRODUCT_DEFINITION: ProductDefinition = {
+  id: FIXTURE_PRODUCT,
+  label: "Demo",
+  names: {
+    app: "demo-app",
+    runner: "demo-runner",
+    gatekeeperPrefix: "demo-gatekeeper-",
+    database: "demo",
+    resourcePrefix: "demo-",
+  },
+  extensions: [],
+  updateRepository: "example/demo",
+  billingUrl: "https://demo.example/billing",
+  strings: { name: "Demo" },
+};
 
 export interface FixtureRelease {
   version: string;
@@ -50,31 +70,13 @@ export interface FixtureOptions {
   contract?: { version: number; supported: number[] };
   /** Extra runner Durable Object migration steps. */
   runnerMigrations?: { tag: string; new_sqlite_classes: string[] }[];
-  /** Extra required secrets on ros-app. */
+  /** Extra required secrets on demo-app. */
   appSecrets?: { name: string; required: boolean; source: "user" | "generated" | "installer" }[];
   /** Change the gatekeeper's code (so preflight reports it changed). */
   gatekeeperRevision?: number;
   repository?: string;
   /** false: a release older than ADR 0180, with no AI Gateway set-up. */
   aiGateway?: false;
-  /**
-   * A release from before the rename to Relationship OS (ADR 0190): product `crm`, Workers and
-   * resources `crm-*`, the database `crm`, assets `crm-<version>.*`, built in timoconnellaus/crm.
-   */
-  legacy?: boolean;
-}
-
-/** The pre-rename spelling of a fixture manifest (`ros-app` → `crm-app`, `D1_ID(ros)` → …). */
-function legacyManifest(manifest: ReleaseManifest): ReleaseManifest {
-  return JSON.parse(
-    JSON.stringify(manifest)
-      .replace(/"ros-/g, '"crm-')
-      .replace(/\(ros(-|\))/g, "(crm$1")
-      .replace(/ros-runner"/g, 'crm-runner"') // the second name in AI_SECRET_SCRIPTS
-      .replace(/"name":"ros"/g, '"name":"crm"')
-      .replace(/"product":"relationship-os"/, '"product":"crm"')
-      .replace(/timoconnellaus\/relationship-os/g, "timoconnellaus/crm"),
-  ) as ReleaseManifest;
 }
 
 /** The AI Gateway set-up fixture releases carry (the shape of apps/app/deploy-inputs.json). */
@@ -109,7 +111,7 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
   const assetFiles: Record<string, { hash: string; size: number }> = {};
   const assets = new Map<string, Uint8Array>();
   for (const [path, body] of [
-    ["/assets/app.js", `console.log("ros ${version}")`],
+    ["/assets/app.js", `console.log("demo ${version}")`],
     ["/favicon.svg", "<svg xmlns='http://www.w3.org/2000/svg'/>"],
   ] as const) {
     const bytes = enc.encode(body);
@@ -119,7 +121,7 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
   }
 
   const app = await finish({
-    name: "ros-app",
+    name: "demo-app",
     package: "apps/app",
     role: "app",
     optional: false,
@@ -128,7 +130,7 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
       // Answers /api/health like the real app, so a fixture deployment can be smoke-checked.
       await add(
         "index.js",
-        `export default { fetch(request, env) { if (new URL(request.url).pathname === "/api/health") return Response.json({ status: env.FIXTURE_HEALTH || "ok", version: "${version}", migrations: { upToDate: true } }); return new Response("ros ${version}") }, scheduled() {} }`,
+        `export default { fetch(request, env) { if (new URL(request.url).pathname === "/api/health") return Response.json({ status: env.FIXTURE_HEALTH || "ok", version: "${version}", migrations: { upToDate: true } }); return new Response("demo ${version}") }, scheduled() {} }`,
       ),
       await add("assets/chunk.js", `export const v = "${version}";`),
     ],
@@ -136,18 +138,18 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     compatibilityFlags: ["nodejs_compat"],
     durableObjectMigrations: [],
     bindings: [
-      { type: "d1", name: "DB", database_id: "$D1_ID(ros)" },
-      { type: "r2_bucket", name: "BLOBS", bucket_name: "$R2_NAME(ros-blobs)" },
-      { type: "kv_namespace", name: "OAUTH_KV", namespace_id: "$KV_ID(ros-app-oauth-kv)" },
-      { type: "service", name: "RUNNER", service: "$WORKER_NAME(ros-runner)" },
+      { type: "d1", name: "DB", database_id: "$D1_ID(demo)" },
+      { type: "r2_bucket", name: "BLOBS", bucket_name: "$R2_NAME(demo-blobs)" },
+      { type: "kv_namespace", name: "OAUTH_KV", namespace_id: "$KV_ID(demo-app-oauth-kv)" },
+      { type: "service", name: "RUNNER", service: "$WORKER_NAME(demo-runner)" },
       { type: "plain_text", name: "IDENTITY_PROVIDER", text: "better-auth" },
-      { type: "plain_text", name: "ROS_RELEASE_VERSION", text: version },
-      { type: "plain_text", name: "ROS_ACCOUNT_ID", text: "$ACCOUNT_ID" },
+      { type: "plain_text", name: "COS_RELEASE_VERSION", text: version },
+      { type: "plain_text", name: "COS_ACCOUNT_ID", text: "$ACCOUNT_ID" },
       { type: "plain_text", name: "AI_GATEWAY_ID", text: "" },
       { type: "plain_text", name: "AI_MODEL_ROLES", text: "" },
       { type: "plain_text", name: "AI_GATEWAY_BYOK", text: "" },
       { type: "plain_text", name: "AI_GATEWAY_REST", text: "" },
-      { type: "plain_text", name: "AI_SECRET_SCRIPTS", text: "ros-app,ros-runner" },
+      { type: "plain_text", name: "AI_SECRET_SCRIPTS", text: "demo-app,demo-runner" },
       { type: "secret_text", name: "BETTER_AUTH_SECRET", text: "$SECRET(BETTER_AUTH_SECRET)" },
       { type: "secret_text", name: "BETTER_AUTH_URL", text: "$SECRET(BETTER_AUTH_URL)" },
       ...(options.appSecrets ?? []).map((s) => ({
@@ -165,11 +167,11 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     public: true,
     assets: { config: { not_found_handling: "none" }, files: assetFiles },
     queueConsumers: [],
-    dependsOn: ["ros-runner"],
+    dependsOn: ["demo-runner"],
   });
 
   const runner = await finish({
-    name: "ros-runner",
+    name: "demo-runner",
     package: "apps/runner",
     role: "runner",
     optional: false,
@@ -185,7 +187,7 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
       ...(options.runnerMigrations ?? []),
     ],
     bindings: [
-      { type: "d1", name: "DB", database_id: "$D1_ID(ros)" },
+      { type: "d1", name: "DB", database_id: "$D1_ID(demo)" },
       { type: "durable_object_namespace", name: "WORKSPACE", class_name: "Workspace" },
       // Stage 5 shapes: a Workflow, the automation events queue (consumed with a DLQ) and a
       // rate limit; stage 7a's shape: Workers AI and a Vectorize index, both behind the `ai`
@@ -193,13 +195,13 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
       {
         type: "workflow",
         name: "AUTOMATION_WORKFLOW",
-        workflow_name: "ros-automation",
+        workflow_name: "demo-automation",
         class_name: "AutomationWorkflow",
       },
       {
         type: "queue",
         name: "AUTOMATION_EVENTS",
-        queue_name: "$QUEUE_NAME(ros-automation-events)",
+        queue_name: "$QUEUE_NAME(demo-automation-events)",
       },
       {
         type: "ratelimit",
@@ -210,7 +212,7 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
       {
         type: "vectorize",
         name: "VECTORIZE",
-        index_name: "$VECTORIZE_NAME(ros-records)",
+        index_name: "$VECTORIZE_NAME(demo-records)",
         feature: "ai",
       },
       { type: "ai", name: "AI", feature: "ai" },
@@ -225,9 +227,9 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     public: false,
     queueConsumers: [
       {
-        queue: "$QUEUE_NAME(ros-automation-events)",
+        queue: "$QUEUE_NAME(demo-automation-events)",
         settings: { batch_size: 100, max_retries: 5, max_wait_time_ms: 5000 },
-        deadLetterQueue: "$QUEUE_NAME(ros-automation-events-dlq)",
+        deadLetterQueue: "$QUEUE_NAME(demo-automation-events-dlq)",
       },
     ],
     dependsOn: [],
@@ -235,7 +237,7 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
   });
 
   const gatekeeper = await finish({
-    name: "ros-gatekeeper-test",
+    name: "demo-gatekeeper-test",
     package: "packages/gatekeeper-test",
     role: "gatekeeper",
     optional: true,
@@ -262,13 +264,14 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     migrations.push({ name, sha256: await sha256Hex(sql) });
   }
   const contract = options.contract ?? { version: 1, supported: [1] };
-  const built: ReleaseManifest = {
+  const manifest: ReleaseManifest = {
     manifestVersion: MANIFEST_VERSION,
-    product: "relationship-os",
+    product: FIXTURE_PRODUCT,
+    productLabel: "Demo",
     version,
     channel: channelOf(version),
     commit: "0".repeat(40),
-    repository: options.repository ?? "timoconnellaus/relationship-os",
+    repository: options.repository ?? "example/demo",
     wranglerVersion: "4.157.0",
     extensionContract: contract,
     coreSchemaVersion: Number(migrations.at(-1)?.name.slice(0, 4) ?? 0),
@@ -277,57 +280,57 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     resources: [
       {
         type: "d1",
-        name: "ros",
-        placeholder: "$D1_ID(ros)",
+        name: "demo",
+        placeholder: "$D1_ID(demo)",
         implicit: false,
-        usedBy: ["ros-app", "ros-runner"],
+        usedBy: ["demo-app", "demo-runner"],
         optional: false,
       },
       {
         type: "r2",
-        name: "ros-blobs",
-        placeholder: "$R2_NAME(ros-blobs)",
+        name: "demo-blobs",
+        placeholder: "$R2_NAME(demo-blobs)",
         implicit: false,
-        usedBy: ["ros-app"],
+        usedBy: ["demo-app"],
         optional: false,
       },
       {
         type: "kv",
-        name: "ros-app-oauth-kv",
-        placeholder: "$KV_ID(ros-app-oauth-kv)",
+        name: "demo-app-oauth-kv",
+        placeholder: "$KV_ID(demo-app-oauth-kv)",
         implicit: false,
-        usedBy: ["ros-app"],
+        usedBy: ["demo-app"],
         optional: false,
       },
       {
         type: "durable_object",
         name: "Workspace",
         implicit: true,
-        usedBy: ["ros-runner"],
+        usedBy: ["demo-runner"],
         optional: false,
       },
       {
         type: "queue",
-        name: "ros-automation-events",
-        placeholder: "$QUEUE_NAME(ros-automation-events)",
+        name: "demo-automation-events",
+        placeholder: "$QUEUE_NAME(demo-automation-events)",
         implicit: false,
-        usedBy: ["ros-runner"],
+        usedBy: ["demo-runner"],
         optional: false,
       },
       {
         type: "queue",
-        name: "ros-automation-events-dlq",
-        placeholder: "$QUEUE_NAME(ros-automation-events-dlq)",
+        name: "demo-automation-events-dlq",
+        placeholder: "$QUEUE_NAME(demo-automation-events-dlq)",
         implicit: false,
-        usedBy: ["ros-runner"],
+        usedBy: ["demo-runner"],
         optional: false,
       },
       {
         type: "vectorize",
-        name: "ros-records",
-        placeholder: "$VECTORIZE_NAME(ros-records)",
+        name: "demo-records",
+        placeholder: "$VECTORIZE_NAME(demo-records)",
         implicit: false,
-        usedBy: ["ros-runner"],
+        usedBy: ["demo-runner"],
         optional: false,
         feature: "ai",
         config: {
@@ -338,9 +341,9 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
       },
       {
         type: "workflow",
-        name: "ros-automation",
+        name: "demo-automation",
         implicit: true,
-        usedBy: ["ros-runner"],
+        usedBy: ["demo-runner"],
         optional: false,
       },
     ],
@@ -349,7 +352,7 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
       {
         name: "IDENTITY_PROVIDER",
         kind: "var",
-        workers: ["ros-app"],
+        workers: ["demo-app"],
         options: ["better-auth", "cloudflare-access"],
         default: "better-auth",
         description: "Identity adapter",
@@ -357,21 +360,21 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
       {
         name: "AI_GATEWAY_ID",
         kind: "var",
-        workers: ["ros-app", "ros-runner"],
+        workers: ["demo-app", "demo-runner"],
         default: "",
         description: "AI Gateway every model call goes through",
       },
       {
         name: "AI_MODEL_ROLES",
         kind: "var",
-        workers: ["ros-app", "ros-runner"],
+        workers: ["demo-app", "demo-runner"],
         default: "",
         description: "Deploy-config layer of the model registry",
       },
       {
         name: "AI_GATEWAY_BYOK",
         kind: "var",
-        workers: ["ros-app", "ros-runner"],
+        workers: ["demo-app", "demo-runner"],
         default: "",
         description: "Providers whose key AI Gateway holds as BYOK",
       },
@@ -379,7 +382,6 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     assets: Object.fromEntries([...assets].map(([hash, bytes]) => [hash, { size: bytes.length }])),
     ...(options.aiGateway === false ? {} : { aiGateway: FIXTURE_AI_GATEWAY }),
   };
-  const manifest = options.legacy ? legacyManifest(built) : built;
   const { bytes, manifestText } = await writeBundle({
     manifest,
     modules,
@@ -387,7 +389,7 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     migrations: migrationSql,
   });
   const digest = await sha256Hex(bytes);
-  const names = options.legacy ? legacyReleaseAssetNames(version) : releaseAssetNames(version);
+  const names = releaseAssetNames(manifest.product, version);
   const sums = formatSums(
     new Map([
       [names.bundle, digest],

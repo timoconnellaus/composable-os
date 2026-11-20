@@ -20,10 +20,10 @@ export type * from "./schema.ts";
 export const CORE_TABLE_PREFIX = "core_";
 
 /**
- * Prefix of the read views (`crm_people`, ...). They stand in for the `crm.*` schema of ADR 0010:
+ * Prefix of the read views (`rec_person`, ...). They stand in for the `crm.*` schema of ADR 0010:
  * D1/SQLite has no schemas (see the ADR 0015 amendment).
  */
-export const CRM_VIEW_PREFIX = "crm_";
+export const RECORD_VIEW_PREFIX = "rec_";
 
 /** Typed Kysely access to the core tables of a deployment's D1 database. */
 export function createDb(d1: D1Database): Kysely<CoreDatabase> {

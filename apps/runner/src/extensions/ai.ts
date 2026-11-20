@@ -1,5 +1,5 @@
 // codemode:ai: the model roles extensions may use (summarise, extract, classify), resolved through
-// the model role registry in @relationship-os/core (ADR 0009, ADR 0150): shipped defaults (Workers AI) → deploy
+// the model role registry in @composable-os/core (ADR 0009, ADR 0150): shipped defaults (Workers AI) → deploy
 // config → Settings → AI overrides, through AI Gateway when AI_GATEWAY_ID is set. Without any
 // configured model the module fails with a clear error rather than reaching any network.
 //
@@ -21,8 +21,8 @@ import {
   type ModelRunner,
   modelRunnerFromEnv,
   platformAiAllowed,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 
 export { AiNotConfiguredError };
 
@@ -35,7 +35,7 @@ function schedule(work: Promise<unknown>) {
   }
 }
 
-/** The registry-backed runner for ros-runner's environment, or null without AI. */
+/** The registry-backed runner for cos-runner's environment, or null without AI. */
 export function runnerModels(env: object): ModelRunner | null {
   const e = env as AiEnv & { DB?: D1Database };
   const db = e.DB ? createCrmDb(e.DB) : null;
@@ -55,7 +55,7 @@ export function runnerModels(env: object): ModelRunner | null {
 }
 
 /**
- * The judge for ros-runner's environment (ADR 0230), as ros-app builds it: Jev when a key is
+ * The judge for cos-runner's environment (ADR 0230), as cos-app builds it: Jev when a key is
  * reachable, otherwise off with no network call. The runner's own placement (sync.jobChange) is
  * a later build step of stage 11; nothing in the runner asks it yet.
  */
@@ -101,7 +101,7 @@ export async function runModelRole(
   const models = runnerModels(env);
   if (!models) {
     throw new AiNotConfiguredError(
-      "AI is not configured for this deployment: add an `ai` binding to ros-runner (docs/deploying.md)",
+      "AI is not configured for this deployment: add an `ai` binding to cos-runner (docs/deploying.md)",
     );
   }
   const { text } = await models.run(role, [{ role: "user", content: prompt(role, args) }]);

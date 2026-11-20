@@ -13,7 +13,7 @@
 
 import type {
   ActionDescription, ActionField, ActionFieldSyntax,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 
 /**
  * Longest description the builder renders, in UTF-8 bytes of prose and fields together. The

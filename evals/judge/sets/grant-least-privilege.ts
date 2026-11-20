@@ -6,7 +6,7 @@
 // resubmission), briefs that really do ask for deleting or emailing, and the slips: an operation
 // the job does not call for, a target or caps past the job, no end, a reason that narrows nothing,
 // a brief too thin to judge, and text planted in the brief or the reason.
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   GRANT_PLACEMENT,
   GRANT_QUESTION,
@@ -15,7 +15,7 @@ import {
   type GrantOperation,
   type GrantState,
   grantState,
-} from "@relationship-os/core/judge-grant";
+} from "@composable-os/core/judge-grant";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 
 interface Answers {

@@ -21,9 +21,16 @@ function dayKey(date: Date): string {
 
 test("calendar: dragging a task to another day changes its due date", async ({ page }) => {
   const title = `Calendar ${unique()}`;
-  const today = new Date();
-  const other = new Date(today);
-  other.setDate(today.getDate() + (today.getDate() < 20 ? 1 : -1));
+  // Both days are in this month's grid, and the task ends on today or later, because the agenda
+  // lists from today on: today to tomorrow, or on the last day of a month yesterday to today.
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const lastDayOfMonth = tomorrow.getMonth() !== now.getMonth();
+  const today = lastDayOfMonth ? yesterday : now;
+  const other = lastDayOfMonth ? now : tomorrow;
   await open(page, "/tasks?tab=all");
   const dialog = page.getByRole("dialog", { name: "New task" });
   await pressUntil(page, "c", dialog);
@@ -125,5 +132,5 @@ test("describe a widget with the local model, and save it to a new dashboard", a
   // Admins see its SQL.
   await widget.getByRole("button", { name: /actions$/ }).click();
   await page.getByRole("menuitem", { name: "View SQL" }).click();
-  await expect(page.getByTestId("widget-sql")).toContainText("FROM crm_tasks");
+  await expect(page.getByTestId("widget-sql")).toContainText("FROM rec_task");
 });

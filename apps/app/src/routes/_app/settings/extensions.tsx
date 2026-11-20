@@ -3,16 +3,16 @@
 // top of the page and offers its last-known-good version. Extensions that declare typed settings
 // (ADR 0058) show a settings form, editable by admins.
 
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/card";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertTriangleIcon, PuzzleIcon } from "lucide-react";
 import { useState } from "react";
