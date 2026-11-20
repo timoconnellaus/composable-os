@@ -35,6 +35,7 @@ export * from "./assistant/routines.ts";
 export * from "./assistant/scrub.ts";
 export * from "./assistant/skills.ts";
 export * from "./assistant/threads.ts";
+export * from "./audiences.ts";
 export * from "./automations/bindings.ts";
 export * from "./automations/cron.ts";
 export * from "./automations/events.ts";

@@ -1,6 +1,6 @@
 // The invocation pipeline (ADR 0016, ADR 0011, ADR 0017, ADR 0018, ADR 0022):
 //
-//   validate input → actor + role (+ token scope) check → gate → handler → timeline → audit
+//   audience → validate input → actor + role (+ token scope) check → gate → handler → timeline → audit
 //
 // The handler's queued writes, the timeline activities and the audit rows commit together in one
 // D1 batch (one transaction). Refusals (role, actor, gate) and failures are audited separately.
@@ -26,6 +26,7 @@ import { isAssignmentConflict } from "./assignment/index.ts";
 import type { AgentJobHost } from "./assistant/agent-jobs.ts";
 import { type GrantGuard, outsideSession } from "./assistant/grants.ts";
 import type { AssistantThreadStore } from "./assistant/threads.ts";
+import { allowsAudience } from "./audiences.ts";
 import { eventOriginOf, isBulkOperation, recordEventMessages } from "./automations/events.ts";
 import {
   deliverOutbox,
@@ -550,6 +551,9 @@ async function invokeOnce<O extends AnyOperation>(
   attempt: number,
 ): Promise<OperationOutput<O>> {
   const now = (ctx.clock?.() ?? new Date()).toISOString();
+  // Audience first (ADR 0402, ADR 0411): a caller the operation is not open to gets the answer
+  // an unknown name gets, before the input is looked at, so nothing tells them it exists.
+  if (!allowsAudience(op, staffPrincipal(ctx.user))) throw new UnknownOperationError(op.name);
   const parsed = op.input.safeParse(rawInput);
   if (!parsed.success) {
     throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });

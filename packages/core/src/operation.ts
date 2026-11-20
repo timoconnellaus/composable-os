@@ -10,6 +10,7 @@ import type { AiEnv } from "./ai/client.ts";
 import type { VectorStore } from "./ai/vectors.ts";
 import type { AgentJobHost } from "./assistant/agent-jobs.ts";
 import type { AssistantThreadStore } from "./assistant/threads.ts";
+import { type Audience, audienceProblems, isOpenOutside } from "./audiences.ts";
 import type { AutomationHost, EventSink } from "./automations/types.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
 import type { FieldDiff } from "./diff.ts";
@@ -299,6 +300,12 @@ export interface OperationDefinition<
   risk: RiskClass;
   /** Actor types allowed to call it at all. Default: every actor. */
   actors?: readonly Actor[];
+  /**
+   * Who may call it at all: a non-empty subset of `staff`, `customer`, `public` (ADR 0402).
+   * Left out, it is staff only. Opening it to `customer` or `public` is a reviewed change: the
+   * risk class must be `read` or `write`, and the operation joins open-operations.json.
+   */
+  audiences?: readonly Audience[];
   /** For bulk operations: how many records this input touches (the gate's bulk threshold). */
   bulkSize?: (input: z.output<In>) => number;
   /** Extra input keys to redact in the audit log (secrets matching common names always are). */
@@ -371,6 +378,10 @@ export function operationProblems(op: AnyOperation): string[] {
     problems.push("actors must list known actor types");
   }
   if (typeof op.handler !== "function") problems.push("handler missing");
+  problems.push(...audienceProblems(op));
+  if (isOpenOutside(op) && op.alwaysReview) {
+    problems.push("an operation open to customer or public callers is never queued for review");
+  }
   if ((op.risk === "bulk-write" || op.risk === "destructive") && op.name.endsWith("Many")) {
     if (typeof op.bulkSize !== "function") problems.push("batch operations need bulkSize");
   }
