@@ -9,11 +9,6 @@ package names (`@relationship-os/*`, `create-relationship-os`). "CRM" stays the 
 the name of the operations API inside extension code (`codemode:crm`, `ctx.crm`, the `crm_*` views).
 _Avoid_: "the CRM" as the product name in UI copy
 
-**Pre-rename install**
-A deployment made by a release from before the rename: Workers `crm-app`, `crm-runner`,
-`crm-gatekeeper-*`, the D1 database `crm` and `crm-*` resources. It keeps those names for good; the
-deploy engine maps the new names onto them (`workerNames`, `resourceNames`).
-
 **Deployment**
 One installed copy of the CRM in one organisation's Cloudflare account. It holds one org's data and is
 the isolation boundary. There is no tenant id in the data model.

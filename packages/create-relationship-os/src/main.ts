@@ -20,7 +20,6 @@ import {
 import type { ProductDefinition } from "@relationship-os/product";
 import { DEFAULT_PRODUCT, products } from "@relationship-os/products";
 import {
-  adoptLegacyNames,
   apiKillSwitchStore,
   appliedMigrationsViaApi,
   applyBundleMigrations,
@@ -44,9 +43,6 @@ import {
   JUDGE_BYOK_VAR,
   JUDGE_GATEWAY_PROVIDER,
   killSwitchControl,
-  LEGACY_PRODUCT,
-  legacyName,
-  legacyReleaseAssetNames,
   listReleases,
   locateDeployment,
   MODEL_ROLES_VAR,
@@ -195,25 +191,6 @@ export interface Env {
   ROS_AI_ADMIN_TOKEN?: string;
 }
 
-/** The variables above as they were named before the rename (ADR 0190): `CRM_AI` → `ROS_AI`. */
-const LEGACY_ENV = [
-  "ROS_CLOUDFLARE_API",
-  "ROS_GITHUB_API",
-  "ROS_HEALTH_ORIGIN",
-  "ROS_AI",
-  "ROS_AI_ADMIN_TOKEN",
-] as const;
-
-/** Reads each `CRM_*` name when its `ROS_*` name is unset, so old scripts keep working. */
-export function withLegacyEnv(env: Env): Env {
-  const out: Env = { ...env };
-  for (const name of LEGACY_ENV) {
-    const legacy = (env as Record<string, string | undefined>)[name.replace(/^ROS_/, "CRM_")];
-    if (out[name] === undefined && legacy !== undefined) out[name] = legacy;
-  }
-  return out;
-}
-
 export interface Deps {
   io: Io;
   redactor: Redactor;
@@ -316,12 +293,8 @@ async function session(flags: Flags, deps: Deps): Promise<Session> {
 }
 
 async function verified(s: Session, version: string, deps: Deps) {
-  const names = [
-    releaseAssetNames(s.product.id, version).bundle,
-    legacyReleaseAssetNames(version).bundle,
-  ];
   const local = s.bundleDir
-    ? (names.map((n) => join(s.bundleDir as string, n)).find((p) => existsSync(p)) ?? null)
+    ? join(s.bundleDir, releaseAssetNames(s.product.id, version).bundle)
     : null;
   if (local && existsSync(local)) {
     // A release built locally or in the release workflow before publishing (--bundle-dir).
@@ -343,7 +316,7 @@ async function verified(s: Session, version: string, deps: Deps) {
     if (bundle.manifest.version !== version) {
       throw new CliError(`${local} holds ${bundle.manifest.version}, not ${version}`);
     }
-    if (bundle.manifest.product !== s.product.id && bundle.manifest.product !== LEGACY_PRODUCT) {
+    if (bundle.manifest.product !== s.product.id) {
       throw new CliError(
         `${local} is a release of ${bundle.manifest.product}, not ${s.product.id}`,
       );
@@ -460,8 +433,7 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
     );
   const { bundle, digest } = await verified(s, version, deps);
   const manifest = bundle.manifest;
-  // An install from before the rename keeps its deployed names (ADR 0190).
-  const previous = found ? adoptLegacyNames(found, manifest) : null;
+  const previous = found;
   const app = manifest.workers.find((w) => w.role === "app");
   if (!app) throw new CliError("The release has no app Worker.");
 
@@ -524,9 +496,7 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
     .map((g) =>
       g.startsWith(s.product.names.gatekeeperPrefix)
         ? g
-        : g.startsWith("crm-gatekeeper-")
-          ? `${s.product.names.gatekeeperPrefix}${g.slice("crm-gatekeeper-".length)}`
-          : `${s.product.names.gatekeeperPrefix}${g}`,
+        : `${s.product.names.gatekeeperPrefix}${g}`,
     );
   for (const name of requested) {
     if (!optional.some((w) => w.name === name)) throw new CliError(`Unknown gatekeeper ${name}.`);
@@ -791,8 +761,7 @@ async function upgrade(flags: Flags, deps: Deps): Promise<number> {
     return 0;
   }
   const release = await verified(s, target, deps);
-  // An install from before the rename keeps its deployed names (ADR 0190).
-  const state = adoptLegacyNames(found, release.bundle.manifest);
+  const state = found;
   const secretsSet: Record<string, string[]> = {};
   const scripts = new Set((await s.api.listScripts(s.accountId)).map((x) => x.id));
   for (const worker of release.bundle.manifest.workers) {
@@ -994,7 +963,7 @@ async function uninstall(flags: Flags, deps: Deps): Promise<number> {
   const names = [
     ...new Set(
       [s.product.names.app, ...state.gatekeepers, s.product.names.runner].map(
-        (n) => state.workerNames[n] ?? state.workerNames[legacyName(n)] ?? n,
+        (n) => state.workerNames[n] ?? n,
       ),
     ),
   ];
@@ -1039,7 +1008,7 @@ async function uninstall(flags: Flags, deps: Deps): Promise<number> {
 }
 
 export async function runCli(argv: string[], input: Deps): Promise<number> {
-  const deps: Deps = { ...input, env: withLegacyEnv(input.env) };
+  const deps = input;
   let parsed: ReturnType<typeof parseArgs>;
   try {
     parsed = parseArgs(argv);

@@ -15,7 +15,6 @@
 import { parseSums, releaseAssetNames } from "./bundle.ts";
 import { githubJson, type RequestOptions } from "./github.ts";
 import { fromBase64, sameDigest, sha256Hex } from "./hash.ts";
-import { legacyReleaseAssetNames, sameRepository } from "./legacy.ts";
 
 export const RELEASE_WORKFLOW_PATH = ".github/workflows/release.yml";
 export const SLSA_PROVENANCE_V1 = "https://slsa.dev/provenance/v1";
@@ -152,7 +151,6 @@ export async function verifyProvenance(
     );
   }
   const wantRepo = `https://github.com/${expected.repository}`;
-  // A release built before a repo rename names the old repository (legacy.ts).
   const wantRef = `refs/tags/v${expected.version}`;
   const reasons: string[] = [];
   for (const attestation of response.attestations ?? []) {
@@ -206,6 +204,13 @@ export async function verifyProvenance(
 }
 
 /** A full (Sigstore) verifier the CLI may add, e.g. one that shells out to `gh attestation verify`. */
+/** Whether `actual` (an `owner/repo` or its github.com URL) is the repository `expected`. */
+export function sameRepository(actual: string | undefined, expected: string): boolean {
+  if (!actual) return false;
+  const norm = (r: string) => r.toLowerCase().replace(/^https:\/\/github\.com\//, "");
+  return norm(actual) === norm(expected);
+}
+
 export type ExtraVerifier = (input: {
   bytes: Uint8Array;
   digest: string;
@@ -237,10 +242,7 @@ export async function verifyBundleBytes(input: {
 }): Promise<VerifiedArtifact> {
   const digest = await sha256Hex(input.bytes);
   const sums = parseSums(input.sums);
-  const legacyName = legacyReleaseAssetNames(input.version).bundle;
-  const name = sums.has(legacyName)
-    ? legacyName
-    : releaseAssetNames(input.product, input.version).bundle;
+  const name = releaseAssetNames(input.product, input.version).bundle;
   const listed = sums.get(name);
   if (!listed) throw new VerificationError(`SHA256SUMS does not list ${name}`);
   if (!sameDigest(listed, digest)) {

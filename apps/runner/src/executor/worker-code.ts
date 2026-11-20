@@ -32,11 +32,7 @@ const ENTRY = "ros-entry.js";
  * import it by a relative path; see sdkImports). */
 const SDK_MODULE = "ros-sdk.js";
 const EXT_DIR = "ext";
-// `crm-sdk`: modules built before the rename (ADR 0190) and still in a build cache.
-const SDK_IMPORT_RE = new RegExp(
-  `(\\b(?:from|import)\\s*)(["'])(?:${SDK_SPECIFIER}|crm-sdk)\\2`,
-  "g",
-);
+const SDK_IMPORT_RE = new RegExp(`(\\b(?:from|import)\\s*)(["'])${SDK_SPECIFIER}\\2`, "g");
 
 /** Points a built module's `ros-sdk` imports (build.ts writes them) at the root SDK module. */
 function sdkImports(path: string, code: string): string {

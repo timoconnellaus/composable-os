@@ -40,13 +40,6 @@
 // which a first deploy needs; later deploys keep the secrets already set. APP_SECRETS go on ros-app
 // and SHARED_SECRETS on both Workers, because ros-runner makes model calls too.
 //
-// A deployment made from source before the rename to Relationship OS (ADR 0190) has Workers
-// `crm-app` / `crm-runner`, the D1 database `crm` and `crm-*` resources. Renaming a deployed
-// Worker would orphan its Durable Objects, so such a deployment keeps its names: set
-// ROS_LEGACY_NAMES=on and the generated configs use the `crm` names. Without it, this script
-// stops when it finds `crm-app` and no `ros-app` in the account. The old CRM_* variables are
-// still read when the ROS_* ones are unset.
-//
 // Usage: pnpm run deploy [-- --dry-run]
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -56,19 +49,12 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dryRun = process.argv.includes("--dry-run");
-for (const [name, value] of Object.entries(process.env)) {
-  if (name.startsWith("CRM_") && process.env[`ROS_${name.slice(4)}`] === undefined) {
-    process.env[`ROS_${name.slice(4)}`] = value;
-  }
-}
-const legacyNames = (process.env.ROS_LEGACY_NAMES ?? "").toLowerCase() === "on";
 const aiOn = (process.env.ROS_AI ?? "on").toLowerCase() !== "off";
 const hostname = process.env.ROS_HOSTNAME?.trim()
   .replace(/^https?:\/\//, "")
   .replace(/\/.*$/, "");
 if (hostname) process.env.BETTER_AUTH_URL ||= `https://${hostname}`;
-const indexName =
-  process.env.ROS_VECTORIZE_INDEX?.trim() || (legacyNames ? "crm-records" : "ros-records");
+const indexName = process.env.ROS_VECTORIZE_INDEX?.trim() || "ros-records";
 
 /** AI_MODEL_ROLES and AI_GATEWAY_BYOK for this deployment, from ROS_AI_MODEL_ROLES / _GATEWAY_BYOK. */
 async function aiVars() {
@@ -175,17 +161,7 @@ const deployInputs = (app) =>
  * deployment's AI vars, without the bindings for local development.
  */
 function deployConfig(app) {
-  let config = parseJsonc(readFileSync(join(root, app, "wrangler.jsonc"), "utf8"));
-  if (legacyNames) {
-    // Worker, service, queue, bucket and workflow names `ros-*` → `crm-*`; the database `crm`.
-    config = JSON.parse(
-      JSON.stringify(config)
-        .replace(/"ros-/g, '"crm-')
-        .replace(/"database_name":"ros"/g, '"database_name":"crm"')
-        // AI_SECRET_SCRIPTS: "ros-app,ros-runner" became "crm-app,ros-runner" above.
-        .replace(/crm-app,ros-runner/g, "crm-app,crm-runner"),
-    );
-  }
+  const config = parseJsonc(readFileSync(join(root, app, "wrangler.jsonc"), "utf8"));
   const inputs = deployInputs(app);
   const devOnly = new Set(inputs.devOnly?.services ?? []);
   if (config.services) {
@@ -254,20 +230,11 @@ function wranglerOk(cwd, args) {
   }
 }
 
-// 0. A pre-rename deployment must keep its names (see the top of this file).
 const appConfigObject = deployConfig("apps/app");
 const runnerConfigObject = deployConfig("apps/runner");
 const exists = (name) => wranglerOk("apps/app", ["deployments", "list", "--name", name]);
 if (!dryRun) {
   const appExists = exists(appConfigObject.name);
-  if (!legacyNames && !appExists && exists("crm-app")) {
-    console.error(
-      "\nThis account has a deployment from before the rename (crm-app) and no ros-app. Deploying\n" +
-        "would create a second, empty deployment. Re-run with ROS_LEGACY_NAMES=on to update it in\n" +
-        "place under its existing names (docs/deploying.md).",
-    );
-    process.exit(1);
-  }
   // wrangler would only refuse at the very end, after everything else had been created.
   if (!appExists && (process.env.BETTER_AUTH_SECRET ?? "").length < 32) {
     console.error(

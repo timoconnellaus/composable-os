@@ -190,7 +190,7 @@ export interface AiGatewayConfig {
 
 export interface ReleaseManifest {
   manifestVersion: typeof MANIFEST_VERSION;
-  /** The product's id (products/<id>/product.ts); releases from before the rename say `crm` (legacy.ts). */
+  /** The product's id (products/<id>/product.ts). */
   product: string;
   /** The product's name as people read it, for messages about this release. */
   productLabel: string;
@@ -372,12 +372,12 @@ export function assertUnresolved(manifest: ReleaseManifest): void {
 /** Parses and sanity-checks a manifest read from a bundle or a release asset. */
 export function parseManifest(text: string): ReleaseManifest {
   const manifest = JSON.parse(text) as ReleaseManifest;
-  // A pre-rename (`crm`) manifest is read too: the installed release's, for preflight and rollback.
   if (typeof manifest?.product !== "string" || !manifest.product) {
     throw new Error("not a release manifest");
   }
-  // Manifests from before the label was recorded are named by their id.
-  manifest.productLabel ??= manifest.product;
+  if (typeof manifest.productLabel !== "string" || !manifest.productLabel) {
+    throw new Error("malformed manifest: no product label");
+  }
   if (manifest.manifestVersion !== MANIFEST_VERSION) {
     throw new Error(
       `manifest version ${manifest.manifestVersion} is not supported by this tool (expects ${MANIFEST_VERSION}); update create-relationship-os`,

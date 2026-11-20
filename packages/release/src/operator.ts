@@ -4,7 +4,6 @@
 // the same tables through its own D1 binding.
 import { CloudflareApiError, type CloudflareClient } from "./cloudflare.ts";
 import { type DeploymentState, readDeploymentState } from "./deploy.ts";
-import { LEGACY_DATABASE_NAME } from "./legacy.ts";
 import type { InstalledExtension } from "./preflight.ts";
 
 export interface Located {
@@ -19,10 +18,7 @@ export async function locateDeployment(
   databaseName: string,
 ): Promise<Located | null> {
   const databases = await api.listD1(accountId);
-  // An install from before the rename (ADR 0190) keeps its `crm` database.
-  const db =
-    databases.find((d) => d.name === databaseName) ??
-    databases.find((d) => d.name === LEGACY_DATABASE_NAME);
+  const db = databases.find((d) => d.name === databaseName);
   if (!db) return null;
   return { databaseId: db.uuid, state: await readDeploymentState(api, accountId, db.uuid) };
 }

@@ -2,7 +2,6 @@
 // check reads (no telemetry, ADR 0166). Unauthenticated by default, so the GitHub API's anonymous
 // rate limit applies (60 requests an hour per IP); callers cache.
 import { releaseAssetNames } from "./bundle.ts";
-import { legacyReleaseAssetNames } from "./legacy.ts";
 import {
   bareVersion,
   type Channel,
@@ -81,9 +80,7 @@ function toInfo(release: GitHubRelease, product: string): ReleaseInfo | null {
   // A tag and its prerelease flag must agree; a mismatch is not a release we offer.
   if (release.prerelease !== (channel === "beta")) return null;
   const names = releaseAssetNames(product, version);
-  const legacy = legacyReleaseAssetNames(version);
-  const find = (name: string, old?: string) =>
-    release.assets.find((a) => a.name === name || a.name === old)?.browser_download_url;
+  const find = (name: string) => release.assets.find((a) => a.name === name)?.browser_download_url;
   return {
     version,
     tag: release.tag_name,
@@ -92,10 +89,9 @@ function toInfo(release: GitHubRelease, product: string): ReleaseInfo | null {
     notes: release.body ?? "",
     publishedAt: release.published_at,
     url: release.html_url,
-    // Releases from before the rename (ADR 0190) name their assets crm-<version>.*.
     assets: {
-      bundle: find(names.bundle, legacy.bundle),
-      manifest: find(names.manifest, legacy.manifest),
+      bundle: find(names.bundle),
+      manifest: find(names.manifest),
       sums: find(names.sums),
     },
   };

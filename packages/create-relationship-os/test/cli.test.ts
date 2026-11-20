@@ -51,11 +51,7 @@ async function startWorld(): Promise<World> {
         }),
       );
     } else if (req.url === "/api/health") {
-      // crm-app: an install from before the rename (ADR 0190).
-      const version = (
-        cf.liveBinding("ros-app", "ROS_RELEASE_VERSION") ??
-        cf.liveBinding("crm-app", "ROS_RELEASE_VERSION")
-      )?.text;
+      const version = cf.liveBinding("ros-app", "ROS_RELEASE_VERSION")?.text;
       response = Response.json({ status: "ok", version, migrations: { upToDate: true } });
     } else {
       response = await github.fetch(url);
@@ -693,40 +689,5 @@ describe("ros upgrade, rollback and status", () => {
     const { code, output } = await cli("upgrade", "--yes");
     expect(code).toBe(0);
     expect(output).toContain("nothing newer");
-  });
-});
-
-describe("an install from before the rename (ADR 0190)", () => {
-  it("ros upgrade updates it in place under its crm names, reading the old CRM_* variables", async () => {
-    // A pre-rename release installed the way `create-crm` did: Workers crm-*, database crm.
-    await world.github.publish(await buildFixtureRelease({ version: "1.0.0", legacy: true }));
-    expect((await cli("--yes")).code).toBe(0);
-    expect([...world.cf.scripts.keys()].sort()).toEqual(["crm-app", "crm-runner"]);
-    const db = [...world.cf.d1.values()].find((d) => d.name === "crm");
-    await db?.engine.query("INSERT INTO core_person (id, name) VALUES ('per_1', 'Ada')", []);
-
-    await world.github.publish(await buildFixtureRelease({ version: "1.1.0" }));
-    // Scripts written for create-crm set CRM_*; they still work.
-    const legacyEnv = Object.fromEntries(
-      Object.entries(world.env).map(([k, v]) => [k.replace(/^ROS_/, "CRM_"), v]),
-    );
-    world.env = legacyEnv as Env;
-    const { code, output } = await cli("upgrade", "--yes");
-    expect(code, output).toBe(0);
-    expect(output).toContain("Updated to Relationship OS 1.1.0");
-    // No second deployment: the same Workers, database, queues and gateway, updated.
-    expect([...world.cf.scripts.keys()].sort()).toEqual(["crm-app", "crm-runner"]);
-    expect([...world.cf.d1.values()].map((d) => d.name)).toEqual(["crm"]);
-    expect([...world.cf.queues.values()].map((q) => q.name).sort()).toEqual([
-      "crm-automation-events",
-      "crm-automation-events-dlq",
-    ]);
-    expect([...world.cf.gateways.keys()]).toEqual(["crm"]);
-    expect(world.cf.liveBinding("crm-app", "ROS_RELEASE_VERSION")?.text).toBe("1.1.0");
-    expect(world.cf.liveBinding("crm-app", "RUNNER")?.service).toBe("crm-runner");
-    expect(await db?.engine.query("SELECT name FROM core_person", [])).toEqual([{ name: "Ada" }]);
-
-    const status = await cli("status");
-    expect(status.output).toContain("Relationship OS 1.1.0 (stable channel)");
   });
 });

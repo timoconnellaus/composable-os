@@ -8,7 +8,6 @@
     "ROS_AI_GATEWAY_BYOK",
     "ROS_AI_GATEWAY_ID",
     "ROS_AI_GATEWAY_REST",
-    "ROS_LEGACY_NAMES",
     "RELEVANCE_REAL"
   ],
   "tasks": {

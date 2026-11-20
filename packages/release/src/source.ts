@@ -1,7 +1,12 @@
 // Getting a release you can trust: download its assets from GitHub Releases, verify the bundle
 // (SHA256SUMS + build attestation, ADR 0162), then open it (every file checked against the
 // manifest). Shared by the CLI and the self-updater, so both refuse the same tampered bundles.
-import { type ExtraVerifier, VerificationError, verifyBundleBytes } from "./attestation.ts";
+import {
+  type ExtraVerifier,
+  sameRepository,
+  VerificationError,
+  verifyBundleBytes,
+} from "./attestation.ts";
 import { openBundle, type ReleaseBundle } from "./bundle.ts";
 import {
   downloadAsset,
@@ -10,7 +15,6 @@ import {
   type ReleaseInfo,
   type RequestOptions,
 } from "./github.ts";
-import { LEGACY_PRODUCT, sameRepository } from "./legacy.ts";
 import { parseManifest } from "./manifest.ts";
 
 export interface VerifiedRelease {
@@ -48,7 +52,7 @@ export async function fetchVerifiedRelease(
       `bundle says it is ${bundle.manifest.version}, but the release is ${info.version}`,
     );
   }
-  if (bundle.manifest.product !== product && bundle.manifest.product !== LEGACY_PRODUCT) {
+  if (bundle.manifest.product !== product) {
     throw new VerificationError(
       `bundle is a release of ${bundle.manifest.product}, not ${product}`,
     );

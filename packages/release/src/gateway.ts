@@ -53,7 +53,7 @@ function workerName(state: DeploymentState, name: string) {
 
 /**
  * The gateway id of a deployment: the one it chose, else its install name, the app Worker's
- * deployed name without `-app` (`ros-app` → `ros`, `acme-ros-app` → `acme-ros`; a pre-rename `crm-app` → `crm`).
+ * deployed name without `-app` (`ros-app` → `ros`, `acme-ros-app` → `acme-ros`).
  */
 export function gatewayIdFor(state: DeploymentState, manifest: ReleaseManifest): string {
   if (typeof state.aiGateway === "string" && state.aiGateway) return state.aiGateway;

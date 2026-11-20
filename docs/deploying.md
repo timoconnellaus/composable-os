@@ -236,29 +236,6 @@ npx create-relationship-os upgrade --version 1.4.0
 npx create-relationship-os status                   # installed version, channel, available releases, history
 ```
 
-### Installs from before the rename to Relationship OS
-
-Releases before the rename (ADR 0190) were the product `crm`: Workers `crm-app`, `crm-runner` and
-`crm-gatekeeper-*`, the D1 database `crm`, the resources `crm-blobs`, `crm-app-oauth-kv`,
-`crm-automation-events(-dlq)`, `crm-records`, the Workflows `crm-automation` and `crm-hello`, and an AI
-Gateway named `crm`. Such an install **keeps those names for good**: renaming a Worker would orphan
-its Durable Objects, and renaming a resource would orphan its data.
-
-- **The first update across the rename runs from the CLI:** `npx create-relationship-os upgrade` (or
-  `ros upgrade`). A pre-rename self-updater, and the old `create-crm` CLI, refuse a renamed release
-  ("not a CRM release manifest") and change nothing, so they can never create a second set of
-  Workers next to the old ones. The new CLI finds the `crm` database, maps every new name onto the
-  deployed one (`workerNames` and `resourceNames` in the stored state), keeps the `crm` gateway and
-  updates the Workers in place. After that, Settings → Updates works as before.
-- An update token stored as `CRM_UPDATE_TOKEN` still works; `ROS_UPDATE_TOKEN` wins when both are set.
-  The CLI and `pnpm run deploy` still read the old `CRM_*` variables when the `ROS_*` ones are unset.
-- Rollback across the rename redeploys the pre-rename release (its `crm-<version>.tar.gz` asset, attested
-  in `timoconnellaus/crm`, which GitHub now redirects) onto the same Workers.
-- **Source deploys** (`pnpm run deploy`, Option 3) of a pre-rename deployment: set
-  `ROS_LEGACY_NAMES=on`, and the generated wrangler configs use the `crm` names. Without it the script
-  stops when it finds `crm-app` and no `ros-app` in the account.
-- Runtime extensions written against `@crm/sdk` keep working; new ones import `@relationship-os/sdk`.
-
 ## Rollback
 
 Settings → Updates → History → **Roll back** on the latest successful update, or:
@@ -343,7 +320,7 @@ All AI calls go through AI Gateway by default (ADR 0180), and provider keys are 
 BYOK. With AI on, `create-relationship-os` (install and re-run), `ros upgrade` and Settings → Updates each
 check the following and create whatever is missing:
 
-- **A gateway per deployment**, named after the install (`ros` for `ros-app`, `crm` for a pre-rename `crm-app`; `--ai-gateway <id>`
+- **A gateway per deployment**, named after the install (`ros` for `ros-app`; `--ai-gateway <id>`
   to choose). It has logging on and **authentication on**. An existing gateway with that id is
   reused, and its logging and authentication are turned on if they were off.
 - **Custom providers** listed in `apps/app/deploy-inputs.json` under `aiGateway.customProviders`.
