@@ -831,6 +831,52 @@ export interface CoreErasedAddressTable {
   erased_by: string | null;
 }
 
+/**
+ * Migration 0401 (stage 22, ADR 0402): a customer account, a Person who can sign in. Never a
+ * core_user. Better Auth's user model for customers (packages/auth/src/customer-auth.ts).
+ */
+export interface CoreCustomerTable {
+  id: string;
+  /** Null until the first sign-in links it, and while link_state is `needs_merge`. */
+  person_id: Defaulted<string | null>;
+  email: string;
+  email_verified: Defaulted<number>;
+  status: Defaulted<CustomerStatus>;
+  link_state: Defaulted<CustomerLinkState>;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+  last_sign_in_at: Defaulted<string | null>;
+}
+export type CustomerStatus = "active" | "disabled";
+export type CustomerLinkState = "linked" | "needs_merge";
+
+/** Migration 0401: a customer's session. No client address and no user agent, by design. */
+export interface CoreCustomerSessionTable {
+  id: string;
+  customer_id: string;
+  token: string;
+  expires_at: DateColumn;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+}
+
+/** Migration 0401: a customer's one-time sign-in code (hashed). */
+export interface CoreCustomerVerificationTable {
+  id: string;
+  identifier: string;
+  value: string;
+  expires_at: DateColumn;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+}
+
+/** Migration 0401: an address staff invited to sign up. */
+export interface CoreCustomerInviteTable {
+  email: string;
+  invited_by: string;
+  invited_at: string;
+}
+
 /** Migration 0310 (ADR 0246): an assignment rule, ordered per object. */
 export interface CoreAssignmentRuleTable {
   id: string;
@@ -1587,6 +1633,10 @@ export interface CoreDatabase {
   core_assignment_state: CoreAssignmentStateTable;
   core_assignment_fallback: CoreAssignmentFallbackTable;
   core_field_options: CoreFieldOptionsTable;
+  core_customer: CoreCustomerTable;
+  core_customer_session: CoreCustomerSessionTable;
+  core_customer_verification: CoreCustomerVerificationTable;
+  core_customer_invite: CoreCustomerInviteTable;
   rec_stage_history: CrmStageHistoryView;
   rec_user: CrmUsersView;
   rec_person: CrmPeopleView;

@@ -19,6 +19,7 @@ import { automationBindingOperations } from "./automation-binding.ts";
 import { codeOperations } from "./code.ts";
 import { connectedAppOperations } from "./connected-app.ts";
 import { countOperations } from "./count.ts";
+import { customerSettingsOperations } from "./customer-settings.ts";
 import { dashboardOperations } from "./dashboard.ts";
 import { duplicateOperations } from "./duplicate.ts";
 import { enrichmentOperations } from "./enrichment.ts";
@@ -111,4 +112,5 @@ export const coreOperations = [
   ...duplicateOperations,
   ...assignmentOperations,
   ...fieldOptionsOperations,
+  ...customerSettingsOperations,
 ] as const;

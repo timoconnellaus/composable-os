@@ -55,6 +55,8 @@ export const ID_PREFIXES = {
   agentJob: "job",
   /** One approval's claim on the actions it applies (ADR 0345). */
   execution: "exe",
+  /** A customer account (stage 22, ADR 0402): a Person who can sign in. Never a core_user. */
+  customer: "cus",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

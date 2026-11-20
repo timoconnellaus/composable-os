@@ -1,5 +1,11 @@
 import { type BetterAuthInstance, betterAuthProvider, createBetterAuth } from "./better-auth.ts";
 import { cloudflareAccessProvider } from "./cloudflare-access.ts";
+import {
+  type CustomerIdentity,
+  createCustomerAuth,
+  customerIdentity,
+  type SendCustomerCode,
+} from "./customer-auth.ts";
 import type { IdentityProvider, IdentityProviderKind } from "./principal.ts";
 
 export {
@@ -15,6 +21,20 @@ export {
   cloudflareAccessProvider,
   normaliseTeamDomain,
 } from "./cloudflare-access.ts";
+export {
+  CUSTOMER_AUTH_BASE_PATH,
+  CUSTOMER_CODE_ATTEMPTS,
+  CUSTOMER_CODE_LENGTH,
+  CUSTOMER_CODE_TTL_SECONDS,
+  CUSTOMER_COOKIE_PREFIX,
+  type CustomerAuthInstance,
+  type CustomerAuthOptions,
+  type CustomerIdentity,
+  type CustomerRequestPrincipal,
+  createCustomerAuth,
+  customerIdentity,
+  type SendCustomerCode,
+} from "./customer-auth.ts";
 export type { IdentityProvider, IdentityProviderKind, Principal } from "./principal.ts";
 
 /** The env vars and bindings identity reads. All auth secrets are env-only (ADR 0008). */
@@ -102,4 +122,43 @@ export function signInMethods(env: IdentityEnv) {
     email: kind === "better-auth",
     google: kind === "better-auth" && Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
   };
+}
+
+/** The env customer sign-in reads (stage 22, ADR 0402). Its secret is env-only (ADR 0008). */
+export interface CustomerIdentityEnv {
+  DB: D1Database;
+  /** Signs customer sessions. Must differ from BETTER_AUTH_SECRET. */
+  CUSTOMER_AUTH_SECRET?: string;
+  BETTER_AUTH_SECRET?: string;
+  /** The client app's public origin. */
+  CUSTOMER_AUTH_URL?: string;
+}
+
+const customerIdentityCache = new WeakMap<object, CustomerIdentity>();
+
+/**
+ * Customer sign-in for this env, built once per isolate. Fails closed without its own secret, and
+ * when that secret is the staff one: the two kinds of session must never verify each other.
+ */
+export function getCustomerIdentity(
+  env: CustomerIdentityEnv,
+  sendCode: SendCustomerCode,
+): CustomerIdentity {
+  let identity = customerIdentityCache.get(env);
+  if (!identity) {
+    const secret = env.CUSTOMER_AUTH_SECRET;
+    if (!secret) throw new IdentityConfigError("CUSTOMER_AUTH_SECRET is not set");
+    if (secret === env.BETTER_AUTH_SECRET) {
+      throw new IdentityConfigError("CUSTOMER_AUTH_SECRET must differ from BETTER_AUTH_SECRET");
+    }
+    const auth = createCustomerAuth({
+      db: env.DB,
+      secret,
+      baseURL: env.CUSTOMER_AUTH_URL || undefined,
+      sendCode,
+    });
+    identity = customerIdentity(auth, env.DB);
+    customerIdentityCache.set(env, identity);
+  }
+  return identity;
 }
