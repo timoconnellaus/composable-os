@@ -31,7 +31,18 @@ export function formatIssue(dir: string, issue: LocatedIssue): string {
 async function check(dir: string, json: boolean, io: ExtIo): Promise<number> {
   const result = await checkExtensionDir(dir);
   if (json) {
-    io.out(JSON.stringify({ id: result.id, ok: result.ok, issues: result.issues }, null, 2));
+    io.out(
+      JSON.stringify(
+        {
+          id: result.id,
+          ok: result.ok,
+          issues: result.issues,
+          outside: outsideSummary(result.manifest),
+        },
+        null,
+        2,
+      ),
+    );
     return result.ok ? 0 : 1;
   }
   const shown = relative(process.cwd(), resolve(dir)) || ".";
@@ -46,7 +57,51 @@ async function check(dir: string, json: boolean, io: ExtIo): Promise<number> {
     `ok: ${result.id} ${result.manifest?.version ?? ""} passes the check ` +
       `(${changes} schema change${changes === 1 ? "" : "s"} on an empty database).`,
   );
+  // What the extension opens to people outside the org is said out loud (ADR 0402, ADR 0414).
+  for (const line of outsideSummary(result.manifest)) io.out(line);
   return 0;
+}
+
+/** The parts of a manifest this reads. */
+interface OpensOutside {
+  id: string;
+  objects: Record<string, { customer?: { field: string; read: string[]; write: string[] } }>;
+  tools: Record<
+    string,
+    { risk: string; audiences?: string[]; customerFields?: Record<string, string[]> }
+  >;
+}
+
+/**
+ * One line for each thing a manifest opens to customers or the public: objects a customer can
+ * see, and tools they can call, with the fields a tool may set beyond the object's own list.
+ * Empty when the extension is for staff only.
+ */
+export function outsideSummary(manifest: OpensOutside | null | undefined): string[] {
+  if (!manifest) return [];
+  const lines: string[] = [];
+  for (const [name, object] of Object.entries(manifest.objects)) {
+    const c = object.customer;
+    if (!c) continue;
+    lines.push(
+      `  customers see ${manifest.id}.${name} where ${c.field} is them: ` +
+        `read ${c.read.join(", ") || "nothing"}; write ${c.write.join(", ") || "nothing"}`,
+    );
+  }
+  for (const [name, tool] of Object.entries(manifest.tools)) {
+    const open = (tool.audiences ?? []).filter((audience) => audience !== "staff");
+    if (!open.length) continue;
+    const widened = Object.entries(tool.customerFields ?? {})
+      .map(([object, fields]) => `${object}: ${fields.join(", ")}`)
+      .join("; ");
+    lines.push(
+      `  tool ${name} (${tool.risk}) is open to ${open.join(" and ")}` +
+        (widened ? `, and may also set ${widened}` : ""),
+    );
+  }
+  return lines.length
+    ? ["This extension opens the host to people outside the org. Review these lines:", ...lines]
+    : [];
 }
 
 async function test(dir: string, io: ExtIo): Promise<number> {

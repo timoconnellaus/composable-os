@@ -244,8 +244,10 @@ describe("isolation: every open operation, as A, aimed at B", () => {
   it("reads the list of open operations from the registry", () => {
     const names = open().map((op) => op.name);
     expect(names.length).toBeGreaterThanOrEqual(8);
-    // The fixtures are the only open operations: the core registry has none yet.
-    expect(names.every((name) => name.startsWith("fixture."))).toBe(true);
+    // The fixtures, and whatever the core registry opens (open-operations.json): all of them
+    // are called below.
+    expect(names.some((name) => name.startsWith("fixture."))).toBe(true);
+    expect(names).toEqual(expect.arrayContaining(["me.get", "me.update", "my.get", "my.list"]));
     for (const op of open()) expect(["read", "write"]).toContain(op.risk);
   });
 

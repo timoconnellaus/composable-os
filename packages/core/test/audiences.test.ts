@@ -4,6 +4,7 @@
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
+import committed from "../open-operations.json";
 import {
   type ActingUser,
   type AnyOperation,
@@ -65,10 +66,13 @@ describe("audiences on operations", () => {
     expect(unmarked.audiences).toBeUndefined();
   });
 
-  it("every core operation is staff only: nothing is open yet", () => {
+  it("every core operation is staff only, except the ones open-operations.json lists", () => {
+    const listed = new Set(committed.operations.map((op) => op.name));
     const open = coreOperations.filter((op) => audiencesOf(op).some((a) => a !== "staff"));
-    expect(open.map((op) => op.name)).toEqual([]);
-    for (const op of coreOperations) expect(audiencesOf(op)).toContain("staff");
+    expect(open.map((op) => op.name).sort()).toEqual([...listed].sort());
+    for (const op of coreOperations) {
+      if (!listed.has(op.name)) expect(audiencesOf(op)).toContain("staff");
+    }
   });
 
   it("refuses an empty list, an unknown audience and a repeated one", () => {

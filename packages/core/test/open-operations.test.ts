@@ -4,12 +4,25 @@
 //
 // To update the file after opening an operation on purpose:
 //   pnpm --filter @composable-os/core open-operations
+import deals from "@composable-os/extension-deals";
+import leads from "@composable-os/extension-leads";
+import lifecycle from "@composable-os/extension-lifecycle";
+import { toManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import committed from "../open-operations.json";
+import { toolOperation } from "../src/extensions/tools.ts";
 import { coreRegistry, createRegistry, defineOperation, openOperations } from "../src/index.ts";
 
-const fromRegistry = openOperations(coreRegistry.list());
+// Tools of the shipped extensions are operations too (`x.<extension>.<tool>`): one that a
+// shipped extension opens to customers or the public is listed with the core operations.
+const shippedTools = [deals, leads, lifecycle].flatMap((extension) => {
+  const manifest = toManifest(extension);
+  return Object.entries(manifest.tools).map(([name, tool]) =>
+    toolOperation(manifest, name, tool, "shipped"),
+  );
+});
+const fromRegistry = openOperations([...coreRegistry.list(), ...shippedTools]);
 // scripts/write-open-operations.mjs reads this line.
 console.log(`OPEN_OPERATIONS ${JSON.stringify(fromRegistry)}`);
 
@@ -32,6 +45,11 @@ describe("open-operations.json", () => {
       "The registry and open-operations.json differ. If you meant to open or close an " +
         "operation, run `pnpm --filter @composable-os/core open-operations` and commit the file.",
     ).toEqual(fromRegistry);
+  });
+
+  it("covers the shipped extensions' tools", () => {
+    expect(shippedTools.length).toBeGreaterThan(0);
+    expect(shippedTools.every((op) => op.name.startsWith("x."))).toBe(true);
   });
 
   it("lists an operation as soon as it is open to anyone but staff, and no other", () => {

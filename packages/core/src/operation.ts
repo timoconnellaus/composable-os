@@ -10,7 +10,7 @@ import type { AiEnv } from "./ai/client.ts";
 import type { VectorStore } from "./ai/vectors.ts";
 import type { AgentJobHost } from "./assistant/agent-jobs.ts";
 import type { AssistantThreadStore } from "./assistant/threads.ts";
-import { type Audience, audienceProblems, isOpenOutside } from "./audiences.ts";
+import { type Audience, audienceProblems, audiencesOf, isOpenOutside } from "./audiences.ts";
 import type { AutomationHost, EventSink } from "./automations/types.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
 import type { FieldDiff } from "./diff.ts";
@@ -317,6 +317,12 @@ export interface OperationDefinition<
    * open-operations.json. Never on an extension tool (ADR 0413).
    */
   hostInternal?: boolean;
+  /**
+   * Open to customers only from inside a pack's tool they called (ADR 0414): a direct call gets
+   * the unknown-operation answer. For the generic record writes (`my.create`, `my.update`),
+   * which a customer never calls themselves. Shown in open-operations.json.
+   */
+  toolOnly?: boolean;
   /** Actor types allowed to call it at all. Default: every actor. */
   actors?: readonly Actor[];
   /**
@@ -365,6 +371,21 @@ export type OperationInput<O extends AnyOperation> = z.input<O["input"]>;
 /** What callers get back. */
 export type OperationOutput<O extends AnyOperation> = z.output<O["output"]>;
 
+const HOST_TOOLS = new WeakSet<object>();
+
+/**
+ * Marks the operation the host builds for an extension tool (extensions/tools.ts). Its handler is
+ * host code that starts the sandbox, so on a customer's call it keeps the database and the
+ * extension host. Only that module calls this; a manifest cannot.
+ */
+export function markHostTool(op: AnyOperation): void {
+  HOST_TOOLS.add(op);
+}
+
+export function isHostTool(op: AnyOperation): boolean {
+  return HOST_TOOLS.has(op);
+}
+
 export const OPERATION_NAME_RE = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
 
 /** Defines an operation. Checks the definition is complete; the registry test checks them all. */
@@ -403,6 +424,13 @@ export function operationProblems(op: AnyOperation): string[] {
     if (op.name?.startsWith("x.")) problems.push("an extension tool can never be hostInternal");
     if (!isOpenOutside(op)) {
       problems.push("hostInternal is only for an operation open to customer or public callers");
+    }
+  }
+  if (op.toolOnly !== undefined) {
+    if (op.toolOnly !== true) problems.push("toolOnly is true or left out");
+    if (op.name?.startsWith("x.")) problems.push("an extension tool cannot be toolOnly");
+    if (!audiencesOf(op).includes("customer")) {
+      problems.push("toolOnly is only for an operation open to customer callers");
     }
   }
   if (isOpenOutside(op) && op.alwaysReview) {

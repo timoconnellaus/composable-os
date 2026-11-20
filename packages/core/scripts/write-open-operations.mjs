@@ -27,4 +27,6 @@ if (!line) {
 const list = JSON.parse(line.slice(line.indexOf(marker) + marker.length));
 const file = join(root, "open-operations.json");
 writeFileSync(file, `${JSON.stringify(list, null, 2)}\n`);
+// In the repository's own format, so `pnpm lint` passes on the file as written.
+spawnSync("pnpm", ["exec", "biome", "format", "--write", file], { cwd: root, encoding: "utf8" });
 process.stdout.write(`Wrote ${file}: ${list.operations.length} open operation(s).\n`);

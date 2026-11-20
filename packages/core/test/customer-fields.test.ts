@@ -355,7 +355,8 @@ describe("an object with no customer, and a declaration that does not hold toget
   it("an object that declares no customer does not exist for one", async () => {
     for (const operation of ["fixture.myList", "fixture.myCount"]) {
       const none = await call(operation, { object: "nope.nope" }, asA());
-      for (const object of [SUPPLIER, "person", "organisation", "task", "activity"]) {
+      // A Person declares itself its own customer (step 5): it is the one core object listed.
+      for (const object of [SUPPLIER, "organisation", "task", "activity"]) {
         const closed = await call(operation, { object }, asA());
         expect(withName(closed, object)).toBe(withName(none, "nope.nope"));
       }

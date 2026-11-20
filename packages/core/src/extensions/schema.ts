@@ -42,6 +42,8 @@ export interface ObjectDefinitionJson {
   timelineLinks?: string[];
   stages?: StagesManifest;
   owner?: string;
+  /** The object's customer (ADR 0402), as declared. */
+  customer?: { field: string; read: string[]; write: string[] };
   navigationOrder?: number;
   requireOneOf?: string[][];
   titleDefault?: { from: string[]; suffix?: string | undefined };
@@ -441,6 +443,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
         : {}),
       ...(object.definition.stages ? { stages: object.definition.stages } : {}),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
+      ...(object.definition.customer ? { customer: object.definition.customer } : {}),
       ...(object.definition.navigationOrder !== undefined
         ? { navigationOrder: object.definition.navigationOrder }
         : {}),

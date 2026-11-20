@@ -1,4 +1,55 @@
 {
   "$comment": "Generated. Every operation customers or the public may call, with its risk class (ADR 0402, ADR 0411). Do not edit: run `pnpm --filter @composable-os/core open-operations`. A new line here opens the host to people outside the org, so review it as such.",
-  "operations": []
+  "operations": [
+    {
+      "name": "me.get",
+      "audiences": ["customer"],
+      "risk": "read"
+    },
+    {
+      "name": "me.sessions.list",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.sessions.revoke",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.signOut",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.update",
+      "audiences": ["customer"],
+      "risk": "write"
+    },
+    {
+      "name": "my.create",
+      "audiences": ["customer"],
+      "risk": "write",
+      "toolOnly": true
+    },
+    {
+      "name": "my.get",
+      "audiences": ["customer"],
+      "risk": "read"
+    },
+    {
+      "name": "my.list",
+      "audiences": ["customer"],
+      "risk": "read"
+    },
+    {
+      "name": "my.update",
+      "audiences": ["customer"],
+      "risk": "write",
+      "toolOnly": true
+    }
+  ]
 }

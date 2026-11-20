@@ -247,6 +247,30 @@ describe("invite only (criterion 11)", () => {
     expect(await customers.resolve(asRequest(cookie))).toEqual({ kind: "public" });
     expect((await requestCode(email)).sent).toHaveLength(0);
   });
+
+  it("customer.disable and customer.revokeSessions end a session, so it resolves to the public", async () => {
+    const staff = { actor: "human", user: admin, origin: { surface: "ui" }, db } as const;
+    const email = address("staffops");
+    await inviteCustomer(db, email, admin.id);
+    const first = await signInFully(email);
+    const id = first.body.user.id;
+    expect((await customers.resolve(asRequest(first.cookie))).kind).toBe("customer");
+
+    await invoke("customer.revokeSessions", { id }, staff);
+    expect(await customers.resolve(asRequest(first.cookie))).toEqual({ kind: "public" });
+
+    const second = await signInFully(email);
+    expect((await customers.resolve(asRequest(second.cookie))).kind).toBe("customer");
+    await invoke("customer.disable", { id }, staff);
+    expect(await customers.resolve(asRequest(second.cookie))).toEqual({ kind: "public" });
+    expect((await requestCode(email)).sent).toHaveLength(0);
+
+    // Enabled again, the old session stays ended; a new sign-in works.
+    await invoke("customer.enable", { id }, staff);
+    expect(await customers.resolve(asRequest(second.cookie))).toEqual({ kind: "public" });
+    const third = await signInFully(email);
+    expect((await customers.resolve(asRequest(third.cookie))).kind).toBe("customer");
+  });
 });
 
 describe("first sign-in links the account (criterion 10)", () => {

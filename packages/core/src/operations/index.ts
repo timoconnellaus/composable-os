@@ -19,6 +19,7 @@ import { automationBindingOperations } from "./automation-binding.ts";
 import { codeOperations } from "./code.ts";
 import { connectedAppOperations } from "./connected-app.ts";
 import { countOperations } from "./count.ts";
+import { customerOperations } from "./customer.ts";
 import { customerSettingsOperations } from "./customer-settings.ts";
 import { dashboardOperations } from "./dashboard.ts";
 import { duplicateOperations } from "./duplicate.ts";
@@ -33,7 +34,10 @@ import { importOperations } from "./import.ts";
 import { importRecordsOperations } from "./import-records.ts";
 import { integrationOperations } from "./integration.ts";
 import { judgeOperations } from "./judge.ts";
+import { meOperations } from "./me.ts";
 import { memoryOperations } from "./memory.ts";
+import { myOperations } from "./my.ts";
+import { myWriteOperations } from "./my-write.ts";
 import { notificationOperations } from "./notification.ts";
 import { notificationDeliveryOperations } from "./notification-delivery.ts";
 import { organisationOperations } from "./organisation.ts";
@@ -97,6 +101,7 @@ export const coreOperations = [
   ...summaryOperations,
   ...automationOperations,
   ...automationBindingOperations,
+  ...myWriteOperations,
   ...notificationOperations,
   ...notificationDeliveryOperations,
   ...assistantOperations,
@@ -113,4 +118,7 @@ export const coreOperations = [
   ...assignmentOperations,
   ...fieldOptionsOperations,
   ...customerSettingsOperations,
+  ...customerOperations,
+  ...meOperations,
+  ...myOperations,
 ] as const;

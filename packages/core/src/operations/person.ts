@@ -39,6 +39,7 @@ import { countLinks, queueClearTags, queueMoveLinks } from "../records/links.ts"
 import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
 import { type Reader, visibleTable } from "../visibility/index.ts";
+import { setCoreWriter } from "../visibility/writes.ts";
 import {
   type Affiliation,
   affiliationSchema,
@@ -534,6 +535,129 @@ export const personGet = defineOperation({
   },
 });
 
+// --- Updating ---------------------------------------------------------------------------------
+
+const personUpdateInput = z.object({ id: personId, ...personWritableFields });
+
+/** What `updatePerson` changes: person.update's input without the id. */
+export type PersonChanges = Omit<z.output<typeof personUpdateInput>, "id"> & {
+  /**
+   * The primary phone number alone (a customer's `me.update`): replaces the primary phone's
+   * number, keeping the others; null removes it. Ignored when `phones` is given.
+   */
+  primaryPhone?: string | null | undefined;
+};
+
+/**
+ * The code person.update runs, shared with the visibility seam's Person writer (`me.update`,
+ * ADR 0413): uniqueness, search, the audit diff and timeline tracking behave the same whoever
+ * calls it. It reads `ctx.db`, `ctx.now`, `ctx.write` and `ctx.recordChange` only, never
+ * `ctx.actor` or `ctx.user`, so it also runs in the host context of a customer's call. Nothing
+ * here writes a user id column (core_person has no updated_by; owner and tags, which do check
+ * users, are not a customer's to set).
+ */
+export async function updatePerson(
+  ctx: HandlerContext,
+  id: string,
+  input: PersonChanges,
+): Promise<void> {
+  const before = await requirePerson(ctx, id);
+  const after: Person = { ...before, updatedAt: ctx.now };
+  const set: Record<string, unknown> = {};
+
+  const scalar = <K extends keyof Person & keyof typeof input>(key: K, column: string) => {
+    const value = blankToNull(input[key] as string | null | undefined);
+    if (value === undefined) return;
+    (after as Record<string, unknown>)[key] = value;
+    set[column] = value;
+  };
+  scalar("givenName", "given_name");
+  scalar("familyName", "family_name");
+  scalar("location", "location");
+  scalar("timezone", "timezone");
+  scalar("avatarKey", "avatar_key");
+  scalar("description", "description");
+  if (input.displayName !== undefined) {
+    after.displayName = input.displayName;
+    set.display_name = input.displayName;
+    set.name_key = personNameKey(input.displayName);
+  }
+  if (input.ownerId !== undefined) {
+    await assertUserExists(ctx.db, input.ownerId);
+    after.ownerId = input.ownerId ?? null;
+    set.owner_id = after.ownerId;
+  }
+  if (input.socialProfiles !== undefined) {
+    after.socialProfiles = input.socialProfiles;
+    set.social_profiles = JSON.stringify(input.socialProfiles);
+  }
+
+  ctx.write(
+    ctx.db
+      .updateTable("core_person")
+      .set({ ...set, updated_at: ctx.now })
+      .where("id", "=", id),
+  );
+  if (input.emails !== undefined) {
+    after.emails = normaliseEmails(input.emails);
+    await assertEmailsFree(
+      ctx.db,
+      after.emails.map((e) => e.email),
+      id,
+    );
+    queueEmails(ctx, id, after.emails);
+  }
+  if (input.phones !== undefined) {
+    after.phones = normalisePhones(input.phones);
+    queuePhones(ctx, id, after.phones);
+  } else if (input.primaryPhone !== undefined) {
+    after.phones = withPrimaryPhone(before.phones, blankToNull(input.primaryPhone) ?? null);
+    queuePhones(ctx, id, after.phones);
+  }
+  if (input.tags !== undefined) {
+    after.tags = await queueSetTags(ctx, "person", id, input.tags);
+  }
+
+  ctx.recordChange({
+    object: "person",
+    id: id,
+    action: "update",
+    before: personSnapshot(before),
+    after: personSnapshot(after),
+  });
+}
+
+/** `phones` with the primary phone's number set to `number` (added when none), or removed. */
+function withPrimaryPhone(phones: Person["phones"], number: string | null): Person["phones"] {
+  const primary = phones.findIndex((p) => p.primary);
+  const rest = phones.filter((_, i) => i !== primary);
+  const label = primary >= 0 ? (phones[primary]?.label ?? null) : null;
+  const list = number === null ? rest : [{ number, label, primary: true }, ...rest];
+  return normalisePhones(list.map((p, i) => ({ ...p, primary: i === 0 })));
+}
+
+const personCoreChanges = z
+  .object({
+    givenName: personWritableFields.givenName,
+    familyName: personWritableFields.familyName,
+    displayName: personWritableFields.displayName,
+    primaryPhone: shortText(50).nullish(),
+  })
+  .strict();
+
+// The seam writes a customer's own Person with this code (`me.update` → ctx.records.update).
+// The seam has already checked the caller may set each field; this checks the values.
+setCoreWriter("person", {
+  async update(ctx, _object, id, values) {
+    const parsed = personCoreChanges.safeParse(values);
+    if (!parsed.success) {
+      throw new ValidationError("A value is not allowed", { issues: parsed.error.issues });
+    }
+    await updatePerson(ctx, id, parsed.data);
+    return true;
+  },
+});
+
 export const personUpdate = defineOperation({
   name: "person.update",
   description:
@@ -541,73 +665,14 @@ export const personUpdate = defineOperation({
     "emails, phones, socialProfiles and tags replace the whole list when given. Changing the " +
     "owner posts a system activity on the person's timeline. Fails with a conflict if an email " +
     "belongs to another live person. Returns the updated person.",
-  input: z.object({ id: personId, ...personWritableFields }),
+  input: personUpdateInput,
   output: personSchema,
   permission: "records:write",
   risk: "write",
   mcp: { curated: true },
   async handler(input, ctx) {
-    const before = await requirePerson(ctx, input.id);
-    const after: Person = { ...before, updatedAt: ctx.now };
-    const set: Record<string, unknown> = {};
-
-    const scalar = <K extends keyof Person & keyof typeof input>(key: K, column: string) => {
-      const value = blankToNull(input[key] as string | null | undefined);
-      if (value === undefined) return;
-      (after as Record<string, unknown>)[key] = value;
-      set[column] = value;
-    };
-    scalar("givenName", "given_name");
-    scalar("familyName", "family_name");
-    scalar("location", "location");
-    scalar("timezone", "timezone");
-    scalar("avatarKey", "avatar_key");
-    scalar("description", "description");
-    if (input.displayName !== undefined) {
-      after.displayName = input.displayName;
-      set.display_name = input.displayName;
-      set.name_key = personNameKey(input.displayName);
-    }
-    if (input.ownerId !== undefined) {
-      await assertUserExists(ctx.db, input.ownerId);
-      after.ownerId = input.ownerId ?? null;
-      set.owner_id = after.ownerId;
-    }
-    if (input.socialProfiles !== undefined) {
-      after.socialProfiles = input.socialProfiles;
-      set.social_profiles = JSON.stringify(input.socialProfiles);
-    }
-
-    ctx.write(
-      ctx.db
-        .updateTable("core_person")
-        .set({ ...set, updated_at: ctx.now })
-        .where("id", "=", input.id),
-    );
-    if (input.emails !== undefined) {
-      after.emails = normaliseEmails(input.emails);
-      await assertEmailsFree(
-        ctx.db,
-        after.emails.map((e) => e.email),
-        input.id,
-      );
-      queueEmails(ctx, input.id, after.emails);
-    }
-    if (input.phones !== undefined) {
-      after.phones = normalisePhones(input.phones);
-      queuePhones(ctx, input.id, after.phones);
-    }
-    if (input.tags !== undefined) {
-      after.tags = await queueSetTags(ctx, "person", input.id, input.tags);
-    }
-
-    ctx.recordChange({
-      object: "person",
-      id: input.id,
-      action: "update",
-      before: personSnapshot(before),
-      after: personSnapshot(after),
-    });
+    const { id, ...changes } = input;
+    await updatePerson(ctx, id, changes);
     return ctx.afterCommit(() => requirePerson(ctx, input.id));
   },
 });

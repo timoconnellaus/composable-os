@@ -51,8 +51,29 @@ describe("default closed (criterion 1)", () => {
   it("every core operation refuses a customer and the public, before it reads the input", async () => {
     const audits = await count("SELECT count(*) AS n FROM core_audit");
     const answers = new Set<string>();
+    // The operations the generated list opens to the caller's audience are left out, and only
+    // those: every other core operation, including a `toolOnly` one called directly, refuses.
+    const listed = openOperations(coreOperations).operations as {
+      name: string;
+      audiences: readonly string[];
+      toolOnly?: boolean;
+    }[];
+    const openTo = (kind: string) =>
+      new Set(listed.filter((e) => e.audiences.includes(kind) && !e.toolOnly).map((e) => e.name));
+    expect([...openTo("customer")].sort()).toEqual([
+      "me.get",
+      "me.sessions.list",
+      "me.sessions.revoke",
+      "me.signOut",
+      "me.update",
+      "my.get",
+      "my.list",
+    ]);
+    expect([...openTo("public")]).toEqual([]);
     for (const principal of [a.principal, PUBLIC]) {
+      const open = openTo(principal.kind);
       for (const op of coreOperations) {
+        if (open.has(op.name)) continue;
         // Input no operation accepts: validation would say `invalid_input` if it ran.
         const outcome = await invokeByName(op.name, 42, outside(principal)).then(
           () => "returned",
@@ -318,6 +339,9 @@ describe("the closed handler context (ADR 0413)", () => {
     const listed = openOperations(fixtureRegistry.list()).operations;
     expect(listed.filter((op) => op.hostInternal).map((op) => op.name)).toEqual([
       "fixture.bookkeeping",
+      "me.sessions.list",
+      "me.sessions.revoke",
+      "me.signOut",
     ]);
     expect(listed.find((op) => op.name === "fixture.myUpdate")).toEqual({
       name: "fixture.myUpdate",

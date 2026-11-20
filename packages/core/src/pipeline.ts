@@ -50,6 +50,7 @@ import {
 } from "./errors.ts";
 import type { ExtensionHost } from "./extensions/host.ts";
 import { refreshSchemaRegistry } from "./extensions/schema.ts";
+import { loadOpenTool } from "./extensions/tools.ts";
 import { getObject, isCoreObject } from "./fields/index.ts";
 import {
   evaluateGate,
@@ -72,6 +73,7 @@ import {
   type ExtensionCaller,
   type HandlerContext,
   isAfterCommit,
+  isHostTool,
   type OperationOutput,
   type RecordChange,
   runAfterCommit,
@@ -235,7 +237,7 @@ async function loadExtensionCaller(db: CrmDb, userId: string): Promise<Extension
 
 /** The object an operation reads or writes, for extension permission checks. */
 export function operationObject(op: AnyOperation, input: unknown): string | null {
-  if (op.name.startsWith("record.")) {
+  if (op.name.startsWith("record.") || op.name.startsWith("my.")) {
     const object = (input as { object?: unknown } | null)?.object;
     return typeof object === "string" ? object : null;
   }
@@ -1285,6 +1287,14 @@ export interface OutsideInvocationContext {
   events?: EventSink;
   embedViaEvents?: boolean;
   onCommitted?: (event: CommitEvent) => void;
+  /**
+   * Set by the runner, and only by it, when the call is made by a pack's tool that this
+   * principal called (ADR 0414). The tool's operation calls are then the caller's own: the same
+   * principal, the same seam. The host reads what the tool may do from its installed manifest.
+   */
+  tool?: { extension: string; tool: string };
+  /** The extension runtime, so a tool open to this caller can run. */
+  extensionHost?: ExtensionHost;
   /** Never set: these make a context a staff one. */
   user?: undefined;
   actor?: undefined;
@@ -1416,9 +1426,29 @@ async function invokeOutside<O extends AnyOperation>(
   const now = (ctx.clock?.() ?? new Date()).toISOString();
   // The same answer as a name that is not registered, before the input is looked at.
   if (!allowsAudience(op, principal)) throw new UnknownOperationError(op.name);
+  // Some operations exist for a customer only inside a tool they called (ADR 0414).
+  if (op.toolOnly && !ctx.tool) throw new UnknownOperationError(op.name);
+  // A call made by a pack's tool: what the tool may do comes from its installed manifest. A tool
+  // that is not installed, not shipped or not open to this caller can make no call at all, and a
+  // tool does not start another tool.
+  const tool = ctx.tool
+    ? await loadOpenTool(ctx.db.query, ctx.tool.extension, ctx.tool.tool)
+    : null;
+  if (ctx.tool && (!tool?.audiences.includes(principal.kind) || isHostTool(op))) {
+    throw new UnknownOperationError(op.name);
+  }
   const parsed = op.input.safeParse(rawInput);
   if (!parsed.success) {
     throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });
+  }
+  if (ctx.tool && tool) {
+    // And only within the extension's own declared permissions, as for any of its calls.
+    const grant = checkGrant(ctx.tool.extension, tool.permissions, {
+      operation: op.name,
+      risk: op.risk,
+      object: operationObject(op, parsed.data),
+    });
+    if (!grant.ok) throw new ForbiddenError(grant.reason, { operation: op.name });
   }
   const actor: OutsideActor = principal.kind;
   const subjectId = principal.kind === "customer" ? principal.customerId : null;
@@ -1498,6 +1528,7 @@ async function invokeOutside<O extends AnyOperation>(
   const seam: SeamWriter = {
     reader,
     host,
+    widened: tool?.widened,
     mark: (change) => {
       checkedBySeam.add(change);
     },
@@ -1516,10 +1547,15 @@ async function invokeOutside<O extends AnyOperation>(
         "core bookkeeping operation hostInternal",
     );
   };
-  const hostInternal = op.hostInternal === true && !op.name.startsWith("x.");
+  // Host code keeps the database: a core bookkeeping operation, and the operation the host
+  // itself builds to start an extension tool (the tool's own code runs in the sandbox and calls
+  // back through this same path).
+  const hostTool = isHostTool(op);
+  const hostInternal = (op.hostInternal === true && !op.name.startsWith("x.")) || hostTool;
   const handlerCtx: HandlerContext = hostInternal
     ? {
         ...pick(host),
+        ...(hostTool && ctx.extensionHost ? { extensionHost: ctx.extensionHost } : {}),
         get actor() {
           return staffOnly("actor");
         },
