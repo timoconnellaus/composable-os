@@ -26,7 +26,7 @@ risk for the next.
 | 17 | One proactive assistant | One thread per user that never resets (Agents SDK Durable Object), cost-based compaction with a learned cache lifetime, inline Jev-checked memory, personal routines, background agents that stage changes, approvals by tap, typing or voice, A2UI cards, plugins with a reviewed marketplace, connected assistants under a contract, voice and dictation; `packages/agent-*` under MIT ([spec](stages/17-assistant.md), ADRs 0340–0351) | spec agreed |
 | 20 | Move in | The repository renamed `composable-os`, scope `@composable-os/*`; the earlier brand retired; the CRM as the first product in `products/crm`, Workers named by product; the contract renamed to `codemode:ops`, `ctx.ops` and `rec_*` views; legacy-install code deleted; the Composable OS site | built (needs a human: the repository rename, the site's deploy and the real-account install) |
 | 21 | Extension skills | Two installable skills (`write-extension`, `add-automations-tools-dashboards`) in a plain `skills/` folder; `cos ext check` and `cos ext test` sharing the host's checks; a version guard; no eval | spec agreed |
-| 22 | Customers and audiences | The `staff`, `customer` and `public` audiences on every operation; customer accounts linked to a Person; the `customer` key on objects, enforced at the visibility seam | spec proposed |
+| 22 | Customers and audiences | The `staff`, `customer` and `public` audiences on every operation; the visibility seam's first door; customer accounts linked to a Person, signed in by email code; the `customer` key on objects with field-by-field reads; account deletion as an erase request | spec agreed |
 | 23 | HTTP surface and typed client | Operations over HTTP through `invoke()`; the generated client for TanStack Start and React Native; idempotency keys; native sessions | spec proposed |
 | 24 | Client apps | The client repo template (TanStack Start web, Expo mobile); the service binding to the host; packs as packages with headless hooks; the block registry | spec proposed |
 | 25 | States, orders and payments | The `states` behaviour; the Order base record; a payments gatekeeper with webhooks and refunds | spec proposed |
@@ -109,7 +109,7 @@ in [`parallel-work.md`](parallel-work.md) as usual.
 | --- | --- | --- |
 | 20 | Nothing | Cut-over is `main` as it stands (agreed 2026-11-20) |
 | 21 | 20 | Written against the renamed contract |
-| 22 | 20, and **stage 14a** (the visibility seam) | 14a is specced and not built. It is built first, or 22 builds the seam |
+| 22 | 20 | Builds the visibility seam's first door itself; stage 14a extends it later |
 | 23 | 22 | The surface is useful to staff apps with 20 alone; customer calls need 22 |
 | 24 | 23 | |
 | 25 | 22 | Payments webhooks need no client app |
@@ -120,7 +120,7 @@ in [`parallel-work.md`](parallel-work.md) as usual.
 ### Suggested order
 
 1. **20**, alone. It moves every file, so nothing else runs beside it.
-2. **21** and **stage 14a** in parallel. 21 is two skills and a CLI; 14a is the read paths.
+2. **21**: two skills and a CLI.
 3. **22**, then **23**. These two change what the host exposes and are reviewed with most care.
 4. **26** can run beside 22 and 23: it touches record writes, not read paths.
 5. **24** and **25** in parallel after 23.
