@@ -219,7 +219,7 @@ How stage 3a built it ([ADR 0040](adr/0040-extension-runtime-build.md)):
   an object's declarative `stages` key is enforced by the host inside `record.create`,
   `record.update` and `import.records.commit` (`packages/core/src/records/stages.ts`): stage rules
   (a `StageRuleError` naming the missing fields), default stage and pipeline, probability,
-  status and won/lost date, `core_stage_history` rows (read as `rec_stage_history`) and
+  status and won/lost date, `core_transition_history` rows (read as `rec_stage_history`) and
   "Moved to <stage>" timeline posts on the record and its `timelineLinks`. Since stage 25 it runs
   on the transition engine it shares with `states` (see Behaviours,
   [ADR 0425](adr/0425-one-transition-engine-for-stages-and-states.md)). The reconciler also
@@ -895,7 +895,8 @@ edits, with every rule of ADR 0100. `states` is declared in code: a select field
 state, and moves that each say who may make them (`staff`, `customer`, `host`), the fields they
 require and whether they are final. A `host` move is made only by platform code calling the
 engine from its own handler (`updateRecordAsHost`); every caller of an operation is staff, so no
-person, MCP client, extension or import can make one. Both forms write `core_stage_history`
+person, MCP client, extension or import can make one. A stage move is for staff and the host;
+a customer never makes one. Both forms write `core_transition_history`
 (migration 0420), read as `rec_stage_history` and `rec_state_history`. An object has one
 lifecycle. Orders, the first core object with a state machine, are the second half of stage 25.
 

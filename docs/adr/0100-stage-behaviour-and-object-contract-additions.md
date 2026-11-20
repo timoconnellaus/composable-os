@@ -81,8 +81,11 @@ above are unchanged, and Deals' tests pass without edits. What moved:
 - The rules are `stagesLifecycle` in `packages/core/src/records/stages.ts`; the required-field
   check, the history statements and the "Moved to" name are the engine's
   (`records/transitions.ts`).
-- `core_stage_history` is the engine's history for both forms (migration 0420): it gains `form`
-  (`stages` for these rows) and `entered_as`. Every earlier row was kept. The view is
+- `core_stage_history` became `core_transition_history`, the engine's history for both forms
+  (migration 0420): `stage_id` and `stage_type` are `position_id` and `position_type`, and it
+  gains `form` (`stages` for these rows) and `entered_as`. Every earlier row was kept. The view is
   `rec_stage_history` (renamed from `crm_stage_history` by migration 0380) and returns stage rows
-  with the columns it had.
+  with the names and columns it had.
+- "Every actor" above means everyone who works for the organisation. Stage moves are for `staff`
+  and the `host`; a customer (stage 22) is refused with `stage_move_not_permitted`.
 - `StageRuleError` is a `TransitionRuleError`. Its code and details are as described above.

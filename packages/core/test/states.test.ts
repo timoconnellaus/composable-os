@@ -153,7 +153,7 @@ function update(id: string, values: Record<string, unknown>, ctx = human()) {
 
 async function history(id: string) {
   const { results } = await env.DB.prepare(
-    "SELECT form, stage_id, group_id, stage_type, entered_at, left_at, entered_by, entered_as FROM core_stage_history WHERE object_type = ? AND record_id = ? ORDER BY entered_at, left_at IS NULL",
+    "SELECT form, position_id AS stage_id, group_id, position_type AS stage_type, entered_at, left_at, entered_by, entered_as FROM core_transition_history WHERE object_type = ? AND record_id = ? ORDER BY entered_at, left_at IS NULL",
   )
     .bind(ORDER, id)
     .all<Record<string, unknown>>();
@@ -592,7 +592,7 @@ describe("a host move", () => {
     const name = unique("Imported");
     const csv = `Name,State\n${name} A,pending\n${name} B,Paid\n`;
     const before = await env.DB.prepare(
-      "SELECT count(*) AS n FROM core_stage_history WHERE object_type = ?",
+      "SELECT count(*) AS n FROM core_transition_history WHERE object_type = ?",
     )
       .bind(ORDER)
       .first<{ n: number }>();
@@ -605,7 +605,7 @@ describe("a host move", () => {
     });
     // One transaction: the good row was not written either.
     const after = await env.DB.prepare(
-      "SELECT count(*) AS n FROM core_stage_history WHERE object_type = ?",
+      "SELECT count(*) AS n FROM core_transition_history WHERE object_type = ?",
     )
       .bind(ORDER)
       .first<{ n: number }>();
@@ -763,7 +763,7 @@ describe("stages and states on the one engine", () => {
     );
     await update(order.id, { state: "review" });
     const { results } = await env.DB.prepare(
-      "SELECT object_type, form, stage_id, stage_type, left_at IS NULL AS current, entered_as FROM core_stage_history WHERE record_id IN (?, ?) ORDER BY object_type, entered_at, left_at IS NULL",
+      "SELECT object_type, form, position_id AS stage_id, position_type AS stage_type, left_at IS NULL AS current, entered_as FROM core_transition_history WHERE record_id IN (?, ?) ORDER BY object_type, entered_at, left_at IS NULL",
     )
       .bind(job.id, order.id)
       .all();

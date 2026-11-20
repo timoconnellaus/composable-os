@@ -38,8 +38,10 @@ handlers with their writes discarded, so it reports the same refusals and writes
 
 **`stages` is the data-driven declaration** (`records/stages.ts`). Its `place` is ADR 0100's
 defaulting and group rules; its `follow` is probability, status and the closed date; its required
-fields are the stage's own list plus `requiredByType`. Every mover may make a stage move, as ADR
-0100 says. Nothing in its contract changed.
+fields are the stage's own list plus `requiredByType`. A stage move is for `staff` and the `host`:
+a customer never moves a record through a pipeline, and is refused with
+`stage_move_not_permitted`. Every caller ADR 0100 names is staff, so nothing in its contract
+changed.
 
 **`states` is the declared form** (`StatesSpec`, `packages/sdk/src/states.ts`; host side
 `records/states.ts`):
@@ -57,6 +59,9 @@ states: {
 
 - A record is created in `initial`. Creating it in another state is judged as the move from
   `initial` to that state, so an import cannot create a record already paid.
+- The state field's column has `DEFAULT <initial>` where the reconciler creates it, so a state
+  field added to an object that already has records is never empty. Nothing is backfilled: an
+  existing select that later gains `states` is put in the initial state by its next update.
 - A move is named by where it starts and ends. `final` marks the state entered as the end of the
   lifecycle: nothing moves out of it, and every move into one state must agree.
 - A refusal is `invalid_input` with details in the shape of a stage rule's:
@@ -79,11 +84,20 @@ states: {
   input. An extension's own code is staff on its own objects. The host is held to the
   declaration too: it can make only declared moves, with their required fields.
 
-**One history table.** `core_stage_history` is the engine's history for both forms (migration
-0420). It gains `form` (`stages` or `states`) and `entered_as` (who moved). A state row holds the
-state's value in `stage_id`, no group, and `open` or `final` in `stage_type`. The table is rebuilt
-because SQLite cannot alter a CHECK; every row is copied with its id. `rec_stage_history` keeps
-its name and columns and reads stage rows; `rec_state_history` reads state rows.
+**One history table.** `core_stage_history` becomes `core_transition_history`, the engine's
+history for both forms (migration 0420). `stage_id` and `stage_type` become `position_id` and
+`position_type`, and it gains `form` (`stages` or `states`) and `entered_as` (who moved). A state
+row holds the state's value in `position_id`, no group, and `open` or `final` in
+`position_type`. Every row is copied with its id. `rec_stage_history` keeps its name and columns
+(`stage_id`, `stage_type`) and reads stage rows; `rec_state_history` reads state rows.
+
+**Deals' tests are unchanged except the table's name in two queries.** Two tests read the table
+directly, so the rename edits their SQL and nothing else (no assertion):
+`apps/runner/test/deals.test.ts:74` (`position_id AS stage_id`, `position_type AS stage_type`,
+`FROM core_transition_history`) and `packages/core/test/deals.test.ts:341`
+(`FROM core_transition_history`). `apps/runner/test/stage-history-parity.test.ts` holds what
+`rec_stage_history` and `x.deals.stageMetrics` returned on the seeded data before the engine, and
+still passes unedited.
 
 ## Why
 - One place for the rules that must not differ between forms: who may move, required fields,
@@ -91,8 +105,9 @@ its name and columns and reads stage rows; `rec_state_history` reads state rows.
   third copy.
 - The mover is an argument code passes, not data a caller sends, so "only the platform can mark
   an order paid" does not depend on a permission that policy could loosen.
-- The table keeps its name: the interview's words were that it becomes the engine's history, and
-  the view names are what extensions and dashboards read.
+- The table is named for what it holds. The rename is free now (nothing is installed, and the
+  migration rebuilds the table anyway) and the view names, which are what extensions and
+  dashboards read, do not change.
 
 ## Consequences
 - Stage rules cost what they did: the same reads, the same two history statements per move.
@@ -102,4 +117,5 @@ its name and columns and reads stage rows; `rec_state_history` reads state rows.
 - The second half of stage 25 declares the order's machine on a core object and calls the engine
   from its own operations. `capacity` (stage 26) and `sellable` (stage 27) are separate
   behaviours that will want to act when a move happens; the engine has no such hook yet.
-- Deleting a record leaves its history, as before.
+- Deleting a record leaves its history, as before. `core_transition_history` is not yet in the
+  erase stores; it joins them in the second half, when a Person's orders have history.

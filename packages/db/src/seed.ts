@@ -507,14 +507,14 @@ export function generateSeed(options: SeedOptions = {}): SeedResult {
     );
     for (const entry of entries) {
       insert(
-        "core_stage_history",
+        "core_transition_history",
         [
           "id",
           "object_type",
           "record_id",
-          "stage_id",
+          "position_id",
           "group_id",
-          "stage_type",
+          "position_type",
           "entered_at",
           "left_at",
           "entered_by",

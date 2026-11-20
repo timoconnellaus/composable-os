@@ -1,5 +1,6 @@
-// Migration 0420 (stage 25, ADR 0425): `core_stage_history` is rebuilt as the transition engine's
-// one history table. Every row that was in it survives with its id and values, and
+// Migration 0420 (stage 25, ADR 0425): `core_stage_history` becomes `core_transition_history`, the
+// transition engine's one history table. Every row that was in it survives with its id and values
+// (under the new column names `position_id` and `position_type`), and
 // `rec_stage_history` returns what it returned before. Its own file: it starts from an empty
 // database and stops before 0420 to put rows in the old table.
 import { env } from "cloudflare:workers";
@@ -8,6 +9,12 @@ import { applyMigrations, migrationNumber } from "../src/index.ts";
 
 const COLUMNS =
   "id, object_type, record_id, stage_id, group_id, stage_type, entered_at, left_at, entered_by";
+
+/** The same columns of the renamed table, under the names they had. */
+const RENAMED = COLUMNS.replace("stage_id", "position_id AS stage_id").replace(
+  "stage_type",
+  "position_type AS stage_type",
+);
 
 async function all(sql: string) {
   return (await env.DB.prepare(sql).all<Record<string, unknown>>()).results;
@@ -59,26 +66,30 @@ it("keeps every stage history row and what rec_stage_history returns for it", as
     "0420_transition_history.sql",
   ]);
 
-  expect(await all(`SELECT ${COLUMNS} FROM core_stage_history ORDER BY id`)).toEqual(tableBefore);
+  expect(await all(`SELECT ${RENAMED} FROM core_transition_history ORDER BY id`)).toEqual(
+    tableBefore,
+  );
+  // The old table is gone, not left beside the new one.
+  expect(await all("SELECT name FROM sqlite_master WHERE name = 'core_stage_history'")).toEqual([]);
   expect(await all(viewSql)).toEqual(viewBefore);
   expect(await all("SELECT name FROM pragma_table_xinfo('rec_stage_history')")).toEqual(
     viewColumns,
   );
   // Every old row is a stage row made by staff.
   expect(
-    await all("SELECT form, entered_as, count(*) AS n FROM core_stage_history GROUP BY 1, 2"),
+    await all("SELECT form, entered_as, count(*) AS n FROM core_transition_history GROUP BY 1, 2"),
   ).toEqual([{ form: "stages", entered_as: "staff", n: 300 }]);
   expect(await all("SELECT count(*) AS n FROM rec_state_history")).toEqual([{ n: 0 }]);
   expect(
     (
       await all(
-        "SELECT name FROM sqlite_master WHERE tbl_name = 'core_stage_history' AND type = 'index' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        "SELECT name FROM sqlite_master WHERE tbl_name = 'core_transition_history' AND type = 'index' AND name NOT LIKE 'sqlite_%' ORDER BY name",
       )
     ).map((row) => row.name),
   ).toEqual([
-    "core_stage_history_current_idx",
-    "core_stage_history_record_idx",
-    "core_stage_history_stage_idx",
+    "core_transition_history_current_idx",
+    "core_transition_history_position_idx",
+    "core_transition_history_record_idx",
   ]);
 });
 
@@ -86,7 +97,7 @@ it("takes state rows beside stage rows, each in its own view", async () => {
   await applyMigrations(env.DB, env.TEST_MIGRATIONS);
   const insert = (id: string, form: string, type: string, as: string, left: string | null) =>
     env.DB.prepare(
-      "INSERT INTO core_stage_history (id, object_type, record_id, form, stage_id, stage_type, entered_at, left_at, entered_as) VALUES (?, 'shop.order', 'rec_order', ?, ?, ?, '2026-11-01T00:00:00.000Z', ?, ?)",
+      "INSERT INTO core_transition_history (id, object_type, record_id, form, position_id, position_type, entered_at, left_at, entered_as) VALUES (?, 'shop.order', 'rec_order', ?, ?, ?, '2026-11-01T00:00:00.000Z', ?, ?)",
     )
       .bind(id, form, id, type, left, as)
       .run();

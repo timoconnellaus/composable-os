@@ -230,14 +230,14 @@ export async function runTransition<P extends Placement>(
     if (before !== null) {
       history.push(
         CompiledQuery.raw(
-          "UPDATE core_stage_history SET left_at = ? WHERE object_type = ? AND record_id = ? AND left_at IS NULL",
+          "UPDATE core_transition_history SET left_at = ? WHERE object_type = ? AND record_id = ? AND left_at IS NULL",
           [ctx.now, object.name, id],
         ),
       );
     }
     history.push(
       CompiledQuery.raw(
-        "INSERT INTO core_stage_history (id, object_type, record_id, form, stage_id, group_id, stage_type, entered_at, left_at, entered_by, entered_as) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+        "INSERT INTO core_transition_history (id, object_type, record_id, form, position_id, group_id, position_type, entered_at, left_at, entered_by, entered_as) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
         [
           newId("stageHistory"),
           object.name,

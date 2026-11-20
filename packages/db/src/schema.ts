@@ -1197,18 +1197,19 @@ export interface CorePersonSignatureTable {
 }
 
 /**
- * The transition engine's history (migrations 0100 and 0420, ADRs 0100 and 0425): one position a
- * record has been in. `left_at` is null for the current one. A stage row holds the stage record's
- * id; a state row holds the state's value in `stage_id`, no group, and `open` or `final`.
+ * The transition engine's history (migration 0420, ADR 0425; `core_stage_history` before it): one
+ * position a record has been in. `left_at` is null for the current one. A stage row holds the
+ * stage record's id and open, won or lost; a state row holds the state's value, no group, and
+ * `open` or `final`.
  */
-export interface CoreStageHistoryTable {
+export interface CoreTransitionHistoryTable {
   id: string;
   object_type: string;
   record_id: string;
   form: Generated<"stages" | "states">;
-  stage_id: string;
+  position_id: string;
   group_id: string | null;
-  stage_type: "open" | "won" | "lost" | "final";
+  position_type: "open" | "won" | "lost" | "final";
   entered_at: Timestamp;
   left_at: Timestamp | null;
   entered_by: string | null;
@@ -1580,7 +1581,7 @@ export interface CoreDatabase {
   core_extension_proposals: CoreExtensionProposalsTable;
   core_extension_objects: CoreExtensionObjectsTable;
   core_extension_fields: CoreExtensionFieldsTable;
-  core_stage_history: CoreStageHistoryTable;
+  core_transition_history: CoreTransitionHistoryTable;
   core_automations: CoreAutomationsTable;
   core_routine: CoreRoutineTable;
   core_automation_runs: CoreAutomationRunsTable;
