@@ -72,10 +72,52 @@ const OBJECTS = {
   },
 } as const;
 
+/** A stage-driven object beside it (ADR 0100), to show both forms on the one engine. */
+const STAGED = {
+  step: {
+    label: "Step",
+    plural: "Steps",
+    titleField: "name",
+    navigation: "settings",
+    fields: {
+      name: { type: "text", label: "Name", required: true },
+      type: {
+        type: "select",
+        label: "Type",
+        options: [
+          { value: "open", label: "Open" },
+          { value: "won", label: "Won" },
+          { value: "lost", label: "Lost" },
+        ],
+      },
+      position: { type: "number", label: "Position" },
+      needs: {
+        type: "multiSelect",
+        label: "Needs",
+        options: [{ value: "summary", label: "Summary" }],
+      },
+    },
+  },
+  job: {
+    label: "Job",
+    plural: "Jobs",
+    titleField: "name",
+    fields: {
+      name: { type: "text", label: "Name", required: true },
+      step: { type: "relation", label: "Step", to: `${ext}.step`, track: "timeline" },
+      summary: { type: "text", label: "Summary" },
+    },
+    stages: { field: "step", stage: { type: "type", order: "position", requiredFields: "needs" } },
+  },
+} as const;
+
 /** The fixture manifest, with the order object changed by `patch`. */
 function fixture(patch: (order: Record<string, unknown>) => Record<string, unknown> = (o) => o) {
   return manifest(ext, {
-    objects: { order: patch(structuredClone(OBJECTS.order) as Record<string, unknown>) },
+    objects: {
+      order: patch(structuredClone(OBJECTS.order) as Record<string, unknown>),
+      ...structuredClone(STAGED),
+    },
   } as never);
 }
 
@@ -664,5 +706,108 @@ describe("the approval queue's dry run", () => {
       ["pending", "staff"],
       ["review", "staff"],
     ]);
+  });
+});
+
+describe("stages and states on the one engine", () => {
+  it("keeps one history, a view for each form, and the same shape of refusal", async () => {
+    const step = async (name: string, position: number, type: string, needs: string[] = []) =>
+      (
+        (await invokeByName(
+          "record.create",
+          { object: `${ext}.step`, values: { name, position, type, needs } },
+          context(admin),
+        )) as Order
+      ).id;
+    const todo = await step("To do", 1, "open");
+    const done = await step("Done", 2, "won", ["summary"]);
+    const job = (await invokeByName(
+      "record.create",
+      { object: `${ext}.job`, values: { name: unique("Job") } },
+      human(),
+    )) as Order;
+    expect(job.values.step).toBe(todo);
+    const order = await create();
+
+    // A stage's refusal and a state's refusal: the same keys, `stage` or `state` for the position.
+    const stageRefusal = await refusal(
+      invokeByName(
+        "record.update",
+        { object: `${ext}.job`, id: job.id, values: { step: done } },
+        human(),
+      ),
+    );
+    expect(stageRefusal).toEqual({
+      code: "invalid_input",
+      message: "Done needs Summary",
+      details: {
+        rule: "stage_required_fields",
+        object: `${ext}.job`,
+        field: "summary",
+        fields: ["summary"],
+        labels: ["Summary"],
+        stage: { id: done, title: "Done", type: "won" },
+      },
+    });
+    const stateRefusal = await refusal(update(order.id, { state: "cancelled" }));
+    expect(Object.keys(stateRefusal.details ?? {}).slice(0, 5)).toEqual(
+      Object.keys(stageRefusal.details ?? {}).slice(0, 5),
+    );
+
+    await invokeByName(
+      "record.update",
+      { object: `${ext}.job`, id: job.id, values: { step: done, summary: "Shipped" } },
+      human(),
+    );
+    await update(order.id, { state: "review" });
+    const { results } = await env.DB.prepare(
+      "SELECT object_type, form, stage_id, stage_type, left_at IS NULL AS current, entered_as FROM core_stage_history WHERE record_id IN (?, ?) ORDER BY object_type, entered_at, left_at IS NULL",
+    )
+      .bind(job.id, order.id)
+      .all();
+    expect(results).toEqual([
+      {
+        object_type: `${ext}.job`,
+        form: "stages",
+        stage_id: todo,
+        stage_type: "open",
+        current: 0,
+        entered_as: "staff",
+      },
+      {
+        object_type: `${ext}.job`,
+        form: "stages",
+        stage_id: done,
+        stage_type: "won",
+        current: 1,
+        entered_as: "staff",
+      },
+      {
+        object_type: ORDER,
+        form: "states",
+        stage_id: "pending",
+        stage_type: "open",
+        current: 0,
+        entered_as: "staff",
+      },
+      {
+        object_type: ORDER,
+        form: "states",
+        stage_id: "review",
+        stage_type: "open",
+        current: 1,
+        entered_as: "staff",
+      },
+    ]);
+    const inView = async (view: string) =>
+      (
+        await env.DB.prepare(`SELECT DISTINCT object_type FROM ${view} WHERE record_id IN (?, ?)`)
+          .bind(job.id, order.id)
+          .all<{ object_type: string }>()
+      ).results.map((row) => row.object_type);
+    expect(await inView("rec_stage_history")).toEqual([`${ext}.job`]);
+    expect(await inView("rec_state_history")).toEqual([ORDER]);
+    expect((await timeline(`${ext}.job`, job.id)).map((p) => p.subject)).toEqual(["Moved to Done"]);
+    expect((await timeline(ORDER, order.id)).map((p) => p.subject)).toEqual(["Moved to In review"]);
   });
 });

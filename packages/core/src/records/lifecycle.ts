@@ -3,9 +3,16 @@
 // `applyTransition` for every write; so does platform code that makes a `host` move.
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
-import { applyStageBehaviour, type StageCache } from "./stages.ts";
+import { type StageCache, stagesLifecycle } from "./stages.ts";
 import { statesLifecycle } from "./states.ts";
-import { type Mover, runTransition, type TransitionOutcome } from "./transitions.ts";
+import {
+  type Lifecycle,
+  type Mover,
+  NO_TRANSITION,
+  type Placement,
+  runTransition,
+  type TransitionOutcome,
+} from "./transitions.ts";
 
 export interface TransitionOptions {
   /**
@@ -41,17 +48,9 @@ export async function applyTransition(
   written: Record<string, unknown>,
   options: TransitionOptions,
 ): Promise<TransitionOutcome> {
-  if (object.states) {
-    return runTransition(
-      statesLifecycle(object, object.states),
-      ctx,
-      object,
-      id,
-      before,
-      written,
-      options.by,
-    );
-  }
-  const outcome = await applyStageBehaviour(ctx, object, id, before, written, options.cache);
-  return { ...outcome, field: object.stages?.field ?? null };
+  const run = <P extends Placement>(lifecycle: Lifecycle<P>) =>
+    runTransition(lifecycle, ctx, object, id, before, written, options.by);
+  if (object.states) return run(statesLifecycle(object, object.states));
+  if (object.stages) return run(stagesLifecycle(object, object.stages, options.cache));
+  return NO_TRANSITION;
 }

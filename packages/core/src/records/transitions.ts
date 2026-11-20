@@ -82,8 +82,8 @@ export interface Placement {
   group(): string | null;
 }
 
-/** One form of lifecycle declaration, bound to an object. */
-export interface Lifecycle {
+/** One form of lifecycle declaration, bound to an object. `P` is what its `place` hands back. */
+export interface Lifecycle<P extends Placement = Placement> {
   readonly form: "stages" | "states";
   /** The field holding the position. */
   readonly field: string;
@@ -91,14 +91,14 @@ export interface Lifecycle {
    * Works out the record's position after the write, setting defaults, and refuses a position
    * the declaration does not allow. Null: the record has no lifecycle to run (nothing to do).
    */
-  place(write: TransitionWrite): Promise<Placement | null>;
+  place(write: TransitionWrite): Promise<P | null>;
   /** Sets the values that follow the position (a stage's status, probability, closed date). */
-  follow?(write: TransitionWrite, placement: Placement, moved: boolean): void;
+  follow?(write: TransitionWrite, placement: P, moved: boolean): void;
   /** Builds this form's refusal: the shared details plus its own (`stage` or `state`). */
   refusal(
     write: TransitionWrite,
     refusal: { rule: "required_fields" | "move_not_permitted"; message: string; fields: string[] },
-    placement: Placement,
+    placement: P,
   ): TransitionRuleError;
 }
 
@@ -153,8 +153,8 @@ export function ruleBase(
  * TransitionRuleError when the write breaks a rule. Returns the values to set, the history
  * statements for the batch and the move, for the timeline.
  */
-export async function runTransition(
-  lifecycle: Lifecycle,
+export async function runTransition<P extends Placement>(
+  lifecycle: Lifecycle<P>,
   ctx: HandlerContext,
   object: ObjectDefinition,
   id: string,
