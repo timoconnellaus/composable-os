@@ -160,7 +160,7 @@ export async function handleStripeEvent(s: Services, event: StripeEvent): Promis
       await notify(
         s,
         account,
-        "Your Relationship OS payment failed",
+        "Your CRM payment failed",
         `We couldn't take your payment. Your workspace keeps running while Stripe retries; update your card at ${s.origin}/account.`,
       );
       return true;
@@ -226,7 +226,7 @@ async function applySubscription(
       await notify(
         s,
         updated,
-        "Action needed: your Relationship OS payment is past due",
+        "Action needed: your CRM payment is past due",
         `Your workspace is still running. Update your payment method at ${s.origin}/account to keep it that way.`,
       );
     }
@@ -245,7 +245,7 @@ async function applySubscription(
     await notify(
       s,
       updated,
-      "Your Relationship OS subscription has ended",
+      "Your CRM subscription has ended",
       `Your workspace is suspended and will be deleted in ${grace} days.\n\nBefore then you can export your data, resubscribe, or continue on the Free plan at ${s.origin}/account.`,
     );
   }

@@ -2,9 +2,11 @@
 // enters with a token the control plane signed (a test Ed25519 key here), the cookie makes the
 // request the support user, and revoking or expiry refuses the very next request. Plus the plan
 // limits as the UI adapter reports them (ADR 0211).
+
 import { env } from "cloudflare:workers";
 import { AiAllowanceError, clearEntitlementsCache, newId } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { product } from "@composable-os/products/active";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { modelsFor } from "../src/server/ai.ts";
 import { authorize } from "../src/server/identity.ts";
@@ -17,7 +19,7 @@ import {
   signSupportCookie,
 } from "../src/server/support.ts";
 
-const HOST = "acme.relationshiposcrm.com";
+const HOST = "acme.hosted.example";
 const ORIGIN = `https://${HOST}`;
 const page = { handlerType: "router" } as const;
 
@@ -59,7 +61,7 @@ async function token(
 function claimsFor(grantId: string, email: string, overrides: Record<string, unknown> = {}) {
   const now = Math.floor(Date.now() / 1000);
   return {
-    iss: "relationshiposcrm-control",
+    iss: "composable-os-control",
     aud: HOST,
     sub: grantId,
     email,
@@ -72,7 +74,7 @@ function claimsFor(grantId: string, email: string, overrides: Record<string, unk
 
 async function requestGrant(role: "admin" | "member" | "viewer" = "member", minutes = 60) {
   const id = `sgr_${newId("user").slice(4)}`;
-  const email = `staff-${id}@relationshiposcrm.com`;
+  const email = `staff-${id}@hosted.example`;
   await env.DB.prepare(
     "INSERT INTO core_support_grants (id, staff_email, reason, role, requested_minutes, status, requested_at) VALUES (?, ?, 'Ticket 7', ?, ?, 'requested', ?)",
   )
@@ -237,10 +239,10 @@ describe("/support/enter", () => {
       await token(claimsFor(id, email), { key: otherKeys.privateKey }),
       await token(claimsFor(id, email), { header: { alg: "HS256", typ: "JWT" } }),
       await token(claimsFor(id, email, { iss: "someone-else" })),
-      await token(claimsFor(id, email, { aud: "other.relationshiposcrm.com" })),
+      await token(claimsFor(id, email, { aud: "other.hosted.example" })),
       await token(claimsFor(id, email, { iat: now - 400, exp: now - 1 })),
       await token(claimsFor(id, email, { iat: now, exp: now + SUPPORT_TOKEN_MAX_LIFETIME + 1 })),
-      await token(claimsFor(id, "intruder@relationshiposcrm.com")),
+      await token(claimsFor(id, "intruder@hosted.example")),
       await token(claimsFor("sgr_unknown", email)),
       "not-a-token",
     ];
@@ -296,7 +298,7 @@ describe("plan limits through the UI adapter", () => {
       data: {
         managed: true,
         entitlements: { plan: "free", maxRecords: 0 },
-        billingUrl: "https://app.relationshiposcrm.com/billing",
+        billingUrl: product.billingUrl,
       },
     });
     const create = await runOperation(env, admin, {

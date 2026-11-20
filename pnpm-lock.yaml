@@ -230,6 +230,9 @@ importers:
       '@composable-os/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@composable-os/products':
+        specifier: workspace:*
+        version: link:../../products
       '@composable-os/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk

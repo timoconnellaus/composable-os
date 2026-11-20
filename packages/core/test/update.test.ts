@@ -42,7 +42,7 @@ const STATE: DeploymentState = {
 function runtime(overrides: Partial<UpdaterRuntime> = {}): UpdaterRuntime {
   return {
     currentVersion: "1.0.0",
-    repository: "timoconnellaus/relationship-os",
+    repository: "example/demo",
     canUpdate: true,
     async listReleases(channel: Channel) {
       calls.push(`list:${channel}`);
@@ -55,7 +55,7 @@ function runtime(overrides: Partial<UpdaterRuntime> = {}): UpdaterRuntime {
           name: `v${m.version}`,
           notes: `## What's changed\n- things in ${m.version}`,
           publishedAt: "2026-11-01T00:00:00Z",
-          url: `https://github.com/timoconnellaus/relationship-os/releases/tag/v${m.version}`,
+          url: `https://github.com/example/demo/releases/tag/v${m.version}`,
           assets: {},
         }))
         .reverse();

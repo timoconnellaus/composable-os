@@ -18,7 +18,7 @@ function tenantState(tenant: string, version: string): DeploymentState {
   return {
     version,
     accountId: ACCOUNT,
-    hostname: `${tenant}.relationshiposcrm.com`,
+    hostname: `${tenant}.hosted.example`,
     hostnameMode: "dispatch",
     dispatchNamespace: NS,
     tags: [`tenant-${tenant}`],

@@ -6,7 +6,9 @@
 // are `settings:manage` (admins: they change what runs for everyone); starting, retrying,
 // replaying and cancelling runs is `records:write`; the kill switch is human admins only and
 // never reachable over MCP. Runs execute in cos-runner, reached through `ctx.automationHost`.
+
 import type { CoreDatabase } from "@composable-os/db";
+import { product } from "@composable-os/products/active";
 import type { AutomationManifest, ExtensionManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import type { z } from "zod";
@@ -315,7 +317,7 @@ export const automationGet = defineOperation({
       version: row.version ?? null,
       commit: row.commit_oid,
       provenance: {
-        author: row.source === "shipped" ? "Shipped with Relationship OS" : null,
+        author: row.source === "shipped" ? `Shipped with ${product.strings.name}` : null,
         approvedBy: approver?.name ?? null,
         approvedAt: row.installed_by ? (row.installed_at ?? null) : null,
         shipped: row.source === "shipped",

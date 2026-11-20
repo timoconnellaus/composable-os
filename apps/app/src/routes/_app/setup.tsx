@@ -2,7 +2,9 @@
 // until they finish or skip it. Every step saves as it goes (setup.save), so it can be left and
 // resumed; each real change goes through its own operation (settings.update, policy.update,
 // sample.install / sample.remove).
+
 import { COMMON_CURRENCIES, POLICY_PRESETS, type PolicyPreset } from "@composable-os/core/client";
+import { product } from "@composable-os/products/active";
 import { Badge } from "@composable-os/ui/components/badge";
 import { Button } from "@composable-os/ui/components/button";
 import {
@@ -104,7 +106,7 @@ function SetupPage() {
   }
   if (status.isPending || step === null) {
     return (
-      <PageLayout title="Set up Relationship OS" width="md">
+      <PageLayout title={`Set up ${product.strings.name}`} width="md">
         <Skeleton className="h-64 w-full" />
       </PageLayout>
     );
@@ -140,7 +142,7 @@ function SetupPage() {
 
   return (
     <PageLayout
-      title="Set up Relationship OS"
+      title={`Set up ${product.strings.name}`}
       width="md"
       description={`Step ${index + 1} of ${STEPS.length}: ${STEP_TITLES[step]}`}
       actions={

@@ -7,6 +7,7 @@
 // because the conversation object already acts for its signed-in owner.
 
 import type { AssistantTool } from "@composable-os/core";
+import { product } from "@composable-os/products/active";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { createCrmMcpServer, type McpCaller } from "../mcp/tools.ts";
 
@@ -31,7 +32,7 @@ export async function connectAssistantMcp(caller: McpCaller): Promise<AssistantM
   const server = createCrmMcpServer(caller, APP_VERSION);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
-  const client = new Client({ name: "relationship-os-assistant", version: APP_VERSION });
+  const client = new Client({ name: `${product.id}-assistant`, version: APP_VERSION });
   await client.connect(clientTransport);
   const { tools } = await client.listTools();
   return {

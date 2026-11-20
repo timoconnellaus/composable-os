@@ -242,7 +242,7 @@ export async function meterDay(s: Services, instanceId: string, day: string): Pr
       if (owner) {
         await s.mail.send({
           to: owner.email,
-          subject: "Your Relationship OS AI credit has run out",
+          subject: "Your CRM AI credit has run out",
           text: `Built-in AI is paused until you add credit at ${s.origin}/account. Your own provider keys (BYOK) and AI clients connected over MCP keep working.`,
         });
       }

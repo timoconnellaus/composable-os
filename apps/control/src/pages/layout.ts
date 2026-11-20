@@ -58,7 +58,7 @@ export function page(
   const nav = options.signedIn
     ? html`<nav>${options.staff ? html`<a href="/admin">Admin</a> · ` : ""}<a href="/account">Account</a> · <form class="inline" method="post" action="/signout"><button class="secondary" style="margin:0;padding:.2rem .6rem">Sign out</button></form></nav>`
     : html`<nav><a href="/">Sign in</a></nav>`;
-  const doc = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · Relationship OS</title><style>${raw(STYLE)}</style></head><body><header><a href="/">Relationship OS</a>${nav}</header><main>${body}</main></body></html>`;
+  const doc = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · CRM</title><style>${raw(STYLE)}</style></head><body><header><a href="/">CRM</a>${nav}</header><main>${body}</main></body></html>`;
   return new Response(doc.value, {
     status: options.status ?? 200,
     headers: {

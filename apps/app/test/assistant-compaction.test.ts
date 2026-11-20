@@ -473,7 +473,7 @@ describe("compaction in the live thread", () => {
         observations: unknown[];
       };
     };
-    expect(json.report).toMatchObject({ format: "relationship-os.ai-cache-report", version: 1 });
+    expect(json.report).toMatchObject({ format: "composable-os.ai-cache-report", version: 1 });
     expect(json.report.observations.length).toBeGreaterThan(5);
     expect(json.report.decisions.length).toBeGreaterThan(5);
 

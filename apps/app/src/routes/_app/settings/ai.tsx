@@ -8,7 +8,9 @@
 // usage is the workspace's own count, split into billed (Platform AI) and own-key usage. The
 // Judge section (components/settings/judge-section.tsx, ADR 0234) holds Jev's key, Test, the
 // adjudicator's reviewer, each placement's switch and its spend.
+
 import type { CoreOutput } from "@composable-os/core";
+import { product } from "@composable-os/products/active";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -83,8 +85,7 @@ type ProviderId = Provider["id"];
 type Capabilities = Role["capabilities"];
 type TestResult = CoreOutput<"ai.testRole">;
 
-const DOCS_URL =
-  "https://github.com/timoconnellaus/relationship-os/blob/main/docs/deploying.md#in-app-ai";
+const DOCS_URL = `https://github.com/${product.updateRepository}/blob/main/docs/deploying.md#in-app-ai`;
 
 const ROLE_TITLES: Record<string, string> = {
   build: "Build",

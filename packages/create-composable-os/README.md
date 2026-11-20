@@ -1,8 +1,8 @@
 # create-composable-os
 
-Install the open-source CRM (github.com/timoconnellaus/composable-os) into your own Cloudflare account, then
-upgrade and roll it back. It downloads a release from GitHub Releases, verifies its sha256 and its
-GitHub build attestation, and talks to the Cloudflare API with your token. No wrangler, no service
+Install a Composable OS product (github.com/timoconnellaus/composable-os) into your own Cloudflare
+account, then upgrade and roll it back. `--product` chooses it; the default, `crm`, is the CRM.
+It downloads a release from GitHub Releases, verifies its sha256 and its GitHub build attestation, and talks to the Cloudflare API with your token. No wrangler, no service
 of ours, no telemetry.
 
 Not published to npm yet: build it from a checkout (`pnpm --filter create-composable-os build`) and run

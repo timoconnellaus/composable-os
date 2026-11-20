@@ -248,7 +248,7 @@ describe("Platform AI on a hosted deployment", () => {
 });
 
 describe("the customer's own keys on a hosted deployment", () => {
-  const CONTROL = "https://app.relationshiposcrm.com";
+  const CONTROL = "https://app.hosted.example";
 
   async function controlPlane() {
     const channelKey = await deploymentChannelKey("master-secret", TENANT);

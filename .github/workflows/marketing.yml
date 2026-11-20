@@ -1,6 +1,6 @@
-# Deploys the landing page (apps/marketing, Worker cos-site) to relationshiposcrm.com when
+# Deploys the Composable OS site (apps/marketing, Worker cos-site) to composableos.dev when
 # main changes it (ADR 0191). Needs the repository secrets MARKETING_CLOUDFLARE_API_TOKEN (Workers
-# Scripts: Edit, D1: Edit, Workers Routes / custom domains on the relationshiposcrm.com zone) and
+# Scripts: Edit, D1: Edit, Workers Routes / custom domains on the composableos.dev zone) and
 # MARKETING_CLOUDFLARE_ACCOUNT_ID. Without them the deploy job is skipped and the workflow passes.
 name: Marketing site
 

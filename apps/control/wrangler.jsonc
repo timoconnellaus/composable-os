@@ -51,7 +51,7 @@
     "JOBS_INLINE": "off",
     "SAAS_DOMAIN": "relationshiposcrm.com",
     "CONTROL_ORIGIN": "https://app.relationshiposcrm.com",
-    "MAIL_FROM": "Relationship OS <hello@relationshiposcrm.com>",
+    "MAIL_FROM": "CRM <hello@relationshiposcrm.com>",
     "DISPATCH_NAMESPACE": "crm-customers",
     // "namespace" (Workers for Platforms) or "account" (ordinary Workers in our account, the
     // fallback in docs/saas-go-live.md if a Workers for Platforms check fails).

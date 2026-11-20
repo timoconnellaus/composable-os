@@ -2,12 +2,18 @@
 
 Use these words exactly, in code, docs and UI copy. Add to this file when a new term earns its place.
 
-**Relationship OS**
-The product: an AI-native CRM that runs in your own Cloudflare account (ADR 0190). Short name
-`ros` in Worker and resource names (`ros-app`, `ros-runner`, `ros-records`), `relationship-os` in
-package names (`@relationship-os/*`, `create-relationship-os`). "CRM" stays the category word, and
-the name of the operations API inside extension code (`codemode:ops`, `ctx.ops`, the `rec_*` views).
-_Avoid_: "the CRM" as the product name in UI copy
+**Composable OS**
+The platform: a trusted host on Cloudflare that products are composed on (ADR 0400). Packages and
+local development name Workers and resources with its local prefix `cos` (`cos-app`, `cos-runner`,
+`cos-records`); packages are `@composable-os/*`, and the installer is `create-composable-os` (its
+command is `cos`). Site: composableos.dev.
+
+**CRM**
+The first product on Composable OS: an AI-native CRM that runs in your own Cloudflare account,
+defined in `products/crm/product.ts`. Its name is "CRM", and "the CRM" is fine as the product's name
+in prose and UI copy. A deployment of it is named for it (`crm-app`, `crm-runner`, database `crm`).
+The operations API inside extension code is the platform's, not the CRM's: `codemode:ops`,
+`ctx.ops` and the `rec_*` views.
 
 **Deployment**
 One installed copy of the CRM in one organisation's Cloudflare account. It holds one org's data and is
@@ -240,7 +246,7 @@ source and the build cache. A commit is a version, approval reviews a diff, and 
 revert. It runs no code: the executor does.
 
 **Executor**
-What runs extension code, from ros-runner's stateless entrypoint (and from Workflow steps in stage
+What runs extension code, from cos-runner's stateless entrypoint (and from Workflow steps in stage
 5). Each run gets a Dynamic Worker from `LOADER.get` with a **stable loader id**, and its context
 arrives as RPC arguments.
 _Avoid_: sandbox host (for the DO)
@@ -423,7 +429,7 @@ _Avoid_: emergency stop, pause all
 A typed message to one user in the in-app notification centre (the bell and inbox), with a link
 to a record, approval, automation or run, read or unread. Sent with `notification.send` by
 automations, approvals and the system. Its type routes it to email or Slack per the recipient's
-preferences (ros-runner's minute cron delivers them, ADR 0172).
+preferences (cos-runner's minute cron delivers them, ADR 0172).
 _Avoid_: alert, message (when you mean the stored notification)
 
 **Notification preference**
@@ -471,7 +477,7 @@ endpoint), each served by one gatekeeper facet. Settings → Integrations manage
 _Avoid_: connected app (that is an MCP client), account (the provider's side)
 
 **Integration host**
-The Durable Object in ros-runner, one per connection, that implements the Workshop side of the
+The Durable Object in cos-runner, one per connection, that implements the Workshop side of the
 gatekeeper interface: it owns the connection's account, facets and hooks, runs the connect handoff,
 decides outbound actions and observations, and runs sync. D1 only mirrors its state for the UI.
 
@@ -496,12 +502,12 @@ a new domain), applied with `person.changeJob` on confirmation.
 
 **Integration event**
 An inbound event for automations: a verified webhook delivery (typed, e.g. `invoice.paid`) or a sync
-event (`email.received`, `meeting.updated`). Kept 90 days; ros-runner's minute cron turns them
+event (`email.received`, `meeting.updated`). Kept 90 days; cos-runner's minute cron turns them
 into `webhook` and `syncEvent` triggers and marks them consumed.
 
 **Outbox** (automation events)
 Where an operation's automation events are written in the same batch as its change, sent to the
-queue after commit and deleted; ros-runner's cron retries any that are left, so a failed send
+queue after commit and deleted; cos-runner's cron retries any that are left, so a failed send
 never loses an event.
 
 **Principal**
@@ -700,7 +706,7 @@ _Avoid_: test set, golden set
 
 **Model role preset**
 A named, ready deploy-config layer (`ROLE_PRESETS` in `roles.ts`) that one deployment chooses
-with `create-relationship-os --model-roles <name>` (or `ROS_AI_MODEL_ROLES` for `pnpm run deploy`). It
+with `create-composable-os --model-roles <name>` (or `COS_AI_MODEL_ROLES` for `pnpm run deploy`). It
 becomes that deployment's `AI_MODEL_ROLES` and never changes the shipped defaults. The first is
 `deepseek-flash`: every role but `embed` on DeepSeek V4.1 Flash with Workers AI fallbacks
 (ADR 0192).
@@ -724,12 +730,11 @@ The JSON a view is made of, rendered by our components: a discriminated union of
 and a chart mapping). See ADR 0056 and ADR 0057.
 
 **Release bundle**
-One versioned, reproducible `relationship-os-<version>.tar.gz` (`crm-<version>.tar.gz` before the
-rename, ADR 0190) holding every Worker's modules, ros-app's static
-assets, the core migrations and the **release manifest** (generated from the `wrangler.jsonc` files,
-with placeholders such as `$ACCOUNT_ID` and `$D1_ID(ros)` for account-specific values). Published as
-a GitHub Release asset with SHA256SUMS and a build attestation; `create-relationship-os` installs it and the
-**self-updater** upgrades to it. See ADR 0053 and ADR 0160.
+One versioned, reproducible `composable-os-crm-<version>.tar.gz` (for the CRM) holding every
+Worker's modules, cos-app's static assets, the core migrations and the **release manifest**
+(generated from the `wrangler.jsonc` files, with placeholders such as `$ACCOUNT_ID` and
+`$D1_ID(crm)` for account-specific values). Published as a GitHub Release asset with SHA256SUMS
+and a build attestation; `create-composable-os` installs it and the **self-updater** upgrades to it. See ADR 0053 and ADR 0160.
 _Avoid_: build, artifact (for the bundle as a whole), package
 
 **Channel**
@@ -743,7 +748,7 @@ secrets or inputs. A **blocker** refuses the update and says what to do. See ADR
 
 **Self-updater**
 Settings → Updates: a deployment updating itself from GitHub Releases with an optional scoped API
-token (`ROS_UPDATE_TOKEN`). It runs the same procedure as `ros upgrade`: pause automations, take a D1
+token (`COS_UPDATE_TOKEN`). It runs the same procedure as `cos upgrade`: pause automations, take a D1
 Time Travel bookmark, migrate, switch all Workers together, smoke-check, resume; **rollback**
 redeploys the previous bundle and restores the bookmark. See ADR 0054 and ADR 0164.
 
@@ -758,16 +763,16 @@ separate build session.
 
 **Hosted deployment**
 A deployment we run for a customer in our Cloudflare account (ADR 0210): user Workers in the
-Workers for Platforms dispatch namespace, reached at `<org>.relationshiposcrm.com`. Only the
+Workers for Platforms dispatch namespace, reached at `<org>.` on the hosted CRM's domain. Only the
 **control plane** calls it an *instance* (`cp_instances`) and knows its **tenant id** (`t…`), which
 prefixes its Worker and resource names and never appears in the deployment's data. The deployment
-sees it only as a deploy var (`ROS_TENANT_ID`), for the **tenant tag** on Platform AI calls and
+sees it only as a deploy var (`COS_TENANT_ID`), for the **tenant tag** on Platform AI calls and
 for signing its calls back to the control plane.
 
 **Control plane**
-`ros-control` at app.relationshiposcrm.com (`apps/control`): sign-up, plans, billing, provisioning,
-rollouts, support grants, export and delete. It never holds customer data. The **dispatch Worker**
-(`ros-dispatch`) routes each verified hostname to its deployment and runs tenants' crons.
+`crm-control` on the hosted CRM's `app.` host (`products/crm/apps/control`): sign-up, plans,
+billing, provisioning, rollouts, support grants, export and delete. It never holds customer data.
+The **dispatch Worker** (`crm-dispatch`) routes each verified hostname to its deployment and runs tenants' crons.
 
 **Plan**
 Free, Team, Business or Enterprise (ADR 0211). Its limits reach a hosted deployment as

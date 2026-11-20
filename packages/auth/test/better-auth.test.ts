@@ -101,7 +101,7 @@ describe("better-auth adapter", () => {
       const refused = await signUp(open, "over-limit@example.com");
       expect(refused?.status).toBe(403);
       expect(JSON.stringify(await refused?.json())).toMatch(
-        /Your Free plan allows \d+ users?\. Upgrade at https:\/\/app\.relationshiposcrm\.com\/billing/,
+        /Your Free plan allows \d+ users?\. Upgrade at https:\/\/\S+\/billing/,
       );
       const row = await env.DB.prepare("SELECT id FROM core_user WHERE email = ?")
         .bind("over-limit@example.com")

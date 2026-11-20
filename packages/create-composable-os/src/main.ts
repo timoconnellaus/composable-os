@@ -1,4 +1,4 @@
-// create-composable-os / cos: install, upgrade, roll back and inspect a Relationship OS deployment in your own
+// create-composable-os / cos: install, upgrade, roll back and inspect a deployment of a Composable OS product in your own
 // Cloudflare account, from a verified release bundle, with the Cloudflare REST API only
 // (ADR 0163). Every command is safe to re-run.
 //
@@ -73,7 +73,7 @@ import {
 } from "@composable-os/release";
 import { choose, type Io, type Redactor } from "./io.ts";
 
-export const HELP = `create-composable-os: install Relationship OS into your own Cloudflare account.
+export const HELP = `create-composable-os: install a Composable OS product into your own Cloudflare account.
 
 Usage
   npx create-composable-os [install] [options]     install, or repair an existing install (idempotent)

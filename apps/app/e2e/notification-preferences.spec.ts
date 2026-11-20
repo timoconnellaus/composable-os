@@ -4,6 +4,7 @@
 // the dev-only route, as local dev has no cron ticks) sends that notice by email, which as an
 // outbound action under Balanced waits in Approvals; approved, the fake outbox has sent it to the
 // user. With email turned off again, the next notice stays in-app: nothing goes out.
+import { product } from "@composable-os/products/active";
 import { expect, type Page, test } from "@playwright/test";
 import { expectNoHorizontalScroll, open, unique } from "./helpers.ts";
 import {
@@ -106,9 +107,9 @@ test("a notification preference is honoured", async ({ page, request, baseURL })
     await expect(set.getByTestId("decision-result")).toContainText("Applied 1 change");
     await expect
       .poll(async () => (await sentMail(request, address)).map((m) => m.subject))
-      .toContain(`[Relationship OS] ${subject}`);
+      .toContain(`[${product.strings.name}] ${subject}`);
     const sent = (await sentMail(request, address)).find(
-      (m) => m.subject === `[Relationship OS] ${subject}`,
+      (m) => m.subject === `[${product.strings.name}] ${subject}`,
     );
     expect(sent?.to).toEqual([TEST_USER.email]);
 
@@ -124,7 +125,7 @@ test("a notification preference is honoured", async ({ page, request, baseURL })
     await expect(page.getByTestId("change-set").first()).toBeVisible();
     await expect(outboundEmail(page, quiet)).toHaveCount(0);
     expect((await sentMail(request, address)).map((m) => m.subject)).not.toContain(
-      `[Relationship OS] ${quiet}`,
+      `[${product.strings.name}] ${quiet}`,
     );
   } finally {
     // Leave delivery off for the other specs.

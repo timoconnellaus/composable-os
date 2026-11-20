@@ -114,7 +114,7 @@ export async function runExport(s: Services, exportId: string): Promise<void> {
     );
     await s.mail.send({
       to: row.requested_by,
-      subject: "Your Relationship OS export is ready",
+      subject: "Your CRM export is ready",
       text: [
         `Database (SQL dump, link valid for a limited time): ${d1Url}`,
         bucket

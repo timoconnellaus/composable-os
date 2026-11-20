@@ -19,7 +19,7 @@ export type SupportRole = (typeof SUPPORT_ROLES)[number];
 /** The longest grant a customer can approve: 72 hours. */
 export const MAX_GRANT_MINUTES = 4320;
 export const TOKEN_LIFETIME_SECONDS = 600;
-export const TOKEN_ISSUER = "relationshiposcrm-control";
+export const TOKEN_ISSUER = "composable-os-control";
 
 export interface GrantRow {
   id: string;

@@ -1,6 +1,7 @@
 // The OAuth consent page and Settings → Connected apps (stage 2, AC8), at desktop and phone
 // widths: an app connects through the consent page, shows up for its user and for admins, and
 // stops working once revoked.
+import { product } from "@composable-os/products/active";
 import { expect, test } from "@playwright/test";
 import { expectNoHorizontalScroll, open } from "./helpers.ts";
 import { call, connectApp, mcpClient } from "./mcp.ts";
@@ -35,7 +36,7 @@ test("consent fits a phone and offers admin to admins", async ({ page, baseURL }
   }).toString();
   await page.goto(url.toString());
   await expect(
-    page.getByRole("heading", { name: "Connect Layout check to Relationship OS?" }),
+    page.getByRole("heading", { name: `Connect Layout check to ${product.strings.name}?` }),
   ).toBeVisible();
   await expect(page.getByText("Signed in as")).toContainText("e2e@example.com");
   // The e2e user is the first user, so an admin: admin is offered, unchecked.

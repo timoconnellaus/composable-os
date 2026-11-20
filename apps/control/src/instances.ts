@@ -199,7 +199,7 @@ export async function provisionInstance(s: Services, instanceId: string): Promis
     if (owner) {
       await s.mail.send({
         to: owner.email,
-        subject: "Your Relationship OS workspace is ready",
+        subject: "Your CRM workspace is ready",
         text: `Your workspace is ready at https://${base.hostname}\n\nOpen https://${base.hostname}/setup to create your sign-in and finish setting up.`,
       });
     }

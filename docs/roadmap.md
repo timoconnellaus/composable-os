@@ -6,16 +6,16 @@ risk for the next.
 
 | # | Stage | Scope | Status |
 | --- | --- | --- | --- |
-| 0 | Scaffold | Monorepo, `ros-app` + `ros-runner`, D1 + migrations, identity adapters, CI, Deploy button; spike of `@cloudflare/computer` + Worker Loader | done (PR #2) |
+| 0 | Scaffold | Monorepo, `cos-app` + `cos-runner`, D1 + migrations, identity adapters, CI, Deploy button; spike of `@cloudflare/computer` + Worker Loader | done (PR #2) |
 | 1 | Core data | Core objects (People, Organisations, Affiliations, Activities, Tasks), operations registry, gate + audit log, UI shell, search, import/export/merge, saved views | done (PR #9) |
 | 2 | MCP | `/mcp` with the OAuth 2.1 server on the identity adapter, tools generated from the registry, approval queue + simulation for MCP actors | spec agreed |
-| 3 | Extension runtime | SDK contract, extension workspace (`@cloudflare/computer`), host modules, schema reconciler + `crm.*` views, approve-as-diff, rollback | Built (3a: SDK, reconciler, runtime, install; 3b: authoring over approvals, approval screen, Code Mode, type checking, authoring eval harness) |
+| 3 | Extension runtime | SDK contract, extension workspace (`@cloudflare/computer`), host modules, schema reconciler + `rec_*` views, approve-as-diff, rollback | Built (3a: SDK, reconciler, runtime, install; 3b: authoring over approvals, approval screen, Code Mode, type checking, authoring eval harness) |
 | 4 | Deals + views | Deals/Pipelines as the first shipped extension; view specs, dashboards with read-only SQL | spec agreed |
 | 5 | Automations | Triggers (record events via Queues, schedules), Workflows for long runs, run history | spec agreed |
 | 6 | Integrations | Vendor `gatekeeper-kit` + gatekeepers (Google, Microsoft, email, Slack, MCP); Workshop-side interface in the runner; email/calendar sync onto the timeline | spec agreed (groundwork merged, PR #10) |
 | 7 | In-app AI | Model-role registry UI, assistant chat, summaries, embeddings search, policy adjudicator (`review` role) | 7a built (registry, Settings → AI, summaries, semantic search); 7b built (assistant, adjudicator, daily digest, gateway-first registry; PR "Stage 7b") |
-| 8 | Distribution | Release bundles, `create-relationship-os` CLI, self-updater, setup wizard, real-account install test | Built (needs a human: CI test account, manual run) |
-| 9 | Rename, licence, landing page | Relationship OS rename (packages, Workers, CLI, repo), FSL-1.1-ALv2 + NOTICE + CLA, `apps/marketing` on relationshiposcrm.com | spec agreed |
+| 8 | Distribution | Release bundles, `create-composable-os` CLI, self-updater, setup wizard, real-account install test | Built (needs a human: CI test account, manual run) |
+| 9 | Rename, licence, landing page | First rename of the project (packages, Workers, CLI, repo), FSL-1.1-ALv2 + NOTICE + CLA, `apps/marketing` landing page | spec agreed |
 | 10 | SaaS & enterprise | Control plane on Workers for Platforms: sign-up, Stripe + usage AI billing, staged rollouts, admin console, export/delete; built ready, deployed on first sign-up | spec agreed |
 | 11 | Jev as the typed judge | The judge seam beside the model registry, Jev through AI Gateway, labelled sets and `eval:calibrate` with replay; placements: authoring intent, the adjudicator's Jev reviewer, summary statements, outbound messages, job-change signatures, widget shape, eval graders (`docs/jev.md`) | done (PRs #52, #55, #56, #58) |
 | 12 | Import and migration | One generic AI importer for CSV, XLSX and multi-file CRM exports (file roles, links by source ids, owner, pipeline, stage, picklist and currency mapping, new custom fields through schema approval); mapping screen; skip / update empty / overwrite matching; up to 100k rows as a Workflow job; one approval and one undo; activity history; fixtures for plain CSV, HubSpot, Pipedrive, Salesforce | spec proposed |

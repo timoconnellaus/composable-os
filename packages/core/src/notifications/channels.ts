@@ -5,7 +5,9 @@
 // system: the gatekeeper submits it as an outbound action the approval gate decides
 // (`email.internal` is auto-approvable for colleagues, ADR 0114). A pending action is `pending`
 // here, never an error.
+
 import type { CoreDatabase } from "@composable-os/db";
+import { product } from "@composable-os/products/active";
 import type { Kysely } from "kysely";
 import type {
   DeliveryOutcome,
@@ -95,7 +97,7 @@ export function notificationText(
 ): string {
   const parts = [notification.title];
   if (notification.body) parts.push(notification.body);
-  if (url) parts.push(`Open in Relationship OS: ${url}`);
+  if (url) parts.push(`Open in ${product.strings.name}: ${url}`);
   return clip(parts.join("\n\n"), TEXT_MAX);
 }
 
@@ -107,7 +109,7 @@ export function slackEscape(text: string): string {
 function slackText(notification: Pick<NotificationRecord, "title" | "body">, url: string | null) {
   const parts = [`*${slackEscape(oneLine(notification.title, SUBJECT_MAX))}*`];
   if (notification.body) parts.push(slackEscape(notification.body));
-  if (url) parts.push(`<${url}|Open in Relationship OS>`);
+  if (url) parts.push(`<${url}|Open in ${product.strings.name}>`);
   return clip(parts.join("\n"), TEXT_MAX);
 }
 
@@ -153,7 +155,7 @@ export async function postToSlack(
   return outcomeOf(result);
 }
 
-/** Email: `[Relationship OS] <title>` to the recipient's address. */
+/** Email: `[the product's name] <title>` to the recipient's address. */
 export function emailChannel(target: ChannelTarget): NotificationChannel {
   return {
     id: "email",
@@ -161,7 +163,7 @@ export function emailChannel(target: ChannelTarget): NotificationChannel {
       if (!context.recipient.email) return { status: "skipped", detail: "No email address" };
       return sendEmail(context.callIntegration, target, {
         to: context.recipient.email,
-        subject: `[Relationship OS] ${notification.title}`,
+        subject: `[${product.strings.name}] ${notification.title}`,
         text: notificationText(notification, context.url),
       });
     },

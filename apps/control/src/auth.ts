@@ -26,7 +26,7 @@ export async function sendSignInLink(s: Services, email: string, next: string) {
     .run();
   await s.mail.send({
     to: email,
-    subject: "Sign in to Relationship OS",
+    subject: "Sign in to CRM",
     text: `Sign in: ${s.origin}/auth/callback?token=${token}\n\nThe link works once, for ${LINK_MINUTES} minutes. If you didn't ask for it, ignore this email.`,
   });
 }

@@ -98,7 +98,7 @@ export interface DeployablePackage {
 
 /**
  * Workers with a wrangler.jsonc that are not part of a deployment: the landing page
- * (relationshiposcrm.com, ADR 0191) is deployed on its own by .github/workflows/marketing.yml, and
+ * (the Composable OS site, ADR 0191) is deployed on its own by .github/workflows/marketing.yml, and
  * the hosted control plane (apps/control: crm-control and crm-dispatch, ADR 0210) is our own
  * service, deployed by docs/saas-go-live.md, never part of a customer's deployment.
  */

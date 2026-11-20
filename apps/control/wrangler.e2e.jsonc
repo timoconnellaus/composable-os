@@ -32,7 +32,7 @@
     "JOBS_INLINE": "on",
     "SAAS_DOMAIN": "relationshiposcrm.com",
     "CONTROL_ORIGIN": "http://localhost:8790",
-    "MAIL_FROM": "Relationship OS <hello@relationshiposcrm.com>",
+    "MAIL_FROM": "CRM <hello@relationshiposcrm.com>",
     "DISPATCH_NAMESPACE": "crm-customers",
     "DEFAULT_PLACEMENT": "namespace",
     "RELEASE_CHANNEL": "stable",

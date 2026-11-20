@@ -24,13 +24,15 @@ import {
   ValidationError,
 } from "@composable-os/core";
 import type { CrmDb } from "@composable-os/db";
+import { product } from "@composable-os/products/active";
 import { McpServer, type StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
-export const SERVER_NAME = "relationship-os";
+/** The server's name: the product's id. */
+export const SERVER_NAME = product.id;
 export const SCHEMA_RESOURCE_URI = "crm://schema";
 
-export const SERVER_INSTRUCTIONS = `This server is Relationship OS, an AI-native CRM: people, organisations, their activities (notes, emails, calls, meetings) and tasks.
+export const SERVER_INSTRUCTIONS = `This server is ${product.strings.name}, built on Composable OS: people, organisations, their activities (notes, emails, calls, meetings) and tasks.
 
 - Search before you create. Use search_global (or person_get / organisation_get) to find a record first; emails and domains are unique, so creating a duplicate fails with a conflict.
 - Always give a reason. Every tool that changes data takes a required "reason": one sentence a person reviewing the change will read. Make it specific ("Logged the call Ada described in her email of 3 Nov").
@@ -164,7 +166,7 @@ function passthroughSchema(json: JsonSchema): StandardSchemaWithJSON<Args, Args>
   return {
     "~standard": {
       version: 1 as const,
-      vendor: "relationship-os",
+      vendor: "composable-os",
       validate: (value: unknown) =>
         value && typeof value === "object" && !Array.isArray(value)
           ? { value: value as Args }
@@ -300,7 +302,7 @@ const callInput = z.object({
 /** Builds the MCP server for one request. */
 export function createCrmMcpServer(caller: McpCaller, version: string): McpServer {
   const server = new McpServer(
-    { name: SERVER_NAME, title: "Relationship OS", version },
+    { name: SERVER_NAME, title: `${product.strings.name}`, version },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
@@ -390,7 +392,7 @@ export function createCrmMcpServer(caller: McpCaller, version: string): McpServe
     "schema",
     SCHEMA_RESOURCE_URI,
     {
-      title: "Relationship OS schema",
+      title: `${product.strings.name} schema`,
       description:
         "Objects and their fields, and the operations you can call with their risk classes.",
       mimeType: "application/json",

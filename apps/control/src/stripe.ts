@@ -125,7 +125,7 @@ export class LiveStripe implements StripeApi {
           price_data: {
             currency: "usd",
             unit_amount: input.amountCents,
-            product_data: { name: "Relationship OS AI credit" },
+            product_data: { name: "CRM AI credit" },
           },
         },
       ],

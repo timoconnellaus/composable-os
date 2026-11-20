@@ -76,7 +76,7 @@ export async function dispatchRequest(request: Request, deps: DispatchDeps): Pro
     return page(
       404,
       "No workspace here",
-      `<p>There is no Relationship OS workspace at ${hostname}.</p><p><a href="${deps.controlOrigin}">Sign in or create one</a></p>`,
+      `<p>There is no CRM workspace at ${hostname}.</p><p><a href="${deps.controlOrigin}">Sign in or create one</a></p>`,
     );
   }
   if (route.status === "suspended") {

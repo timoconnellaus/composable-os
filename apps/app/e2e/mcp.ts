@@ -1,7 +1,9 @@
 // Connecting an MCP client to the dev server the way an external MCP client does: dynamic client registration,
 // the consent page in the browser (signed in as the e2e user), a PKCE code exchange, then the MCP
 // TypeScript client on /mcp. Specs use it to queue real change sets for the Approvals inbox.
+
 import { createHash, randomBytes } from "node:crypto";
+import { product } from "@composable-os/products/active";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { expect, type Page } from "@playwright/test";
 import { unique } from "./helpers.ts";
@@ -55,7 +57,7 @@ export async function connectApp(
 
   await page.goto(consent.toString());
   await expect(
-    page.getByRole("heading", { name: `Connect ${name} to Relationship OS?` }),
+    page.getByRole("heading", { name: `Connect ${name} to ${product.strings.name}?` }),
   ).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /Read/ })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: /Write/ })).toBeChecked();

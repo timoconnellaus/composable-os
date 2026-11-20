@@ -38,12 +38,11 @@ Local changes, in summary:
 - **Renames.** Package scopes `@gadgets/*` → `@composable-os/*` (`workshop-shared/gatekeeper` →
   `gatekeeper-interface/gatekeeper`, `observability` → `gatekeeper-observability`,
   `configurator-ui` → `gatekeeper-configurator-ui`); Worker names `gatekeeper-*` →
-  `cos-gatekeeper-*`. (Before the rename to Relationship OS, ADR 0190, these were `@crm/*` and
-  `crm-gatekeeper-*`; Stage 9 changed the scope and Worker prefix in the vendored sources
-  mechanically, nothing else. Stage 20 renamed the scope from `@relationship-os/*` to
-  `@composable-os/*` and Worker names from `ros-gatekeeper-*` to `cos-gatekeeper-*` (a release
-  names them for the product, e.g. `crm-gatekeeper-*`), again mechanically. The vendored packages
-  keep their Apache-2.0 `LICENSE` and `NOTICE`.)
+  `cos-gatekeeper-*`. (Before the first rename, ADR 0190, these were `@crm/*` and `crm-gatekeeper-*`;
+  Stage 9 changed the scope and Worker prefix in the vendored sources mechanically, nothing else.
+  Stage 20 (ADR 0400) renamed the scope and the Worker prefix again, to `@composable-os/*` and
+  `cos-gatekeeper-*` (a release names them for the product, e.g. `crm-gatekeeper-*`), again
+  mechanically. The vendored packages keep their Apache-2.0 `LICENSE` and `NOTICE`.)
 - **Replaced with our own files:** every `package.json` and `tsconfig*.json` (they extend
   `@composable-os/config/tsconfig.vendored.json`: strict, without our extra checks, so vendored files stay
   identical to upstream), the Workers' `wrangler.jsonc` (upstream generates it from

@@ -22,7 +22,7 @@ import { createCrmDb } from "@composable-os/db";
 export const SUPPORT_ENTER_PATH = "/support/enter";
 export const SUPPORT_EXIT_PATH = "/support/exit";
 export const SUPPORT_COOKIE = "cos_support";
-export const SUPPORT_TOKEN_ISSUER = "relationshiposcrm-control";
+export const SUPPORT_TOKEN_ISSUER = "composable-os-control";
 /** The longest a token may live (exp − iat), in seconds. */
 export const SUPPORT_TOKEN_MAX_LIFETIME = 600;
 /** Clock skew tolerated on `iat`, in seconds. */

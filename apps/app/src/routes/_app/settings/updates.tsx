@@ -3,6 +3,7 @@
 // Roll back. With no stored update token it shows the `cos upgrade` command instead. Admins only.
 
 import type { CoreOutput } from "@composable-os/core";
+import { product } from "@composable-os/products/active";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,7 +77,7 @@ function UpdatesPage() {
       title="Updates"
       width="md"
       back={{ to: "/settings", label: "Settings" }}
-      description="New releases of Relationship OS, read from public GitHub Releases. Nothing about this deployment is sent anywhere."
+      description={`New releases of ${product.strings.name}, read from public GitHub Releases. Nothing about this deployment is sent anywhere.`}
     >
       <div className="grid gap-4">
         <Card>

@@ -3,8 +3,10 @@
 // notices escalate and on which channels, and the hour of the daily digest. Each send is an
 // outbound action, so under Balanced it waits in Approvals until the internal kinds are set to
 // auto-approve on Settings → Integrations: the page says so.
+
 import type { CoreOutput } from "@composable-os/core";
 import { CHANNEL_RESOURCE_PATTERNS, CHANNEL_VENDORS } from "@composable-os/core/client";
+import { product } from "@composable-os/products/active";
 import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
@@ -126,7 +128,7 @@ function DeliverySettingsForm() {
       title="Notification delivery"
       width="md"
       back={{ to: "/settings/notifications", label: "Notifications" }}
-      description="How notifications leave Relationship OS: the org connections email and Slack go out through, escalation of unread approvals and the daily digest."
+      description={`How notifications leave ${product.strings.name}: the org connections email and Slack go out through, escalation of unread approvals and the daily digest.`}
       footer={
         <SaveBar dirty={dirty || save.isPending}>
           <Button variant="ghost" onClick={reset}>

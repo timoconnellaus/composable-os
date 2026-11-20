@@ -353,7 +353,7 @@ export async function buildCacheReport(
   for (const row of [...observations, ...decisions, ...history]) seen(row.provider, row.model);
 
   const report = parseCacheReportExport({
-    format: "relationship-os.ai-cache-report",
+    format: "composable-os.ai-cache-report",
     version: 1,
     exportedAt: options.now,
     models: [...models.values()],

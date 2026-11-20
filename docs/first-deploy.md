@@ -17,18 +17,18 @@ In the [Cloudflare dashboard](https://dash.cloudflare.com):
    and Worker Loader need it.
 2. **A workers.dev subdomain.** Open Workers & Pages once and pick one. The deploy cannot do this
    for you: without a subdomain it stops at the first Worker. Your app will be at
-   `https://ros-app.<subdomain>.workers.dev`.
+   `https://crm-app.<subdomain>.workers.dev`.
 3. **An API token.** My Profile → API Tokens → Create Token → Custom token, limited to your account,
    with these permissions:
 
    | Scope | Permission | Why |
    | --- | --- | --- |
    | Account | Workers Scripts: Edit | upload both Workers, secrets, crons |
-   | Account | D1: Edit | create the `ros` database and run migrations |
-   | Account | Workers R2 Storage: Edit | create the `ros-blobs` bucket |
-   | Account | Workers KV Storage: Edit | create `ros-app-oauth-kv` |
+   | Account | D1: Edit | create the `crm` database and run migrations |
+   | Account | Workers R2 Storage: Edit | create the `crm-blobs` bucket |
+   | Account | Workers KV Storage: Edit | create `crm-app-oauth-kv` |
    | Account | Queues: Edit | create the four queues and their consumers |
-   | Account | Vectorize: Edit | create the `ros-records` index |
+   | Account | Vectorize: Edit | create the `crm-records` index |
    | Account | Account Settings: Read | read the account |
    | User | User Details: Read | let wrangler check the token |
 
@@ -39,8 +39,8 @@ In the [Cloudflare dashboard](https://dash.cloudflare.com):
 
 ### Optional: your own hostname
 
-Set `ROS_HOSTNAME=crm.example.com` in `.env.deploy`, on a zone in this account. The deploy attaches
-ros-app to it as a Worker custom domain, turns off its workers.dev URL and sets `BETTER_AUTH_URL`
+Set `COS_HOSTNAME=crm.example.com` in `.env.deploy`, on a zone in this account. The deploy attaches
+crm-app to it as a Worker custom domain, turns off its workers.dev URL and sets `BETTER_AUTH_URL`
 to match. An API token also needs Zone: Read and Workers Routes: Edit on that zone.
 
 ### Optional: an AI Gateway
@@ -48,12 +48,12 @@ to match. An API token also needs Zone: Read and Workers Routes: Edit on that zo
 Skip this and AI still works: every role runs on Workers AI through the binding, and Cloudflare
 bills it to your account. To send calls through a gateway, which gives you usage and spend per role:
 
-1. AI → AI Gateway → Create Gateway. Name it `ros`. Turn **Authenticated Gateway** on.
+1. AI → AI Gateway → Create Gateway. Name it `crm`. Turn **Authenticated Gateway** on.
 2. Create a second API token with only Account → **AI Gateway: Run** and Account →
    **Workers AI: Read**. This is `AI_GATEWAY_TOKEN`.
 3. If you will use Jev: in the gateway, add a custom provider with the slug `typesafe` and the base
    URL `https://api.typesafe.ai`. With a gateway, the judge calls `custom-typesafe`, and
-   `create-relationship-os` is what normally creates it. Without this provider, Jev calls fail.
+   `create-composable-os` is what normally creates it. Without this provider, Jev calls fail.
 
 ## 2. Write your env file
 
@@ -65,15 +65,15 @@ a deploy without these values resets the vars to the empty committed ones. Secre
 CLOUDFLARE_API_TOKEN=<the token from step 1>
 CLOUDFLARE_ACCOUNT_ID=<your account id>
 BETTER_AUTH_SECRET=<output of: openssl rand -hex 32>
-BETTER_AUTH_URL=https://ros-app.<subdomain>.workers.dev
+BETTER_AUTH_URL=https://crm-app.<subdomain>.workers.dev
 
 # Optional: send AI calls through your gateway
-ROS_AI_GATEWAY_ID=ros
+COS_AI_GATEWAY_ID=crm
 AI_GATEWAY_TOKEN=<the AI Gateway Run + Workers AI Read token>
-ROS_AI_GATEWAY_REST=true
+COS_AI_GATEWAY_REST=true
 
 # Optional: DeepSeek on every text role
-ROS_AI_MODEL_ROLES=deepseek-flash
+COS_AI_MODEL_ROLES=deepseek-flash
 AI_KEY_DEEPSEEK=<your DeepSeek key>
 
 # Optional: the judge (Jev). Off without a key.
@@ -87,20 +87,20 @@ Keep `BETTER_AUTH_SECRET` safe and do not change it: it signs sessions.
 
 | Name | Needed | Goes on | Without it |
 | --- | --- | --- | --- |
-| `BETTER_AUTH_SECRET` | **Yes**, at least 32 characters | ros-app | the first deploy stops before it creates anything |
-| `BETTER_AUTH_URL` | Recommended | ros-app, and `APP_ORIGIN` on ros-runner | the origin is inferred from each request |
+| `BETTER_AUTH_SECRET` | **Yes**, at least 32 characters | crm-app | the first deploy stops before it creates anything |
+| `BETTER_AUTH_URL` | Recommended | crm-app, and `APP_ORIGIN` on crm-runner | the origin is inferred from each request |
 | `AI_GATEWAY_TOKEN` | With an authenticated gateway | both Workers | gateway calls are refused |
 | `AI_KEY_DEEPSEEK` | With `deepseek-flash` | both Workers | those roles say "not configured" |
 | `TYPESAFE_API_KEY` | No | both Workers | the judge is off and nothing else changes |
 | `AI_KEY_ASSEMBLYAI` | No | both Workers | voice is off; text AI is unaffected |
-| `ROS_AI_ADMIN_TOKEN` | No | ros-app, as `CLOUDFLARE_API_TOKEN` | Settings → AI shows instructions instead of its key form ([permissions](deploying.md#in-app-ai)) |
+| `COS_AI_ADMIN_TOKEN` | No | crm-app, as `CLOUDFLARE_API_TOKEN` | Settings → AI shows instructions instead of its key form ([permissions](deploying.md#in-app-ai)) |
 
 The deploy script passes each of these to the right Worker, so you do not need `wrangler secret put`.
 To change one later, edit the file and deploy again, or set it on both Workers:
 
 ```sh
-pnpm exec wrangler secret put AI_KEY_DEEPSEEK --name ros-app
-pnpm exec wrangler secret put AI_KEY_DEEPSEEK --name ros-runner
+pnpm exec wrangler secret put AI_KEY_DEEPSEEK --name crm-app
+pnpm exec wrangler secret put AI_KEY_DEEPSEEK --name crm-runner
 ```
 
 DeepSeek's key is sent through the gateway when you have one. Jev's goes through the gateway too.
@@ -117,13 +117,13 @@ pnpm run deploy
 
 Use `pnpm run deploy`, not `pnpm deploy`, which is a built-in pnpm command. The script creates
 whatever is missing, in this order: the four queues, the KV namespace, the Vectorize index,
-`ros-runner` (with the D1 database and R2 bucket), the core migrations, then `ros-app`. If it stops
+`crm-runner` (with the D1 database and R2 bucket), the core migrations, then `crm-app`. If it stops
 part way, fix the cause and run it again.
 
 ## 4. Verify
 
 ```sh
-node scripts/smoke-deployment.mjs https://ros-app.<subdomain>.workers.dev
+node scripts/smoke-deployment.mjs https://crm-app.<subdomain>.workers.dev
 ```
 
 It sends GET requests only. Every line should say `ok`. Then, **straight away**, because the first
@@ -150,20 +150,20 @@ Settings → Updates does not offer updates to a deployment made from source.
 Workers:
 
 ```sh
-pnpm --dir apps/app exec wrangler rollback --name ros-app
-pnpm --dir apps/app exec wrangler rollback --name ros-runner
+pnpm --dir apps/app exec wrangler rollback --name crm-app
+pnpm --dir apps/app exec wrangler rollback --name crm-runner
 ```
 
 Migrations are not undone by that. To restore the database too, pick a time from before the deploy
 (D1 Time Travel keeps 30 days). Everything written since then is lost:
 
 ```sh
-pnpm --dir apps/app exec wrangler d1 time-travel restore ros --timestamp=<ISO 8601 time>
+pnpm --dir apps/app exec wrangler d1 time-travel restore crm --timestamp=<ISO 8601 time>
 ```
 
 A Worker version from before a Durable Object migration cannot be rolled back to. To start again
-from nothing, delete in the dashboard: both Workers, the `ros` database, `ros-blobs`,
-`ros-app-oauth-kv`, the four queues and `ros-records`.
+from nothing, delete in the dashboard: both Workers, the `crm` database, `crm-blobs`,
+`crm-app-oauth-kv`, the four queues and `crm-records`.
 
 ## Known limits
 
@@ -175,10 +175,10 @@ from nothing, delete in the dashboard: both Workers, the `ros` database, `ros-bl
 - **Integrations are separate.** This deploys no gatekeeper Workers. See [integrations.md](integrations.md).
 - **workers.dev has no Cache API.** Dashboard widgets run their query on every view until the app
   is on a custom domain.
-- **The first minute logs errors.** ros-runner's minute cron can fire before migrations finish on a
+- **The first minute logs errors.** crm-runner's minute cron can fire before migrations finish on a
   first deploy. It fails harmlessly and works from the next tick.
 - **Rate limit ids.** `namespace_id` 4101 to 4103 and 4201 must be unused in your account.
-- **`npx create-relationship-os` needs a published release.** None exists yet, so this checkout
+- **`npx create-composable-os` needs a published release.** None exists yet, so this checkout
   path is the only one that works today.
 
 ## What only a real account can prove
@@ -189,9 +189,9 @@ Nothing here has touched a real account. On the first run, watch these:
   ([ADR 0352](adr/0352-squash-durable-object-migrations.md)). Check that both uploads are accepted.
 - **Plan features.** Worker Loader and the `ai` binding on your plan, and the Worker startup check.
   `wrangler deploy` prints `startup_time_ms`; the limit is 1 second.
-- **Provisioning by name.** That wrangler finds `ros` from `ros-app`'s config once ros-runner has
+- **Provisioning by name.** That wrangler finds `crm` from `crm-app`'s config once crm-runner has
   created it, and that the queue consumers attach with their dead-letter queues.
 - **Authenticated AI Gateway.** Settings → AI → Test on a Workers AI role and on `embed`, using
   [the checklist in deploying.md](deploying.md#verify-on-a-real-account-workers-ai-over-rest-adr-0330).
 - **Queues and crons.** Create a record, then check it appears in semantic search within a minute
-  or two. Check a routine reaches your thread, which proves `ros-routine-delivery`.
+  or two. Check a routine reaches your thread, which proves `crm-routine-delivery`.

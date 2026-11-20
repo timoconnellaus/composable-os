@@ -16,8 +16,10 @@
 //
 // Provider keys come only from Workers secrets in the environment (AI_KEY_<PROVIDER>) or from
 // AI Gateway BYOK (no key sent at all). Nothing here reads or writes a key in D1 (ADR 0151).
+
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { JSONObject } from "@ai-sdk/provider";
+import { product } from "@composable-os/products/active";
 import {
   embedMany,
   generateText,
@@ -161,7 +163,7 @@ export class AiAllowanceError extends AiNotConfiguredError {
     super(
       "Your plan's AI allowance or credit is used up. AI features that use your own provider " +
         "key (BYOK in Settings → AI) and AI apps connected over MCP still work. Add credit or " +
-        "upgrade at https://app.relationshiposcrm.com/billing",
+        `upgrade at ${product.billingUrl}`,
     );
   }
 }

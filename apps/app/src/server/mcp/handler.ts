@@ -5,6 +5,7 @@
 // /mcp uses the Agents SDK's stateless Streamable HTTP handler with an MCP SDK v2 server built
 // per request. The protocol has no sessions, so the MCP session is the connected app: one
 // row in core_connected_app per authorization, whose id is in the token's props.
+
 import {
   getOAuthApi,
   OAuthError,
@@ -29,6 +30,7 @@ import {
   touchConnection,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { product } from "@composable-os/products/active";
 import { createMcpHandler } from "agents/mcp/server";
 import { aiContextFor } from "../ai.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";
@@ -194,7 +196,7 @@ export function oauthOptions(
     refreshTokenTTL: REFRESH_TOKEN_TTL,
     resourceMetadata: {
       resource: env.MCP_RESOURCE || `${origin}${MCP_PATH}`,
-      resource_name: "Relationship OS",
+      resource_name: `${product.strings.name}`,
     },
     // Code exchange binds the provider's grant to the connected app; every refresh checks the
     // connection is still live, so revoking it also kills its refresh token.

@@ -7,7 +7,9 @@
 // Disclosure (ADR 0052): activities (synced email and meetings) are never routed, bulk events
 // (imports) are not either, and the message carries only the route's label, the object's label,
 // the record's title and a link.
+
 import type { CoreDatabase } from "@composable-os/db";
+import { product } from "@composable-os/products/active";
 import { type Kysely, sql } from "kysely";
 import { valueMatches } from "../automations/sources.ts";
 import type { RecordEventMessage } from "../automations/types.ts";
@@ -96,7 +98,8 @@ export function routeText(match: RouteMatch, title: string | null, url: string |
   const object = getObject(match.record.object);
   const what = `${object?.label ?? match.record.object}${title ? ` "${title}"` : ""}`;
   const verb = match.action === "deleted" ? " (deleted)" : "";
-  const link = url && match.action !== "deleted" ? `\n<${url}|Open in Relationship OS>` : "";
+  const link =
+    url && match.action !== "deleted" ? `\n<${url}|Open in ${product.strings.name}>` : "";
   return `*${slackEscape(match.route.label)}*: ${slackEscape(what)}${verb}${link}`;
 }
 

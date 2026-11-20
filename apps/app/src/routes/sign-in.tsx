@@ -1,3 +1,4 @@
+import { product } from "@composable-os/products/active";
 import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
@@ -66,7 +67,9 @@ function SignInPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>
-            {methods.firstAccount ? "Create the first account" : "Sign in to Relationship OS"}
+            {methods.firstAccount
+              ? "Create the first account"
+              : `Sign in to ${product.strings.name}`}
           </CardTitle>
           <CardDescription>
             {methods.firstAccount

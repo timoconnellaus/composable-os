@@ -19,7 +19,7 @@ import { PROVIDER_INFO } from "./roles.ts";
 import { workspaceUsage } from "./usage.ts";
 
 export interface HostedAiAdminEnv {
-  /** Var: the control plane's origin (https://app.relationshiposcrm.com). */
+  /** Var: the control plane's origin. */
   COS_CONTROL_URL?: string;
   /** Secret: this tenant's deployment-channel key (ADR 0250). */
   COS_CONTROL_KEY?: string;

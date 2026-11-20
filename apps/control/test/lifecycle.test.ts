@@ -78,7 +78,7 @@ describe("support grants", () => {
     const [header, body, signature] = token.split(".") as [string, string, string];
     const claims = JSON.parse(new TextDecoder().decode(fromBase64url(body)));
     expect(claims).toMatchObject({
-      iss: "relationshiposcrm-control",
+      iss: "composable-os-control",
       aud: "helpco.relationshiposcrm.com",
       sub: grant,
       email: STAFF,
