@@ -10,7 +10,9 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   type ActingUser,
+  applyTransition,
   defineOperation,
+  getObject,
   type InvocationContext,
   invokeByName,
   invokeOperation,
@@ -809,5 +811,134 @@ describe("stages and states on the one engine", () => {
     expect(await inView("rec_state_history")).toEqual([ORDER]);
     expect((await timeline(`${ext}.job`, job.id)).map((p) => p.subject)).toEqual(["Moved to Done"]);
     expect((await timeline(ORDER, order.id)).map((p) => p.subject)).toEqual(["Moved to In review"]);
+  });
+});
+
+describe("who may move a stage", () => {
+  /**
+   * Nothing can call as a customer until stage 22, so the customer's write is put to the engine
+   * directly, as the record operations will once a customer principal exists.
+   */
+  const moveAs = (by: "customer" | "host") =>
+    defineOperation({
+      name: `fixture.moveStageAs${by === "host" ? "Host" : "Customer"}`,
+      description: "Test fixture: puts a stage move to the transition engine as the given mover.",
+      input: z.object({ id: z.string(), from: z.string(), to: z.string() }),
+      output: z.object({ moved: z.string().nullable() }),
+      permission: "records:write",
+      risk: "write",
+      async handler(input, ctx) {
+        const object = getObject(`${ext}.job`);
+        if (!object) throw new Error("no job object");
+        const outcome = await applyTransition(
+          ctx,
+          object,
+          input.id,
+          { step: input.from },
+          { step: input.to },
+          { by },
+        );
+        return { moved: outcome.moved?.title ?? null };
+      },
+    });
+
+  it("refuses a customer on a stage-driven object, and lets staff and the host move it", async () => {
+    const step = async (name: string, position: number) =>
+      (
+        (await invokeByName(
+          "record.create",
+          { object: `${ext}.step`, values: { name, position, type: "open" } },
+          context(admin),
+        )) as Order
+      ).id;
+    const first = await step(unique("First"), 101);
+    const second = await step(unique("Second"), 102);
+    const job = (await invokeByName(
+      "record.create",
+      { object: `${ext}.job`, values: { name: unique("Job"), step: first } },
+      human(),
+    )) as Order;
+    const input = { id: job.id, from: first, to: second };
+
+    expect(await refusal(invokeOperation(moveAs("customer"), input, context(admin)))).toEqual({
+      code: "invalid_input",
+      message: expect.stringMatching(/^Only staff or the platform can move job to Second/),
+      details: {
+        rule: "stage_move_not_permitted",
+        object: `${ext}.job`,
+        field: "step",
+        fields: ["step"],
+        labels: ["Step"],
+        stage: { id: second, title: expect.stringMatching(/^Second/), type: "open" },
+        by: ["staff", "host"],
+      },
+    });
+    expect(await invokeOperation(moveAs("host"), input, context(admin))).toEqual({
+      moved: expect.stringMatching(/^Second/),
+    });
+    const moved = (await invokeByName(
+      "record.update",
+      { object: `${ext}.job`, id: job.id, values: { step: second } },
+      human(),
+    )) as Order;
+    expect(moved.values.step).toBe(second);
+  });
+});
+
+describe("a state field's column", () => {
+  it("defaults to the initial state, so a column added to existing records is never empty", async () => {
+    const id = extId("sd");
+    const fields = { name: { type: "text", label: "Name" } };
+    const thing = { label: "Thing", plural: "Things", titleField: "name" };
+    await reconcile(manifest(id, { objects: { thing: { ...thing, fields } } } as never));
+    const old = (await invokeByName(
+      "record.create",
+      { object: `${id}.thing`, values: { name: "Before states" } },
+      human(),
+    )) as Order;
+
+    await reconcile(
+      manifest(id, {
+        version: "1.1.0",
+        objects: {
+          thing: {
+            ...thing,
+            fields: {
+              ...fields,
+              state: {
+                type: "select",
+                label: "State",
+                options: [
+                  { value: "it's new", label: "New" },
+                  { value: "done", label: "Done" },
+                ],
+              },
+            },
+            states: {
+              field: "state",
+              initial: "it's new",
+              moves: [{ from: "it's new", to: "done", by: ["staff"], final: true }],
+            },
+          },
+        },
+      } as never),
+    );
+    const get = async () =>
+      ((await invokeByName("record.get", { object: `${id}.thing`, id: old.id }, human())) as Order)
+        .values.state;
+    expect(await get()).toBe("it's new");
+    // Its first move opens its history; there was no row to close.
+    await invokeByName(
+      "record.update",
+      { object: `${id}.thing`, id: old.id, values: { state: "done" } },
+      human(),
+    );
+    expect(await get()).toBe("done");
+    const { results } = await env.DB.prepare(
+      "SELECT state, is_final, is_current FROM rec_state_history WHERE record_id = ?",
+    )
+      .bind(old.id)
+      .all();
+    expect(results).toEqual([{ state: "done", is_final: 1, is_current: 1 }]);
   });
 });

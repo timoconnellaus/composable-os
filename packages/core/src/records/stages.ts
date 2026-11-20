@@ -24,8 +24,8 @@ import type { FieldDefinition, ObjectDefinition, StagesDefinition } from "../fie
 import type { HandlerContext } from "../operation.ts";
 import { viewColumnOf } from "./columns.ts";
 import {
-  ALL_MOVERS,
   type Lifecycle,
+  type Mover,
   type Placement,
   ruleBase,
   TransitionRuleError,
@@ -47,7 +47,7 @@ export interface StageInfo {
 
 /** Details of a refused write: which stage, and which fields it needs. */
 export interface StageRuleDetails {
-  /** `stage_move_not_permitted` is the engine's; no stage move is closed to a caller today. */
+  /** `stage_move_not_permitted`: a customer tried to move a stage; `by` says who may. */
   rule: "stage_required_fields" | "stage_not_in_group" | "no_stage" | "stage_move_not_permitted";
   object: string;
   /** The first missing field (what a UI asks for first). */
@@ -55,6 +55,8 @@ export interface StageRuleDetails {
   fields: string[];
   labels: string[];
   stage: { id: string; title: string; type: StageType } | null;
+  /** `stage_move_not_permitted`: who may make the move. */
+  by?: Mover[];
 }
 
 /** A write broke a stage rule. `code` is `invalid_input`; details say what to fix. */
@@ -198,6 +200,12 @@ async function defaultGroup(
   return row.rows[0]?.id ?? null;
 }
 
+/**
+ * Who may move a record between stages (ADR 0425): staff, and platform code. A customer never
+ * moves a record through a pipeline. Every caller of ADR 0100's "every actor" is staff.
+ */
+const STAGE_MOVERS: readonly Mover[] = ["staff", "host"];
+
 /** Where a write leaves a record, with the stage record the values follow. */
 interface StagePlacement extends Placement {
   stage: StageInfo;
@@ -218,11 +226,13 @@ export function stagesLifecycle(
     message: string,
     fields: string[],
     stage: StageInfo | null,
+    by?: readonly Mover[],
   ) =>
     new StageRuleError(message, {
       ...ruleBase(write, rule, fields),
       rule,
       stage: stage ? stageRef(stage) : null,
+      ...(by ? { by: [...by] } : {}),
     });
 
   return {
@@ -311,8 +321,7 @@ export function stagesLifecycle(
         fromId: beforeStage,
         from: left ? stageRef(left) : null,
         to: stageRef(stage),
-        // ADR 0100: stage rules hold for every actor alike, and no stage move is kept from one.
-        by: ALL_MOVERS,
+        by: STAGE_MOVERS,
         requires: [...stage.requiredFields, ...(stages.requiredByType?.[stage.type] ?? [])],
         group: () => (group ? ((after[group] as string | null | undefined) ?? null) : stage.group),
       };
@@ -345,6 +354,7 @@ export function stagesLifecycle(
         refusal.message,
         refusal.fields,
         placement.stage,
+        refusal.rule === "move_not_permitted" ? placement.by : undefined,
       );
     },
   };

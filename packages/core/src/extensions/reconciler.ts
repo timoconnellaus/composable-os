@@ -17,6 +17,7 @@ import {
   type FieldManifest,
   type FieldTypeName,
   isLosslessChange,
+  type ObjectManifest,
 } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely } from "kysely";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
@@ -102,6 +103,15 @@ function columnDdl(name: string, type: FieldTypeName): string {
   const storage = FIELD_TYPE_REGISTRY[type].storage;
   if (!storage) throw new Error(`${type} fields have no column`);
   return `${ident(name)} ${storage}`;
+}
+
+/**
+ * A state field's column defaults to the initial state (ADR 0425), so a column added to an object
+ * that already has records is never empty. Other columns have no default.
+ */
+function stateDefault(object: ObjectManifest | undefined, field: string): string {
+  const states = object?.states;
+  return states?.field === field ? ` DEFAULT '${states.initial.replace(/'/g, "''")}'` : "";
 }
 
 /** The definition stored for a field (without volatile keys). */
@@ -234,7 +244,9 @@ export function planFromState(
     const table = objectTable(ext, local);
     const columns = Object.entries(object.fields)
       .filter(([, field]) => field.type !== "formula")
-      .map(([field, spec]) => columnDdl(columnName(field), spec.type));
+      .map(
+        ([field, spec]) => columnDdl(columnName(field), spec.type) + stateDefault(object, field),
+      );
     tableDdl.push(
       `CREATE TABLE ${table} (id TEXT PRIMARY KEY NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, created_by TEXT, updated_by TEXT, deleted_at TEXT, deleted_by TEXT${columns.length ? `, ${columns.join(", ")}` : ""})`,
     );
@@ -427,7 +439,10 @@ export function planFromState(
           });
           continue;
         }
-        tableDdl.push(`ALTER TABLE ${table} ADD COLUMN ${columnDdl(column, spec.type)}`);
+        const declaring = own ? manifest.objects[target.slice(ext.length + 1)] : undefined;
+        tableDdl.push(
+          `ALTER TABLE ${table} ADD COLUMN ${columnDdl(column, spec.type)}${stateDefault(declaring, local)}`,
+        );
       }
       next.fields.push({
         extensionId: ext,
