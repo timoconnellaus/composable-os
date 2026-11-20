@@ -51,7 +51,9 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
 4. **Write an automation** with `defineAutomation`: `label`, `description`, a `trigger`
    (`AutomationTrigger` lists every type; the README's "Triggers" table explains most),
    `conditions` on the trigger record when only some records should start a run, `steps` and
-   `run`. Ship it turned off with `enabled: false` unless the request says otherwise (Leads).
+   `run`. A `dateRelative` trigger's `offsetDays` is negative before the date and positive
+   after it, in days only (a month before is `-30`). An automation the request itself asks for
+   ships on; one you added as an extra ships off with `enabled: false` (Leads).
 5. **Declare every step and its intents.** A camelCase `name` each. A `do` step lists `reads`
    (objects), `writes` (`WriteIntent`: object, action, count, titles, assignee), `notifies`
    (recipient and the message as written) and `calls` (other operations, such as `query.sql`).
@@ -65,7 +67,9 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    entry and its module in `permissions.modules`. See Deals: `permissions` in `index.ts`.
 7. **Write `run(event, step, ctx)`.** Call `step.do`, `step.sleep` and `step.waitForEvent` only
    with declared names of the matching kind, each once. Notify with `ctx.notify` inside the step
-   that declares it. See Deals: `wonOnboarding.run`.
+   that declares it. Before calling an operation, read its input schema and field descriptions
+   in `packages/core/src/operations/` (`task.create`: `assigneeId: null` is unassigned, leaving
+   it out assigns the caller). See Deals: `wonOnboarding.run`.
 8. **Add a dashboard** typed `DashboardDeclaration`: `title`, `description`, `filters`, `widgets`
    (`home: true` on at most one, to make it the default Home). A filter's `id` names its SQL
    parameters (a dateRange `date` binds `:date_from` and `:date_to`; a user filter `owner` binds
@@ -81,7 +85,9 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    the output; pass `operations: { "query.sql": ... }` for operations it does not fake.
    `host.runAutomation(name, { record, period, ... })` runs it start to finish: assert
    `run.undeclared` is empty, then `run.steps`, `run.writes` and `run.notifications`. Test the
-   case where the conditions do not hold too. See Deals: `test/automations.test.ts`.
+   case where the conditions do not hold too. The test host does not evaluate the trigger: assert
+   its declared shape (the sign of `offsetDays`), and pass `period` for `schedule` and
+   `dateRelative` runs and assert the dates taken from it. See Deals: `test/automations.test.ts`.
 10. **Check, fix, repeat** (last section), then run `pnpm lint`, `pnpm typecheck` and `pnpm test`
     at the repository root.
 

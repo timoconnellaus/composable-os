@@ -29,38 +29,44 @@ Read these before writing. They are the source of truth; this skill only gives t
 - `extensions/deals/index.ts`: the worked example. `extensions/lifecycle/index.ts` is the smallest
   one (fields on person, a view). `extensions/leads/index.ts` builds on another extension.
 
-1. **Choose the id.** 2 to 30 lowercase letters or digits, starting with a letter; usually the
+1. **Look at what exists.** Read the other extensions' `index.ts` and README. If one already
+   models the request (Deals seeds a Renewals pipeline), extend it with fields or say why it does
+   not fit, before adding a new object.
+2. **Choose the id.** 2 to 30 lowercase letters or digits, starting with a letter; usually the
    plural of the main record (`deals`, `leads`, `renewals`). The directory is `extensions/<id>/`
    and its name must equal the id. An object may not take a core name (`person`, `task`, ...).
-2. **Create the package.** Copy `package.json`, `tsconfig.json` and `vitest.config.ts` from
+3. **Create the package.** Copy `package.json`, `tsconfig.json` and `vitest.config.ts` from
    `extensions/lifecycle/`, rename the package `@composable-os/extension-<id>`, then run
    `pnpm install`. Every directory under `extensions/` is bundled into the release and installed
    in every deployment at boot. Keep `composableOs.optional: true` in `package.json` unless the
-   request says everyone gets it: an optional extension is installed by an admin.
-3. **Declare the objects** in `index.ts` with `defineExtension`. For each: `label`, `plural`,
+   request says everyone gets it: an optional extension does nothing until an admin installs it,
+   so say that when you report the work.
+4. **Declare the objects** in `index.ts` with `defineExtension`. For each: `label`, `plural`,
    `icon`, `titleField`, `description`, `fields`. Use the field type that says what the value is
    (`currency`, `date`, `user`, `select` with options), not `text` for everything. A `formula`
    reads only the same record's fields. See Deals: `objects.deal.fields`, `weightedValue`.
-4. **Relate records.** `{ type: "relation", to: "organisation" }` for a base record,
+   `ObjectSpec` has more than the examples use; read it for `owner` (the record's user field),
+   `titleDefault` (a title taken from a relation) and `requireOneOf` (Leads uses all three).
+5. **Relate records.** `{ type: "relation", to: "organisation" }` for a base record,
    `to: "<id>.<object>"` for your own, `to: "deals.deal"` for another extension's. To add fields
    to an object you do not own, use top-level `fields: { organisation: { ... } }` or
    `fields: { "deals.deal": { ... } }`; never edit the other extension. There is no `dependsOn`
    key: naming another extension's object is the dependency, and that extension must be installed
    first. See Leads: `fields["deals.deal"]`, and `@composable-os/extension-deals` in its
    `devDependencies` for tests.
-5. **Declare permissions**, the least that works. Your own objects need none. `read` and `write`
+6. **Declare permissions**, the least that works. Your own objects need none. `read` and `write`
    name other objects, `operations` names operations exactly, and any of them needs `"ops"` in
    `modules`. Views, tabs and panels over other objects need no permission; only code does.
-6. **Add indexes and seeds.** One index for each field a list filters or sorts by. `seed` for
+7. **Add indexes and seeds.** One index for each field a list filters or sorts by. `seed` for
    set-up records people will then edit (Deals: `objects.pipeline.seed`, `objects.stage.seed`).
-7. **Show it.** `navigation` (`main`, `settings` for set-up records, `none`), `navigationOrder`,
+8. **Show it.** `navigation` (`main`, `settings` for set-up records, `none`), `navigationOrder`,
    `owner`; `views` for saved lists and boards; `recordTabs` and `recordPanels` to show your
    records on another record's page; `settings` for what an admin chooses. See Deals from
    `views:` down. The host renders all of it.
-8. **Add behaviours** the request needs (below).
-9. **Write a README and a first test**: `test/<id>.test.ts` with `createTestHost(extension)` and
+9. **Add behaviours** the request needs (below).
+10. **Write a README and a first test**: `test/<id>.test.ts` with `createTestHost(extension)` and
    `expect(host.issues).toEqual([])` (Deals: `test/deals.test.ts`, first test).
-10. **Check, fix, repeat** (last section), then run `pnpm lint`, `pnpm typecheck` and `pnpm test`
+11. **Check, fix, repeat** (last section), then run `pnpm lint`, `pnpm typecheck` and `pnpm test`
     at the repository root: a shipped extension is part of the runner's bundle and its tests.
 
 ### Behaviours

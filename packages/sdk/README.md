@@ -241,6 +241,15 @@ One version of an extension may serve many runs from the same warm sandbox (ADR 
 module-scope variables can outlive a run. Keep per-call state inside the handler, and persist
 anything that must last in `ctx.storage`.
 
+## Checking an extension in a checkout
+
+A shipped extension (`extensions/<id>/`) is checked without a deployment by the `cos` command
+(ADR 0405): `pnpm cos ext check extensions/<id>` runs the checks `extension.check` runs (imports,
+types, contract, formulas, automations, a dry-run reconcile on an empty local database) and
+prints each issue with a file, the manifest path, the message and the fix where there is one;
+`pnpm cos ext test extensions/<id>` runs its tests and refuses a tool or automation that no test
+names. The skills in `skills/` give the order of work.
+
 ## Testing an extension
 
 `@composable-os/sdk/testing` runs tools with in-memory host modules and the host's permission rules:
@@ -338,7 +347,7 @@ export default defineExtension({
 | `record` | `object`, `on: ["created" \| "updated" \| "deleted" \| "restored"]`, `includeBulk?` | after a record change commits (bulk changes only with `includeBulk`) |
 | `fieldChanged` | `object`, `field`, `from?`, `to?`, `includeBulk?` | when the field changes; `from`/`to` are a value, `{ in: [...] }` or, on the object's stage field, `{ stageType: "open" \| "won" \| "lost" }` |
 | `schedule` | `cron` (5 fields) | in the automation timezone (Settings → Automations) |
-| `dateRelative` | `object`, `field` (date/datetime), `offsetDays` (−365…365) | once a day for each record whose date is that many days away |
+| `dateRelative` | `object`, `field` (date/datetime), `offsetDays` (−365…365) | once a day for each record, `offsetDays` days after its date (positive) or before it (negative: `-30` is 30 days before); 0 is the day itself |
 | `manual` | `object`, `label`, `bulk?` | a button on the record page (and a bulk action on lists) |
 | `approvalDecided` | `decision?`, `operation?`, `object?` | when a pending action is approved or rejected |
 
