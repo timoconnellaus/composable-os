@@ -99,10 +99,10 @@ export interface DeployablePackage {
 /**
  * Workers with a wrangler.jsonc that are not part of a deployment: the landing page
  * (the Composable OS site, ADR 0191) is deployed on its own by .github/workflows/marketing.yml, and
- * the hosted control plane (apps/control: crm-control and crm-dispatch, ADR 0210) is our own
+ * the hosted control plane (products/crm/apps/control: crm-control and crm-dispatch, ADR 0210) is our own
  * service, deployed by docs/saas-go-live.md, never part of a customer's deployment.
  */
-const NOT_RELEASED = new Set(["apps/marketing", "apps/control"]);
+const NOT_RELEASED = new Set(["apps/marketing"]);
 
 /** Every wrangler.jsonc under apps/ and packages/, sorted by directory. */
 export function readDeployablePackages(root: string): DeployablePackage[] {

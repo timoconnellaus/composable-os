@@ -3,6 +3,7 @@ packages:
   - packages/*
   - extensions/*
   - products
+  - products/*/apps/*
   - evals/*
   - scripts/release
 

@@ -76,9 +76,7 @@ export const ALLOW = [
   /^packages\/db\/migrations\/0380_/,
   // Output of eval runs made before the rename.
   /^evals\/[a-z-]+\/reports\//,
-  // Until they are done: the hosted CRM's control plane moves under products/ (its domain is the
-  // product's), and the site is rewritten as the Composable OS site.
-  /^apps\/control\//,
+  // Until it is rewritten as the Composable OS site.
   /^apps\/marketing\//,
   // This check and its tests.
   /^scripts\/check-stray-names(?:\.test)?\.mjs$/,

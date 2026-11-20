@@ -79,6 +79,6 @@ jobs:
           path: |
             apps/app/playwright-report
             apps/app/test-results
-            apps/control/playwright-report
-            apps/control/test-results
+            products/crm/apps/control/playwright-report
+            products/crm/apps/control/test-results
           retention-days: 7
