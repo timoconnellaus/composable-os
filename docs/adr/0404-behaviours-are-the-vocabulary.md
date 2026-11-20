@@ -39,7 +39,8 @@ set is small and shared, a pack is mostly a manifest.
 
 ## Consequences
 - The pace of new product kinds is set by the pace of new behaviours. That is deliberate.
-- `stages` stays as it is; `states` is the general form, and whether `stages` is later expressed
-  through it is decided when `states` is built.
+- **`stages` and `states` share one engine** (decided 2026-11-20, stage 25 interview). `states` is
+  declared in code with a fixed set; `stages` stays data an admin edits. Both run on one
+  transition engine with one history table, and `stages` moves onto it in stage 25.
 - "Entitlement" already means a hosted plan's limits (ADR 0211). The pass-and-uses behaviour is
   called `allowance` to keep the two apart.
