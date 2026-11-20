@@ -10,7 +10,7 @@ import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
-import type { ExtensionHost, SourceIssue } from "./host.ts";
+import type { EvaluateResult, ExtensionHost, SourceIssue } from "./host.ts";
 import { CORE_TARGETS, isCoreTarget } from "./naming.ts";
 import {
   planReconcile,
@@ -121,28 +121,38 @@ export async function checkManifest(
   return { issues: plan.issues.map(fromReconcile), manifest, plan };
 }
 
-/** `extension.check`: typecheck (transpile + imports), contract, formulas, dry-run reconcile. */
-export async function checkExtension(
-  ctx: HandlerContext,
-  input: { id: string; commit: string } | { id: string; files: Record<string, string> },
+/**
+ * The check itself, given what evaluating the source returned: source issues (typecheck, imports,
+ * syntax) as they are, otherwise contract, formulas, automations and the dry-run reconcile against
+ * `db`. `extension.check` calls it with the sandbox's evaluation and the deployment's database;
+ * `cos ext check` calls it with its own evaluation and an empty local database (ADR 0405). The
+ * field registry must be current for `db` (`refreshSchemaRegistry`).
+ */
+export async function checkEvaluated(
+  db: Kysely<CoreDatabase>,
+  id: string,
+  evaluated: EvaluateResult,
+  now: string,
 ): Promise<CheckResult> {
-  const host = requireHost(ctx);
-  const evaluated = await host.evaluate(input);
   if (!evaluated.ok) {
     return { ok: false, issues: evaluated.issues.map(fromSource), manifest: null, plan: null };
   }
-  const { issues, manifest, plan } = await checkManifest(
-    ctx.db,
-    input.id,
-    evaluated.manifest,
-    ctx.now,
-  );
+  const { issues, manifest, plan } = await checkManifest(db, id, evaluated.manifest, now);
   return {
     ok: issues.length === 0,
     issues,
     manifest,
     plan: plan ? { ddl: plan.ddl, changes: plan.changes } : null,
   };
+}
+
+/** `extension.check`: typecheck (transpile + imports), contract, formulas, dry-run reconcile. */
+export async function checkExtension(
+  ctx: HandlerContext,
+  input: { id: string; commit: string } | { id: string; files: Record<string, string> },
+): Promise<CheckResult> {
+  const host = requireHost(ctx);
+  return checkEvaluated(ctx.db, input.id, await host.evaluate(input), ctx.now);
 }
 
 export interface InstallResult {

@@ -1,0 +1,34 @@
+{
+  "name": "@composable-os/extension-check",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "description": "The source checks of an extension (allowed imports, transpile, the type check against @composable-os/sdk), shared by cos-runner (extension.check) and the cos command (cos ext check). Runtime-neutral except ./sdk-artifacts, which is Node-only.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./build": "./src/build.ts",
+    "./typecheck": "./src/typecheck.ts",
+    "./sdk-artifacts": "./src/sdk-artifacts.ts",
+    "./cli": "./src/node/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/core": "workspace:*",
+    "@composable-os/db": "workspace:*",
+    "@composable-os/sdk": "workspace:*",
+    "esbuild": "0.28.2",
+    "kysely": "0.29.8",
+    "sucrase": "3.35.0",
+    "typescript": "6.0.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@composable-os/config": "workspace:*",
+    "@types/node": "24.19.2",
+    "vitest": "5.1.0"
+  }
+}

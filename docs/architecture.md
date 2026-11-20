@@ -763,6 +763,8 @@ packages/
   db/                  core D1 migrations (incl. core_base_* views), typed core schema
   auth/                IdentityProvider interface; better-auth and cloudflare-access adapters
   sdk/                 the extension contract (defineExtension, defineTool), formula language, test harness
+  extension-check/     the source checks of an extension (imports, type check), shared by cos-runner
+                       and `cos ext check`; and the Node side of `cos ext check` / `cos ext test`
   ui/                  shared shadcn/ui components and the view-spec renderer
   config/              shared tsconfig, biome and vitest presets
   agent-core/, agent-a2ui/, agent-voice/, agent-plugins/
@@ -770,7 +772,8 @@ packages/
                        real since stage 17 W1, the others are placeholders for later waves)
   release/             release bundles, manifest types, verification, the Cloudflare API deploy
                        engine, preflight and the update procedure (Node and Workers)
-  create-composable-os/ the installer CLI: npx create-composable-os, cos upgrade / rollback / status
+  create-composable-os/ the installer CLI: npx create-composable-os, cos upgrade / rollback / status,
+                       and cos ext check / test in a checkout
   gatekeeper-interface/ the gatekeeper RPC interface (vendored from cloudflare-os, see UPSTREAMS.md)
   gatekeeper-kit/      gatekeeper building blocks (vendored)
   gatekeeper-observability/, gatekeeper-configurator-ui/, mcp-shared/
@@ -781,6 +784,7 @@ packages/
 products/
   crm/                 the CRM: its definition (product.ts) and its apps
     apps/control/      hosted SaaS control plane and dispatch Worker (stage 10)  → "crm-control", "crm-dispatch"
+skills/                agent skills for building on the platform (stage 21, ADR 0405)
 extensions/
   deals/               (stage 4) Deals: pipelines, stages, deals, participants (ADR 0026, 0100)
   leads/               (stage 15) Leads: inbox, conversion to deals (ADR 0246)
@@ -915,8 +919,36 @@ The staff admin and the MCP surface are the host's and are not rebuilt per clien
 
 Stage 21; [ADR 0405](adr/0405-skills-ship-with-the-platform.md).
 
-Installable instructions for agents, in `skills/`, versioned with the contract and each ending in
-a checker. The first set is for writing extensions.
+Instructions for agents, in `skills/`: `write-extension` and `add-automations-tools-dashboards`.
+Each is one `SKILL.md` in four parts (when to use it, the steps, the rules, the check command),
+plain Markdown that points at the SDK and at Deals. `.claude/skills/` links to them and
+`AGENTS.md` points other agents at the folder. `skills/CONTRACT_VERSION` holds the contract
+version they describe; `scripts/check-skills-version.mjs`, part of `pnpm lint`, fails when the
+SDK's `CONTRACT_VERSION` differs. There is no eval of the skills.
+
+Every skill ends in the same checker:
+
+```
+cos ext check <dir>                      extension.check (in a deployment)
+  read the directory's .ts/.js files       host.evaluate: the workspace's files or a commit
+  buildExtension      ─┐ @composable-os/   ─ the same functions, in cos-runner
+  typecheck           ─┘ extension-check     (the type check in its own Dynamic Worker)
+  evaluate in Node (no host modules)       evaluate in a Dynamic Worker (no host modules)
+  checkEvaluated(db, id, evaluated) ────── checkEvaluated(db, id, evaluated)   packages/core
+    contract, formulas, automations          the same
+    dry-run reconcile: an empty local        dry-run reconcile: the deployment's D1
+    SQLite with packages/db/migrations
+```
+
+The command evaluates the extension in the caller's Node process, with the caller's authority, as
+its tests do; the sandbox is the host's. Extensions the one under check names (`deals.deal`) are
+read from the directories beside it and reconciled into the local database first. Issues print
+with a file and line, the path into the manifest, the message and the fix where the check has
+one; the exit code is 0 only with none. `apps/runner/test/same-issues.test.ts` and
+`packages/extension-check/test/check.test.ts` hold the host and the command to one list of issues
+for the same broken fixtures. `cos ext test <dir>` runs the extension's Vitest tests, after
+refusing an extension with a tool or automation named in no test file. `cos ext` runs in a
+checkout of the repository (`pnpm cos ext ...`); how a client repo gets it is stage 24.
 
 ### Trust boundaries
 

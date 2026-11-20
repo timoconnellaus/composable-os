@@ -199,6 +199,9 @@ importers:
       '@composable-os/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@composable-os/extension-check':
+        specifier: workspace:*
+        version: link:../../packages/extension-check
       '@composable-os/products':
         specifier: workspace:*
         version: link:../../products
@@ -683,12 +686,18 @@ importers:
 
   packages/create-composable-os:
     devDependencies:
+      '@cloudflare/workers-types':
+        specifier: 5.20261104.1
+        version: 5.20261104.1
       '@composable-os/config':
         specifier: workspace:*
         version: link:../config
       '@composable-os/core':
         specifier: workspace:*
         version: link:../core
+      '@composable-os/extension-check':
+        specifier: workspace:*
+        version: link:../extension-check
       '@composable-os/product':
         specifier: workspace:*
         version: link:../product
@@ -729,6 +738,43 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+
+  packages/extension-check:
+    dependencies:
+      '@composable-os/core':
+        specifier: workspace:*
+        version: link:../core
+      '@composable-os/db':
+        specifier: workspace:*
+        version: link:../db
+      '@composable-os/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
+      kysely:
+        specifier: 0.29.8
+        version: 0.29.8
+      sucrase:
+        specifier: 3.35.0
+        version: 3.35.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: 5.20261104.1
+        version: 5.20261104.1
+      '@composable-os/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
       vitest:
         specifier: 5.1.0
         version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
