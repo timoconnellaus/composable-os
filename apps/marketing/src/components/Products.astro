@@ -1,0 +1,35 @@
+---
+// The products built on the platform. The CRM is the first and the only one you can install
+// today (Next.astro names what is in design).
+import Demo from "./Demo.astro";
+import WaitlistForm from "./WaitlistForm.astro";
+---
+
+<section id="products" class="tight-top" aria-labelledby="products-title">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">Products</span>
+      <h2 id="products-title">Built on it: the CRM, first.</h2>
+      <p class="lead">
+        The CRM is the platform plus the Deals and Leads extensions. It is finished enough to run
+        your pipeline on, and it is the proof that a whole product can be composed this way.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="crm" class="product tight-top" aria-labelledby="crm-title">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">The CRM</span>
+      <h2 id="crm-title">A CRM you shape by asking.</h2>
+      <p class="lead">
+        Ask for a field, a dashboard or an automation. Your AI builds it, you approve it, and it
+        runs on infrastructure you own. Self-host it today, or join the waitlist for the hosted
+        version.
+      </p>
+      <WaitlistForm source="hero" />
+    </div>
+  </div>
+  <Demo />
+</section>

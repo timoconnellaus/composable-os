@@ -43,9 +43,9 @@ const og = `<style>${base}
 </style>
 <div class="orb big"></div>
 <div class="wrap">
-  <div class="logo"><span class="orb"></span>Relationship OS</div>
-  <h1>The operating system for your <span>customer relationships.</span></h1>
-  <p>An AI-native CRM you can run in your own Cloudflare account.</p>
+  <div class="logo"><span class="orb"></span>Composable OS</div>
+  <h1>Compose the software <span>your company runs on.</span></h1>
+  <p>A trusted host in your own Cloudflare account. First product: the CRM.</p>
 </div>`;
 
 const icon = `<style>${base}

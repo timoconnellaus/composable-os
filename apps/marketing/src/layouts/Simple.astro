@@ -13,7 +13,7 @@ interface Props {
 const { title, heading, eyebrow, lead, description, noindex = false } = Astro.props;
 ---
 
-<Page title={`${title} · Relationship OS`} description={description ?? lead} noindex={noindex}>
+<Page title={`${title} · Composable OS`} description={description ?? lead} noindex={noindex}>
   <section class="page" aria-labelledby="page-title">
     <div class="wrap">
       {eyebrow && <span class="eyebrow">{eyebrow}</span>}

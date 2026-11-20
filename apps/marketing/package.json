@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
-  "description": "The landing page for relationshiposcrm.com: a static Astro site served by a Worker that stores waitlist and contact-sales submissions in D1. No trackers.",
+  "description": "The landing page for composableos.dev: a static Astro site served by a Worker that stores waitlist and contact-sales submissions in D1. No trackers.",
   "type": "module",
   "scripts": {
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev --port 4321",

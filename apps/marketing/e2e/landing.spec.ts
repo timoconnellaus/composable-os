@@ -16,6 +16,8 @@ test.describe("demo", () => {
   test("autoplays, and the progress bar tracks the step", async ({ page }) => {
     await page.goto("/");
     await expect(tab(page, "Ask")).toHaveAttribute("aria-selected", "true");
+    // The demo is in the CRM's section, below the fold: it plays only while it is on screen.
+    await page.locator("[data-demo]").scrollIntoViewIfNeeded();
     await expect(page.getByRole("button", { name: "Pause the demo" })).toBeVisible();
     // The first beat of step 1: the assistant panel opens and the question is typed.
     await expect(page.locator(".bub.u")).toContainText("60 days", { timeout: 5_000 });
@@ -249,10 +251,10 @@ test.describe("themes", () => {
 
 test("metadata, robots.txt and sitemap.xml are served", async ({ page, request }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle(/Relationship OS/);
+  await expect(page).toHaveTitle(/Composable OS/);
   await expect(page.locator('meta[property="og:image"]')).toHaveAttribute(
     "content",
-    "https://relationshiposcrm.com/og.png",
+    "https://composableos.dev/og.png",
   );
   for (const path of ["/robots.txt", "/sitemap.xml", "/og.png", "/favicon.svg", "/privacy/"]) {
     expect((await request.get(path)).status(), path).toBe(200);

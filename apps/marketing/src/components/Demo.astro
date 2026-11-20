@@ -1,5 +1,5 @@
 ---
-// The hero's product demo: five steps replaying the real app (in its own shadcn neutral theme).
+// The CRM's product demo: five steps replaying the real app (in its own shadcn neutral theme).
 // demo.ts drives it from one clock. The markup is the no-JavaScript still: step 2's organisations
 // table with the new, pending Renewal date column. The app picture is decorative (aria-hidden);
 // the live region describes each step instead.
@@ -35,7 +35,7 @@ const sideNav = [
 ---
 
 <div class="demo" data-demo>
-  <div class="tabs" role="tablist" aria-label="What Relationship OS does">
+  <div class="tabs" role="tablist" aria-label="What the CRM does">
     {
       DEMO_STEPS.map((step, i) => (
         <button
@@ -59,7 +59,7 @@ const sideNav = [
     <div class="screen" id="demo-screen" role="tabpanel" aria-labelledby="t0" tabindex="0">
       <div class="app" aria-hidden="true">
         <aside class="a-side">
-          <div class="brand"><i></i>Relationship OS</div>
+          <div class="brand"><i></i>CRM</div>
           {
             sideNav.map((item) => (
               <div class:list={["it", { on: item.nav === "org" }]} data-nav={item.nav}>

@@ -17,8 +17,8 @@ interface Props {
   noindex?: boolean;
 }
 const {
-  title = "Relationship OS · The AI-native CRM you can run yourself",
-  description = "Relationship OS is a CRM you shape by asking. Your AI builds fields, dashboards and automations, you approve each change, and it runs on Cloudflare in your own account or ours.",
+  title = "Composable OS · Compose the software your company runs on",
+  description = "Composable OS is a platform for composing products on a trusted host in your own Cloudflare account. The first product is a CRM your AI can reshape, with a person approving each change.",
   home = false,
   noindex = false,
 } = Astro.props;
@@ -41,15 +41,15 @@ const ogImage = new URL("/og.png", Astro.site);
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta property="og:site_name" content="Relationship OS" />
-    <meta property="og:title" content="Relationship OS" />
+    <meta property="og:site_name" content="Composable OS" />
+    <meta property="og:title" content="Composable OS" />
     <meta property="og:description" content="The operating system for your customer relationships." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={ogImage} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Relationship OS: the operating system for your customer relationships." />
+    <meta property="og:image:alt" content="Composable OS: compose the software your company runs on." />
     <meta name="twitter:card" content="summary_large_image" />
     <!-- Marks that JavaScript runs, before first paint, so no-JS styles never flash. -->
     <script is:inline>document.documentElement.classList.add("js");</script>

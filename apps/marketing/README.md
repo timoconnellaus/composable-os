@@ -1,6 +1,6 @@
 # apps/marketing
 
-The landing page for [relationshiposcrm.com](https://relationshiposcrm.com) (ADR 0191): a static
+The landing page for [composableos.dev](https://composableos.dev) (ADR 0191): a static
 Astro site served by the `cos-site` Worker, which also answers `POST /api/signup` (the
 waitlist and contact-sales form) and stores submissions in its own D1 database. No trackers: the
 build fails if any page loads anything from another origin or mentions a known analytics tool

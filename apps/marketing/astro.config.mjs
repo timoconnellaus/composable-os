@@ -5,7 +5,7 @@
 import { defineConfig } from "astro/config";
 
 export default defineConfig({
-  site: "https://relationshiposcrm.com",
+  site: "https://composableos.dev",
   output: "static",
   trailingSlash: "ignore",
   build: { inlineStylesheets: "always" },
