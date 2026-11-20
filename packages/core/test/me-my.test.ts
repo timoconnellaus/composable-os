@@ -39,6 +39,7 @@ beforeAll(async () => {
 }, 60_000);
 
 const OPENED = [
+  "me.deleteAccount",
   "me.get",
   "me.sessions.list",
   "me.sessions.revoke",
@@ -49,7 +50,7 @@ const OPENED = [
 ];
 
 describe("what this step opens", () => {
-  it("open-operations.json lists the me.* and my.* operations, the session ones hostInternal", () => {
+  it("open-operations.json lists the me.* and my.* operations, the account ones hostInternal", () => {
     // Entries a customer can call directly. `toolOnly` ones are reached only through a pack's
     // tool (ADR 0414) and are listed by the step that adds them.
     const direct = (committed.operations as { name: string; toolOnly?: boolean }[]).filter(
@@ -59,7 +60,9 @@ describe("what this step opens", () => {
     expect(committed).toEqual(openOperations(coreRegistry.list()));
     for (const entry of direct as { name: string; hostInternal?: boolean }[]) {
       expect(entry.hostInternal === true, entry.name).toBe(
-        ["me.sessions.list", "me.sessions.revoke", "me.signOut"].includes(entry.name),
+        ["me.deleteAccount", "me.sessions.list", "me.sessions.revoke", "me.signOut"].includes(
+          entry.name,
+        ),
       );
     }
   });

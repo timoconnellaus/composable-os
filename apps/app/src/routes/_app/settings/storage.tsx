@@ -1,5 +1,7 @@
 // Settings → Storage (admins): the D1 database's size against its 10 GB cap, row counts of the
-// big tables (measured daily, cached), and how long audit history is kept (ADR 0090).
+// big tables (measured daily, cached), how long audit history is kept (ADR 0090), and the open
+// erase requests of customers who deleted their account (stage 22): erase the person from their
+// page, or decline here with a reason.
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,14 +21,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@composable-os/ui/components/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@composable-os/ui/components/dialog";
 import { Label } from "@composable-os/ui/components/label";
 import { RadioGroup, RadioGroupItem } from "@composable-os/ui/components/radio-group";
 import { Skeleton } from "@composable-os/ui/components/skeleton";
-import { createFileRoute } from "@tanstack/react-router";
+import { Textarea } from "@composable-os/ui/components/textarea";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { LockIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PageLayout, SaveBar } from "#/components/layout/page-layout";
+import { formatDate } from "#/lib/format";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 
 export const Route = createFileRoute("/_app/settings/storage")({ component: StoragePage });
@@ -107,6 +119,7 @@ function StoragePage() {
         <>
           <SizeCard />
           <RetentionCard form={form} />
+          <EraseRequestsCard />
         </>
       ) : (
         <p
@@ -334,6 +347,117 @@ function RetentionCard({ form }: { form: ReturnType<typeof useRetentionForm> }) 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </Card>
+  );
+}
+
+function EraseRequestsCard() {
+  const requests = useOp("eraseRequest.list", {});
+  const decline = useOpMutation("eraseRequest.decline");
+  const [declining, setDeclining] = useState<{ id: string; name: string } | null>(null);
+  const [reason, setReason] = useState("");
+
+  async function onDecline() {
+    if (!declining || !reason.trim()) return;
+    try {
+      const result = await decline.mutateAsync({ id: declining.id, reason: reason.trim() });
+      if (result.email === "not_sent") {
+        toast.warning(`Declined, but the email was not sent: ${result.problem ?? "unknown"}`);
+      } else {
+        toast.success(
+          result.email === "sent" ? "Declined and emailed" : "Declined; the email awaits approval",
+        );
+      }
+      setDeclining(null);
+      setReason("");
+      await requests.refetch();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+
+  const items = requests.data?.items ?? [];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Erase requests</CardTitle>
+        <CardDescription>
+          Customers who deleted their account and asked to be erased. Erase the person from their
+          page, or decline with the reason the data must be kept: the reason is emailed to them.
+          Admins are reminded daily about a request past its due date.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {requests.isPending ? (
+          <Skeleton className="h-16 w-full" />
+        ) : requests.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {errorMessage(requests.error)}
+          </p>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No open erase requests.</p>
+        ) : (
+          <ul className="grid gap-2" data-testid="erase-requests">
+            {items.map((item) => (
+              <li
+                key={item.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"
+              >
+                <span className="grid gap-0.5">
+                  <Link
+                    to="/people/$id"
+                    params={{ id: item.personId }}
+                    className="font-medium underline-offset-4 hover:underline"
+                  >
+                    {item.personName ?? item.personId}
+                  </Link>
+                  <span className="text-muted-foreground">
+                    Asked {formatDate(item.requestedAt)} · due {formatDate(item.dueAt)}
+                  </span>
+                </span>
+                <span className="flex items-center gap-2">
+                  {item.overdue && <Badge variant="destructive">Overdue</Badge>}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setDeclining({ id: item.id, name: item.personName ?? item.personId })
+                    }
+                  >
+                    Decline
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+      <Dialog open={declining !== null} onOpenChange={(open) => !open && setDeclining(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Decline erasing {declining?.name}?</DialogTitle>
+            <DialogDescription>
+              Say why the data must be kept. The reason is kept with the request and emailed to
+              them. Their account stays closed.
+            </DialogDescription>
+          </DialogHeader>
+          <Label htmlFor="erase-decline-reason">Reason</Label>
+          <Textarea
+            id="erase-decline-reason"
+            value={reason}
+            maxLength={2000}
+            onChange={(event) => setReason(event.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeclining(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void onDecline()} disabled={!reason.trim() || decline.isPending}>
+              {decline.isPending ? "Declining…" : "Decline and email"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

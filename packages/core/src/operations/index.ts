@@ -24,6 +24,7 @@ import { customerSettingsOperations } from "./customer-settings.ts";
 import { dashboardOperations } from "./dashboard.ts";
 import { duplicateOperations } from "./duplicate.ts";
 import { enrichmentOperations } from "./enrichment.ts";
+import { eraseRequestOperations } from "./erase-request.ts";
 import { erasureOperations } from "./erasure.ts";
 import { exportOperations } from "./export.ts";
 import { extensionOperations } from "./extension.ts";
@@ -113,6 +114,7 @@ export const coreOperations = [
   ...planOperations,
   ...supportOperations,
   ...erasureOperations,
+  ...eraseRequestOperations,
   ...judgeOperations,
   ...duplicateOperations,
   ...assignmentOperations,

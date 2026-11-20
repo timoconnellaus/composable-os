@@ -57,6 +57,8 @@ export const ID_PREFIXES = {
   execution: "exe",
   /** A customer account (stage 22, ADR 0402): a Person who can sign in. Never a core_user. */
   customer: "cus",
+  /** A request to erase a Person, made when a customer deletes their account (stage 22). */
+  eraseRequest: "erq",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

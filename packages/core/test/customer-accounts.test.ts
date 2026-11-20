@@ -44,6 +44,7 @@ describe("the sign-up setting", () => {
   it("is invite only by default, and when the stored value is unreadable", async () => {
     expect(await invoke("customer.settings.get", {}, context(member))).toEqual({
       signup: "invite_only",
+      eraseDueDays: 30,
     });
     await env.DB.prepare(
       "INSERT INTO core_settings (key, value, updated_at) VALUES ('customer_signup', '\"wide-open\"', ?)",
@@ -56,7 +57,8 @@ describe("the sign-up setting", () => {
   it("a human admin changes it, and the change is audited", async () => {
     expect(await invoke("customer.settings.update", { signup: "open" }, context(admin))).toEqual({
       signup: "open",
-      previous: "invite_only",
+      eraseDueDays: 30,
+      previous: { signup: "invite_only", eraseDueDays: 30 },
     });
     expect(await loadCustomerSignup(db.query)).toBe("open");
     const changes = await auditChanges("customer_signup");

@@ -17,16 +17,19 @@
 // The HTTP routes that mount `handle` are stage 23's.
 import {
   type CustomerPrincipal,
+  checkCodeRequestLimit,
   customerMayGetCode,
   customerSignedInStatement,
   linkCustomer,
   loadCustomer,
   newId,
   type PublicPrincipal,
+  type RateLimitBinding,
+  RateLimitedError,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { emailOTP } from "better-auth/plugins/email-otp";
 import { randomId } from "./better-auth.ts";
 
@@ -58,7 +61,14 @@ export interface CustomerAuthOptions {
   sendCode: SendCustomerCode;
   /** The time linking and sign-in bookkeeping use. Default: now. */
   clock?: () => Date;
+  /**
+   * Limits code requests per address asked for (`checkCodeRequestLimit`, keyed by the normalised
+   * address, never the client's). Unset: not limited here (rateLimit's missing-binding rule).
+   */
+  codeRateLimit?: RateLimitBinding | undefined;
 }
+
+const CODE_REQUEST_PATH = "/email-otp/send-verification-otp";
 
 const timestamps = { createdAt: "created_at", updatedAt: "updated_at" } as const;
 
@@ -72,9 +82,25 @@ export function createCustomerAuth(options: CustomerAuthOptions) {
     basePath: CUSTOMER_AUTH_BASE_PATH,
     telemetry: { enabled: false },
     // Code requests and sign-in attempts are limited per client address by Cloudflare's rate
-    // limiting at the edge (stage 22 step 7, stage 23), which stores no address. Better Auth's own
-    // limiter keys on the address in memory, per isolate, so it is off rather than half on.
+    // limiting at the edge (stage 23), which stores no address. Better Auth's own limiter keys on
+    // the address in memory, per isolate, so it is off rather than half on. Code requests are also
+    // limited per address asked for, below.
     rateLimit: { enabled: false },
+    // Code requests per address asked for, before a code is made or stored. Whether the address
+    // may get one is not looked at here, so the refusal says nothing about who is a customer.
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== CODE_REQUEST_PATH) return;
+        const email = (ctx.body as { email?: unknown } | undefined)?.email;
+        if (typeof email !== "string") return;
+        try {
+          await checkCodeRequestLimit(options.codeRateLimit, email);
+        } catch (error) {
+          if (!(error instanceof RateLimitedError)) throw error;
+          throw new APIError("TOO_MANY_REQUESTS", { message: error.message });
+        }
+      }),
+    },
     emailAndPassword: { enabled: false },
     socialProviders: {},
     advanced: {

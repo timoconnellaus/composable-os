@@ -36,6 +36,7 @@ import {
 } from "./automations/outbox.ts";
 import type { TestSimulation } from "./automations/simulate.ts";
 import type { AutomationHost, EventSink } from "./automations/types.ts";
+import { checkOutsideRateLimit } from "./customers/limits.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
 import { diffRecords, type FieldDiff } from "./diff.ts";
 import {
@@ -92,6 +93,7 @@ import {
   roleHasPermission,
   staffPrincipal,
 } from "./principals.ts";
+import type { RateLimitBinding } from "./rate-limit.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { loadApprovalPolicy } from "./settings.ts";
 import type { UpdaterRuntime } from "./updates.ts";
@@ -1295,6 +1297,11 @@ export interface OutsideInvocationContext {
   tool?: { extension: string; tool: string };
   /** The extension runtime, so a tool open to this caller can run. */
   extensionHost?: ExtensionHost;
+  /**
+   * The Workers Rate Limiting binding for calls from outside the org: a customer is limited per
+   * account and per operation (customers/limits.ts). Absent: not limited here.
+   */
+  rateLimit?: RateLimitBinding;
   /** Never set: these make a context a staff one. */
   user?: undefined;
   actor?: undefined;
@@ -1437,6 +1444,9 @@ async function invokeOutside<O extends AnyOperation>(
   if (ctx.tool && (!tool?.audiences.includes(principal.kind) || isHostTool(op))) {
     throw new UnknownOperationError(op.name);
   }
+  // Counted once the call is one this caller may make at all, and before any work is done for it.
+  // A tool's own calls are part of the one call that started the tool.
+  if (!ctx.tool) await checkOutsideRateLimit(ctx.rateLimit, principal, op.name);
   const parsed = op.input.safeParse(rawInput);
   if (!parsed.success) {
     throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });

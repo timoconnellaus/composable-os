@@ -8,6 +8,7 @@ import {
   type CallIntegration,
   inviteCustomer,
   invoke,
+  memoryRateLimit,
   sendCustomerCode,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
@@ -181,7 +182,7 @@ describe("invite only (criterion 11)", () => {
           db,
         },
       ),
-    ).toEqual({ signup: "invite_only" });
+    ).toEqual({ signup: "invite_only", eraseDueDays: 30 });
   });
 
   it("answers an uninvited address exactly as an invited one, and sends it nothing", async () => {
@@ -458,6 +459,7 @@ describe("no client address is stored (criterion 14)", () => {
     "core_customer_session",
     "core_customer_verification",
     "core_customer_invite",
+    "core_erase_request",
   ];
 
   it("the customer tables have no column for one", async () => {
@@ -483,5 +485,73 @@ describe("no client address is stored (criterion 14)", () => {
       expect(text).not.toContain(CLIENT_IP);
       expect(text).not.toContain(CLIENT_AGENT);
     }
+  });
+
+  it("no table anywhere has a client-address column or a row holding the client's address", async () => {
+    // Except the staff session table: staff sign-in (better-auth.ts) keeps Better Auth's session
+    // columns, and a customer never reaches it.
+    const { results: tables } = await env.DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name NOT IN ('d1_migrations', 'core_session')",
+    ).all<{ name: string }>();
+    expect(tables.length).toBeGreaterThan(50);
+    for (const { name } of tables) {
+      const { results: columns } = await env.DB.prepare(
+        `SELECT name FROM pragma_table_info('${name}')`,
+      ).all<{ name: string }>();
+      for (const column of columns) {
+        expect(`${name}.${column.name}`).not.toMatch(
+          /(^|[._])ip($|_)|ip_?address|client_?addr|remote_?addr|forwarded|user_?agent/i,
+        );
+      }
+      const { results: rows } = await env.DB.prepare(`SELECT * FROM "${name}"`).all();
+      expect(JSON.stringify(rows), name).not.toContain(CLIENT_IP);
+    }
+  });
+});
+
+describe("code requests are limited per address asked for (criterion 14)", () => {
+  const limited = customerIdentity(
+    createCustomerAuth({
+      db: env.DB,
+      secret: CUSTOMER_SECRET,
+      baseURL: ORIGIN,
+      sendCode: (message) => sendCustomerCode(fakeCall, TARGET, message),
+      codeRateLimit: memoryRateLimit(2),
+    }),
+    env.DB,
+  );
+  const ask = async (email: string, ip = CLIENT_IP) => {
+    const sentBefore = calls.length;
+    const response = await limited.handle(
+      post(
+        "/api/customer-auth/email-otp/send-verification-otp",
+        { email, type: "sign-in" },
+        { "x-forwarded-for": ip, "cf-connecting-ip": ip },
+      ),
+    );
+    if (!response) throw new Error("not a customer route");
+    return { status: response.status, sent: calls.length - sentBefore };
+  };
+
+  it("refuses the third request for one address in the window, whatever its case or sender", async () => {
+    const email = address("limited");
+    await inviteCustomer(db, email, admin.id);
+    expect(await ask(email)).toEqual({ status: 200, sent: 1 });
+    expect(await ask(email.toUpperCase(), "198.51.100.1")).toMatchObject({ status: 200 });
+    const third = await ask(email, "198.51.100.2");
+    expect(third).toEqual({ status: 429, sent: 0 });
+    // Nothing was stored for the refused request: still only the codes of the first two.
+    const { results } = await env.DB.prepare(
+      "SELECT id FROM core_customer_verification WHERE identifier = ?",
+    )
+      .bind(`sign-in-otp-${email}`)
+      .all();
+    expect(results.length).toBeLessThanOrEqual(2);
+    // Another address is counted on its own, and an uninvited one is limited the same way, so
+    // the limit says nothing about who is a customer.
+    const stranger = address("limited-stranger");
+    expect((await ask(stranger)).status).toBe(200);
+    expect((await ask(stranger)).status).toBe(200);
+    expect(await ask(stranger)).toEqual({ status: 429, sent: 0 });
   });
 });

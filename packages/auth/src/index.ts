@@ -1,3 +1,4 @@
+import type { RateLimitBinding } from "@composable-os/core";
 import { type BetterAuthInstance, betterAuthProvider, createBetterAuth } from "./better-auth.ts";
 import { cloudflareAccessProvider } from "./cloudflare-access.ts";
 import {
@@ -132,6 +133,8 @@ export interface CustomerIdentityEnv {
   BETTER_AUTH_SECRET?: string;
   /** The client app's public origin. */
   CUSTOMER_AUTH_URL?: string;
+  /** Code requests per address asked for. Declared with the HTTP surface (stage 23). */
+  CUSTOMER_CODE_RATE_LIMIT?: RateLimitBinding;
 }
 
 const customerIdentityCache = new WeakMap<object, CustomerIdentity>();
@@ -156,6 +159,7 @@ export function getCustomerIdentity(
       secret,
       baseURL: env.CUSTOMER_AUTH_URL || undefined,
       sendCode,
+      codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
     });
     identity = customerIdentity(auth, env.DB);
     customerIdentityCache.set(env, identity);

@@ -5,6 +5,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
+import { queueMergeCustomers } from "../customers/merge.ts";
 import { checkPerson } from "../duplicates/check.ts";
 import { personNameKey } from "../duplicates/normalise.ts";
 import { queueClosePairs } from "../duplicates/pairs.ts";
@@ -1074,7 +1075,9 @@ export const personMerge = defineOperation({
     "tags are combined, and the duplicate's affiliations, activity links and task links move " +
     "to the survivor (the survivor keeps its primary affiliation if it has one). The " +
     "duplicate goes to Trash pointing at the survivor, and can be restored from there " +
-    "(without what moved). Returns the survivor.",
+    "(without what moved). A customer account moves to the survivor; when both people have " +
+    "one, the merge is refused until staff disable one (the disabled one is then deleted). " +
+    "Returns the survivor.",
   input: z.object({
     survivorId: personId.describe("The person who remains"),
     mergedId: personId.describe("The duplicate that is merged away into Trash"),
@@ -1102,6 +1105,10 @@ export const personMerge = defineOperation({
       if (take) (after as Record<PersonMergeField, unknown>)[field] = merged[field];
     }
     if (after.ownerId) await assertUserExists(ctx.db, after.ownerId);
+    // Customer accounts move to the survivor; refused while both people have an active one.
+    await queueMergeCustomers(ctx, survivor.id, merged.id, [
+      ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),
+    ]);
 
     const emailSet = new Set(survivor.emails.map((e) => e.email));
     after.emails = [
@@ -1244,7 +1251,9 @@ export const personErase = defineOperation({
     '"[erased]"). Former emails and phones count too. Synced email bodies, suggested contacts, ' +
     "signatures, extension data related to them, automation run history and notifications about " +
     "them are deleted or redacted, and their addresses are added to the erased-address list so " +
-    "mail sync does not collect them again. Cannot be undone; use person.delete for a " +
+    "mail sync does not collect them again. Their customer account, its sessions and sign-in " +
+    "codes, invites for their addresses and their erase requests are deleted (an open request " +
+    "is closed as erased). Cannot be undone; use person.delete for a " +
     "reversible delete.",
   input: z.object({ id: personId }),
   output: z.object({

@@ -14,6 +14,7 @@ import {
   evaluateOutsideGate,
   type InvocationContext,
   invokeByName,
+  memoryRateLimit,
   type OutsideInvocationContext,
   openOperations,
   RISK_CLASSES,
@@ -61,6 +62,7 @@ describe("default closed (criterion 1)", () => {
     const openTo = (kind: string) =>
       new Set(listed.filter((e) => e.audiences.includes(kind) && !e.toolOnly).map((e) => e.name));
     expect([...openTo("customer")].sort()).toEqual([
+      "me.deleteAccount",
       "me.get",
       "me.sessions.list",
       "me.sessions.revoke",
@@ -339,6 +341,7 @@ describe("the closed handler context (ADR 0413)", () => {
     const listed = openOperations(fixtureRegistry.list()).operations;
     expect(listed.filter((op) => op.hostInternal).map((op) => op.name)).toEqual([
       "fixture.bookkeeping",
+      "me.deleteAccount",
       "me.sessions.list",
       "me.sessions.revoke",
       "me.signOut",
@@ -424,5 +427,24 @@ describe("the audit actor is checked in code (migration 0400 dropped the CHECK)"
         "SELECT count(*) AS n FROM core_audit WHERE actor NOT IN ('human','assistant','mcp','automation','extension','customer','public')",
       ),
     ).toBe(0);
+  });
+});
+
+describe("rate limits in the pipeline (criterion 14)", () => {
+  it("a customer is limited per account and per operation, before any work is done", async () => {
+    const rateLimit = memoryRateLimit(2);
+    const ctx = () => outside(a.principal, { rateLimit });
+    expect((await call("fixture.myList", { object: ORDER }, ctx())).ok).toBe(true);
+    expect((await call("fixture.myList", { object: ORDER }, ctx())).ok).toBe(true);
+    const third = await call("fixture.myList", { object: ORDER }, ctx());
+    expect(third).toMatchObject({ ok: false, error: { code: "rate_limited" } });
+    // Another operation, and another account, have their own count.
+    expect((await call("fixture.whoAmI", {}, ctx())).ok).toBe(true);
+    const other = { ...a.principal, customerId: "cus_someone_else" };
+    expect((await call("fixture.whoAmI", {}, outside(other, { rateLimit }))).ok).toBe(true);
+    // A call to an operation the caller may not make is not counted: it does not exist for them.
+    const before = rateLimit.hits(`customer:${a.principal.customerId}:person.list`);
+    await call("person.list", {}, ctx());
+    expect(rateLimit.hits(`customer:${a.principal.customerId}:person.list`)).toBe(before);
   });
 });

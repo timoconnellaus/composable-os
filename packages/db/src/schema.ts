@@ -877,6 +877,24 @@ export interface CoreCustomerInviteTable {
   invited_at: string;
 }
 
+/**
+ * Migration 0402 (stage 22, ADR 0402): a request to erase a Person, made when a customer deletes
+ * their account. Staff erase the person (status `erased`) or decline with a reason.
+ */
+export interface CoreEraseRequestTable {
+  id: string;
+  person_id: string;
+  customer_id: Defaulted<string | null>;
+  requested_at: string;
+  due_at: string;
+  status: Defaulted<EraseRequestStatus>;
+  decline_reason: Defaulted<string | null>;
+  closed_at: Defaulted<string | null>;
+  closed_by: Defaulted<string | null>;
+  last_notified_at: Defaulted<string | null>;
+}
+export type EraseRequestStatus = "open" | "erased" | "declined";
+
 /** Migration 0310 (ADR 0246): an assignment rule, ordered per object. */
 export interface CoreAssignmentRuleTable {
   id: string;
@@ -1637,6 +1655,7 @@ export interface CoreDatabase {
   core_customer_session: CoreCustomerSessionTable;
   core_customer_verification: CoreCustomerVerificationTable;
   core_customer_invite: CoreCustomerInviteTable;
+  core_erase_request: CoreEraseRequestTable;
   rec_stage_history: CrmStageHistoryView;
   rec_user: CrmUsersView;
   rec_person: CrmPeopleView;

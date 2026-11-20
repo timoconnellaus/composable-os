@@ -52,3 +52,30 @@ export async function sendCustomerCode(
     );
   }
 }
+
+/** The email telling a person that staff declined to erase them, with the reason. Plain text. */
+export function eraseDeclinedEmail(reason: string): { subject: string; text: string } {
+  const name = product.strings.name;
+  return {
+    subject: `Your ${name} erasure request`,
+    text:
+      `You deleted your ${name} account and asked for your personal data to be erased. ` +
+      "We cannot erase all of it, because we must keep a record of it:\n\n" +
+      `${reason}\n\n` +
+      "Your account stays closed. Reply to this email if you have a question.",
+  };
+}
+
+/**
+ * Sends one email to a customer through the email-send gatekeeper (the org's notification email
+ * connection). A send the approval gate queued for review is `pending`, not an error: it goes
+ * out when someone approves it.
+ */
+export async function sendCustomerEmail(
+  call: CallIntegration,
+  target: ChannelTarget,
+  message: { to: string; subject: string; text: string },
+): Promise<"sent" | "pending"> {
+  const outcome = await sendEmail(call, target, message);
+  return outcome.status === "sent" ? "sent" : "pending";
+}

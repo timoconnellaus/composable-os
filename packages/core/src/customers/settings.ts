@@ -31,3 +31,26 @@ export async function loadCustomerSignup(db: Kysely<CoreDatabase>): Promise<Cust
     return DEFAULT_CUSTOMER_SIGNUP;
   }
 }
+
+// --- When an erase request is due --------------------------------------------------------------
+
+/** How many days staff have to action an erase request (me.deleteAccount). Default 30. */
+export const CUSTOMER_ERASE_DUE_SETTING = "customer_erase_due_days";
+export const DEFAULT_ERASE_DUE_DAYS = 30;
+export const eraseDueDaysSchema = z.number().int().min(1).max(365);
+
+/** The days an erase request has before it is due. A missing or unreadable setting is 30. */
+export async function loadEraseDueDays(db: Kysely<CoreDatabase>): Promise<number> {
+  const row = await db
+    .selectFrom("core_settings")
+    .select("value")
+    .where("key", "=", CUSTOMER_ERASE_DUE_SETTING)
+    .executeTakeFirst();
+  if (!row) return DEFAULT_ERASE_DUE_DAYS;
+  try {
+    const parsed = eraseDueDaysSchema.safeParse(JSON.parse(row.value));
+    return parsed.success ? parsed.data : DEFAULT_ERASE_DUE_DAYS;
+  } catch {
+    return DEFAULT_ERASE_DUE_DAYS;
+  }
+}

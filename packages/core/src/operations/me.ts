@@ -1,5 +1,5 @@
 // me.* operations (stage 22, ADR 0402, ADR 0413): a signed-in customer's own Person and their own
-// sessions. Open to customers only.
+// sessions, and deleting their account. Open to customers only.
 //
 // `me.get` and `me.update` reach the Person through `ctx.records`, so the visibility seam decides
 // which fields: the ones the Person object lists in its `customer` declaration (fields/person.ts).
@@ -7,10 +7,17 @@
 // person.update runs (the writer registered in operations/person.ts), so uniqueness, search, the
 // audit diff and timeline tracking hold as for staff.
 //
-// The session operations are account bookkeeping, not records, so they are `hostInternal`: they
-// keep `ctx.db` and touch only `core_customer_session` rows of the caller's own account. A session
-// token never leaves them.
+// The session operations and me.deleteAccount are account bookkeeping, not records, so they are
+// `hostInternal`: they keep `ctx.db` and touch only the caller's own account (taken from the
+// principal, never from input), its sessions and its erase request. A session token never leaves
+// them.
 import { z } from "zod";
+import {
+  createEraseRequestStatements,
+  eraseRequestDueAt,
+  openEraseRequest,
+} from "../customers/erase-requests.ts";
+import { loadEraseDueDays } from "../customers/settings.ts";
 import { NotFoundError, OperationError } from "../errors.ts";
 import { personObject } from "../fields/person.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
@@ -200,4 +207,73 @@ export const meSignOut = defineOperation({
   },
 });
 
-export const meOperations = [meGet, meUpdate, meSessionsList, meSessionsRevoke, meSignOut] as const;
+// --- Deleting the account ----------------------------------------------------------------------
+
+export const meDeleteAccount = defineOperation({
+  name: "me.deleteAccount",
+  description:
+    "Delete your customer account and ask for your personal data to be erased. You are signed " +
+    "out everywhere at once and can no longer sign in. Staff then erase your data, or tell you " +
+    "by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
+  input: z.object({}).strict(),
+  output: z.object({
+    disabled: z.literal(true),
+    sessionsEnded: z.number(),
+    eraseRequest: z.object({ requestedAt: z.string(), dueAt: z.string() }),
+  }),
+  permission: "records:write",
+  risk: "write",
+  audiences: ["customer"],
+  hostInternal: true,
+  mcp: { expose: false },
+  async handler(_input, ctx) {
+    const { customerId, personId } = customerOf(ctx);
+    // Only the caller's own account, and only while it is linked to the caller's Person.
+    const account = await ctx.db
+      .selectFrom("core_customer")
+      .select("id")
+      .where("id", "=", customerId)
+      .where("person_id", "=", personId)
+      .executeTakeFirst();
+    if (!account) throw new NotFoundError("customer account", customerId);
+    const sessions = await ctx.db
+      .selectFrom("core_customer_session")
+      .select((eb) => eb.fn.countAll<number>().as("n"))
+      .where("customer_id", "=", customerId)
+      .executeTakeFirst();
+
+    // One batch (with the audit row): disabled, signed out everywhere, and the request made.
+    ctx.write(
+      ctx.db
+        .updateTable("core_customer")
+        .set({ status: "disabled", updated_at: ctx.now })
+        .where("id", "=", customerId),
+      ctx.db.deleteFrom("core_customer_session").where("customer_id", "=", customerId),
+    );
+    let request = await openEraseRequest(ctx.db, personId);
+    if (!request) {
+      const created = await createEraseRequestStatements(ctx.db, {
+        personId,
+        customerId,
+        requestedAt: ctx.now,
+        dueAt: eraseRequestDueAt(ctx.now, await loadEraseDueDays(ctx.db)),
+      });
+      ctx.write(...created.statements);
+      request = created.request;
+    }
+    return {
+      disabled: true as const,
+      sessionsEnded: Number(sessions?.n ?? 0),
+      eraseRequest: { requestedAt: request.requestedAt, dueAt: request.dueAt },
+    };
+  },
+});
+
+export const meOperations = [
+  meGet,
+  meUpdate,
+  meSessionsList,
+  meSessionsRevoke,
+  meSignOut,
+  meDeleteAccount,
+] as const;

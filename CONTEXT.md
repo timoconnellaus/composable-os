@@ -901,6 +901,25 @@ repo a client is the company a product is built for)
 **Public**
 A caller with no account: a visitor reading a published page or starting a checkout (stage 22).
 
+**Customer account**
+What a customer signs in to: a row of `core_customer` linked to exactly one Person, with sessions
+of its own. Never a `core_user`, never a role. A human who is both staff and a customer has two
+accounts and nothing links them (stage 22).
+_Avoid_: user (a user is staff), login
+
+**Erase request**
+What deleting a customer account leaves for staff: the Person, when it was asked and when it is
+due. Staff erase the person or decline with a reason; either closes it (stage 22).
+
+**Host-internal operation**
+A core operation open to customers or the public whose handler keeps the raw database, for
+account and session bookkeeping that is not a record. Marked `hostInternal`, shown in the
+generated list (ADR 0413).
+
+**Tool-only operation**
+An operation a customer reaches only from inside a pack's tool they called: `my.create` and
+`my.update` (ADR 0414).
+
 **Surface**
 A way an operation is reached from its one definition: server function, MCP tool, host module,
 HTTP (the last from stage 23).
