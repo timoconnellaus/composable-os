@@ -905,6 +905,18 @@ spends one (later; ADR 0404).
 _Avoid_: entitlement (a hosted plan's limits, ADR 0211), credit (account credit is money)
 
 **Skill**
-Installable instructions for an agent building on the platform, in `skills/`, versioned with the
-contract and ending in a checker (stage 21, ADR 0405). Not the skills a plugin bundles for the
-in-app assistant (ADR 0347).
+Instructions for an agent building on the platform: a folder in `skills/` with a `SKILL.md` (plain
+Markdown, linked into `.claude/skills/` and pointed at from `AGENTS.md`), in four parts: when to
+use it, the steps, the rules, the check command. It points at code and at Deals and does not copy
+them. The two there are `write-extension` and `add-automations-tools-dashboards`. Skills carry the
+contract version they describe (`skills/CONTRACT_VERSION`), and `pnpm lint` fails when the SDK's
+differs (stage 21, ADR 0405). Not the skills a plugin bundles for the in-app assistant (ADR 0347).
+
+**Extension check (`cos ext check`)**
+`cos ext check <dir>` runs on a directory, outside a deployment, what `extension.check` runs
+inside one: allowed imports, the type check against the SDK, the contract, formulas, automations
+and a dry-run reconcile, here against an empty local database with the core schema. Both call the
+same code (`@composable-os/extension-check` for source, `checkEvaluated` in core for the
+manifest), so the same source gives the same issues. `cos ext test <dir>` runs the extension's
+tests and first refuses an extension with a tool or automation that no test names. In the
+repository: `pnpm cos ext check extensions/<id>`.
