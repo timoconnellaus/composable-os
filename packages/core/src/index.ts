@@ -187,6 +187,7 @@ export {
   ERASE_LOG_PREFIX,
   type EraseLogEntry,
 } from "./records/erase-log.ts";
+export { applyTransition, callerMover, type TransitionOptions } from "./records/lifecycle.ts";
 export {
   assertLinkTargets,
   LINK_TARGETS,
@@ -199,7 +200,16 @@ export {
   uniqueRefs,
 } from "./records/links.ts";
 export { type StageRuleDetails, StageRuleError } from "./records/stages.ts";
+export { type StateRef, type StateRuleDetails, StateRuleError } from "./records/states.ts";
 export * from "./records/tags.ts";
+export {
+  type Mover,
+  type Position,
+  type TransitionOutcome,
+  type TransitionRuleBase,
+  TransitionRuleError,
+  transitionTimeline,
+} from "./records/transitions.ts";
 export * from "./registry.ts";
 export * from "./relative.ts";
 export * from "./retention.ts";

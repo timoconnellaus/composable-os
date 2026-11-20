@@ -102,6 +102,11 @@ export interface ObjectDefinition {
   /** Extension objects: the stage behaviour (ADR 0100), with registry (local) field names. */
   stages?: StagesDefinition;
   /**
+   * A fixed state machine (ADR 0425), with registry field names. An object has stages or states,
+   * never both.
+   */
+  states?: StatesDefinition;
+  /**
    * The user field that holds the record's owner (ADR 0246): `ownerId` on people and
    * organisations, the declared `owner` of an extension object. Assignment rules set it.
    */
@@ -130,6 +135,20 @@ export interface StagesDefinition {
   status?: string | undefined;
   requiredByType?: Partial<Record<"open" | "won" | "lost", readonly string[]>> | undefined;
   defaultGroupSetting?: string | undefined;
+}
+
+/** A state machine as the host enforces it (the SDK's StatesSpec, validated). */
+export interface StatesDefinition {
+  /** The select field holding the state. */
+  field: string;
+  initial: string;
+  moves: readonly {
+    from: string | readonly string[];
+    to: string;
+    by: readonly ("staff" | "customer" | "host")[];
+    requires?: readonly string[] | undefined;
+    final?: boolean | undefined;
+  }[];
 }
 
 export function defineObject<const O extends ObjectDefinition>(object: O): O {

@@ -168,6 +168,7 @@ export function planFromState(
       ...(object.indexes?.length ? { indexes: object.indexes } : {}),
       ...(object.timelineLinks?.length ? { timelineLinks: object.timelineLinks } : {}),
       ...(object.stages ? { stages: object.stages } : {}),
+      ...(object.states ? { states: object.states } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.navigationOrder !== undefined ? { navigationOrder: object.navigationOrder } : {}),
       ...(object.requireOneOf?.length ? { requireOneOf: object.requireOneOf } : {}),

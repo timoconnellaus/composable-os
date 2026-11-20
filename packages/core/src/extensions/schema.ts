@@ -6,6 +6,7 @@ import {
   type FieldTypeName,
   formulaTypeOf,
   type StagesManifest,
+  type StatesManifest,
 } from "@composable-os/sdk";
 import {
   compileFormula,
@@ -41,6 +42,7 @@ export interface ObjectDefinitionJson {
   indexes?: string[][];
   timelineLinks?: string[];
   stages?: StagesManifest;
+  states?: StatesManifest;
   owner?: string;
   navigationOrder?: number;
   requireOneOf?: string[][];
@@ -440,6 +442,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
         ? { timelineLinks: object.definition.timelineLinks }
         : {}),
       ...(object.definition.stages ? { stages: object.definition.stages } : {}),
+      ...(object.definition.states ? { states: object.definition.states } : {}),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.navigationOrder !== undefined
         ? { navigationOrder: object.definition.navigationOrder }
