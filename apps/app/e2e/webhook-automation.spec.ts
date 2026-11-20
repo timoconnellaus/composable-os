@@ -26,7 +26,7 @@ export default defineExtension({
   contractVersion: 1,
   label: "Billing hooks",
   description: "Turns paid invoices from the billing system into tasks.",
-  permissions: { read: ["task"], write: ["task"], modules: ["crm"] },
+  permissions: { read: ["task"], write: ["task"], modules: ["ops"] },
   automations: {
     invoicePaid: defineAutomation({
       label: "${LABEL}",
@@ -36,7 +36,7 @@ export default defineExtension({
       async run(event, step, ctx) {
         const body = (event.integration?.payload as { payload?: { invoice?: string } } | null)?.payload;
         return step.do("thank", () =>
-          ctx.crm.call("task.create", { title: "Thank for invoice " + String(body?.invoice) }),
+          ctx.ops.call("task.create", { title: "Thank for invoice " + String(body?.invoice) }),
         );
       },
     }),

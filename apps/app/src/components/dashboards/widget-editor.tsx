@@ -56,7 +56,7 @@ export function newWidget(): WidgetSpec {
     id: `w-${Math.random().toString(36).slice(2, 8)}`,
     type: "kpi",
     title: "New widget",
-    sql: "SELECT COUNT(*) AS value FROM crm_people",
+    sql: "SELECT COUNT(*) AS value FROM rec_person",
     mapping: { value: "value" },
     options: {},
     layout: { w: 4, h: 2 },
@@ -187,7 +187,7 @@ export function WidgetEditor({
             {initial.title === "New widget" ? "Add a widget" : `Edit ${initial.title}`}
           </DialogTitle>
           <DialogDescription>
-            Describe the chart you want, or write read-only SQL over the crm_* views yourself.
+            Describe the chart you want, or write read-only SQL over the rec_* views yourself.
           </DialogDescription>
         </DialogHeader>
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
@@ -455,7 +455,7 @@ export function WidgetEditor({
   );
 }
 
-/** The crm_* views and their columns, for writing SQL. */
+/** The rec_* views and their columns, for writing SQL. */
 function SchemaSidebar() {
   const schema = useSchemaObjects();
   return (
@@ -480,7 +480,7 @@ function SchemaSidebar() {
         </details>
       ))}
       <p className="mt-2 text-muted-foreground">
-        Also: crm_users, crm_affiliations, crm_activity_links, crm_task_links, crm_record_tags.
+        Also: rec_user, rec_affiliation, rec_activity_link, rec_task_link, rec_record_tag.
       </p>
     </aside>
   );

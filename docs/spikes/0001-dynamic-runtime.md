@@ -9,7 +9,7 @@ In `apps/runner`, behind the dev-only `/dev/spike/*` routes (served only when `D
 - `SpikeWorkspace` ([`src/spike/workspace.ts`](../../apps/runner/src/spike/workspace.ts)): a
   Durable Object holding a `Workspace` (DO SQLite filesystem, `createGitClient()`) with one
   `WorkerJavaScriptBackend` on the `LOADER` Worker Loader binding, `globalOutbound: null`.
-- Host modules: `codemode:crm` with a fake `getPerson(id)`, and `codemode:git`
+- Host modules: `codemode:ops` with a fake `getPerson(id)`, and `codemode:git`
   (`createGitModule()`).
 - `GET /dev/spike/bench` ([`src/spike/routes.ts`](../../apps/runner/src/spike/routes.ts)) runs every
   scenario below and returns JSON; [`scripts/spike-bench.mjs`](../../apps/runner/scripts/spike-bench.mjs)
@@ -53,7 +53,7 @@ the result round trip; the DO RPC hop adds well under 1 ms locally. "Cold" here 
 already-running process; the very first execution after `wrangler dev` starts was not separated
 out.
 
-### Host module call (`codemode:crm.getPerson`)
+### Host module call (`codemode:ops.getPerson`)
 
 Timed inside the isolate with `Date.now()` (which only advances across I/O, so it measures the
 calls themselves):

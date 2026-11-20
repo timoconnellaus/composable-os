@@ -1,5 +1,5 @@
 // Code Mode (stage 3b, ADR 0042): the MCP `code` tool. A short ES module the client model writes runs
-// in a Dynamic Worker (no network) and calls operations through `codemode:crm` as the connected
+// in a Dynamic Worker (no network) and calls operations through `codemode:ops` as the connected
 // user's own actor (mcp), with their role and token scopes, through the same gate and simulation
 // as the tools: a bulk change still becomes one pending action, and reads see the session's
 // pending changes.
@@ -18,22 +18,22 @@ export const CODE_MAX_BYTES = 50_000;
 
 const DESCRIPTION = `Run a short JavaScript/TypeScript ES module against the CRM, for work that takes many calls or some logic: looping over search results, joining data, computing a report, preparing one bulk change. It runs in a sandbox with no network, for at most 30 seconds and 100 operation calls, as you (same permissions, approval policy and audit as the other tools: a change that needs approval is queued, not applied, and your later reads in the script see it as pending).
 
-Import { crm } from "codemode:crm" and call operations by name: await crm.call("person.list", { filter: …, limit: 50 }). Names and inputs are the ones describe_operations lists (person.get, person.list, person.updateMany, organisation.list, activity.log, record.list, query.sql, search.global, …). A failed call throws an Error with .code and .details; a call queued for approval returns { status: "pending_approval", actionId, … } instead of its result. Export default an async function (or a value); its return value (JSON) comes back as "value", with console.log/info/warn/error output as "logs".
+Import { crm } from "codemode:ops" and call operations by name: await ops.call("person.list", { filter: …, limit: 50 }). Names and inputs are the ones describe_operations lists (person.get, person.list, person.updateMany, organisation.list, activity.log, record.list, query.sql, search.global, …). A failed call throws an Error with .code and .details; a call queued for approval returns { status: "pending_approval", actionId, … } instead of its result. Export default an async function (or a value); its return value (JSON) comes back as "value", with console.log/info/warn/error output as "logs".
 
 To change many records, prefer ONE *Many call (e.g. person.updateMany with up to 100 ids) over a loop of single updates: it is atomic and becomes one reviewable change. Pass the input "reason" to say why; it is stored on anything queued.
 
 Example, tagging every person at an organisation:
 
-import { crm } from "codemode:crm";
+import { ops } from "codemode:ops";
 export default async function () {
-  const page = await crm.call("person.list", {
+  const page = await ops.call("person.list", {
     filter: { field: "organisationId", op: "eq", value: "org_01J…" },
     fields: ["id", "displayName"],
     limit: 100,
   });
   const ids = page.items.map((p) => p.id);
   console.log("tagging", ids.length, "people");
-  const result = await crm.call("person.updateMany", { ids, addTags: ["offsite-2026"] });
+  const result = await ops.call("person.updateMany", { ids, addTags: ["offsite-2026"] });
   return { tagged: ids.length, result };
 }`;
 
@@ -64,7 +64,7 @@ export const codeRun = defineOperation({
       .string()
       .min(1)
       .max(CODE_MAX_BYTES)
-      .describe('The ES module source; import { crm } from "codemode:crm"'),
+      .describe('The ES module source; import { ops } from "codemode:ops"'),
     reason: z
       .string()
       .trim()

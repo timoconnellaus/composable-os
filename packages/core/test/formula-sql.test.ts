@@ -1,4 +1,4 @@
-// AC2: formula fields compile to SQLite in the crm_* views, so they filter and sort in lists, and
+// AC2: formula fields compile to SQLite in the rec_* views, so they filter and sort in lists, and
 // check reports their errors. Grammar and type rules are unit-tested in packages/sdk.
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -131,7 +131,7 @@ describe("formula fields in views", () => {
 
   it("keeps string literals inert in the generated view", async () => {
     const sql = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE name = ?")
-      .bind(`crm_x_${id}_deal`)
+      .bind(`rec_x_${id}_deal`)
       .first<{ sql: string }>();
     expect(sql?.sql).toContain("' — it''s '");
   });

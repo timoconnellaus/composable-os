@@ -150,7 +150,7 @@ describe("grading predicates", () => {
     ]);
   });
 
-  it("ticket-tool wants a read tool with an organisation input and the crm module", () => {
+  it("ticket-tool wants a read tool with an organisation input and the ops module", () => {
     const p = prompt("ticket-tool");
     const manifest = (risk: string, modules: string[]): Manifest => ({
       permissions: { modules },
@@ -174,10 +174,10 @@ describe("grading predicates", () => {
         },
       },
     });
-    expect(p.expect(manifest("read", ["crm"]))).toEqual([]);
+    expect(p.expect(manifest("read", ["ops"]))).toEqual([]);
     expect(p.expect(manifest("write", []))).toEqual([
       "tool countOpen has risk write, not read",
-      'permissions.modules does not include "crm" (has: none)',
+      'permissions.modules does not include "ops" (has: none)',
     ]);
   });
 

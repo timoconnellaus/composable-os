@@ -1,7 +1,7 @@
 // The Deals automations (stage 5, ADR 0028). Each is listed under Automations and can be turned
 // off with automation.disable (or the Pause button). They declare their steps and intents, so
 // the host renders the summary and step diagram from them; `run` only takes declared steps.
-import { CrmCallError, defineAutomation } from "@relationship-os/sdk";
+import { defineAutomation, OpsCallError } from "@relationship-os/sdk";
 
 export const STALLED_DAYS = 14;
 export const FOLLOW_UP_PREFIX = "Follow up:";
@@ -16,13 +16,13 @@ export const ONBOARDING_TASKS = ["Kick-off call", "Send welcome pack", "Set up a
  */
 export const STALLED_SQL = `
 SELECT d.id AS id, d.name AS name, d.owner AS owner
-FROM crm_x_deals_deal d
+FROM rec_x_deals_deal d
 WHERE d.status = 'open' AND d.updated_at < ?1
   AND NOT EXISTS (
-    SELECT 1 FROM crm_activity_links l JOIN crm_activities a ON a.id = l.activity_id
+    SELECT 1 FROM rec_activity_link l JOIN rec_activity a ON a.id = l.activity_id
     WHERE l.object_type = 'deals.deal' AND l.record_id = d.id AND a.occurred_at >= ?1)
   AND NOT EXISTS (
-    SELECT 1 FROM crm_task_links tl JOIN crm_tasks t ON t.id = tl.task_id
+    SELECT 1 FROM rec_task_link tl JOIN rec_task t ON t.id = tl.task_id
     WHERE tl.object_type = 'deals.deal' AND tl.record_id = d.id AND t.status = 'open'
       AND t.title LIKE '${FOLLOW_UP_PREFIX}%')
 ORDER BY d.updated_at
@@ -56,12 +56,12 @@ export const stalledDeal = defineAutomation({
     // One step: a retry re-reads, so deals that already got their task are skipped.
     return step.do("createFollowUps", async () => {
       const since = new Date(periodMs(event.period) - STALLED_DAYS * DAY_MS).toISOString();
-      const { rows } = await ctx.crm.call<{
+      const { rows } = await ctx.ops.call<{
         rows: { id: string; name: string; owner: string | null }[];
       }>("query.sql", { sql: STALLED_SQL, params: [since], maxRows: STALLED_BATCH });
       const created: string[] = [];
       for (const deal of rows) {
-        const task = await ctx.crm.call<{ id?: string }>("task.create", {
+        const task = await ctx.ops.call<{ id?: string }>("task.create", {
           title: `${FOLLOW_UP_PREFIX} ${deal.name}`,
           notes: `No changes or activity on this deal for ${STALLED_DAYS} days.`,
           dueAt: isoDate(periodMs(event.period)),
@@ -121,7 +121,7 @@ export const wonOnboarding = defineAutomation({
       const ids: string[] = [];
       for (const title of ONBOARDING_TASKS) {
         // A task queued for approval comes back pending, without an id.
-        const task = await ctx.crm.call<{ id?: string }>("task.create", {
+        const task = await ctx.ops.call<{ id?: string }>("task.create", {
           title,
           assigneeId: owner,
           links: [{ object: deal.object, id: deal.id }],
@@ -138,11 +138,11 @@ export const wonOnboarding = defineAutomation({
       let open = 0;
       for (const id of taskIds) {
         try {
-          const task = await ctx.crm.call<{ status: string }>("task.get", { id });
+          const task = await ctx.ops.call<{ status: string }>("task.get", { id });
           if (task.status === "open") open += 1;
         } catch (error) {
           // A deleted task no longer counts.
-          if (!(error instanceof CrmCallError && error.code === "not_found")) throw error;
+          if (!(error instanceof OpsCallError && error.code === "not_found")) throw error;
         }
       }
       if (open === 0) return { open, notified: false };

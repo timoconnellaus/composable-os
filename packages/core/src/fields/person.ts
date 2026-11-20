@@ -4,7 +4,7 @@ import { defineObject } from "./types.ts";
 export const personObject = defineObject({
   name: "person",
   label: "Person",
-  source: "crm_people",
+  source: "rec_person",
   defaultSort: { field: "displayName", direction: "asc" },
   ownerField: "ownerId",
   fields: [

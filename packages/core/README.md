@@ -30,7 +30,7 @@ src/
                        field-types.ts: storage, zod, filter type, CSV and widget per extension
                        field type
   extensions/          stage 3 (ADR 0040): naming (x_* tables, columns), schema.ts (state,
-                       registry refresh, crm_* view generation), reconciler.ts (plans, dry run,
+                       registry refresh, rec_* view generation), reconciler.ts (plans, dry run,
                        apply, hide/drop), install.ts (check + installExtension), tools.ts
                        (x.<ext>.<tool> operations), host.ts (the ExtensionHost port the runner
                        implements), shipped.ts (boot install of shipped extensions),
@@ -106,7 +106,7 @@ src/
    `.describe()`, keep outputs JSON (strings for timestamps), and keep inputs strict.
 
 3. **Handler rules.**
-   - Read with `ctx.db` (Kysely over `core_*` tables and `crm_*` views). Throw `NotFoundError`,
+   - Read with `ctx.db` (Kysely over `core_*` tables and `rec_*` views). Throw `NotFoundError`,
      `ValidationError` or `ConflictError` for expected failures.
    - **Queue** writes with `ctx.write(ctx.db.insertInto(…)…)`; never `.execute()` a write. The
      pipeline commits them, the audit row and timeline activities in one D1 batch, so a failure
@@ -141,7 +141,7 @@ src/
    (ADR 0018 amendment).
 
 6. **Lists.** Take `listInputSchema` (filter, sort, cursor, limit, fields), select from the
-   object's `crm_*` view and call `runListQuery(query, organisationObject, input)`; return
+   object's `rec_*` view and call `runListQuery(query, organisationObject, input)`; return
    `pageSchema(itemSchema.partial().required({ id: true }))` with `selectFields(...)`. Filterable
    and sortable fields come from the field registry; add fields there, not in the handler.
 

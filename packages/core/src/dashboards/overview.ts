@@ -46,7 +46,7 @@ export const OVERVIEW_DASHBOARD: {
         id: "people-added",
         type: "kpi",
         title: "People added",
-        sql: `SELECT COUNT(*) AS value FROM crm_people WHERE ${IN_RANGE} AND ${OWNER}`,
+        sql: `SELECT COUNT(*) AS value FROM rec_person WHERE ${IN_RANGE} AND ${OWNER}`,
         mapping: { value: "value" },
         options: { compare: true },
         clickThrough: { object: "person", filter: createdInRange() },
@@ -56,7 +56,7 @@ export const OVERVIEW_DASHBOARD: {
         id: "organisations-added",
         type: "kpi",
         title: "Organisations added",
-        sql: `SELECT COUNT(*) AS value FROM crm_organisations WHERE ${IN_RANGE} AND ${OWNER}`,
+        sql: `SELECT COUNT(*) AS value FROM rec_organisation WHERE ${IN_RANGE} AND ${OWNER}`,
         mapping: { value: "value" },
         options: { compare: true },
         clickThrough: { object: "organisation", filter: createdInRange() },
@@ -67,7 +67,7 @@ export const OVERVIEW_DASHBOARD: {
         type: "kpi",
         title: "Activities logged",
         sql:
-          "SELECT COUNT(*) AS value FROM crm_activities " +
+          "SELECT COUNT(*) AS value FROM rec_activity " +
           "WHERE occurred_at >= :date_from AND occurred_at < :date_to " +
           "AND type <> 'system' " +
           "AND (:owner IS NULL OR author_user_id = :owner)",
@@ -91,7 +91,7 @@ export const OVERVIEW_DASHBOARD: {
         type: "kpi",
         title: "Tasks overdue",
         sql:
-          "SELECT COUNT(*) AS value FROM crm_tasks WHERE status = 'open' AND due_at < :now " +
+          "SELECT COUNT(*) AS value FROM rec_task WHERE status = 'open' AND due_at < :now " +
           "AND (:owner IS NULL OR assignee_id = :owner)",
         mapping: { value: "value" },
         options: { compare: false },
@@ -118,11 +118,11 @@ export const OVERVIEW_DASHBOARD: {
           "FROM (",
           "  SELECT substr(created_at, 1, 7) AS month, 'People' AS series, 'person' AS object,",
           "    COUNT(*) AS value",
-          `  FROM crm_people WHERE ${IN_RANGE} AND ${OWNER}`,
+          `  FROM rec_person WHERE ${IN_RANGE} AND ${OWNER}`,
           "  GROUP BY substr(created_at, 1, 7)",
           "  UNION ALL",
           "  SELECT substr(created_at, 1, 7), 'Organisations', 'organisation', COUNT(*)",
-          `  FROM crm_organisations WHERE ${IN_RANGE} AND ${OWNER}`,
+          `  FROM rec_organisation WHERE ${IN_RANGE} AND ${OWNER}`,
           "  GROUP BY substr(created_at, 1, 7)",
           ")",
           "ORDER BY month, series",
@@ -147,7 +147,7 @@ export const OVERVIEW_DASHBOARD: {
         type: "donut",
         title: "Activities by type",
         sql:
-          "SELECT type AS label, COUNT(*) AS value FROM crm_activities " +
+          "SELECT type AS label, COUNT(*) AS value FROM rec_activity " +
           "WHERE occurred_at >= :date_from AND occurred_at < :date_to " +
           "AND type <> 'system' " +
           "AND (:owner IS NULL OR author_user_id = :owner) " +
@@ -173,15 +173,15 @@ export const OVERVIEW_DASHBOARD: {
         title: "Open tasks by due date",
         sql: [
           `SELECT 'Overdue' AS label, COUNT(*) AS value, ${MIN} AS due_from, :now AS due_to`,
-          "FROM crm_tasks WHERE status = 'open' AND due_at < :now",
+          "FROM rec_task WHERE status = 'open' AND due_at < :now",
           "  AND (:owner IS NULL OR assignee_id = :owner)",
           "UNION ALL",
           `SELECT 'Next 7 days', COUNT(*), :now, ${WEEK}`,
-          `FROM crm_tasks WHERE status = 'open' AND due_at >= :now AND due_at < ${WEEK}`,
+          `FROM rec_task WHERE status = 'open' AND due_at >= :now AND due_at < ${WEEK}`,
           "  AND (:owner IS NULL OR assignee_id = :owner)",
           "UNION ALL",
           `SELECT 'Later', COUNT(*), ${WEEK}, ${MAX}`,
-          `FROM crm_tasks WHERE status = 'open' AND due_at >= ${WEEK}`,
+          `FROM rec_task WHERE status = 'open' AND due_at >= ${WEEK}`,
           "  AND (:owner IS NULL OR assignee_id = :owner)",
         ].join("\n"),
         mapping: { x: "label", y: "value" },
@@ -205,7 +205,7 @@ export const OVERVIEW_DASHBOARD: {
         title: "Top owners by people added",
         sql: [
           "SELECT p.owner_id AS owner_id, u.name AS label, COUNT(*) AS value",
-          "FROM crm_people p JOIN crm_users u ON u.id = p.owner_id",
+          "FROM rec_person p JOIN rec_user u ON u.id = p.owner_id",
           "WHERE p.created_at >= :date_from AND p.created_at < :date_to",
           "  AND (:owner IS NULL OR p.owner_id = :owner)",
           "GROUP BY p.owner_id, u.name",
@@ -230,7 +230,7 @@ export const OVERVIEW_DASHBOARD: {
         title: "Open tasks due soonest",
         sql: [
           "SELECT t.id AS id, t.title AS title, t.due_at AS due, u.name AS assignee",
-          "FROM crm_tasks t LEFT JOIN crm_users u ON u.id = t.assignee_id",
+          "FROM rec_task t LEFT JOIN rec_user u ON u.id = t.assignee_id",
           `WHERE t.status = 'open' AND t.due_at >= ${MIN}`,
           "  AND (:owner IS NULL OR t.assignee_id = :owner)",
           "ORDER BY t.due_at, t.id",

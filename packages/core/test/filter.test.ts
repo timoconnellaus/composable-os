@@ -14,7 +14,7 @@ import { context, createUser, db, unique } from "./helpers.ts";
 
 function compiled(filter: Filter) {
   return db.query
-    .selectFrom("crm_people")
+    .selectFrom("rec_person")
     .select("id")
     .where(compileFilter(personObject, filter))
     .compile();
@@ -88,7 +88,7 @@ describe("compileFilter: SQL", () => {
 
   it("only uses registry identifiers", () => {
     const { sql: text } = compiled({ field: "displayName", op: "eq", value: "x" });
-    expect(text).toContain('"crm_people"."display_name"');
+    expect(text).toContain('"rec_person"."display_name"');
   });
 
   it("escapes LIKE wildcards", () => {
@@ -140,7 +140,7 @@ describe("compileFilter on D1", () => {
       and: [{ field: "id", op: "in", value: Object.values(ids) }, filter],
     };
     const rows = await db.query
-      .selectFrom("crm_people")
+      .selectFrom("rec_person")
       .select("id")
       .where(compileFilter(personObject, scoped))
       .orderBy(sql`display_name`)

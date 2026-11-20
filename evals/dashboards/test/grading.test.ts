@@ -214,7 +214,7 @@ describe("previewWidget", () => {
     const session = crm.session();
     const widget = {
       ...kpi,
-      sql: "SELECT COUNT(*) AS value FROM crm_people",
+      sql: "SELECT COUNT(*) AS value FROM rec_person",
       mapping: { value: "value" },
     };
     const result = await previewWidget(session, { widget, dashboardFilters: [], filters: {} });
@@ -237,7 +237,7 @@ describe("previewWidget", () => {
     const session = fakeCrm().session();
     const widget = {
       ...kpi,
-      sql: "SELECT COUNT(*) AS value FROM crm_people WHERE created_at >= :date_from",
+      sql: "SELECT COUNT(*) AS value FROM rec_person WHERE created_at >= :date_from",
     };
     expect(await previewWidget(session, { widget, dashboardFilters: [], filters: {} })).toEqual({
       ok: false,
@@ -249,7 +249,7 @@ describe("previewWidget", () => {
 describe("the fake CRM's column inference", () => {
   it("reads aliases and bare columns from the select list", () => {
     expect(
-      selectColumns("SELECT substr(created_at, 1, 7) AS month, type, COUNT(*) AS value FROM crm_x"),
+      selectColumns("SELECT substr(created_at, 1, 7) AS month, type, COUNT(*) AS value FROM rec_x"),
     ).toEqual(["month", "type", "value"]);
   });
 });

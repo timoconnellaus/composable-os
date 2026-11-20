@@ -1,13 +1,13 @@
 // Enforces the core naming convention: every table a core migration creates is `core_*`, and every
-// view is `core_*` or a `crm_*` read view (ADR 0015 amendment). SQLite and D1 internals are the
+// view is `core_*` or a `rec_*` read view (ADR 0015 amendment). SQLite and D1 internals are the
 // only exceptions.
 import { env } from "cloudflare:workers";
 import { expect, it } from "vitest";
-import { applyMigrations, CORE_TABLE_PREFIX, CRM_VIEW_PREFIX } from "../src/index.ts";
+import { applyMigrations, CORE_TABLE_PREFIX, RECORD_VIEW_PREFIX } from "../src/index.ts";
 
 const INTERNAL = /^(sqlite_|_cf_|d1_)/;
 
-it("every table created by core migrations starts with core_ (views may be crm_)", async () => {
+it("every table created by core migrations starts with core_ (views may be rec_)", async () => {
   await applyMigrations(env.DB, env.TEST_MIGRATIONS);
   const { results } = await env.DB.prepare(
     "SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view')",
@@ -18,7 +18,7 @@ it("every table created by core migrations starts with core_ (views may be crm_)
       (row) =>
         !INTERNAL.test(row.name) &&
         !row.name.startsWith(CORE_TABLE_PREFIX) &&
-        !(row.type === "view" && row.name.startsWith(CRM_VIEW_PREFIX)),
+        !(row.type === "view" && row.name.startsWith(RECORD_VIEW_PREFIX)),
     )
     .map((row) => row.name);
   expect(offenders, `core tables must be prefixed ${CORE_TABLE_PREFIX}`).toEqual([]);
@@ -29,5 +29,31 @@ it("core migrations never mention extension (x_) tables", () => {
     for (const query of migration.queries) {
       expect(query, migration.name).not.toMatch(/\bx_[a-z0-9_]+/i);
     }
+  }
+});
+
+it("after migrations every read view is rec_<object>, and none keeps the old prefix (stage 20)", async () => {
+  await applyMigrations(env.DB, env.TEST_MIGRATIONS);
+  const { results } = await env.DB.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name",
+  ).all<{ name: string }>();
+  const views = results
+    .map((row) => row.name)
+    .filter((name) => !name.startsWith(CORE_TABLE_PREFIX));
+  expect(views).toEqual([
+    "rec_activity",
+    "rec_activity_link",
+    "rec_affiliation",
+    "rec_organisation",
+    "rec_person",
+    "rec_record_tag",
+    "rec_stage_history",
+    "rec_task",
+    "rec_task_link",
+    "rec_user",
+  ]);
+  // Every one of them reads: a view over a dropped or renamed table would fail here.
+  for (const view of views) {
+    await env.DB.prepare(`SELECT * FROM ${view} LIMIT 1`).all();
   }
 });

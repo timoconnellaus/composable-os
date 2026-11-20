@@ -44,7 +44,7 @@ test("an extension proposal shows its diff, impact, check and AI summary, and in
   await expect(impact).toContainText(`${id}.project`);
   await expect(impact).toContainText(`${id}.project.openBudget`);
   await expect(impact).toContainText("read organisation");
-  await expect(impact).toContainText("codemode:crm");
+  await expect(impact).toContainText("codemode:ops");
   await expect(impact).toContainText("schema");
 
   await expect(item.getByTestId("extension-check")).toContainText("Check passed");

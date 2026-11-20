@@ -26,7 +26,7 @@ export default defineExtension({
   contractVersion: 1,
   label: "Projects",
   description: "Projects linked to organisations, with a status and a budget.",
-  permissions: { read: ["organisation"], modules: ["crm"] },
+  permissions: { read: ["organisation"], modules: ["ops"] },
   objects: {
     project: {
       label: "Project",

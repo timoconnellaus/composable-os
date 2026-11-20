@@ -1,4 +1,4 @@
-// Declared permissions (ADR 0025): what an extension may call through `codemode:crm`. The host
+// Declared permissions (ADR 0025): what an extension may call through `codemode:ops`. The host
 // enforces this in the invocation pipeline; the testing harness uses the same rules.
 import type { PermissionsManifest } from "./manifest.ts";
 import { FORBIDDEN_OPERATION_PREFIXES } from "./manifest.ts";
@@ -25,7 +25,7 @@ export function checkGrant(
     return { ok: false, reason: `Extensions cannot call ${operation}` };
   }
   if (operation.startsWith(`x.${id}.`)) {
-    return { ok: false, reason: "An extension cannot call its own tools through codemode:crm" };
+    return { ok: false, reason: "An extension cannot call its own tools through codemode:ops" };
   }
   if (permissions.operations.includes(operation)) return { ok: true };
   if (operation.startsWith("x.")) {

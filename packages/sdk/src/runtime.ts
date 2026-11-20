@@ -18,11 +18,11 @@ import {
 } from "./automation.ts";
 import type {
   AiModule,
-  CrmModule,
   Extension,
   ExtensionContext,
   GatekeeperModule,
   LogModule,
+  OpsModule,
   StorageModule,
 } from "./contract.ts";
 import { toManifest } from "./manifest.ts";
@@ -31,7 +31,7 @@ type HostFn = (...args: unknown[]) => Promise<unknown>;
 
 /** The raw `codemode:*` modules, as imported in the entry module. */
 export interface RawHostModules {
-  crm?: { call: HostFn };
+  ops?: { call: HostFn };
   storage?: { get: HostFn; set: HostFn; del: HostFn; list: HostFn };
   log?: { write: HostFn };
   ai?: { summarise: HostFn; extract: HostFn; classify: HostFn };
@@ -47,14 +47,14 @@ export type RunResponse =
   | { ok: true; value: unknown }
   | { ok: false; error: { code: string; message: string; details?: unknown } };
 
-/** What `codemode:crm`'s `call` returns. */
-export type CrmReply =
+/** What `codemode:ops`'s `call` returns. */
+export type OpsReply =
   | { ok: true; value: unknown }
   | { ok: false; error: { code: string; message: string; details?: unknown } };
 
-/** Thrown by `ctx.crm.call` when the operation fails; `code` is the pipeline's error code. */
-export class CrmCallError extends Error {
-  override name = "CrmCallError";
+/** Thrown by `ctx.ops.call` when the operation fails; `code` is the pipeline's error code. */
+export class OpsCallError extends Error {
+  override name = "OpsCallError";
   constructor(
     readonly code: string,
     message: string,
@@ -85,16 +85,16 @@ export function buildContext(
   raw: RawHostModules,
   pending: Promise<unknown>[] = [],
 ): ExtensionContext {
-  const crm: CrmModule = raw.crm
+  const ops: OpsModule = raw.ops
     ? {
         call: async (operation, input) => {
           // The host answers with an envelope so error codes survive the isolate boundary.
-          const reply = (await raw.crm?.call(operation, input ?? {})) as CrmReply;
+          const reply = (await raw.ops?.call(operation, input ?? {})) as OpsReply;
           if (reply.ok) return reply.value as never;
-          throw new CrmCallError(reply.error.code, reply.error.message, reply.error.details);
+          throw new OpsCallError(reply.error.code, reply.error.message, reply.error.details);
         },
       }
-    : absent("crm");
+    : absent("ops");
   const storage: StorageModule = raw.storage
     ? {
         get: (key) => raw.storage?.get(key) as Promise<never>,
@@ -127,16 +127,16 @@ export function buildContext(
     return {
       connections: () => mod.connections?.() as Promise<never>,
       call: async (connectionId, resource, method, ...args) => {
-        const reply = (await mod.call?.(connectionId, resource, method, args)) as CrmReply;
+        const reply = (await mod.call?.(connectionId, resource, method, args)) as OpsReply;
         if (reply.ok) return reply.value as never;
-        throw new CrmCallError(reply.error.code, reply.error.message, reply.error.details);
+        throw new OpsCallError(reply.error.code, reply.error.message, reply.error.details);
       },
       types: (connectionId, resource) => mod.types?.(connectionId, resource) as Promise<string>,
     };
   };
   return {
     extension: { id: extension.id, version: extension.version },
-    crm,
+    ops,
     storage,
     log,
     ai,
@@ -252,7 +252,7 @@ export function buildAutomationContext(
       const n = (counts.get(step) ?? 0) + 1;
       counts.set(step, n);
       const input = notificationInput(event, to, message, `${step}:${n}`);
-      const out = (await base.crm.call("notification.send" as never, input as never)) as {
+      const out = (await base.ops.call("notification.send" as never, input as never)) as {
         sent?: number;
       } | null;
       return { sent: typeof out?.sent === "number" ? out.sent : 0 };
@@ -316,12 +316,12 @@ export async function runAutomation(
   };
 
   const pending: Promise<unknown>[] = [];
-  // Every crm call carries the step it ran in, so the host can file it under that step (and
+  // Every ops call carries the step it ran in, so the host can file it under that step (and
   // flag writes the step did not declare).
   let current: string | null = null;
-  const crm = raw.crm;
-  const tagged: RawHostModules = crm
-    ? { ...raw, crm: { call: (operation, input) => crm.call(operation, input, { step: current }) } }
+  const ops = raw.ops;
+  const tagged: RawHostModules = ops
+    ? { ...raw, ops: { call: (operation, input) => ops.call(operation, input, { step: current }) } }
     : raw;
   const ctx = buildAutomationContext(extension, tagged, request.event, pending, () => current);
   const step = {

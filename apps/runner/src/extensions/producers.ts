@@ -3,7 +3,7 @@
 // `LOADER.get` id (ADR 0043), and the cached worker serves every viewer. That sets the rules:
 // - the entry patches no globals and keeps nothing in module scope: the viewer's host arrives as
 //   an argument of each run, so two people's runs on one warm worker can never mix;
-// - the script imports nothing; `crm` is handed to its default export;
+// - the script imports nothing; `ops` is handed to its default export;
 // - there is no network and there are no bindings, and the run host answers only read operations.
 import { transform } from "sucrase";
 import { COMPATIBILITY_DATE, sha256 } from "../executor/worker-code.ts";
@@ -17,7 +17,7 @@ import script from "./script.js";
 function client(host) {
   return {
     async call(operation, input) {
-      const reply = await host.call("crm", "call", [String(operation), input ?? {}]);
+      const reply = await host.call("ops", "call", [String(operation), input ?? {}]);
       if (reply && reply.ok) return reply.value;
       const failure = (reply && reply.error) || { code: "internal", message: "No reply" };
       const error = new Error(failure.message);
@@ -30,7 +30,7 @@ export default class extends WorkerEntrypoint {
   async run(request, host) {
     try {
       const value = await script(request.input, {
-        crm: client(host),
+        ops: client(host),
         now: request.now,
         timezone: request.timezone,
       });
@@ -58,7 +58,7 @@ export function buildProducer(source: string): ScriptBuild {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
   if (/\bimport\b\s*[("'{*\w]|\brequire\s*\(/.test(code.replace(/`[\s\S]*?`/g, "``"))) {
-    return { ok: false, message: "A producer imports nothing; use the crm it is given" };
+    return { ok: false, message: "A producer imports nothing; use the ops it is given" };
   }
   return { ok: true, script: code };
 }

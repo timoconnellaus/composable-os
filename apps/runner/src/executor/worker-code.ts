@@ -48,7 +48,7 @@ function sdkImports(path: string, code: string): string {
 const GATEKEEPER_METHODS = ["connections", "call", "types"] as const;
 
 export const HOST_METHODS = {
-  crm: ["call"],
+  ops: ["call"],
   storage: ["get", "set", "del", "list"],
   log: ["write"],
   ai: ["summarise", "extract", "classify"],

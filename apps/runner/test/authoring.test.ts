@@ -69,7 +69,7 @@ const projects = (id: string, version = "1.0.0", more = "") =>
   source(
     id,
     `label: "Projects",
-  permissions: { read: ["organisation"], modules: ["crm", "log"] },
+  permissions: { read: ["organisation"], modules: ["ops", "log"] },
   objects: {
     project: {
       label: "Project", plural: "Projects", icon: "folder-kanban", titleField: "name",
@@ -181,7 +181,7 @@ describe("propose, approve and reject", () => {
       kind: "install",
       risks: ["extension", "schema"],
       schema: { newObjects: [`${id}.project`] },
-      modules: ["crm", "log"],
+      modules: ["ops", "log"],
     });
     expect(proposed.check.ok).toBe(true);
     // No AI binding in tests: no summary, and the screen says so.
@@ -244,7 +244,7 @@ describe("propose, approve and reject", () => {
     const session = `cap_${unique()}`;
     await mcp(admin, session, "extension.write", {
       id,
-      files: source(id, `permissions: { read: ["nonsense"], modules: ["crm"] },`),
+      files: source(id, `permissions: { read: ["nonsense"], modules: ["ops"] },`),
     });
     const proposed = await mcp<Proposed>(admin, session, "extension.propose", { id });
     expect(proposed.status).toBe("check_failed");
@@ -315,7 +315,7 @@ describe("widening permissions is a reviewable change (AC3)", () => {
         files: source(
           id,
           `label: "Projects",
-  permissions: { read: ["organisation"], write: ["person"], operations: ["task.create"], modules: ["crm", "log"] },
+  permissions: { read: ["organisation"], write: ["person"], operations: ["task.create"], modules: ["ops", "log"] },
   objects: {
     project: {
       label: "Project", plural: "Projects", icon: "folder-kanban", titleField: "name",

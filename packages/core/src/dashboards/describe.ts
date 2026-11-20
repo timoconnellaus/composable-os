@@ -6,7 +6,7 @@ import { listObjects } from "../fields/index.ts";
 import type { ModelMessage, ModelRunner } from "../models.ts";
 import { allowedParamNames, type DashboardFilter, SYSTEM_PARAMS, WIDGET_TYPES } from "./spec.ts";
 
-/** The crm_* views a widget may read, with their columns, for the model prompt. */
+/** The rec_* views a widget may read, with their columns, for the model prompt. */
 export function schemaSummary(): string {
   const lines: string[] = [];
   for (const object of listObjects()) {
@@ -19,11 +19,11 @@ export function schemaSummary(): string {
     lines.push(`${object.source} -- ${object.label} records: ${columns.join(", ")}`);
   }
   lines.push(
-    "crm_users -- people who sign in: id, name, email, role",
-    "crm_affiliations -- person ↔ organisation links: id, person_id, organisation_id, title, is_current, is_primary",
-    "crm_activity_links -- activity ↔ record links: activity_id, object_type, record_id",
-    "crm_task_links -- task ↔ record links: task_id, object_type, record_id",
-    "crm_record_tags -- tags: object_type, record_id, name",
+    "rec_user -- people who sign in: id, name, email, role",
+    "rec_affiliation -- person ↔ organisation links: id, person_id, organisation_id, title, is_current, is_primary",
+    "rec_activity_link -- activity ↔ record links: activity_id, object_type, record_id",
+    "rec_task_link -- task ↔ record links: task_id, object_type, record_id",
+    "rec_record_tag -- tags: object_type, record_id, name",
   );
   return lines.join("\n");
 }
@@ -38,7 +38,7 @@ export function describePrompt(
     `Widget types: ${WIDGET_TYPES.join(", ")}.`,
     "Shape: {",
     '  "id": "kebab-case-id", "type": "...", "title": "Short title",',
-    '  "sql": "one read-only SQLite SELECT over the crm_* views below",',
+    '  "sql": "one read-only SQLite SELECT over the rec_* views below",',
     '  "mapping": { "x": col, "y": col, "series": col, "label": col, "value": col, "columns": [cols] },',
     '  "options": { "orientation": "vertical|horizontal", "area": bool, "pie": bool, "limit": n },',
     '  "clickThrough": { "object": "person|organisation|activity|task|<ext>.<object>", "filter": <filter JSON> }',
@@ -118,7 +118,7 @@ const FAKE_WIDGETS: FakeWidget[] = [
       id: "tasks-by-status",
       type: "bar",
       title: "Tasks by status",
-      sql: "SELECT status AS label, COUNT(*) AS value FROM crm_tasks GROUP BY status ORDER BY status",
+      sql: "SELECT status AS label, COUNT(*) AS value FROM rec_task GROUP BY status ORDER BY status",
       mapping: { x: "label", y: "value" },
       clickThrough: {
         object: "task",
@@ -133,7 +133,7 @@ const FAKE_WIDGETS: FakeWidget[] = [
       type: "donut",
       title: "Activities by type",
       sql:
-        "SELECT type AS label, COUNT(*) AS value FROM crm_activities " +
+        "SELECT type AS label, COUNT(*) AS value FROM rec_activity " +
         "WHERE occurred_at >= :date_from AND occurred_at < :date_to GROUP BY type ORDER BY value DESC",
       mapping: { label: "label", value: "value" },
       clickThrough: {
@@ -149,7 +149,7 @@ const FAKE_WIDGETS: FakeWidget[] = [
       type: "bar",
       title: "Organisations by industry",
       sql:
-        "SELECT coalesce(industry, 'Unknown') AS label, COUNT(*) AS value FROM crm_organisations " +
+        "SELECT coalesce(industry, 'Unknown') AS label, COUNT(*) AS value FROM rec_organisation " +
         "GROUP BY industry ORDER BY value DESC",
       mapping: { x: "label", y: "value" },
       options: { orientation: "horizontal" },
@@ -162,7 +162,7 @@ const FAKE_WIDGETS: FakeWidget[] = [
       type: "line",
       title: "People added by month",
       sql:
-        "SELECT substr(created_at, 1, 7) AS month, COUNT(*) AS value FROM crm_people " +
+        "SELECT substr(created_at, 1, 7) AS month, COUNT(*) AS value FROM rec_person " +
         "WHERE created_at >= :date_from AND created_at < :date_to GROUP BY month ORDER BY month",
       mapping: { x: "month", y: "value" },
     },
@@ -173,7 +173,7 @@ const FAKE_DEFAULT: Record<string, unknown> = {
   id: "people-count",
   type: "kpi",
   title: "People",
-  sql: "SELECT COUNT(*) AS value FROM crm_people",
+  sql: "SELECT COUNT(*) AS value FROM rec_person",
   mapping: { value: "value" },
   clickThrough: { object: "person" },
 };

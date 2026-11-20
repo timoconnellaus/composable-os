@@ -109,7 +109,7 @@
     { "binding": "GATEKEEPER_FAKE", "service": "ros-runner", "entrypoint": "FakeGatekeeperVendor" }
   ],
   "vars": {
-    // Extension code calls operations here (codemode:crm), so the runner applies the same
+    // Extension code calls operations here (codemode:ops), so the runner applies the same
     // approval floor as ros-app. Keep the two in step. See docs/deploying.md.
     "APPROVAL_FLOOR": "",
     // codemode:ai and proposal summaries use the model role registry (ADR 0150), like ros-app:

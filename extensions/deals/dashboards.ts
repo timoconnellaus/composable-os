@@ -1,5 +1,5 @@
 // The Deals dashboards (stage 4b): Sales overview (the default Home once Deals is installed) and
-// Pipeline health. Each widget is read-only SQL over the crm_* views with named params bound
+// Pipeline health. Each widget is read-only SQL over the rec_* views with named params bound
 // from the dashboard's filters (ADR 0057), and a click-through that opens exactly the deals it
 // counted (tested per widget in packages/core/test/deals-dashboards.test.ts). Every query walks
 // one of the deal indexes declared in index.ts.
@@ -33,7 +33,7 @@ export const salesOverview: DashboardDeclaration = {
       type: "kpi",
       title: "Won",
       description: "Value of deals won in the period, against the previous period.",
-      sql: `SELECT coalesce(sum(d.value), 0) AS value, count(*) AS deals FROM crm_x_deals_deal d WHERE d.status = 'won' AND ${CLOSED_IN_RANGE} AND ${OWNER}`,
+      sql: `SELECT coalesce(sum(d.value), 0) AS value, count(*) AS deals FROM rec_x_deals_deal d WHERE d.status = 'won' AND ${CLOSED_IN_RANGE} AND ${OWNER}`,
       mapping: { value: "value" },
       options: { format: "currency", compare: true },
       clickThrough: { object: "deals.deal", filter: closedInRange("won") },
@@ -44,7 +44,7 @@ export const salesOverview: DashboardDeclaration = {
       type: "kpi",
       title: "Win rate",
       description: "Deals won out of deals closed (won or lost) in the period.",
-      sql: `SELECT CASE WHEN count(*) = 0 THEN NULL ELSE round(100.0 * sum(d.status = 'won') / count(*), 1) END AS value, count(*) AS deals FROM crm_x_deals_deal d WHERE d.status IN ('won', 'lost') AND ${CLOSED_IN_RANGE} AND ${OWNER}`,
+      sql: `SELECT CASE WHEN count(*) = 0 THEN NULL ELSE round(100.0 * sum(d.status = 'won') / count(*), 1) END AS value, count(*) AS deals FROM rec_x_deals_deal d WHERE d.status IN ('won', 'lost') AND ${CLOSED_IN_RANGE} AND ${OWNER}`,
       mapping: { value: "value" },
       options: { format: "percent", compare: true },
       clickThrough: {
@@ -65,7 +65,7 @@ export const salesOverview: DashboardDeclaration = {
       type: "kpi",
       title: "Average deal size",
       description: "Average value of deals won in the period.",
-      sql: `SELECT round(avg(d.value), 2) AS value, count(*) AS deals FROM crm_x_deals_deal d WHERE d.status = 'won' AND ${CLOSED_IN_RANGE} AND ${OWNER}`,
+      sql: `SELECT round(avg(d.value), 2) AS value, count(*) AS deals FROM rec_x_deals_deal d WHERE d.status = 'won' AND ${CLOSED_IN_RANGE} AND ${OWNER}`,
       mapping: { value: "value" },
       options: { format: "currency", compare: true },
       clickThrough: { object: "deals.deal", filter: closedInRange("won") },
@@ -76,7 +76,7 @@ export const salesOverview: DashboardDeclaration = {
       type: "kpi",
       title: "Open pipeline",
       description: "Value of all open deals (not limited to the period).",
-      sql: `SELECT coalesce(sum(d.value), 0) AS value, count(*) AS deals FROM crm_x_deals_deal d WHERE d.status = 'open' AND ${OWNER}`,
+      sql: `SELECT coalesce(sum(d.value), 0) AS value, count(*) AS deals FROM rec_x_deals_deal d WHERE d.status = 'open' AND ${OWNER}`,
       mapping: { value: "value" },
       options: { format: "currency", compare: false },
       clickThrough: {
@@ -92,9 +92,9 @@ export const salesOverview: DashboardDeclaration = {
       sql: [
         "SELECT s.id AS stage_id, p.name || ': ' || s.name AS label, count(*) AS deals,",
         "  coalesce(sum(d.value), 0) AS value",
-        "FROM crm_x_deals_deal d",
-        "JOIN crm_x_deals_stage s ON s.id = d.stage",
-        "JOIN crm_x_deals_pipeline p ON p.id = s.pipeline",
+        "FROM rec_x_deals_deal d",
+        "JOIN rec_x_deals_stage s ON s.id = d.stage",
+        "JOIN rec_x_deals_pipeline p ON p.id = s.pipeline",
         `WHERE d.status = 'open' AND ${OWNER}`,
         "GROUP BY s.id, p.name, s.name, p.position, s.position",
         "ORDER BY p.position, p.name, s.position",
@@ -124,7 +124,7 @@ export const salesOverview: DashboardDeclaration = {
         "FROM (",
         "  SELECT substr(d.expected_close, 1, 7) AS month,",
         "    coalesce(d.value, 0) * coalesce(d.probability, 0) / 100.0 AS weighted",
-        "  FROM crm_x_deals_deal d",
+        "  FROM rec_x_deals_deal d",
         `  WHERE d.status = 'open' AND d.expected_close >= '0000-01-01' AND ${OWNER}`,
         ")",
         "GROUP BY month ORDER BY month",
@@ -151,7 +151,7 @@ export const salesOverview: DashboardDeclaration = {
       sql: [
         "SELECT d.owner AS owner_id, u.name AS label, coalesce(sum(d.value), 0) AS value,",
         "  count(*) AS deals",
-        "FROM crm_x_deals_deal d JOIN crm_users u ON u.id = d.owner",
+        "FROM rec_x_deals_deal d JOIN rec_user u ON u.id = d.owner",
         `WHERE d.status = 'open' AND ${OWNER}`,
         "GROUP BY d.owner, u.name ORDER BY value DESC, label",
       ].join("\n"),
@@ -178,7 +178,7 @@ export const salesOverview: DashboardDeclaration = {
         "  strftime('%Y-%m-%dT%H:%M:%fZ', month || '-01', '+1 month') AS month_end",
         "FROM (",
         "  SELECT substr(d.closed_at, 1, 7) AS month, d.value AS value",
-        "  FROM crm_x_deals_deal d",
+        "  FROM rec_x_deals_deal d",
         `  WHERE d.status = 'won' AND ${CLOSED_IN_RANGE} AND ${OWNER}`,
         ")",
         "GROUP BY month ORDER BY month",
@@ -210,7 +210,7 @@ export const pipelineHealth: DashboardDeclaration = {
       type: "kpi",
       title: "Slipped close dates",
       description: "Open deals whose expected close date has passed.",
-      sql: `SELECT count(*) AS value, count(*) AS deals FROM crm_x_deals_deal d WHERE d.status = 'open' AND d.expected_close < :today AND ${OWNER}`,
+      sql: `SELECT count(*) AS value, count(*) AS deals FROM rec_x_deals_deal d WHERE d.status = 'open' AND d.expected_close < :today AND ${OWNER}`,
       mapping: { value: "value" },
       options: { compare: false },
       clickThrough: {
@@ -230,7 +230,7 @@ export const pipelineHealth: DashboardDeclaration = {
       type: "kpi",
       title: "Value at risk",
       description: "Value of open deals whose expected close date has passed.",
-      sql: `SELECT coalesce(sum(d.value), 0) AS value, count(*) AS deals FROM crm_x_deals_deal d WHERE d.status = 'open' AND d.expected_close < :today AND ${OWNER}`,
+      sql: `SELECT coalesce(sum(d.value), 0) AS value, count(*) AS deals FROM rec_x_deals_deal d WHERE d.status = 'open' AND d.expected_close < :today AND ${OWNER}`,
       mapping: { value: "value" },
       options: { format: "currency", compare: false },
       clickThrough: {
@@ -252,10 +252,10 @@ export const pipelineHealth: DashboardDeclaration = {
       sql: [
         "SELECT s.id AS stage_id, p.name || ': ' || s.name AS label,",
         "  round(avg(h.days_in_stage), 1) AS days, count(*) AS deals",
-        "FROM crm_stage_history h",
-        "JOIN crm_x_deals_deal d ON d.id = h.record_id AND d.stage = h.stage_id",
-        "JOIN crm_x_deals_stage s ON s.id = h.stage_id",
-        "JOIN crm_x_deals_pipeline p ON p.id = s.pipeline",
+        "FROM rec_stage_history h",
+        "JOIN rec_x_deals_deal d ON d.id = h.record_id AND d.stage = h.stage_id",
+        "JOIN rec_x_deals_stage s ON s.id = h.stage_id",
+        "JOIN rec_x_deals_pipeline p ON p.id = s.pipeline",
         `WHERE h.object_type = 'deals.deal' AND h.left_at IS NULL AND d.status = 'open' AND ${OWNER}`,
         "GROUP BY s.id, p.name, s.name, p.position, s.position",
         "ORDER BY p.position, p.name, s.position",
@@ -282,17 +282,17 @@ export const pipelineHealth: DashboardDeclaration = {
       sql: [
         "SELECT d.id AS id, d.name AS deal, s.name AS stage, d.value AS value,",
         "  d.expected_close AS expected_close, u.name AS owner",
-        "FROM crm_x_deals_deal d",
-        "JOIN crm_x_deals_stage s ON s.id = d.stage",
-        "LEFT JOIN crm_users u ON u.id = d.owner",
+        "FROM rec_x_deals_deal d",
+        "JOIN rec_x_deals_stage s ON s.id = d.stage",
+        "LEFT JOIN rec_user u ON u.id = d.owner",
         `WHERE d.status = 'open' AND ${OWNER}`,
         "  AND d.created_at < strftime('%Y-%m-%dT%H:%M:%fZ', :now, '-14 days')",
         "  AND NOT EXISTS (",
-        "    SELECT 1 FROM crm_activity_links l JOIN crm_activities a ON a.id = l.activity_id",
+        "    SELECT 1 FROM rec_activity_link l JOIN rec_activity a ON a.id = l.activity_id",
         "    WHERE l.object_type = 'deals.deal' AND l.record_id = d.id",
         "      AND a.occurred_at >= strftime('%Y-%m-%dT%H:%M:%fZ', :now, '-14 days'))",
         "  AND NOT EXISTS (",
-        "    SELECT 1 FROM crm_stage_history h",
+        "    SELECT 1 FROM rec_stage_history h",
         "    WHERE h.object_type = 'deals.deal' AND h.record_id = d.id",
         "      AND h.entered_at >= strftime('%Y-%m-%dT%H:%M:%fZ', :now, '-14 days'))",
         "ORDER BY d.updated_at, d.id",
@@ -312,7 +312,7 @@ export const pipelineHealth: DashboardDeclaration = {
       sql: [
         "SELECT d.id AS id, d.name AS deal, d.expected_close AS expected_close, d.value AS value,",
         "  u.name AS owner",
-        "FROM crm_x_deals_deal d LEFT JOIN crm_users u ON u.id = d.owner",
+        "FROM rec_x_deals_deal d LEFT JOIN rec_user u ON u.id = d.owner",
         `WHERE d.status = 'open' AND d.expected_close < :today AND ${OWNER}`,
         "ORDER BY d.expected_close, d.id",
       ].join("\n"),

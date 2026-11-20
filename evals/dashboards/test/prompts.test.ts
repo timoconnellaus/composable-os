@@ -32,11 +32,11 @@ describe("prompts", () => {
     }
   });
 
-  it("reads only crm_* views in the reference SQL", () => {
+  it("reads only rec_* views in the reference SQL", () => {
     for (const task of tasks) {
       const views = [...String(task.reference.sql).matchAll(/\bfrom\s+(\w+)/gi)].map((m) => m[1]);
       expect(views.length, task.id).toBeGreaterThan(0);
-      for (const view of views) expect(view, task.id).toMatch(/^crm_/);
+      for (const view of views) expect(view, task.id).toMatch(/^rec_/);
     }
   });
 

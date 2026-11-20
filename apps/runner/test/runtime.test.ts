@@ -45,7 +45,7 @@ describe("sandbox", () => {
   it("refuses importing host modules, node: modules and other packages at check time", async () => {
     const id = newId("imp");
     for (const [specifier, pattern] of [
-      ["codemode:crm", /do not import host modules/],
+      ["codemode:ops", /do not import host modules/],
       ["node:fs/promises", /may import only @relationship-os\/sdk/],
       ["zod", /may import only @relationship-os\/sdk/],
     ] as const) {
@@ -186,8 +186,8 @@ describe("versions and rollback", () => {
       source(
         id,
         `objects: { item: { label: "Item", plural: "Items", titleField: "name", fields: { name: { type: "text", label: "Name" } } } },
-  permissions: { modules: ["crm"] },
-  tools: { ${tool("count", `return (await ctx.crm.call<{ items: unknown[] }>("record.list", { object: "${id}.item" })).items.length;`)} },`,
+  permissions: { modules: ["ops"] },
+  tools: { ${tool("count", `return (await ctx.ops.call<{ items: unknown[] }>("record.list", { object: "${id}.item" })).items.length;`)} },`,
       ),
     );
     const item = await call<{ id: string }>(admin, "record.create", {
@@ -204,7 +204,7 @@ describe("versions and rollback", () => {
       source(
         id,
         `objects: { item: { label: "Item", plural: "Items", titleField: "name", fields: { name: { type: "text", label: "Name" }, size: { type: "number", label: "Size" } } } },
-  permissions: { modules: ["crm"] },
+  permissions: { modules: ["ops"] },
   tools: { ${tool("count", `throw new Error("v2 is broken");`)} },`,
         "2.0.0",
       ),

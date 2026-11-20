@@ -16,6 +16,7 @@ import {
 } from "./contract.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
+import { renamedMessage } from "./renamed.ts";
 
 export const EXTENSION_ID_RE = /^[a-z][a-z0-9]{1,29}$/;
 export const OBJECT_NAME_RE = /^[a-z][a-z0-9]{0,29}$/;
@@ -39,7 +40,8 @@ const RESERVED_OBJECT_NAMES = new Set([
 ]);
 const RESERVED_EXTENSION_IDS = new Set([
   "core",
-  "crm",
+  "ops",
+  "rec",
   "x",
   "sdk",
   "system",
@@ -255,7 +257,17 @@ export const permissionsManifestSchema = z.object({
   read: z.array(z.string().max(80)).max(100).default([]),
   write: z.array(z.string().max(80)).max(100).default([]),
   operations: z.array(z.string().max(100)).max(200).default([]),
-  modules: z.array(z.enum(HOST_MODULES)).max(HOST_MODULES.length).default([]),
+  modules: z
+    .array(
+      z.enum(HOST_MODULES, {
+        // A manifest written against the old contract is told the module's new name.
+        error: (issue) =>
+          (typeof issue.input === "string" ? renamedMessage(issue.input) : null) ??
+          `Unknown host module; one of ${HOST_MODULES.join(", ")}`,
+      }),
+    )
+    .max(HOST_MODULES.length)
+    .default([]),
 });
 export type PermissionsManifest = z.infer<typeof permissionsManifestSchema>;
 
@@ -877,9 +889,9 @@ export function validateManifest(
       contract(`permissions.operations.${i}`, `Extensions cannot be granted ${operation}`);
     }
   });
-  const usesCrm = perms.read.length > 0 || perms.write.length > 0 || perms.operations.length > 0;
-  if (usesCrm && !perms.modules.includes("crm")) {
-    contract("permissions.modules", 'Object or operation permissions need the "crm" module');
+  const usesOps = perms.read.length > 0 || perms.write.length > 0 || perms.operations.length > 0;
+  if (usesOps && !perms.modules.includes("ops")) {
+    contract("permissions.modules", 'Object or operation permissions need the "ops" module');
   }
 
   return { manifest: m, issues };

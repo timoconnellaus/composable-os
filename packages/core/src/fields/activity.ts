@@ -5,7 +5,7 @@ export const activityObject = defineObject({
   name: "activity",
   label: "Activity",
   plural: "Activities",
-  source: "crm_activities",
+  source: "rec_activity",
   defaultSort: { field: "occurredAt", direction: "desc" },
   fields: [
     { name: "id", label: "ID", type: "id", column: "id", filterable: true, sortable: true },

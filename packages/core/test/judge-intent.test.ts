@@ -144,7 +144,7 @@ function orgManifest(id: string, version = "1.0.0", recipient: unknown = { manag
       read: ["organisation"],
       write: [],
       operations: ["notification.send"],
-      modules: ["crm"],
+      modules: ["ops"],
     },
     automations: {
       newOrg: {

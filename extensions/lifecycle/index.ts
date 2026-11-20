@@ -3,7 +3,7 @@
 // stage. Installing it is the opt-in (Settings → Extensions → Available); without it people are
 // unchanged. Nothing moves a person's stage automatically except converting a lead (Leads sets
 // the person to opportunity); a person can describe an automation for anything else.
-import { CrmCallError, defineAutomation, defineExtension } from "@relationship-os/sdk";
+import { defineAutomation, defineExtension, OpsCallError } from "@relationship-os/sdk";
 
 export const LIFECYCLE_STAGES = [
   { value: "subscriber", label: "Subscriber" },
@@ -41,14 +41,14 @@ const stageChangedOn = defineAutomation({
     return step.do("setDate", async () => {
       const today = new Date().toISOString().slice(0, 10);
       try {
-        await ctx.crm.call("record.update", {
+        await ctx.ops.call("record.update", {
           object: "person",
           id: person.id,
           values: { "lifecycle.lifecycleStageChangedAt": today },
         });
       } catch (error) {
         // A person deleted meanwhile has no date to keep.
-        if (!(error instanceof CrmCallError && error.code === "not_found")) throw error;
+        if (!(error instanceof OpsCallError && error.code === "not_found")) throw error;
       }
       return { date: today };
     });
@@ -64,7 +64,7 @@ export default defineExtension({
     "A lifecycle stage on every person (subscriber, lead, marketing qualified, sales qualified, " +
     "opportunity, customer, evangelist, other), tracked on the timeline, with a board of people " +
     "by stage.",
-  permissions: { write: ["person"], modules: ["crm"] },
+  permissions: { write: ["person"], modules: ["ops"] },
   fields: {
     person: {
       lifecycleStage: {

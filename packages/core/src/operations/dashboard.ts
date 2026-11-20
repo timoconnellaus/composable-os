@@ -317,7 +317,7 @@ export const dashboardCreate = defineOperation({
   name: "dashboard.create",
   description:
     "Create a dashboard: a title, filters and widgets. Each data widget has read-only SQL over " +
-    "the crm_* views (checked like query.sql) using named params from the filters (:date_from, " +
+    "the rec_* views (checked like query.sql) using named params from the filters (:date_from, " +
     ":date_to, :owner, …) and :now, :today, :me; a chart mapping; and optionally a " +
     "click-through { object, filter } whose filter values may be { $row } or { $param } " +
     "placeholders. Personal by default; shared: true makes it visible to every member. " +

@@ -6,6 +6,7 @@
 // `node:*`, other packages, dynamic `import()` and `require` are refused here; the Dynamic
 // Worker's loader refuses anything unconfigured as a second line.
 import type { SourceIssue } from "@relationship-os/core";
+import { OLD_OPS_SPECIFIER, OPS_MODULE, OPS_SPECIFIER } from "@relationship-os/sdk";
 import { transform } from "sucrase";
 
 export const SDK_SPECIFIER = "ros-sdk";
@@ -137,7 +138,9 @@ export function buildExtension(files: Record<string, string>): BuildResult {
         code: "import",
         path,
         message: specifier.startsWith("codemode:")
-          ? `Extensions do not import host modules ("${specifier}"); declare it in permissions.modules and use ctx`
+          ? specifier === OLD_OPS_SPECIFIER
+            ? `"${specifier}" was renamed "${OPS_SPECIFIER}", and extensions do not import host modules: declare "${OPS_MODULE}" in permissions.modules and call ctx.${OPS_MODULE}`
+            : `Extensions do not import host modules ("${specifier}"); declare it in permissions.modules and use ctx`
           : `Cannot import "${specifier}": extensions may import only @relationship-os/sdk and their own files`,
       });
       return `${head}${quote}${specifier}${quote}`;

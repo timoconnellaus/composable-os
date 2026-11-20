@@ -9,13 +9,14 @@ export * from "./contract.ts";
 export * from "./field-types.ts";
 export * from "./manifest.ts";
 export * from "./permissions.ts";
+export * from "./renamed.ts";
 export {
   type AutomationRunValue,
   AutomationStepError,
   buildAutomationContext,
   buildContext,
-  CrmCallError,
-  type CrmReply,
+  OpsCallError,
+  type OpsReply,
   type RawHostModules,
   type RunRequest,
   type RunResponse,

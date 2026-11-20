@@ -1,5 +1,5 @@
 // Trigger records and conditions (ADR 0130). An automation's declarative `conditions` are the view
-// filter language, compiled by the same compiler (filter.ts) over the object's crm_* view and
+// filter language, compiled by the same compiler (filter.ts) over the object's rec_* view and
 // checked against the current record before a run is created. A run's event carries the trigger
 // record as read when it started.
 import type { CoreDatabase } from "@relationship-os/db";
@@ -13,7 +13,7 @@ import { compileFilter, type Filter } from "../filter.ts";
 import { chunk, jsonList } from "../records/common.ts";
 import { resolveRelative } from "../relative.ts";
 
-// biome-ignore lint/suspicious/noExplicitAny: crm_* views are not in CoreDatabase; names come from the registry.
+// biome-ignore lint/suspicious/noExplicitAny: rec_* views are not in CoreDatabase; names come from the registry.
 type AnyDb = Kysely<any>;
 
 export interface TriggerRecord {

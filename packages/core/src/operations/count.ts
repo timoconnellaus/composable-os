@@ -1,5 +1,5 @@
 // record.count: how many live records of an object match a filter, for list totals ("6,000
-// people"). It reads the same crm_* view and compiles the same filter JSON as the object's list
+// people"). It reads the same rec_* view and compiles the same filter JSON as the object's list
 // operation, so the total always agrees with what the list pages through.
 //
 // D1 bills rows read, and COUNT(*) reads every matching row. The count is therefore capped: it

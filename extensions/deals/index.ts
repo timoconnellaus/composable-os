@@ -59,7 +59,7 @@ export default defineExtension({
     read: ["organisation", "person", "activity"],
     write: ["task"],
     operations: ["query.sql", "notification.send"],
-    modules: ["crm", "log"],
+    modules: ["ops", "log"],
   },
   objects: {
     pipeline: {

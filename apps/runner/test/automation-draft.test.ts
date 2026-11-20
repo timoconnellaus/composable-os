@@ -28,7 +28,7 @@ export default defineExtension({
     read: ["person", "task"],
     write: ["task"],
     operations: [],
-    modules: ["crm", "log"],
+    modules: ["ops", "log"],
   },
   automations: {
     welcome: defineAutomation({
@@ -38,7 +38,7 @@ export default defineExtension({
       steps: [{ name: "makeTask", writes: [{ object: "task" }] }],
       async run(event, step, ctx) {
         return step.do("makeTask", () =>
-          ctx.crm.call("task.create", {
+          ctx.ops.call("task.create", {
             title: \`Welcome \${String(event.record?.title ?? "")}\`,
             links: event.record ? [{ object: "person", id: event.record.id }] : [],
           }),
@@ -133,7 +133,7 @@ describe("automation.test on a proposed automation", () => {
       userId: admin.id,
     });
     expect(report.ok).toBe(true);
-    const id = await toolWorkerId({ extensionId, commit, modules: ["crm", "log"] });
+    const id = await toolWorkerId({ extensionId, commit, modules: ["ops", "log"] });
     expect(gets).toContain(id);
     expect(loads).toBe(0);
   });

@@ -582,7 +582,7 @@ export const activityList = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const page = await runListQuery(
-      ctx.db.selectFrom("crm_activities").selectAll(),
+      ctx.db.selectFrom("rec_activity").selectAll(),
       getObject("activity") ?? activityObject,
       input,
     );

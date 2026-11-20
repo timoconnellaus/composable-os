@@ -72,7 +72,7 @@ function result(id: string, extra: Partial<DashboardResult> = {}): DashboardResu
         id,
         type: "bar",
         title: "Tasks | status",
-        sql: "SELECT status AS label, COUNT(*) AS value FROM crm_tasks GROUP BY status",
+        sql: "SELECT status AS label, COUNT(*) AS value FROM rec_task GROUP BY status",
         mapping: { x: "label", y: "value" },
       },
       dashboardFilters: [],

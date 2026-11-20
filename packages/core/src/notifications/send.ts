@@ -6,7 +6,7 @@
 // - `{ userId }`: that user; it must exist and be a person (not an extension principal);
 // - `{ role: "admin" }`: every human admin;
 // - `{ field, record }`: the user in a `user` field of a record (an extension `user` field, or a
-//   core user-id field such as `ownerId` / `assigneeId`), read from the object's crm_* view
+//   core user-id field such as `ownerId` / `assigneeId`), read from the object's rec_* view
 //   through the field registry; a provisional record in a simulation is read from the overlay;
 // - `{ managerOf, record }`: that user's manager. Core users have no manager field (stage 5), so
 //   this always resolves to the admins, with a note saying so (the Deals README documents it).

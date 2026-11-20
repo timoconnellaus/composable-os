@@ -38,7 +38,7 @@ function preview(input: Record<string, unknown>) {
   if (!sql.trim()) return fail(`widget: ${widget.type} widgets need sql`);
   if (!/^\s*(select|with)\b/i.test(sql)) return fail("Only SELECT queries are allowed");
   const view = /\bfrom\s+(\w+)/i.exec(sql)?.[1] ?? "";
-  if (!view.startsWith("crm_")) return fail(`no such table: ${view}`);
+  if (!view.startsWith("rec_")) return fail(`no such table: ${view}`);
   const filters = (input.dashboardFilters ?? []) as { type: string; id: string }[];
   const allowed = [
     ...SYSTEM,

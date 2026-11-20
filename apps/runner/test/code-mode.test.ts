@@ -48,17 +48,17 @@ describe("Code Mode", () => {
     }
     const session = `cap_${unique()}`;
     const result = await run(
-      `import { crm } from "codemode:crm";
+      `import { ops } from "codemode:ops";
 export default async function () {
-  const page = await crm.call("person.list", {
+  const page = await ops.call("person.list", {
     filter: { field: "location", op: "eq", value: ${JSON.stringify(place)} },
     fields: ["id", "displayName"],
     limit: 100,
   });
   const ids: string[] = page.items.map((p: { id: string }) => p.id);
   console.log("tagging", ids.length, "people");
-  const queued = await crm.call("person.updateMany", { ids, addTags: ["offsite"] });
-  const first = await crm.call("person.get", { id: ids[0] });
+  const queued = await ops.call("person.updateMany", { ids, addTags: ["offsite"] });
+  const first = await ops.call("person.get", { id: ids[0] });
   return { count: ids.length, status: queued.status, firstTags: first.tags };
 }`,
       session,
@@ -95,7 +95,7 @@ export default async function () {
     expect(real.items.every((p) => p.tags.length === 0)).toBe(true);
   });
 
-  it("has no network, and may import only codemode:crm", async () => {
+  it("has no network, and may import only codemode:ops", async () => {
     const fetched = await run(`export default async () => {
   await fetch("https://example.com");
   return "reached";
@@ -103,14 +103,14 @@ export default async function () {
     expect(fetched.ok).toBe(false);
     const imported = await run(`import { x } from "node:fs";\nexport default x;`);
     expect(imported).toMatchObject({ ok: false, error: { code: "syntax" } });
-    expect(imported.error?.message).toMatch(/only "codemode:crm"/);
+    expect(imported.error?.message).toMatch(/only "codemode:ops"/);
   });
 
   it("returns errors from operations as thrown errors with a code, and plain values", async () => {
-    const result = await run(`import { crm } from "codemode:crm";
+    const result = await run(`import { ops } from "codemode:ops";
 export default async () => {
   try {
-    await crm.call("person.get", { id: "per_doesnotexist" });
+    await ops.call("person.get", { id: "per_doesnotexist" });
   } catch (error) {
     return { code: error.code };
   }
@@ -118,8 +118,8 @@ export default async () => {
     expect(result.value).toEqual({ code: "not_found" });
     const value = await run("export default [1, 2, 3];");
     expect(value).toMatchObject({ ok: true, value: [1, 2, 3] });
-    const extension = await run(`import { crm } from "codemode:crm";
-export default () => crm.call("extension.list", {});`);
+    const extension = await run(`import { ops } from "codemode:ops";
+export default () => ops.call("extension.list", {});`);
     expect(extension).toMatchObject({ ok: false, error: { code: "forbidden" } });
   });
 

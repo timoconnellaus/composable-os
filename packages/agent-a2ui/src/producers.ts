@@ -4,8 +4,8 @@
 // Worker under a stable id, so repeat runs reuse the cached worker).
 //
 // A producer's script is an ES module whose default export is
-// `async function (input, { crm, now, timezone })`, returning an A2UI document. It imports nothing.
-// `crm.call(operation, input)` reads as the viewer: a producer cannot change anything, and cannot
+// `async function (input, { ops, now, timezone })`, returning an A2UI document. It imports nothing.
+// `ops.call(operation, input)` reads as the viewer: a producer cannot change anything, and cannot
 // show what the viewer cannot see. A version's source never changes: changing what a producer does
 // is a new version, which is a new stable id.
 import { z } from "zod";

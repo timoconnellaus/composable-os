@@ -1,6 +1,6 @@
 // defineOperation (ADR 0003, ADR 0016): every operation is defined once with zod schemas, a
 // model-facing description, a permission and a risk class. Adapters (server functions now, MCP in
-// stage 2, the `codemode:crm` host module in stage 3) are generated from these definitions.
+// stage 2, the `codemode:ops` host module in stage 3) are generated from these definitions.
 import type { AuditChangeAction, CoreDatabase, CrmDb } from "@relationship-os/db";
 import type { PermissionsManifest } from "@relationship-os/sdk";
 import type { Compilable, CompiledQuery, Kysely } from "kysely";

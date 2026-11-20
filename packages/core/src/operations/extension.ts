@@ -358,7 +358,7 @@ export const extensionInstall = defineOperation({
   description:
     "Install or upgrade an extension, admin and human only: commits the files (or a shipped " +
     "extension's bundled source) to the extension workspace, checks it, reconciles its schema " +
-    "(x_* tables and crm_* views) and makes the commit the live version, all or nothing. " +
+    "(x_* tables and rec_* views) and makes the commit the live version, all or nothing. " +
     "Fails with the check's issues if it does not pass. Installing the current version again " +
     "changes nothing.",
   input: z.union([

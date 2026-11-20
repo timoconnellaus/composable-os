@@ -1,8 +1,8 @@
 // The Leads tools. They become operations x.leads.<tool>, run in the sandbox, and reach the CRM
-// only through ctx.crm. A tool's CRM calls are separate operations, not one transaction, so
+// only through ctx.ops. A tool's CRM calls are separate operations, not one transaction, so
 // `convert` is written to be re-run: it finds the deal it made by the deal's `leads.lead` field
 // and finishes the remaining steps, and it sets the lead to converted last.
-import { CrmCallError, defineTool, z } from "@relationship-os/sdk";
+import { defineTool, OpsCallError, z } from "@relationship-os/sdk";
 
 interface RecordShape {
   id: string;
@@ -88,12 +88,12 @@ export const convert = defineTool({
     open: z.object({ object: z.string(), id: z.string() }).nullable(),
   }),
   async handler(input, ctx) {
-    const lead = await ctx.crm.call<RecordShape>("record.get", {
+    const lead = await ctx.ops.call<RecordShape>("record.get", {
       object: "leads.lead",
       id: input.leadId,
     });
     if (lead.values.status === "converted") {
-      throw new CrmCallError("conflict", `${lead.title ?? "This lead"} is already converted`, {
+      throw new OpsCallError("conflict", `${lead.title ?? "This lead"} is already converted`, {
         leadId: lead.id,
         dealId: lead.values.deal ?? null,
       });
@@ -103,7 +103,7 @@ export const convert = defineTool({
     const ownerId = text(lead.values.owner);
 
     // 1. The deal: the one an interrupted run made, or a new one.
-    const existing = await ctx.crm.call<ListShape>("record.list", {
+    const existing = await ctx.ops.call<ListShape>("record.list", {
       object: "deals.deal",
       filter: { field: DEAL_LEAD_FIELD, op: "eq", value: lead.id },
       limit: 1,
@@ -111,7 +111,7 @@ export const convert = defineTool({
     let deal = existing.items[0];
     const created = !deal;
     if (!deal) {
-      deal = await ctx.crm.call<RecordShape>("record.create", {
+      deal = await ctx.ops.call<RecordShape>("record.create", {
         object: "deals.deal",
         values: {
           name: input.dealName ?? lead.title ?? "Deal",
@@ -128,7 +128,7 @@ export const convert = defineTool({
 
     // 2. The lead's person on the deal.
     if (personId) {
-      const on = await ctx.crm.call<ListShape>("record.list", {
+      const on = await ctx.ops.call<ListShape>("record.list", {
         object: "deals.participant",
         filter: {
           and: [
@@ -139,20 +139,20 @@ export const convert = defineTool({
         limit: 1,
       });
       if (!on.items.length) {
-        await ctx.crm.call("record.create", {
+        await ctx.ops.call("record.create", {
           object: "deals.participant",
           values: { deal: deal.id, person: personId, role: "other" },
         });
       }
 
       // 3. With the lifecycle extension installed, the person becomes an opportunity.
-      const person = await ctx.crm.call<RecordShape>("record.get", {
+      const person = await ctx.ops.call<RecordShape>("record.get", {
         object: "person",
         id: personId,
       });
       const stage = person.values[LIFECYCLE_FIELD];
       if (LIFECYCLE_FIELD in person.values && BEFORE_OPPORTUNITY.has(text(stage))) {
-        await ctx.crm.call("record.update", {
+        await ctx.ops.call("record.update", {
           object: "person",
           id: personId,
           values: { [LIFECYCLE_FIELD]: "opportunity" },
@@ -161,14 +161,14 @@ export const convert = defineTool({
     }
 
     // 4. Last: the lead is converted, so a run that stopped earlier can be run again.
-    await ctx.crm.call("record.update", {
+    await ctx.ops.call("record.update", {
       object: "leads.lead",
       id: lead.id,
       values: { status: "converted", deal: deal.id, convertedAt: today() },
     });
     ctx.log.info("lead converted", { leadId: lead.id, dealId: deal.id, created });
 
-    const settings = await ctx.crm.call<{ items: { values: Record<string, unknown> }[] }>(
+    const settings = await ctx.ops.call<{ items: { values: Record<string, unknown> }[] }>(
       "extensionSettings.list",
       { extension: "leads" },
     );
@@ -209,16 +209,16 @@ export const disqualify = defineTool({
   }),
   output: z.object({ leadId: z.string(), status: z.string(), reason: z.string() }),
   async handler(input, ctx) {
-    const lead = await ctx.crm.call<RecordShape>("record.get", {
+    const lead = await ctx.ops.call<RecordShape>("record.get", {
       object: "leads.lead",
       id: input.leadId,
     });
     if (lead.values.status === "converted") {
-      throw new CrmCallError("conflict", `${lead.title ?? "This lead"} is already converted`, {
+      throw new OpsCallError("conflict", `${lead.title ?? "This lead"} is already converted`, {
         leadId: lead.id,
       });
     }
-    await ctx.crm.call("record.update", {
+    await ctx.ops.call("record.update", {
       object: "leads.lead",
       id: lead.id,
       values: { status: "unqualified", unqualifiedReason: input.reason },

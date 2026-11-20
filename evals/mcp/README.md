@@ -148,7 +148,7 @@ A task passes only when every check holds:
   that it told the user a change is waiting for approval), and `expectReason` patterns against the
   `reason` it gave a write.
 - **Outcome.** A check reads the CRM afterwards over the setup connection (`query_sql` on the
-  `crm_*` views, so real state without simulation), or the agent's own session for
+  `rec_*` views, so real state without simulation), or the agent's own session for
   `approval_status`.
 
 | Task | Covers |

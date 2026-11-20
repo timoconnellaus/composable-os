@@ -253,7 +253,7 @@ export interface ExtensionImpact {
     /** True when anything was widened over an installed version. */
     widens: boolean;
   };
-  /** Host modules the code can import (`crm`, `storage`, `log`, `ai`). */
+  /** Host modules the code can import (`ops`, `storage`, `log`, `ai`). */
   modules: string[];
   /**
    * Automations: the trigger in one line and the host-generated plain-English summary (ADR 0131),

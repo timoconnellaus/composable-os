@@ -99,7 +99,7 @@ async function peopleByAddress(
   if (!emails.length) return out;
   const rows = await db
     .selectFrom("core_person_emails as e")
-    .innerJoin("crm_people as p", "p.id", "e.person_id")
+    .innerJoin("rec_person as p", "p.id", "e.person_id")
     .select(["e.email", "p.id", "p.display_name"])
     .where("e.live", "=", 1)
     .where((eb) => eb(eb.fn("lower", ["e.email"]), "in", jsonList(emails)))

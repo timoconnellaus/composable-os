@@ -1,5 +1,5 @@
 // Throughput of concurrent tool runs (cost audit F2, ADR 0043). Each run waits on I/O (a
-// codemode:crm call plus a timer), as real tools do. Run one at a time they take N × one run; run
+// codemode:ops call plus a timer), as real tools do. Run one at a time they take N × one run; run
 // in parallel from the stateless entrypoint they overlap, so N runs take about as long as a few.
 import { beforeAll, describe, expect, it } from "vitest";
 import { createAdmin, extensionRow, host, install, source, unique } from "./helpers.ts";
@@ -25,14 +25,14 @@ beforeAll(async () => {
       input: z.object({ n: z.number() }),
       output: z.unknown(),
       handler: async (input, ctx) => {
-        await ctx.crm.call("person.list", { limit: 1 });
+        await ctx.ops.call("person.list", { limit: 1 });
         const wait = (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout;
         await new Promise<void>((resolve) => wait(resolve, ${WAIT_MS}));
         return input.n;
       },
     }),
   },
-  permissions: { read: ["person"], modules: ["crm"] },`,
+  permissions: { read: ["person"], modules: ["ops"] },`,
     ),
   );
   commit = (await extensionRow(id)).commit_oid;

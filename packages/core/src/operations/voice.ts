@@ -244,7 +244,7 @@ async function mentionedNames(ctx: HandlerContext): Promise<string[]> {
   const found = [
     ...(people.length
       ? await ctx.db
-          .selectFrom("crm_people")
+          .selectFrom("rec_person")
           .select(["display_name as name", "updated_at"])
           .where("id", "in", people)
           .orderBy("updated_at", "desc")
@@ -253,7 +253,7 @@ async function mentionedNames(ctx: HandlerContext): Promise<string[]> {
       : []),
     ...(organisations.length
       ? await ctx.db
-          .selectFrom("crm_organisations")
+          .selectFrom("rec_organisation")
           .select(["name", "updated_at"])
           .where("id", "in", organisations)
           .orderBy("updated_at", "desc")

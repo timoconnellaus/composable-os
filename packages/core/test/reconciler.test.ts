@@ -37,7 +37,7 @@ describe("reconciler: objects", () => {
     expect(await columns(`x_${id}_project`)).toEqual(
       expect.arrayContaining(["id", "created_at", "deleted_at", "name", "budget"]),
     );
-    expect(await exists(`crm_x_${id}_project`)).toBe(true);
+    expect(await exists(`rec_x_${id}_project`)).toBe(true);
 
     const created = await invoke(
       "record.create",
@@ -74,7 +74,7 @@ describe("reconciler: objects", () => {
     expect(hidden.changes).toContainEqual(
       expect.objectContaining({ kind: "hide_object", object: `${id}.project` }),
     );
-    expect(await exists(`crm_x_${id}_project`)).toBe(false);
+    expect(await exists(`rec_x_${id}_project`)).toBe(false);
     expect(await exists(`x_${id}_project`)).toBe(true);
     await reconcile(manifest(id, { objects: { project: projectObject } }));
     const back = await invoke(
@@ -116,7 +116,7 @@ describe("reconciler: objects", () => {
 });
 
 describe("reconciler: fields on core objects", () => {
-  it("adds fields to organisation in a side table joined into crm_organisations", async () => {
+  it("adds fields to organisation in a side table joined into rec_organisation", async () => {
     const id = extId("side");
     const p = await reconcile(
       manifest(id, {
@@ -130,7 +130,7 @@ describe("reconciler: fields on core objects", () => {
     );
     expect(p.ddl).toContain(`CREATE TABLE x_${id}_organisation (id TEXT PRIMARY KEY NOT NULL)`);
     expect(await columns(`x_${id}_organisation`)).toEqual(["id", "tier", "score"]);
-    expect(await columns("crm_organisations")).toEqual(
+    expect(await columns("rec_organisation")).toEqual(
       expect.arrayContaining(["name", `${id}__tier`, `${id}__score`]),
     );
 
@@ -227,7 +227,7 @@ describe("reconciler: fields on core objects", () => {
     expect(hidden.changes).toContainEqual(
       expect.objectContaining({ kind: "hide_field", field: `${id}.gone` }),
     );
-    expect(await columns("crm_organisations")).not.toContain(`${id}__gone`);
+    expect(await columns("rec_organisation")).not.toContain(`${id}__gone`);
     const stored = await env.DB.prepare(`SELECT gone FROM x_${id}_organisation WHERE id = ?`)
       .bind(org.id)
       .first<{ gone: string }>();
@@ -317,7 +317,7 @@ describe("reconciler: type changes", () => {
 });
 
 describe("reconciler: views", () => {
-  it("regenerates crm_* views with every extension's columns and formulas", async () => {
+  it("regenerates rec_* views with every extension's columns and formulas", async () => {
     const a = extId("va");
     const b = extId("vb");
     await reconcile(
@@ -333,7 +333,7 @@ describe("reconciler: views", () => {
         },
       }),
     );
-    const cols = await columns("crm_people");
+    const cols = await columns("rec_person");
     expect(cols).toEqual(
       expect.arrayContaining(["display_name", `${a}__nickname`, `${b}__vip`, `${b}__shout`]),
     );
@@ -342,17 +342,17 @@ describe("reconciler: views", () => {
       { givenName: "Ada", familyName: "Byron" },
       context(admin),
     );
-    const row = await env.DB.prepare(`SELECT ${b}__shout AS shout FROM crm_people WHERE id = ?`)
+    const row = await env.DB.prepare(`SELECT ${b}__shout AS shout FROM rec_person WHERE id = ?`)
       .bind(person.id)
       .first<{ shout: string }>();
     expect(row?.shout).toBe("ADA BYRON");
-    // Stage-1 queries over crm_people still work unchanged.
+    // Stage-1 queries over rec_person still work unchanged.
     const list = await invoke("person.list", { limit: 5 }, context(admin));
     expect(list.items.length).toBeGreaterThan(0);
     // query.sql can read the new columns but never the base views.
     const sqlResult = await invoke(
       "query.sql",
-      { sql: `SELECT id, ${b}__shout FROM crm_people WHERE id = ?`, params: [person.id] },
+      { sql: `SELECT id, ${b}__shout FROM rec_person WHERE id = ?`, params: [person.id] },
       context(admin),
     );
     expect(sqlResult.rows).toHaveLength(1);
@@ -371,7 +371,7 @@ describe("reconciler: atomic apply", () => {
         fields: { organisation: { flag: { type: "boolean", label: "Flag" } } },
       }),
     );
-    const viewsBefore = await columns("crm_organisations");
+    const viewsBefore = await columns("rec_organisation");
     const failing = {
       ...p,
       statements: [...p.statements, CompiledQuery.raw("SELECT * FROM no_such_table")],
@@ -379,8 +379,8 @@ describe("reconciler: atomic apply", () => {
     await expect(applyPlan((s) => db.batch(s), failing)).rejects.toThrow();
     expect(await exists(`x_${id}_project`)).toBe(false);
     expect(await exists(`x_${id}_organisation`)).toBe(false);
-    expect(await exists(`crm_x_${id}_project`)).toBe(false);
-    expect(await columns("crm_organisations")).toEqual(viewsBefore);
+    expect(await exists(`rec_x_${id}_project`)).toBe(false);
+    expect(await columns("rec_organisation")).toEqual(viewsBefore);
     const state = await env.DB.prepare(
       "SELECT COUNT(*) AS n FROM core_extension_fields WHERE extension_id = ?",
     )

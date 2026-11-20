@@ -33,7 +33,7 @@ export default defineExtension({
     read: ["person", "organisation", "deals.pipeline", "deals.stage"],
     write: ["person", "deals.deal", "deals.participant"],
     operations: ["notification.send", "extensionSettings.list"],
-    modules: ["crm", "log"],
+    modules: ["ops", "log"],
   },
   objects: {
     lead: {

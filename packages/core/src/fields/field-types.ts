@@ -27,7 +27,7 @@ export type WidgetKind =
 export type StoredValue = string | number | null;
 
 export interface FieldTypeSpec {
-  /** SQLite column type. Null: no column (formula fields are computed in the crm_* view). */
+  /** SQLite column type. Null: no column (formula fields are computed in the rec_* view). */
   storage: "TEXT" | "REAL" | "INTEGER" | null;
   /** How filters treat it (this picks the operators, see OPS_BY_TYPE). */
   filterType(field: FieldManifest): FieldType;

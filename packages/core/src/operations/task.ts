@@ -485,7 +485,7 @@ export const taskList = defineOperation({
   mcp: { curated: true, idempotent: true },
   async handler(input, ctx) {
     const page = await runListQuery(
-      ctx.db.selectFrom("crm_tasks").selectAll(),
+      ctx.db.selectFrom("rec_task").selectAll(),
       getObject("task") ?? taskObject,
       input,
     );
@@ -522,7 +522,7 @@ export const taskListMine = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const rows = await ctx.db
-      .selectFrom("crm_tasks")
+      .selectFrom("rec_task")
       .selectAll()
       .where("assignee_id", "=", ctx.user.id)
       .where("status", "=", "open")

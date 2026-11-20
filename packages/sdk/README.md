@@ -12,7 +12,7 @@ export default defineExtension({
   version: "1.0.0",           // semver
   contractVersion: 1,         // the host runs the current and previous contract versions
   label: "Example",
-  permissions: { read: ["organisation"], write: ["organisation"], modules: ["crm", "log"] },
+  permissions: { read: ["organisation"], write: ["organisation"], modules: ["ops", "log"] },
   objects: {
     project: {
       label: "Project", plural: "Projects", icon: "folder-kanban", titleField: "name",
@@ -34,7 +34,7 @@ export default defineExtension({
       output: z.object({ ok: z.boolean() }),
       risk: "write",
       async handler({ organisationId, tier }, ctx) {
-        await ctx.crm.call("record.update", { object: "organisation", id: organisationId, values: { "example.tier": tier } });
+        await ctx.ops.call("record.update", { object: "organisation", id: organisationId, values: { "example.tier": tier } });
         ctx.log.info("tier set", { organisationId, tier });
         return { ok: true };
       },
@@ -64,8 +64,8 @@ An MCP client model with the `admin` scope authors runtime extensions with these
 
 Rules worth knowing before the first check:
 
-- **TypeScript is checked strictly** against this package's types (ES2022, no DOM). `ctx.crm.call`
-  returns `unknown` unless you type it: `ctx.crm.call<{ name: string }>("organisation.get", { id })`.
+- **TypeScript is checked strictly** against this package's types (ES2022, no DOM). `ctx.ops.call`
+  returns `unknown` unless you type it: `ctx.ops.call<{ name: string }>("organisation.get", { id })`.
   `catch (error)` binds `unknown`: narrow it (`const e = error as { code?: string }`). There is no
   `fetch`, `Buffer` or Node API.
 - **Ids and names**: the extension id is 2–30 lowercase letters or digits (`projects`, not
@@ -73,7 +73,7 @@ Rules worth knowing before the first check:
 - **Fields on people and organisations** go in `fields: { organisation: { renewalDate: { … } } }`,
   not in `objects`. Their registry name is `<ext>.<field>` (`renewals.renewalDate`), which is what
   `record.update`, filters and views use.
-- **Permissions**: declaring `read`, `write` or `operations` needs `"crm"` in `modules`. Your own
+- **Permissions**: declaring `read`, `write` or `operations` needs `"ops"` in `modules`. Your own
   objects need no permission. Asking for more than the installed version is shown to the reviewer
   as a widening.
 - **Formulas** see only the same record's fields, by name, and must type-check (see below):
@@ -88,16 +88,16 @@ Rules worth knowing before the first check:
 
 | Key | What |
 | --- | --- |
-| `objects` | New record types. Stored in `x_<ext>_<object>`, read through `crm_x_<ext>_<object>`. Registry name `<ext>.<object>`. They get list and record pages, timelines, history, search, saved views, CSV export and Trash. |
-| `fields` | Fields on other objects, keyed by target (`person`, `organisation`, `activity`, `task`, `<otherext>.<object>`). Stored in a 1:1 side table `x_<ext>_<target>`, joined into the target's `crm_*` view as `<ext>__<column>`. Registry name `<ext>.<field>`; write them with `record.update`. |
+| `objects` | New record types. Stored in `x_<ext>_<object>`, read through `rec_x_<ext>_<object>`. Registry name `<ext>.<object>`. They get list and record pages, timelines, history, search, saved views, CSV export and Trash. |
+| `fields` | Fields on other objects, keyed by target (`person`, `organisation`, `activity`, `task`, `<otherext>.<object>`). Stored in a 1:1 side table `x_<ext>_<target>`, joined into the target's `rec_*` view as `<ext>__<column>`. Registry name `<ext>.<field>`; write them with `record.update`. |
 | `views` | Saved views shipped with the extension, shared and read-only (ADR 0103): `{ label, object, type?: "table" \| "board" \| "calendar" \| "gallery", filter?, sort?, columns?, groupBy?, sumField?, dateField?, mode?, imageField?, cardFields? }`. A board may group by a select or by a relation to one of your objects (a deal's stage). Filter values may be relative: `{ $relative: "me" \| "today" \| "startOfMonth" \| "startOfNextMonth" \| "startOfQuarter" \| "startOfNextQuarter" \| … }`. |
-| `dashboards` | Dashboards shipped with the extension (ADR 0103): `{ title, description?, home?, filters, widgets }` in the dashboard spec's shape (ADR 0057: widgets with read-only SQL over `crm_*` views, named params, a chart mapping and a click-through). Read-only, copyable; `home: true` makes it the default Home. |
+| `dashboards` | Dashboards shipped with the extension (ADR 0103): `{ title, description?, home?, filters, widgets }` in the dashboard spec's shape (ADR 0057: widgets with read-only SQL over `rec_*` views, named params, a chart mapping and a click-through). Read-only, copyable; `home: true` makes it the default Home. |
 | `recordTabs` | Tabs on another object's record page (ADR 0058): `{ label, on, view, order? }`. `on` is the page's object; `view` is `{ type: "table" \| "board" \| "calendar" \| "gallery", object, relation, filter?, sort?, columns?, groupBy?, sumField?, dateField?, mode?, imageField?, cardFields? }`, listing `object` records whose `relation` field equals the shown record's id. The host renders it; extensions ship no UI. |
 | `recordPanels` | The same shape, shown as a card in the record page's side panel. |
 | `settings` | Typed settings, edited by admins in Settings → Extensions: `{ type: "text" \| "number" \| "boolean" \| "select", label, description?, required?, default?, min?, max?, options? }`. Read them with `extensionSettings.list`. |
 | `tools` | Operations named `x.<ext>.<tool>` (zod input/output, description, risk `read`/`write`/`bulk-write`/`destructive`). They run in the sandbox. |
 | `automations` | `defineAutomation({ label, description, trigger, conditions?, steps, onRejected?, rails?, run })`: see Automations below. |
-| `permissions` | `read` / `write` (objects; write implies read), `operations` (exact names, e.g. `task.create`, `search.global`), `modules` (`crm`, `storage`, `log`, `ai`). Own objects are always allowed. `extension.*`, `policy.*`, `user.*` and `audit.*` can never be granted. Destructive operations must be listed in `operations`. |
+| `permissions` | `read` / `write` (objects; write implies read), `operations` (exact names, e.g. `task.create`, `search.global`), `modules` (`ops`, `storage`, `log`, `ai`). Own objects are always allowed. `extension.*`, `policy.*`, `user.*` and `audit.*` can never be granted. Destructive operations must be listed in `operations`. |
 
 ### Object behaviour (ADR 0100)
 
@@ -105,7 +105,7 @@ On `objects.<name>`, next to `fields`:
 
 | Key | What |
 | --- | --- |
-| `stages` | A stage behaviour, enforced by the host in `record.create`, `record.update` and CSV import for every actor. `field` (a relation to your stage object), `stage: { type, order, requiredFields?, probability?, group? }` (fields of the stage object: a select with `open`/`won`/`lost`, a number, a multiSelect of this object's field names, a number/percent, a relation to the group object), and optionally `group`, `probability: { field, overridden }`, `closedDate` and `status` (read-only fields) and `requiredByType: { lost: ["lostReason"] }`. Entering a stage with a required field empty fails with `invalid_input` and `details: { rule, field, fields, labels, stage }`. Moves are kept in `crm_stage_history` and, with `track: "timeline"` on the stage field, posted as "Moved to <stage>". See `extensions/deals/index.ts`. |
+| `stages` | A stage behaviour, enforced by the host in `record.create`, `record.update` and CSV import for every actor. `field` (a relation to your stage object), `stage: { type, order, requiredFields?, probability?, group? }` (fields of the stage object: a select with `open`/`won`/`lost`, a number, a multiSelect of this object's field names, a number/percent, a relation to the group object), and optionally `group`, `probability: { field, overridden }`, `closedDate` and `status` (read-only fields) and `requiredByType: { lost: ["lostReason"] }`. Entering a stage with a required field empty fails with `invalid_input` and `details: { rule, field, fields, labels, stage }`. Moves are kept in `rec_stage_history` and, with `track: "timeline"` on the stage field, posted as "Moved to <stage>". See `extensions/deals/index.ts`. |
 | `timelineLinks` | Relation fields whose records also get this object's timeline posts (`["organisation"]`). |
 | `indexes` | `[["stage"], ["owner", "status"]]`: indexes on own single-valued fields (or `createdAt`/`updatedAt`), live rows only. Declare one for each field your lists filter or sort by. |
 | `seed` | `{ key: { field: value } }`: records created once when the object is installed; `{ seed: "key" }` points a relation at another seed record. |
@@ -170,7 +170,7 @@ Lossless type changes only: `text → longText`, `number ↔ currency/percent`, 
 
 A formula is an expression over fields of the **same record** (no cross-record rollups). It is
 parsed and type-checked by `extension.check`, compiled to a SQLite expression and computed in the
-object's `crm_*` view, so formula fields can be filtered and sorted like any other field. They are
+object's `rec_*` view, so formula fields can be filtered and sorted like any other field. They are
 read-only.
 
 ```
@@ -229,7 +229,7 @@ nothing from a formula reaches SQL verbatim.
 
 | `ctx.` | Module | |
 | --- | --- | --- |
-| `crm.call(operation, input)` | `crm` | Any operation the extension's permissions allow, as principal `extension:<id>`, actor `extension`, through the approval gate (like an automation). Failures throw `CrmCallError` with the pipeline's `code`; a call the gate sends to review is queued for approval and throws code `pending_approval` (`details.actionId`). |
+| `ops.call(operation, input)` | `ops` | Any operation the extension's permissions allow, as principal `extension:<id>`, actor `extension`, through the approval gate (like an automation). Failures throw `OpsCallError` with the pipeline's `code`; a call the gate sends to review is queued for approval and throws code `pending_approval` (`details.actionId`). |
 | `storage.get/set/delete/list` | `storage` | Per-extension key-value storage (JSON values ≤ 128 KB). |
 | `log.info/warn/error(message, data?)` | `log` | Shown in the extension's run history. |
 | `ai.summarise/extract/classify` | `ai` | Model roles (ADR 0009); Workers AI by default, through AI Gateway when configured. Fails with a clear error when the deployment has no AI binding. |
@@ -317,7 +317,7 @@ const wonOnboarding = defineAutomation({
   ],
   async run(event, step, ctx) {
     const deal = event.record!;
-    const ids = await step.do("createTasks", async () => { /* ctx.crm.call("task.create", …) */ });
+    const ids = await step.do("createTasks", async () => { /* ctx.ops.call("task.create", …) */ });
     await step.do("notifyOwner", () => ctx.notify({ field: "owner" }, { title: "Deal won 🎉" }));
     await step.sleep("wait", "3 days");
     await step.do("notifyManager", async () => { /* check the tasks, then ctx.notify(...) */ });
@@ -326,7 +326,7 @@ const wonOnboarding = defineAutomation({
 
 export default defineExtension({
   id: "acme", version: "1.0.0", contractVersion: 1,
-  permissions: { write: ["task"], operations: ["notification.send"], modules: ["crm"] },
+  permissions: { write: ["task"], operations: ["notification.send"], modules: ["ops"] },
   automations: { wonOnboarding },
 });
 ```

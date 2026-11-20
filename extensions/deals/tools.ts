@@ -1,5 +1,5 @@
 // The Deals tools. They become operations x.deals.<tool>, run in the sandbox, and call the CRM
-// only through ctx.crm (here read-only SQL over the crm_* views and stage history).
+// only through ctx.ops (here read-only SQL over the rec_* views and stage history).
 import { defineTool, z } from "@relationship-os/sdk";
 
 interface SqlResult {
@@ -17,9 +17,9 @@ SELECT h.stage_id AS stage_id, s.name AS stage, s.position AS position, s.type A
   sum(CASE WHEN h.left_at IS NOT NULL THEN 1 ELSE 0 END) AS moved_on,
   avg(CASE WHEN h.left_at IS NOT NULL THEN h.days_in_stage END) AS avg_days_completed,
   avg(h.days_in_stage) AS avg_days
-FROM crm_stage_history h
-JOIN crm_x_deals_stage s ON s.id = h.stage_id
-JOIN crm_x_deals_deal d ON d.id = h.record_id
+FROM rec_stage_history h
+JOIN rec_x_deals_stage s ON s.id = h.stage_id
+JOIN rec_x_deals_deal d ON d.id = h.record_id
 WHERE h.object_type = 'deals.deal'
   AND s.pipeline = ?
   AND (? IS NULL OR h.entered_at >= ?)
@@ -30,12 +30,12 @@ ORDER BY s.position, s.name`;
 const VELOCITY_SQL = `
 SELECT count(*) AS won, avg(julianday(w.entered_at) - julianday(f.first_entered)) AS avg_days_to_win,
   coalesce(sum(d.value), 0) AS won_value
-FROM crm_stage_history w
+FROM rec_stage_history w
 JOIN (
-  SELECT record_id, min(entered_at) AS first_entered FROM crm_stage_history
+  SELECT record_id, min(entered_at) AS first_entered FROM rec_stage_history
   WHERE object_type = 'deals.deal' GROUP BY record_id
 ) f ON f.record_id = w.record_id
-JOIN crm_x_deals_deal d ON d.id = w.record_id
+JOIN rec_x_deals_deal d ON d.id = w.record_id
 WHERE w.object_type = 'deals.deal' AND w.stage_type = 'won' AND w.left_at IS NULL
   AND d.pipeline = ?
   AND (? IS NULL OR w.entered_at >= ?)`;
@@ -78,8 +78,8 @@ export const stageMetrics = defineTool({
   }),
   async handler({ pipelineId, since }, ctx) {
     const params = [pipelineId, since ?? null, since ?? null];
-    const stages = await ctx.crm.call<SqlResult>("query.sql", { sql: STAGE_SQL, params });
-    const velocity = await ctx.crm.call<SqlResult>("query.sql", { sql: VELOCITY_SQL, params });
+    const stages = await ctx.ops.call<SqlResult>("query.sql", { sql: STAGE_SQL, params });
+    const velocity = await ctx.ops.call<SqlResult>("query.sql", { sql: VELOCITY_SQL, params });
     const v = velocity.rows[0] ?? {};
     ctx.log.info("stage metrics", { pipelineId, stages: stages.rows.length });
     return {

@@ -46,7 +46,7 @@ Proposals are left pending in the Approvals inbox; the eval does not approve or 
 | `lead-source` | lead source on people with five options | person `select` mentioning source, with those options |
 | `vendors` | a Vendors object: name, website, email, phone, contract end | object with a text title field, `url`, `email`, `phone`, `date` |
 | `interests` | interests on people, several allowed | person `multiSelect` mentioning interests, with the four options |
-| `ticket-tool` | a Tickets object and a read-only tool counting open tickets per organisation | object with status `select` (open, closed) and `relation` to organisation; a counting tool with risk `read` and an organisation input; the `crm` module |
+| `ticket-tool` | a Tickets object and a read-only tool counting open tickets per organisation | object with status `select` (open, closed) and `relation` to organisation; a counting tool with risk `read` and an organisation input; the `ops` module |
 | `linkedin-url` | a LinkedIn URL on people | person `url` mentioning LinkedIn |
 | `discount` | annual contract value, discount percent, discounted-value formula on organisations | `currency`, `percent`, and a `formula` using both |
 

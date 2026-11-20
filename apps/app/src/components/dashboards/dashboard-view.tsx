@@ -519,7 +519,7 @@ function WidgetCard({
           <DialogHeader>
             <DialogTitle>{widget.title}</DialogTitle>
             <DialogDescription>
-              Read-only SQL over the crm_* views, with named parameters.
+              Read-only SQL over the rec_* views, with named parameters.
             </DialogDescription>
           </DialogHeader>
           <pre

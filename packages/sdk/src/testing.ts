@@ -5,7 +5,7 @@
 //   const out = await host.runTool("scoreOrganisation", { organisationId: "org_1" });
 //   expect(host.calls).toContainEqual({ operation: "record.get", input: { ... } });
 //
-// The in-memory `crm` module enforces the extension's declared permissions with the host's rules
+// The in-memory `ops` module enforces the extension's declared permissions with the host's rules
 // (`checkGrant`) and implements the generic record operations over an in-memory store. Pass
 // `operations` to fake anything else.
 //
@@ -117,7 +117,7 @@ export interface TestHost {
   issues: ManifestIssue[];
   /** Runs a tool like the host does: input and output validated, ctx from in-memory modules. */
   runTool<T = unknown>(tool: string, input: unknown): Promise<T>;
-  /** Every codemode:crm call, in order (allowed or refused). */
+  /** Every codemode:ops call, in order (allowed or refused). */
   calls: { operation: string; input: unknown; allowed: boolean }[];
   logs: { level: string; message: string; data: unknown }[];
   storage: Map<string, unknown>;
@@ -368,8 +368,8 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
 
   const has = (name: string) => manifest.permissions.modules.includes(name as never);
   const raw: RawHostModules = {};
-  if (has("crm")) {
-    raw.crm = {
+  if (has("ops")) {
+    raw.ops = {
       call: async (operation, input) => {
         const name = String(operation);
         const body = (input ?? {}) as Record<string, unknown>;
@@ -550,7 +550,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
         const n = (notifyCounts.get(key) ?? 0) + 1;
         notifyCounts.set(key, n);
         const input = notificationInput(event, to, message, `${key}:${n}`);
-        const sent = await base.crm.call<{ sent: number }>("notification.send", input);
+        const sent = await base.ops.call<{ sent: number }>("notification.send", input);
         return { sent: sent.sent };
       },
     };

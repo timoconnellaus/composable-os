@@ -125,5 +125,5 @@ test("describe a widget with the local model, and save it to a new dashboard", a
   // Admins see its SQL.
   await widget.getByRole("button", { name: /actions$/ }).click();
   await page.getByRole("menuitem", { name: "View SQL" }).click();
-  await expect(page.getByTestId("widget-sql")).toContainText("FROM crm_tasks");
+  await expect(page.getByTestId("widget-sql")).toContainText("FROM rec_task");
 });

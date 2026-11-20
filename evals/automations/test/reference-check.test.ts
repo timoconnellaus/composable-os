@@ -22,7 +22,7 @@ describe("reference answers", () => {
         id: "evalauto",
         version: "1.0.0",
         contractVersion: 1,
-        permissions: { ...ref.permissions, modules: ["crm"] },
+        permissions: { ...ref.permissions, modules: ["ops"] },
         automations: {
           [ref.key]: {
             label: ref.label,

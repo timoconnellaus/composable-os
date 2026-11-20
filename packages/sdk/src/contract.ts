@@ -32,7 +32,7 @@ export const GATEKEEPER_MODULES = [
 export type GatekeeperModuleName = (typeof GATEKEEPER_MODULES)[number];
 
 /** Host modules an extension can ask for (ADR 0025). There is no HTTP module. */
-export const HOST_MODULES = ["crm", "storage", "log", "ai", ...GATEKEEPER_MODULES] as const;
+export const HOST_MODULES = ["ops", "storage", "log", "ai", ...GATEKEEPER_MODULES] as const;
 export type HostModuleName = (typeof HOST_MODULES)[number];
 
 /** Risk classes an extension tool may declare (schema and extension risks are host-only). */
@@ -340,7 +340,7 @@ export type SettingSpec = {
 // ---------------------------------------------------------------------------------------------
 // Host modules, as seen by tools through `ctx`
 
-export interface CrmModule {
+export interface OpsModule {
   /** Calls an operation (e.g. `organisation.get`) as this extension, through the gate. */
   call<T = unknown>(operation: string, input?: unknown): Promise<T>;
 }
@@ -393,7 +393,7 @@ export interface GatekeeperModule {
 
 export interface ExtensionContext {
   extension: { id: string; version: string };
-  crm: CrmModule;
+  ops: OpsModule;
   storage: StorageModule;
   log: LogModule;
   ai: AiModule;
@@ -458,7 +458,7 @@ export interface PermissionsSpec {
 
 /**
  * A dashboard the extension ships (ADR 0103): the same filters and widgets as a dashboard spec
- * (ADR 0057; SQL over crm_* views with named params, a chart mapping, a click-through). It is
+ * (ADR 0057; SQL over rec_* views with named params, a chart mapping, a click-through). It is
  * read-only, listed while the extension is active and copyable; `home: true` makes it everyone's
  * default Home.
  */
@@ -511,7 +511,7 @@ export interface ExtensionSpec {
   automations?: Record<string, AutomationSpec<any>>;
 }
 
-const EXTENSION = Symbol.for("crm.extension");
+const EXTENSION = Symbol.for("ops.extension");
 
 export type Extension<E extends ExtensionSpec = ExtensionSpec> = E & { readonly [EXTENSION]: true };
 

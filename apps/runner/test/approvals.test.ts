@@ -15,7 +15,7 @@ beforeAll(async () => {
     id,
     source(
       id,
-      `permissions: { modules: ["crm"] },
+      `permissions: { modules: ["ops"] },
   objects: { item: { label: "Item", plural: "Items", titleField: "name", fields: { name: { type: "text", label: "Name" } } } },
   tools: {
     remove: defineTool({
@@ -24,7 +24,7 @@ beforeAll(async () => {
       output: z.unknown(),
       handler: async ({ id }, ctx) => {
         try {
-          return await ctx.crm.call("record.delete", { object: "${id}.item", id });
+          return await ctx.ops.call("record.delete", { object: "${id}.item", id });
         } catch (error) {
           const e = error as { code?: string; details?: { actionId: string } };
           if (e.code === "pending_approval") return { queued: e.details?.actionId };

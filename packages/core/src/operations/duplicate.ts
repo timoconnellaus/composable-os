@@ -205,7 +205,7 @@ async function loadMembers(
   const activity = new Map(counts.map((c) => [c.record_id, Number(c.n)]));
   if (object === "person") {
     const rows = await db
-      .selectFrom("crm_people")
+      .selectFrom("rec_person")
       .select([
         "id",
         "display_name",
@@ -240,7 +240,7 @@ async function loadMembers(
     }
   } else {
     const rows = await db
-      .selectFrom("crm_organisations")
+      .selectFrom("rec_organisation")
       .select([
         "id",
         "name",

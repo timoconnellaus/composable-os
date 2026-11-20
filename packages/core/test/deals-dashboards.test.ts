@@ -139,14 +139,14 @@ describe("the Deals dashboards", () => {
         context(owner, { clock, widgetCache: memoryWidgetCache() }),
       );
     const won = await env.DB.prepare(
-      "SELECT coalesce(sum(value), 0) AS value, count(*) AS n FROM crm_x_deals_deal WHERE status = 'won' AND closed_at >= '2026-07-01' AND closed_at < '2026-11-01'",
+      "SELECT coalesce(sum(value), 0) AS value, count(*) AS n FROM rec_x_deals_deal WHERE status = 'won' AND closed_at >= '2026-07-01' AND closed_at < '2026-11-01'",
     ).first<{ value: number; n: number }>();
     const kpi = await run("won");
     expect(kpi.rows[0]).toMatchObject({ value: won?.value, deals: won?.n });
     // The KPI compares with the previous period.
     expect(kpi.previous?.params.date_to).toBe(kpi.params.date_from);
     const lost = await env.DB.prepare(
-      "SELECT count(*) AS n FROM crm_x_deals_deal WHERE status = 'lost' AND closed_at >= '2026-07-01' AND closed_at < '2026-11-01'",
+      "SELECT count(*) AS n FROM rec_x_deals_deal WHERE status = 'lost' AND closed_at >= '2026-07-01' AND closed_at < '2026-11-01'",
     ).first<{ n: number }>();
     const rate = await run("win-rate");
     expect(rate.rows[0]?.value).toBeCloseTo(
@@ -156,7 +156,7 @@ describe("the Deals dashboards", () => {
     // Weighted forecast: value × probability.
     const forecast = await run("weighted-forecast");
     const weighted = await env.DB.prepare(
-      "SELECT round(sum(coalesce(value, 0) * coalesce(probability, 0) / 100.0), 2) AS w FROM crm_x_deals_deal WHERE status = 'open'",
+      "SELECT round(sum(coalesce(value, 0) * coalesce(probability, 0) / 100.0), 2) AS w FROM rec_x_deals_deal WHERE status = 'open'",
     ).first<{ w: number }>();
     const sum = forecast.rows.reduce((t, r) => t + Number(r.weighted), 0);
     expect(sum).toBeCloseTo(Number(weighted?.w), 0);
@@ -203,7 +203,7 @@ describe("shipped saved views", () => {
     if (!mine) throw new Error("no view");
     const ids = await listIds("deals.deal", mine.spec.filter);
     const expected = await env.DB.prepare(
-      "SELECT count(*) AS n FROM crm_x_deals_deal WHERE status = 'open' AND owner = ?",
+      "SELECT count(*) AS n FROM rec_x_deals_deal WHERE status = 'open' AND owner = ?",
     )
       .bind(owner.id)
       .first<{ n: number }>();
@@ -211,7 +211,7 @@ describe("shipped saved views", () => {
     const closing = shipped[1];
     const monthIds = await listIds("deals.deal", closing?.spec.filter);
     const month = await env.DB.prepare(
-      "SELECT count(*) AS n FROM crm_x_deals_deal WHERE status = 'open' AND expected_close >= '2026-11-01' AND expected_close < '2026-12-01'",
+      "SELECT count(*) AS n FROM rec_x_deals_deal WHERE status = 'open' AND expected_close >= '2026-11-01' AND expected_close < '2026-12-01'",
     ).first<{ n: number }>();
     expect(monthIds.length).toBe(month?.n);
     await expect(
@@ -258,7 +258,7 @@ describe("the deals board", () => {
       context(owner),
     );
     const expected = await env.DB.prepare(
-      "SELECT stage, count(*) AS n, sum(value) AS s FROM crm_x_deals_deal WHERE pipeline = ? GROUP BY stage",
+      "SELECT stage, count(*) AS n, sum(value) AS s FROM rec_x_deals_deal WHERE pipeline = ? GROUP BY stage",
     )
       .bind(NB)
       .all<{ stage: string; n: number; s: number }>();

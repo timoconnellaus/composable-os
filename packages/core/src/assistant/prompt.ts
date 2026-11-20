@@ -217,7 +217,7 @@ export function assistantInstructions(input: AssistantPromptInput): string {
         'result gives you the card\'s text, numbered, so you can say "the second task". Add at most one ' +
         "short sentence and do not repeat what the card says. If a card was not shown, answer in words.",
       "- Dashboards and widgets: build them with call_operation (dashboard.create, dashboard.update; " +
-        "try widget SQL with widget.preview first). Widget SQL is read-only over the crm_* views.",
+        "try widget SQL with widget.preview first). Widget SQL is read-only over the rec_* views.",
       "- Automations and other extensions: write them with extension_write, run extension_check until it " +
         "passes, then extension_propose. After proposing an automation, run automation_test on the " +
         "proposal (proposal { actionId, key }) and summarise its test-mode report (what it would create, " +

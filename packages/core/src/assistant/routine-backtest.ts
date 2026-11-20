@@ -169,7 +169,7 @@ async function syncEvents(
 ): Promise<PastEvent[]> {
   const type = event.startsWith("email") ? "email" : "meeting";
   const rows = await sql<{ id: string; occurred_at: string }>`
-    SELECT id, occurred_at FROM crm_activities
+    SELECT id, occurred_at FROM rec_activity
     WHERE type = ${type} AND occurred_at >= ${since}
     ORDER BY occurred_at DESC LIMIT ${MAX_EVENTS}
   `.execute(db);

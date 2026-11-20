@@ -6,7 +6,7 @@ Use these words exactly, in code, docs and UI copy. Add to this file when a new 
 The product: an AI-native CRM that runs in your own Cloudflare account (ADR 0190). Short name
 `ros` in Worker and resource names (`ros-app`, `ros-runner`, `ros-records`), `relationship-os` in
 package names (`@relationship-os/*`, `create-relationship-os`). "CRM" stays the category word, and
-the name of the operations API inside extension code (`codemode:crm`, `ctx.crm`, the `crm_*` views).
+the name of the operations API inside extension code (`codemode:ops`, `ctx.ops`, the `rec_*` views).
 _Avoid_: "the CRM" as the product name in UI copy
 
 **Deployment**
@@ -47,7 +47,7 @@ while Deals is installed, else the Overview.
 
 **Widget**
 One tile on a dashboard: KPI, bar, line, donut, funnel, table, leaderboard or markdown. Data
-widgets run read-only SQL over `crm_*` views with named params bound from the dashboard's filters.
+widgets run read-only SQL over `rec_*` views with named params bound from the dashboard's filters.
 
 **Click-through**
 A widget's filter template: clicking a segment, KPI or row opens the matching records as a
@@ -157,7 +157,7 @@ How dangerous an operation is: `read`, `write`, `bulk-write`, `destructive`, `sc
 
 **Actor**
 Who initiated an operation: `human`, `assistant` (in-app AI), `mcp` (an external MCP client),
-`automation`, `extension` (extension code through `codemode:crm`).
+`automation`, `extension` (extension code through `codemode:ops`).
 
 **Approval pipeline**
 Gate → policy adjudicator → human queue, configured per org. It decides whether an operation applies
@@ -283,7 +283,7 @@ _Avoid_: fork
 
 **Code Mode**
 The MCP `code` tool: a short ES module the client model writes runs in a throwaway sandbox as the
-connected user (actor `mcp`), calling operations through `codemode:crm` under the same gate and
+connected user (actor `mcp`), calling operations through `codemode:ops` under the same gate and
 simulation as the other tools. It needs write permission, runs one script per user at a time, and
 is rate limited.
 
@@ -294,7 +294,7 @@ and runs in the sandbox.
 **Formula field**
 An extension field computed from other fields of the same record by a small typed expression
 (`coalesce(budget, 0) - coalesce(spent, 0)`). It is parsed and type-checked by `extension.check`,
-compiled to SQL in the `crm_*` view, so it can be filtered and sorted, and it is never written. No
+compiled to SQL in the `rec_*` view, so it can be filtered and sorted, and it is never written. No
 cross-record rollups.
 
 **Deal**
@@ -353,7 +353,7 @@ records with stage rules, probability, status, a closed date, stage history and 
 Deals uses it; AI-written extensions can too.
 
 **Stage history**
-One row per stage a record has been in, with entered and left times (`crm_stage_history`). It powers
+One row per stage a record has been in, with entered and left times (`rec_stage_history`). It powers
 time in stage and velocity.
 
 **Base currency**
@@ -451,7 +451,7 @@ escalation is never escalated.
 
 **Host module**
 A `codemode:*` import that extension code can call, backed by trusted host code. Examples:
-`codemode:crm` (operations), `codemode:ai` (model roles), `codemode:<gatekeeper>`.
+`codemode:ops` (operations), `codemode:ai` (model roles), `codemode:<gatekeeper>`.
 
 **Gatekeeper**
 A Worker that mediates all access to one external service. It handles OAuth accounts, exposes a
@@ -720,7 +720,7 @@ _Avoid_: vector search (for the feature; Vectorize is the store)
 
 **View spec**
 The JSON a view is made of, rendered by our components: a discriminated union of `table`, `board`,
-`calendar`, `gallery` and `dashboard` (filters and widgets with read-only SQL over `crm_*` views
+`calendar`, `gallery` and `dashboard` (filters and widgets with read-only SQL over `rec_*` views
 and a chart mapping). See ADR 0056 and ADR 0057.
 
 **Release bundle**

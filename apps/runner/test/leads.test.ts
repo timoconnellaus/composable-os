@@ -76,9 +76,9 @@ describe("install", () => {
   it("adds its table, view, indexes, the deal field and shipped automations turned off", async () => {
     expect(await extensionRow("leads")).toMatchObject({ source: "shipped", status: "active" });
     const { results } = await env.DB.prepare(
-      "SELECT name FROM sqlite_master WHERE name IN ('x_leads_lead', 'crm_x_leads_lead') ORDER BY name",
+      "SELECT name FROM sqlite_master WHERE name IN ('x_leads_lead', 'rec_x_leads_lead') ORDER BY name",
     ).all<{ name: string }>();
-    expect(results.map((r) => r.name)).toEqual(["crm_x_leads_lead", "x_leads_lead"]);
+    expect(results.map((r) => r.name)).toEqual(["rec_x_leads_lead", "x_leads_lead"]);
     const indexes = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'x_leads_lead' AND sql IS NOT NULL",
     ).all<{ name: string }>();

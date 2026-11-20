@@ -92,7 +92,7 @@ definition:
 | --- | --- |
 | TanStack Start server function | the UI |
 | MCP tool | Claude and other MCP clients |
-| host module (`codemode:crm`) | extension code in dynamic workers |
+| host module (`codemode:ops`) | extension code in dynamic workers |
 
 Every call passes through the **approval pipeline** before it takes effect. In code that is
 `invoke()` in `packages/core` (ADR 0018): validate → gate → role check → handler → one D1 batch
@@ -140,12 +140,12 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   database size against the cap.
 - **Extension schema** (`x_<extension>_*` tables): declared in extension code (`defineObject`) and
   reconciled into D1 by the host, additive-first. Core migrations never touch `x_` tables.
-- **`crm.*` views**: generated read views with friendly names, spelled `crm_people`,
-  `crm_organisations`, … because D1 has no schemas (ADR 0015 amendment). They are what list
+- **`crm.*` views**: generated read views with friendly names, spelled `rec_person`,
+  `rec_organisation`, … because D1 has no schemas (ADR 0015 amendment). They are what list
   operations, dashboard SQL and AI queries run against. Since migration 0020 the person,
   organisation, activity and task views are owned by the schema reconciler: core migrations change
-  their `core_base_*` views, and the reconciler regenerates `crm_*` over them with extension side
-  tables and formulas joined in. Extension objects read through `crm_x_<ext>_<object>`.
+  their `core_base_*` views, and the reconciler regenerates `rec_*` over them with extension side
+  tables and formulas joined in. Extension objects read through `rec_x_<ext>_<object>`.
 - **R2** holds attachments (and, later, large imports: stage-1 CSV imports arrive inline,
   [ADR 0020](adr/0020-query-sql-validator-and-csv-import.md)).
 
@@ -177,7 +177,7 @@ How stage 3a built it ([ADR 0040](adr/0040-extension-runtime-build.md)):
   views, tools, automations })` in `packages/sdk`, with every field type and a typed formula
   language compiled to SQLite (`@relationship-os/sdk/formula`). See `packages/sdk/README.md`.
 - **Reconciler** (`packages/core/src/extensions/reconciler.ts`): manifest → ordered DDL over
-  `x_<ext>_<object>` tables and 1:1 side tables `x_<ext>_<target>`, plus regenerated `crm_*` views,
+  `x_<ext>_<object>` tables and 1:1 side tables `x_<ext>_<target>`, plus regenerated `rec_*` views,
   dry-run by `extension.check` and applied atomically by `extension.install`.
 - **Registry**: extension objects and fields join the field registry (refreshed per invocation), so
   `record.*` operations, filters, saved views, search, CSV export and history work for them. Tools
@@ -193,7 +193,7 @@ How stage 3a built it ([ADR 0040](adr/0040-extension-runtime-build.md)):
     Tool and manifest workers come from `LOADER.get(stableId)`: the id hashes the extension,
     commit, host modules, SDK and runtime. Only Code Mode uses `load()`.
   - **Per-run context.** Each call gets its context as RPC arguments, including a per-run host
-    `RpcTarget` serving the declared `codemode:crm`, `codemode:storage`, `codemode:log` and
+    `RpcTarget` serving the declared `codemode:ops`, `codemode:storage`, `codemode:log` and
     `codemode:ai` modules.
   - **Principal.** Code acts as `extension:<id>` (actor `extension`) within its declared
     permissions.
@@ -215,7 +215,7 @@ How stage 3a built it ([ADR 0040](adr/0040-extension-runtime-build.md)):
   an object's declarative `stages` key is enforced by the host inside `record.create`,
   `record.update` and `import.records.commit` (`packages/core/src/records/stages.ts`): stage rules
   (a `StageRuleError` naming the missing fields), default stage and pipeline, probability,
-  status and won/lost date, `core_stage_history` rows (read as `crm_stage_history`) and
+  status and won/lost date, `core_stage_history` rows (read as `rec_stage_history`) and
   "Moved to <stage>" timeline posts on the record and its `timelineLinks`. The reconciler also
   creates declared `indexes` (partial, live rows) and inserts `seed` records once.
 - **UI**: generic list and record pages at `/x/<ext>.<object>` (with CSV import and export),
@@ -249,7 +249,7 @@ How stage 3b added authoring ([ADR 0041](adr/0041-extension-authoring-and-propos
   runtime extension that releases no longer update.
 - **Code Mode** ([ADR 0042](adr/0042-code-mode.md)): the MCP `code` tool (operation `code.run`)
   runs a client model's script in a throwaway Dynamic Worker as the connected user's `mcp` actor.
-  - **Calls.** Each `crm.call` goes through the pipeline with that user's role, scopes and
+  - **Calls.** Each `ops.call` goes through the pipeline with that user's role, scopes and
     session, so gates, pending actions and simulated reads behave exactly as for tool calls.
   - **Limits.** It needs `records:write`. It runs one script per user at a time and is rate
     limited per user (ADR 0043).
@@ -681,7 +681,7 @@ assistant, speech and dictation roles from stage 17, [ADR 0351](adr/0351-assista
 
 A view spec rendered by our own shadcn/chart components. Widgets query with read-only SQL over the
 `crm.*` views: the SQL is checked by a SQLite-faithful tokenizer validator (one SELECT/WITH,
-`crm_*` views only), takes bound params, and runs with row and time limits
+`rec_*` views only), takes bound params, and runs with row and time limits
 ([ADR 0020](adr/0020-query-sql-validator-and-csv-import.md); `validateReadOnlySql` in `@relationship-os/core`,
 used by `query.sql`). Computed widgets are extension code. Extensions never ship UI
 ([ADR 0010](adr/0010-dashboards-sql-views.md)).

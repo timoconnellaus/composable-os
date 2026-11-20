@@ -4,7 +4,7 @@ import { defineObject } from "./types.ts";
 export const taskObject = defineObject({
   name: "task",
   label: "Task",
-  source: "crm_tasks",
+  source: "rec_task",
   defaultSort: { field: "dueAt", direction: "asc" },
   fields: [
     { name: "id", label: "ID", type: "id", column: "id", filterable: true, sortable: true },

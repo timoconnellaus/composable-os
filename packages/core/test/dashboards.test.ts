@@ -101,12 +101,12 @@ describe("params", () => {
 
   it("rewrites named params to positions without touching strings, comments or identifiers", () => {
     const bound = bindNamedParams(
-      "SELECT ':owner' AS s, \"x:owner\" -- :owner\n FROM crm_people WHERE owner_id = :owner OR id = :me OR owner_id = :owner",
+      "SELECT ':owner' AS s, \"x:owner\" -- :owner\n FROM rec_person WHERE owner_id = :owner OR id = :me OR owner_id = :owner",
       { owner: "usr_1", me: "usr_2" },
       ["owner", "me"],
     );
     expect(bound.sql).toBe(
-      "SELECT ':owner' AS s, \"x:owner\" -- :owner\n FROM crm_people WHERE owner_id = ?1 OR id = ?2 OR owner_id = ?1",
+      "SELECT ':owner' AS s, \"x:owner\" -- :owner\n FROM rec_person WHERE owner_id = ?1 OR id = ?2 OR owner_id = ?1",
     );
     expect(bound.params).toEqual(["usr_1", "usr_2"]);
     expect(() => bindNamedParams("SELECT :nope", {}, ["owner"])).toThrow(/unknown parameter :nope/);
@@ -129,9 +129,9 @@ describe("widget SQL guard", () => {
       context(user),
     );
 
-  it("runs read-only SQL over crm_* views with bound params", async () => {
+  it("runs read-only SQL over rec_* views with bound params", async () => {
     const result = await preview(
-      "SELECT COUNT(*) AS value FROM crm_people WHERE created_at >= :date_from AND created_at < :date_to",
+      "SELECT COUNT(*) AS value FROM rec_person WHERE created_at >= :date_from AND created_at < :date_to",
       [{ type: "dateRange", id: "date", label: "Date", default: "all_time" }],
     );
     expect(result.columns).toEqual(["value"]);
@@ -141,9 +141,9 @@ describe("widget SQL guard", () => {
   it.each([
     ["core tables", "SELECT COUNT(*) AS value FROM core_person"],
     ["password hashes", "SELECT password AS value FROM core_account"],
-    ["writes", "DELETE FROM crm_people"],
+    ["writes", "DELETE FROM rec_person"],
     ["two statements", "SELECT 1 AS value; SELECT 2"],
-    ["pragma", "PRAGMA table_info(crm_people)"],
+    ["pragma", "PRAGMA table_info(rec_person)"],
     ["unknown params", "SELECT :secret AS value"],
     ["positional params", "SELECT ? AS value"],
     [
@@ -168,7 +168,7 @@ describe("widget SQL guard", () => {
   });
 
   it("binds a field filter as a named param", async () => {
-    const result = await preview("SELECT COUNT(*) AS value FROM crm_tasks WHERE status = :status", [
+    const result = await preview("SELECT COUNT(*) AS value FROM rec_task WHERE status = :status", [
       {
         type: "field",
         id: "status",
@@ -366,7 +366,7 @@ describe("widget result cache", () => {
     id: "people",
     type: "kpi",
     title: "People",
-    sql: "SELECT COUNT(*) AS value FROM crm_people WHERE owner_id = :me",
+    sql: "SELECT COUNT(*) AS value FROM rec_person WHERE owner_id = :me",
     mapping: { value: "value" },
   };
 
@@ -424,7 +424,7 @@ describe("dashboards: ownership and Home", () => {
         id: "count",
         type: "kpi",
         title: "People",
-        sql: "SELECT COUNT(*) AS value FROM crm_people WHERE created_at >= :date_from AND created_at < :date_to",
+        sql: "SELECT COUNT(*) AS value FROM rec_person WHERE created_at >= :date_from AND created_at < :date_to",
         mapping: { value: "value" },
       },
       { id: "notes", type: "markdown", title: "Notes", markdown: "Hello" },
@@ -579,7 +579,7 @@ describe("widget.describe", () => {
     const user = await createUser("member");
     const answers = [
       '{"id":"x","type":"kpi","title":"Bad","sql":"SELECT COUNT(*) AS value FROM core_person","mapping":{"value":"value"}}',
-      'Here you go: {"id":"x","type":"kpi","title":"Good","sql":"SELECT COUNT(*) AS value FROM crm_people","mapping":{"value":"value"}}',
+      'Here you go: {"id":"x","type":"kpi","title":"Good","sql":"SELECT COUNT(*) AS value FROM rec_person","mapping":{"value":"value"}}',
     ];
     const seen: string[] = [];
     const models: ModelRunner = {

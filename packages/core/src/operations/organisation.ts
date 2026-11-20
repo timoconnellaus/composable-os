@@ -685,7 +685,7 @@ export const organisationList = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const page = await runListQuery(
-      ctx.db.selectFrom("crm_organisations").selectAll(),
+      ctx.db.selectFrom("rec_organisation").selectAll(),
       getObject("organisation") ?? organisationObject,
       input,
     );

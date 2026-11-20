@@ -1,5 +1,5 @@
 // The schema reconciler (ADR 0024): turns an extension's declared objects and fields into an
-// ordered DDL plan over x_* tables plus the regenerated crm_* views, which can be dry-run
+// ordered DDL plan over x_* tables plus the regenerated rec_* views, which can be dry-run
 // (`extension.check`) and is applied atomically in one D1 batch with the state rows.
 //
 // Rules:
@@ -25,6 +25,7 @@ import {
   ident,
   isCoreTarget,
   objectTable,
+  objectView,
   registryFieldName,
   sideTable,
   splitObjectName,
@@ -541,7 +542,7 @@ function finishPlan(
     .filter(
       (o) => !next.objects.some((n) => n.tableName === o.tableName && n.localName === o.localName),
     )
-    .map((o) => `DROP VIEW IF EXISTS crm_x_${ident(o.extensionId)}_${ident(o.localName)}`);
+    .map((o) => `DROP VIEW IF EXISTS ${objectView(o.extensionId, o.localName)}`);
   const ddl = [...new Set([...staleViews, ...views.drops]), ...tableDdl, ...views.creates];
 
   const touched = new Set([

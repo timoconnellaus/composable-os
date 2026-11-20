@@ -1,6 +1,6 @@
 // The Leads dashboard (stage 15): counts only, no scores. Leads by status, by source and by owner,
 // leads created per week, and conversions this month. Each widget is read-only SQL over
-// crm_x_leads_lead with named params bound from the filters (ADR 0057), and a click-through that
+// rec_x_leads_lead with named params bound from the filters (ADR 0057), and a click-through that
 // opens the leads it counted.
 import type { DashboardDeclaration } from "@relationship-os/sdk";
 
@@ -26,7 +26,7 @@ export const leadsDashboard: DashboardDeclaration = {
       type: "kpi",
       title: "Leads created",
       description: "Leads created in the period, against the previous period.",
-      sql: `SELECT count(*) AS value FROM crm_x_leads_lead l WHERE ${CREATED} AND ${OWNER}`,
+      sql: `SELECT count(*) AS value FROM rec_x_leads_lead l WHERE ${CREATED} AND ${OWNER}`,
       mapping: { value: "value" },
       options: { compare: true },
       clickThrough: { object: "leads.lead", filter: { and: createdInRange } },
@@ -37,7 +37,7 @@ export const leadsDashboard: DashboardDeclaration = {
       type: "kpi",
       title: "In the inbox",
       description: "Leads that are new or contacted (not limited to the period).",
-      sql: `SELECT count(*) AS value FROM crm_x_leads_lead l WHERE l.status IN ('new', 'contacted') AND ${OWNER}`,
+      sql: `SELECT count(*) AS value FROM rec_x_leads_lead l WHERE l.status IN ('new', 'contacted') AND ${OWNER}`,
       mapping: { value: "value" },
       options: { compare: false },
       clickThrough: {
@@ -55,7 +55,7 @@ export const leadsDashboard: DashboardDeclaration = {
       description: "Leads converted into deals since the start of this month.",
       sql: [
         "SELECT count(*) AS value, strftime('%Y-%m-01', :today) AS month_start",
-        "FROM crm_x_leads_lead l",
+        "FROM rec_x_leads_lead l",
         `WHERE l.status = 'converted' AND l.converted_at >= strftime('%Y-%m-01', :today) AND ${OWNER}`,
       ].join("\n"),
       mapping: { value: "value" },
@@ -79,7 +79,7 @@ export const leadsDashboard: DashboardDeclaration = {
       description: "Leads created in the period, by their status now.",
       sql: [
         "SELECT coalesce(l.status, '') AS status, count(*) AS leads",
-        "FROM crm_x_leads_lead l",
+        "FROM rec_x_leads_lead l",
         `WHERE ${CREATED} AND ${OWNER}`,
         "GROUP BY l.status ORDER BY leads DESC, status",
       ].join("\n"),
@@ -98,7 +98,7 @@ export const leadsDashboard: DashboardDeclaration = {
       title: "Leads by source",
       sql: [
         "SELECT coalesce(l.source, '') AS source, count(*) AS leads",
-        "FROM crm_x_leads_lead l",
+        "FROM rec_x_leads_lead l",
         `WHERE ${CREATED} AND ${OWNER}`,
         "GROUP BY l.source ORDER BY leads DESC, source",
       ].join("\n"),
@@ -119,7 +119,7 @@ export const leadsDashboard: DashboardDeclaration = {
       sql: [
         "SELECT coalesce(l.owner, '') AS owner_id, coalesce(u.name, 'No owner') AS owner,",
         "  count(*) AS leads",
-        "FROM crm_x_leads_lead l LEFT JOIN crm_users u ON u.id = l.owner",
+        "FROM rec_x_leads_lead l LEFT JOIN rec_user u ON u.id = l.owner",
         `WHERE ${CREATED} AND ${OWNER}`,
         "GROUP BY l.owner, u.name ORDER BY leads DESC, owner",
       ].join("\n"),
@@ -139,7 +139,7 @@ export const leadsDashboard: DashboardDeclaration = {
       title: "Leads created per week",
       sql: [
         "SELECT date(l.created_at, '-6 days', 'weekday 1') AS week, count(*) AS leads",
-        "FROM crm_x_leads_lead l",
+        "FROM rec_x_leads_lead l",
         `WHERE ${CREATED} AND ${OWNER}`,
         "GROUP BY week ORDER BY week",
       ].join("\n"),

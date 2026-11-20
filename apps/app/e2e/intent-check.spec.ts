@@ -21,7 +21,7 @@ export default defineExtension({
   contractVersion: 1,
   label: "Intent check test",
   description: "Tells someone about new organisations.",
-  permissions: { read: ["organisation"], operations: ["notification.send"], modules: ["crm"] },
+  permissions: { read: ["organisation"], operations: ["notification.send"], modules: ["ops"] },
   automations: {
     newOrg: defineAutomation({
       label: "New organisation",

@@ -5,7 +5,7 @@
 //
 // `call(module, method, args)` is the only way extension code reaches the CRM:
 // - only the declared modules answer (the entry module also only wires those);
-// - `crm` invokes operations through the pipeline as the extension principal (actor `extension`),
+// - `ops` invokes operations through the pipeline as the extension principal (actor `extension`),
 //   or, for a Code Mode script, as the connected user (ADR 0042);
 // - after the deadline, or once the run is over, every call is refused, so a run that timed out
 //   cannot keep acting.
@@ -156,7 +156,7 @@ export class RunHost extends RpcTarget {
     }
     const list = Array.isArray(args) ? args : [];
     switch (module) {
-      case "crm":
+      case "ops":
         if (run.code) return this.#codeCall(run.code, list);
         return run.automation ? this.#automationCall(run.automation, list) : this.#crmCall(list);
       case "storage":
@@ -202,7 +202,7 @@ export class RunHost extends RpcTarget {
   }
 
   /**
-   * `codemode:crm` in an automation run: actor `automation` under the extension principal, with
+   * `codemode:ops` in an automation run: actor `automation` under the extension principal, with
    * the run's cascade origin. A call the gate queues for review answers with the pending envelope
    * (as in Code Mode); the Workflow then waits for the decision.
    */
@@ -269,7 +269,7 @@ export class RunHost extends RpcTarget {
     return json(reply);
   }
 
-  /** `codemode:crm` for a Code Mode script: the connected user's actor, through the gate. */
+  /** `codemode:ops` for a Code Mode script: the connected user's actor, through the gate. */
   async #codeCall(code: CodeRun, args: unknown[]): Promise<unknown> {
     const run = this.#run;
     const [name, input] = args;

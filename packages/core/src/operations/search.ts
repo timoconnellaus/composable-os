@@ -92,7 +92,7 @@ interface Display {
   subtitle: string | null;
 }
 
-/** Titles and subtitles from the crm_* views (live records only), keyed `object:id`. */
+/** Titles and subtitles from the rec_* views (live records only), keyed `object:id`. */
 export async function loadDisplays(
   db: Kysely<CoreDatabase>,
   ids: Map<string, string[]>,
@@ -121,7 +121,7 @@ export async function loadDisplays(
   if (people?.length) {
     tasks.push(
       db
-        .selectFrom("crm_people")
+        .selectFrom("rec_person")
         .select(["id", "display_name", "primary_email", "job_title", "organisation_name"])
         .where("id", "in", jsonList(people))
         .execute()
@@ -140,7 +140,7 @@ export async function loadDisplays(
   if (orgs?.length) {
     tasks.push(
       db
-        .selectFrom("crm_organisations")
+        .selectFrom("rec_organisation")
         .select(["id", "name", "primary_domain", "industry"])
         .where("id", "in", jsonList(orgs))
         .execute()
@@ -156,7 +156,7 @@ export async function loadDisplays(
   if (activities?.length) {
     tasks.push(
       db
-        .selectFrom("crm_activities")
+        .selectFrom("rec_activity")
         .select(["id", "type", "subject", "body", "occurred_at"])
         .where("id", "in", jsonList(activities))
         .execute()
@@ -176,7 +176,7 @@ export async function loadDisplays(
   if (taskIds?.length) {
     tasks.push(
       db
-        .selectFrom("crm_tasks")
+        .selectFrom("rec_task")
         .select(["id", "title", "status", "due_at"])
         .where("id", "in", jsonList(taskIds))
         .execute()

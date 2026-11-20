@@ -168,7 +168,7 @@ export function absoluteUrl(
 
 /**
  * May this notice leave the CRM? Not when it links to an activity that is private to its owner
- * (synced email or a meeting marked private) or no longer visible: crm_activities hides both.
+ * (synced email or a meeting marked private) or no longer visible: rec_activity hides both.
  */
 export async function disclosable(
   db: Kysely<CoreDatabase>,
@@ -177,7 +177,7 @@ export async function disclosable(
   const link = notification.link;
   if (link?.kind !== "record" || link.object !== "activity") return true;
   const row = await db
-    .selectFrom("crm_activities")
+    .selectFrom("rec_activity")
     .select("id")
     .where("id", "=", link.id)
     .executeTakeFirst();

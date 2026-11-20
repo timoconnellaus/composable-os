@@ -1,5 +1,5 @@
 // Extension schema state (core_extension_objects / core_extension_fields), the field registry
-// built from it, and the crm_* view SQL generated from it (ADR 0023, ADR 0024).
+// built from it, and the rec_* view SQL generated from it (ADR 0023, ADR 0024).
 import type { CoreDatabase } from "@relationship-os/db";
 import {
   type FieldManifest,
@@ -214,7 +214,7 @@ export function formulaEnvironment(
 }
 
 // ---------------------------------------------------------------------------------------------
-// crm_* views
+// rec_* views
 
 export interface ViewBuild {
   /** `DROP VIEW IF EXISTS` for every view the reconciler owns (current and stale). */
@@ -281,7 +281,7 @@ function foreignColumns(
 }
 
 /**
- * The crm_* views for the given state: the four core objects (base view + side tables) and every
+ * The rec_* views for the given state: the four core objects (base view + side tables) and every
  * active extension object. Formulas compile here; one that fails yields NULL and an error.
  */
 export function buildViews(state: SchemaState): ViewBuild {

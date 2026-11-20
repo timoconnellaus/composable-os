@@ -122,7 +122,7 @@ describe("authoring and Code Mode tools (stage 3b)", () => {
     };
     expect(propose.required).toContain("reason");
     const code = tools.find((t) => t.name === "code");
-    expect(code?.description).toContain('import { crm } from "codemode:crm"');
+    expect(code?.description).toContain('import { ops } from "codemode:ops"');
   });
 
   it("refuses authoring without the admin scope", async () => {

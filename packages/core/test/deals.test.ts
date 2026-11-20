@@ -92,7 +92,7 @@ describe("Deals on the host", () => {
 
   it("seeds pipelines and stages once, and re-reconciling changes nothing", async () => {
     const { results } = await env.DB.prepare(
-      "SELECT s.name, s.type, s.probability, s.required_fields FROM crm_x_deals_stage s WHERE s.pipeline = ? ORDER BY s.position",
+      "SELECT s.name, s.type, s.probability, s.required_fields FROM rec_x_deals_stage s WHERE s.pipeline = ? ORDER BY s.position",
     )
       .bind(NB)
       .all<{ name: string; type: string; probability: number; required_fields: string }>();
@@ -147,24 +147,24 @@ describe("Deals on the host", () => {
 
   it("seeded demo deals are consistent with their stage history", async () => {
     const bad = await env.DB.prepare(
-      `SELECT count(*) AS n FROM crm_x_deals_deal d
-       JOIN crm_stage_history h ON h.record_id = d.id AND h.is_current = 1
+      `SELECT count(*) AS n FROM rec_x_deals_deal d
+       JOIN rec_stage_history h ON h.record_id = d.id AND h.is_current = 1
        WHERE h.stage_id != d.stage OR h.stage_type != d.status`,
     ).first<{ n: number }>();
     expect(bad?.n).toBe(0);
     const current = await env.DB.prepare(
-      "SELECT count(*) AS n FROM crm_stage_history WHERE object_type = 'deals.deal' AND is_current = 1",
+      "SELECT count(*) AS n FROM rec_stage_history WHERE object_type = 'deals.deal' AND is_current = 1",
     ).first<{ n: number }>();
     expect(current?.n).toBe(DEALS);
     const closed = await env.DB.prepare(
-      "SELECT count(*) AS n FROM crm_x_deals_deal WHERE (status = 'open') != (closed_at IS NULL)",
+      "SELECT count(*) AS n FROM rec_x_deals_deal WHERE (status = 'open') != (closed_at IS NULL)",
     ).first<{ n: number }>();
     expect(closed?.n).toBe(0);
   });
 
   it("a demo deal keeps moving under the stage rules", async () => {
     const open = await env.DB.prepare(
-      "SELECT id FROM crm_x_deals_deal WHERE status = 'open' AND pipeline = ? LIMIT 1",
+      "SELECT id FROM rec_x_deals_deal WHERE status = 'open' AND pipeline = ? LIMIT 1",
     )
       .bind(NB)
       .first<{ id: string }>();
@@ -257,7 +257,7 @@ describe("rows read on hot deal queries", () => {
     }>();
     expect(
       await read("query.sql", {
-        sql: "SELECT stage_id, entered_at, left_at FROM crm_stage_history WHERE object_type = 'deals.deal' AND record_id = ? ORDER BY entered_at",
+        sql: "SELECT stage_id, entered_at, left_at FROM rec_stage_history WHERE object_type = 'deals.deal' AND record_id = ? ORDER BY entered_at",
         params: [one?.id ?? ""],
       }),
       // query.sql's guard reads sqlite_master, which grows with the schema; the history itself
@@ -267,7 +267,7 @@ describe("rows read on hot deal queries", () => {
 
   it("a stage move reads a handful of rows", async () => {
     const open = await env.DB.prepare(
-      "SELECT id FROM crm_x_deals_deal WHERE status = 'open' AND pipeline = ? LIMIT 1",
+      "SELECT id FROM rec_x_deals_deal WHERE status = 'open' AND pipeline = ? LIMIT 1",
     )
       .bind(NB)
       .first<{ id: string }>();
@@ -283,7 +283,7 @@ describe("rows read on hot deal queries", () => {
 
 describe("CSV import and export of deals", () => {
   it("previews, then imports deals by names, with stage rules and history", async () => {
-    const org = await env.DB.prepare("SELECT id, name FROM crm_organisations WHERE id = ?")
+    const org = await env.DB.prepare("SELECT id, name FROM rec_organisation WHERE id = ?")
       .bind(orgId)
       .first<{ id: string; name: string }>();
     const csv = [

@@ -12,7 +12,7 @@ import { ROLES } from "../principals.ts";
 export const userObject = defineObject({
   name: "user",
   label: "User",
-  source: "crm_users",
+  source: "rec_user",
   defaultSort: { field: "name", direction: "asc" },
   fields: [
     { name: "id", label: "ID", type: "id", column: "id", filterable: true, sortable: true },
@@ -86,7 +86,7 @@ export const userList = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const page = await runListQuery(ctx.db.selectFrom("crm_users").selectAll(), userObject, input);
+    const page = await runListQuery(ctx.db.selectFrom("rec_user").selectAll(), userObject, input);
     return {
       items: selectFields(page.rows.map(toUser), input.fields, USER_FIELDS),
       nextCursor: page.nextCursor,
@@ -111,7 +111,7 @@ export const userUpdateRole = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     const before = await ctx.db
-      .selectFrom("crm_users")
+      .selectFrom("rec_user")
       .selectAll()
       .where("id", "=", input.id)
       .executeTakeFirst();

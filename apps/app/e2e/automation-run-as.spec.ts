@@ -21,7 +21,7 @@ export default defineExtension({
   contractVersion: 1,
   label: "Run-as test",
   description: "An automation that sends mail through a connection it is allowed to use.",
-  permissions: { read: ["person"], modules: ["crm", "fake"] },
+  permissions: { read: ["person"], modules: ["ops", "fake"] },
   automations: {
     welcome: defineAutomation({
       label: "${LABEL}",

@@ -49,7 +49,7 @@ export default defineExtension({
   permissions: {
     read: ["person", "task", "activity"],
     write: ["task"],
-    modules: ["crm", "fake"],
+    modules: ["ops", "fake"],
   },
   automations: {
     welcome: defineAutomation({
@@ -76,7 +76,7 @@ export default defineExtension({
       steps: [{ name: "note", writes: [{ object: "task" }] }],
       async run(event, step, ctx) {
         const body = (event.integration?.payload as { payload?: { amount?: number } } | null)?.payload;
-        return step.do("note", () => ctx.crm.call("task.create", { title: \`Paid \${body?.amount}\` }));
+        return step.do("note", () => ctx.ops.call("task.create", { title: \`Paid \${body?.amount}\` }));
       },
     }),
     emailed: defineAutomation({
@@ -86,7 +86,7 @@ export default defineExtension({
       steps: [{ name: "note", writes: [{ object: "task" }] }],
       async run(event, step, ctx) {
         return step.do("note", () =>
-          ctx.crm.call("task.create", { title: \`Reply to \${event.record?.id}\` }),
+          ctx.ops.call("task.create", { title: \`Reply to \${event.record?.id}\` }),
         );
       },
     }),

@@ -310,7 +310,7 @@ describe("mark private", () => {
       .bind(id)
       .first<{ n: number }>();
     expect(docs?.n).toBe(0);
-    const view = await env.DB.prepare("SELECT count(*) AS n FROM crm_activities WHERE id = ?")
+    const view = await env.DB.prepare("SELECT count(*) AS n FROM rec_activity WHERE id = ?")
       .bind(id)
       .first<{ n: number }>();
     expect(view?.n).toBe(0);

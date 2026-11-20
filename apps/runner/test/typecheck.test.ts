@@ -70,12 +70,12 @@ describe("typecheckExtension", () => {
 
   it("reports a non-existent ctx module and a handler returning the wrong shape", () => {
     const tools = (files["tools.ts"] as string)
-      .replace("await ctx.crm.call<SqlResult>(", "await ctx.crm.cal<SqlResult>(")
+      .replace("await ctx.ops.call<SqlResult>(", "await ctx.ops.cal<SqlResult>(")
       .replace("      pipelineId,\n      stages:", "      pipelineId: 1,\n      stages:");
     const issues = typecheckExtension({ ...files, "tools.ts": tools });
     expect(issues.every((i) => i.code === "type" && i.path === "tools.ts")).toBe(true);
     expect(issues.map((i) => i.message).join("\n")).toMatch(
-      /Property 'cal' does not exist on type 'CrmModule'/,
+      /Property 'cal' does not exist on type 'OpsModule'/,
     );
     expect(issues.some((i) => /pipelineId/.test(i.message))).toBe(true);
   });

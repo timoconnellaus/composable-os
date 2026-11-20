@@ -45,7 +45,7 @@ const good = {
   id: "tasks-by-status",
   type: "bar",
   title: "Tasks by status",
-  sql: "SELECT status AS label, COUNT(*) AS value FROM crm_tasks GROUP BY status",
+  sql: "SELECT status AS label, COUNT(*) AS value FROM rec_task GROUP BY status",
   mapping: { x: "label", y: "value" },
 };
 const previewCall = (widget: Record<string, unknown>, withFilters = true) =>
@@ -61,7 +61,7 @@ describe("agent mode", () => {
       sql: `${good.sql.replace("GROUP", "WHERE created_at >= :since GROUP")}`,
     };
     const script = scriptedModel([
-      reply(null, [toolCall("query_sql", { sql: "SELECT DISTINCT status FROM crm_tasks" })]),
+      reply(null, [toolCall("query_sql", { sql: "SELECT DISTINCT status FROM rec_task" })]),
       reply(null, [previewCall(broken)]),
       reply("Fixing the parameter.", [previewCall(good)]),
       reply("Here is tasks by status as a bar chart."),
@@ -123,7 +123,7 @@ describe("agent mode", () => {
   it("fails when the final widget does not run, graded by the grader's own preview", async () => {
     const dated = {
       ...good,
-      sql: "SELECT status AS label, COUNT(*) AS value FROM crm_tasks WHERE created_at >= :date_from GROUP BY status",
+      sql: "SELECT status AS label, COUNT(*) AS value FROM rec_task WHERE created_at >= :date_from GROUP BY status",
     };
     // Previewed without the dashboard's filters, so :date_from is unknown.
     const script = scriptedModel([reply(null, [previewCall(dated, false)]), reply("Done.")]);
@@ -264,7 +264,7 @@ describe("helpers", () => {
     const guide = buildingGuide(core, filters);
     expect(guide).toContain(JSON.stringify(filters));
     expect(guide).toContain(":date_from");
-    expect(guide).toContain("crm_tasks -- Task records");
+    expect(guide).toContain("rec_task -- Task records");
   });
 
   it("reads widget.preview's availability from describe_operations", () => {

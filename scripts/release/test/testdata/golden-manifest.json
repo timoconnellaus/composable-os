@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 371,
+  "coreSchemaVersion": 380,
   "extensionContract": {
     "supported": [
       1
@@ -388,6 +388,10 @@
     {
       "name": "0371_agent_jobs.sql",
       "sha256": "31f5db3585c3e32bfcba2eab6311855055cce1f7fcb168985cecea04209d4109"
+    },
+    {
+      "name": "0380_rec_views.sql",
+      "sha256": "3fd57478ed3a984c3c7bf43c4278f545c62fd6b4a3a87f1440a5519aa6f9c711"
     }
   ],
   "product": "relationship-os",
