@@ -4,7 +4,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { ConflictError, NotFoundError } from "../errors.ts";
 import { defineObject } from "../fields/types.ts";
-import { listInputSchema, pageSchema, runListQuery, selectFields } from "../list.ts";
+import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts";
 import { defineOperation } from "../operation.ts";
 import { ROLES } from "../principals.ts";
 
@@ -86,7 +86,7 @@ export const userList = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const page = await runListQuery(ctx.db.selectFrom("rec_user").selectAll(), userObject, input);
+    const page = await pageQuery(ctx.db.selectFrom("rec_user").selectAll(), userObject, input);
     return {
       items: selectFields(page.rows.map(toUser), input.fields, USER_FIELDS),
       nextCursor: page.nextCursor,

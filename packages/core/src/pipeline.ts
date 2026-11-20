@@ -78,6 +78,7 @@ import {
   originSchema,
   type Permission,
   roleHasPermission,
+  staffPrincipal,
 } from "./principals.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { loadApprovalPolicy } from "./settings.ts";
@@ -653,6 +654,7 @@ async function invokeOnce<O extends AnyOperation>(
     operation: op.name,
     actor: ctx.actor,
     user: ctx.user,
+    principal: staffPrincipal(ctx.user),
     origin: ctx.origin,
     now,
     auditId,

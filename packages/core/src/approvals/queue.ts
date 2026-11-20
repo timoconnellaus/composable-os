@@ -15,7 +15,7 @@ import {
   toProvisionalId,
 } from "../ids.ts";
 import type { AnyOperation, RecordChange, SimulatedRecord } from "../operation.ts";
-import type { Origin, Permission } from "../principals.ts";
+import { type Origin, type Permission, type Role, staffPrincipal } from "../principals.ts";
 import { capPreview, capSimulated, INPUT_MAX_BYTES } from "./caps.ts";
 import { type Overlay, SIMULATED_OBJECTS, titlesFor } from "./simulation.ts";
 
@@ -35,7 +35,7 @@ export interface QueueRequest {
   input: unknown;
   db: CrmDb;
   actor: string;
-  user: { id: string; name: string };
+  user: { id: string; name: string; role: Role };
   origin: Origin;
   grantedPermissions?: readonly Permission[] | undefined;
   reason?: string | undefined;
@@ -194,7 +194,11 @@ async function simulateRecords(
           : await buildCreated(req, change, id);
     } else if (objectSim) {
       const prior = out.get(key)?.record ?? req.overlay.record(change.object, id)?.record ?? null;
-      const base = prior ?? (isProvisionalId(id) ? null : await objectSim.load(req.db.query, id));
+      const base =
+        prior ??
+        (isProvisionalId(id)
+          ? null
+          : await objectSim.load({ db: req.db.query, principal: staffPrincipal(req.user) }, id));
       if (base) {
         record = applyDiff(base, diff, req.now);
         if (change.action === "restore") record.deletedAt = null;

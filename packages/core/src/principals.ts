@@ -128,3 +128,19 @@ export interface ActingUser {
   name: string;
   role: Role;
 }
+
+/**
+ * Who a call is made for, as the visibility seam and the audience check see them (ADR 0402).
+ * Staff are the users of the org: every `ActingUser`.
+ */
+export interface StaffPrincipal {
+  readonly kind: "staff";
+  readonly userId: string;
+  readonly role: Role;
+}
+
+export type Principal = StaffPrincipal;
+
+export function staffPrincipal(user: Pick<ActingUser, "id" | "role">): StaffPrincipal {
+  return Object.freeze({ kind: "staff", userId: user.id, role: user.role });
+}

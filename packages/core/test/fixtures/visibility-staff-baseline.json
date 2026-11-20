@@ -1,0 +1,167 @@
+{
+  "person.list": {
+    "rowsRead": 443,
+    "output": "3bb5019731f7f1b569f0bc4513bd3821a92a6cb17ff6eade33daf03398329617",
+    "items": 50
+  },
+  "person.list page 2": {
+    "rowsRead": 493,
+    "output": "6a082965ef3a73d1fe403496d08daef7322476559f1b24eb7e3f0ecc654dd507",
+    "items": 50
+  },
+  "person.list by createdAt": {
+    "rowsRead": 648,
+    "output": "0d03122db6e8776ffa1c212535b1c5e130a44f40f86a9f1c4f3c2cdbd926a351",
+    "items": 50
+  },
+  "person.list filtered": {
+    "rowsRead": 458,
+    "output": "2e3eb33db7c561d46f486f15406eaa75322d9d3cb5e56e71c916622b84cc3602",
+    "items": 50
+  },
+  "person.list fields": {
+    "rowsRead": 203,
+    "output": "b77337bbcba2604babcce2fc4276c32accc30e96c159c5278dfac1f41dd48bf1",
+    "items": 20
+  },
+  "organisation.list": {
+    "rowsRead": 837,
+    "output": "ec7578f353d402f1af45f2ace60d8859b7e0ec392e59392328299d833fb5fe2d",
+    "items": 50
+  },
+  "activity.list": {
+    "rowsRead": 870,
+    "output": "d72d6782d83d8cf74e83e4e5f0e8b81eba261f56af8988171ed3c26959c2da36",
+    "items": 50
+  },
+  "task.list": {
+    "rowsRead": 483,
+    "output": "caef9eaa3e0e4cee4aa9b192db262c0f11b31c1fd2edfc8e961e4775fda64cd6",
+    "items": 50
+  },
+  "task.list filtered": {
+    "rowsRead": 538,
+    "output": "0aea57efbdbd08f40cd6d00aafd39188319f8939328d26fcf4987d8039dd4258",
+    "items": 50
+  },
+  "task.listMine": {
+    "rowsRead": 36,
+    "output": "af5e571271156135770ec227a680f3a8a14c26afa3b73e380055d979cb36909d",
+    "items": 0
+  },
+  "user.list": {
+    "rowsRead": 39,
+    "output": "1cfc8e2c0a3c0b91f7a5876f9e367bb068f1ca3f2c56539477a11a269ec1b38a",
+    "items": 2
+  },
+  "record.list deals": {
+    "rowsRead": 435,
+    "output": "5d595fe82e8d7a5ad9415a2261c86817e6c6b069b3549cf754e316c228612b07",
+    "items": 50
+  },
+  "record.list deals by value": {
+    "rowsRead": 588,
+    "output": "be3790370854a5a3b46e0f144a5db8dd09b3f7f3d872570f659ff8d5d688f999",
+    "items": 50
+  },
+  "record.list stages": {
+    "rowsRead": 57,
+    "output": "a76caafd35bb285e804e1e5ea163102c331013f1b3b2f7211c5d35623362d75f",
+    "items": 11
+  },
+  "record.list person": {
+    "rowsRead": 203,
+    "output": "64cc23b81e01699c6172c2ff9158266e3c9a680f139e3ca47fce9850544c1a6e",
+    "items": 20
+  },
+  "record.get deal": {
+    "rowsRead": 36,
+    "output": "763627d3850c423e3c878954d8bc7de00f2c5b6a4e45736f3b0036835a820238",
+    "items": 1
+  },
+  "record.get person": {
+    "rowsRead": 43,
+    "output": "13d56a7bb2472e3bbd13c730b886db1a60203c654d3abbfda36d90d2bd75c33d",
+    "items": 1
+  },
+  "record.count person": {
+    "rowsRead": 1532,
+    "output": "8aa35858c20680b3f267bfeb6b7d630cd387168775a5fc89bc8c9186045471a0",
+    "items": 1497
+  },
+  "record.count person filtered": {
+    "rowsRead": 4526,
+    "output": "830ae06dcd699b1fc625443d9fd437a8a22c2758e1cb17d1ce079e0a4cbc285f",
+    "items": 1310
+  },
+  "record.count deals": {
+    "rowsRead": 235,
+    "output": "8ae9e90cb7de8144442021ae03a83f672fc4f3060686565d3914372a4397671b",
+    "items": 200
+  },
+  "record.groups task": {
+    "rowsRead": 835,
+    "output": "446c21b0a786a88a5956927fcd8b888fd0a249dbc56d221d3178944ead09df6d",
+    "items": 2
+  },
+  "record.groups deals": {
+    "rowsRead": 435,
+    "output": "87291a8bfaffaf06f401735426bd58399337c7c9dcf80f7bec839cb2dd04f218",
+    "items": 11
+  },
+  "export.csv person": {
+    "rowsRead": 1643,
+    "output": "f692bc3423962fb2774349b47f884aee3280fe19783c7cc8b8cdfd947ce1f62a",
+    "items": 200
+  },
+  "export.csv deals": {
+    "rowsRead": 435,
+    "output": "b6d5d16114d5fd578426676c191bef7fc7df914c1cf360ce6bf22a3e4e48b50b",
+    "items": 200
+  },
+  "person.get": {
+    "rowsRead": 45,
+    "output": "1d91b1b79e35aa738de8e281e08fc3e9d6f470ec639ae9113a7cbe854390e03b",
+    "items": 1
+  },
+  "organisation.get": {
+    "rowsRead": 47,
+    "output": "b7867245a2aeb5ee5c3b84f13a0306ec978c84c2d833de573ee3e8499f5aacc2",
+    "items": 1
+  },
+  "activity.get": {
+    "rowsRead": 49,
+    "output": "4b32e530ed943bac8600cc5f3d9bae524f3c6f12b438c2f1e8250baf563342a9",
+    "items": 1
+  },
+  "task.get": {
+    "rowsRead": 44,
+    "output": "aec7e402ec145957603bb789df6bb96681b454f08b74d3f4bc6a5604cb64947f",
+    "items": 1
+  },
+  "activity.listForRecord": {
+    "rowsRead": 67,
+    "output": "ab96697f40ddf9c3215df25ee7d257cf47e1f4cc4c2b06a133b9c89a5c626941",
+    "items": 2
+  },
+  "affiliation.list": {
+    "rowsRead": 40,
+    "output": "b8e5761397ce29b06d739b96782434a8594ef8bab6d95b26b9c67f7430420e18",
+    "items": 1
+  },
+  "search.global": {
+    "rowsRead": 160,
+    "output": "6fbc3328a794f0f7898fd0ae67b89bcd98bb66724c6428c0e1c7113d6b0636ff",
+    "items": 15
+  },
+  "search.global deals": {
+    "rowsRead": 2482,
+    "output": "b695f78f6c1374f204d00b459347a540f7aeb381542fe8a9018218be4b6d4e54",
+    "items": 20
+  },
+  "trash.list": {
+    "rowsRead": 44,
+    "output": "3faa342f78f7006f952bb66e11a10990fda8305ad3c1f61e6999b11610bef3be",
+    "items": 3
+  }
+}

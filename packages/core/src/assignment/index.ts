@@ -19,6 +19,7 @@ import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { compileFilter, OPS_BY_TYPE } from "../filter.ts";
 import type { HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
+import { visibleSource } from "../visibility/index.ts";
 
 export const ASSIGNMENT_OPS = ["eq", "in", "between", "is_null", "is_not_null"] as const;
 export type AssignmentOp = (typeof ASSIGNMENT_OPS)[number];
@@ -324,7 +325,7 @@ async function loadRelated(
   const key = `${target.name}|${id}`;
   if (!state.related.has(key)) {
     const { rows } = await sql<Record<string, unknown>>`
-      SELECT * FROM ${sql.table(target.source)} WHERE id = ${id}
+      SELECT * FROM ${visibleSource(ctx, target)} WHERE id = ${id}
     `.execute(ctx.db);
     state.related.set(key, rows[0] ?? null);
   }

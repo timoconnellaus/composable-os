@@ -23,6 +23,7 @@ import type { HandlerContext } from "../operation.ts";
 import { defineOperation } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
 import { compareTagNames, loadTags, uniqueTagNames } from "../records/tags.ts";
+import type { Reader } from "../visibility/index.ts";
 import {
   loadDomainOwners,
   loadOrganisations,
@@ -1142,7 +1143,8 @@ function newOrganisationSource(
   };
 }
 
-async function planOrganisations(db: Kysely<CoreDatabase>, input: ImportInput): Promise<Plan> {
+async function planOrganisations(reader: Reader, input: ImportInput): Promise<Plan> {
+  const { db } = reader;
   const { headers, data, mapping, suggestions } = readCsv("organisation", input.csv, input.mapping);
   const rows: PlannedRow[] = data.map((cells, i) => {
     const values = extractValues("organisation", headers, cells, mapping);
@@ -1216,7 +1218,7 @@ async function planOrganisations(db: Kysely<CoreDatabase>, input: ImportInput): 
   const updateIds = [
     ...new Set(active.filter((r) => r.action === "update").map((r) => r.matchId as string)),
   ];
-  const orgById = await loadOrganisations(db, updateIds);
+  const orgById = await loadOrganisations(reader, updateIds);
 
   const orgInserts: JsonRow[] = [];
   const orgUpdates: JsonRow[] = [];
@@ -1478,8 +1480,10 @@ const previewOutput = z.object({
   }),
 });
 
-function plan(db: Kysely<CoreDatabase>, input: ImportInput) {
-  return input.object === "person" ? planPeople(db, input) : planOrganisations(db, input);
+function plan(reader: Reader, input: ImportInput) {
+  return input.object === "person"
+    ? planPeople(reader.db, input)
+    : planOrganisations(reader, input);
 }
 
 function fieldsFor(object: ImportObject) {
@@ -1554,7 +1558,7 @@ export const importCsvPreview = defineOperation({
   redact: ["csv"],
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const result = await plan(ctx.db, input);
+    const result = await plan(ctx, input);
     await flagPossibleDuplicates(ctx.db, input.object, result.rows);
     return {
       object: input.object,
@@ -1614,7 +1618,7 @@ export const importCsvCommit = defineOperation({
   redact: ["csv"],
   auditSummary: (output) => ({ counts: output.counts }),
   async handler(input, ctx) {
-    const result = await plan(ctx.db, input);
+    const result = await plan(ctx, input);
     // Plan limits (ADR 0211): every person or organisation the import would create counts.
     const { create, organisationsCreated } = result.counts;
     await assertRecordCapacity(

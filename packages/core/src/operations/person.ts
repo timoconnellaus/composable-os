@@ -2,7 +2,7 @@
 // queue writes with ctx.write, record before/after snapshots with ctx.recordChange, and return
 // the record (reading it after commit where that is simpler). See ../../README.md.
 import type { CoreDatabase } from "@composable-os/db";
-import type { Kysely } from "kysely";
+import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { checkPerson } from "../duplicates/check.ts";
@@ -38,6 +38,7 @@ import { personSubject } from "../records/erase-subject.ts";
 import { countLinks, queueClearTags, queueMoveLinks } from "../records/links.ts";
 import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
+import { type Reader, visibleTable } from "../visibility/index.ts";
 import {
   type Affiliation,
   affiliationSchema,
@@ -163,11 +164,12 @@ const PERSON_LIST_FIELDS = Object.keys(personListItemSchema.shape);
 
 /** Loads a person with emails, phones, tags and primary affiliation. Null when absent. */
 export async function loadPerson(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   id: string,
   { includeDeleted = false } = {},
 ): Promise<Person | null> {
-  let query = db.selectFrom("core_person").selectAll().where("id", "=", id);
+  const { db } = reader;
+  let query = db.selectFrom(visibleTable(reader, "person")).selectAll().where("id", "=", id);
   if (!includeDeleted) query = query.where("deleted_at", "is", null);
   const row = await query.executeTakeFirst();
   if (!row) return null;
@@ -228,11 +230,11 @@ export async function loadPerson(
 }
 
 async function requirePerson(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   id: string,
   options?: { includeDeleted?: boolean },
 ): Promise<Person> {
-  const person = await loadPerson(db, id, options);
+  const person = await loadPerson(reader, id, options);
   if (!person) throw new NotFoundError("person", id);
   return person;
 }
@@ -528,7 +530,7 @@ export const personGet = defineOperation({
   risk: "read",
   mcp: { curated: true, idempotent: true },
   async handler(input, ctx) {
-    return requirePerson(ctx.db, input.id, { includeDeleted: input.includeDeleted });
+    return requirePerson(ctx, input.id, { includeDeleted: input.includeDeleted });
   },
 });
 
@@ -545,7 +547,7 @@ export const personUpdate = defineOperation({
   risk: "write",
   mcp: { curated: true },
   async handler(input, ctx) {
-    const before = await requirePerson(ctx.db, input.id);
+    const before = await requirePerson(ctx, input.id);
     const after: Person = { ...before, updatedAt: ctx.now };
     const set: Record<string, unknown> = {};
 
@@ -606,7 +608,7 @@ export const personUpdate = defineOperation({
       before: personSnapshot(before),
       after: personSnapshot(after),
     });
-    return ctx.afterCommit(() => requirePerson(ctx.db, input.id));
+    return ctx.afterCommit(() => requirePerson(ctx, input.id));
   },
 });
 
@@ -624,8 +626,8 @@ export const personList = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const page = await runListQuery(
-      ctx.db.selectFrom("rec_person").selectAll(),
+    const page = await runListQuery<Selectable<CoreDatabase["rec_person"]>>(
+      ctx,
       getObject("person") ?? personObject,
       input,
     );
@@ -667,7 +669,7 @@ export const personDelete = defineOperation({
   permission: "records:write",
   risk: "destructive",
   async handler(input, ctx) {
-    await requirePerson(ctx.db, input.id);
+    await requirePerson(ctx, input.id);
     ctx.write(
       ctx.db
         .updateTable("core_person")
@@ -696,7 +698,7 @@ export const personRestore = defineOperation({
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
-    const person = await requirePerson(ctx.db, input.id, { includeDeleted: true });
+    const person = await requirePerson(ctx, input.id, { includeDeleted: true });
     if (!person.deletedAt) throw new ValidationError("This person is not in Trash");
     await assertRecordCapacity(ctx.db, 1);
     await assertEmailsFree(
@@ -721,7 +723,7 @@ export const personRestore = defineOperation({
           : {}),
       },
     });
-    return ctx.afterCommit(() => requirePerson(ctx.db, input.id));
+    return ctx.afterCommit(() => requirePerson(ctx, input.id));
   },
 });
 
@@ -756,7 +758,7 @@ export const personChangeJob = defineOperation({
   risk: "write",
   mcp: { curated: true },
   async handler(input, ctx) {
-    const person = await requirePerson(ctx.db, input.personId);
+    const person = await requirePerson(ctx, input.personId);
     const organisation = await requireLiveOrganisation(ctx.db, input.organisationId);
     const previous = await loadPrimaryAffiliation(ctx.db, person.id);
     const startedOn = input.startedOn ?? today(ctx);
@@ -825,7 +827,7 @@ export const personChangeJob = defineOperation({
     });
 
     return ctx.afterCommit(async () => ({
-      person: await requirePerson(ctx.db, person.id),
+      person: await requirePerson(ctx, person.id),
       ended: previous ? await requireAffiliation(ctx.db, previous.id) : null,
       started: await requireAffiliation(ctx.db, startedId),
       activityId,
@@ -1025,8 +1027,8 @@ export const personMerge = defineOperation({
     if (input.survivorId === input.mergedId) {
       throw new ValidationError("Cannot merge a person into themselves");
     }
-    const survivor = await requirePerson(ctx.db, input.survivorId);
-    const merged = await requirePerson(ctx.db, input.mergedId);
+    const survivor = await requirePerson(ctx, input.survivorId);
+    const merged = await requirePerson(ctx, input.mergedId);
 
     const after: Person = { ...survivor, updatedAt: ctx.now };
     for (const field of PERSON_MERGE_FIELDS) {
@@ -1157,7 +1159,7 @@ export const personMerge = defineOperation({
       activities: links.activities,
       tasks: links.tasks,
     };
-    return ctx.afterCommit(async () => ({ ...(await requirePerson(ctx.db, survivor.id)), moved }));
+    return ctx.afterCommit(async () => ({ ...(await requirePerson(ctx, survivor.id)), moved }));
   },
 });
 
@@ -1193,7 +1195,7 @@ export const personErase = defineOperation({
   risk: "destructive",
   mcp: { expose: false },
   async handler(input, ctx) {
-    await requirePerson(ctx.db, input.id, { includeDeleted: true });
+    await requirePerson(ctx, input.id, { includeDeleted: true });
     const ids = await withMergedRecords(ctx, "person", input.id);
     const subject = await personSubject(ctx.db, ids);
     const counts = await queueErase(ctx, {

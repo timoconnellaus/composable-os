@@ -26,6 +26,7 @@ import {
   type Origin,
   PERMISSIONS,
   type Permission,
+  type Principal,
   RISK_CLASSES,
   type RiskClass,
 } from "./principals.ts";
@@ -105,6 +106,8 @@ export interface HandlerContext {
   readonly operation: string;
   readonly actor: Actor;
   readonly user: ActingUser;
+  /** Who the call is for, as the visibility seam sees them (`visibleSource(ctx, …)`). */
+  readonly principal: Principal;
   readonly origin: Origin;
   /** The invocation's timestamp (ISO-8601 UTC). Use it for created_at/updated_at. */
   readonly now: string;

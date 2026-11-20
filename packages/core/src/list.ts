@@ -1,10 +1,11 @@
 // Shared plumbing for `<object>.list` operations: input schema (filter, sort, cursor, limit,
 // fields), keyset cursor pagination and field selection.
-import { type RawBuilder, type SelectQueryBuilder, type SqlBool, sql } from "kysely";
+import { type Kysely, type RawBuilder, type SelectQueryBuilder, type SqlBool, sql } from "kysely";
 import { z } from "zod";
 import { ValidationError } from "./errors.ts";
 import type { FieldDefinition, ObjectDefinition } from "./fields/types.ts";
 import { compileFilter, filterSchema } from "./filter.ts";
+import { type Reader, visibleSource } from "./visibility/index.ts";
 
 export const sortSchema = z.object({
   field: z.string().min(1).max(64),
@@ -174,11 +175,28 @@ async function pageByIds<DB, TB extends keyof DB, Row extends { id: string }>(
 }
 
 /**
- * Applies filter, cursor, sort and limit to `query` (a select over `object.source`, aliased
- * `alias`), runs it and returns one page. The query must select the `id` column and the sort
- * field's column under their own names (e.g. `selectAll()` on the rec_* view).
+ * One page of the records of `object` the caller may see: filter, cursor, sort and limit over
+ * the object's source from the visibility seam (`visibleSource`). Every `<object>.list` reads
+ * through here. `Row` is the view's row type (`Selectable<CoreDatabase["rec_person"]>`, …).
  */
-export async function runListQuery<DB, TB extends keyof DB, Row extends { id: string }>(
+export async function runListQuery<Row extends { id: string }>(
+  ctx: Reader,
+  object: ObjectDefinition,
+  input: Pick<ListInput, "filter" | "sort" | "cursor" | "limit">,
+): Promise<ListPage<Row>> {
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema; callers name the row type.
+  const query = (ctx.db as Kysely<any>)
+    .selectFrom(visibleSource(ctx, object))
+    .selectAll() as unknown as SelectQueryBuilder<Record<string, Row>, string, Row>;
+  return pageQuery(query, object, input, object.source);
+}
+
+/**
+ * Applies filter, cursor, sort and limit to `query` (a select aliased `alias`), runs it and
+ * returns one page. The query must select the `id` column and the sort field's column under their
+ * own names. For lists of things that are not records (users); records go through `runListQuery`.
+ */
+export async function pageQuery<DB, TB extends keyof DB, Row extends { id: string }>(
   query: SelectQueryBuilder<DB, TB, Row>,
   object: ObjectDefinition,
   input: Pick<ListInput, "filter" | "sort" | "cursor" | "limit">,

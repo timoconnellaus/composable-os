@@ -22,6 +22,7 @@ import {
   snippetSegments,
 } from "../operations/search.ts";
 import { jsonList } from "../records/common.ts";
+import type { Reader } from "../visibility/index.ts";
 import type { ModelRunner } from "./client.ts";
 import { embeddingTexts, isEmbeddable } from "./embedding.ts";
 import { type VectorStore, vectorId } from "./vectors.ts";
@@ -39,8 +40,8 @@ export interface HybridHit extends SearchHit {
   text?: string;
 }
 
-export interface HybridDeps {
-  db: Kysely<CoreDatabase>;
+/** A reader (the caller, for the visibility seam) with the optional AI bindings. */
+export interface HybridDeps extends Reader {
   models?: ModelRunner | undefined;
   vectors?: VectorStore | undefined;
 }
@@ -161,11 +162,11 @@ export async function hybridSearch(
       console.error("semantic search failed", error);
     }
   }
-  return { hits: await fuse(deps.db, lists, terms, options), semantic };
+  return { hits: await fuse(deps, lists, terms, options), semantic };
 }
 
 async function fuse(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   lists: { weight: number; source: MatchSource; items: Ranked[] }[],
   terms: string[],
   options: Pick<HybridOptions, "limit" | "withText">,
@@ -197,7 +198,8 @@ async function fuse(
   const top = ranked.slice(0, options.limit * 2);
   const ids = new Map<string, string[]>();
   for (const r of top) ids.set(r.object, [...(ids.get(r.object) ?? []), r.id]);
-  const displays = await loadDisplays(db, ids);
+  const { db } = reader;
+  const displays = await loadDisplays(reader, ids);
   const texts = new Map<string, string>();
   if (options.withText) {
     for (const [object, list] of ids) {
@@ -258,7 +260,7 @@ export async function similarRecords(
     ...(objects ? { objects } : {}),
   });
   const items = matches.filter((m) => !(m.object === options.object && m.id === options.id));
-  const hits = await fuse(deps.db, [{ weight: 1, source: "meaning", items }], [], {
+  const hits = await fuse(deps, [{ weight: 1, source: "meaning", items }], [], {
     limit: options.limit,
   });
   return { status: "ok", hits };
