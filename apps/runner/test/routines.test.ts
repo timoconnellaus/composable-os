@@ -1,6 +1,6 @@
 // Routines on the engine (ADR 0343), through real D1, the dispatcher and Workflows: a schedule's
 // run, plain and Jev gates before anything is sent, a record trigger's conditions as its owner,
-// the kill switch, snooze, a deactivated owner, and the message queued for ros-app.
+// the kill switch, snooze, a deactivated owner, and the message queued for cos-app.
 import { env } from "cloudflare:workers";
 import {
   type ActingUser,
@@ -10,7 +10,7 @@ import {
   type RoutineDefinitionInput,
   type RoutineDeliveryMessage,
   routineDefinitionSchema,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { dispatchAutomationMessages } from "../src/automations/dispatch.ts";
 import {
@@ -214,7 +214,7 @@ describe("the checks step", () => {
 });
 
 describe("delivery", () => {
-  it("queues ids for ros-app: nothing about a person is in the message", async () => {
+  it("queues ids for cos-app: nothing about a person is in the message", async () => {
     const made = await create(everyDay(30));
     const { sent, env: spy } = queued();
     await queueRoutineDelivery(spy, {

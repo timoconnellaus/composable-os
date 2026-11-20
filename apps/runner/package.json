@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/runner",
+  "name": "@composable-os/runner",
   "version": "0.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
@@ -17,9 +17,9 @@
   },
   "dependencies": {
     "@cloudflare/computer": "0.9.0",
-    "@relationship-os/core": "workspace:*",
-    "@relationship-os/db": "workspace:*",
-    "@relationship-os/sdk": "workspace:*",
+    "@composable-os/core": "workspace:*",
+    "@composable-os/db": "workspace:*",
+    "@composable-os/sdk": "workspace:*",
     "@platformatic/vfs": "0.5.0",
     "kysely": "0.29.8",
     "sucrase": "3.35.0",
@@ -27,8 +27,8 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.5.1",
-    "@relationship-os/agent-a2ui": "workspace:*",
-    "@relationship-os/config": "workspace:*",
+    "@composable-os/agent-a2ui": "workspace:*",
+    "@composable-os/config": "workspace:*",
     "esbuild": "0.28.2",
     "vitest": "5.1.0",
     "wrangler": "4.157.0"

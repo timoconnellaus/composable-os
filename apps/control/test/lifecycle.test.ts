@@ -145,9 +145,9 @@ describe("support grants", () => {
       .run();
     const { provisionInstance } = await import("../src/instances.ts");
     await provisionInstance(s, instance?.id as string);
-    const app = s.fake.cloudflare.userWorker("ros-customers", `${instance?.id}-ros-app`);
+    const app = s.fake.cloudflare.userWorker("crm-customers", `${instance?.id}-demo-app`);
     const bindings = app?.metadata.bindings as { name: string; text?: string }[];
-    expect(bindings.find((b) => b.name === "ROS_SUPPORT_PUBLIC_KEY")?.text).toBe(keys.publicKey);
+    expect(bindings.find((b) => b.name === "COS_SUPPORT_PUBLIC_KEY")?.text).toBe(keys.publicKey);
   });
 });
 
@@ -188,11 +188,11 @@ describe("export and delete", () => {
       .run();
     await dailySweep(s);
     expect((await instanceFor("leaving"))?.status).toBe("deleted");
-    const ns = s.fake.cloudflare.namespaces.get("ros-customers");
+    const ns = s.fake.cloudflare.namespaces.get("crm-customers");
     expect([...(ns?.keys() ?? [])].some((n) => n.startsWith(tenant))).toBe(false);
-    expect([...s.fake.cloudflare.d1.values()].some((d) => d.name === `ros-${tenant}`)).toBe(false);
+    expect([...s.fake.cloudflare.d1.values()].some((d) => d.name === `demo-${tenant}`)).toBe(false);
     expect([...s.fake.cloudflare.r2].some((b) => b.endsWith(tenant))).toBe(false);
-    expect(s.fake.cloudflare.gateways.has(`${tenant}-ros`)).toBe(false);
+    expect(s.fake.cloudflare.gateways.has(`${tenant}-demo`)).toBe(false);
     expect(await readRoute(env.ROUTES, "leaving.relationshiposcrm.com")).toBeNull();
     const owner = await env.DB.prepare(
       "SELECT COUNT(*) AS n FROM cp_users WHERE email = 'o@leaving.test'",
@@ -253,7 +253,7 @@ describe("idle Free deployments cost nothing", () => {
       new Date("2026-11-05T03:17:00Z"),
     );
     expect(s.fake.scheduled.some((c) => c.script.startsWith(idle?.id as string))).toBe(false);
-    expect(s.fake.scheduled).toContainEqual({ script: `${busy?.id}-ros-app`, cron: "17 3 * * *" });
+    expect(s.fake.scheduled).toContainEqual({ script: `${busy?.id}-demo-app`, cron: "17 3 * * *" });
 
     // A visit to a paused workspace is served, and wakes it (once).
     resetDispatchCaches();

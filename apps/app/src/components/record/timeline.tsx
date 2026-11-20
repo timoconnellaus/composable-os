@@ -1,28 +1,28 @@
 // Timeline of activities (newest first), its type filter, and the composer that logs a note,
 // call, meeting or email with that type's payload. Used by record pages (one record's timeline)
 // and the Activity page (the feed across records, with links shown).
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { Card, CardContent } from "@relationship-os/ui/components/card";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { Card, CardContent } from "@composable-os/ui/components/card";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@relationship-os/ui/components/dropdown-menu";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/dropdown-menu";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { Textarea } from "@relationship-os/ui/components/textarea";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/select";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { Textarea } from "@composable-os/ui/components/textarea";
+import { cn } from "@composable-os/ui/lib/utils";
 import { Link, useRouteContext } from "@tanstack/react-router";
 import {
   BriefcaseIcon,

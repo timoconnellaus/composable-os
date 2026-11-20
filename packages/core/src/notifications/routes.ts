@@ -7,7 +7,7 @@
 // Disclosure (ADR 0052): activities (synced email and meetings) are never routed, bulk events
 // (imports) are not either, and the message carries only the route's label, the object's label,
 // the record's title and a link.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { valueMatches } from "../automations/sources.ts";
 import type { RecordEventMessage } from "../automations/types.ts";

@@ -1,9 +1,9 @@
 // Saved views picker for a list: apply a view (table, board, calendar or gallery), save the
 // current state as a personal or shared view, update or delete the active one (when you may), or
 // reset to the default. Persistence is the SavedViewsAdapter (view.*).
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@relationship-os/ui/components/dialog";
+} from "@composable-os/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,9 +19,9 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@relationship-os/ui/components/dropdown-menu";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/dropdown-menu";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarIcon,

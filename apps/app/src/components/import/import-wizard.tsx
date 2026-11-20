@@ -5,13 +5,13 @@
 //   3. Review: per-row create / update / skip with overrides, and how duplicates were found
 //   4. Import: one commit (all rows in one transaction), then a summary
 
-import type { CoreOutput } from "@relationship-os/core";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@relationship-os/ui/components/card";
-import { Label } from "@relationship-os/ui/components/label";
-import { Textarea } from "@relationship-os/ui/components/textarea";
-import { cn } from "@relationship-os/ui/lib/utils";
+import type { CoreOutput } from "@composable-os/core";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@composable-os/ui/components/card";
+import { Label } from "@composable-os/ui/components/label";
+import { Textarea } from "@composable-os/ui/components/textarea";
+import { cn } from "@composable-os/ui/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {

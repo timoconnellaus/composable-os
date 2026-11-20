@@ -11,7 +11,7 @@
 // check still moves with each day of a schedule. Typed checks cost a call each, so they run only on
 // the newest few events, and the card says the count is from before them. Deterministic flags say
 // when there is no data, or when the trigger is very broad.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { addDaysToDate, cronFires, zonedTime } from "../automations/cron.ts";
 import { idsMatchingConditions, loadTriggerRecord, recordsOnDate } from "../automations/records.ts";

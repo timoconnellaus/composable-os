@@ -1,6 +1,6 @@
 // Default cell rendering by field type, used by DataTable when no custom renderer is given.
-import type { FieldDefinition } from "@relationship-os/core/client";
-import { Badge } from "@relationship-os/ui/components/badge";
+import type { FieldDefinition } from "@composable-os/core/client";
+import { Badge } from "@composable-os/ui/components/badge";
 import { formatDate, formatDateTime, formatValue } from "#/lib/format";
 
 export function DefaultCell({ field, value }: { field: FieldDefinition; value: unknown }) {

@@ -4,7 +4,7 @@ import {skipRpcValidation, validateRpc} from "capnweb-validate";
 import type {
   ActionDescription, ActionKind, ApprovalQueue, Cursor, Gatekeeper, GatekeeperUserVerifier,
   GitCache, ResourceDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 import {
   base64UrlDecodedByteLength, decodeBase64UrlToBytes, enumerateGmailAttachments,
   emailRecipientToAddress, getGoogleAccountDescription, getGoogleAccountSubject, GmailApi,
@@ -57,7 +57,7 @@ import {
 } from "./gmail-overlay";
 import {
   ActionDescriptionBuilder, buildDescription, plainInline, RenderedDescription, sanitizeTitle,
-} from "@relationship-os/gatekeeper-kit/action-description";
+} from "@composable-os/gatekeeper-kit/action-description";
 import {AccessTokenCache, AccessTokenRequest} from "./auth-retry";
 import {CursorPager} from "./cursor";
 import {ApprovalQueueRpcTarget, RpcCursor, SharedApprovalQueue} from "./shared-approval-queue";

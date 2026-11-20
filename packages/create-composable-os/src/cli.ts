@@ -1,4 +1,4 @@
-// Entry point for `npx create-relationship-os` and `ros`.
+// Entry point for `npx create-composable-os` and `cos`.
 import { ghAvailable, ghVerifier } from "./gh.ts";
 import { Redactor, terminalIo } from "./io.ts";
 import { runCli } from "./main.ts";

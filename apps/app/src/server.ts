@@ -1,10 +1,10 @@
-// ros-app's Worker entry. /support/enter and /support/exit (hosted support access,
+// cos-app's Worker entry. /support/enter and /support/exit (hosted support access,
 // src/server/support.ts) come first; OAuth 2.1 and /mcp (src/server/mcp/handler.ts) wrap TanStack
 // Start, which handles every other request; the cron trigger in wrangler.jsonc runs the scheduled
 // Trash purge and expires pending approvals; a 10-minute one catches up embeddings and the policy
 // adjudicator.
 
-import type { RoutineDeliveryMessage } from "@relationship-os/core";
+import type { RoutineDeliveryMessage } from "@composable-os/core";
 import handler from "@tanstack/react-start/server-entry";
 import { runAdjudicatorCron } from "./server/adjudicator.ts";
 import { runEmbeddingCron } from "./server/ai.ts";
@@ -38,7 +38,7 @@ async function assistantSocket(request: Request, env: Env): Promise<Response> {
 
 export default {
   fetch(request, env, ctx) {
-    // Hosted support access (ADR 0212): a 404 unless ROS_SUPPORT_PUBLIC_KEY is set.
+    // Hosted support access (ADR 0212): a 404 unless COS_SUPPORT_PUBLIC_KEY is set.
     const pathname = new URL(request.url).pathname;
     if (isSupportRoute(pathname)) return handleSupportRoute(request, env);
     // The assistant thread's WebSocket (ADR 0340) goes straight to the person's object: TanStack
@@ -46,7 +46,7 @@ export default {
     if (pathname === SOCKET_PATH) return assistantSocket(request, env);
     return app.fetch(request, env, ctx);
   },
-  // A routine's message from ros-runner (ADR 0343), into its owner's thread.
+  // A routine's message from cos-runner (ADR 0343), into its owner's thread.
   async queue(batch, env) {
     await handleRoutineDeliveries(
       batch as MessageBatch<RoutineDeliveryMessage>,

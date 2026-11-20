@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// ros-control in fake mode (wrangler.e2e.jsonc) on its own port, with a fresh local state each run.
+// crm-control in fake mode (wrangler.e2e.jsonc) on its own port, with a fresh local state each run.
 const PORT = Number(process.env.E2E_PORT ?? 8791);
 
 export default defineConfig({

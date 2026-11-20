@@ -1,16 +1,16 @@
 // Settings → Plan (admins, ADR 0211): the hosted plan's limits and current usage, read-only.
 // Plans change only through billing on the hosted service; a self-hosted install has no limits.
 
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/card";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute } from "@tanstack/react-router";
 import { ExternalLinkIcon, LockIcon } from "lucide-react";
 import { EmptyState } from "#/components/empty-state";

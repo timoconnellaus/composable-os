@@ -8,7 +8,7 @@ import {
   extensionDashboardId,
   installShippedExtensions,
   seedRecordId,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { call, createAdmin, db, extensionRow, host, unique } from "./helpers.ts";
 
@@ -137,7 +137,7 @@ describe("install", () => {
 
   it("a relation to an object of a missing extension refuses the install", async () => {
     const source = {
-      "index.ts": `import { defineExtension } from "@relationship-os/sdk";
+      "index.ts": `import { defineExtension } from "@composable-os/sdk";
 export default defineExtension({
   id: "needsmissing",
   version: "1.0.0",

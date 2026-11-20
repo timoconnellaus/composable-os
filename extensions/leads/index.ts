@@ -4,7 +4,7 @@
 // Leads inbox, qualify or disqualify them, and convert the good ones into deals: `convert`
 // creates a deal on the same organisation and person and links the two, copying no data. Owners
 // of new leads come from the host's assignment rules (`owner: "owner"`).
-import { defineExtension } from "@relationship-os/sdk";
+import { defineExtension } from "@composable-os/sdk";
 import { leadAutomations } from "./automations.ts";
 import { leadsDashboard } from "./dashboards.ts";
 import { convert, disqualify, UNQUALIFIED_REASONS } from "./tools.ts";

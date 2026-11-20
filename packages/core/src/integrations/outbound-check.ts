@@ -3,7 +3,7 @@
 // from. Code decides everything exact here: whether the text came from an AI actor, which fields
 // of the gatekeeper's description are the message (recipients, subject, body), which CRM people
 // the addresses belong to, and which records' facts go with it. Jev only judges meaning.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { recordSummaryInput } from "../ai/summaries.ts";
 import { findIds } from "../ids.ts";

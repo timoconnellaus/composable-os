@@ -3,14 +3,14 @@
 // extension, a failing migration rolled back, rollback and status. Output never contains a secret.
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { modelRolesVar } from "@relationship-os/core/ai-roles";
+import { modelRolesVar } from "@composable-os/core/ai-roles";
 import {
   buildFixtureRelease,
+  FIXTURE_PRODUCT_DEFINITION as DEMO,
   FakeCloudflare,
   FakeGitHub,
-  FIXTURE_PRODUCT,
-} from "@relationship-os/release/testing";
-import { nodeSqliteEngine } from "@relationship-os/release/testing/node";
+} from "@composable-os/release/testing";
+import { nodeSqliteEngine } from "@composable-os/release/testing/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Redactor } from "../src/io.ts";
 import { type Env, runCli } from "../src/main.ts";
@@ -51,7 +51,7 @@ async function startWorld(): Promise<World> {
         }),
       );
     } else if (req.url === "/api/health") {
-      const version = cf.liveBinding("ros-app", "ROS_RELEASE_VERSION")?.text;
+      const version = cf.liveBinding("demo-app", "COS_RELEASE_VERSION")?.text;
       response = Response.json({ status: "ok", version, migrations: { upToDate: true } });
     } else {
       response = await github.fetch(url);
@@ -61,15 +61,15 @@ async function startWorld(): Promise<World> {
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  github = new FakeGitHub("timoconnellaus/relationship-os", origin);
+  github = new FakeGitHub("example/demo", origin);
   return {
     cf,
     github,
     server,
     env: {
-      ROS_CLOUDFLARE_API: `${origin}/client/v4`,
-      ROS_GITHUB_API: origin,
-      ROS_HEALTH_ORIGIN: origin,
+      COS_CLOUDFLARE_API: `${origin}/client/v4`,
+      COS_GITHUB_API: origin,
+      COS_HEALTH_ORIGIN: origin,
       CLOUDFLARE_API_TOKEN: TOKEN,
     },
   };
@@ -88,6 +88,7 @@ async function cli(...argv: string[]) {
       },
     },
     redactor,
+    products: { all: { [DEMO.id]: DEMO }, default: DEMO.id },
     env: world.env,
     ghVerifier: null,
     smokeDelayMs: 0,
@@ -96,7 +97,7 @@ async function cli(...argv: string[]) {
 }
 
 async function sql(query: string) {
-  const db = [...world.cf.d1.values()].find((d) => d.name === "ros");
+  const db = [...world.cf.d1.values()].find((d) => d.name === "demo");
   if (!db) throw new Error("no database");
   return db.engine.query(query, []);
 }
@@ -108,30 +109,33 @@ afterEach(() => {
   world.server.close();
 });
 
-describe("create-relationship-os install", () => {
+describe("create-composable-os install", () => {
   it("installs a verified release and prints the URL", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
     const { code, output } = await cli("--yes", "--update-token", "update-token-abcdef123");
     expect(code, output).toBe(0);
-    expect(output).toContain("https://ros-app.acme.workers.dev");
-    expect([...world.cf.scripts.keys()].sort()).toEqual(["ros-app", "ros-runner"]);
+    expect(output).toContain("https://demo-app.acme.workers.dev");
+    expect([...world.cf.scripts.keys()].sort()).toEqual(["demo-app", "demo-runner"]);
     // Stage 5 and 7a resources the release declares: queues (with the DLQ wired to the
     // consumer), the Workflow, and the Vectorize index with its metadata index.
     expect([...world.cf.queues.values()].map((q) => q.name).sort()).toEqual([
-      "ros-automation-events",
-      "ros-automation-events-dlq",
+      "demo-automation-events",
+      "demo-automation-events-dlq",
     ]);
     expect(
-      [...world.cf.queues.values()].find((q) => q.name === "ros-automation-events")?.consumers[0],
-    ).toMatchObject({ script_name: "ros-runner", dead_letter_queue: "ros-automation-events-dlq" });
-    expect(world.cf.workflows.has("ros-automation")).toBe(true);
-    expect(world.cf.vectorizeMetadata.get("ros-records")).toEqual([
+      [...world.cf.queues.values()].find((q) => q.name === "demo-automation-events")?.consumers[0],
+    ).toMatchObject({
+      script_name: "demo-runner",
+      dead_letter_queue: "demo-automation-events-dlq",
+    });
+    expect(world.cf.workflows.has("demo-automation")).toBe(true);
+    expect(world.cf.vectorizeMetadata.get("demo-records")).toEqual([
       { propertyName: "object", indexType: "string" },
     ]);
-    const app = world.cf.scripts.get("ros-app");
-    expect(app?.secrets.get("BETTER_AUTH_URL")).toBe("https://ros-app.acme.workers.dev");
-    expect(app?.secrets.get("ROS_UPDATE_TOKEN")).toBe("update-token-abcdef123");
-    expect(world.cf.liveBinding("ros-app", "ROS_ACCOUNT_ID")?.text).toBe(ACCOUNT);
+    const app = world.cf.scripts.get("demo-app");
+    expect(app?.secrets.get("BETTER_AUTH_URL")).toBe("https://demo-app.acme.workers.dev");
+    expect(app?.secrets.get("COS_UPDATE_TOKEN")).toBe("update-token-abcdef123");
+    expect(world.cf.liveBinding("demo-app", "COS_ACCOUNT_ID")?.text).toBe(ACCOUNT);
     const state = JSON.parse(String((await sql("SELECT value FROM core_install"))[0]?.value));
     expect(state).toMatchObject({
       version: "1.0.0",
@@ -150,24 +154,24 @@ describe("create-relationship-os install", () => {
     expect(unknown.code).toBe(1);
     expect(unknown.output).toContain("Unknown product nope");
     expect(world.cf.scripts.size).toBe(0);
-    const named = await cli("--yes", "--product", FIXTURE_PRODUCT);
+    const named = await cli("--yes", "--product", DEMO.id);
     expect(named.code, named.output).toBe(0);
   });
 
   it("--ai off installs without Workers AI and Vectorize, and re-runs keep it off", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const first = await cli("--yes", "--ai", "off", "--ai-gateway", "ros-gw");
+    const first = await cli("--yes", "--ai", "off", "--ai-gateway", "demo-gw");
     expect(first.code, first.output).toBe(0);
     expect(first.output).toContain("In-app AI is off");
     expect(world.cf.vectorize.size).toBe(0);
-    expect(world.cf.liveBinding("ros-runner", "AI")).toBeUndefined();
-    expect(world.cf.liveBinding("ros-runner", "VECTORIZE")).toBeUndefined();
+    expect(world.cf.liveBinding("demo-runner", "AI")).toBeUndefined();
+    expect(world.cf.liveBinding("demo-runner", "VECTORIZE")).toBeUndefined();
     const state = JSON.parse(String((await sql("SELECT value FROM core_install"))[0]?.value));
     expect(state.ai).toBe(false);
     // The chosen gateway is remembered, but with AI off none is created or wired.
-    expect(state.aiGateway).toBe("ros-gw");
+    expect(state.aiGateway).toBe("demo-gw");
     expect(world.cf.gateways.size).toBe(0);
-    expect(state.vars["ros-app"]?.AI_GATEWAY_ID).toBeUndefined();
+    expect(state.vars["demo-app"]?.AI_GATEWAY_ID).toBeUndefined();
 
     const again = await cli("--yes");
     expect(again.code, again.output).toBe(0);
@@ -176,24 +180,24 @@ describe("create-relationship-os install", () => {
     expect(status.output).toContain("AI: off");
 
     // Turned back on: the index is created and both bindings come back.
-    world.env = { ...world.env, ROS_AI: "on", ROS_AI_ADMIN_TOKEN: "ai-admin-token-secret-1" };
+    world.env = { ...world.env, COS_AI: "on", COS_AI_ADMIN_TOKEN: "ai-admin-token-secret-1" };
     const on = await cli("--yes");
     expect(on.code, on.output).toBe(0);
-    expect(world.cf.vectorize.has("ros-records")).toBe(true);
-    expect(world.cf.liveBinding("ros-runner", "AI")).toEqual({ type: "ai", name: "AI" });
-    expect(world.cf.scripts.get("ros-app")?.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(
+    expect(world.cf.vectorize.has("demo-records")).toBe(true);
+    expect(world.cf.liveBinding("demo-runner", "AI")).toEqual({ type: "ai", name: "AI" });
+    expect(world.cf.scripts.get("demo-app")?.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(
       "ai-admin-token-secret-1",
     );
     expect(on.output).not.toContain("ai-admin-token-secret-1");
     // ...and so is the gateway chosen at install.
-    expect(world.cf.gateways.has("ros-gw")).toBe(true);
-    expect(world.cf.liveBinding("ros-app", "AI_GATEWAY_ID")?.text).toBe("ros-gw");
+    expect(world.cf.gateways.has("demo-gw")).toBe(true);
+    expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_ID")?.text).toBe("demo-gw");
   });
 
   it("is idempotent: a re-run creates nothing new and keeps secrets", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
     expect((await cli("--yes")).code).toBe(0);
-    const secret = world.cf.scripts.get("ros-app")?.secrets.get("BETTER_AUTH_SECRET");
+    const secret = world.cf.scripts.get("demo-app")?.secrets.get("BETTER_AUTH_SECRET");
     const creates = () =>
       world.cf.calls.filter(
         (c) =>
@@ -205,7 +209,7 @@ describe("create-relationship-os install", () => {
     expect(code, output).toBe(0);
     expect(output).toContain("re-running it to repair");
     expect(creates()).toBe(before);
-    expect(world.cf.scripts.get("ros-app")?.secrets.get("BETTER_AUTH_SECRET")).toBe(secret);
+    expect(world.cf.scripts.get("demo-app")?.secrets.get("BETTER_AUTH_SECRET")).toBe(secret);
     expect(world.cf.d1.size).toBe(1);
   });
 
@@ -223,20 +227,20 @@ describe("create-relationship-os install", () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
     const missing = await cli("--yes", "--gatekeepers", "test");
     expect(missing.code).toBe(1);
-    expect(missing.output).toContain("--secret ros-gatekeeper-test:CLIENT_SECRET");
+    expect(missing.output).toContain("--secret demo-gatekeeper-test:CLIENT_SECRET");
     const { code, output } = await cli(
       "--yes",
       "--gatekeepers",
       "test",
       "--secret",
-      "ros-gatekeeper-test:CLIENT_SECRET=gk-secret-value-1",
+      "demo-gatekeeper-test:CLIENT_SECRET=gk-secret-value-1",
     );
     expect(code, output).toBe(0);
-    expect(world.cf.scripts.get("ros-gatekeeper-test")?.secrets.get("CLIENT_SECRET")).toBe(
+    expect(world.cf.scripts.get("demo-gatekeeper-test")?.secrets.get("CLIENT_SECRET")).toBe(
       "gk-secret-value-1",
     );
-    expect(world.cf.liveBinding("ros-runner", "GATEKEEPER_TEST")).toMatchObject({
-      service: "ros-gatekeeper-test",
+    expect(world.cf.liveBinding("demo-runner", "GATEKEEPER_TEST")).toMatchObject({
+      service: "demo-gatekeeper-test",
       entrypoint: "GatekeeperVendor",
     });
     expect(output).not.toContain("gk-secret-value-1");
@@ -256,7 +260,7 @@ async function makePreRestInstall() {
     delete values.AI_GATEWAY_REST;
   }
   await sql(`UPDATE core_install SET value = '${JSON.stringify(state).replace(/'/g, "''")}'`);
-  for (const worker of ["ros-app", "ros-runner"]) {
+  for (const worker of ["demo-app", "demo-runner"]) {
     const binding = world.cf.liveBinding(worker, "AI_GATEWAY_REST");
     if (binding) binding.text = "";
   }
@@ -273,13 +277,13 @@ const denyAiGateway = (_method: string, path: string) =>
       )
     : undefined;
 
-describe("create-relationship-os install: AI Gateway", () => {
+describe("create-composable-os install: AI Gateway", () => {
   it("creates the gateway, the custom provider and the gateway token, and wires them", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
     const { code, output } = await cli("--yes");
     expect(code, output).toBe(0);
-    expect(world.cf.gateways.get("ros")).toMatchObject({
-      id: "ros",
+    expect(world.cf.gateways.get("demo")).toMatchObject({
+      id: "demo",
       collect_logs: true,
       authentication: true,
     });
@@ -290,8 +294,8 @@ describe("create-relationship-os install: AI Gateway", () => {
         enable: true,
       }),
     ]);
-    for (const worker of ["ros-app", "ros-runner"]) {
-      expect(world.cf.liveBinding(worker, "AI_GATEWAY_ID")?.text).toBe("ros");
+    for (const worker of ["demo-app", "demo-runner"]) {
+      expect(world.cf.liveBinding(worker, "AI_GATEWAY_ID")?.text).toBe("demo");
       // ADR 0330: Workers AI over REST through the gateway, payload logging off.
       expect(world.cf.liveBinding(worker, "AI_GATEWAY_REST")?.text).toBe("true");
     }
@@ -303,13 +307,13 @@ describe("create-relationship-os install: AI Gateway", () => {
       { value: string; permissionGroups: string[] },
     ];
     expect(token.permissionGroups).toEqual(["pg-aig-run", "pg-wai-read"]);
-    expect(world.cf.scripts.get("ros-app")?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token.value);
-    expect(world.cf.scripts.get("ros-runner")?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token.value);
+    expect(world.cf.scripts.get("demo-app")?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token.value);
+    expect(world.cf.scripts.get("demo-runner")?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token.value);
     expect(output).not.toContain(token.value);
-    expect(output).toContain("AI Gateway ros: created");
+    expect(output).toContain("AI Gateway demo: created");
     const state = JSON.parse(String((await sql("SELECT value FROM core_install"))[0]?.value));
     expect(state).toMatchObject({
-      aiGateway: "ros",
+      aiGateway: "demo",
       aiGatewayCreated: true,
       aiGatewayTokenId: tokenId,
       aiGatewayTokenWorkersAi: true,
@@ -321,7 +325,7 @@ describe("create-relationship-os install: AI Gateway", () => {
     expect((await cli("--yes")).code).toBe(0);
     await makePreRestInstall();
     const oldId = [...world.cf.tokens.keys()][0] as string;
-    expect(world.cf.liveBinding("ros-app", "AI_GATEWAY_REST")?.text).toBe("");
+    expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_REST")?.text).toBe("");
 
     const { code, output } = await cli("--yes");
     expect(code, output).toBe(0);
@@ -334,7 +338,7 @@ describe("create-relationship-os install: AI Gateway", () => {
       { value: string; permissionGroups: string[] },
     ];
     expect(token.permissionGroups).toEqual(["pg-aig-run", "pg-wai-read"]);
-    for (const worker of ["ros-app", "ros-runner"]) {
+    for (const worker of ["demo-app", "demo-runner"]) {
       expect(world.cf.scripts.get(worker)?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token.value);
       expect(world.cf.liveBinding(worker, "AI_GATEWAY_REST")?.text).toBe("true");
     }
@@ -346,11 +350,11 @@ describe("create-relationship-os install: AI Gateway", () => {
   it("re-runs reuse everything: no second gateway, provider or token", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
     expect((await cli("--yes")).code).toBe(0);
-    const token = world.cf.scripts.get("ros-app")?.secrets.get("AI_GATEWAY_TOKEN");
+    const token = world.cf.scripts.get("demo-app")?.secrets.get("AI_GATEWAY_TOKEN");
     const before = world.cf.calls.length;
     const { code, output } = await cli("--yes");
     expect(code, output).toBe(0);
-    expect(output).toContain("AI Gateway ros: exists");
+    expect(output).toContain("AI Gateway demo: exists");
     expect(output).toContain("custom provider custom-example-llm: exists");
     expect(output).toContain("AI_GATEWAY_TOKEN: set");
     const writes = world.cf.calls
@@ -361,12 +365,12 @@ describe("create-relationship-os install: AI Gateway", () => {
     expect(writes).toEqual([]);
     expect(world.cf.tokens.size).toBe(1);
     expect(world.cf.customProviders.size).toBe(1);
-    expect(world.cf.scripts.get("ros-app")?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token);
+    expect(world.cf.scripts.get("demo-app")?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token);
   });
 
   it("reuses a gateway that already exists, turning on logging and authentication", async () => {
-    world.cf.gateways.set("ros", {
-      id: "ros",
+    world.cf.gateways.set("demo", {
+      id: "demo",
       collect_logs: false,
       authentication: false,
       cache_ttl: 60,
@@ -375,7 +379,7 @@ describe("create-relationship-os install: AI Gateway", () => {
     const { code, output } = await cli("--yes");
     expect(code, output).toBe(0);
     expect(output).toContain("turned on collect_logs and authentication");
-    expect(world.cf.gateways.get("ros")).toMatchObject({
+    expect(world.cf.gateways.get("demo")).toMatchObject({
       collect_logs: true,
       authentication: true,
       cache_ttl: 60,
@@ -389,7 +393,7 @@ describe("create-relationship-os install: AI Gateway", () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
     const { code, output } = await cli("--yes", "--provider-key", `example-llm=${KEY}`);
     expect(code, output).toBe(0);
-    expect(world.cf.providerConfigs.get("ros")).toEqual([
+    expect(world.cf.providerConfigs.get("demo")).toEqual([
       expect.objectContaining({
         provider_slug: "custom-example-llm",
         alias: "default",
@@ -397,20 +401,20 @@ describe("create-relationship-os install: AI Gateway", () => {
       }),
     ]);
     // The gateway was pointed at a Secrets Store to hold it.
-    expect(world.cf.gateways.get("ros")?.store_id).toBeTruthy();
-    expect(output).toContain("provider key custom-example-llm: stored in AI Gateway ros (BYOK)");
+    expect(world.cf.gateways.get("demo")?.store_id).toBeTruthy();
+    expect(output).toContain("provider key custom-example-llm: stored in AI Gateway demo (BYOK)");
     expect(output).not.toContain(KEY);
     // Not a Workers secret.
     for (const script of world.cf.scripts.values()) {
       expect([...script.secrets.values()]).not.toContain(KEY);
     }
     // A custom provider is not a model registry provider: AI_GATEWAY_BYOK is left alone.
-    expect(world.cf.liveBinding("ros-app", "AI_GATEWAY_BYOK")?.text).toBe("");
+    expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_BYOK")?.text).toBe("");
 
     // Re-run with a new key: replaced, not duplicated.
     const again = await cli("--yes", "--provider-key", "example-llm=second-key-abcdef0123456");
     expect(again.code, again.output).toBe(0);
-    expect(world.cf.providerConfigs.get("ros")?.map((c) => c.secret)).toEqual([
+    expect(world.cf.providerConfigs.get("demo")?.map((c) => c.secret)).toEqual([
       "second-key-abcdef0123456",
     ]);
     expect(again.output).not.toContain("second-key-abcdef0123456");
@@ -429,26 +433,26 @@ describe("create-relationship-os install: AI Gateway", () => {
     expect(code, output).toBe(0);
     expect(output).not.toContain(KEY);
     expect(output).toContain(
-      "Model roles (AI_MODEL_ROLES on ros-app and ros-runner): deepseek-flash",
+      "Model roles (AI_MODEL_ROLES on demo-app and demo-runner): deepseek-flash",
     );
     // DeepSeek is built in to AI Gateway: its key is stored under the `deepseek` slug.
-    expect(world.cf.providerConfigs.get("ros")).toEqual([
+    expect(world.cf.providerConfigs.get("demo")).toEqual([
       expect.objectContaining({ provider_slug: "deepseek", secret: KEY }),
     ]);
     const preset = modelRolesVar("deepseek-flash");
-    for (const worker of ["ros-app", "ros-runner"]) {
+    for (const worker of ["demo-app", "demo-runner"]) {
       expect(world.cf.liveBinding(worker, "AI_MODEL_ROLES")?.text).toBe(preset);
       expect(world.cf.liveBinding(worker, "AI_GATEWAY_BYOK")?.text).toBe("deepseek");
     }
     const state = JSON.parse(String((await sql("SELECT value FROM core_install"))[0]?.value));
-    expect(state.vars["ros-runner"]).toMatchObject({ AI_MODEL_ROLES: preset });
+    expect(state.vars["demo-runner"]).toMatchObject({ AI_MODEL_ROLES: preset });
 
     // A plain re-run and an upgrade keep the choice.
     expect((await cli("--yes")).code).toBe(0);
     await world.github.publish(await buildFixtureRelease({ version: "1.1.0" }));
     const upgraded = await cli("upgrade", "--yes");
     expect(upgraded.code, upgraded.output).toBe(0);
-    for (const worker of ["ros-app", "ros-runner"]) {
+    for (const worker of ["demo-app", "demo-runner"]) {
       expect(world.cf.liveBinding(worker, "AI_MODEL_ROLES")?.text).toBe(preset);
       expect(world.cf.liveBinding(worker, "AI_GATEWAY_BYOK")?.text).toBe("deepseek");
     }
@@ -456,7 +460,7 @@ describe("create-relationship-os install: AI Gateway", () => {
     // `default` goes back to the shipped (Workers AI) roles.
     const reset = await cli("--yes", "--model-roles", "default", "--version", "1.1.0");
     expect(reset.code, reset.output).toBe(0);
-    expect(world.cf.liveBinding("ros-app", "AI_MODEL_ROLES")?.text).toBe("");
+    expect(world.cf.liveBinding("demo-app", "AI_MODEL_ROLES")?.text).toBe("");
   });
 
   it("--model-roles refuses an unknown preset or a model the role cannot use", async () => {
@@ -480,7 +484,7 @@ describe("create-relationship-os install: AI Gateway", () => {
     const { code, output } = await cli("--yes");
     expect(code, output).toBe(0);
     expect(output).toContain("needs AI Gateway Edit");
-    expect(world.cf.liveBinding("ros-app", "AI_GATEWAY_ID")?.text).toBe("");
+    expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_ID")?.text).toBe("");
     expect(world.cf.tokens.size).toBe(0);
   });
 
@@ -489,14 +493,14 @@ describe("create-relationship-os install: AI Gateway", () => {
     const off = await cli("--yes", "--ai-gateway", "off");
     expect(off.code, off.output).toBe(0);
     expect(world.cf.gateways.size).toBe(0);
-    expect(world.cf.liveBinding("ros-app", "AI_GATEWAY_ID")?.text).toBe("");
+    expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_ID")?.text).toBe("");
     // Workers AI stays on the binding, unchanged (ADR 0330).
-    expect(world.cf.liveBinding("ros-app", "AI_GATEWAY_REST")?.text).toBe("");
+    expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_REST")?.text).toBe("");
 
-    const on = await cli("--yes", "--ai-gateway", "ros");
+    const on = await cli("--yes", "--ai-gateway", "demo");
     expect(on.code, on.output).toBe(0);
-    expect(world.cf.gateways.has("ros")).toBe(true);
-    expect(world.cf.liveBinding("ros-runner", "AI_GATEWAY_REST")?.text).toBe("true");
+    expect(world.cf.gateways.has("demo")).toBe(true);
+    expect(world.cf.liveBinding("demo-runner", "AI_GATEWAY_REST")?.text).toBe("true");
     const gone = await cli("uninstall", "--yes");
     expect(gone.code, gone.output).toBe(0);
     expect(world.cf.gateways.size).toBe(0);
@@ -504,21 +508,21 @@ describe("create-relationship-os install: AI Gateway", () => {
   });
 });
 
-describe("create-relationship-os install: --ai-gateway off after on", () => {
+describe("create-composable-os install: --ai-gateway off after on", () => {
   it("puts Workers AI back on the binding", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
     expect((await cli("--yes")).code).toBe(0);
-    expect(world.cf.liveBinding("ros-app", "AI_GATEWAY_REST")?.text).toBe("true");
+    expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_REST")?.text).toBe("true");
     const off = await cli("--yes", "--ai-gateway", "off");
     expect(off.code, off.output).toBe(0);
-    for (const worker of ["ros-app", "ros-runner"]) {
+    for (const worker of ["demo-app", "demo-runner"]) {
       expect(world.cf.liveBinding(worker, "AI_GATEWAY_ID")?.text).toBe("");
       expect(world.cf.liveBinding(worker, "AI_GATEWAY_REST")?.text).toBe("");
     }
   });
 });
 
-describe("ros upgrade, rollback and status", () => {
+describe("cos upgrade, rollback and status", () => {
   async function installed() {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
     expect((await cli("--yes")).code).toBe(0);
@@ -536,13 +540,13 @@ describe("ros upgrade, rollback and status", () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.2.0-beta.1" }));
     const { code, output } = await cli("upgrade", "--yes");
     expect(code, output).toBe(0);
-    expect(output).toContain("Updated to Relationship OS 1.1.0");
+    expect(output).toContain("Updated to Demo 1.1.0");
     // Automations were paused with the kill switch and resumed after the smoke check.
     expect(output).toContain("pause…");
     expect(
       await sql("SELECT value FROM core_settings WHERE key = 'automations_kill_switch'"),
     ).toEqual([{ value: "false" }]);
-    expect(world.cf.liveBinding("ros-app", "ROS_RELEASE_VERSION")?.text).toBe("1.1.0");
+    expect(world.cf.liveBinding("demo-app", "COS_RELEASE_VERSION")?.text).toBe("1.1.0");
     const runs = await sql(
       "SELECT kind, status, from_version, to_version, bookmark FROM core_update_runs",
     );
@@ -565,14 +569,14 @@ describe("ros upgrade, rollback and status", () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.1.0" }));
     const { code, output } = await cli("upgrade", "--yes");
     expect(code, output).toBe(0);
-    expect(world.cf.gateways.get("ros")).toMatchObject({
+    expect(world.cf.gateways.get("demo")).toMatchObject({
       authentication: true,
       collect_logs: true,
     });
-    expect(world.cf.liveBinding("ros-runner", "AI_GATEWAY_ID")?.text).toBe("ros");
-    expect(world.cf.scripts.get("ros-runner")?.secrets.has("AI_GATEWAY_TOKEN")).toBe(true);
+    expect(world.cf.liveBinding("demo-runner", "AI_GATEWAY_ID")?.text).toBe("demo");
+    expect(world.cf.scripts.get("demo-runner")?.secrets.has("AI_GATEWAY_TOKEN")).toBe(true);
     const state = JSON.parse(String((await sql("SELECT value FROM core_install"))[0]?.value));
-    expect(state).toMatchObject({ version: "1.1.0", aiGateway: "ros", aiGatewayCreated: true });
+    expect(state).toMatchObject({ version: "1.1.0", aiGateway: "demo", aiGatewayCreated: true });
     for (const token of world.cf.tokens.values()) expect(output).not.toContain(token.value);
   });
 
@@ -583,7 +587,7 @@ describe("ros upgrade, rollback and status", () => {
     const { code, output } = await cli("upgrade", "--yes");
     expect(code, output).toBe(0);
     expect(output).toContain("needs AI Gateway Edit");
-    expect(world.cf.liveBinding("ros-app", "ROS_RELEASE_VERSION")?.text).toBe("1.1.0");
+    expect(world.cf.liveBinding("demo-app", "COS_RELEASE_VERSION")?.text).toBe("1.1.0");
   });
 
   it("an upgrade of an install from before ADR 0330 replaces its token and turns on REST", async () => {
@@ -597,7 +601,7 @@ describe("ros upgrade, rollback and status", () => {
     expect(world.cf.tokens.has(oldId)).toBe(false);
     const [token] = [...world.cf.tokens.values()];
     expect(token?.permissionGroups).toEqual(["pg-aig-run", "pg-wai-read"]);
-    for (const worker of ["ros-app", "ros-runner"]) {
+    for (const worker of ["demo-app", "demo-runner"]) {
       expect(world.cf.scripts.get(worker)?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token?.value);
       expect(world.cf.liveBinding(worker, "AI_GATEWAY_REST")?.text).toBe("true");
     }
@@ -622,8 +626,8 @@ describe("ros upgrade, rollback and status", () => {
     expect(code, output).toBe(0);
     expect(output).toMatch(/stays on the binding/);
     expect(world.cf.tokens.has(oldId)).toBe(true);
-    expect(world.cf.liveBinding("ros-app", "AI_GATEWAY_REST")?.text).toBe("");
-    expect(world.cf.liveBinding("ros-app", "ROS_RELEASE_VERSION")?.text).toBe("1.1.0");
+    expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_REST")?.text).toBe("");
+    expect(world.cf.liveBinding("demo-app", "COS_RELEASE_VERSION")?.text).toBe("1.1.0");
   });
 
   it("preflight blocks an update that would break a runtime extension", async () => {
@@ -637,7 +641,7 @@ describe("ros upgrade, rollback and status", () => {
     const { code, output } = await cli("upgrade", "--yes");
     expect(code).toBe(1);
     expect(output).toMatch(/blocked: Extension "scoring" is written against extension contract 1/);
-    expect(world.cf.liveBinding("ros-app", "ROS_RELEASE_VERSION")?.text).toBe("1.0.0");
+    expect(world.cf.liveBinding("demo-app", "COS_RELEASE_VERSION")?.text).toBe("1.0.0");
   });
 
   it("a failing migration rolls back with data restored", async () => {
@@ -655,7 +659,7 @@ describe("ros upgrade, rollback and status", () => {
     expect(code).toBe(1);
     expect(output).toContain("Rolled back to 1.0.0");
     expect(await sql("SELECT name FROM core_person")).toEqual([{ name: "Ada" }]);
-    expect(world.cf.liveBinding("ros-app", "ROS_RELEASE_VERSION")?.text).toBe("1.0.0");
+    expect(world.cf.liveBinding("demo-app", "COS_RELEASE_VERSION")?.text).toBe("1.0.0");
     const runs = await sql("SELECT status FROM core_update_runs");
     expect(runs).toEqual([{ status: "rolled_back" }]);
   });
@@ -672,7 +676,7 @@ describe("ros upgrade, rollback and status", () => {
     await sql("INSERT INTO core_person (id, name) VALUES ('per_2', 'After update')");
     const { code, output } = await cli("rollback", "--yes");
     expect(code, output).toBe(0);
-    expect(world.cf.liveBinding("ros-app", "ROS_RELEASE_VERSION")?.text).toBe("1.0.0");
+    expect(world.cf.liveBinding("demo-app", "COS_RELEASE_VERSION")?.text).toBe("1.0.0");
     expect(await sql("SELECT name FROM core_person")).toEqual([{ name: "Ada" }]);
     const runs = await sql("SELECT kind, status FROM core_update_runs ORDER BY started_at");
     expect(runs).toEqual([
@@ -680,7 +684,7 @@ describe("ros upgrade, rollback and status", () => {
       { kind: "rollback", status: "succeeded" },
     ]);
     const status = await cli("status");
-    expect(status.output).toContain("Relationship OS 1.0.0 (stable channel)");
+    expect(status.output).toContain("Demo 1.0.0 (stable channel)");
     expect(status.output).toContain("available: 1.1.0");
   });
 

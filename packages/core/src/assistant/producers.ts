@@ -1,7 +1,7 @@
 // The saved A2UI producers this deployment can run (ADR 0346). First-party ones are here; plugins
 // (W7) register theirs in `producers` when they install. A version's source never changes: edit a
 // script, bump its version, and it gets a new stable worker id.
-import { createProducerRegistry, type SavedProducer } from "@relationship-os/agent-a2ui";
+import { createProducerRegistry, type SavedProducer } from "@composable-os/agent-a2ui";
 import { z } from "zod";
 
 const OVERDUE_TASKS = `

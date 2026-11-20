@@ -5,12 +5,12 @@ import {
   type ModelClient,
   type ModelParams,
   samplingFields,
-} from "@relationship-os/evals-mcp/lib/model.ts";
+} from "@composable-os/evals-mcp/lib/model.ts";
 import type { AutomationCase } from "../prompts.ts";
 
 /**
  * The slice of AutomationTestReport (packages/core/src/automations/types.ts) graded here. Kept as
- * a structural copy so the eval stays a plain-Node package without @relationship-os/core.
+ * a structural copy so the eval stays a plain-Node package without @composable-os/core.
  */
 export interface TestReport {
   matched: boolean;

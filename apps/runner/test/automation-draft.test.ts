@@ -3,7 +3,7 @@
 // extension is written and proposed (committed, an extension.apply pending action), never
 // installed; automation.test with `proposal` runs its automation at the proposed commit.
 import { env } from "cloudflare:workers";
-import type { ActingUser, AutomationTestReport } from "@relationship-os/core";
+import type { ActingUser, AutomationTestReport } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { automationHost } from "../src/automations/host.ts";
 import { toolWorkerId } from "../src/executor/worker-code.ts";
@@ -17,7 +17,7 @@ let commit: string;
 let personId: string;
 
 const files = (id: string): Record<string, string> => ({
-  "index.ts": `import { defineAutomation, defineExtension } from "@relationship-os/sdk";
+  "index.ts": `import { defineAutomation, defineExtension } from "@composable-os/sdk";
 
 export default defineExtension({
   id: "${id}",

@@ -4,7 +4,7 @@
 // `outbound` pending action in the caller's change set; approval later calls the facet's
 // `applyAction(n)` (approval.ts), in action order per facet. The gatekeeper journals and replays
 // the action itself, so nothing is re-run through the pipeline.
-import type { CrmDb } from "@relationship-os/db";
+import type { CrmDb } from "@composable-os/db";
 import type { Compilable } from "kysely";
 import { OUTBOUND_OPERATION } from "../approvals/describe.ts";
 import { addDays, DEFAULT_APPROVAL_EXPIRY_DAYS, targetChangeSet } from "../approvals/queue.ts";

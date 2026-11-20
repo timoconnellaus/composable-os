@@ -4,7 +4,7 @@
 // Overview lives in code (dashboards/overview.ts), is visible to all and is every user's Home
 // until they choose another. Widgets run through the query.sql guards with bound named params,
 // row and time limits, and a 60 s Cache API result cache; nothing here writes on read.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { describePrompt, extractJson } from "../dashboards/describe.ts";
@@ -627,7 +627,7 @@ export const widgetDescribe = defineOperation({
       return {
         status: "unavailable" as const,
         message:
-          "AI is not configured for this deployment: add an `ai` binding to ros-app " +
+          "AI is not configured for this deployment: add an `ai` binding to cos-app " +
           "(docs/deploying.md). You can still build the widget by hand.",
       };
     }

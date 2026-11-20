@@ -1,5 +1,5 @@
-// ros-control's entry: HTTP (app.ts), the jobs queue (jobs.ts), the daily cron (lifecycle.ts) and
-// ControlRpc, the service-binding entrypoint ros-dispatch calls to wake a paused tenant.
+// crm-control's entry: HTTP (app.ts), the jobs queue (jobs.ts), the daily cron (lifecycle.ts) and
+// ControlRpc, the service-binding entrypoint crm-dispatch calls to wake a paused tenant.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { handle, wakeTenant } from "./app.ts";
 import type { ControlEnv } from "./env.ts";

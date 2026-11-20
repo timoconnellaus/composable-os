@@ -5,14 +5,14 @@
 // A button's operation runs by who wrote the card. The host's own cards call it as the viewer.
 // Cards a model or a saved producer wrote call `a2ui.act`, which runs it as the assistant with the
 // viewer's permissions, so the gate, change sets and approvals apply (see operations/a2ui.ts).
-import type { A2uiAction } from "@relationship-os/agent-a2ui";
+import type { A2uiAction } from "@composable-os/agent-a2ui";
 import {
   type ActionContext,
   type ActionHandler,
   type ActionResult,
   mergeInput,
-} from "@relationship-os/agent-a2ui/react";
-import type { CoreInput, CoreOperationName } from "@relationship-os/core";
+} from "@composable-os/agent-a2ui/react";
+import type { CoreInput, CoreOperationName } from "@composable-os/core";
 import { createContext, useContext } from "react";
 import { callOp } from "#/lib/operations";
 import { errorMessage } from "#/lib/query";

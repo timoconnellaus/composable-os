@@ -1,17 +1,17 @@
 // Dashboards: every dashboard you can open (the shipped Overview, shared ones and your own),
 // which is your Home, and a dialog to create a new one (blank, or a copy).
-import { Button } from "@relationship-os/ui/components/button";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
+import { Button } from "@composable-os/ui/components/button";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@relationship-os/ui/components/dialog";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/dialog";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { HomeIcon, LayoutDashboardIcon, PlusIcon } from "lucide-react";

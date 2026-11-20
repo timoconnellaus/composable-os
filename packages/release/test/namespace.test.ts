@@ -12,7 +12,7 @@ import { buildFixtureRelease, FakeCloudflare } from "../src/testing/index.ts";
 import { nodeSqliteEngine } from "../src/testing/node-sqlite.ts";
 
 const ACCOUNT = "acc0000000000000000000000000test";
-const NS = "ros-customers";
+const NS = "crm-customers";
 
 function tenantState(tenant: string, version: string): DeploymentState {
   return {
@@ -25,11 +25,11 @@ function tenantState(tenant: string, version: string): DeploymentState {
     identityProvider: "better-auth",
     channel: "stable",
     gatekeepers: [],
-    workerNames: { "ros-app": `${tenant}-ros-app`, "ros-runner": `${tenant}-ros-runner` },
+    workerNames: { "demo-app": `${tenant}-demo-app`, "demo-runner": `${tenant}-demo-runner` },
     resourceNames: {
-      ros: `ros-${tenant}`,
-      "ros-blobs": `ros-blobs-${tenant}`,
-      "ros-app-oauth-kv": `ros-app-oauth-kv-${tenant}`,
+      demo: `demo-${tenant}`,
+      "demo-blobs": `demo-blobs-${tenant}`,
+      "demo-app-oauth-kv": `demo-app-oauth-kv-${tenant}`,
     },
     vars: {},
     resources: {},
@@ -56,25 +56,25 @@ describe("installing into a dispatch namespace", () => {
         api,
         bundle,
         state: tenantState(tenant, "1.0.0"),
-        secrets: { "ros-app": { BETTER_AUTH_SECRET: "s".repeat(64) } },
+        secrets: { "demo-app": { BETTER_AUTH_SECRET: "s".repeat(64) } },
       });
     }
     expect(cf.scripts.size).toBe(0);
     const ns = cf.namespaces.get(NS);
     expect([...(ns?.keys() ?? [])].sort()).toEqual([
-      "acme-ros-app",
-      "acme-ros-runner",
-      "globex-ros-app",
-      "globex-ros-runner",
+      "acme-demo-app",
+      "acme-demo-runner",
+      "globex-demo-app",
+      "globex-demo-runner",
     ]);
-    const app = cf.userWorker(NS, "acme-ros-app");
+    const app = cf.userWorker(NS, "acme-demo-app");
     expect(app?.tags).toEqual(["tenant-acme"]);
     expect(app?.secrets.get("BETTER_AUTH_SECRET")).toHaveLength(64);
     // Each tenant has its own database; nothing is shared.
     const dbs = [...cf.d1.values()].map((d) => d.name).sort();
-    expect(dbs).toEqual(["ros-acme", "ros-globex"]);
+    expect(dbs).toEqual(["demo-acme", "demo-globex"]);
     const bindings = app?.metadata.bindings as { name: string; service?: string; id?: string }[];
-    expect(bindings.find((b) => b.name === "RUNNER")?.service).toBe("acme-ros-runner");
+    expect(bindings.find((b) => b.name === "RUNNER")?.service).toBe("acme-demo-runner");
     // No version, schedule or workers.dev calls were made for user Workers.
     expect(cf.calls.some((c) => /\/(versions|schedules|subdomain)$/.test(c.path))).toBe(false);
   });
@@ -87,15 +87,15 @@ describe("installing into a dispatch namespace", () => {
       api,
       bundle: v1,
       state: tenantState("acme", "1.0.0"),
-      secrets: { "ros-app": { BETTER_AUTH_SECRET: "s".repeat(64) } },
+      secrets: { "demo-app": { BETTER_AUTH_SECRET: "s".repeat(64) } },
     });
     const version = () =>
       (
-        (cf.userWorker(NS, "acme-ros-app")?.metadata.bindings ?? []) as {
+        (cf.userWorker(NS, "acme-demo-app")?.metadata.bindings ?? []) as {
           name: string;
           text?: string;
         }[]
-      ).find((b) => b.name === "ROS_RELEASE_VERSION")?.text;
+      ).find((b) => b.name === "COS_RELEASE_VERSION")?.text;
 
     const failed = await runUpdate({
       api,

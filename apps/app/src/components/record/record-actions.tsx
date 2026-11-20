@@ -10,16 +10,16 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Button } from "@relationship-os/ui/components/button";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/alert-dialog";
+import { Button } from "@composable-os/ui/components/button";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
+} from "@composable-os/ui/components/select";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useState } from "react";

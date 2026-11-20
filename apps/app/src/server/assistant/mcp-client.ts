@@ -5,8 +5,9 @@
 // results an external MCP client sees, and every call goes through the same pipeline: gate,
 // change sets, simulation, audit. Only the transport differs: no HTTP hop and no OAuth token,
 // because the conversation object already acts for its signed-in owner.
+
+import type { AssistantTool } from "@composable-os/core";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
-import type { AssistantTool } from "@relationship-os/core";
 import { createCrmMcpServer, type McpCaller } from "../mcp/tools.ts";
 
 export interface AssistantMcp {

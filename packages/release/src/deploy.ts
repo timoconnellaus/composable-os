@@ -1,5 +1,5 @@
 // The deploy engine (ADR 0163): puts a verified release bundle into a Cloudflare account through
-// the REST API. Used by `create-relationship-os` (install), `ros upgrade` and the self-updater.
+// the REST API. Used by `create-composable-os` (install), `cos upgrade` and the self-updater.
 //
 //   provision resources (find by name, else create)   idempotent
 //   apply pending core migrations                      bookkept in core_migrations
@@ -59,7 +59,7 @@ export interface DeploymentState {
    * with `--ai-gateway off`. Absent means the default, named after the install.
    */
   aiGateway?: string | false;
-  /** The gateway was created by this deployment (so `ros uninstall` deletes it). */
+  /** The gateway was created by this deployment (so `cos uninstall` deletes it). */
   aiGatewayCreated?: boolean;
   /** The id of the generated gateway token stored as AI_GATEWAY_TOKEN. */
   aiGatewayTokenId?: string;
@@ -77,7 +77,7 @@ export interface DeploymentState {
   resourceNames?: Record<string, string>;
   /** Plain var overrides per Worker (e.g. IDENTITY_PROVIDER, APPROVAL_FLOOR). */
   vars: Record<string, Record<string, string>>;
-  /** Resolved resource placeholders, e.g. `D1_ID(ros)` → its uuid. */
+  /** Resolved resource placeholders, e.g. `D1_ID(demo)` → its uuid. */
   resources: Record<string, string>;
   /** sha256 of the installed bundle. */
   bundleDigest?: string;
@@ -203,7 +203,7 @@ export function neededResources(
 
 /**
  * Finds or creates each resource by its deployed name (`names`, else the manifest's). Returns
- * resolved placeholders (`D1_ID(ros)` → id).
+ * resolved placeholders (`D1_ID(demo)` → id).
  */
 export async function provisionResources(
   api: CloudflareClient,
@@ -381,7 +381,7 @@ export function workerBindings(
       bindings.push({ type: "service", name, service: workerName(state, gk.name), entrypoint });
     }
   }
-  // Any secret value supplied but not declared in the manifest (e.g. ROS_UPDATE_TOKEN set late).
+  // Any secret value supplied but not declared in the manifest (e.g. COS_UPDATE_TOKEN set late).
   for (const [name, text] of Object.entries(secrets)) {
     if (!bindings.some((b) => b.name === name)) bindings.push({ type: "secret_text", name, text });
   }

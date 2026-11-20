@@ -1,8 +1,8 @@
 // Admin-editable select options of an extension's fields (ADR 0246): add, relabel, reorder and
 // remove options (a lead's status and source). Options the extension relies on stay; records
 // holding a removed option keep their value. Saved with fieldOptions.update.
-import { Button } from "@relationship-os/ui/components/button";
-import { Input } from "@relationship-os/ui/components/input";
+import { Button } from "@composable-os/ui/components/button";
+import { Input } from "@composable-os/ui/components/input";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";

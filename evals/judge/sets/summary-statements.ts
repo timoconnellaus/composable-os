@@ -12,7 +12,7 @@
 // decisions, agreements and numbers, contradicted facts, next steps and opinions (`not_a_claim`),
 // an instruction planted in a note, and a change-set summary that states the agent's reason,
 // which the judge's facts never hold.
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   askStatements,
   STATEMENT_FAULT_LABELS,
@@ -22,7 +22,7 @@ import {
   type StatementsState,
   statementFault,
   statementsState,
-} from "@relationship-os/core/judge-summary-statements";
+} from "@composable-os/core/judge-summary-statements";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 import {
   CHANGE_SET,

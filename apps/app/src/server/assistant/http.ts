@@ -6,14 +6,14 @@
 //
 // Searching, deleting a message and marking the thread seen are operations (thread.*), called
 // like any other from the UI.
-import type { Principal } from "@relationship-os/auth";
+import type { Principal } from "@composable-os/auth";
 import {
   type ActingUser,
   type AssistantContext,
   assistantContextSchema,
   resolveActingUser,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { getAgentByName } from "agents";
 import { z } from "zod";
 import { type AssistantAgent, type AssistantEnv, threadName, USER_HEADER } from "./agent.ts";

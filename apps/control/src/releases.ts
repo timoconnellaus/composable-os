@@ -1,13 +1,13 @@
 // Where the control plane gets release bundles: the same verified GitHub releases the CLI and the
 // self-updater install (Stage 8: SHA256SUMS + build attestation, ADR 0162). Bundles are kept per
 // isolate, so a rollout that updates many tenants downloads and verifies each version once.
-import { product } from "@relationship-os/products/active";
+import { product } from "@composable-os/products/active";
 import {
   type Channel,
   fetchVerifiedRelease,
   listReleases,
   type ReleaseBundle,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 
 export interface LoadedRelease {
   version: string;

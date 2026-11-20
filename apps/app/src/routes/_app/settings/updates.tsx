@@ -1,8 +1,8 @@
 // Settings → Updates (ADR 0054, ADR 0164): the installed release and channel, releases available
 // on the channel with their changelogs (public GitHub Releases, cached), preflight, Update and
-// Roll back. With no stored update token it shows the `ros upgrade` command instead. Admins only.
+// Roll back. With no stored update token it shows the `cos upgrade` command instead. Admins only.
 
-import type { CoreOutput } from "@relationship-os/core";
+import type { CoreOutput } from "@composable-os/core";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,25 +12,25 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+} from "@composable-os/ui/components/alert-dialog";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/card";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/select";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute } from "@tanstack/react-router";
 import { AlertTriangleIcon, CheckCircle2Icon, RefreshCwIcon, TerminalIcon } from "lucide-react";
 import { useState } from "react";
@@ -143,7 +143,7 @@ function UpdatesPage() {
                 <code className="rounded bg-muted px-2 py-1 break-all">{s.cliCommand}</code>
                 <p className="text-muted-foreground">
                   To update from here instead, store a scoped token as the{" "}
-                  <code>ROS_UPDATE_TOKEN</code> secret (see docs/deploying.md).
+                  <code>COS_UPDATE_TOKEN</code> secret (see docs/deploying.md).
                 </p>
               </div>
             )}
@@ -187,7 +187,7 @@ function UpdatesPage() {
                 key={release.version}
                 release={release}
                 canUpdate={Boolean(s?.canUpdateInApp)}
-                cliCommand={`npx create-relationship-os upgrade --version ${release.version}`}
+                cliCommand={`npx create-composable-os upgrade --version ${release.version}`}
               />
             ))}
           </CardContent>

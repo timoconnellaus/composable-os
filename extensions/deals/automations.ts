@@ -1,7 +1,7 @@
 // The Deals automations (stage 5, ADR 0028). Each is listed under Automations and can be turned
 // off with automation.disable (or the Pause button). They declare their steps and intents, so
 // the host renders the summary and step diagram from them; `run` only takes declared steps.
-import { defineAutomation, OpsCallError } from "@relationship-os/sdk";
+import { defineAutomation, OpsCallError } from "@composable-os/sdk";
 
 export const STALLED_DAYS = 14;
 export const FOLLOW_UP_PREFIX = "Follow up:";

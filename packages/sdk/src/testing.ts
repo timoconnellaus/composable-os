@@ -1,4 +1,4 @@
-// @relationship-os/sdk/testing: unit-test an extension locally with in-memory host modules.
+// @composable-os/sdk/testing: unit-test an extension locally with in-memory host modules.
 //
 //   const host = createTestHost(extension, { records: { organisation: [{ id: "org_1", name: "Acme" }] } });
 //   expect(host.issues).toEqual([]);

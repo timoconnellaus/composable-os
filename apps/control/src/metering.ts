@@ -16,7 +16,7 @@
 // Meter event in cents (identifier `ai-<tenant>-<day>`, so a retried day is never double-billed).
 // Free plan: charged spend is debited from prepaid credit; when it runs out the entitlement
 // `platformAi` turns off and platform-paid models stop (BYOK and MCP keep working).
-import { CloudflareApiError, type DeploymentState } from "@relationship-os/release";
+import { CloudflareApiError, type DeploymentState } from "@composable-os/release";
 import { audit } from "./audit.ts";
 import {
   type AccountRow,

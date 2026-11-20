@@ -3,7 +3,7 @@
 // calls: the model client reports every call's tokens (ModelRunnerOptions.recordUsage) and this
 // adds them up per day, role and provider. Settings → AI shows it; nothing here is billed. Only
 // counts are kept, never a prompt, a reply or a key.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { loadEntitlements } from "../entitlements.ts";
 import type { AiEnv, ModelRunnerOptions, ModelUsage } from "./client.ts";
@@ -11,7 +11,7 @@ import { isHosted } from "./platform.ts";
 import { type ModelRole, normalizeRole, PROVIDER_INFO, type ProviderId } from "./roles.ts";
 
 /**
- * The model runner options a hosted deployment adds (ros-app and ros-runner alike): the plan for
+ * The model runner options a hosted deployment adds (cos-app and cos-runner alike): the plan for
  * the tenant tag, from the entitlement row, and usage counting. Nothing on a self-hosted install.
  * `schedule` keeps the usage write alive after the response (the Worker's waitUntil).
  */

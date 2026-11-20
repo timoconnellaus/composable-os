@@ -10,7 +10,7 @@ import type {
   CoreOperationName,
   CoreOutput,
   OperationErrorCode,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { callOperation } from "#/server/call-operation";
 
 export class OperationCallError extends Error {

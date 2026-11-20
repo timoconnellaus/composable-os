@@ -1,5 +1,5 @@
 // A routine's step can start an agent (ADR 0343, ADR 0344): what `registerRoutineAgentStarter` is
-// for. Delivery runs here in ros-app, where the objects are. The agent starts as the routine, so
+// for. Delivery runs here in cos-app, where the objects are. The agent starts as the routine, so
 // its grant is checked against what an automation may do, and it runs in the background. A brief
 // names no records, so nothing it does applies without review; the default profile only reads.
 
@@ -13,8 +13,8 @@ import {
   ROLES,
   type Role,
   registerRoutineAgentStarter,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { aiContextFor } from "../ai.ts";
 import { agentJobsFor, type OperationsEnv } from "../operations.ts";
 

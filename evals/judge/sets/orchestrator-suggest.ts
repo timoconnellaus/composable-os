@@ -6,7 +6,7 @@
 // The cases cover: research and work across many records, with and without a selection; lookups
 // and one small change; a couple of tool calls; a broad word on a request that is still one query
 // ("all", "every"); a selection that changes the answer; and words that ask for no work.
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   ORCHESTRATOR_PLACEMENT,
   ORCHESTRATOR_QUESTION,
@@ -14,7 +14,7 @@ import {
   type OrchestratorLabel,
   type OrchestratorState,
   orchestratorState,
-} from "@relationship-os/core/judge-orchestrator";
+} from "@composable-os/core/judge-orchestrator";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 
 interface Answers {

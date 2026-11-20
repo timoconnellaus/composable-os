@@ -15,8 +15,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { DropdownMenuItem } from "@relationship-os/ui/components/dropdown-menu";
+} from "@composable-os/ui/components/alert-dialog";
+import { DropdownMenuItem } from "@composable-os/ui/components/dropdown-menu";
 import { SparklesIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";

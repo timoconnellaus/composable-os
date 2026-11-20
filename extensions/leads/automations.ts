@@ -1,6 +1,6 @@
 // The Leads automations (stage 15). Both are shipped turned off (`enabled: false`): a person turns
 // them on under Automations. They declare their steps, so the host renders the summary from them.
-import { defineAutomation } from "@relationship-os/sdk";
+import { defineAutomation } from "@composable-os/sdk";
 
 /** Days a lead may stay New before its owner is reminded. */
 export const NEW_LEAD_REMINDER_DAYS = 2;

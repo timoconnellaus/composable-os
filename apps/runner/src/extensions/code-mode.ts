@@ -4,7 +4,7 @@
 // small wrapper over the per-run host RpcTarget so `ops.call` returns values and throws errors.
 // The entry captures console output and returns the script's default export. Patching console is
 // fine here: the worker runs once and is thrown away.
-import { GATEKEEPER_MODULES, renamedMessage } from "@relationship-os/sdk";
+import { GATEKEEPER_MODULES, renamedMessage } from "@composable-os/sdk";
 import { transform } from "sucrase";
 
 export const CODE_TIMEOUT_MS = 30_000;

@@ -1,7 +1,7 @@
 // The setup wizard's AI step (ADR 0167, amended): what this deployment's model roles actually
 // resolve to, from the same data as Settings → AI (ai.settings: provider, model, source and
 // readiness per role). It describes; it changes nothing. Changes are made in Settings → AI.
-import type { CoreOutput } from "@relationship-os/core";
+import type { CoreOutput } from "@composable-os/core";
 import { CheckCircle2Icon, CircleAlertIcon, CpuIcon } from "lucide-react";
 
 type Settings = CoreOutput<"ai.settings">;

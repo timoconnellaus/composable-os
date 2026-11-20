@@ -19,8 +19,8 @@ import {
   stripTrailingSlashes,
   workerVersionTag,
   type ConnectHandoff,
-} from '@relationship-os/gatekeeper-interface/gatekeeper';
-import { connectHandoffPageHtml, htmlResponse } from "@relationship-os/gatekeeper-kit/connect-pages";
+} from '@composable-os/gatekeeper-interface/gatekeeper';
+import { connectHandoffPageHtml, htmlResponse } from "@composable-os/gatekeeper-kit/connect-pages";
 import {
   EmailSession,
   EmailHook,

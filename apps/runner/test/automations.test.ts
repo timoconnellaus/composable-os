@@ -20,8 +20,8 @@ import {
   type RecordEventMessage,
   SAMPLE_ACTION_ID,
   sampleApproval,
-} from "@relationship-os/core";
-import { z } from "@relationship-os/sdk";
+} from "@composable-os/core";
+import { z } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { dispatchAutomationMessages } from "../src/automations/dispatch.ts";
 import { automationHost } from "../src/automations/host.ts";
@@ -359,7 +359,7 @@ describe("AC3: rails", () => {
         call(admin, "automation.killSwitch", { engaged: false }),
       ),
     ).resolves.toBeDefined();
-    const { invokeByName } = await import("@relationship-os/core");
+    const { invokeByName } = await import("@composable-os/core");
     await expect(
       invokeByName("automation.killSwitch", { engaged: true }, context(admin, { actor: "mcp" })),
     ).rejects.toMatchObject({ code: "forbidden" });
@@ -370,10 +370,10 @@ describe("AC4: idempotency", () => {
   it("a duplicate queue delivery of the same event starts one run", async () => {
     const { result: item, messages } = await createItem({ name: "Twice", level: 9 });
     const runner = new Runner(createExecutionContext(), env);
-    const first = createMessageBatch<AutomationQueueMessage>("ros-automation-events", [
+    const first = createMessageBatch<AutomationQueueMessage>("cos-automation-events", [
       { id: "m1", timestamp: new Date(), attempts: 1, body: messages[0] as AutomationQueueMessage },
     ]);
-    const second = createMessageBatch<AutomationQueueMessage>("ros-automation-events", [
+    const second = createMessageBatch<AutomationQueueMessage>("cos-automation-events", [
       { id: "m1", timestamp: new Date(), attempts: 2, body: messages[0] as AutomationQueueMessage },
     ]);
     await runWorkflows(async () => {

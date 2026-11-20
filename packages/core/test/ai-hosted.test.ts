@@ -7,7 +7,7 @@ import {
   AI_SECRET_PATH,
   deploymentChannelKey,
   verifyDeploymentRequest,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import { generateText } from "ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -27,10 +27,10 @@ import { context, createUser, db } from "./helpers.ts";
 
 const TENANT = "tabc123xyz";
 const PLATFORM = {
-  AI_PLATFORM_GATEWAY_ID: "ros-platform",
+  AI_PLATFORM_GATEWAY_ID: "crm-platform",
   AI_PLATFORM_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
   AI_PLATFORM_TOKEN: "platform-token-1",
-  ROS_TENANT_ID: TENANT,
+  COS_TENANT_ID: TENANT,
 };
 const KEY = "sk-own-key-NEVER-IN-D1-9d8c7b";
 
@@ -108,7 +108,7 @@ describe("Platform AI on a hosted deployment", () => {
     expect(call?.body.model).toBe("@cf/zai-org/glm-4.7-flash");
     expect(call?.headers).toMatchObject({
       authorization: "Bearer platform-token-1",
-      "cf-aig-gateway-id": "ros-platform",
+      "cf-aig-gateway-id": "crm-platform",
       "cf-aig-collect-log-payload": "false",
       "cf-aig-skip-cache": "true",
     });
@@ -157,7 +157,7 @@ describe("Platform AI on a hosted deployment", () => {
         tenant: TENANT,
         plan: "team",
       });
-      expect(call.headers["cf-aig-gateway-id"]).toBe("ros-platform");
+      expect(call.headers["cf-aig-gateway-id"]).toBe("crm-platform");
       expect(call.headers.authorization).toBe("Bearer platform-token-1");
     }
   });
@@ -261,7 +261,7 @@ describe("the customer's own keys on a hosted deployment", () => {
       if (!verified.ok)
         return Response.json({ ok: false, error: verified.reason }, { status: 401 });
       received.push(JSON.parse(verified.body));
-      return Response.json({ ok: true, targets: [`${TENANT}-ros-app`, `${TENANT}-ros-runner`] });
+      return Response.json({ ok: true, targets: [`${TENANT}-cos-app`, `${TENANT}-cos-runner`] });
     }) as typeof fetch;
     return { channelKey, received, fetch: fetchFn };
   }
@@ -270,7 +270,7 @@ describe("the customer's own keys on a hosted deployment", () => {
     const admin = await createUser("admin");
     const cp = await controlPlane();
     const aiAdmin = hostedAiAdmin(
-      { ROS_CONTROL_URL: CONTROL, ROS_CONTROL_KEY: cp.channelKey, ROS_TENANT_ID: TENANT },
+      { COS_CONTROL_URL: CONTROL, COS_CONTROL_KEY: cp.channelKey, COS_TENANT_ID: TENANT },
       { db: db.query, fetch: cp.fetch },
     );
     const out = await invoke(
@@ -297,7 +297,7 @@ describe("the customer's own keys on a hosted deployment", () => {
     const cp = await controlPlane();
     const wrongKey = await deploymentChannelKey("master-secret", "tother00000");
     const aiAdmin = hostedAiAdmin(
-      { ROS_CONTROL_URL: CONTROL, ROS_CONTROL_KEY: wrongKey, ROS_TENANT_ID: TENANT },
+      { COS_CONTROL_URL: CONTROL, COS_CONTROL_KEY: wrongKey, COS_TENANT_ID: TENANT },
       { fetch: cp.fetch },
     );
     await expect(aiAdmin.setProviderKey("openai", KEY, "secret")).rejects.toThrow(/401/);
@@ -308,7 +308,7 @@ describe("the customer's own keys on a hosted deployment", () => {
     const admin = await createUser("admin");
     const cp = await controlPlane();
     const aiAdmin = hostedAiAdmin(
-      { ROS_CONTROL_URL: CONTROL, ROS_CONTROL_KEY: cp.channelKey, ROS_TENANT_ID: TENANT },
+      { COS_CONTROL_URL: CONTROL, COS_CONTROL_KEY: cp.channelKey, COS_TENANT_ID: TENANT },
       { fetch: cp.fetch },
     );
     await invoke(

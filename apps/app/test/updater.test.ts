@@ -1,6 +1,6 @@
 // The self-updater's runtime in workerd (ADR 0164) against a fake GitHub and a fake Cloudflare
 // API: it refuses a tampered bundle (AC2), lists releases per channel (AC7), and runs a verified
-// update through the same procedure as `ros upgrade`.
+// update through the same procedure as `cos upgrade`.
 import { env } from "cloudflare:workers";
 import {
   applyBundleMigrations,
@@ -13,13 +13,14 @@ import {
   provisionResources,
   type RunRecord,
   writeDeploymentState,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import {
   buildFixtureRelease,
   FakeCloudflare,
   FakeGitHub,
+  FIXTURE_PRODUCT_DEFINITION,
   type SqlEngine,
-} from "@relationship-os/release/testing";
+} from "@composable-os/release/testing";
 import { describe, expect, it } from "vitest";
 import { updaterRuntimeFor } from "../src/server/updater.ts";
 
@@ -84,9 +85,9 @@ async function world() {
     updaterRuntimeFor(
       {
         DB: env.DB,
-        ROS_RELEASE_VERSION: version,
-        ROS_ACCOUNT_ID: ACCOUNT,
-        ROS_UPDATE_TOKEN: TOKEN,
+        COS_RELEASE_VERSION: version,
+        COS_ACCOUNT_ID: ACCOUNT,
+        COS_UPDATE_TOKEN: TOKEN,
       },
       {
         githubApi: github.api,
@@ -94,6 +95,7 @@ async function world() {
         cloudflareApi: "https://cf.test/client/v4",
         cloudflareFetch: cf.fetch,
         smoke: async () => {},
+        product: FIXTURE_PRODUCT_DEFINITION,
       },
     );
   return { cf, github, api, runtime };
@@ -122,17 +124,17 @@ const noAutomations = { pause: async () => {}, resume: async () => {} };
 
 describe("self-updater runtime", () => {
   it("can update only with a token, an account and a release version", () => {
-    expect(updaterRuntimeFor({ DB: env.DB, ROS_RELEASE_VERSION: "" }).canUpdate).toBe(false);
+    expect(updaterRuntimeFor({ DB: env.DB, COS_RELEASE_VERSION: "" }).canUpdate).toBe(false);
     expect(
-      updaterRuntimeFor({ DB: env.DB, ROS_RELEASE_VERSION: "1.0.0", ROS_ACCOUNT_ID: ACCOUNT })
+      updaterRuntimeFor({ DB: env.DB, COS_RELEASE_VERSION: "1.0.0", COS_ACCOUNT_ID: ACCOUNT })
         .canUpdate,
     ).toBe(false);
     expect(
       updaterRuntimeFor({
         DB: env.DB,
-        ROS_RELEASE_VERSION: "1.0.0",
-        ROS_ACCOUNT_ID: ACCOUNT,
-        ROS_UPDATE_TOKEN: TOKEN,
+        COS_RELEASE_VERSION: "1.0.0",
+        COS_ACCOUNT_ID: ACCOUNT,
+        COS_UPDATE_TOKEN: TOKEN,
       }).canUpdate,
     ).toBe(true);
   });
@@ -181,12 +183,12 @@ describe("self-updater runtime", () => {
     // Install 1.0.0 into the fake account.
     const bundle = await openBundle(v1.bundle);
     const resources = await provisionResources(api, ACCOUNT, neededResources(bundle.manifest, []));
-    const databaseId = resources["D1_ID(ros)"] as string;
+    const databaseId = resources["D1_ID(demo)"] as string;
     await applyBundleMigrations(bundle, d1ApiMigrations(api, ACCOUNT, databaseId));
     const state: DeploymentState = {
       version: "1.0.0",
       accountId: ACCOUNT,
-      hostname: "ros-app.example.workers.dev",
+      hostname: "demo-app.example.workers.dev",
       hostnameMode: "workers.dev",
       identityProvider: "better-auth",
       channel: "stable",
@@ -200,7 +202,7 @@ describe("self-updater runtime", () => {
       api,
       bundle,
       state,
-      secrets: { "ros-app": { BETTER_AUTH_SECRET: "s".repeat(64) } },
+      secrets: { "demo-app": { BETTER_AUTH_SECRET: "s".repeat(64) } },
     });
 
     const steps: string[] = [];
@@ -215,19 +217,19 @@ describe("self-updater runtime", () => {
     });
     expect(outcome).toMatchObject({ status: "succeeded", migrations: ["0161_more.sql"] });
     expect(steps).toEqual(["pause", "bookmark", "migrate", "switch", "smoke", "resume", "done"]);
-    expect(cf.liveBinding("ros-app", "ROS_RELEASE_VERSION")?.text).toBe("1.1.0");
-    expect(cf.liveBinding("ros-runner", "DB")).toBeTruthy();
-    expect(cf.scripts.get("ros-app")?.secrets.get("BETTER_AUTH_SECRET")).toHaveLength(64);
+    expect(cf.liveBinding("demo-app", "COS_RELEASE_VERSION")?.text).toBe("1.1.0");
+    expect(cf.liveBinding("demo-runner", "DB")).toBeTruthy();
+    expect(cf.scripts.get("demo-app")?.secrets.get("BETTER_AUTH_SECRET")).toHaveLength(64);
     // AI is on, so the update set up the AI Gateway the install lacked (ADR 0180).
-    expect(cf.gateways.get("ros")).toMatchObject({ authentication: true, collect_logs: true });
+    expect(cf.gateways.get("demo")).toMatchObject({ authentication: true, collect_logs: true });
     expect([...cf.customProviders.values()].map((p) => p.slug)).toEqual(["example-llm"]);
-    expect(cf.liveBinding("ros-app", "AI_GATEWAY_ID")?.text).toBe("ros");
+    expect(cf.liveBinding("demo-app", "AI_GATEWAY_ID")?.text).toBe("demo");
     const token = [...cf.tokens.values()][0]?.value;
     expect(token).toBeTruthy();
-    expect(cf.scripts.get("ros-runner")?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token);
+    expect(cf.scripts.get("demo-runner")?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token);
     // ADR 0330: the token can call Workers AI, so Workers AI goes over REST, payload logging off.
     expect([...cf.tokens.values()][0]?.permissionGroups).toEqual(["pg-aig-run", "pg-wai-read"]);
-    expect(cf.liveBinding("ros-runner", "AI_GATEWAY_REST")?.text).toBe("true");
+    expect(cf.liveBinding("demo-runner", "AI_GATEWAY_REST")?.text).toBe("true");
   });
 
   it("replaces a gateway token generated before ADR 0330 and turns on Workers AI over REST", async () => {
@@ -238,24 +240,22 @@ describe("self-updater runtime", () => {
     await github.publish(v2);
     const bundle = await openBundle(v1.bundle);
     const resources = await provisionResources(api, ACCOUNT, neededResources(bundle.manifest, []));
-    const databaseId = resources["D1_ID(ros)"] as string;
+    const databaseId = resources["D1_ID(demo)"] as string;
     await applyBundleMigrations(bundle, d1ApiMigrations(api, ACCOUNT, databaseId));
     // An install from before: a generated token with AI Gateway Run only, on both Workers.
-    const old = await api.createAccountToken(ACCOUNT, "ros AI Gateway (Relationship OS)", [
-      "pg-aig-run",
-    ]);
+    const old = await api.createAccountToken(ACCOUNT, "demo AI Gateway (Demo)", ["pg-aig-run"]);
     const state: DeploymentState = {
       version: "1.0.0",
       accountId: ACCOUNT,
-      hostname: "ros-app.example.workers.dev",
+      hostname: "demo-app.example.workers.dev",
       hostnameMode: "workers.dev",
       identityProvider: "better-auth",
       channel: "stable",
       gatekeepers: [],
       workerNames: {},
-      aiGateway: "ros",
+      aiGateway: "demo",
       aiGatewayTokenId: old.id,
-      vars: { "ros-app": { AI_GATEWAY_ID: "ros" }, "ros-runner": { AI_GATEWAY_ID: "ros" } },
+      vars: { "demo-app": { AI_GATEWAY_ID: "demo" }, "demo-runner": { AI_GATEWAY_ID: "demo" } },
       resources,
     };
     await writeDeploymentState(api, databaseId, state);
@@ -264,11 +264,11 @@ describe("self-updater runtime", () => {
       bundle,
       state,
       secrets: {
-        "ros-app": { BETTER_AUTH_SECRET: "s".repeat(64), AI_GATEWAY_TOKEN: old.value },
-        "ros-runner": { AI_GATEWAY_TOKEN: old.value },
+        "demo-app": { BETTER_AUTH_SECRET: "s".repeat(64), AI_GATEWAY_TOKEN: old.value },
+        "demo-runner": { AI_GATEWAY_TOKEN: old.value },
       },
     });
-    expect(cf.liveBinding("ros-app", "AI_GATEWAY_REST")?.text).toBe("");
+    expect(cf.liveBinding("demo-app", "AI_GATEWAY_REST")?.text).toBe("");
 
     const outcome = await runtime().apply({
       version: "1.1.0",
@@ -281,7 +281,7 @@ describe("self-updater runtime", () => {
     expect(cf.tokens.has(old.id)).toBe(false);
     const [token] = [...cf.tokens.values()];
     expect(token?.permissionGroups).toEqual(["pg-aig-run", "pg-wai-read"]);
-    for (const worker of ["ros-app", "ros-runner"]) {
+    for (const worker of ["demo-app", "demo-runner"]) {
       expect(cf.scripts.get(worker)?.secrets.get("AI_GATEWAY_TOKEN")).toBe(token?.value);
       expect(cf.liveBinding(worker, "AI_GATEWAY_REST")?.text).toBe("true");
     }

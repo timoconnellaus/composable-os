@@ -9,7 +9,7 @@
 // shape, prompts that say too little (`unclear`), a named chart type, a comparison that is still
 // one number, and an instruction planted in the prompt. Where a prompt fairly fits two shapes, the
 // case leaves those shapes out and says why.
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   PICKABLE_SHAPES,
   SHAPE_PLACEMENT,
@@ -18,7 +18,7 @@ import {
   type Shape,
   type ShapeState,
   shapeState,
-} from "@relationship-os/core/judge-widget-shape";
+} from "@composable-os/core/judge-widget-shape";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 
 type Pickable = (typeof PICKABLE_SHAPES)[number];

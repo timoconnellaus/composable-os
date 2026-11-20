@@ -12,7 +12,7 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 export const VOICE_MODES = ["push_to_talk", "hands_free"] as const;
 export type VoiceMode = (typeof VOICE_MODES)[number];
 
-/** What `ctx.voice` offers; ros-app implements it over the speech providers. */
+/** What `ctx.voice` offers; cos-app implements it over the speech providers. */
 export interface VoiceRuntime {
   supportsSpeed: boolean;
   voices: readonly { id: string; name: string; description: string }[];

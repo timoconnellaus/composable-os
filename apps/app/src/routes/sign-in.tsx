@@ -1,13 +1,13 @@
-import { Button } from "@relationship-os/ui/components/button";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/card";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 import { authClient } from "../lib/auth-client.ts";

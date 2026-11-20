@@ -61,10 +61,10 @@ export function defineProduct(definition: ProductDefinition): ProductDefinition 
 
 /**
  * The prefix packages use for Workers and resources in their own configuration (wrangler.jsonc,
- * deploy-inputs.json) and in local development: `ros-app`, the database `ros`. It belongs to the
+ * deploy-inputs.json) and in local development: `cos-app`, the database `cos`. It belongs to the
  * platform. A release replaces it with the product's names (`deployedName`).
  */
-export const LOCAL_PREFIX = "ros";
+export const LOCAL_PREFIX = "cos";
 
 /**
  * The name a Worker or resource has in a deployment of `product`, from the name a package gives
@@ -90,7 +90,7 @@ export function deployedNameList(product: ProductDefinition, list: string): stri
     .join(",");
 }
 
-/** What a product's release files start with: `<prefix>-<version>.tar.gz`. */
+/** What a product's release files start with: `composable-os-<product>-<version>.tar.gz`. */
 export function releaseFilePrefix(productId: string): string {
-  return productId;
+  return `composable-os-${productId}`;
 }

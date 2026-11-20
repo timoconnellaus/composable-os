@@ -1,7 +1,7 @@
 // Person record page, layout B: header with actions, tabs (Overview, Timeline, Tasks, History),
 // composer + timeline in the main column, and details, organisations and tasks in the side
 // panel. Deleted people stay viewable here with a Restore banner.
-import { personObject } from "@relationship-os/core/client";
+import { personObject } from "@composable-os/core/client";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,14 +11,14 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Button } from "@relationship-os/ui/components/button";
+} from "@composable-os/ui/components/alert-dialog";
+import { Button } from "@composable-os/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@relationship-os/ui/components/dropdown-menu";
+} from "@composable-os/ui/components/dropdown-menu";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { EllipsisIcon, PlusIcon, RotateCcwIcon, Trash2Icon, UserXIcon } from "lucide-react";
 import { useState } from "react";

@@ -7,8 +7,8 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/card";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { useNavigate } from "@tanstack/react-router";
 import {
   BoxIcon,

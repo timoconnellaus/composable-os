@@ -9,10 +9,10 @@ import { runModelRole } from "../src/extensions/ai.ts";
 const TENANT = "tabc123xyz";
 const hosted = {
   ...env,
-  AI_PLATFORM_GATEWAY_ID: "ros-platform",
+  AI_PLATFORM_GATEWAY_ID: "crm-platform",
   AI_PLATFORM_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
   AI_PLATFORM_TOKEN: "platform-token-1",
-  ROS_TENANT_ID: TENANT,
+  COS_TENANT_ID: TENANT,
 };
 
 afterEach(() => {
@@ -55,7 +55,7 @@ describe("codemode:ai on a hosted deployment", () => {
     for (const headers of seen) {
       expect(JSON.parse(headers.get("cf-aig-metadata") ?? "{}")).toMatchObject({ tenant: TENANT });
       expect(headers.get("cf-aig-collect-log-payload")).toBe("false");
-      expect(headers.get("cf-aig-gateway-id")).toBe("ros-platform");
+      expect(headers.get("cf-aig-gateway-id")).toBe("crm-platform");
     }
   });
 });

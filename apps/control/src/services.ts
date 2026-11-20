@@ -1,7 +1,7 @@
 // Everything the control plane's logic needs, built from the environment: the real Cloudflare API,
 // Stripe, email and GitHub releases in live mode; their fakes in fake mode (testing/). Logic takes
 // a Services and never reads `env` for an external system itself.
-import { CloudflareClient } from "@relationship-os/release";
+import { CloudflareClient } from "@composable-os/release";
 import { dispatchRequest, type TenantDispatcher } from "./dispatch/handler.ts";
 import { type ControlEnv, isLive } from "./env.ts";
 import { type Job, runJob } from "./jobs.ts";

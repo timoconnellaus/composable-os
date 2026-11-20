@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/gatekeeper-observability",
+  "name": "@composable-os/gatekeeper-observability",
   "version": "0.0.0",
   "license": "Apache-2.0",
   "private": true,
@@ -16,8 +16,8 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.5.1",
     "@cloudflare/workers-types": "5.20261104.1",
-    "@relationship-os/config": "workspace:*",
-    "@relationship-os/gatekeeper-interface": "workspace:*",
+    "@composable-os/config": "workspace:*",
+    "@composable-os/gatekeeper-interface": "workspace:*",
     "typescript": "6.0.3",
     "vitest": "5.1.0"
   }

@@ -9,8 +9,8 @@
 // bound to it is owner-only. See `sharing-policy.ts` and the README.
 import { RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { validateRpc, skipRpcValidation } from "capnweb-validate";
-import { createLogger } from "@relationship-os/gatekeeper-observability/logger";
-import { readTextCapped } from "@relationship-os/gatekeeper-kit/response-body";
+import { createLogger } from "@composable-os/gatekeeper-observability/logger";
+import { readTextCapped } from "@composable-os/gatekeeper-kit/response-body";
 import {
   stripTrailingSlashes,
   workerVersionTag,
@@ -25,23 +25,23 @@ import {
   type ResourceDescription,
   type SupportedResource,
   type VendorDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
-import type { ToolCatalog } from "@relationship-os/mcp-shared/client";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
+import type { ToolCatalog } from "@composable-os/mcp-shared/client";
 import {
   classifyTool,
   MAX_TOOLS_PER_SERVER,
   type ServerTrust,
-} from "@relationship-os/mcp-shared/tools";
-import { bindingNameFragment, hostOf } from "@relationship-os/mcp-shared/util";
-import type { McpLog, McpLogFields } from "@relationship-os/mcp-shared/log";
-import { generateSessionTypes, sessionTypeName } from "@relationship-os/mcp-shared/schema-to-ts";
+} from "@composable-os/mcp-shared/tools";
+import { bindingNameFragment, hostOf } from "@composable-os/mcp-shared/util";
+import type { McpLog, McpLogFields } from "@composable-os/mcp-shared/log";
+import { generateSessionTypes, sessionTypeName } from "@composable-os/mcp-shared/schema-to-ts";
 import { McpAccountBase, type ConnectedServer, type ConnectOutcome }
-  from "@relationship-os/mcp-shared/account";
-import { generateNonce } from "@relationship-os/mcp-shared/connect-nonce";
-import { fetchTools, withClient, type ConnectionAccount } from "@relationship-os/mcp-shared/connection";
-import { McpSessionBase } from "@relationship-os/mcp-shared/session";
-import { McpFacetBase } from "@relationship-os/mcp-shared/facet";
-import { looksLikePortal } from "@relationship-os/mcp-shared/portal";
+  from "@composable-os/mcp-shared/account";
+import { generateNonce } from "@composable-os/mcp-shared/connect-nonce";
+import { fetchTools, withClient, type ConnectionAccount } from "@composable-os/mcp-shared/connection";
+import { McpSessionBase } from "@composable-os/mcp-shared/session";
+import { McpFacetBase } from "@composable-os/mcp-shared/facet";
+import { looksLikePortal } from "@composable-os/mcp-shared/portal";
 import {
   endpointOfResourceUrl,
   endpointTag,
@@ -51,25 +51,25 @@ import {
   scopeAllows,
   validateToolScopeAgainstCatalog,
   type ToolScope,
-} from "@relationship-os/mcp-shared/scope";
-import { validateCustomEndpoint } from "@relationship-os/mcp-shared/endpoint";
-import { fetchOptions } from "@relationship-os/mcp-shared/fetch";
+} from "@composable-os/mcp-shared/scope";
+import { validateCustomEndpoint } from "@composable-os/mcp-shared/endpoint";
+import { fetchOptions } from "@composable-os/mcp-shared/fetch";
 import {
   connectHandoffPageHtml,
   htmlResponse,
   INVALID_LINK_HTML,
-} from "@relationship-os/mcp-shared/html";
-import { handleMcpHttpRequest } from "@relationship-os/mcp-shared/http";
+} from "@composable-os/mcp-shared/html";
+import { handleMcpHttpRequest } from "@composable-os/mcp-shared/http";
 import {
   McpGatekeeperUserBase,
   mcpGatekeeperUserContext,
   type McpGatekeeperUserProps,
-} from "@relationship-os/mcp-shared/user";
+} from "@composable-os/mcp-shared/user";
 import { connectFormHtml } from "./connect-form.js";
 import { serverIdFromEndpoint } from "./server-id.js";
 import { mcpResourceFor, mcpResources } from "./resources.js";
-import type { ConfiguratorUIOption } from "@relationship-os/gatekeeper-configurator-ui";
-import { MCP_BASE_TYPES } from "@relationship-os/mcp-shared/base-types";
+import type { ConfiguratorUIOption } from "@composable-os/gatekeeper-configurator-ui";
+import { MCP_BASE_TYPES } from "@composable-os/mcp-shared/base-types";
 import MCP_LOGO_SVG from "./mcp-logo.svg";
 import MCP_SERVER_CONFIGURATOR_HTML from "./generated/server-configurator-ui.txt";
 import type { McpServerConfiguratorRpc } from "./configurator/server-configurator-types";

@@ -3,20 +3,20 @@
 // same model as the assistant, and how often its verdicts agree with people's decisions.
 // Admins only; every change is an audited, human-only operation.
 
-import type { CoreOutput } from "@relationship-os/core";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+import type { CoreOutput } from "@composable-os/core";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
-import { RadioGroup, RadioGroupItem } from "@relationship-os/ui/components/radio-group";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/card";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
+import { RadioGroup, RadioGroupItem } from "@composable-os/ui/components/radio-group";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import {
   Table,
   TableBody,
@@ -24,9 +24,9 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@relationship-os/ui/components/table";
-import { Tabs, TabsList, TabsTrigger } from "@relationship-os/ui/components/tabs";
-import { Textarea } from "@relationship-os/ui/components/textarea";
+} from "@composable-os/ui/components/table";
+import { Tabs, TabsList, TabsTrigger } from "@composable-os/ui/components/tabs";
+import { Textarea } from "@composable-os/ui/components/textarea";
 import { createFileRoute } from "@tanstack/react-router";
 import { AlertTriangleIcon, LockIcon } from "lucide-react";
 import { useEffect, useState } from "react";

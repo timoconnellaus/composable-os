@@ -10,17 +10,17 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Button } from "@relationship-os/ui/components/button";
+} from "@composable-os/ui/components/alert-dialog";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@relationship-os/ui/components/tabs";
+} from "@composable-os/ui/components/select";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@composable-os/ui/components/tabs";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CopyIcon } from "lucide-react";

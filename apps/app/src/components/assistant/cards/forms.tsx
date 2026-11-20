@@ -1,25 +1,25 @@
 // Forms and input. A form's values go to one operation, so it is a change set where review applies;
 // a choice answers the assistant as the person's message.
-import type { FormField, FormSubmit } from "@relationship-os/agent-a2ui";
+import type { FormField, FormSubmit } from "@composable-os/agent-a2ui";
 import {
   type RendererProps,
   submitAction,
   useA2uiAction,
   useA2uiRunner,
-} from "@relationship-os/agent-a2ui/react";
-import { Button } from "@relationship-os/ui/components/button";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/agent-a2ui/react";
+import { Button } from "@composable-os/ui/components/button";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Textarea } from "@relationship-os/ui/components/textarea";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/select";
+import { Textarea } from "@composable-os/ui/components/textarea";
+import { cn } from "@composable-os/ui/lib/utils";
 import { UploadIcon } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { RecordPicker } from "#/components/record-picker";

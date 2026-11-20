@@ -4,7 +4,7 @@
 // subject's refs follow in the erase's batch. The store here keeps messages in memory and applies
 // the same scrubParts the Durable Object does (apps/app/test/assistant.test.ts runs the real one).
 import { env } from "cloudflare:workers";
-import type { ThreadMessage } from "@relationship-os/agent-core";
+import type { ThreadMessage } from "@composable-os/agent-core";
 import type { ModelMessage } from "ai";
 import { beforeAll, describe, expect, it } from "vitest";
 import {

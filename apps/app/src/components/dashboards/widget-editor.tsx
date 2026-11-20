@@ -7,9 +7,9 @@ import {
   WIDGET_TYPES,
   type WidgetSpec,
   type WidgetType,
-} from "@relationship-os/core/client";
-import { Button } from "@relationship-os/ui/components/button";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
+} from "@composable-os/core/client";
+import { Button } from "@composable-os/ui/components/button";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -17,18 +17,18 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@relationship-os/ui/components/dialog";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/dialog";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@relationship-os/ui/components/tabs";
-import { Textarea } from "@relationship-os/ui/components/textarea";
+} from "@composable-os/ui/components/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@composable-os/ui/components/tabs";
+import { Textarea } from "@composable-os/ui/components/textarea";
 import { SparklesIcon } from "lucide-react";
 import { useState } from "react";
 import { callOp } from "#/lib/operations";

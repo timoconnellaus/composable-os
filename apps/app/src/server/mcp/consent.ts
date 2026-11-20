@@ -5,14 +5,9 @@
 // HTML (no app bundle) styled with the app's design tokens, light and dark, down to phone width.
 
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
-import { createIdentityProvider, type IdentityEnv, type Principal } from "@relationship-os/auth";
-import {
-  grantableScopes,
-  MCP_SCOPES,
-  type McpScope,
-  resolveActingUser,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+import { createIdentityProvider, type IdentityEnv, type Principal } from "@composable-os/auth";
+import { grantableScopes, MCP_SCOPES, type McpScope, resolveActingUser } from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { type OperationsEnv, runOperation } from "../operations.ts";
 
 export const CONSENT_PATH = "/oauth/consent";

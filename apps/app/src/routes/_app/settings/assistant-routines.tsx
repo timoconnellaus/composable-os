@@ -2,7 +2,7 @@
 // status and last and next run, and pause, edit, delete and test. This page and plugin pages are
 // the only places the word appears; the chat talks about outcomes. Admins also set how often a
 // schedule may run.
-import type { CoreOutput } from "@relationship-os/core";
+import type { CoreOutput } from "@composable-os/core";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,16 +12,16 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+} from "@composable-os/ui/components/alert-dialog";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
+} from "@composable-os/ui/components/card";
 import {
   Dialog,
   DialogContent,
@@ -29,10 +29,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@relationship-os/ui/components/dialog";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/dialog";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";

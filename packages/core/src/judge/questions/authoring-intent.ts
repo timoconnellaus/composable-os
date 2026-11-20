@@ -21,7 +21,7 @@ import type {
   ExtensionManifest,
   ViewFilter,
   WriteIntent,
-} from "@relationship-os/sdk";
+} from "@composable-os/sdk";
 import {
   automationSummary,
   conditionWords,

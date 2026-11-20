@@ -1,4 +1,4 @@
-// Background work, on the ros-control-jobs queue (inline when JOBS_INLINE=on: dev and tests).
+// Background work, on the crm-control-jobs queue (inline when JOBS_INLINE=on: dev and tests).
 // Each job is idempotent, so a queue retry after a partial failure converges.
 
 import { provisionInstance } from "./instances.ts";

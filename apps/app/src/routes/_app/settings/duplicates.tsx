@@ -1,17 +1,17 @@
 // Settings → Duplicates (admins; stage 16, ADR 0247): when the scan last ran, Scan now (a full
 // scan, one bounded call at a time), and how many people may share a phone number before it stops
 // counting as a match.
-import { Button } from "@relationship-os/ui/components/button";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/card";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { LockIcon } from "lucide-react";

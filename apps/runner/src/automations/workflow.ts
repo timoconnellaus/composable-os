@@ -15,7 +15,7 @@ import {
   type WorkflowStepConfig,
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
-import type { AutomationEvent, AutomationJournalEntry } from "@relationship-os/sdk";
+import type { AutomationEvent, AutomationJournalEntry } from "@composable-os/sdk";
 import { Executor } from "../executor/executor.ts";
 import { type AutomationRunParams, reviewEventType } from "./dispatch.ts";
 import { checkRoutineRun, isRoutineRun, queueRoutineDelivery } from "./routine.ts";

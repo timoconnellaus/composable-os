@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/evals-adjudicator",
+  "name": "@composable-os/evals-adjudicator",
   "version": "0.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
@@ -10,12 +10,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@relationship-os/core": "workspace:*",
-    "@relationship-os/evals-judge": "workspace:*",
-    "@relationship-os/evals-mcp": "workspace:*"
+    "@composable-os/core": "workspace:*",
+    "@composable-os/evals-judge": "workspace:*",
+    "@composable-os/evals-mcp": "workspace:*"
   },
   "devDependencies": {
-    "@relationship-os/config": "workspace:*",
+    "@composable-os/config": "workspace:*",
     "@types/node": "24.19.2",
     "typescript": "6.0.3",
     "vitest": "5.1.0"

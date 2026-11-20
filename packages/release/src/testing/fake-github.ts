@@ -36,7 +36,7 @@ export class FakeGitHub {
 
   readonly repository: string;
   /** `origin` serves both the API and downloads (for a fake served over HTTP). */
-  constructor(repository = "timoconnellaus/relationship-os", origin?: string) {
+  constructor(repository = "example/demo", origin?: string) {
     this.repository = repository;
     this.base = origin ?? "https://github.test";
     this.api = origin ?? "https://api.github.test";

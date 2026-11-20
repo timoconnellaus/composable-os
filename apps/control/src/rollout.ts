@@ -19,7 +19,7 @@ import {
   readDeploymentState,
   runRollback,
   runUpdate,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import { audit } from "./audit.ts";
 import { type InstanceRow, instanceById, instanceState, updateInstance } from "./db.ts";
 import { intVar } from "./env.ts";

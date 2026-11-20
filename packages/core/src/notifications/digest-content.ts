@@ -13,7 +13,7 @@
 // Activities are never part of it: they have no owner, and private ones stay private. A change I
 // made myself (actor human, my user id) is left out; changes by the assistant, an automation or a
 // connected app are listed even when they acted for me.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { refreshSchemaRegistry } from "../extensions/schema.ts";
 import { getField, getObject, isCoreObject, type ObjectDefinition } from "../fields/index.ts";

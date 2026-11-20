@@ -4,7 +4,7 @@
 // external MCP client are told the same things about the tools. These are the cached prefix and
 // never change from turn to turn. What does change (the page the person is on, the time) goes in
 // the tail: `assistantTail`.
-import type { TailBlock } from "@relationship-os/agent-core";
+import type { TailBlock } from "@composable-os/agent-core";
 import type { AssistantContext } from "./context.ts";
 import type { Grant } from "./grants.ts";
 

@@ -3,7 +3,6 @@
 // and operations marked `mcp: { expose: false }` are invisible and uncallable. Every reviewable
 // (non-read) call takes a required `reason`, stored on the pending action when it is queued.
 
-import { McpServer, type StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import {
   type AnyOperation,
   coreRegistry,
@@ -23,8 +22,9 @@ import {
   toOperationError,
   UnknownOperationError,
   ValidationError,
-} from "@relationship-os/core";
-import type { CrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import type { CrmDb } from "@composable-os/db";
+import { McpServer, type StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 export const SERVER_NAME = "relationship-os";
@@ -38,7 +38,7 @@ export const SERVER_INSTRUCTIONS = `This server is Relationship OS, an AI-native
 - Group a task with changeset_begin (give it a title) and changeset_commit when done, so the reviewer sees one coherent change set.
 - Analysis: query_sql runs read-only SQL (one SELECT or WITH) over the rec_* views (rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user). Read the crm://schema resource for objects, fields and operations.
 - Code Mode: the code tool runs a short ES module that calls operations through import { ops } from "codemode:ops", as you and under the same approval rules. Use it for work that needs many calls or some logic; for many records use one *Many operation (one reviewable change), not a loop.
-- Extensions reshape the CRM with code: new objects, fields on people and organisations, formula fields, views and tools. Write the files with extension_write (index.ts default-exports defineExtension({...}) from @relationship-os/sdk; extension_read id "deals" shows a complete one), run extension_check and fix every issue, then extension_propose. Nothing is installed until a person approves the proposal in the Approvals inbox. Authoring needs the admin scope.
+- Extensions reshape the CRM with code: new objects, fields on people and organisations, formula fields, views and tools. Write the files with extension_write (index.ts default-exports defineExtension({...}) from @composable-os/sdk; extension_read id "deals" shows a complete one), run extension_check and fix every issue, then extension_propose. Nothing is installed until a person approves the proposal in the Approvals inbox. Authoring needs the admin scope.
 - Automations (defineAutomation in an extension) do exactly what the user asked, no more. Add no condition, filter, recipient, assignee or step they did not ask for: no "only open deals", no assignTo when they named no assignee, the admins when they said admins (not a manager). The shipped automations (e.g. in "deals") show the API, not what to build: copy their shape, not their conditions or recipients. If something you need is unspecified, ask, or pick the plainest reading and say what you assumed. Recipients: "admins" (a plain string) is every admin; { field: "owner" } is the user in a user field of the trigger record; { managerOf: "owner" } is that user's manager; { userId } is one user. Declare every write, notification and wait: the host writes the summary approvers read from those declarations, and extension_propose returns it (impact.triggers[].summary). Check it covers each thing asked (trigger, timing, records, links, recipients) and adds nothing, and restate each of them in your reply.
 - The curated tools cover common work. For anything else, describe_operations lists every operation you may call with its input schema, and call_operation runs one by name.`;
 

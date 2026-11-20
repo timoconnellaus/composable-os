@@ -6,7 +6,7 @@
 // assistant may call it, but only inside a chat turn, and the words are the person's, passed by
 // code: a model, an agent or another assistant can never supply them. High-risk items need the
 // second step here on the server too, whichever operation asks.
-import type { ApprovalVia, CoreDatabase, CrmDb, PendingActionStatus } from "@relationship-os/db";
+import type { ApprovalVia, CoreDatabase, CrmDb, PendingActionStatus } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { ADJUDICATOR_PRINCIPAL } from "../adjudicator/review.ts";

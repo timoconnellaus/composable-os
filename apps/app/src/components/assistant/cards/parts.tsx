@@ -1,11 +1,11 @@
 // What cards are built from, after the mockup (docs/stages/assets/17/cards.html): the frame with
 // header, body and footer, facts, record chips, links, and buttons. Everything wraps or cuts rather
 // than widening the card, because cards live in a 384 px panel and on 390 px phones.
-import type { A2uiAction, Fact, RecordRef, Tone } from "@relationship-os/agent-a2ui";
-import { useA2uiAction } from "@relationship-os/agent-a2ui/react";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { cn } from "@relationship-os/ui/lib/utils";
+import type { A2uiAction, Fact, RecordRef, Tone } from "@composable-os/agent-a2ui";
+import { useA2uiAction } from "@composable-os/agent-a2ui/react";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { cn } from "@composable-os/ui/lib/utils";
 import { CheckIcon, LoaderCircleIcon } from "lucide-react";
 import { type ComponentProps, type ReactNode, useEffect, useRef, useState } from "react";
 import { recordHref } from "#/lib/schema";

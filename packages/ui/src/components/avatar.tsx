@@ -1,4 +1,4 @@
-import { cn } from "@relationship-os/ui/lib/utils";
+import { cn } from "@composable-os/ui/lib/utils";
 import { Avatar as AvatarPrimitive } from "radix-ui";
 import type * as React from "react";
 

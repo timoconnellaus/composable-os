@@ -14,8 +14,8 @@ const app = worker("apps/app");
 const runner = worker("apps/runner");
 
 describe.each([
-  ["ros-app", app, "apps/app/src/server.ts"],
-  ["ros-runner", runner, "apps/runner/src/index.ts"],
+  ["cos-app", app, "apps/app/src/server.ts"],
+  ["cos-runner", runner, "apps/runner/src/index.ts"],
 ])("%s Durable Object migrations", (_name, pkg, entry) => {
   const migrations: Record<string, string[] | undefined>[] = pkg.config.migrations;
 
@@ -43,7 +43,7 @@ describe("production config", () => {
     expect(runner.config.vars.INTEGRATIONS_FAKE_PROVIDER).toBe("false");
   });
 
-  it("does not bind ros-runner to itself, a target that does not exist on a first deploy", () => {
+  it("does not bind cos-runner to itself, a target that does not exist on a first deploy", () => {
     expect(runner.config.services ?? []).toEqual([]);
   });
 });

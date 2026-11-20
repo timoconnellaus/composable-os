@@ -4,8 +4,8 @@
 // show Approve and Reject, and a tool result that holds a card becomes the event's `card` while the
 // model reads only the card's text fallback (ADR 0346).
 
-import type { A2uiPart } from "@relationship-os/agent-a2ui";
-import { runTurn, type TurnTool } from "@relationship-os/agent-core";
+import type { A2uiPart } from "@composable-os/agent-a2ui";
+import { runTurn, type TurnTool } from "@composable-os/agent-core";
 import type { ModelMessage } from "ai";
 import type { ChatModel } from "../ai/client.ts";
 import {
@@ -23,7 +23,7 @@ export type AssistantTool = TurnTool;
 export {
   DEFAULT_MAX_STEPS as ASSISTANT_MAX_STEPS,
   TOOL_RESULT_MAX_CHARS,
-} from "@relationship-os/agent-core";
+} from "@composable-os/agent-core";
 
 export interface AssistantTurnInput {
   /** The role's models, primary first (ModelRunner.chatModels). */

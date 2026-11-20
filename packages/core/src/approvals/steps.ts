@@ -1,7 +1,7 @@
 // The second step, on the server (ADR 0345): which pending actions need it, under the
 // `approvals.phraseThreshold.email` setting. An approval that skipped it is refused here, so the
 // Approvals inbox and a direct `approval.approve` cannot get round what the card asks for.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { OperationError } from "../errors.ts";

@@ -11,12 +11,12 @@
 //   scrolling and can extend to every matching record (up to SELECT_ALL_CAP, for the batch
 //   operations), keyboard navigation (j/k move and scroll, x selects, Enter opens), scroll
 //   restoration per history entry, and skeleton, error and empty states.
-import type { FieldDefinition, Filter, ObjectDefinition, Sort } from "@relationship-os/core/client";
-import { getField } from "@relationship-os/core/client";
-import { Button } from "@relationship-os/ui/components/button";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { cn } from "@relationship-os/ui/lib/utils";
+import type { FieldDefinition, Filter, ObjectDefinition, Sort } from "@composable-os/core/client";
+import { getField } from "@composable-os/core/client";
+import { Button } from "@composable-os/ui/components/button";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { cn } from "@composable-os/ui/lib/utils";
 import { infiniteQueryOptions, useInfiniteQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, SearchXIcon } from "lucide-react";

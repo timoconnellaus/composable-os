@@ -6,7 +6,7 @@ import {
   reply,
   scriptedModel,
   toolCall,
-} from "@relationship-os/evals-mcp/test/fakes.ts";
+} from "@composable-os/evals-mcp/test/fakes.ts";
 import { describe, expect, it } from "vitest";
 import { type ExtensionsHarnessDeps, runPrompt } from "../lib/harness.ts";
 import type { Manifest } from "../lib/manifest.ts";

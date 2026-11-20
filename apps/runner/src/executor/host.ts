@@ -21,9 +21,9 @@ import {
   parseFloor,
   type TestSimulation,
   toOperationError,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
-import type { ExtensionManifest } from "@relationship-os/sdk";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
+import type { ExtensionManifest } from "@composable-os/sdk";
 import { runModelRole } from "../extensions/ai.ts";
 import { CODE_MAX_CALLS } from "../extensions/code-mode.ts";
 import { embedsFromEvents } from "../extensions/embeddings.ts";

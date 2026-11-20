@@ -1,5 +1,5 @@
 {
-  "extends": "@relationship-os/config/tsconfig.react.json",
+  "extends": "@composable-os/config/tsconfig.react.json",
   "compilerOptions": {
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"]
   },

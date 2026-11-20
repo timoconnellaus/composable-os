@@ -1,4 +1,4 @@
-# @relationship-os/config
+# @composable-os/config
 
 Shared tooling presets for every workspace package:
 

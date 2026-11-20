@@ -2,7 +2,7 @@
 // `demo-runner` and a UI that says "Demo", with no code change.
 //
 //   node scripts/release/build-release.ts --product scripts/release/test/testdata/products/demo/product.ts
-import { defineProduct } from "@relationship-os/product";
+import { defineProduct } from "@composable-os/product";
 
 export const product = defineProduct({
   id: "demo",

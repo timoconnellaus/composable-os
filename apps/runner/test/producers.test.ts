@@ -2,14 +2,14 @@
 // every viewer; no model and no network; read operations only; and two people's concurrent runs
 // on one warm worker never mix.
 import { env } from "cloudflare:workers";
-import { prepareCard, producerRef } from "@relationship-os/agent-a2ui";
+import { prepareCard, producerRef } from "@composable-os/agent-a2ui";
 import {
   type ActingUser,
   type CodeCaller,
   FIRST_PARTY_PRODUCERS,
   invokeByName,
   type ProducerRun,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildProducer, producerWorkerId } from "../src/extensions/producers.ts";
 import { extensionHost } from "../src/index.ts";

@@ -1,4 +1,4 @@
-import type { A2uiPart } from "@relationship-os/agent-a2ui";
+import type { A2uiPart } from "@composable-os/agent-a2ui";
 import { describe, expect, it } from "vitest";
 import {
   addPending,

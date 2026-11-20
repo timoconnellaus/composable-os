@@ -4,7 +4,7 @@
 // notices. The parts map one to one onto AI SDK model messages, so what was sent to the model is
 // what is replayed to it on the next turn (reasoning included, ADR 0201), and the prefix of the
 // conversation stays byte-stable for prompt caching (ADR 0341).
-import type { A2uiPart } from "@relationship-os/agent-a2ui";
+import type { A2uiPart } from "@composable-os/agent-a2ui";
 import type { ModelMessage } from "ai";
 
 /** How a message reached the thread. */

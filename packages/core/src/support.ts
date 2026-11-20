@@ -4,7 +4,7 @@
 // Approving creates a support user — its own core_user row, never a customer's account — which
 // is the only identity a support session can act as. Every request re-checks the grant (one PK
 // read, support users only), so revocation and expiry bite on the next request.
-import type { CoreDatabase, CoreSupportGrantsTable } from "@relationship-os/db";
+import type { CoreDatabase, CoreSupportGrantsTable } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
 
 /** The longest a grant may last once approved: 3 days, whatever was requested. */

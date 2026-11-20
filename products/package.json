@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/products",
+  "name": "@composable-os/products",
   "version": "0.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
@@ -13,10 +13,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@relationship-os/product": "workspace:*"
+    "@composable-os/product": "workspace:*"
   },
   "devDependencies": {
-    "@relationship-os/config": "workspace:*",
+    "@composable-os/config": "workspace:*",
     "typescript": "6.0.3"
   }
 }

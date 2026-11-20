@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/evals-judge",
+  "name": "@composable-os/evals-judge",
   "version": "0.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
@@ -12,13 +12,13 @@
     "probe": "node --experimental-transform-types --no-warnings probe.ts"
   },
   "dependencies": {
-    "@relationship-os/core": "workspace:*",
-    "@relationship-os/evals-mcp": "workspace:*",
-    "@relationship-os/extension-deals": "workspace:*",
-    "@relationship-os/sdk": "workspace:*"
+    "@composable-os/core": "workspace:*",
+    "@composable-os/evals-mcp": "workspace:*",
+    "@composable-os/extension-deals": "workspace:*",
+    "@composable-os/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@relationship-os/config": "workspace:*",
+    "@composable-os/config": "workspace:*",
     "@types/node": "24.19.2",
     "typescript": "6.0.3",
     "vitest": "5.1.0"

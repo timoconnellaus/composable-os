@@ -1,5 +1,5 @@
 // The duplicate scan (stage 16, ADR 0247). Three jobs share one state row in core_settings
-// ('duplicate_scan'), and `duplicate.scan` runs a bounded amount of each per call, so ros-runner's
+// ('duplicate_scan'), and `duplicate.scan` runs a bounded amount of each per call, so cos-runner's
 // minute cron (and "Scan now") can call it until it is done:
 //
 // 1. Backfill: fills name_key on rows written before migration 0320, by id, without touching
@@ -10,7 +10,7 @@
 // 3. Incremental scan (nightly, and after an import): only records changed since the cursor
 //    (updated_at), each looked up against the name-key index, phone numbers and domains. Reads
 //    follow the number of changed records, not the table size.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
 import { zonedTime } from "../automations/cron.ts";

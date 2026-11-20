@@ -1,6 +1,6 @@
-// Browser-safe subset of @relationship-os/core for UI code: the field registry, filter JSON, sort, and the
+// Browser-safe subset of @composable-os/core for UI code: the field registry, filter JSON, sort, and the
 // approval-policy presets. It never pulls in operation handlers or the database package, so the
-// UI bundle stays small and cannot reach D1. Import it as `@relationship-os/core/client`.
+// UI bundle stays small and cannot reach D1. Import it as `@composable-os/core/client`.
 // The in-app assistant's stream events and transcript (ADR 0200).
 
 export * from "./approvals/describe.ts";

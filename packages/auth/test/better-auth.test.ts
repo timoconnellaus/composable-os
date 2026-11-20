@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { clearEntitlementsCache } from "@relationship-os/core";
+import { clearEntitlementsCache } from "@composable-os/core";
 import { describe, expect, it } from "vitest";
 import { createIdentityProvider, IdentityConfigError, type IdentityEnv } from "../src/index.ts";
 

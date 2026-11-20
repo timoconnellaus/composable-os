@@ -2,7 +2,7 @@
 // leads created per week, and conversions this month. Each widget is read-only SQL over
 // rec_x_leads_lead with named params bound from the filters (ADR 0057), and a click-through that
 // opens the leads it counted.
-import type { DashboardDeclaration } from "@relationship-os/sdk";
+import type { DashboardDeclaration } from "@composable-os/sdk";
 
 const OWNER = "(:owner IS NULL OR l.owner = :owner)";
 const CREATED = "l.created_at >= :created_from AND l.created_at < :created_to";

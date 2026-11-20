@@ -4,10 +4,10 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ReviewModel } from "@relationship-os/core/adjudicator-review";
-import { RecordingFile, withRun } from "@relationship-os/evals-judge/lib/recorder.ts";
-import { ACME_POLICY } from "@relationship-os/evals-judge/sets/adjudicator-policy.ts";
-import type { ChatCompletionRequest, ModelClient } from "@relationship-os/evals-mcp/lib/model.ts";
+import type { ReviewModel } from "@composable-os/core/adjudicator-review";
+import { RecordingFile, withRun } from "@composable-os/evals-judge/lib/recorder.ts";
+import { ACME_POLICY } from "@composable-os/evals-judge/sets/adjudicator-policy.ts";
+import type { ChatCompletionRequest, ModelClient } from "@composable-os/evals-mcp/lib/model.ts";
 import { describe, expect, it } from "vitest";
 import { cases, type Label, SAMPLE_POLICY } from "../fixtures.ts";
 import { runCases, score } from "../lib/harness.ts";

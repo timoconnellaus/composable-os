@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Builds a release (ADR 0053, ADR 0160): every Worker bundled exactly as `wrangler deploy` would
-// upload it (`wrangler deploy --dry-run --outdir`, the repository's pinned wrangler), ros-app's
+// upload it (`wrangler deploy --dry-run --outdir`, the repository's pinned wrangler), cos-app's
 // static assets, the core migrations and the manifest, packed into one deterministic tar.gz.
 //
 //   <out>/<prefix>-<version>.tar.gz          the bundle (manifest.json, modules/, assets/, migrations/)
@@ -32,8 +32,8 @@ import { tmpdir } from "node:os";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
-import { loadProduct, PRODUCT_ENV, productFile } from "@relationship-os/product/node";
-import { DEFAULT_PRODUCT } from "@relationship-os/products";
+import { loadProduct, PRODUCT_ENV, productFile } from "@composable-os/product/node";
+import { DEFAULT_PRODUCT } from "@composable-os/products";
 import {
   assertUnresolved,
   assetHash,
@@ -45,7 +45,7 @@ import {
   sha256Hex,
   stableStringify,
   writeTar,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import {
   type DeployablePackage,
   generateManifest,
@@ -174,7 +174,7 @@ async function main() {
   if (!args["skip-build"]) run(ROOT, "pnpm", ["build"], productEnv);
 
   const packages = readDeployablePackages(ROOT);
-  const scratch = mkdtempSync(join(tmpdir(), "ros-release-"));
+  const scratch = mkdtempSync(join(tmpdir(), "cos-release-"));
   const builds: WorkerBuild[] = [];
   const moduleBlobs = new Map<string, Uint8Array>();
   const assetBlobs = new Map<string, Uint8Array>();

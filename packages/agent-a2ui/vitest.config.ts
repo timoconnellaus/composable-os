@@ -1,4 +1,4 @@
-import { defineWorkersTestConfig } from "@relationship-os/config/vitest";
+import { defineWorkersTestConfig } from "@composable-os/config/vitest";
 
 export default defineWorkersTestConfig({
   include: ["test/**/*.test.{ts,tsx}"],

@@ -1,7 +1,7 @@
 // Assistant system flows (host-rendered): only the app itself sends these. Their workstreams (W3
 // memory, W4 routines, W7 plugins, W8 connected assistants) send the documents; the cards are here.
-import type { RendererProps } from "@relationship-os/agent-a2ui/react";
-import { cn } from "@relationship-os/ui/lib/utils";
+import type { RendererProps } from "@composable-os/agent-a2ui/react";
+import { cn } from "@composable-os/ui/lib/utils";
 import { CheckIcon, SparklesIcon, XIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { ApprovalCard } from "./approval.tsx";

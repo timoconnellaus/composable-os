@@ -5,11 +5,11 @@
 //
 // The step comes from the server, which refuses an approval without it; a typed or spoken approval
 // goes through the chat (`approval.decide`), so only the tap is here.
-import type { CoreOutput } from "@relationship-os/core";
-import { combinedStep } from "@relationship-os/core/client";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+import type { CoreOutput } from "@composable-os/core";
+import { combinedStep } from "@composable-os/core/client";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { CheckIcon, XIcon } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";

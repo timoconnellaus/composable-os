@@ -1,7 +1,7 @@
 // Bulk merge from the Duplicates page (stage 16, ADR 0247). The page sends the selected groups to
 // duplicate.mergeMany a few at a time, so a person sees progress and each call stays well inside
 // a Worker's limits; every merge inside still runs through person.merge / organisation.merge.
-import type { CoreOutput } from "@relationship-os/core";
+import type { CoreOutput } from "@composable-os/core";
 import { callOp } from "#/lib/operations";
 import { type MergeGroup, mergeBatches } from "./merge-batches.ts";
 

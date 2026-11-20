@@ -1,7 +1,7 @@
 // duplicate.* operations (stage 16, ADR 0247): the creation check, the scan's suggestions, review
 // (list, dismiss) and bulk merge. Duplicates are found by plain rules with a stated reason, never
 // by a score; merging always goes through person.merge / organisation.merge.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
 import {

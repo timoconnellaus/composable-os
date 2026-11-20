@@ -7,8 +7,8 @@ import { DurableObject } from "cloudflare:workers";
 import type {
   HookTargetMetadata,
   ObservationDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
-import { HookDeliveryQueue } from "@relationship-os/gatekeeper-kit/hook-delivery-queue";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
+import { HookDeliveryQueue } from "@composable-os/gatekeeper-kit/hook-delivery-queue";
 import { shapeDelivery } from "./shape.js";
 import type { WebhookEvent, WebhookScheme } from "./types.js";
 import { type RejectionReason, verifySignature } from "./verify.js";

@@ -1,8 +1,8 @@
 // The policy adjudicator's catch-up sweep (ADR 0204), on the 10-minute cron: judges pending
-// actions the post-queue hook missed (it ran out of time, or ros-runner queued them). Framework-
+// actions the post-queue hook missed (it ran out of time, or cos-runner queued them). Framework-
 // free so it is tested in workerd. With the adjudicator off it is one settings read.
-import { coreRegistry, parseFloor, runAdjudicatorSweep } from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+import { coreRegistry, parseFloor, runAdjudicatorSweep } from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { judgeOf, modelsFor } from "./ai.ts";
 import { automationWiring, extensionHostFor, type OperationsEnv } from "./operations.ts";
 

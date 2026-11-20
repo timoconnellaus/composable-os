@@ -11,7 +11,7 @@ import { defineProduct, type ProductDefinition } from "./index.ts";
 export const PRODUCT_ENV = "COS_PRODUCT";
 
 /** The module bundlers replace with the chosen product's definition. */
-export const ACTIVE_PRODUCT_MODULE = "@relationship-os/products/active";
+export const ACTIVE_PRODUCT_MODULE = "@composable-os/products/active";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 

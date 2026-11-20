@@ -1,7 +1,7 @@
 // Settings → What your assistant remembers (ADR 0342 decision 9): every line with its condition,
 // source message and date, with edit, delete, pause and reset; memory on or paused; and team lines
 // with their author and history, under the workspace's governance setting.
-import type { CoreOutput } from "@relationship-os/core";
+import type { CoreOutput } from "@composable-os/core";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,27 +11,27 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+} from "@composable-os/ui/components/alert-dialog";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/card";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { Switch } from "@relationship-os/ui/components/switch";
-import { Textarea } from "@relationship-os/ui/components/textarea";
+} from "@composable-os/ui/components/select";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { Switch } from "@composable-os/ui/components/switch";
+import { Textarea } from "@composable-os/ui/components/textarea";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";

@@ -2,7 +2,7 @@
 // sync.setSettings) and which outbound action kinds may auto-apply under Balanced
 // (outbound.kinds / outbound.setAutoApprove). Turning auto-approval on loosens the approval
 // policy, so it asks first.
-import type { CoreOutput } from "@relationship-os/core";
+import type { CoreOutput } from "@composable-os/core";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,13 +12,13 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { Label } from "@relationship-os/ui/components/label";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { Switch } from "@relationship-os/ui/components/switch";
-import { Textarea } from "@relationship-os/ui/components/textarea";
+} from "@composable-os/ui/components/alert-dialog";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { Label } from "@composable-os/ui/components/label";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { Switch } from "@composable-os/ui/components/switch";
+import { Textarea } from "@composable-os/ui/components/textarea";
 import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState, ErrorState } from "#/components/empty-state";

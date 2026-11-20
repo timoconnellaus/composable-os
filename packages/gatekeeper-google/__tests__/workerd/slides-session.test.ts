@@ -4,7 +4,7 @@ import { RpcStub, RpcTarget } from "cloudflare:workers";
 import type {
   ActionDescription, ApprovalQueue, GitCache, HookController, HookDescription,
   ObservationDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { unguardedNativeRead, type NativeRead } from "../../src/drive-session";
 import { officeFileError } from "../../src/office-conversion";

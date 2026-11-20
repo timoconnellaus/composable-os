@@ -6,7 +6,7 @@
 // These never queue for review (`bookkeeping`): a routine reads and messages its owner, and the
 // owner confirms it themselves.
 
-import { a2uiPartSchema } from "@relationship-os/agent-a2ui";
+import { a2uiPartSchema } from "@composable-os/agent-a2ui";
 import { z } from "zod";
 import { CARD_STATUS } from "../assistant/events.ts";
 import { BACKTEST_DAYS, backtestRoutine } from "../assistant/routine-backtest.ts";

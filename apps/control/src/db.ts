@@ -1,5 +1,5 @@
 // Typed access to the control plane's D1 (migrations/). Every query is by primary key or an index.
-import type { DeploymentState } from "@relationship-os/release";
+import type { DeploymentState } from "@composable-os/release";
 import type { PlanId } from "./plans.ts";
 import { newId } from "./util.ts";
 

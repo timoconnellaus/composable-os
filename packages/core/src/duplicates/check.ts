@@ -3,7 +3,7 @@
 // warnings are the other rules, each with its reason. A fixed number of indexed reads, whatever
 // the data: the conflict lookup, the name-key lookup, the phone or domain lookup, and the
 // candidates' profiles.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { tryNormaliseDomain } from "../operations/organisation.ts";

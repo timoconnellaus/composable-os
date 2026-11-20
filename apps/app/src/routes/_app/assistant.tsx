@@ -1,7 +1,7 @@
 // /assistant (ADR 0030, ADR 0340): the person's one thread on a full page, the same thread the
 // docked sidebar shows. No conversation list and no "new conversation": the chat never resets.
 // "Search this chat" finds anything said in it, and "Jump to" scrolls there.
-import { cn } from "@relationship-os/ui/lib/utils";
+import { cn } from "@composable-os/ui/lib/utils";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";

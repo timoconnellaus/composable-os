@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Opens a release bundle the way the deployers do (every file checked against the manifest) and
-// prints what it holds. Usage: node scripts/release/inspect-bundle.ts <relationship-os-x.y.z.tar.gz>
+// prints what it holds. Usage: node scripts/release/inspect-bundle.ts <composable-os-<product>-x.y.z.tar.gz>
 import { readFileSync } from "node:fs";
-import { assertUnresolved, openBundle, sha256Hex } from "@relationship-os/release";
+import { assertUnresolved, openBundle, sha256Hex } from "@composable-os/release";
 
 const path = process.argv[2];
 if (!path) {

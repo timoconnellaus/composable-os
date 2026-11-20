@@ -1,4 +1,4 @@
-import type { Migration } from "@relationship-os/db";
+import type { Migration } from "@composable-os/db";
 
 declare global {
   namespace Cloudflare {

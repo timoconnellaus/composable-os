@@ -1,6 +1,6 @@
-// Bundle budget for ros-runner (ADR 0043): the main module must stay small and must not carry the
+// Bundle budget for cos-runner (ADR 0043): the main module must stay small and must not carry the
 // TypeScript compiler, which lives in the checker's Dynamic Worker (a Text module, never parsed by
-// ros-runner itself). Builds with `wrangler deploy --dry-run` into a temporary directory.
+// cos-runner itself). Builds with `wrangler deploy --dry-run` into a temporary directory.
 //
 // Before ADR 0043 the main module was 10,348 KiB (the compiler, its declarations and the SDK
 // bundle all inside it).
@@ -21,7 +21,7 @@ const MAIN_BUDGET_KIB = 6_144;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const out = await mkdtemp(join(tmpdir(), "ros-runner-bundle-"));
+const out = await mkdtemp(join(tmpdir(), "cos-runner-bundle-"));
 try {
   execFileSync("npx", ["wrangler", "deploy", "--dry-run", "--outdir", out], {
     cwd: root,

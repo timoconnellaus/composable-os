@@ -11,7 +11,7 @@ import {
   invokeByName,
   notifyStatements,
   seedRecordId,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";

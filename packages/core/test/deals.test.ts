@@ -3,10 +3,10 @@
 // the base currency setting, the stage behaviour on the demo dataset, and rows-read budgets for
 // the hot deal queries (D1 bills rows scanned).
 import { env } from "cloudflare:workers";
-import { createCrmDb } from "@relationship-os/db";
-import { seedRecordId as dbSeedRecordId, seedDatabase } from "@relationship-os/db/seed";
-import deals from "@relationship-os/extension-deals";
-import { toManifest } from "@relationship-os/sdk";
+import { createCrmDb } from "@composable-os/db";
+import { seedRecordId as dbSeedRecordId, seedDatabase } from "@composable-os/db/seed";
+import deals from "@composable-os/extension-deals";
+import { toManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invokeByName, seedRecordId } from "../src/index.ts";
 import { reconcile } from "./extension-helpers.ts";

@@ -2,7 +2,7 @@
 // Renders public/og.png (1200x630, the social card) and public/apple-touch-icon.png (180x180) in
 // headless Chromium, with the site's own fonts and colours. The PNGs are committed; run this again
 // after changing the brand or the headline:
-//   pnpm --filter @relationship-os/marketing og-image
+//   pnpm --filter @composable-os/marketing og-image
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";

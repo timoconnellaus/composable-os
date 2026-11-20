@@ -1,7 +1,7 @@
 // The front agent's hint (ADR 0344): the judge's `orchestrator.suggest` may add a line to the tail
 // when a message looks like work across many records. The model still decides, with or without it.
 // A cheap check in code keeps the judge out of ordinary messages: most turns ask it nothing.
-import type { TailBlock } from "@relationship-os/agent-core";
+import type { TailBlock } from "@composable-os/agent-core";
 import { askOrchestrator, orchestratorState } from "../judge/questions/orchestrator-suggest.ts";
 import type { Judge } from "../judge/types.ts";
 

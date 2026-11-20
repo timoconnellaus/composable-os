@@ -3,7 +3,7 @@
 // use (`judgeRoute`), recorded as a report in evals/judge/reports/probe-<time>.md. Never prints a
 // key: only whether each header was sent.
 //
-//   pnpm --filter @relationship-os/evals-judge probe              # direct, with TYPESAFE_API_KEY
+//   pnpm --filter @composable-os/evals-judge probe              # direct, with TYPESAFE_API_KEY
 //   CLOUDFLARE_ACCOUNT_ID=… AI_GATEWAY_ID=… AI_GATEWAY_TOKEN=… pnpm … probe
 //                                                                 # through custom-typesafe
 //   … JUDGE_BYOK=true pnpm … probe                                # BYOK: no Authorization sent
@@ -16,8 +16,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { JEV_MODEL, jevJudge, judgeRoute, noul } from "@relationship-os/core/judge";
-import { loadEvalEnvFile } from "@relationship-os/evals-mcp/lib/env-file.ts";
+import { JEV_MODEL, jevJudge, judgeRoute, noul } from "@composable-os/core/judge";
+import { loadEvalEnvFile } from "@composable-os/evals-mcp/lib/env-file.ts";
 
 export async function probe(env: Record<string, string | undefined>): Promise<string[]> {
   const route = judgeRoute(env);

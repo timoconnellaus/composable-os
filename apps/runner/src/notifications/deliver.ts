@@ -1,4 +1,4 @@
-// Notification delivery in ros-runner (stage 6b, ADR 0172): the minute cron's delivery tick and
+// Notification delivery in cos-runner (stage 6b, ADR 0172): the minute cron's delivery tick and
 // the channel routes the automation consumer fires. Both send through the integration host as a
 // system caller (actor `automation`, origin `system` / `notifications`) acting for the org
 // connection's owner, so every send is an outbound action the approval gate decides (ADR 0111):
@@ -20,8 +20,8 @@ import {
   type Role,
   resolveChannelTarget,
   runNotificationDelivery,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { runnerModels } from "../extensions/ai.ts";
 import { integrationRuntime } from "../integrations/runtime.ts";
 

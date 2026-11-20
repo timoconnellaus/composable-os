@@ -2,16 +2,16 @@
 // how much is read out are yours everywhere; how you talk is per device. Speed shows only when the
 // speech provider supports it. Changes save at once.
 
-import { Button } from "@relationship-os/ui/components/button";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Label } from "@relationship-os/ui/components/label";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/card";
+import { Label } from "@composable-os/ui/components/label";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import {
   Table,
   TableBody,
@@ -19,7 +19,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@relationship-os/ui/components/table";
+} from "@composable-os/ui/components/table";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { toast } from "sonner";

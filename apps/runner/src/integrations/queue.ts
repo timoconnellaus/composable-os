@@ -20,8 +20,8 @@ import {
   parseFloor,
   readCountHour,
   submitOutbound,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { runnerJudge } from "../extensions/ai.ts";
 
 export type QueueCaller =

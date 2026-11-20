@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/app",
+  "name": "@composable-os/app",
   "version": "0.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
@@ -19,16 +19,16 @@
     "@cloudflare/workers-oauth-provider": "1.2.4",
     "@modelcontextprotocol/client": "2.4.0",
     "@modelcontextprotocol/server": "2.4.0",
-    "@relationship-os/agent-a2ui": "workspace:*",
-    "@relationship-os/agent-core": "workspace:*",
-    "@relationship-os/agent-voice": "workspace:*",
-    "@relationship-os/auth": "workspace:*",
-    "@relationship-os/core": "workspace:*",
-    "@relationship-os/db": "workspace:*",
-    "@relationship-os/product": "workspace:*",
-    "@relationship-os/products": "workspace:*",
-    "@relationship-os/release": "workspace:*",
-    "@relationship-os/ui": "workspace:*",
+    "@composable-os/agent-a2ui": "workspace:*",
+    "@composable-os/agent-core": "workspace:*",
+    "@composable-os/agent-voice": "workspace:*",
+    "@composable-os/auth": "workspace:*",
+    "@composable-os/core": "workspace:*",
+    "@composable-os/db": "workspace:*",
+    "@composable-os/product": "workspace:*",
+    "@composable-os/products": "workspace:*",
+    "@composable-os/release": "workspace:*",
+    "@composable-os/ui": "workspace:*",
     "@tanstack/react-query": "5.105.3",
     "@tanstack/react-router": "1.170.46",
     "@tanstack/react-start": "1.169.4",
@@ -46,8 +46,8 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.67.0",
     "@cloudflare/vitest-plugin": "1.5.1",
-    "@relationship-os/config": "workspace:*",
-    "@relationship-os/runner": "workspace:*",
+    "@composable-os/config": "workspace:*",
+    "@composable-os/runner": "workspace:*",
     "@playwright/test": "1.64.1",
     "@tailwindcss/vite": "4.3.4",
     "@types/node": "24.19.2",
@@ -81,8 +81,8 @@
       "CF_ACCESS_AUD": {
         "description": "Only with IDENTITY_PROVIDER=cloudflare-access: the Access application's AUD tag."
       },
-      "ROS_UPDATE_TOKEN": {
-        "description": "Optional. A scoped Cloudflare API token that lets Settings \u2192 Updates update this deployment itself (docs/deploying.md). Without it, updates use the `ros upgrade` CLI."
+      "COS_UPDATE_TOKEN": {
+        "description": "Optional. A scoped Cloudflare API token that lets Settings \u2192 Updates update this deployment itself (docs/deploying.md). Without it, updates use the `cos upgrade` CLI."
       }
     }
   }

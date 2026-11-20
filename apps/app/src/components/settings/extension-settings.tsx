@@ -1,16 +1,16 @@
 // An extension's typed settings (ADR 0058), as declared in its manifest: a form of text, number,
 // switch and select inputs, saved with extensionSettings.update (admins only).
-import { Button } from "@relationship-os/ui/components/button";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+import { Button } from "@composable-os/ui/components/button";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
+} from "@composable-os/ui/components/select";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";

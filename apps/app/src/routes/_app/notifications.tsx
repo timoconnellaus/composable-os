@@ -2,9 +2,9 @@
 // virtualised list that loads more as you scroll. All or Unread; Mark all read. Each opens its
 // record, approval or automation run and is marked read; the daily digest shows in full, its
 // sections linking into the app (ADR 0206).
-import { Button } from "@relationship-os/ui/components/button";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@relationship-os/ui/components/tabs";
+import { Button } from "@composable-os/ui/components/button";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@composable-os/ui/components/tabs";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { BellIcon, CheckCheckIcon } from "lucide-react";
 import { toast } from "sonner";

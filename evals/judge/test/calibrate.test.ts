@@ -5,8 +5,8 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CALIBRATION, JEV_MODEL, jevJudge, judgeRoute, noul } from "@relationship-os/core/judge";
-import { policyVerdict } from "@relationship-os/core/judge-adjudicator-policy";
+import { CALIBRATION, JEV_MODEL, jevJudge, judgeRoute, noul } from "@composable-os/core/judge";
+import { policyVerdict } from "@composable-os/core/judge-adjudicator-policy";
 import { describe, expect, it } from "vitest";
 import { CALIBRATION_PATH, main, parseCli, RECORDINGS_DIR } from "../calibrate.ts";
 import {

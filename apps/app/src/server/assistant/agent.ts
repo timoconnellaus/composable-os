@@ -17,7 +17,7 @@
 //
 // Memory (ADR 0342) lives in D1 and is read live each turn (core's `memoryForTurn`); the object
 // keeps only when the memory block was last folded, which compaction moves on.
-import { type A2uiPart, prepareCard } from "@relationship-os/agent-a2ui";
+import { type A2uiPart, prepareCard } from "@composable-os/agent-a2ui";
 import {
   assembleContext,
   attachCards,
@@ -33,7 +33,7 @@ import {
   type TailBlock,
   type ThreadMessage,
   unreadCount,
-} from "@relationship-os/agent-core";
+} from "@composable-os/agent-core";
 import {
   type CallKind,
   callKindOf,
@@ -46,7 +46,7 @@ import {
   type VoiceFacts,
   type VoiceHost,
   withAssistantVoice,
-} from "@relationship-os/agent-voice";
+} from "@composable-os/agent-voice";
 import {
   type ActingUser,
   type AssistantContext,
@@ -99,8 +99,8 @@ import {
   transcriptFromThread,
   withCardText,
   withSavedLines,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { Agent, type Connection, type ConnectionContext, type WSMessage } from "agents";
 import "./routine-agents.ts";
 import { aiContextFor } from "../ai.ts";
@@ -129,8 +129,8 @@ export interface AssistantEnv extends OperationsEnv {
   MCP_WRITE_RATE_LIMIT?: RateLimitBinding;
 }
 
-/** The header ros-app's own routing sets on a WebSocket upgrade: the signed-in user. */
-export const USER_HEADER = "x-ros-assistant-user";
+/** The header cos-app's own routing sets on a WebSocket upgrade: the signed-in user. */
+export const USER_HEADER = "x-cos-assistant-user";
 
 /** The Durable Object name of a user's thread. */
 export function threadName(userId: string): string {

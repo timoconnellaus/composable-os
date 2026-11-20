@@ -6,7 +6,7 @@ import {
   AssemblyAISpeech,
   AssemblyAITranscriber,
   type SpokenSegment,
-} from "@relationship-os/agent-voice";
+} from "@composable-os/agent-voice";
 import { describe, expect, it } from "vitest";
 
 const { AI_KEY_ASSEMBLYAI: key = "", ASSEMBLYAI_LIVE } = env as unknown as {

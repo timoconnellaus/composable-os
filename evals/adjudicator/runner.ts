@@ -15,10 +15,10 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import type { PolicyReviewer, ReviewModel } from "@relationship-os/core/adjudicator-review";
-import { shippedModel } from "@relationship-os/core/ai-roles";
-import { JEV_MODEL, jevJudge, judgeRoute } from "@relationship-os/core/judge";
-import { jevPolicyReviewer } from "@relationship-os/core/judge-adjudicator-policy";
+import type { PolicyReviewer, ReviewModel } from "@composable-os/core/adjudicator-review";
+import { shippedModel } from "@composable-os/core/ai-roles";
+import { JEV_MODEL, jevJudge, judgeRoute } from "@composable-os/core/judge";
+import { jevPolicyReviewer } from "@composable-os/core/judge-adjudicator-policy";
 import {
   RecordingFile,
   type RecordingMode,
@@ -26,19 +26,15 @@ import {
   recordingMode,
   spend,
   withRun,
-} from "@relationship-os/evals-judge/lib/recorder.ts";
-import {
-  checkCredentials,
-  parseOnly,
-  parsePositiveInt,
-} from "@relationship-os/evals-mcp/lib/cli.ts";
-import { loadEvalEnvFile } from "@relationship-os/evals-mcp/lib/env-file.ts";
+} from "@composable-os/evals-judge/lib/recorder.ts";
+import { checkCredentials, parseOnly, parsePositiveInt } from "@composable-os/evals-mcp/lib/cli.ts";
+import { loadEvalEnvFile } from "@composable-os/evals-mcp/lib/env-file.ts";
 import {
   type ChatCompletionRequest,
   type ChatMessage,
   chatCompletionsModel,
   type ModelClient,
-} from "@relationship-os/evals-mcp/lib/model.ts";
+} from "@composable-os/evals-mcp/lib/model.ts";
 import { cases, SAMPLE_POLICY } from "./fixtures.ts";
 import { DEFAULT_THRESHOLD, runCases, score } from "./lib/harness.ts";
 import { type AdjudicatorReport, writeReport } from "./lib/report.ts";

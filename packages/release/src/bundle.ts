@@ -7,7 +7,7 @@
 //
 // Opening a bundle checks every file against the manifest's hashes, so a bundle whose outer
 // sha256 matched but whose contents were swapped (or a hand-assembled one) is refused too.
-import { releaseFilePrefix } from "@relationship-os/product";
+import { releaseFilePrefix } from "@composable-os/product";
 import { type ArchiveEntry, gunzip, gzip, readTar, writeTar } from "./archive.ts";
 import { assetHash, sha256Hex } from "./hash.ts";
 import { parseManifest, type ReleaseManifest, stableStringify } from "./manifest.ts";

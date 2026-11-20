@@ -7,7 +7,7 @@ import {
   type AutomationTestReport,
   installShippedExtensions,
   seedRecordId,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { runAutomationCron, runDateRelative } from "../src/automations/schedule.ts";
 import { count, dispatch, runWorkflows, tasksOn, withEvents } from "./automation-fixture.ts";

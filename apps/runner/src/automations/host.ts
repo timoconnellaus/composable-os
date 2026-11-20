@@ -1,5 +1,5 @@
-// The automation host (ADR 0130, ADR 0133): ros-runner's side of automation.test, automation.run,
-// retry, replay and cancel. ros-app reaches it over RPC (the Runner entrypoint's methods).
+// The automation host (ADR 0130, ADR 0133): cos-runner's side of automation.test, automation.run,
+// retry, replay and cancel. cos-app reaches it over RPC (the Runner entrypoint's methods).
 import {
   type AutomationDefinition,
   type AutomationDraftTarget,
@@ -20,16 +20,16 @@ import {
   type StartRunInput,
   sampleApproval,
   zonedTime,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import type {
   AutomationEvent,
   AutomationJournalEntry,
   AutomationRunValue,
   AutomationTestStep,
   ExtensionManifest,
-} from "@relationship-os/sdk";
-import { manifestSchema } from "@relationship-os/sdk";
+} from "@composable-os/sdk";
+import { manifestSchema } from "@composable-os/sdk";
 import { Executor, type ExecutorOptions } from "../executor/executor.ts";
 import { type AutomationRunParams, type DispatchEnv, startRuns } from "./dispatch.ts";
 import { finishRun, stepOperations } from "./run.ts";
@@ -580,7 +580,7 @@ export async function cancelRun(env: AutomationHostEnv, runId: string): Promise<
   return { runId };
 }
 
-/** The AutomationHost for ros-runner's own environment. */
+/** The AutomationHost for cos-runner's own environment. */
 export function automationHost(
   env: AutomationHostEnv,
   options: ExecutorOptions = {},

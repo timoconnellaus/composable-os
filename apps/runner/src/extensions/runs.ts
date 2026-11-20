@@ -1,8 +1,8 @@
 // Run history (ADR 0025): one core_extension_runs row per execution of extension code, with its
 // duration, outcome, logs and the operations it called. Written by trusted host code.
-import { newId, type ToolCaller } from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
-import type { RunResponse } from "@relationship-os/sdk";
+import { newId, type ToolCaller } from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
+import type { RunResponse } from "@composable-os/sdk";
 
 export interface RunRecord {
   /** The run id, when the caller made it before the run (it is passed to the worker). */

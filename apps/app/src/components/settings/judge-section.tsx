@@ -4,7 +4,7 @@
 // and each placement with its switch, what it sends, what happens when the judge cannot answer,
 // and its spend from the judge's own count. Admins only; every change is an audited, human-only
 // operation (judge.update, judge.setKey, adjudicator.update).
-import type { CoreOutput } from "@relationship-os/core";
+import type { CoreOutput } from "@composable-os/core";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,16 +14,16 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+} from "@composable-os/ui/components/alert-dialog";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
+} from "@composable-os/ui/components/card";
 import {
   Dialog,
   DialogContent,
@@ -31,18 +31,18 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@relationship-os/ui/components/dialog";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/dialog";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { Switch } from "@relationship-os/ui/components/switch";
+} from "@composable-os/ui/components/select";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { Switch } from "@composable-os/ui/components/switch";
 import { Link } from "@tanstack/react-router";
 import { AlertTriangleIcon, KeyRoundIcon, PlayIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
@@ -232,7 +232,7 @@ function KeyRow({ view }: { view: JudgeView }) {
         <p className="text-xs text-muted-foreground" role="note" data-testid="judge-key-howto">
           {view.hosted
             ? `Keys can't be stored right now: ${view.keyStore.missing.join(", ")}.`
-            : "Set the TYPESAFE_API_KEY secret on ros-app and ros-runner (wrangler secret put TYPESAFE_API_KEY), or give Settings → AI Cloudflare API access to store it here."}
+            : "Set the TYPESAFE_API_KEY secret on cos-app and cos-runner (wrangler secret put TYPESAFE_API_KEY), or give Settings → AI Cloudflare API access to store it here."}
         </p>
       )}
       {adding && <JudgeKeyDialog hosted={view.hosted} onClose={() => setAdding(false)} />}
@@ -287,7 +287,7 @@ function JudgeKeyDialog({ hosted, onClose }: { hosted: boolean; onClose: () => v
             <DialogDescription>
               {hosted
                 ? "Stored as a secret on your workspace through the control plane. It is never stored in the database or shown again, and calls with it go straight to TypeSafe."
-                : "Stored as the TYPESAFE_API_KEY secret on ros-app and ros-runner. It is never stored in the database or shown again."}
+                : "Stored as the TYPESAFE_API_KEY secret on cos-app and cos-runner. It is never stored in the database or shown again."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">

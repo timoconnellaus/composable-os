@@ -3,7 +3,7 @@
 // logging off, ADR 0330, else the binding; other providers through its unified endpoint). Hosted
 // deployments have `aiGateway: false` and use the control plane's shared Platform AI gateway
 // instead (ADR 0213 amendment). Used by
-// `create-relationship-os` (install and repair) and by runUpdate (`ros upgrade` and the self-updater), so an
+// `create-composable-os` (install and repair) and by runUpdate (`cos upgrade` and the self-updater), so an
 // upgrade creates whatever is missing.
 //
 //   gateway          find by id, else create (logging on, authentication on)
@@ -53,7 +53,7 @@ function workerName(state: DeploymentState, name: string) {
 
 /**
  * The gateway id of a deployment: the one it chose, else its install name, the app Worker's
- * deployed name without `-app` (`ros-app` → `ros`, `acme-ros-app` → `acme-ros`).
+ * deployed name without `-app` (`demo-app` → `demo`, `acme-demo-app` → `acme-demo`).
  */
 export function gatewayIdFor(state: DeploymentState, manifest: ReleaseManifest): string {
   if (typeof state.aiGateway === "string" && state.aiGateway) return state.aiGateway;

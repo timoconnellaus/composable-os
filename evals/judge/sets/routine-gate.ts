@@ -6,7 +6,7 @@
 // The cases cover: plain matches in the words people use; the same event against a check it does
 // not meet; the wrong topic; an event too thin to tell (it must not pass); and text planted in an
 // event that tells the judge to answer yes.
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   ROUTINE_GATE_PLACEMENT,
   ROUTINE_GATE_QUESTION,
@@ -14,7 +14,7 @@ import {
   type RoutineGateLabel,
   type RoutineGateState,
   routineGateState,
-} from "@relationship-os/core/judge-routine-gate";
+} from "@composable-os/core/judge-routine-gate";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 
 interface Answers {

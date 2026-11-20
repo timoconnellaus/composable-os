@@ -1,4 +1,4 @@
-// ros-gatekeeper-webhook: inbound webhooks. External systems POST signed events to
+// cos-gatekeeper-webhook: inbound webhooks. External systems POST signed events to
 // `${BASE_URL}/in/:endpointId`. The default fetch handler bounds the body and hands it to the
 // endpoint's WebhookEndpoint Durable Object, which verifies the signature, shapes a typed
 // WebhookEvent and delivers it to the hook the CRM bound through `WebhookSession.subscribe()`.
@@ -25,11 +25,11 @@ import type {
   ResourceDescription,
   SupportedResource,
   VendorDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 import {
   stripTrailingSlashes,
   workerVersionTag,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
 import type { EndpointConfiguratorRpc } from "./configurator/endpoint-configurator-types.js";
 import { type EndpointStatus, type StoredInitiator, WebhookEndpoint } from "./endpoint.js";
 import type {

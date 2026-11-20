@@ -3,27 +3,27 @@
 // notices escalate and on which channels, and the hour of the daily digest. Each send is an
 // outbound action, so under Balanced it waits in Approvals until the internal kinds are set to
 // auto-approve on Settings → Integrations: the page says so.
-import type { CoreOutput } from "@relationship-os/core";
-import { CHANNEL_RESOURCE_PATTERNS, CHANNEL_VENDORS } from "@relationship-os/core/client";
-import { Button } from "@relationship-os/ui/components/button";
+import type { CoreOutput } from "@composable-os/core";
+import { CHANNEL_RESOURCE_PATTERNS, CHANNEL_VENDORS } from "@composable-os/core/client";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/card";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/select";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { InfoIcon, LockIcon, TriangleAlertIcon } from "lucide-react";
 import { useState } from "react";

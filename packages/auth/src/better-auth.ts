@@ -1,6 +1,6 @@
 // Better Auth adapter (the default): email + password and Google sign-in, stored in core_* tables.
-import { assertUserCapacity, newId, PlanLimitError } from "@relationship-os/core";
-import { createDb } from "@relationship-os/db";
+import { assertUserCapacity, newId, PlanLimitError } from "@composable-os/core";
+import { createDb } from "@composable-os/db";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import type { IdentityProvider, Principal } from "./principal.ts";

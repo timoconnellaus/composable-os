@@ -17,7 +17,7 @@ import {
   isCustomerAiSecret,
   scriptsApi,
   verifyDeploymentRequest,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import { audit } from "./audit.ts";
 import { instanceById, instanceState } from "./db.ts";
 import { isLive } from "./env.ts";
@@ -41,7 +41,7 @@ export const PLATFORM_GATEWAY_SETTINGS = {
 } as const;
 
 export function platformGatewayId(s: Services): string {
-  return s.env.PLATFORM_AI_GATEWAY || "ros-platform";
+  return s.env.PLATFORM_AI_GATEWAY || "crm-platform";
 }
 
 /** The platform token for deployments: a secret in live mode, a constant in fake mode. */
@@ -63,7 +63,7 @@ function channelSecret(s: Services): string {
   return s.env.CONTROL_CHANNEL_SECRET;
 }
 
-/** A tenant's ROS_CONTROL_KEY. */
+/** A tenant's COS_CONTROL_KEY. */
 export function tenantChannelKey(s: Services, tenant: string): Promise<string> {
   return deploymentChannelKey(channelSecret(s), tenant);
 }
@@ -121,7 +121,7 @@ export async function ensurePlatformGateway(s: Services): Promise<string[]> {
 
 /** The AI Workers of a deployment, by manifest name: the ones that read AI_GATEWAY_ID. */
 export function aiWorkers(gatewayWorkers: string[]): string[] {
-  return gatewayWorkers.length ? gatewayWorkers : ["ros-app", "ros-runner"];
+  return gatewayWorkers.length ? gatewayWorkers : ["crm-app", "crm-runner"];
 }
 
 /**
@@ -137,10 +137,10 @@ export function platformAiVars(
     vars[worker] = {
       AI_PLATFORM_GATEWAY_ID: platformGatewayId(s),
       AI_PLATFORM_ACCOUNT_ID: s.accountId,
-      ROS_TENANT_ID: input.tenant,
+      COS_TENANT_ID: input.tenant,
     };
   }
-  vars[input.app] = { ...vars[input.app], ROS_TENANT_ID: input.tenant, ROS_CONTROL_URL: s.origin };
+  vars[input.app] = { ...vars[input.app], COS_TENANT_ID: input.tenant, COS_CONTROL_URL: s.origin };
   return vars;
 }
 
@@ -154,7 +154,7 @@ export async function platformAiSecrets(
   for (const worker of input.workers) secrets[worker] = { AI_PLATFORM_TOKEN: token };
   secrets[input.app] = {
     ...secrets[input.app],
-    ROS_CONTROL_KEY: await tenantChannelKey(s, input.tenant),
+    COS_CONTROL_KEY: await tenantChannelKey(s, input.tenant),
   };
   return secrets;
 }

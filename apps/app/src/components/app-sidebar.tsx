@@ -13,7 +13,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "@relationship-os/ui/components/sidebar";
+} from "@composable-os/ui/components/sidebar";
 import { Link } from "@tanstack/react-router";
 import {
   ActivitySquareIcon,

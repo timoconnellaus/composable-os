@@ -1,7 +1,7 @@
 // query.sql: the ADR 0010 / ADR 0020 guards (stage 1 criterion 8), against real D1.
 import { env } from "cloudflare:workers";
-import { seedDatabase } from "@relationship-os/db/seed";
-import { OLD_VIEW_PREFIX } from "@relationship-os/sdk";
+import { seedDatabase } from "@composable-os/db/seed";
+import { OLD_VIEW_PREFIX } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,

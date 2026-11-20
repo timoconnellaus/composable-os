@@ -1,4 +1,4 @@
-// ros-app's front door for MCP (ADR 0021, ADR 0032). `workers-oauth-provider` serves OAuth 2.1
+// cos-app's front door for MCP (ADR 0021, ADR 0032). `workers-oauth-provider` serves OAuth 2.1
 // (metadata, dynamic client registration, token, revocation) and checks Bearer tokens on /mcp;
 // /oauth/consent is our authorization page; everything else goes to TanStack Start.
 //
@@ -12,7 +12,7 @@ import {
   OAuthProvider,
   type OAuthProviderOptions,
 } from "@cloudflare/workers-oauth-provider";
-import type { IdentityEnv } from "@relationship-os/auth";
+import type { IdentityEnv } from "@composable-os/auth";
 import {
   type ActingUser,
   bindConnectionGrant,
@@ -27,8 +27,8 @@ import {
   rateLimit,
   scopePermissions,
   touchConnection,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { createMcpHandler } from "agents/mcp/server";
 import { aiContextFor } from "../ai.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";

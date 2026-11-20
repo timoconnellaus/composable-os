@@ -2,27 +2,27 @@
 // until they finish or skip it. Every step saves as it goes (setup.save), so it can be left and
 // resumed; each real change goes through its own operation (settings.update, policy.update,
 // sample.install / sample.remove).
-import { COMMON_CURRENCIES, POLICY_PRESETS, type PolicyPreset } from "@relationship-os/core/client";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+import { COMMON_CURRENCIES, POLICY_PRESETS, type PolicyPreset } from "@composable-os/core/client";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
-import { RadioGroup, RadioGroupItem } from "@relationship-os/ui/components/radio-group";
+} from "@composable-os/ui/components/card";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
+import { RadioGroup, RadioGroupItem } from "@composable-os/ui/components/radio-group";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+} from "@composable-os/ui/components/select";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2Icon, FileUpIcon, PlugZapIcon, SparklesIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
@@ -398,7 +398,7 @@ function AiStep({
         </p>
         <p>
           Model role presets, such as <code>deepseek-flash</code>, are chosen when the deployment is
-          installed or redeployed (<code>create-relationship-os --model-roles</code>).
+          installed or redeployed (<code>create-composable-os --model-roles</code>).
         </p>
       </div>
       <Button variant="outline" asChild className="h-auto w-fit justify-start gap-3 p-3">

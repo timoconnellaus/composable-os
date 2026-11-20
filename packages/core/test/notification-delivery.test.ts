@@ -4,7 +4,7 @@
 // sends, private activities that never leave the CRM, escalation of unread approvals, the daily
 // digest, channel route matching, and that every query keeps to its index.
 import { env } from "cloudflare:workers";
-import { createCrmDb } from "@relationship-os/db";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,

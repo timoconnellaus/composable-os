@@ -1,8 +1,8 @@
 // extension.* operations (stage 3a, ADR 0025): list, get, check, install, disable, enable,
 // rollback, dropHidden and runs. Authoring over the approval queue (write, propose, approve,
 // reject, eject) comes in stage 3b; approve will call `installExtension` like install does.
-import type { ExtensionManifest } from "@relationship-os/sdk";
-import { EXTENSION_ID_RE } from "@relationship-os/sdk";
+import type { ExtensionManifest } from "@composable-os/sdk";
+import { EXTENSION_ID_RE } from "@composable-os/sdk";
 import { z } from "zod";
 import { NotFoundError, ValidationError } from "../errors.ts";
 import { checkExtension, installExtension, requireHost } from "../extensions/install.ts";
@@ -290,7 +290,7 @@ export const extensionCheck = defineOperation({
   name: "extension.check",
   description:
     "Check extension source without installing it: TypeScript (syntax and types against " +
-    "@relationship-os/sdk), allowed imports, the defineExtension contract, formula parsing and types, and " +
+    "@composable-os/sdk), allowed imports, the defineExtension contract, formula parsing and types, and " +
     "a dry-run of the schema reconcile (the DDL it would run and the changes it makes, e.g. " +
     "lossy type changes are refused). Pass just id to check its working copy (what " +
     "extension.write wrote), or files (path → source, entry index.ts), or a workspace commit. " +

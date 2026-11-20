@@ -3,7 +3,7 @@
 // (created and kept safe to share: no cache, logs on, authenticated), its tenant id and the
 // platform token; and its signed call sets the customer's own keys as secrets on its own Workers.
 import { env } from "cloudflare:workers";
-import { AI_SECRET_PATH, signDeploymentRequest } from "@relationship-os/release";
+import { AI_SECRET_PATH, signDeploymentRequest } from "@composable-os/release";
 import { describe, expect, it } from "vitest";
 import { instanceState } from "../src/db.ts";
 import { changeLifecycle } from "../src/instances.ts";
@@ -52,44 +52,44 @@ describe("hosted provisioning", () => {
     const state = instanceState(instance as never);
     expect(state?.aiGateway).toBe(false);
     expect(state?.aiGatewayTokenId).toBeUndefined();
-    expect(s.fake.cloudflare.gateways.has(`${tenant}-ros`)).toBe(false);
+    expect(s.fake.cloudflare.gateways.has(`${tenant}-demo`)).toBe(false);
     expect(s.fake.cloudflare.tokens.size).toBe(tokensBefore);
-    expect(s.fake.cloudflare.gateways.get("ros-platform")).toMatchObject({
+    expect(s.fake.cloudflare.gateways.get("crm-platform")).toMatchObject({
       cache_ttl: 0,
       collect_logs: true,
       authentication: true,
     });
 
-    for (const worker of ["ros-app", "ros-runner"]) {
-      const live = s.fake.cloudflare.userWorker("ros-customers", `${tenant}-${worker}`);
+    for (const worker of ["demo-app", "demo-runner"]) {
+      const live = s.fake.cloudflare.userWorker("crm-customers", `${tenant}-${worker}`);
       const vars = Object.fromEntries(
         ((live?.metadata.bindings ?? []) as { type: string; name: string; text?: string }[])
           .filter((b) => b.type === "plain_text")
           .map((b) => [b.name, b.text]),
       );
       expect(vars).toMatchObject({
-        AI_PLATFORM_GATEWAY_ID: "ros-platform",
+        AI_PLATFORM_GATEWAY_ID: "crm-platform",
         AI_PLATFORM_ACCOUNT_ID: s.accountId,
-        ROS_TENANT_ID: tenant,
+        COS_TENANT_ID: tenant,
       });
       expect(vars.AI_GATEWAY_ID ?? "").toBe("");
       expect(live?.secrets.get("AI_PLATFORM_TOKEN")).toBe(FAKE_PLATFORM_AI_TOKEN);
       expect(live?.secrets.has("AI_GATEWAY_TOKEN")).toBe(false);
     }
-    const app = s.fake.cloudflare.userWorker("ros-customers", `${tenant}-ros-app`);
-    expect(app?.secrets.get("ROS_CONTROL_KEY")).toBe(await tenantChannelKey(s, tenant));
+    const app = s.fake.cloudflare.userWorker("crm-customers", `${tenant}-demo-app`);
+    expect(app?.secrets.get("COS_CONTROL_KEY")).toBe(await tenantChannelKey(s, tenant));
   });
 
   it("puts back a shared-gateway setting that would leak between tenants", async () => {
     const s = services();
     await ensurePlatformGateway(s);
-    await s.cf.updateAiGateway(s.accountId, "ros-platform", {
+    await s.cf.updateAiGateway(s.accountId, "crm-platform", {
       collect_logs: false,
       cache_ttl: 3600,
       authentication: true,
     });
     expect(await ensurePlatformGateway(s)).toEqual(["cache_ttl", "collect_logs"]);
-    expect(s.fake.cloudflare.gateways.get("ros-platform")).toMatchObject({
+    expect(s.fake.cloudflare.gateways.get("crm-platform")).toMatchObject({
       cache_ttl: 0,
       collect_logs: true,
     });
@@ -104,9 +104,9 @@ describe("a deployment setting its own AI secrets", () => {
     const response = await call(tenant, { name: "AI_KEY_OPENAI", value: KEY });
     expect(response.status).toBe(200);
     const out = await response.json();
-    expect(out).toEqual({ ok: true, targets: [`${tenant}-ros-app`, `${tenant}-ros-runner`] });
-    for (const worker of ["ros-app", "ros-runner"]) {
-      const live = s.fake.cloudflare.userWorker("ros-customers", `${tenant}-${worker}`);
+    expect(out).toEqual({ ok: true, targets: [`${tenant}-demo-app`, `${tenant}-demo-runner`] });
+    for (const worker of ["demo-app", "demo-runner"]) {
+      const live = s.fake.cloudflare.userWorker("crm-customers", `${tenant}-${worker}`);
       expect(live?.secrets.get("AI_KEY_OPENAI")).toBe(KEY);
     }
     // Nowhere in the control plane's database: audit has the name only.
@@ -126,7 +126,7 @@ describe("a deployment setting its own AI secrets", () => {
 
     // Removing it.
     expect((await call(tenant, { name: "AI_KEY_OPENAI" })).status).toBe(200);
-    const app = s.fake.cloudflare.userWorker("ros-customers", `${tenant}-ros-app`);
+    const app = s.fake.cloudflare.userWorker("crm-customers", `${tenant}-demo-app`);
     expect(app?.secrets.has("AI_KEY_OPENAI")).toBe(false);
   });
 
@@ -135,8 +135,8 @@ describe("a deployment setting its own AI secrets", () => {
     const tenant = await freeTenant("judgekeyco");
     const response = await call(tenant, { name: "TYPESAFE_API_KEY", value: KEY });
     expect(response.status).toBe(200);
-    for (const worker of ["ros-app", "ros-runner"]) {
-      const live = s.fake.cloudflare.userWorker("ros-customers", `${tenant}-${worker}`);
+    for (const worker of ["demo-app", "demo-runner"]) {
+      const live = s.fake.cloudflare.userWorker("crm-customers", `${tenant}-${worker}`);
       expect(live?.secrets.get("TYPESAFE_API_KEY")).toBe(KEY);
     }
     expect((await call(tenant, { name: "TYPESAFE_API_KEY" })).status).toBe(200);
@@ -147,7 +147,7 @@ describe("a deployment setting its own AI secrets", () => {
     const tenant = await freeTenant("guardedco");
     const other = await freeTenant("otherco");
     // Never an auth secret, the platform token or the channel key.
-    for (const name of ["BETTER_AUTH_SECRET", "AI_PLATFORM_TOKEN", "ROS_CONTROL_KEY"]) {
+    for (const name of ["BETTER_AUTH_SECRET", "AI_PLATFORM_TOKEN", "COS_CONTROL_KEY"]) {
       expect((await call(tenant, { name, value: "x".repeat(20) })).status).toBe(403);
     }
     // Signed with another tenant's key, for this tenant: refused, nothing set.
@@ -160,7 +160,7 @@ describe("a deployment setting its own AI secrets", () => {
       body: JSON.stringify({ name: "AI_KEY_OPENAI", value: KEY }),
     });
     expect(unsigned.status).toBe(401);
-    const app = s.fake.cloudflare.userWorker("ros-customers", `${tenant}-ros-app`);
+    const app = s.fake.cloudflare.userWorker("crm-customers", `${tenant}-demo-app`);
     expect(app?.secrets.has("AI_KEY_OPENAI")).toBe(false);
     expect(app?.secrets.has("BETTER_AUTH_SECRET")).toBe(true);
     expect(app?.secrets.get("BETTER_AUTH_SECRET")).not.toBe("x".repeat(20));

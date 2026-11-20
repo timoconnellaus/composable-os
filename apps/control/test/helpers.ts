@@ -1,4 +1,4 @@
-// Drives ros-control like a browser (cookies, same-origin forms) and reads the fakes.
+// Drives crm-control like a browser (cookies, same-origin forms) and reads the fakes.
 import { SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import type { ControlEnv } from "../src/env.ts";

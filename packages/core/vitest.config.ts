@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
-import { defineWorkersTestConfig } from "@relationship-os/config/vitest";
+import { defineWorkersTestConfig } from "@composable-os/config/vitest";
 
 const migrationsDir = fileURLToPath(new URL("../db/migrations", import.meta.url));
 

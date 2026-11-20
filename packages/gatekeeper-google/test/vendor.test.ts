@@ -3,7 +3,7 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-describe("ros-gatekeeper-google vendor entrypoint", () => {
+describe("cos-gatekeeper-google vendor entrypoint", () => {
   const vendor = exports.GatekeeperVendor;
 
   it("describes itself", async () => {

@@ -1,4 +1,4 @@
-// Starts ros-control in fake mode for the e2e run: a fresh local state, migrations, then wrangler dev.
+// Starts crm-control in fake mode for the e2e run: a fresh local state, migrations, then wrangler dev.
 import { spawn, spawnSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";

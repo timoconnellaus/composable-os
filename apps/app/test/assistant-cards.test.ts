@@ -3,15 +3,15 @@
 // the model reads only that fallback, an invalid card shows the words, and a saved producer's card
 // lands in the thread with no model call at all.
 import { env } from "cloudflare:workers";
-import type { A2uiPart } from "@relationship-os/agent-a2ui";
-import type { Principal } from "@relationship-os/auth";
+import type { A2uiPart } from "@composable-os/agent-a2ui";
+import type { Principal } from "@composable-os/auth";
 import {
   type AssistantEvent,
   type AssistantThreadState,
   resolveActingUser,
   type TranscriptItem,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { describe, expect, it } from "vitest";
 import { type AssistantHttpEnv, handleState, handleTurn } from "../src/server/assistant/http.ts";
 import { runOperation } from "../src/server/operations.ts";

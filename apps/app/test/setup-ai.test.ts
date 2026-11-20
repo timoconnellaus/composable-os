@@ -2,9 +2,9 @@
 // model roles really resolve to, from ai.settings, on the shipped defaults and on the
 // `deepseek-flash` preset set through AI_MODEL_ROLES, with readiness problems in plain words.
 import { env } from "cloudflare:workers";
-import type { Principal } from "@relationship-os/auth";
-import type { CoreOutput } from "@relationship-os/core";
-import { modelRolesVar } from "@relationship-os/core/ai-roles";
+import type { Principal } from "@composable-os/auth";
+import type { CoreOutput } from "@composable-os/core";
+import { modelRolesVar } from "@composable-os/core/ai-roles";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";

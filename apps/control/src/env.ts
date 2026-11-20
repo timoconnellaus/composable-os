@@ -1,4 +1,4 @@
-// ros-control's environment: the generated `Env` (wrangler.jsonc) plus the secrets set with
+// crm-control's environment: the generated `Env` (wrangler.jsonc) plus the secrets set with
 // `wrangler secret put` at go-live (docs/saas-go-live.md) and the bindings only the fake platform
 // uses (wrangler.e2e.jsonc, vitest.config.ts). Secrets are optional here because fake mode needs
 // none of them.
@@ -25,7 +25,7 @@ export interface ControlSecrets {
    */
   PLATFORM_AI_TOKEN?: string;
   /**
-   * The deployment channel's master secret (ADR 0250): each tenant's ROS_CONTROL_KEY is an HMAC
+   * The deployment channel's master secret (ADR 0250): each tenant's COS_CONTROL_KEY is an HMAC
    * of its tenant id under this, so the control plane stores no per-tenant key.
    */
   CONTROL_CHANNEL_SECRET?: string;

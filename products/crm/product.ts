@@ -1,23 +1,21 @@
 // The CRM: the first product on the platform (ADR 0400). Names only.
-//
-// Stage 20 moves the names here before it changes any of them, so they are still the ones the
-// repository had under its old brand. They change in the commits that follow.
-import { defineProduct } from "@relationship-os/product";
+import { defineProduct } from "@composable-os/product";
 
 export const product = defineProduct({
-  id: "relationship-os",
-  label: "Relationship OS",
+  id: "crm",
+  label: "CRM",
   names: {
-    app: "ros-app",
-    runner: "ros-runner",
-    gatekeeperPrefix: "ros-gatekeeper-",
-    database: "ros",
-    resourcePrefix: "ros-",
+    app: "crm-app",
+    runner: "crm-runner",
+    gatekeeperPrefix: "crm-gatekeeper-",
+    database: "crm",
+    resourcePrefix: "crm-",
   },
   extensions: ["deals", "leads", "lifecycle"],
-  updateRepository: "timoconnellaus/relationship-os",
+  updateRepository: "timoconnellaus/composable-os",
+  // Where the hosted CRM is served from is still open (ADR 0400): the value is unchanged.
   billingUrl: "https://app.relationshiposcrm.com/billing",
   strings: {
-    name: "Relationship OS",
+    name: "CRM",
   },
 });

@@ -1,11 +1,11 @@
 // Support access for the hosted service (ADR 0212): customer-approved, time-limited, audited, and
 // never impersonation. Support staff open `/support/enter?token=<JWT>` with a short-lived token
 // the control plane signs (Ed25519) for one approved grant; this checks it, records the session
-// start in the customer's audit log (support.session.start) and sets the `ros_support` cookie,
+// start in the customer's audit log (support.session.start) and sets the `cos_support` cookie,
 // `<grantId>.<expiresAt epoch s>.<HMAC-SHA256 over "grantId.exp" keyed by BETTER_AUTH_SECRET>`.
 // While the grant stays approved and unexpired, `authorize()` turns that cookie into the grant's
-// support user. Without ROS_SUPPORT_PUBLIC_KEY (every self-hosted install) none of this exists.
-import type { Principal } from "@relationship-os/auth";
+// support user. Without COS_SUPPORT_PUBLIC_KEY (every self-hosted install) none of this exists.
+import type { Principal } from "@composable-os/auth";
 import {
   invokeByName,
   isGrantActive,
@@ -16,12 +16,12 @@ import {
   type SupportGrant,
   supportUserEmail,
   supportUserName,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 
 export const SUPPORT_ENTER_PATH = "/support/enter";
 export const SUPPORT_EXIT_PATH = "/support/exit";
-export const SUPPORT_COOKIE = "ros_support";
+export const SUPPORT_COOKIE = "cos_support";
 export const SUPPORT_TOKEN_ISSUER = "relationshiposcrm-control";
 /** The longest a token may live (exp − iat), in seconds. */
 export const SUPPORT_TOKEN_MAX_LIFETIME = 600;
@@ -32,7 +32,7 @@ export interface SupportEnv {
   DB: D1Database;
   BETTER_AUTH_SECRET?: string;
   /** The control plane's Ed25519 public key: raw 32 bytes, base64url. Unset: no support access. */
-  ROS_SUPPORT_PUBLIC_KEY?: string;
+  COS_SUPPORT_PUBLIC_KEY?: string;
   APPROVAL_FLOOR?: string;
 }
 
@@ -73,7 +73,7 @@ export type TokenCheck = { ok: true; claims: SupportTokenClaims } | { ok: false;
 
 /**
  * Verifies a compact JWS from the control plane: EdDSA (Ed25519) over `header.payload` with
- * ROS_SUPPORT_PUBLIC_KEY, issuer, audience (this request's hostname), expiry and a lifetime of
+ * COS_SUPPORT_PUBLIC_KEY, issuer, audience (this request's hostname), expiry and a lifetime of
  * at most 10 minutes. It does not look at the grant (see handleSupportEnter).
  */
 export async function verifySupportToken(
@@ -192,10 +192,10 @@ export function readCookie(request: Request, name: string): string | null {
 }
 
 function supportEnabled(env: SupportEnv): env is SupportEnv & {
-  ROS_SUPPORT_PUBLIC_KEY: string;
+  COS_SUPPORT_PUBLIC_KEY: string;
   BETTER_AUTH_SECRET: string;
 } {
-  return Boolean(env.ROS_SUPPORT_PUBLIC_KEY?.trim() && env.BETTER_AUTH_SECRET);
+  return Boolean(env.COS_SUPPORT_PUBLIC_KEY?.trim() && env.BETTER_AUTH_SECRET);
 }
 
 function principalFor(grant: SupportGrant): Principal {
@@ -208,7 +208,7 @@ function principalFor(grant: SupportGrant): Principal {
 }
 
 /**
- * The support user's Principal when the request carries a valid `ros_support` cookie for a grant
+ * The support user's Principal when the request carries a valid `cos_support` cookie for a grant
  * that is still approved and unexpired (one PK read, only when the cookie is present). Null
  * otherwise: the cookie is ignored and the normal identity provider decides.
  */
@@ -259,7 +259,7 @@ export async function handleSupportRoute(
   const nowSeconds = Math.floor(now / 1000);
   const checked = await verifySupportToken(
     token,
-    env.ROS_SUPPORT_PUBLIC_KEY,
+    env.COS_SUPPORT_PUBLIC_KEY,
     url.hostname,
     nowSeconds,
   );

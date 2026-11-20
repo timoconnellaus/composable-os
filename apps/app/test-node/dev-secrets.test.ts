@@ -1,4 +1,4 @@
-// Local dev passes optional secrets from .dev.vars through to ros-app while deploys still require
+// Local dev passes optional secrets from .dev.vars through to cos-app while deploys still require
 // BETTER_AUTH_SECRET (dev-secrets.ts, docs/deploying.md "Local development"). Runs in Node against
 // wrangler's own loader for local dev variables, the one the Vite plugin calls.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -10,7 +10,7 @@ import { unstable_getVarsForDev, unstable_readConfig } from "wrangler";
 import { devSecrets, devVarNames } from "../dev-secrets.ts";
 
 const appDir = fileURLToPath(new URL("..", import.meta.url));
-const dir = mkdtempSync(join(tmpdir(), "ros-dev-secrets-"));
+const dir = mkdtempSync(join(tmpdir(), "cos-dev-secrets-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 writeFileSync(
@@ -69,7 +69,7 @@ describe("local dev secrets", () => {
   });
 
   it("keeps the required names without a .dev.vars, and leaves no declaration alone", () => {
-    const empty = mkdtempSync(join(tmpdir(), "ros-dev-secrets-empty-"));
+    const empty = mkdtempSync(join(tmpdir(), "cos-dev-secrets-empty-"));
     try {
       expect(devSecrets(committed.secrets, empty)).toEqual({ required: ["BETTER_AUTH_SECRET"] });
       expect(devSecrets(undefined, dir)).toBeUndefined();

@@ -1,7 +1,7 @@
 // The UI adapter for operations (src/server/operations.ts), run in workerd against real D1.
 import { env } from "cloudflare:workers";
-import type { Principal } from "@relationship-os/auth";
-import type { CoreInput, CoreOutput, Person } from "@relationship-os/core";
+import type { Principal } from "@composable-os/auth";
+import type { CoreInput, CoreOutput, Person } from "@composable-os/core";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { callOp } from "../src/lib/operations.ts";
 import { parseOperationCall, runOperation } from "../src/server/operations.ts";

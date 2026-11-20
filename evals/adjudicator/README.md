@@ -15,7 +15,7 @@ It runs with either reviewer: the LLM (`--reviewer llm`, the default) or Jev (`-
 ## What runs
 
 The eval calls core's own judgement, `reviewPendingItem` from
-`@relationship-os/core/adjudicator-review`: the same system prompt (instructions plus the written
+`@composable-os/core/adjudicator-review`: the same system prompt (instructions plus the written
 policy), the same fenced, escaped `<pending_change>` data, JSON mode, zod validation and the one
 repair round the deployment uses. Only the model differs: here it is an OpenAI-compatible
 chat-completions endpoint, with `response_format: {"type": "json_object"}`.
@@ -51,7 +51,7 @@ With the LLM:
 ```sh
 export CLOUDFLARE_ACCOUNT_ID=…  CLOUDFLARE_API_TOKEN=…
 node evals/adjudicator/runner.ts
-# or: pnpm --filter @relationship-os/evals-adjudicator eval
+# or: pnpm --filter @composable-os/evals-adjudicator eval
 ```
 
 The default model is the registry's shipped `review` model (`@cf/openai/gpt-oss-120b` on Workers

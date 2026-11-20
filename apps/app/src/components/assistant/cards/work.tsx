@@ -1,22 +1,18 @@
 // Tasks and activities, deals and pipeline, calendar and meetings.
-import type { A2uiAction, TaskItem } from "@relationship-os/agent-a2ui";
-import {
-  type RendererProps,
-  useA2uiAction,
-  useA2uiRunner,
-} from "@relationship-os/agent-a2ui/react";
-import { Button } from "@relationship-os/ui/components/button";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
+import type { A2uiAction, TaskItem } from "@composable-os/agent-a2ui";
+import { type RendererProps, useA2uiAction, useA2uiRunner } from "@composable-os/agent-a2ui/react";
+import { Button } from "@composable-os/ui/components/button";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@relationship-os/ui/components/dropdown-menu";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
-import { Textarea } from "@relationship-os/ui/components/textarea";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/dropdown-menu";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
+import { Textarea } from "@composable-os/ui/components/textarea";
+import { cn } from "@composable-os/ui/lib/utils";
 import {
   CalendarClockIcon,
   CheckIcon,

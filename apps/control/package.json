@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/control",
+  "name": "@composable-os/control",
   "version": "0.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
@@ -13,14 +13,14 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@relationship-os/core": "workspace:*",
-    "@relationship-os/products": "workspace:*",
-    "@relationship-os/release": "workspace:*"
+    "@composable-os/core": "workspace:*",
+    "@composable-os/products": "workspace:*",
+    "@composable-os/release": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.5.1",
     "@playwright/test": "1.64.1",
-    "@relationship-os/config": "workspace:*",
+    "@composable-os/config": "workspace:*",
     "typescript": "6.0.3",
     "vitest": "5.1.0",
     "wrangler": "4.157.0"

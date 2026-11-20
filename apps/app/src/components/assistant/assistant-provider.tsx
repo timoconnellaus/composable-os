@@ -8,7 +8,7 @@
 // record or selection) never change, so entry-point buttons and record pages do not re-render
 // when the panel opens or the page context changes. The thread itself, and its streaming,
 // lives in ThreadProvider, never here.
-import type { AssistantContext } from "@relationship-os/core/client";
+import type { AssistantContext } from "@composable-os/core/client";
 import { useRouterState } from "@tanstack/react-router";
 import {
   createContext,

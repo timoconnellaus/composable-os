@@ -10,7 +10,7 @@ import {
   renderTail,
   type ThreadMessage,
   wrapTail,
-} from "@relationship-os/agent-core";
+} from "@composable-os/agent-core";
 import type { ModelMessage } from "ai";
 import { beforeEach, describe, expect, it } from "vitest";
 import {

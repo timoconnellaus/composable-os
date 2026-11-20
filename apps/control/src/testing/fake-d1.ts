@@ -4,7 +4,7 @@
 // restore rebuilds the database from the log up to one.
 
 import { DurableObject } from "cloudflare:workers";
-import type { SqlEngine } from "@relationship-os/release/testing";
+import type { SqlEngine } from "@composable-os/release/testing";
 
 type Param = string | number | null | ArrayBuffer;
 

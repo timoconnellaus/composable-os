@@ -1,10 +1,10 @@
-// Hosted support access end to end in ros-app (ADR 0212): an admin approves a grant, support
+// Hosted support access end to end in cos-app (ADR 0212): an admin approves a grant, support
 // enters with a token the control plane signed (a test Ed25519 key here), the cookie makes the
 // request the support user, and revoking or expiry refuses the very next request. Plus the plan
 // limits as the UI adapter reports them (ADR 0211).
 import { env } from "cloudflare:workers";
-import { AiAllowanceError, clearEntitlementsCache, newId } from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+import { AiAllowanceError, clearEntitlementsCache, newId } from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { modelsFor } from "../src/server/ai.ts";
 import { authorize } from "../src/server/identity.ts";
@@ -23,7 +23,7 @@ const page = { handlerType: "router" } as const;
 
 let keys: CryptoKeyPair;
 let otherKeys: CryptoKeyPair;
-let supportEnv: typeof env & { ROS_SUPPORT_PUBLIC_KEY: string };
+let supportEnv: typeof env & { COS_SUPPORT_PUBLIC_KEY: string };
 const admin = { userId: "", email: "", name: "Admin", roles: [] as string[] };
 const member = { userId: "", email: "", name: "Member", roles: [] as string[] };
 
@@ -112,7 +112,7 @@ beforeAll(async () => {
     "verify",
   ])) as CryptoKeyPair;
   const raw = (await crypto.subtle.exportKey("raw", keys.publicKey)) as ArrayBuffer;
-  supportEnv = { ...env, ROS_SUPPORT_PUBLIC_KEY: base64urlEncode(raw) };
+  supportEnv = { ...env, COS_SUPPORT_PUBLIC_KEY: base64urlEncode(raw) };
   Object.assign(admin, await addUser("admin"));
   Object.assign(member, await addUser("member"));
 });
@@ -123,7 +123,7 @@ beforeEach(async () => {
 });
 
 describe("/support/enter", () => {
-  it("is a 404 on a self-hosted install (no ROS_SUPPORT_PUBLIC_KEY), and the cookie is ignored", async () => {
+  it("is a 404 on a self-hosted install (no COS_SUPPORT_PUBLIC_KEY), and the cookie is ignored", async () => {
     const { id, email } = await requestGrant();
     const approved = await approve(id);
     const response = await enter(await token(claimsFor(id, email)), env);
@@ -142,7 +142,7 @@ describe("/support/enter", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/");
     const setCookie = response.headers.get("set-cookie") ?? "";
-    expect(setCookie).toMatch(/^ros_support=sgr_[^.]+\.\d+\.[A-Za-z0-9_-]+; /);
+    expect(setCookie).toMatch(/^cos_support=sgr_[^.]+\.\d+\.[A-Za-z0-9_-]+; /);
     for (const attribute of ["HttpOnly", "Secure", "SameSite=Lax", "Path=/", "Max-Age="]) {
       expect(setCookie).toContain(attribute);
     }

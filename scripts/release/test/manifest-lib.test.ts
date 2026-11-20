@@ -4,13 +4,13 @@
 // Worker's config (a new binding, a new secret, a new migration) fails this test until the golden
 // file is regenerated, which forces a look at how the change reaches installed deployments.
 //
-// Regenerate: UPDATE_GOLDEN=1 pnpm --filter @relationship-os/release-scripts test
+// Regenerate: UPDATE_GOLDEN=1 pnpm --filter @composable-os/release-scripts test
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ProductDefinition } from "@relationship-os/product";
-import { loadProduct } from "@relationship-os/product/node";
-import { DEFAULT_PRODUCT, products } from "@relationship-os/products";
+import type { ProductDefinition } from "@composable-os/product";
+import { loadProduct } from "@composable-os/product/node";
+import { DEFAULT_PRODUCT, products } from "@composable-os/products";
 import {
   assertUnresolved,
   deployOrder,
@@ -18,7 +18,7 @@ import {
   type ReleaseManifest,
   sha256Hex,
   stableStringify,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import { describe, expect, it } from "vitest";
 import { collectAssets } from "../build-release.ts";
 import {
@@ -35,6 +35,9 @@ const ROOT = join(HERE, "..", "..", "..");
 const GOLDEN = join(HERE, "testdata", "golden-manifest.json");
 
 const PRODUCT = products[DEFAULT_PRODUCT] as ProductDefinition;
+const APP = PRODUCT.names.app;
+const RUNNER = PRODUCT.names.runner;
+const RECORDS = `${PRODUCT.names.resourcePrefix}records`;
 const DEMO = join(HERE, "testdata", "products", "demo", "product.ts");
 
 async function fixtureManifest(version = "1.0.0", product = PRODUCT): Promise<ReleaseManifest> {
@@ -124,7 +127,7 @@ describe("release manifest", () => {
   it("is generated from the wrangler configs: every binding there is in the manifest", async () => {
     const manifest = await fixtureManifest();
     for (const pkg of readDeployablePackages(ROOT)) {
-      const worker = manifest.workers.find((w) => w.name === pkg.config.name);
+      const worker = manifest.workers.find((w) => w.package === pkg.dir);
       expect(worker, pkg.dir).toBeDefined();
       const names = new Set(worker?.bindings.map((b) => b.name));
       const declared = [
@@ -174,7 +177,7 @@ describe("release manifest", () => {
       builds,
       readMigrations(ROOT),
     );
-    const entry = manifest.workers.find((w) => w.name === "ros-runner");
+    const entry = manifest.workers.find((w) => w.name === RUNNER);
     expect(entry?.bindings).toContainEqual({
       type: "queue",
       name: "EVENTS",
@@ -190,13 +193,13 @@ describe("release manifest", () => {
 
   it("carries stage 7a's AI and Vectorize bindings from deploy-inputs.json, behind the ai feature", async () => {
     const manifest = await fixtureManifest();
-    for (const name of ["ros-app", "ros-runner"]) {
+    for (const name of [APP, RUNNER]) {
       const worker = manifest.workers.find((w) => w.name === name);
       expect(worker?.bindings, name).toContainEqual({ type: "ai", name: "AI", feature: "ai" });
       expect(worker?.bindings, name).toContainEqual({
         type: "vectorize",
         name: "VECTORIZE",
-        index_name: "$VECTORIZE_NAME(ros-records)",
+        index_name: `$VECTORIZE_NAME(${RECORDS})`,
         feature: "ai",
       });
       // AI Gateway URLs and Settings → AI need the account id; it is never baked in.
@@ -206,22 +209,19 @@ describe("release manifest", () => {
         text: "$ACCOUNT_ID",
       });
     }
-    expect(manifest.resources.find((r) => r.name === "ros-records")).toMatchObject({
+    expect(manifest.resources.find((r) => r.name === RECORDS)).toMatchObject({
       type: "vectorize",
       feature: "ai",
       optional: false,
-      usedBy: ["ros-app", "ros-runner"],
+      usedBy: [APP, RUNNER],
       config: {
         dimensions: 384,
         metric: "cosine",
         metadataIndexes: [{ propertyName: "object", indexType: "string" }],
       },
     });
-    expect(manifest.inputs.find((i) => i.name === "AI_GATEWAY_ID")?.workers).toEqual([
-      "ros-app",
-      "ros-runner",
-    ]);
-    const app = manifest.workers.find((w) => w.name === "ros-app");
+    expect(manifest.inputs.find((i) => i.name === "AI_GATEWAY_ID")?.workers).toEqual([APP, RUNNER]);
+    const app = manifest.workers.find((w) => w.name === APP);
     expect(app?.secrets.map((s) => s.name)).toEqual(
       expect.arrayContaining(["AI_GATEWAY_TOKEN", "CLOUDFLARE_API_TOKEN"]),
     );
@@ -277,7 +277,7 @@ describe("release manifest", () => {
   it("deploys the runner before the app, and gatekeepers are optional", async () => {
     const manifest = await fixtureManifest();
     const order = deployOrder(manifest.workers).map((w) => w.name);
-    expect(order.indexOf("ros-runner")).toBeLessThan(order.indexOf("ros-app"));
+    expect(order.indexOf(RUNNER)).toBeLessThan(order.indexOf(APP));
     expect(manifest.workers.filter((w) => w.optional).every((w) => w.role === "gatekeeper")).toBe(
       true,
     );
@@ -291,12 +291,12 @@ describe("release manifest", () => {
     expect(manifest.aiGateway?.customProviders).toEqual([
       expect.objectContaining({ slug: "typesafe", baseUrl: "https://api.typesafe.ai" }),
     ]);
-    // Per-deployment AI vars the installer sets (create-relationship-os --model-roles,
+    // Per-deployment AI vars the installer sets (create-composable-os --model-roles,
     // --provider-key; typesafe=… sets JUDGE_BYOK), and the judge's placement switches.
     for (const name of ["AI_MODEL_ROLES", "AI_GATEWAY_BYOK", "JUDGE_BYOK", "JUDGE_PLACEMENTS"]) {
       expect(manifest.inputs.find((i) => i.name === name)).toMatchObject({
         kind: "var",
-        workers: ["ros-app", "ros-runner"],
+        workers: [APP, RUNNER],
         default: "",
       });
     }
@@ -304,11 +304,11 @@ describe("release manifest", () => {
     expect(app?.secrets.find((s) => s.name === "AI_GATEWAY_TOKEN")?.source).toBe("installer");
   });
 
-  it("carries ROS_SUPPORT_PUBLIC_KEY as an empty ros-app var (hosted support access, ADR 0212)", async () => {
+  it("carries COS_SUPPORT_PUBLIC_KEY as an empty app Worker var (hosted support access, ADR 0212)", async () => {
     const manifest = await fixtureManifest();
-    expect(manifest.inputs.find((i) => i.name === "ROS_SUPPORT_PUBLIC_KEY")).toMatchObject({
+    expect(manifest.inputs.find((i) => i.name === "COS_SUPPORT_PUBLIC_KEY")).toMatchObject({
       kind: "var",
-      workers: ["ros-app"],
+      workers: [APP],
       default: "",
     });
   });

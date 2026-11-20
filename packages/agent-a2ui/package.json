@@ -1,5 +1,5 @@
 {
-  "name": "@relationship-os/agent-a2ui",
+  "name": "@composable-os/agent-a2ui",
   "version": "0.0.0",
   "description": "A2UI cards for an assistant: schema, catalogue registry and versioning, text fallbacks, and a React renderer.",
   "license": "MIT",
@@ -20,7 +20,7 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.5.1",
     "@cloudflare/workers-types": "5.20261104.1",
-    "@relationship-os/config": "workspace:*",
+    "@composable-os/config": "workspace:*",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "react": "19.3.1",

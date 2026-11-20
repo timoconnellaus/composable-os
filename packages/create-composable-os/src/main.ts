@@ -1,12 +1,12 @@
-// create-relationship-os / ros: install, upgrade, roll back and inspect a Relationship OS deployment in your own
+// create-composable-os / cos: install, upgrade, roll back and inspect a Relationship OS deployment in your own
 // Cloudflare account, from a verified release bundle, with the Cloudflare REST API only
 // (ADR 0163). Every command is safe to re-run.
 //
-//   npx create-relationship-os                      install (interactive)
-//   npx create-relationship-os --yes --token … …    install (non-interactive, e.g. CI)
-//   ros upgrade [--version X.Y.Z]       same steps as Settings → Updates
-//   ros rollback                        undo the last update (redeploy + restore the bookmark)
-//   ros status                          what is installed and what is available
+//   npx create-composable-os                      install (interactive)
+//   npx create-composable-os --yes --token … …    install (non-interactive, e.g. CI)
+//   cos upgrade [--version X.Y.Z]       same steps as Settings → Updates
+//   cos rollback                        undo the last update (redeploy + restore the bookmark)
+//   cos status                          what is installed and what is available
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,9 +16,9 @@ import {
   PROVIDER_INFO,
   ROLE_PRESETS,
   RoleLayerError,
-} from "@relationship-os/core/ai-roles";
-import type { ProductDefinition } from "@relationship-os/product";
-import { DEFAULT_PRODUCT, products } from "@relationship-os/products";
+} from "@composable-os/core/ai-roles";
+import type { ProductDefinition } from "@composable-os/product";
+import { DEFAULT_PRODUCT, products } from "@composable-os/products";
 import {
   apiKillSwitchStore,
   appliedMigrationsViaApi,
@@ -70,18 +70,18 @@ import {
   withDeploymentVar,
   workersDevHostname,
   writeDeploymentState,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import { choose, type Io, type Redactor } from "./io.ts";
 
-export const HELP = `create-relationship-os: install Relationship OS into your own Cloudflare account.
+export const HELP = `create-composable-os: install Relationship OS into your own Cloudflare account.
 
 Usage
-  npx create-relationship-os [install] [options]     install, or repair an existing install (idempotent)
-  ros upgrade [--version X.Y.Z]          update to a newer release (preflight, bookmark, migrate,
+  npx create-composable-os [install] [options]     install, or repair an existing install (idempotent)
+  cos upgrade [--version X.Y.Z]          update to a newer release (preflight, bookmark, migrate,
                                          switch all Workers, smoke check; rolls back on failure)
-  ros rollback                           redeploy the previous release and restore its bookmark
-  ros status                             installed version, channel, URL and available releases
-  ros uninstall                          delete the Workers, database, bucket and namespace (asks)
+  cos rollback                           redeploy the previous release and restore its bookmark
+  cos status                             installed version, channel, URL and available releases
+  cos uninstall                          delete the Workers, database, bucket and namespace (asks)
 
 Options
   --token <t>            Cloudflare API token (or CLOUDFLARE_API_TOKEN). Needs, on the account:
@@ -97,11 +97,11 @@ Options
   --zone <name>          the zone of a custom hostname (default: inferred from it)
   --identity <i>         better-auth (default) or cloudflare-access
   --gatekeepers <list>   optional gatekeeper Workers to install, e.g. google,email-send
-  --ai <on|off>          in-app AI: Workers AI and the ros-records Vectorize index (default on,
-                         or ROS_AI). Off: AI features say "AI is not configured". Upgrades keep
+  --ai <on|off>          in-app AI: Workers AI and the demo-records Vectorize index (default on,
+                         or COS_AI). Off: AI features say "AI is not configured". Upgrades keep
                          the choice; re-run install with --ai to change it
   --ai-gateway <id|off>  AI Gateway every model call goes through (default: one named after the
-                         install, e.g. ros, created with logging and authentication on and its
+                         install, e.g. crm, created with logging and authentication on and its
                          token, with AI Gateway Run and Workers AI Read, stored as
                          AI_GATEWAY_TOKEN). Workers AI then goes through it over REST with
                          prompt and response logging off. off: call Workers AI directly over
@@ -114,7 +114,7 @@ Options
                          (${Object.keys(ROLE_PRESETS).join(", ")}), a JSON file, inline JSON, or
                          default (the shipped Workers AI roles). Kept by upgrades; Settings → AI
                          overrides still win
-  --ai-admin-token <t>   Settings → AI's token (or ROS_AI_ADMIN_TOKEN), stored on ros-app as
+  --ai-admin-token <t>   Settings → AI's token (or COS_AI_ADMIN_TOKEN), stored on demo-app as
                          CLOUDFLARE_API_TOKEN; permissions in docs/deploying.md "In-app AI"
   --secret NAME=VALUE    a secret to set (repeatable); WORKER:NAME=VALUE for a gatekeeper's
   --update-token <t>     store a scoped token so Settings → Updates can update in place
@@ -124,7 +124,7 @@ Options
   --no-gh                skip \`gh attestation verify\` even if gh is installed
   --require-gh           fail unless \`gh attestation verify\` passes (full Sigstore check)
   --wait                 after install, wait until /api/health answers
-  --bundle-dir <dir>     use relationship-os-<version>.tar.gz and SHA256SUMS from <dir> instead of downloading
+  --bundle-dir <dir>     use composable-os-<product>-<version>.tar.gz and SHA256SUMS from <dir> instead of downloading
                          (still verified against its build attestation)
   --yes                  don't ask; fail on anything that would need an answer
   -h, --help
@@ -177,21 +177,23 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
 
 export interface Env {
   /** Cloudflare API base (tests: the fake). */
-  ROS_CLOUDFLARE_API?: string;
+  COS_CLOUDFLARE_API?: string;
   /** GitHub API base and download origin (tests: the fake). */
-  ROS_GITHUB_API?: string;
+  COS_GITHUB_API?: string;
   /** Origin that answers /api/health instead of https://<hostname> (tests). */
-  ROS_HEALTH_ORIGIN?: string;
+  COS_HEALTH_ORIGIN?: string;
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   GITHUB_TOKEN?: string;
   /** "off" installs without Workers AI and Vectorize (same as scripts/deploy.mjs). */
-  ROS_AI?: string;
-  /** Settings → AI's token, stored as ros-app's CLOUDFLARE_API_TOKEN secret. */
-  ROS_AI_ADMIN_TOKEN?: string;
+  COS_AI?: string;
+  /** Settings → AI's token, stored as demo-app's CLOUDFLARE_API_TOKEN secret. */
+  COS_AI_ADMIN_TOKEN?: string;
 }
 
 export interface Deps {
+  /** The products `--product` may name, and the default one. Tests pass a fixture product. */
+  products?: { all: Record<string, ProductDefinition>; default: string };
   io: Io;
   redactor: Redactor;
   env: Env;
@@ -215,25 +217,26 @@ interface Session {
   github: GitHubOptions;
   repository: string;
   extra: ExtraVerifier | undefined;
-  /** Use bundles from this directory (relationship-os-<version>.tar.gz + SHA256SUMS) instead of downloading. */
+  /** Use bundles from this directory (composable-os-<product>-<version>.tar.gz + SHA256SUMS) instead of downloading. */
   bundleDir?: string;
   /** With bundleDir: skip the attestation check (local test builds only). */
   unverified: boolean;
 }
 
 /** `--product`, or the default product. */
-function productOf(flags: Flags): ProductDefinition {
-  const id = str(flags, "product") ?? DEFAULT_PRODUCT;
-  const product = products[id];
+function productOf(flags: Flags, deps: Deps): ProductDefinition {
+  const known = deps.products ?? { all: products, default: DEFAULT_PRODUCT };
+  const id = str(flags, "product") ?? known.default;
+  const product = known.all[id];
   if (!product) {
-    throw new CliError(`Unknown product ${id}. Known: ${Object.keys(products).join(", ")}.`);
+    throw new CliError(`Unknown product ${id}. Known: ${Object.keys(known.all).join(", ")}.`);
   }
   return product;
 }
 
 async function session(flags: Flags, deps: Deps): Promise<Session> {
   const { io, env } = deps;
-  const product = productOf(flags);
+  const product = productOf(flags, deps);
   let token = str(flags, "token") ?? env.CLOUDFLARE_API_TOKEN;
   if (!token) {
     if (!io.interactive || flags.yes)
@@ -246,7 +249,7 @@ async function session(flags: Flags, deps: Deps): Promise<Session> {
   deps.redactor.add(token);
   const api = new CloudflareClient({
     token,
-    ...(env.ROS_CLOUDFLARE_API ? { apiBase: env.ROS_CLOUDFLARE_API } : {}),
+    ...(env.COS_CLOUDFLARE_API ? { apiBase: env.COS_CLOUDFLARE_API } : {}),
     ...(deps.fetch ? { fetch: deps.fetch } : {}),
   });
   let accountId = str(flags, "account") ?? env.CLOUDFLARE_ACCOUNT_ID;
@@ -268,7 +271,7 @@ async function session(flags: Flags, deps: Deps): Promise<Session> {
   const github: GitHubOptions = {
     repository,
     product: product.id,
-    ...(env.ROS_GITHUB_API ? { apiBase: env.ROS_GITHUB_API } : {}),
+    ...(env.COS_GITHUB_API ? { apiBase: env.COS_GITHUB_API } : {}),
     ...(deps.fetch ? { fetch: deps.fetch } : {}),
     ...(env.GITHUB_TOKEN ? { token: env.GITHUB_TOKEN } : {}),
   };
@@ -390,9 +393,9 @@ function registryProvider(slug: string): string | undefined {
   return Object.values(PROVIDER_INFO).find((p) => p.gatewaySlug === slug && p.needsKey)?.id;
 }
 
-/** `--ai` / ROS_AI: true, false, or undefined when neither says. */
+/** `--ai` / COS_AI: true, false, or undefined when neither says. */
 function aiChoice(flags: Flags, env: Env): boolean | undefined {
-  const value = (str(flags, "ai") ?? env.ROS_AI)?.trim().toLowerCase();
+  const value = (str(flags, "ai") ?? env.COS_AI)?.trim().toLowerCase();
   if (value === undefined || value === "") return undefined;
   if (value === "on" || value === "true") return true;
   if (value === "off" || value === "false") return false;
@@ -424,7 +427,7 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
   const version = str(flags, "version") ?? found?.version ?? (await latestVersion(s, channel));
   if (found && compareVersions(version, found.version) > 0) {
     throw new CliError(
-      `${s.product.label} ${found.version} is already installed here. Run \`ros upgrade --version ${version}\` to update it.`,
+      `${s.product.label} ${found.version} is already installed here. Run \`cos upgrade --version ${version}\` to update it.`,
     );
   }
   if (found)
@@ -541,9 +544,9 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
       : undefined);
   if (updateToken) {
     deps.redactor.add(updateToken);
-    appSecrets.ROS_UPDATE_TOKEN = updateToken;
+    appSecrets.COS_UPDATE_TOKEN = updateToken;
   }
-  const aiAdminToken = str(flags, "ai-admin-token") ?? deps.env.ROS_AI_ADMIN_TOKEN;
+  const aiAdminToken = str(flags, "ai-admin-token") ?? deps.env.COS_AI_ADMIN_TOKEN;
   if (aiAdminToken) {
     deps.redactor.add(aiAdminToken);
     appSecrets.CLOUDFLARE_API_TOKEN = aiAdminToken;
@@ -691,7 +694,7 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
     io.out("Waiting for /api/health…");
     await healthSmoke(hostname, version, {
       ...(deps.fetch ? { fetch: deps.fetch } : {}),
-      ...(deps.env.ROS_HEALTH_ORIGIN ? { origin: deps.env.ROS_HEALTH_ORIGIN } : {}),
+      ...(deps.env.COS_HEALTH_ORIGIN ? { origin: deps.env.COS_HEALTH_ORIGIN } : {}),
       ...(deps.smokeDelayMs !== undefined ? { delayMs: deps.smokeDelayMs } : {}),
     });
   }
@@ -699,7 +702,7 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
   io.out(`Open ${result.url}/setup to create the first admin and finish setting up.`);
   if (!updateToken) {
     io.out(
-      "Updates: run `npx create-relationship-os upgrade` (or store a token with --update-token for Settings → Updates).",
+      "Updates: run `npx create-composable-os upgrade` (or store a token with --update-token for Settings → Updates).",
     );
   }
   return 0;
@@ -711,7 +714,7 @@ async function locate(s: Session) {
   const located = await locateDeployment(s.api, s.accountId, s.product.names.database);
   if (!located?.state) {
     throw new CliError(
-      `No ${s.product.label} installed from a release was found in this account. Run \`npx create-relationship-os\` first.`,
+      `No ${s.product.label} installed from a release was found in this account. Run \`npx create-composable-os\` first.`,
     );
   }
   return { databaseId: located.databaseId, state: located.state };
@@ -818,7 +821,7 @@ async function upgrade(flags: Flags, deps: Deps): Promise<number> {
     smoke: (hostname, version) =>
       healthSmoke(hostname, version, {
         ...(deps.fetch ? { fetch: deps.fetch } : {}),
-        ...(deps.env.ROS_HEALTH_ORIGIN ? { origin: deps.env.ROS_HEALTH_ORIGIN } : {}),
+        ...(deps.env.COS_HEALTH_ORIGIN ? { origin: deps.env.COS_HEALTH_ORIGIN } : {}),
         ...(deps.smokeDelayMs !== undefined ? { delayMs: deps.smokeDelayMs } : {}),
       }),
     onStep: async (step, o) => {
@@ -847,7 +850,7 @@ async function upgrade(flags: Flags, deps: Deps): Promise<number> {
   io.err(
     outcome.status === "rolled_back"
       ? `Rolled back to ${state.version} and restored the database to bookmark ${outcome.bookmark}.`
-      : `Rollback did not complete (${outcome.rollbackError ?? "no bookmark"}). Run \`ros rollback\`, or see docs/deploying.md.`,
+      : `Rollback did not complete (${outcome.rollbackError ?? "no bookmark"}). Run \`cos rollback\`, or see docs/deploying.md.`,
   );
   return 1;
 }
@@ -936,7 +939,7 @@ async function status(flags: Flags, deps: Deps): Promise<number> {
   );
   io.out(
     newer.length
-      ? `  available: ${newer.map((r) => r.version).join(", ")} (run \`ros upgrade\`)`
+      ? `  available: ${newer.map((r) => r.version).join(", ")} (run \`cos upgrade\`)`
       : "  up to date",
   );
   for (const run of runs) {

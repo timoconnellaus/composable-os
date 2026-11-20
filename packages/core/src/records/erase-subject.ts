@@ -9,7 +9,7 @@
 //   whose record was the subject, a notification that links to them, an extension row related to
 //   them, an assistant conversation that looked them up). Never across the database.
 
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type RawBuilder, type SqlBool, sql } from "kysely";
 import { scrubPattern } from "../assistant/scrub.ts";
 import { sha256Ref } from "./erase-log.ts";

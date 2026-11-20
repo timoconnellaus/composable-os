@@ -17,7 +17,7 @@ import {
 const LABEL = "Invoice paid → task";
 
 function webhookSource(id: string, endpoint: string): string {
-  return `import { defineAutomation, defineExtension } from "@relationship-os/sdk";
+  return `import { defineAutomation, defineExtension } from "@composable-os/sdk";
 
 // Written over MCP by the stage 6b webhook e2e spec.
 export default defineExtension({

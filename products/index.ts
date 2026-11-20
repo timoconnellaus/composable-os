@@ -1,5 +1,5 @@
 // Every product in this repository, by id. The installer offers these (`--product`).
-import type { ProductDefinition } from "@relationship-os/product";
+import type { ProductDefinition } from "@composable-os/product";
 import { product as crm } from "./crm/product.ts";
 
 export const products: Record<string, ProductDefinition> = { [crm.id]: crm };

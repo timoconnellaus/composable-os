@@ -1,11 +1,11 @@
 // Agents in the chat (ADR 0344): the live progress card, the grant to confirm before one starts, and
 // one review of everything it staged. All host cards: only the app sends them, and each press calls
 // an operation as the viewer. An agent can be stopped, not chatted with.
-import type { RendererProps } from "@relationship-os/agent-a2ui/react";
-import type { CoreOutput } from "@relationship-os/core";
-import { combinedStep } from "@relationship-os/core/client";
-import { Button } from "@relationship-os/ui/components/button";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+import type { RendererProps } from "@composable-os/agent-a2ui/react";
+import type { CoreOutput } from "@composable-os/core";
+import { combinedStep } from "@composable-os/core/client";
+import { Button } from "@composable-os/ui/components/button";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { CheckIcon, XIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";

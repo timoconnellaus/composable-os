@@ -1,4 +1,4 @@
-// ros-control: the hosted SaaS control plane at app.relationshiposcrm.com (ADR 0210). Sign-up,
+// crm-control: the hosted SaaS control plane at app.relationshiposcrm.com (ADR 0210). Sign-up,
 // plans and Stripe billing, provisioning customer deployments into the Workers for Platforms
 // dispatch namespace, staged rollouts, support grants, export and delete.
 //
@@ -8,7 +8,7 @@
 // src/env.ts are set with `wrangler secret put`.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "ros-control",
+  "name": "crm-control",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
@@ -18,22 +18,22 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "ros-control",
+      "database_name": "crm-control",
       "migrations_dir": "./migrations",
       "migrations_table": "control_migrations"
     }
   ],
-  // Hostname → tenant routing and the schedule the dispatch Worker reads. Shared with ros-dispatch:
+  // Hostname → tenant routing and the schedule the dispatch Worker reads. Shared with crm-dispatch:
   // docs/saas-go-live.md creates the namespace and sets the same id in dispatch.wrangler.jsonc.
   "kv_namespaces": [{ "binding": "ROUTES" }],
   "queues": {
-    "producers": [{ "binding": "JOBS", "queue": "ros-control-jobs" }],
+    "producers": [{ "binding": "JOBS", "queue": "crm-control-jobs" }],
     "consumers": [
       {
-        "queue": "ros-control-jobs",
+        "queue": "crm-control-jobs",
         "max_batch_size": 1,
         "max_retries": 3,
-        "dead_letter_queue": "ros-control-jobs-dlq"
+        "dead_letter_queue": "crm-control-jobs-dlq"
       }
     ]
   },
@@ -52,7 +52,7 @@
     "SAAS_DOMAIN": "relationshiposcrm.com",
     "CONTROL_ORIGIN": "https://app.relationshiposcrm.com",
     "MAIL_FROM": "Relationship OS <hello@relationshiposcrm.com>",
-    "DISPATCH_NAMESPACE": "ros-customers",
+    "DISPATCH_NAMESPACE": "crm-customers",
     // "namespace" (Workers for Platforms) or "account" (ordinary Workers in our account, the
     // fallback in docs/saas-go-live.md if a Workers for Platforms check fails).
     "DEFAULT_PLACEMENT": "namespace",
@@ -64,13 +64,13 @@
     "PLATFORM_AI_PROVIDERS": "workers-ai",
     // The one shared AI Gateway every hosted deployment's Platform AI goes through, tagged per
     // tenant (ADR 0213 amendment). Provisioning creates it (caching off) and checks it.
-    "PLATFORM_AI_GATEWAY": "ros-platform",
+    "PLATFORM_AI_GATEWAY": "crm-platform",
     "IDLE_PAUSE_DAYS": "60",
     "DELETE_GRACE_DAYS": "30",
     "TRIAL_DAYS": "14",
     "ROLLOUT_SOAK_SECONDS": "3600",
     // The Ed25519 public key (raw, base64url) matching the SUPPORT_SIGNING_KEY secret; set on every
-    // customer deployment as ROS_SUPPORT_PUBLIC_KEY.
+    // customer deployment as COS_SUPPORT_PUBLIC_KEY.
     "SUPPORT_PUBLIC_KEY": "",
     "STRIPE_PRICE_TEAM": "",
     "STRIPE_PRICE_BUSINESS": "",

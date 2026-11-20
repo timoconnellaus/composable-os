@@ -1,7 +1,7 @@
 // The assistant threads as operations see them (ADR 0340): each person's thread lives in their
 // own AssistantAgent Durable Object, so `thread.*` operations and erase reach it through this
-// port. ros-app implements it with the Durable Object namespace; inside the object, a local one.
-import type { A2uiPart } from "@relationship-os/agent-a2ui";
+// port. cos-app implements it with the Durable Object namespace; inside the object, a local one.
+import type { A2uiPart } from "@composable-os/agent-a2ui";
 import type { RoutineCheckView, ThreadSearchHit } from "./events.ts";
 import type { ConversationScrub } from "./scrub.ts";
 

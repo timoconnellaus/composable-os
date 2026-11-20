@@ -3,7 +3,7 @@
 // stage. Installing it is the opt-in (Settings → Extensions → Available); without it people are
 // unchanged. Nothing moves a person's stage automatically except converting a lead (Leads sets
 // the person to opportunity); a person can describe an automation for anything else.
-import { defineAutomation, defineExtension, OpsCallError } from "@relationship-os/sdk";
+import { defineAutomation, defineExtension, OpsCallError } from "@composable-os/sdk";
 
 export const LIFECYCLE_STAGES = [
   { value: "subscriber", label: "Subscriber" },

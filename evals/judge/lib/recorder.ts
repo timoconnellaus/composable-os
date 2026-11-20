@@ -23,7 +23,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { canonicalJson, jevCost, REPLAYED_HEADER } from "@relationship-os/core/judge";
+import { canonicalJson, jevCost, REPLAYED_HEADER } from "@composable-os/core/judge";
 
 export const RECORDING_MODES = ["off", "record", "replay", "auto"] as const;
 export type RecordingMode = (typeof RECORDING_MODES)[number];

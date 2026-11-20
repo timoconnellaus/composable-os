@@ -2,7 +2,7 @@
 // sharing level for synced mail and meetings, the resources it may use (add through the picker,
 // remove), sync controls when its gatekeeper syncs, outbound actions waiting on it, Reconnect when
 // it expired, and Disconnect.
-import type { CoreOutput } from "@relationship-os/core";
+import type { CoreOutput } from "@composable-os/core";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,19 +12,19 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@relationship-os/ui/components/alert-dialog";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
-import { Input } from "@relationship-os/ui/components/input";
-import { Label } from "@relationship-os/ui/components/label";
+} from "@composable-os/ui/components/alert-dialog";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/select";
+import { cn } from "@composable-os/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import {
   CircleAlertIcon,

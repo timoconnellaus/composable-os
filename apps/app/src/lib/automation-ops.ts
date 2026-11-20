@@ -6,7 +6,7 @@
 import type {
   AUTOMATION_OPERATION_SCHEMAS,
   NOTIFICATION_OPERATION_SCHEMAS,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import {
   type QueryKey,
   type UseQueryOptions,

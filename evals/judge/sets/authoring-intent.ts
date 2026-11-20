@@ -25,7 +25,7 @@
 // request asks for, an owner assignment the request asks for, a paraphrased trigger), distractors
 // and instructions planted in the artifact. Every person and value is invented.
 
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   faultOf,
   INTENT_FAULT_LABELS,
@@ -35,10 +35,10 @@ import {
   type IntentQuestionId,
   type IntentState,
   intentState,
-} from "@relationship-os/core/judge-authoring-intent";
-import deals from "@relationship-os/extension-deals";
-import type { AutomationManifest } from "@relationship-os/sdk";
-import { toManifest } from "@relationship-os/sdk";
+} from "@composable-os/core/judge-authoring-intent";
+import deals from "@composable-os/extension-deals";
+import type { AutomationManifest } from "@composable-os/sdk";
+import { toManifest } from "@composable-os/sdk";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 
 const manifest = toManifest(deals);

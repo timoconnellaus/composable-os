@@ -24,8 +24,8 @@ import {
   jevJudge,
   judgeRoute,
   noul,
-} from "@relationship-os/core/judge";
-import { loadEvalEnvFile } from "@relationship-os/evals-mcp/lib/env-file.ts";
+} from "@composable-os/core/judge";
+import { loadEvalEnvFile } from "@composable-os/evals-mcp/lib/env-file.ts";
 import {
   calibrationRecord,
   exitCodeFor,

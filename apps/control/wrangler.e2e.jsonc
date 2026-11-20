@@ -1,21 +1,21 @@
-// Local dev and e2e for ros-control: PLATFORM_MODE=fake with every external system faked
+// Local dev and e2e for crm-control: PLATFORM_MODE=fake with every external system faked
 // (Cloudflare API with a Workers for Platforms namespace, Stripe, email), jobs inline. Never deployed.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "ros-control-e2e",
+  "name": "crm-control-e2e",
   "main": "./src/testing/fake-worker.ts",
   "compatibility_date": "2026-10-01",
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "ros-control-e2e",
-      "database_id": "local-ros-control-e2e",
+      "database_name": "crm-control-e2e",
+      "database_id": "local-crm-control-e2e",
       "migrations_dir": "./migrations",
       "migrations_table": "control_migrations"
     }
   ],
   "kv_namespaces": [{ "binding": "ROUTES", "id": "local-routes" }],
-  "queues": { "producers": [{ "binding": "JOBS", "queue": "ros-control-jobs-e2e" }] },
+  "queues": { "producers": [{ "binding": "JOBS", "queue": "crm-control-jobs-e2e" }] },
   "send_email": [{ "name": "EMAIL" }],
   "ratelimits": [
     {
@@ -33,13 +33,13 @@
     "SAAS_DOMAIN": "relationshiposcrm.com",
     "CONTROL_ORIGIN": "http://localhost:8790",
     "MAIL_FROM": "Relationship OS <hello@relationshiposcrm.com>",
-    "DISPATCH_NAMESPACE": "ros-customers",
+    "DISPATCH_NAMESPACE": "crm-customers",
     "DEFAULT_PLACEMENT": "namespace",
     "RELEASE_CHANNEL": "stable",
     "STAFF_EMAILS": "staff@relationshiposcrm.com",
     "AI_MARKUP_PERCENT": "20",
     "PLATFORM_AI_PROVIDERS": "workers-ai",
-    "PLATFORM_AI_GATEWAY": "ros-platform",
+    "PLATFORM_AI_GATEWAY": "crm-platform",
     "IDLE_PAUSE_DAYS": "60",
     "DELETE_GRACE_DAYS": "30",
     "TRIAL_DAYS": "14",

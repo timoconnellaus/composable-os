@@ -11,7 +11,7 @@ import {
   invokeByName,
   PERMISSIONS,
   seedRecordId,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   auditFor,

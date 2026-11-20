@@ -25,13 +25,13 @@ import type {
   ResourceConfiguratorFrame,
   SupportedResource,
   VendorDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
-import { workerVersionTag } from "@relationship-os/gatekeeper-interface/gatekeeper";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
+import { workerVersionTag } from "@composable-os/gatekeeper-interface/gatekeeper";
 import {
   PAGE_STYLE, connectHandoffPageHtml, errorPageHtml, escapeHtml, htmlResponse, INVALID_LINK_HTML,
-} from "@relationship-os/gatekeeper-kit/connect-pages";
-import { NONCE_KEY, advanceToOAuth, claimOAuth, putInitiation } from "@relationship-os/gatekeeper-kit/connect-handshake";
-import { CONNECT_TIMEOUT_MS, NONCE_BYTES, generateNonce } from "@relationship-os/gatekeeper-kit/connect-nonce";
+} from "@composable-os/gatekeeper-kit/connect-pages";
+import { NONCE_KEY, advanceToOAuth, claimOAuth, putInitiation } from "@composable-os/gatekeeper-kit/connect-handshake";
+import { CONNECT_TIMEOUT_MS, NONCE_BYTES, generateNonce } from "@composable-os/gatekeeper-kit/connect-nonce";
 import {
   CredentialCoordinator,
   CredentialsExpiredError,
@@ -39,13 +39,13 @@ import {
   isCredentialsExpired,
   type CredentialsWithIdentity,
   type RejectionVerdict,
-} from "@relationship-os/gatekeeper-kit/credentials";
-import { notifyCredentialsExpiredOnce } from "@relationship-os/gatekeeper-kit/credential-expiry";
-import { commitStagedCredentials, discardStagedCredentials, stageCredentials } from "@relationship-os/gatekeeper-kit/credential-stage";
+} from "@composable-os/gatekeeper-kit/credentials";
+import { notifyCredentialsExpiredOnce } from "@composable-os/gatekeeper-kit/credential-expiry";
+import { commitStagedCredentials, discardStagedCredentials, stageCredentials } from "@composable-os/gatekeeper-kit/credential-stage";
 import {
   OAuthClient, createPkce, isInvalidGrant, mergeOAuthTokens, oauthRefresh, type OAuthTokens,
-} from "@relationship-os/gatekeeper-kit/oauth-client";
-import { PreviewOAuth, PreviewOAuthConfigurationError } from "@relationship-os/gatekeeper-kit/preview-oauth";
+} from "@composable-os/gatekeeper-kit/oauth-client";
+import { PreviewOAuth, PreviewOAuthConfigurationError } from "@composable-os/gatekeeper-kit/preview-oauth";
 import { GraphApi } from "./graph-api";
 import { SITE_SELECT, parseMe, parseSite } from "./graph-parse";
 import {

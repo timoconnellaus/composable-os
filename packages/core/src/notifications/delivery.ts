@@ -1,4 +1,4 @@
-// External notification delivery (stage 6b, ADR 0172): what ros-runner's minute cron does with
+// External notification delivery (stage 6b, ADR 0172): what cos-runner's minute cron does with
 // committed notifications. One tick:
 //
 // 1. New notices: core_notifications rows past a keyset cursor (created_at, id), lagging 30 s
@@ -20,7 +20,7 @@
 // that is private (or gone) are never delivered externally or digested: synced email and meetings
 // marked private stay in the CRM (ADR 0052). The cursors and the digest day live in one settings
 // row, written at most once per tick and only when it changed.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import type { ModelRunner } from "../ai/client.ts";
 import { zonedTime } from "../automations/cron.ts";

@@ -100,7 +100,7 @@ if (
   );
 }
 
-// ros-runner bundles the SDK and the shipped extensions as source at build time (ADR 0025); vite
+// cos-runner bundles the SDK and the shipped extensions as source at build time (ADR 0025); vite
 // dev loads it as an auxiliary Worker, so the bundle must exist first.
 execFileSync("node", [join(root, "apps/runner/scripts/bundle.mjs")], { stdio: "inherit" });
 

@@ -8,7 +8,7 @@
 // else the assistant asked; a no; words about something else; and text planted in the words, the
 // item or the reply. The phrase covers: exact, every transcription variant the ADR names, and a
 // wrong number, audience or action, a shortened or reworded approval, and no phrase at all.
-import type { Judge } from "@relationship-os/core/judge";
+import type { Judge } from "@composable-os/core/judge";
 import {
   APPROVAL_INTENT_PLACEMENT,
   APPROVAL_INTENT_QUESTION,
@@ -21,7 +21,7 @@ import {
   type ApprovalPhraseState,
   approvalIntentState,
   approvalPhraseState,
-} from "@relationship-os/core/judge-approval-intent";
+} from "@composable-os/core/judge-approval-intent";
 import type { LabelledCase, PlacementSet, Side } from "../lib/calibrate.ts";
 
 type State = { intent: ApprovalIntentState } | { phrase: ApprovalPhraseState };

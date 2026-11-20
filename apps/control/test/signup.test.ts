@@ -34,35 +34,35 @@ describe("sign-up to a working deployment", () => {
 
     // User Workers in the dispatch namespace, tagged; per-tenant resources; nothing shared.
     const tenant = instance?.id as string;
-    const ns = s.fake.cloudflare.namespaces.get("ros-customers");
+    const ns = s.fake.cloudflare.namespaces.get("crm-customers");
     expect([...(ns?.keys() ?? [])].filter((n) => n.startsWith(tenant)).sort()).toEqual([
-      `${tenant}-ros-app`,
-      `${tenant}-ros-runner`,
+      `${tenant}-demo-app`,
+      `${tenant}-demo-runner`,
     ]);
-    expect(s.fake.cloudflare.userWorker("ros-customers", `${tenant}-ros-app`)?.tags).toEqual([
+    expect(s.fake.cloudflare.userWorker("crm-customers", `${tenant}-demo-app`)?.tags).toEqual([
       `tenant-${tenant}`,
     ]);
-    expect([...s.fake.cloudflare.d1.values()].some((d) => d.name === `ros-${tenant}`)).toBe(true);
+    expect([...s.fake.cloudflare.d1.values()].some((d) => d.name === `demo-${tenant}`)).toBe(true);
     // No AI Gateway of its own (ADR 0210 amendment): Platform AI goes through the shared one.
-    expect(s.fake.cloudflare.gateways.has(`${tenant}-ros`)).toBe(false);
-    expect(s.fake.cloudflare.gateways.get("ros-platform")).toMatchObject({ cache_ttl: 0 });
+    expect(s.fake.cloudflare.gateways.has(`${tenant}-demo`)).toBe(false);
+    expect(s.fake.cloudflare.gateways.get("crm-platform")).toMatchObject({ cache_ttl: 0 });
 
     // Routed by verified hostname, and its crons are in the dispatch Worker's schedule.
     expect(await readRoute(env.ROUTES, "acme.relationshiposcrm.com")).toEqual({
       tenant,
-      script: `${tenant}-ros-app`,
+      script: `${tenant}-demo-app`,
       status: "active",
     });
     const schedule = await readSchedule(env.ROUTES);
     expect(schedule.find((e) => e.tenant === tenant)?.scripts).toEqual({
-      [`${tenant}-ros-app`]: ["17 3 * * *"],
+      [`${tenant}-demo-app`]: ["17 3 * * *"],
     });
 
     // The deployment answers at its hostname, through the dispatch Worker.
     const health = await tenantFetch(s, "https://acme.relationshiposcrm.com/api/health");
     expect(await health.json()).toMatchObject({ status: "ok", version: "1.0.0" });
     const home = await tenantFetch(s, "https://acme.relationshiposcrm.com/");
-    expect(await home.text()).toBe("ros 1.0.0");
+    expect(await home.text()).toBe("demo 1.0.0");
 
     // The plan's entitlements are in the customer's own database.
     const [row] = await tenantQuery<{ value: string }>(
@@ -137,7 +137,7 @@ describe("sign-up to a working deployment", () => {
     const instance = await instanceFor("solo");
     const sneaky = await tenantFetch(
       s,
-      `https://${instance?.id}-ros-runner.relationshiposcrm.com/`,
+      `https://${instance?.id}-demo-runner.relationshiposcrm.com/`,
     );
     expect(sneaky.status).toBe(404);
   });

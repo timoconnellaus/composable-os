@@ -1,5 +1,5 @@
 // The upgrade and rollback procedures (ADR 0054, ADR 0164), shared by the self-updater and
-// `ros upgrade` so both do exactly the same thing:
+// `cos upgrade` so both do exactly the same thing:
 //
 //   1. pause automations          (AutomationControl: the automations kill switch)
 //   2. take a D1 Time Travel bookmark
@@ -78,7 +78,7 @@ export function killSwitchControl(store: KillSwitchStore): AutomationControl {
   };
 }
 
-/** The kill switch over the D1 REST API, for `ros upgrade` and `ros rollback`. */
+/** The kill switch over the D1 REST API, for `cos upgrade` and `cos rollback`. */
 export function apiKillSwitchStore(
   api: CloudflareClient,
   accountId: string,

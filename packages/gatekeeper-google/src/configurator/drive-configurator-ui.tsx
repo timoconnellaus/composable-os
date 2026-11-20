@@ -3,7 +3,7 @@ import {
   Button, Field, Fragment, h, HierarchyPicker, Notice, Section,
   type ConfiguratorUIHierarchyAncestor, type ConfiguratorUIHierarchyItem,
   type ConfiguratorUIRenderContext, type ConfiguratorUISpec,
-} from "@relationship-os/gatekeeper-configurator-ui";
+} from "@composable-os/gatekeeper-configurator-ui";
 import type {
   DriveConfiguratorRpc, DriveConfiguratorValues, DriveNode, DriveNodeAncestor, OfficeConversionResult,
   OfficeFileInspection, OfficeKind,

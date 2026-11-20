@@ -1,7 +1,7 @@
 // Charts and numbers. These reuse the dashboard widget renderers, so a chart in chat is a widget
 // (ADR 0346): the card's props become a widget spec and rows, and WidgetBody draws them.
-import type { RendererProps } from "@relationship-os/agent-a2ui/react";
-import type { WidgetSpec } from "@relationship-os/core/client";
+import type { RendererProps } from "@composable-os/agent-a2ui/react";
+import type { WidgetSpec } from "@composable-os/core/client";
 import { useMemo } from "react";
 import { type Row, WidgetBody, type WidgetData } from "../../dashboards/widget-renderers.tsx";
 import { Body, Footer, Frame, Header, LinkButton } from "./parts.tsx";

@@ -1,5 +1,5 @@
 // Reference answer for the `discount` prompt: a percent field and a formula over it.
-import { defineExtension } from "@relationship-os/sdk";
+import { defineExtension } from "@composable-os/sdk";
 
 export default defineExtension({
   id: "discount",

@@ -1,7 +1,7 @@
 // Stage 15 (local half): the lifecycle extension adds a person field tracked on the timeline, a
 // read-only changed-on date its own automation keeps, and a board of people by stage.
 // apps/runner/test/leads.test.ts installs it through the real runtime (opt-in).
-import { createTestHost } from "@relationship-os/sdk/testing";
+import { createTestHost } from "@composable-os/sdk/testing";
 import { describe, expect, it } from "vitest";
 import extension, { LIFECYCLE_STAGES } from "../index.ts";
 

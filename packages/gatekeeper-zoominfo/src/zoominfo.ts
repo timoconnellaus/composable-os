@@ -17,11 +17,11 @@ import {
   type ResourceDescription,
   type SupportedResource,
   type VendorDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
-import { buildDescription, codeSpan } from "@relationship-os/gatekeeper-kit/action-description";
-import { connectHandoffPageHtml, htmlResponse } from "@relationship-os/gatekeeper-kit/connect-pages";
-import { commitStagedCredentials, stageCredentials } from "@relationship-os/gatekeeper-kit/credential-stage";
-import { clearCredentialExpiryLatch, notifyCredentialsExpiredOnce } from "@relationship-os/gatekeeper-kit/credential-expiry";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
+import { buildDescription, codeSpan } from "@composable-os/gatekeeper-kit/action-description";
+import { connectHandoffPageHtml, htmlResponse } from "@composable-os/gatekeeper-kit/connect-pages";
+import { commitStagedCredentials, stageCredentials } from "@composable-os/gatekeeper-kit/credential-stage";
+import { clearCredentialExpiryLatch, notifyCredentialsExpiredOnce } from "@composable-os/gatekeeper-kit/credential-expiry";
 import {
   ZoomInfoApi,
   ZoomInfoApiError,

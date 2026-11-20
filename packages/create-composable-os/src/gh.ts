@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { type ExtraVerifier, releaseAssetNames, VerificationError } from "@relationship-os/release";
+import { type ExtraVerifier, releaseAssetNames, VerificationError } from "@composable-os/release";
 
 const run = promisify(execFile);
 
@@ -20,7 +20,7 @@ export async function ghAvailable(): Promise<boolean> {
 }
 
 export const ghVerifier: ExtraVerifier = async ({ bytes, repository, product, version }) => {
-  const dir = await mkdtemp(join(tmpdir(), "ros-verify-"));
+  const dir = await mkdtemp(join(tmpdir(), "demo-verify-"));
   const file = join(dir, releaseAssetNames(product, version).bundle);
   try {
     await writeFile(file, bytes);

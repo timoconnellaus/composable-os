@@ -1,4 +1,4 @@
-# Upstream: `@relationship-os/gatekeeper-interface`
+# Upstream: `@composable-os/gatekeeper-interface`
 
 | | |
 | --- | --- |

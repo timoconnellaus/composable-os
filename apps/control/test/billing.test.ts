@@ -129,7 +129,7 @@ describe("AI metering", () => {
   it("bills paid-plan spend on the shared gateway, by tenant tag, beyond the allowance at cost + 20%", async () => {
     const s = services();
     const { instance, account } = await paidCustomer("aico");
-    const gateway = "ros-platform";
+    const gateway = "crm-platform";
     const tag = JSON.stringify({ role: "summarise", tenant: instance?.id, plan: "team" });
     const day = "2026-11-03";
     // This tenant: $9 of Workers AI and a cache hit. Another tenant's $50, an untagged $20, and
@@ -227,7 +227,7 @@ describe("AI metering", () => {
       );
     expect(await entitlement()).toMatchObject({ platformAi: true });
 
-    s.fake.cloudflare.addGatewayLog("ros-platform", {
+    s.fake.cloudflare.addGatewayLog("crm-platform", {
       created_at: "2026-11-03T09:00:00.000Z",
       provider: "workers-ai",
       model: "llama",

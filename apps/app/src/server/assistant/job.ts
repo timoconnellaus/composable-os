@@ -11,7 +11,7 @@
 //
 // Writes to D1 go only through operations: `agent.report`, as its person.
 import { DurableObject } from "cloudflare:workers";
-import { type A2uiPart, prepareCard } from "@relationship-os/agent-a2ui";
+import { type A2uiPart, prepareCard } from "@composable-os/agent-a2ui";
 import {
   finishedJob,
   type JobBudget,
@@ -22,7 +22,7 @@ import {
   runTurn,
   stepCostMicrousd,
   trimJobMessages,
-} from "@relationship-os/agent-core";
+} from "@composable-os/agent-core";
 import {
   type ActingUser,
   type AgentJobHost,
@@ -56,8 +56,8 @@ import {
   scrubMessage,
   scrubPattern,
   scrubText,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { getAgentByName } from "agents";
 import { aiContextFor } from "../ai.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";

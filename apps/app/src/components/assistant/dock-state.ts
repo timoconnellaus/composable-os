@@ -18,8 +18,8 @@ export const PANEL_STEP = 16;
 /** The page keeps at least this much width beside the panel, while the panel can give it up. */
 export const MAIN_MIN = 320;
 
-const OPEN_KEY = "ros.assistant.dock.open";
-const WIDTH_KEY = "ros.assistant.dock.width";
+const OPEN_KEY = "cos.assistant.dock.open";
+const WIDTH_KEY = "cos.assistant.dock.width";
 
 /** Keeps a width within the panel's limits; anything unreadable is the default. */
 export function clampWidth(width: number): number {

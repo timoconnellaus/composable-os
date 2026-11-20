@@ -2,10 +2,10 @@
 // which returns core and extension fields alike), writing one through the object's own update
 // operation (so validation and stage rules apply), cache keys that the usual write invalidation
 // refreshes, and the card that shows a record.
-import type { Filter, Sort } from "@relationship-os/core/client";
-import { Avatar, AvatarFallback, AvatarImage } from "@relationship-os/ui/components/avatar";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { cn } from "@relationship-os/ui/lib/utils";
+import type { Filter, Sort } from "@composable-os/core/client";
+import { Avatar, AvatarFallback, AvatarImage } from "@composable-os/ui/components/avatar";
+import { Badge } from "@composable-os/ui/components/badge";
+import { cn } from "@composable-os/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { FieldDisplay } from "#/components/fields/field-widgets";

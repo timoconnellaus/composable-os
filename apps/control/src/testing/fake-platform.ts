@@ -3,12 +3,12 @@
 // fixture releases. One instance per isolate, so state survives across requests in `wrangler dev`
 // and within a test file.
 
-import { CloudflareClient, openBundle } from "@relationship-os/release";
+import { CloudflareClient, openBundle } from "@composable-os/release";
 import {
   BASE_MIGRATIONS,
   buildFixtureRelease,
   FakeCloudflare,
-} from "@relationship-os/release/testing";
+} from "@composable-os/release/testing";
 import type { TenantDispatcher, TenantWorker } from "../dispatch/handler.ts";
 import type { FakePlatformBindings } from "../env.ts";
 import type { LoadedRelease, ReleaseSource } from "../releases.ts";

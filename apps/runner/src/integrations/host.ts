@@ -31,8 +31,8 @@ import {
   syncedInWindow,
   syncKindOf,
   vendorBinding,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { runnerJudge } from "../extensions/ai.ts";
 import { HostQueue, type QueueCaller, type QueueHost } from "./queue.ts";
 import { adapterFor, type SyncKind } from "./sync.ts";

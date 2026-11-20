@@ -5,9 +5,9 @@
 //   placement "account"    ordinary Workers in our account on a Custom Domain (the fallback if a
 //                          Workers for Platforms gap blocks the namespace; same engine, Stage 8 as is)
 //   placement "customer-account"  managed enterprise in the customer's own account: operated by
-//                          runbook with `create-relationship-os`, recorded here, never provisioned here
+//                          runbook with `create-composable-os`, recorded here, never provisioned here
 //
-// Resources are per tenant (`ros-<tenant>`, `ros-files-<tenant>`…): no D1 is shared, and no tenant
+// Resources are per tenant (`crm-<tenant>`, `crm-blobs-<tenant>`…): no D1 is shared, and no tenant
 // id exists in a deployment's data (ADR 0001). The one shared thing is the Platform AI gateway
 // (ADR 0213 amendment): a hosted deployment gets no gateway or gateway token of its own, only the
 // shared gateway's id, its tenant id (a var, for the tenant tag) and the platform token.
@@ -20,7 +20,7 @@ import {
   type ReleaseManifest,
   scriptsApi,
   selectedWorkers,
-} from "@relationship-os/release";
+} from "@composable-os/release";
 import { audit } from "./audit.ts";
 import {
   type AccountRow,
@@ -72,11 +72,11 @@ export function initialState(input: {
 }): DeploymentState {
   const { instance, manifest } = input;
   const { workerNames, resourceNames } = tenantNames(manifest, instance.id);
-  const app = manifest.workers.find((w) => w.role === "app")?.name ?? "ros-app";
+  const app = manifest.workers.find((w) => w.role === "app")?.name ?? "crm-app";
   const namespaced = instance.placement === "namespace";
   const vars: DeploymentState["vars"] = { ...input.platformVars };
   if (input.supportPublicKey) {
-    vars[app] = { ...vars[app], ROS_SUPPORT_PUBLIC_KEY: input.supportPublicKey };
+    vars[app] = { ...vars[app], COS_SUPPORT_PUBLIC_KEY: input.supportPublicKey };
   }
   return {
     version: manifest.version,
@@ -138,7 +138,7 @@ export async function provisionInstance(s: Services, instanceId: string): Promis
     // The shared Platform AI gateway: created once, its safety settings checked every time.
     await ensurePlatformGateway(s);
     const manifest = release.bundle.manifest;
-    const app = manifest.workers.find((w) => w.role === "app")?.name ?? "ros-app";
+    const app = manifest.workers.find((w) => w.role === "app")?.name ?? "crm-app";
     const ai = { tenant: instance.id, workers: aiWorkers(gatewayWorkers(manifest)), app };
     const base = initialState({
       instance,
@@ -251,7 +251,7 @@ export async function publishRoute(s: Services, instance: InstanceRow, status: R
   const state = instanceState(instance);
   if (instance.placement === "namespace" && state) {
     const app = Object.entries(state.workerNames).find(([name]) => name.endsWith("-app"));
-    const script = app?.[1] ?? `${instance.id}-ros-app`;
+    const script = app?.[1] ?? `${instance.id}-crm-app`;
     for (const host of [instance.hostname, instance.custom_hostname]) {
       // A custom hostname is routed only once Cloudflare for SaaS has verified it.
       if (

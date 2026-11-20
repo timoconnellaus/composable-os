@@ -46,8 +46,8 @@ describe("sandbox", () => {
     const id = newId("imp");
     for (const [specifier, pattern] of [
       ["codemode:ops", /do not import host modules/],
-      ["node:fs/promises", /may import only @relationship-os\/sdk/],
-      ["zod", /may import only @relationship-os\/sdk/],
+      ["node:fs/promises", /may import only @composable-os\/sdk/],
+      ["zod", /may import only @composable-os\/sdk/],
     ] as const) {
       const files = source(id, "", "1.0.0", `import * as m from "${specifier}"; void m;`);
       const result = await call<Check>(admin, "extension.check", { id, files });

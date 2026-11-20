@@ -3,20 +3,20 @@
 // kill switch, the rails and run history all apply, plus a core_routine row with what only a
 // routine has. Its one step, "message me in my chat", is host code: there is no extension.
 //
-//   trigger ─► plain gates ─► Jev gates ─► (AutomationWorkflow) ─► queue ─► ros-app ─► the thread
+//   trigger ─► plain gates ─► Jev gates ─► (AutomationWorkflow) ─► queue ─► cos-app ─► the thread
 //
 // Gates run cheapest first and all before any model call. The person's words stay on the row for
 // the why panel. In chat nothing here is called a routine: the read-back and the why panel are
 // written in outcomes, and the model is told the same (prompt.ts).
-import { type A2uiPart, prepareCard } from "@relationship-os/agent-a2ui";
-import type { MessagePart } from "@relationship-os/agent-core";
-import type { CoreDatabase } from "@relationship-os/db";
+import { type A2uiPart, prepareCard } from "@composable-os/agent-a2ui";
+import type { MessagePart } from "@composable-os/agent-core";
+import type { CoreDatabase } from "@composable-os/db";
 import {
   type AutomationManifest,
   automationConditionSchema,
   automationTriggerSchema,
   type ViewFilter,
-} from "@relationship-os/sdk";
+} from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { parseCron, shortestCronGap } from "../automations/cron.ts";
@@ -121,7 +121,7 @@ export type RoutineAgentStarter = (input: {
 
 let agentStarter: RoutineAgentStarter | null = null;
 
-/** ros-app fills this, where the agents' objects are. Without it that step is refused. */
+/** cos-app fills this, where the agents' objects are. Without it that step is refused. */
 export function registerRoutineAgentStarter(starter: RoutineAgentStarter | null): void {
   agentStarter = starter;
 }

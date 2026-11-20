@@ -1,8 +1,8 @@
 // Agents as operations see them (ADR 0344): the limits, the queue, and the port to the AgentJob
 // Durable Objects. Starting a job only writes a queued row; a slot is taken here, in one statement,
 // so the limits hold however many jobs start at once, and a job that frees a slot starts the next.
-import type { JobBudget } from "@relationship-os/agent-core";
-import type { CoreDatabase, CrmDb } from "@relationship-os/db";
+import type { JobBudget } from "@composable-os/agent-core";
+import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { ConfigError } from "../errors.ts";
@@ -52,7 +52,7 @@ export async function loadAgentSettings(db: Kysely<CoreDatabase>): Promise<Agent
   }
 }
 
-/** The AgentJob objects as operations reach them. ros-app implements it with the namespace. */
+/** The AgentJob objects as operations reach them. cos-app implements it with the namespace. */
 export interface AgentJobHost {
   /** Tells the object to start or resume. Idempotent: its alarm owns the work from here. */
   begin(jobId: string): Promise<void>;

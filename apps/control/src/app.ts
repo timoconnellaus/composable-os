@@ -1,6 +1,6 @@
-// ros-control's HTTP surface: customer pages, the admin console, the Stripe webhook, hosted
+// crm-control's HTTP surface: customer pages, the admin console, the Stripe webhook, hosted
 // deployments' signed calls (ADR 0250) and (fake mode only) the fake Stripe and mailbox pages.
-import { AI_SECRET_PATH } from "@relationship-os/release";
+import { AI_SECRET_PATH } from "@composable-os/release";
 import { audit, recentAudit } from "./audit.ts";
 import {
   clearSessionCookie,
@@ -737,7 +737,7 @@ async function devRoutes(s: Services, request: Request, url: URL): Promise<Respo
   return new Response("Not Found", { status: 404 });
 }
 
-/** The service-binding entrypoint ros-dispatch calls to wake a paused tenant. */
+/** The service-binding entrypoint crm-dispatch calls to wake a paused tenant. */
 export async function wakeTenant(s: Services, tenantId: string): Promise<boolean> {
   return changeLifecycle(s, tenantId, "wake", { kind: "system", id: "dispatch" }, "sign-in");
 }

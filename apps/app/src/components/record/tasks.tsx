@@ -1,16 +1,16 @@
 // A record's tasks: the side-panel card (open tasks) and the full list for the Tasks tab. The
 // list is also used by the Tasks page.
-import { Button } from "@relationship-os/ui/components/button";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
   CardAction,
   CardContent,
   CardHeader,
   CardTitle,
-} from "@relationship-os/ui/components/card";
-import { Checkbox } from "@relationship-os/ui/components/checkbox";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/card";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { cn } from "@composable-os/ui/lib/utils";
 import { CheckSquareIcon, PlusIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";

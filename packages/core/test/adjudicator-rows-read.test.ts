@@ -2,7 +2,7 @@
 // pending actions and verdicts on file: off costs one settings row and no writes; a judgement, the
 // sweep, the agreement view and the inbox's verdicts walk indexes, never whole tables.
 import { env } from "cloudflare:workers";
-import { createCrmDb } from "@relationship-os/db";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,

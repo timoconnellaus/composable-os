@@ -11,7 +11,7 @@
 // Crons: user Workers have no Cron Triggers, so the dispatch Worker's own minute cron runs each
 // running tenant's schedule. Paused and suspended tenants are not in the schedule, so an idle
 // customer costs no invocations at all.
-import { cronMatches, zonedTime } from "@relationship-os/core/cron";
+import { cronMatches, zonedTime } from "@composable-os/core/cron";
 import { type RouteEntry, readRoute, readSchedule } from "../routing.ts";
 
 export interface TenantWorker {

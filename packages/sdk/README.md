@@ -1,11 +1,11 @@
-# @relationship-os/sdk
+# @composable-os/sdk
 
 The extension contract (ADR 0005, ADR 0023). Shipped extensions (`extensions/<id>/`) and runtime
 extensions (written by AI into the extension workspace) are written against it and run the same
 way: in a sandboxed Dynamic Worker with only the host modules they declare (ADR 0025).
 
 ```ts
-import { defineExtension, defineTool, z } from "@relationship-os/sdk";
+import { defineExtension, defineTool, z } from "@composable-os/sdk";
 
 export default defineExtension({
   id: "example",              // 2–30 lowercase letters/digits, starting with a letter
@@ -43,7 +43,7 @@ export default defineExtension({
 });
 ```
 
-The entry file is `index.ts`; it may import its own files (`./tools.ts`) and `@relationship-os/sdk`, nothing
+The entry file is `index.ts`; it may import its own files (`./tools.ts`) and `@composable-os/sdk`, nothing
 else (no `node:*`, other packages, `import()` or `require`). It never imports host modules: tools
 get them as `ctx`.
 
@@ -243,10 +243,10 @@ anything that must last in `ctx.storage`.
 
 ## Testing an extension
 
-`@relationship-os/sdk/testing` runs tools with in-memory host modules and the host's permission rules:
+`@composable-os/sdk/testing` runs tools with in-memory host modules and the host's permission rules:
 
 ```ts
-import { createTestHost } from "@relationship-os/sdk/testing";
+import { createTestHost } from "@composable-os/sdk/testing";
 import extension from "../index.ts";
 
 const host = createTestHost(extension, {
@@ -295,7 +295,7 @@ from those declarations (never from the code) and runs `run` durably on Cloudfla
 each `step.do` in the sandbox as actor `automation` under `extension:<id>`.
 
 ```ts
-import { defineAutomation, defineExtension } from "@relationship-os/sdk";
+import { defineAutomation, defineExtension } from "@composable-os/sdk";
 
 const wonOnboarding = defineAutomation({
   label: "Won deal → onboarding",
@@ -385,8 +385,8 @@ notifying without `notification.send`, and waits adding up to more than 365 days
 
 ## Exports
 
-- `@relationship-os/sdk`: `defineExtension`, `defineTool`, `defineAutomation`, `z`, field types
+- `@composable-os/sdk`: `defineExtension`, `defineTool`, `defineAutomation`, `z`, field types
   (`FIELD_TYPES`, `LOSSLESS_TYPE_CHANGES`), the manifest (`toManifest`, `validateManifest`,
   `manifestSchema`), permissions (`checkGrant`) and the sandbox dispatcher (`runExtension`).
-- `@relationship-os/sdk/formula`: `parseFormula`, `compileFormula`, `checkFormula`, `FORMULA_FUNCTIONS`.
-- `@relationship-os/sdk/testing`: `createTestHost` (`runTool`, `runAutomation`).
+- `@composable-os/sdk/formula`: `parseFormula`, `compileFormula`, `checkFormula`, `FORMULA_FUNCTIONS`.
+- `@composable-os/sdk/testing`: `createTestHost` (`runTool`, `runAutomation`).

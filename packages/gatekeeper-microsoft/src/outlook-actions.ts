@@ -9,10 +9,10 @@
 // creation through sending (verified live), so a replay after a crash finishes or finds the send and
 // never repeats it.
 
-import { ActionApplyError, ActionOutcomeUnknownError, defineActions, type ActionDefinition, type ActionPresentation, type TaggedAction } from "@relationship-os/gatekeeper-kit/actions";
-import { buildDescription, codeSpan, plainInline, sanitizeTitle } from "@relationship-os/gatekeeper-kit/action-description";
-import type { ActionFileReference } from "@relationship-os/gatekeeper-kit/action-files";
-import type { ProvisionalIds } from "@relationship-os/gatekeeper-kit/simulation";
+import { ActionApplyError, ActionOutcomeUnknownError, defineActions, type ActionDefinition, type ActionPresentation, type TaggedAction } from "@composable-os/gatekeeper-kit/actions";
+import { buildDescription, codeSpan, plainInline, sanitizeTitle } from "@composable-os/gatekeeper-kit/action-description";
+import type { ActionFileReference } from "@composable-os/gatekeeper-kit/action-files";
+import type { ProvisionalIds } from "@composable-os/gatekeeper-kit/simulation";
 import { exchangeRefusal, isProvisional, realId } from "./binding";
 import { GraphApiError, isOutcomeUnknown, type GraphApi } from "./graph-api";
 import { VENDOR_ID } from "./microsoft-env";

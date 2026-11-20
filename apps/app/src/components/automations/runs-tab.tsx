@@ -1,18 +1,18 @@
 // The automation page's Runs tab: every run (automation.runs), virtualised with infinite scroll,
 // and a run's detail: trigger and record, steps with timings, operations and logs, its waiting,
 // review or failed state, the change set it is waiting on, and Retry / Replay / Cancel.
-import type { RunOperationRecord, RunStepRecord } from "@relationship-os/core";
-import { Badge } from "@relationship-os/ui/components/badge";
-import { Button } from "@relationship-os/ui/components/button";
+import type { RunOperationRecord, RunStepRecord } from "@composable-os/core";
+import { Badge } from "@composable-os/ui/components/badge";
+import { Button } from "@composable-os/ui/components/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@relationship-os/ui/components/select";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
-import { cn } from "@relationship-os/ui/lib/utils";
+} from "@composable-os/ui/components/select";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { cn } from "@composable-os/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeftIcon, PlayIcon, RotateCcwIcon, SquareIcon, WorkflowIcon } from "lucide-react";
 import { useState } from "react";

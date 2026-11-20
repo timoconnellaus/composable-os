@@ -7,12 +7,12 @@ import {
   type ModelClient,
   type RecordedCall,
   runAgent,
-} from "@relationship-os/evals-mcp/lib/agent.ts";
-import { toOpenAiTools } from "@relationship-os/evals-mcp/lib/convert.ts";
-import { callLabel, callMatches } from "@relationship-os/evals-mcp/lib/grading.ts";
-import { makeSuffix, systemPrompt, todayUtc } from "@relationship-os/evals-mcp/lib/harness.ts";
-import { type McpSession, parseResult } from "@relationship-os/evals-mcp/lib/mcp.ts";
-import type { ModelParams } from "@relationship-os/evals-mcp/lib/model.ts";
+} from "@composable-os/evals-mcp/lib/agent.ts";
+import { toOpenAiTools } from "@composable-os/evals-mcp/lib/convert.ts";
+import { callLabel, callMatches } from "@composable-os/evals-mcp/lib/grading.ts";
+import { makeSuffix, systemPrompt, todayUtc } from "@composable-os/evals-mcp/lib/harness.ts";
+import { type McpSession, parseResult } from "@composable-os/evals-mcp/lib/mcp.ts";
+import type { ModelParams } from "@composable-os/evals-mcp/lib/model.ts";
 import { type AuthoringPrompt, extensionIdFor, promptText } from "../prompts.ts";
 import type { Manifest } from "./manifest.ts";
 

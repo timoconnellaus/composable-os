@@ -1,4 +1,4 @@
-// ros-gatekeeper-email-send: an auto-provisioned gatekeeper that sends email through Cloudflare
+// cos-gatekeeper-email-send: an auto-provisioned gatekeeper that sends email through Cloudflare
 // Email Service. Each sender address is a resource; its facet turns every `send()` into an
 // approval-queue action and only hands the email to Email Service once the action is applied.
 // README.md explains the design.
@@ -22,19 +22,16 @@ import type {
   ResourceDescription,
   SupportedResource,
   VendorDescription,
-} from "@relationship-os/gatekeeper-interface/gatekeeper";
-import { workerVersionTag } from "@relationship-os/gatekeeper-interface/gatekeeper";
-import {
-  buildDescription,
-  sanitizeTitle,
-} from "@relationship-os/gatekeeper-kit/action-description";
+} from "@composable-os/gatekeeper-interface/gatekeeper";
+import { workerVersionTag } from "@composable-os/gatekeeper-interface/gatekeeper";
+import { buildDescription, sanitizeTitle } from "@composable-os/gatekeeper-kit/action-description";
 import {
   ActionApplyError,
   ActionJournal,
   ActionOutcomeUnknownError,
   defineActions,
   type TaggedAction,
-} from "@relationship-os/gatekeeper-kit/actions";
+} from "@composable-os/gatekeeper-kit/actions";
 import { domainOf, parseDomainList } from "./address";
 import type { SenderConfiguratorRpc } from "./configurator/sender-configurator-types";
 import { assertSenderAllowed, SENDER_URL_PATTERN, senderFromUrl, senderUrl } from "./sender";

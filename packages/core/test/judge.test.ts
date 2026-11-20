@@ -250,14 +250,14 @@ describe("routing and keys", () => {
 
   it("goes through AI Gateway's custom-typesafe provider when the gateway is configured", () => {
     const gateway = {
-      AI_GATEWAY_ID: "ros",
+      AI_GATEWAY_ID: "cos",
       CLOUDFLARE_ACCOUNT_ID: "acct",
       AI_GATEWAY_TOKEN: GATEWAY_TOKEN,
     };
     const withSecret = judgeRoute({ ...gateway, TYPESAFE_API_KEY: KEY });
     if (!withSecret.ready) throw new Error("not ready");
     expect(withSecret.url).toBe(
-      "https://gateway.ai.cloudflare.com/v1/acct/ros/custom-typesafe/v1/systemone",
+      "https://gateway.ai.cloudflare.com/v1/acct/cos/custom-typesafe/v1/systemone",
     );
     expect(withSecret.headers("authoring.intent")).toEqual({
       "content-type": "application/json",
@@ -277,8 +277,8 @@ describe("routing and keys", () => {
 
   it("on a hosted deployment, calls TypeSafe directly with the tenant's own key, never a gateway", () => {
     const hosted = {
-      AI_PLATFORM_GATEWAY_ID: "ros-platform",
-      AI_GATEWAY_ID: "ros",
+      AI_PLATFORM_GATEWAY_ID: "crm-platform",
+      AI_GATEWAY_ID: "cos",
       CLOUDFLARE_ACCOUNT_ID: "acct",
       AI_GATEWAY_TOKEN: GATEWAY_TOKEN,
     };
@@ -303,7 +303,7 @@ describe("routing and keys", () => {
     vi.spyOn(console, "error").mockImplementation((...a) => lines.push(a.join(" ")));
     const env = {
       TYPESAFE_API_KEY: KEY,
-      AI_GATEWAY_ID: "ros",
+      AI_GATEWAY_ID: "cos",
       CLOUDFLARE_ACCOUNT_ID: "acct",
       AI_GATEWAY_TOKEN: GATEWAY_TOKEN,
     };

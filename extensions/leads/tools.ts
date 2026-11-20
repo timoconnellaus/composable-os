@@ -2,7 +2,7 @@
 // only through ctx.ops. A tool's CRM calls are separate operations, not one transaction, so
 // `convert` is written to be re-run: it finds the deal it made by the deal's `leads.lead` field
 // and finishes the remaining steps, and it sets the lead to converted last.
-import { defineTool, OpsCallError, z } from "@relationship-os/sdk";
+import { defineTool, OpsCallError, z } from "@composable-os/sdk";
 
 interface RecordShape {
   id: string;

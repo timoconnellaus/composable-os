@@ -1,5 +1,5 @@
-import { Toaster } from "@relationship-os/ui/components/sonner";
-import { TooltipProvider } from "@relationship-os/ui/components/tooltip";
+import { Toaster } from "@composable-os/ui/components/sonner";
+import { TooltipProvider } from "@composable-os/ui/components/tooltip";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,

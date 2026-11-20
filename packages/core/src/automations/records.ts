@@ -2,8 +2,8 @@
 // filter language, compiled by the same compiler (filter.ts) over the object's rec_* view and
 // checked against the current record before a run is created. A run's event carries the trigger
 // record as read when it started.
-import type { CoreDatabase } from "@relationship-os/db";
-import type { ViewFilter } from "@relationship-os/sdk";
+import type { CoreDatabase } from "@composable-os/db";
+import type { ViewFilter } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import { refreshSchemaRegistry } from "../extensions/schema.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";

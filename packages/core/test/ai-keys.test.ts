@@ -111,11 +111,11 @@ describe("provider keys", () => {
     expect(out).toEqual({
       provider: "openai",
       stored: "secret",
-      targets: ["ros-app", "ros-runner"],
+      targets: ["cos-app", "cos-runner"],
     });
     expect(api.calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      "PUT https://api.cloudflare.com/client/v4/accounts/acct/workers/scripts/ros-app/secrets",
-      "PUT https://api.cloudflare.com/client/v4/accounts/acct/workers/scripts/ros-runner/secrets",
+      "PUT https://api.cloudflare.com/client/v4/accounts/acct/workers/scripts/cos-app/secrets",
+      "PUT https://api.cloudflare.com/client/v4/accounts/acct/workers/scripts/cos-runner/secrets",
     ]);
     expect(api.calls[0]?.body).toEqual({ name: "AI_KEY_OPENAI", text: KEY, type: "secret_text" });
     expect(JSON.stringify(out)).not.toContain(KEY);
@@ -250,8 +250,8 @@ describe("provider keys", () => {
     );
     expect(out.stored).toBe("secret");
     expect(api.calls.map(route)).toEqual([
-      "PUT /workers/scripts/ros-app/secrets",
-      "PUT /workers/scripts/ros-runner/secrets",
+      "PUT /workers/scripts/cos-app/secrets",
+      "PUT /workers/scripts/cos-runner/secrets",
     ]);
     expect(await everyStoredValue()).not.toContain(KEY);
   });

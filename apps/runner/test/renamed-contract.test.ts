@@ -7,7 +7,7 @@ import {
   renamedMessage,
   renamedView,
   validateManifest,
-} from "@relationship-os/sdk";
+} from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { buildExtension } from "../src/extensions/build.ts";
 import { buildScript } from "../src/extensions/code-mode.ts";
@@ -24,7 +24,7 @@ const manifest = (modules: string[]) => ({
 describe("an extension written against the old contract", () => {
   it("is refused at build when it imports the old host module, naming codemode:ops and ctx.ops", () => {
     const built = buildExtension({
-      "index.ts": `import { defineExtension } from "@relationship-os/sdk";
+      "index.ts": `import { defineExtension } from "@composable-os/sdk";
 import { ${OLD_OPS_MODULE} } from "${OLD_OPS_SPECIFIER}";
 export default defineExtension(${JSON.stringify(manifest(["ops"]))});
 export const people = () => ${OLD_OPS_MODULE}.call("person.list", {});
@@ -47,7 +47,7 @@ export const people = () => ${OLD_OPS_MODULE}.call("person.list", {});
 
   it("does not type-check when a tool calls the old context module", () => {
     const source = (module: string) => ({
-      "index.ts": `import { defineExtension, defineTool, z } from "@relationship-os/sdk";
+      "index.ts": `import { defineExtension, defineTool, z } from "@composable-os/sdk";
 const people = defineTool({
   description: "Lists people",
   risk: "read",

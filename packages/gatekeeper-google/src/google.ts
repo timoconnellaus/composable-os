@@ -1,18 +1,18 @@
 // Vendored from cloudflare/cloudflare-os@a3ba4746b58f packages/gatekeeper-google/src/google.ts (Apache-2.0). Modified locally: see UPSTREAM.md in this package.
 import { WorkerEntrypoint, DurableObject, RpcTarget, RpcStub } from "cloudflare:workers";
 import { skipRpcValidation, validateRpc } from "capnweb-validate";
-import { GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor as GatekeeperVendorIface, Gatekeeper, ResourceDescription, ApprovalQueue, ObservationDescription, VendorDescription, GatekeeperConnectCallback, GatekeeperConnectOptions, AccountDescription, SupportedResource, ResourceConfiguratorFrame, Cursor, ActionKind, GitCache, workerVersionTag, type ActionDescription, type ConnectHandoff } from '@relationship-os/gatekeeper-interface/gatekeeper';
-import { buildDescription, codeSpan, plainInline } from "@relationship-os/gatekeeper-kit/action-description";
-import { connectHandoffPageHtml, htmlResponse } from "@relationship-os/gatekeeper-kit/connect-pages";
-import { KvTtlCache } from "@relationship-os/gatekeeper-kit/cache";
-import { commitStagedCredentials, stageCredentials } from "@relationship-os/gatekeeper-kit/credential-stage";
-import { observerAccessVerifier } from "@relationship-os/gatekeeper-kit/observers";
+import { GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor as GatekeeperVendorIface, Gatekeeper, ResourceDescription, ApprovalQueue, ObservationDescription, VendorDescription, GatekeeperConnectCallback, GatekeeperConnectOptions, AccountDescription, SupportedResource, ResourceConfiguratorFrame, Cursor, ActionKind, GitCache, workerVersionTag, type ActionDescription, type ConnectHandoff } from '@composable-os/gatekeeper-interface/gatekeeper';
+import { buildDescription, codeSpan, plainInline } from "@composable-os/gatekeeper-kit/action-description";
+import { connectHandoffPageHtml, htmlResponse } from "@composable-os/gatekeeper-kit/connect-pages";
+import { KvTtlCache } from "@composable-os/gatekeeper-kit/cache";
+import { commitStagedCredentials, stageCredentials } from "@composable-os/gatekeeper-kit/credential-stage";
+import { observerAccessVerifier } from "@composable-os/gatekeeper-kit/observers";
 import {
   PreviewOAuth,
   PreviewOAuthConfigurationError,
   type PreviewOAuthState,
-} from "@relationship-os/gatekeeper-kit/preview-oauth";
-import { formatSubresourceId, parseSubresourceId } from "@relationship-os/gatekeeper-kit/subresource-ids";
+} from "@composable-os/gatekeeper-kit/preview-oauth";
+import { formatSubresourceId, parseSubresourceId } from "@composable-os/gatekeeper-kit/subresource-ids";
 import { exchangeAuthCode, getAccessToken, getGoogleAccountDescription, getGoogleVerifiedEmail, GoogleAccessToken, revokeGoogleToken } from "./google-api";
 import { GoogleDocSession, DocMetadata, type GoogleDocReadSession, type GoogleDocTab } from "./docs-types";
 import {

@@ -141,8 +141,9 @@ const RESERVED = new Set([
   "blog",
   "login",
   "auth",
-  "relationship-os",
-  "ros",
+  "composable-os",
+  "cos",
+  "crm",
 ]);
 
 /** A workspace subdomain: 3–32 of a-z, 0-9 and inner hyphens, not reserved. */

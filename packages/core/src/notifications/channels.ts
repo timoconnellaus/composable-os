@@ -5,7 +5,7 @@
 // system: the gatekeeper submits it as an outbound action the approval gate decides
 // (`email.internal` is auto-approvable for colleagues, ADR 0114). A pending action is `pending`
 // here, never an error.
-import type { CoreDatabase } from "@relationship-os/db";
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import type {
   DeliveryOutcome,

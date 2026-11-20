@@ -10,7 +10,7 @@ import {
   memoryRateLimit,
   PERMISSIONS,
   withCodeModeRateLimit,
-} from "@relationship-os/core";
+} from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Executor } from "../src/executor/executor.ts";
 import { checkerWorkerId, manifestWorkerId, toolWorkerId } from "../src/executor/worker-code.ts";

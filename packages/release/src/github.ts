@@ -13,7 +13,7 @@ import {
 export const GITHUB_API = "https://api.github.com";
 
 /** The user agent of every request the installer and the self-updater make to GitHub. */
-export const USER_AGENT = "ros-updater";
+export const USER_AGENT = "cos-updater";
 
 export interface GitHubOptions extends RequestOptions {
   /** GitHub `owner/repo` releases are read from: the product's update repository, or a fork's. */

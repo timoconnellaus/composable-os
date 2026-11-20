@@ -8,7 +8,7 @@ const HEALTHY = {
   version: "0.0.0",
   commit: "abcdef0123",
   database: { ok: true, schemaVersion: 365, upToDate: true },
-  runner: { ok: true, worker: "ros-runner", latencyMs: 3 },
+  runner: { ok: true, worker: "cos-runner", latencyMs: 3 },
 };
 const PAGE =
   '<script src="/assets/main.js"></script><link href="/assets/app.css" rel="stylesheet">';

@@ -7,7 +7,7 @@ sets, the recorder, the calibration CLI and the route probe.
 ```sh
 pnpm eval:calibrate                                  # every set: auto with a key, replay without
 pnpm eval:calibrate --only authoring.intent --mode record --budget 0.50
-pnpm --filter @relationship-os/evals-judge probe     # one call through judgeRoute, as a report
+pnpm --filter @composable-os/evals-judge probe     # one call through judgeRoute, as a report
 ```
 
 - **Key:** `TYPESAFE_API_KEY`, from the environment or the main checkout's `.env.evals`

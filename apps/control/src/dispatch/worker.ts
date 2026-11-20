@@ -1,4 +1,4 @@
-// ros-dispatch's entry (dispatch.wrangler.jsonc): see handler.ts. Per request it reads one
+// crm-dispatch's entry (dispatch.wrangler.jsonc): see handler.ts. Per request it reads one
 // edge-cached KV key and calls the tenant's Worker; it never calls the control plane, except once
 // to wake a paused tenant.
 import type { ControlRpc } from "../worker.ts";

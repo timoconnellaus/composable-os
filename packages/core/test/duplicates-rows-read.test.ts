@@ -1,8 +1,8 @@
 // Stage 16 (ADR 0247), acceptance criterion 7: the duplicate paths stay within D1's cost rules on
 // the 3,000-person seed. D1 bills rows scanned, so reads are metered per statement.
 import { env } from "cloudflare:workers";
-import { createCrmDb } from "@relationship-os/db";
-import { seedDatabase } from "@relationship-os/db/seed";
+import { createCrmDb } from "@composable-os/db";
+import { seedDatabase } from "@composable-os/db/seed";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invokeByName } from "../src/index.ts";
 import { createUser, unique } from "./helpers.ts";

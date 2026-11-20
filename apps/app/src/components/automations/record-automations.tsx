@@ -6,8 +6,8 @@
 // - RecordAutomationsCard: the per-record Automations section, runs that touched the record
 //   (automation.runs { record }), each linking to the run.
 // All stay out of the way when the automation operations fail (nothing to show).
-import { Button } from "@relationship-os/ui/components/button";
-import { Skeleton } from "@relationship-os/ui/components/skeleton";
+import { Button } from "@composable-os/ui/components/button";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { ZapIcon } from "lucide-react";

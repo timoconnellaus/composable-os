@@ -15,12 +15,12 @@
 
 import { DurableObject } from "cloudflare:workers";
 import type { ConnectHandoff, GatekeeperConnectCallback, GatekeeperUser }
-  from "@relationship-os/gatekeeper-interface/gatekeeper";
+  from "@composable-os/gatekeeper-interface/gatekeeper";
 import {
   commitStagedCredentials,
   discardStagedCredentials,
   stageCredentials,
-} from "@relationship-os/gatekeeper-kit/credential-stage";
+} from "@composable-os/gatekeeper-kit/credential-stage";
 import {
   auth,
   refreshAuthorization,

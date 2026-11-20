@@ -20,14 +20,14 @@ import {
   type RunToolInput,
   type RunToolResult,
   type SourceIssue,
-} from "@relationship-os/core";
-import { createCrmDb } from "@relationship-os/db";
+} from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import {
   type AutomationRunRequest,
   type ExtensionManifest,
   GATEKEEPER_MODULES,
   type RunResponse,
-} from "@relationship-os/sdk";
+} from "@composable-os/sdk";
 import { runBuildRole } from "../extensions/ai.ts";
 import {
   buildScript,
