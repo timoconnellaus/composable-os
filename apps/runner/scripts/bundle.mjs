@@ -73,8 +73,8 @@ for (const entry of (await readdir(extensionsDir, { withFileTypes: true })).sort
   }
   const pkg = JSON.parse(await readFile(join(dir, "package.json"), "utf8"));
   await stat(join(dir, "index.ts"));
-  // `relationshipOs.optional`: shipped but opt-in (installed by an admin, not at boot; ADR 0246).
-  const meta = pkg.relationshipOs ?? {};
+  // `composableOs.optional`: shipped but opt-in (installed by an admin, not at boot; ADR 0246).
+  const meta = pkg.composableOs ?? {};
   shipped.push({
     id: entry.name,
     version: pkg.version,

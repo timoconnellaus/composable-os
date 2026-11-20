@@ -2,11 +2,21 @@
 
 Use these words exactly, in code, docs and UI copy. Add to this file when a new term earns its place.
 
-**Composable OS**
-The platform: a trusted host on Cloudflare that products are composed on (ADR 0400). Packages and
-local development name Workers and resources with its local prefix `cos` (`cos-app`, `cos-runner`,
-`cos-records`); packages are `@composable-os/*`, and the installer is `create-composable-os` (its
-command is `cos`). Site: composableos.dev.
+**Composable OS** (the **platform**)
+The platform: a trusted host on Cloudflare that products are composed on (ADR 0400). It is the
+host, the SDK and contract, the gatekeepers, the release and install machinery and, from stage 23,
+the typed client. Packages and local development name Workers and resources with its local prefix
+`cos` (`cos-app`, `cos-runner`, `cos-records`); packages are `@composable-os/*`, and the installer
+is `create-composable-os` (its command is `cos`). Site: composableos.dev.
+_Avoid_: framework, engine
+
+**Product**
+A named composition: which packs are on, the org's own extensions, names and branding, and (from
+stage 24) client apps. It is defined in a **product definition**, today `products/<id>/product.ts`
+in this repository and, from stage 24, in the product's client repo. The CRM is a product sold to
+many orgs; Ghetto Movement (stage 27) is a product for one org. A product's id names its
+deployment's Workers and resources (`crm-app`, `ghetto-app`). Nothing in the data model knows about
+products.
 
 **CRM**
 The first product on Composable OS: an AI-native CRM that runs in your own Cloudflare account,
@@ -16,16 +26,23 @@ The operations API inside extension code is the platform's, not the CRM's: `code
 `ctx.ops` and the `rec_*` views.
 
 **Deployment**
-One installed copy of the CRM in one organisation's Cloudflare account. It holds one org's data and is
-the isolation boundary. There is no tenant id in the data model.
+One installed copy of a product (today, the CRM) in one organisation's Cloudflare account. It holds
+one org's data and is the isolation boundary. There is no tenant id in the data model.
 _Avoid_: tenant, instance (except "Cloudflare OS instance" when quoting upstream)
+
+**Host**
+The trusted Workers of one deployment: the app Worker (staff UI, `/mcp`, the operations registry
+and approval pipeline and, from stage 23, the HTTP surface), the runner Worker and the gatekeeper
+Workers. Client apps and extension code reach it only through operations.
 
 **Org**
 The organisation that owns a deployment. Its users, settings and policy live in that deployment.
 
-**Core object**
+**Core object** / **base record**
 A built-in record type with core tables and migrations: **Person**, **Organisation**, **Activity**,
-**Task**.
+**Task**. They were the CRM's core objects and are now every product's **base records** (ADR
+0400): a record type every product has. "Core object" is the word in code and in the earlier
+documents; "base record" is the word when talking about products. Stage 25 adds **Order**.
 _Avoid_: Contact (use Person), Company/Account (use Organisation)
 
 **Affiliation**
@@ -146,7 +163,8 @@ One entry on a record's timeline: a note, email, call, meeting or system event.
 **Operation**
 One thing a user or AI can do, defined once in the operations registry with zod input/output, a
 model-facing description, a permission and a risk class. It is exposed as a server function, an MCP
-tool and a host module.
+tool and a host module and, from stage 23, over HTTP (each is a **surface**). From stage 22 it also
+declares its **audiences**.
 _Avoid_: endpoint, action (an "action" is a gatekeeper term, below)
 
 **Permission**
@@ -235,9 +253,12 @@ never met (ADR 0233).
 _Avoid_: prompt, rules file
 
 **Extension**
-A unit of customisation written as code against the SDK contract (`defineObject`, `defineDashboard`,
-`defineAutomation`, `defineTool`). A **shipped extension** lives in `extensions/`. A **runtime
-extension** is written by AI and stored in the extension workspace.
+A unit of customisation written as code against the SDK contract: one `defineExtension` manifest
+and its files (objects, fields, views, automations, tools; `defineObject`, `defineDashboard`,
+`defineAutomation`, `defineTool`). The unit of the contract (ADR 0023). A **shipped extension**
+ships with the platform: today in `extensions/`, and from stage 24 as part of a **pack** (an org's
+own extensions in its client repo are shipped extensions of its product). A **runtime extension**
+is written by AI in a deployment, approved there and stored in the extension workspace.
 _Avoid_: package (that means a pnpm workspace package), plugin, app
 
 **Extension workspace**
@@ -810,3 +831,80 @@ _Avoid_: impersonation
 **Rollout**
 A new release reaching hosted deployments in **waves**: the **canary** cohort, 10%, then all
 (ADR 0215).
+
+## Products, customers and client apps (stages 20 to 28)
+
+These terms come from the platform's design (ADRs 0400 to 0405). Most name things stages 21 to 28
+build; the entries say which.
+
+**Primitive**
+Something products are composed from, provided by the platform: an object with fields, a
+behaviour, an automation, a view, a dashboard, a gatekeeper capability, or a base record type.
+
+**Behaviour**
+A declarative rule set an object opts into in its manifest, enforced by the host in the same batch
+as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**, which exists),
+`states`, `capacity`, `sellable`, `publishable`, `recurring`, `allowance`.
+_Avoid_: hook, trigger (a trigger starts an automation), plugin
+
+**Pack**
+A shipped extension plus its headless client hooks, versioned and released by the platform, turned
+on per product: Deals, Leads, Ticketing, Content (stage 24, ADR 0401).
+_Avoid_: module, plugin (a plugin is an assistant plugin, ADR 0347), app
+
+**Block**
+A screen, or part of one, for a pack, in a web skin or a native skin. Copied into a client repo
+from the registry; the client owns the copy (stage 24, ADR 0401).
+_Avoid_: component (too general), widget (a widget is a dashboard tile), template
+
+**Client app**
+A company's own code that its customers or staff use, in the company's repository: a web app, a
+mobile app, a TV app. It reaches the host only through the typed client (stage 24).
+_Avoid_: frontend, site (a site is one kind of client app)
+
+**Client repo**
+The repository holding one product's client apps, its own extensions and its product definition.
+Started from the template, not a fork of the platform (stage 24).
+
+**Audience**
+Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402).
+
+**Staff**
+A signed-in user of the org with a role. Every user of the existing code is staff.
+
+**Customer**
+A Person who can sign in to a client app (stage 22). Sees and changes only their own records,
+through operations open to the `customer` audience. In the hosted entries above (Hosted
+deployment, Own key, Support grant) "customer" still means the org a hosted deployment is run for;
+where the two could be confused, say "the org" for that one.
+_Avoid_: end user, member (a member is a gym's word for one kind of customer), client (in this
+repo a client is the company a product is built for)
+
+**Public**
+A caller with no account: a visitor reading a published page or starting a checkout (stage 22).
+
+**Surface**
+A way an operation is reached from its one definition: server function, MCP tool, host module,
+HTTP (the last from stage 23).
+
+**Typed client**
+The package generated from the operations registry: types and TanStack Query option factories for
+each operation, usable in TanStack Start and React Native (stage 23, ADR 0403).
+
+**Hold**
+Places taken out of a capacity for a short time while someone pays. It expires by itself (stage 26).
+_Avoid_: reservation (a reservation is a booking a customer keeps), lock
+
+**Order**
+What a customer is buying and its state: `pending`, `paid`, `cancelled`, `refunded`. One order has
+lines; a paid line grants something (a ticket, later a pass). A base record from stage 25.
+
+**Allowance**
+What a pass or membership grants: a number of uses, or unlimited uses over a period. A booking
+spends one (later; ADR 0404).
+_Avoid_: entitlement (a hosted plan's limits, ADR 0211), credit (account credit is money)
+
+**Skill**
+Installable instructions for an agent building on the platform, in `skills/`, versioned with the
+contract and ending in a checker (stage 21, ADR 0405). Not the skills a plugin bundles for the
+in-app assistant (ADR 0347).

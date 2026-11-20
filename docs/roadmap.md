@@ -24,9 +24,21 @@ risk for the next.
 | 15 | Leads | Leads as a shipped extension (inbox, statuses, sources, convert to deal with nothing copied); optional lifecycle stage extension; core assignment rules (round-robin, field values with lists and ranges, fallback owner) | built |
 | 16 | Duplicates | Warnings at creation and import, and a nightly scan by plain rules (email, domain, normalised name) with reasons; review page and bulk merge through the existing merge operations; merge re-points extension relations | built |
 | 17 | One proactive assistant | One thread per user that never resets (Agents SDK Durable Object), cost-based compaction with a learned cache lifetime, inline Jev-checked memory, personal routines, background agents that stage changes, approvals by tap, typing or voice, A2UI cards, plugins with a reviewed marketplace, connected assistants under a contract, voice and dictation; `packages/agent-*` under MIT ([spec](stages/17-assistant.md), ADRs 0340–0351) | spec agreed |
+| 20 | Move in | The repository renamed `composable-os`, scope `@composable-os/*`; the earlier brand retired; the CRM as the first product in `products/crm`, Workers named by product; the contract renamed to `codemode:ops`, `ctx.ops` and `rec_*` views; legacy-install code deleted; the Composable OS site | built (needs a human: the repository rename, the site's deploy and the real-account install) |
+| 21 | Extension skills | Two installable skills (`write-extension`, `add-automations-tools-dashboards`) in a plain `skills/` folder; `cos ext check` and `cos ext test` sharing the host's checks; a version guard; no eval | spec agreed |
+| 22 | Customers and audiences | The `staff`, `customer` and `public` audiences on every operation; customer accounts linked to a Person; the `customer` key on objects, enforced at the visibility seam | spec proposed |
+| 23 | HTTP surface and typed client | Operations over HTTP through `invoke()`; the generated client for TanStack Start and React Native; idempotency keys; native sessions | spec proposed |
+| 24 | Client apps | The client repo template (TanStack Start web, Expo mobile); the service binding to the host; packs as packages with headless hooks; the block registry | spec proposed |
+| 25 | States, orders and payments | The `states` behaviour; the Order base record; a payments gatekeeper with webhooks and refunds | spec proposed |
+| 26 | Capacity and holds | The `capacity` behaviour: places that never go below zero, holds that expire, in the write's own batch | spec proposed |
+| 27 | Ticketing, and Ghetto as the first client | The Ticketing pack (events, ticket types, tickets, check-in); web checkout, the app's ticket wallet and door scanning for Ghetto Movement | spec proposed |
+| 28 | Content | The `publishable` behaviour, rich text as structured JSON, media, slugs, preview; the Content pack; Ghetto's blog off EmDash | spec proposed |
 
 The approval pipeline is built up over several stages: the gate in 1, the queue and simulation in 2,
 extension diffs in 3, the adjudicator in 7.
+
+There are no stages 18 and 19: numbering carries on from 20, the first stage of the platform's
+design (ADR 0400).
 
 ## Stages 12 to 16: standard CRM features
 
@@ -73,7 +85,7 @@ collide: 12 uses 0280–0289 (block G), 13 0290–0299 (H), 14 0300–0309 (I), 
 
 Standard features deferred until after stages 12 to 16, in no particular order:
 
-- Products, quotes and forecasts.
+- Products (what a company sells, not products in the platform's sense), quotes and forecasts.
 - Standard sales reports (pipeline by stage, won and lost by period, activity by user).
 - Deal hygiene: last activity date, days in stage, and no-activity highlighting with thresholds the
   user sets.
@@ -83,3 +95,49 @@ Standard features deferred until after stages 12 to 16, in no particular order:
 - Mobile web.
 - Calling and SMS.
 - Accounting integration.
+
+## Stages 20 to 28: the platform
+
+Stage 20 moved the CRM's repository to Composable OS (ADR 0400). Stages 21 to 28 make the host a
+platform that products other than the CRM are composed on. Their ADRs carry on from 0400. Stage 20
+used migrations 0380 to 0389; the later stages' migrations carry on from 0400. Blocks are claimed
+in [`parallel-work.md`](parallel-work.md) as usual.
+
+### Dependencies
+
+| Stage | Needs | Notes |
+| --- | --- | --- |
+| 20 | Nothing | Cut-over is `main` as it stands (agreed 2026-11-20) |
+| 21 | 20 | Written against the renamed contract |
+| 22 | 20, and **stage 14a** (the visibility seam) | 14a is specced and not built. It is built first, or 22 builds the seam |
+| 23 | 22 | The surface is useful to staff apps with 20 alone; customer calls need 22 |
+| 24 | 23 | |
+| 25 | 22 | Payments webhooks need no client app |
+| 26 | 20 | Independent of 22 to 25 |
+| 27 | 24, 25, 26 | |
+| 28 | 22, 23 | Independent of 25 to 27 |
+
+### Suggested order
+
+1. **20**, alone. It moves every file, so nothing else runs beside it.
+2. **21** and **stage 14a** in parallel. 21 is documents, a CLI and an eval; 14a is the read paths.
+3. **22**, then **23**. These two change what the host exposes and are reviewed with most care.
+4. **26** can run beside 22 and 23: it touches record writes, not read paths.
+5. **24** and **25** in parallel after 23.
+6. **27**: the first product that is not a CRM. Expect it to send changes back to 22 to 26.
+7. **28** whenever Ghetto's site moves to TanStack Start; it only needs 22 and 23.
+
+### Later, after stage 28
+
+Named so they are not forgotten, not specced:
+
+- **Recurring and bookings:** the `recurring` behaviour (a timetable generates sessions), waitlists,
+  late-cancel rules, a Bookings pack.
+- **Allowances and memberships:** passes and memberships that grant uses; recurring billing through
+  the payments gatekeeper, with retries, pauses and cancellation.
+- **Leaving Mindbody:** import of clients, visit history, passes and schedules; a period where both
+  run; what happens to stored payment details.
+- **Realtime:** live records shared between people.
+- **Push notifications** to client apps.
+- **Ghetto's existing app data** (programmes, workouts, chat) onto the platform.
+- **Skills** for starting a client app, adding a pack, building a screen and migrating a system.

@@ -51,7 +51,7 @@ export interface ShippedExtension {
    * (`extension.install { shipped: true }`), and from then on releases upgrade it like any other.
    */
   optional?: boolean;
-  /** For the Available list before it is installed (package.json `relationshipOs`). */
+  /** For the Available list before it is installed (package.json `composableOs`). */
   label?: string;
   description?: string;
 }

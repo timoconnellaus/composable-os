@@ -27,3 +27,8 @@ This is not legal advice. Have the licence text, the CLA and the commercial term
   are our code and move to FSL-1.1-ALv2; only the packages listed in `UPSTREAMS.md` stay Apache-2.0.
   "CRM" remains the category word and the name of the operations API in extension code
   (`codemode:crm`, `ctx.crm`, `crm_*` views).
+- **2026-11-20 (Stage 20).** The naming parts of this record are superseded by ADR
+  [0400](0400-a-general-host-and-products.md): the repository is Composable OS, a platform, and the
+  CRM is its first product, called CRM. Packages are `@composable-os/*`, Workers are named for the
+  product, and the Relationship OS brand is retired. The licence decision here stands unchanged:
+  FSL-1.1-ALv2 with the CLA.

@@ -23,8 +23,17 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | L | 0330–0339 | 0320–0329 | Erase completeness (every store) | in flight |
 | M | 0340–0349 | 0330–0339 | Self-hosted Workers AI over REST (no prompt logging); narrower organisation erase (ADR 0330 used; no migrations) | merged |
 | N | 0350–0379 | 0340–0359 | Stage 17, One proactive assistant (ADRs 0340–0351 used by the spec; wave 1 used migrations 0350–0351, W2 wiring 0358–0360, W3 memory 0352, W9 voice 0361–0362 with 0363 reserved, W4 routines 0365–0369, W5 agents and approvals 0370–0374) | in flight |
+| O | 0380–0389 | 0400–0409 | Stage 20, Move in (migration 0380 used: the view rename; ADRs 0400–0405 used by the design) | in flight |
+| P | — | — | Stage 21, Extension skills (no migrations; ADR 0405 from block O) | specced |
+| Q | 0400–0409 | 0410–0414 | Stage 22, Customers and audiences (ADR 0402 amended as built) | specced |
+| R | 0410–0419 | 0415–0419 | Stage 23, HTTP surface and typed client (ADR 0403 amended as built) | specced |
+| S | — | 0420–0424 | Stage 24, Client apps (no migrations; ADR 0401 amended as built) | specced |
+| T | 0420–0439 | 0425–0429 | Stage 25, States, orders and payments | specced |
+| U | 0440–0449 | 0430–0434 | Stage 26, Capacity and holds | specced |
+| V | 0450–0459 | 0435–0439 | Stage 27, Ticketing and the first client | specced |
+| W | 0460–0469 | 0440–0444 | Stage 28, Content | specced |
 
-Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
+Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.
 
 **Extensions** (`extensions/<name>/`, like Deals) need no core migrations: their tables come from the

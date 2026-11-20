@@ -9,7 +9,10 @@ code is FSL-1.1-ALv2 (ADR 0190; `LICENSE`, `NOTICE`), and the Composable OS site
 (composableos.dev) is `apps/marketing`.
 
 Terms are defined in [`CONTEXT.md`](../CONTEXT.md). Decisions and their reasons are in
-[`docs/adr/`](adr/). Build order is in [`docs/roadmap.md`](roadmap.md).
+[`docs/adr/`](adr/). Build order is in [`docs/roadmap.md`](roadmap.md). The sections below describe
+what is built; what stages 21 to 28 add (customers, an HTTP surface and typed client, client apps,
+behaviours, packs and blocks, skills) is designed and not built, and is in
+[The platform: what stages 21 to 28 add](#the-platform-what-stages-21-to-28-add) at the end.
 
 ## Shape at a glance
 
@@ -163,7 +166,7 @@ An **extension** is code against one contract (`packages/sdk`): `defineObject`, 
 
 - **Shipped extensions** live in `extensions/` and ship with releases. Deals/Pipelines is the first;
   Leads is the second business extension and depends on it. `lifecycle` is shipped but opt-in
-  (`relationshipOs.optional` in its `package.json`): an admin installs it from Settings → Extensions.
+  (`composableOs.optional` in its `package.json`): an admin installs it from Settings → Extensions.
 - **Runtime extensions** are written by Claude in-app or via MCP. They are stored in an
   `@cloudflare/computer` Workspace (a Durable Object filesystem with git), approved as a diff, and
   rolled back by reverting ([ADR 0006](adr/0006-dynamic-runtime-cloudflare-computer.md)).
@@ -807,3 +810,130 @@ UPSTREAMS.md           vendored upstream code and the commit each copy tracks
   `gatekeeper-kit`, approval queue with simulation, release bundles and deploy page.
 - [`cloudflare/computer`](https://github.com/cloudflare/computer): the Workspace filesystem and
   git. Its `worker-javascript` backend ran extension code until ADR 0043.
+
+## The platform: what stages 21 to 28 add
+
+Apart from what stage 20 built (noted under Products), nothing in this section is built yet. It
+is the design for stages 21 to 28 ([`docs/roadmap.md`](roadmap.md)), and each part names its stage
+and ADR. Each company's product
+runs in its own Cloudflare account as one deployment. The host holds the data and the rules; packs
+add kinds of record and behaviour; the company's customer-facing screens are its own code, written
+by an agent with a person. Everything above stands, and the core objects become every product's
+**base records** (ADR 0400).
+
+```
+            client repo (the company's own code)                 platform (releases)
+ ┌──────────────────────────────────────────────────┐   ┌──────────────────────────────────────┐
+ │ apps/web     TanStack Start   public + customer  │   │ packages  core, db, auth, sdk,        │
+ │ apps/mobile  Expo             customer + staff   │   │           client, gatekeepers         │
+ │ extensions/  the org's own objects and rules     │   │ packs     deals, leads, ticketing,    │
+ │ blocks       copied in, then owned               │   │           content                     │
+ │ product      packs on, platform version, names   │   │ blocks    registry (web + native)     │
+ └───────────────┬──────────────────────────────────┘   │ skills    for agents building on it   │
+                 │ typed client                          └───────────────────┬──────────────────┘
+                 │ (service binding from apps/web, HTTPS from phones and TVs)│ verified release
+                 ▼                                                           ▼
+            the host: one Cloudflare account = one org = one deployment (Shape at a glance above),
+            with an HTTP surface for client apps beside the UI, /mcp and the host modules
+```
+
+### Products
+
+Stage 20 and stage 24; [ADR 0400](adr/0400-a-general-host-and-products.md).
+
+A **product definition** names what one composition is: the packs that are on, the org's own
+extensions, Worker and resource names, branding strings, and which core features show. The release
+build and the deploy engine take a product, so the same platform release yields the CRM
+for one install and Ghetto Movement for another. A deployment's Workers and resources are named for
+its product (`crm-app`, `ghetto-app`). Nothing in the data model knows about products.
+
+Stage 20 built the first of these, `products/crm/product.ts` (names, the shipped extensions it
+includes, the update repository and the product's name in the UI); stage 24 moves a product's
+definition into its client repo.
+
+### Audiences and customers
+
+Stage 22; [ADR 0402](adr/0402-staff-and-customers.md).
+
+Every operation declares its audiences: `staff` (the default), `customer`, `public`.
+
+- **Staff** are today's users, with roles.
+- A **customer** is a Person with a sign-in. An object says which relation field is its customer;
+  the visibility seam limits a customer to their own records. Customers never reach the admin, MCP,
+  Code Mode, `query.sql`, dashboards or exports.
+- **Public** callers have no account. Public operations are few, low risk and rate limited.
+
+### The HTTP surface and the typed client
+
+Stage 23; [ADR 0403](adr/0403-http-surface-and-typed-client.md).
+
+A fourth surface beside server functions, MCP tools and the host module. Client apps call
+operations over HTTP through one generated package of types and TanStack Query option factories,
+the same package in TanStack Start and in React Native. Calls go through `invoke()` like any other.
+Writes carry idempotency keys.
+
+### Behaviours
+
+Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).
+
+The rules products share, declared in a manifest and enforced by the host in the write's own batch.
+`stages` exists. `states`, `capacity`, `sellable`, `publishable`, `recurring` and `allowance` are
+added as stages need them. Behaviours stack: an event is publishable, sellable and has a capacity.
+
+Two reasons this is the centre of the design. Extension tools cannot run several writes as one
+transaction, so anything that must be atomic (take the last place and create the order) has to be
+the host's. And a rule in the host holds for a person, an MCP client, an import and a client app
+alike, and can be simulated for approval.
+
+### Packs and blocks
+
+Stages 24, 27 and 28; [ADR 0401](adr/0401-platform-packs-screens.md).
+
+A **pack** is a shipped extension plus headless hooks over the typed client, released with the
+platform. A **block** is a screen for a pack in a web skin (Radix or Base UI under shadcn-style
+components) or a native skin (React Native), copied into the client repo from a registry and owned
+there. Blocks hold no rules.
+
+| Pack | Built from | Status |
+| --- | --- | --- |
+| Deals | `stages` | exists |
+| Leads, lifecycle | fields, tools | exists |
+| Ticketing | `states`, `capacity`, `sellable`, payments | stage 27 |
+| Content | `publishable`, rich text, media | stage 28 |
+| Bookings, memberships | `recurring`, `allowance`, recurring billing | later |
+
+### Client repos
+
+Stage 24; [ADR 0401](adr/0401-platform-packs-screens.md).
+
+One repository per company, started from a template: `apps/web` (TanStack Start), `apps/mobile`
+(Expo) where needed, `extensions/` for the org's own objects, copied blocks, and the product
+definition. The web app is its own Worker with a service binding to the host. It never opens D1.
+The staff admin and the MCP surface are the host's and are not rebuilt per client.
+
+### Skills
+
+Stage 21; [ADR 0405](adr/0405-skills-ship-with-the-platform.md).
+
+Installable instructions for agents, in `skills/`, versioned with the contract and each ending in
+a checker. The first set is for writing extensions.
+
+### Trust boundaries
+
+| Code | Runs where | May |
+| --- | --- | --- |
+| Platform | Host Workers | Everything, by release only |
+| Shipped extension (pack) | Runner, as `extension:<id>` | What its manifest's permissions grant |
+| Runtime extension | Runner, as `extension:<id>` | The same, after approval as a diff |
+| Client app, server side | The client's Worker | Call operations for the signed-in audience |
+| Client app, on a device | Phone, browser, TV | The same, with the user's session |
+
+No row of this table can loosen identity or approval policy. Only a human admin can.
+
+### What is not decided
+
+- Realtime: live records shared between two people, and counts that update as a door is scanned.
+- Push notifications to client apps.
+- Whether the hosted control plane (stage 10, now `products/crm/apps/control`) serves products
+  other than the CRM.
+- The licence for blocks.

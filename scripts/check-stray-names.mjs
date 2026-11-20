@@ -22,7 +22,7 @@ export const RULES = [
   },
   {
     name: "the retired package scope and repository name",
-    pattern: /relationship-os/i,
+    pattern: /relationship[-_]?os(?!crm)/i,
     instead: "the scope is @composable-os/*, the repository composable-os",
   },
   {

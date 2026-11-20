@@ -8,7 +8,7 @@
     ".": "./index.ts"
   },
   "description": "Lifecycle stage on people (stage 15, ADR 0246): opt-in, installed by an admin. Bundled as source into cos-runner.",
-  "relationshipOs": {
+  "composableOs": {
     "optional": true,
     "label": "Lifecycle stage",
     "description": "A lifecycle stage on every person (subscriber, lead, marketing qualified, sales qualified, opportunity, customer, evangelist, other), tracked on the timeline, with a board of people by stage."
