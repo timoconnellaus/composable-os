@@ -81,7 +81,7 @@ collide: 12 uses 0280–0289 (block G), 13 0290–0299 (H), 14 0300–0309 (I), 
 - **13 Email** and **14** are core and touch shared paths (the gate, sync ingest, every read): give
   each its own window rather than running them beside each other.
 
-## Later
+## Later, for the CRM
 
 Standard features deferred until after stages 12 to 16, in no particular order:
 
@@ -127,17 +127,58 @@ in [`parallel-work.md`](parallel-work.md) as usual.
 6. **27**: the first product that is not a CRM. Expect it to send changes back to 22 to 26.
 7. **28** whenever Ghetto's site moves to TanStack Start; it only needs 22 and 23.
 
-### Later, after stage 28
+## Stages 29 onward: common modules
 
-Named so they are not forgotten, not specced:
+Modules most businesses need, in the order their primitives unlock them. None is specced. Each
+gets its interview and spec when a client needs it, and not before.
 
-- **Recurring and bookings:** the `recurring` behaviour (a timetable generates sessions), waitlists,
-  late-cancel rules, a Bookings pack.
-- **Allowances and memberships:** passes and memberships that grant uses; recurring billing through
-  the payments gatekeeper, with retries, pauses and cancellation.
-- **Leaving Mindbody:** import of clients, visit history, passes and schedules; a period where both
-  run; what happens to stored payment details.
+| # | Stage | Scope | Status |
+| --- | --- | --- | --- |
+| 29 | Forms | Public writes as a primitive; a Forms pack: enquiry forms, sign-ups, waivers with a signature, surveys, reviews and feedback | not specced |
+| 30 | Notifications | Email, SMS and push as one primitive: templates, a person's preferences, an SMS gatekeeper, push to client apps | not specced |
+| 31 | Recurring schedules and Bookings | The `recurring` behaviour (a timetable generates sessions); a Bookings pack: classes, appointments, rooms, waitlists, late-cancel rules | not specced |
+| 32 | Allowances, recurring billing and Memberships | The `allowance` behaviour (a pass or plan grants uses, a booking spends one); recurring charges through the payments gatekeeper with retries, pauses and cancellation; a Memberships pack | not specced |
+| 33 | Leaving Mindbody | Import of clients, visit history, passes and schedules; a period where both run; what happens to stored payment details | not specced |
+| 34 | Price adjustments and Offers | Adjustments on orders as a primitive; an Offers pack: promo codes, gift cards, referrals, loyalty | not specced |
+| 35 | Invoices and quotes | Quote, accept, invoice, pay, chase; PDF output; built on orders | not specced |
+| 36 | Shared inbox, Messaging and Help desk | One inbox for email, SMS and in-app chat; campaigns; support requests with replies and response targets | not specced |
+| 37 | Shop | Products, stock (as `capacity`), shipping; built on `sellable` | not specced |
+| 38 | Knowledge base | Staff procedures and customer help pages; built on Content | not specced |
+| 39 | Jobs and projects | Work with stages, tasks and time spent; built on `stages` and Tasks | not specced |
+| 40 | Rosters | Shifts, availability and timesheets; built on `recurring` | not specced |
+
+### How a module is built
+
+- **A client pulls it.** Ghetto Movement sets the first order: 27, 28, then 29, 31, 32 and 33, which
+  together replace Mindbody.
+- **The manifest is written on paper first.** Whatever it cannot express is the platform work.
+- **Two halves.** A primitive half adds behaviours to the host, one at a time, because it touches
+  core. A pack half builds the extension, hooks and blocks, and several packs can be built at once.
+- **The pack holds the common core.** What only one client needs goes in that client's own
+  extension. A second client tests where the line is.
+- **Done means:** the extension passes `cos ext check` and its tests; staff screens, dashboards
+  and MCP access come from the host; it has hooks and blocks in web and native skins; one real
+  client uses it; and what the skills got wrong on the way is fixed in the skills.
+
+### What each primitive unlocks
+
+| Primitive | Modules |
+| --- | --- |
+| Public writes | Forms, reviews and feedback, lead capture |
+| Notifications | Messaging, and reminders for every other module |
+| `recurring` | Bookings, rosters |
+| `allowance` and recurring billing | Memberships |
+| Price adjustments on orders | Offers, invoices and quotes |
+| Shared inbox | Help desk, messaging |
+
+Shop, knowledge base and jobs need almost nothing new.
+
+## Later, for the platform
+
+Named so they are not forgotten, not staged:
+
 - **Realtime:** live records shared between people.
-- **Push notifications** to client apps.
 - **Ghetto's existing app data** (programmes, workouts, chat) onto the platform.
-- **Skills** for starting a client app, adding a pack, building a screen and migrating a system.
+- **Skills** for starting a client app, adding a pack, building a screen and migrating a system
+  (the first two arrive with stage 24).
+- **The Composable OS site's own content** beyond what stage 20 writes.
