@@ -1196,17 +1196,24 @@ export interface CorePersonSignatureTable {
   seen_at: Timestamp;
 }
 
-/** One stage a record has been in (migration 0100, ADR 0100). `left_at` is null for the current one. */
+/**
+ * The transition engine's history (migrations 0100 and 0420, ADRs 0100 and 0425): one position a
+ * record has been in. `left_at` is null for the current one. A stage row holds the stage record's
+ * id; a state row holds the state's value in `stage_id`, no group, and `open` or `final`.
+ */
 export interface CoreStageHistoryTable {
   id: string;
   object_type: string;
   record_id: string;
+  form: Generated<"stages" | "states">;
   stage_id: string;
   group_id: string | null;
-  stage_type: "open" | "won" | "lost";
+  stage_type: "open" | "won" | "lost" | "final";
   entered_at: Timestamp;
   left_at: Timestamp | null;
   entered_by: string | null;
+  /** Who made the move: staff, a customer, or platform code. */
+  entered_as: Generated<"staff" | "customer" | "host">;
 }
 
 export interface CrmStageHistoryView {
@@ -1221,6 +1228,21 @@ export interface CrmStageHistoryView {
   is_current: number;
   days_in_stage: number;
   entered_by: string | null;
+}
+
+/** `rec_state_history` (migration 0420): the history of state-driven objects. */
+export interface RecStateHistoryView {
+  id: string;
+  object_type: string;
+  record_id: string;
+  state: string;
+  is_final: number;
+  entered_at: Timestamp;
+  left_at: Timestamp | null;
+  is_current: number;
+  days_in_state: number;
+  entered_by: string | null;
+  entered_as: "staff" | "customer" | "host";
 }
 
 /** Stage 8 (migration 0160): installer choices, JSON under key 'deployment' (no secrets). */
@@ -1585,6 +1607,7 @@ export interface CoreDatabase {
   core_assignment_fallback: CoreAssignmentFallbackTable;
   core_field_options: CoreFieldOptionsTable;
   rec_stage_history: CrmStageHistoryView;
+  rec_state_history: RecStateHistoryView;
   rec_user: CrmUsersView;
   rec_person: CrmPeopleView;
   rec_organisation: CrmOrganisationsView;
