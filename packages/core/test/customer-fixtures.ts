@@ -6,7 +6,7 @@
 // operations below stand in. They live in a registry of their own: nothing here is ever in the
 // core registry or in open-operations.json.
 import { env } from "cloudflare:workers";
-import { CompiledQuery } from "kysely";
+import { CompiledQuery, sql } from "kysely";
 import { z } from "zod";
 import { fieldStorage, objectTableOf } from "../src/extensions/schema.ts";
 import { listObjects, setExtensionObjects } from "../src/fields/index.ts";
@@ -20,13 +20,9 @@ import {
   defineOperation,
   filterSchema,
   getObject,
-  getVisible,
-  type HandlerContext,
   invoke,
   LIST_MAX_LIMIT,
-  listVisible,
   loadPerson,
-  newId,
   type OutsideInvocationContext,
   type PublicPrincipal,
   refreshSchemaRegistry,
@@ -42,16 +38,20 @@ export const ORDER = `${SHOP}.order`;
 export const TICKET = `${SHOP}.ticket`;
 /** An object that declares no customer: it must not exist for one. */
 export const SUPPLIER = `${SHOP}.supplier`;
+/** An object a customer may create records of: every field they must give is writable. */
+export const REQUEST = `${SHOP}.request`;
 
 export const DECLARATIONS: Record<string, CustomerDeclaration> = {
   [ORDER]: { field: "buyer", read: ["title", "status", "total", "note"], write: ["note"] },
   [TICKET]: { field: "holder", read: ["code", "seat", "comment"], write: ["comment"] },
+  [REQUEST]: { field: "asker", read: ["text"], write: ["text"] },
 };
 
 /** Fields a customer must never learn anything about, per object. */
 export const UNLISTED: Record<string, string[]> = {
   [ORDER]: ["internalNote", "margin", "buyer", "createdAt", "updatedAt", "createdBy"],
   [TICKET]: ["checkedInBy", "holder", "createdAt", "updatedAt", "createdBy"],
+  [REQUEST]: ["handledBy", "asker", "createdAt", "updatedAt", "createdBy"],
 };
 
 /**
@@ -109,6 +109,16 @@ export async function installShop(): Promise<void> {
             holder: { type: "relation", label: "Holder", to: "person" },
           },
         },
+        request: {
+          label: "Request",
+          plural: "Requests",
+          titleField: "text",
+          fields: {
+            text: { type: "text", label: "Request", required: true },
+            handledBy: { type: "text", label: "Handled by" },
+            asker: { type: "relation", label: "Asker", to: "person" },
+          },
+        },
         supplier: {
           label: "Supplier",
           plural: "Suppliers",
@@ -154,7 +164,7 @@ export async function createCustomer(admin: ActingUser, label: string): Promise<
   const customer: Customer = {
     label,
     principal: { kind: "customer", customerId: `cus_${tag}`, personId: person.id },
-    records: { [ORDER]: [], [TICKET]: [] },
+    records: { [ORDER]: [], [TICKET]: [], [REQUEST]: [] },
     secrets: [`Given-${tag}`, `Family-${tag}`, email, person.id],
     values: {},
   };
@@ -175,9 +185,15 @@ export async function createCustomer(admin: ActingUser, label: string): Promise<
       checkedInBy: `CheckedIn-${tag}-${n}`,
       holder: person.id,
     };
+    const request = {
+      text: `Request-${tag}-${n}`,
+      handledBy: `HandledBy-${tag}-${n}`,
+      asker: person.id,
+    };
     for (const [object, values] of [
       [ORDER, order],
       [TICKET, ticket],
+      [REQUEST, request],
     ] as const) {
       const created = await invoke("record.create", { object, values }, context(admin));
       customer.records[object]?.push(created.id);
@@ -185,7 +201,7 @@ export async function createCustomer(admin: ActingUser, label: string): Promise<
       if (n === 1) customer.values[object] = values;
       for (const [field, value] of Object.entries(values)) {
         // `open` and `paid` are shared words, and the person id is listed once already.
-        if (field === "status" || field === "buyer" || field === "holder") continue;
+        if (["status", "buyer", "holder", "asker"].includes(field)) continue;
         customer.secrets.push(String(value));
       }
     }
@@ -228,6 +244,9 @@ export async function snapshot(customer: Customer): Promise<string> {
 }
 
 // --- Operations open to customers and the public ---------------------------------------------
+//
+// A handler here has what a real one has (ADR 0413): `ctx.records` and nothing else of the
+// database. `rawAccess` tries the rest, and `bookkeeping` is the one kind allowed to keep it.
 
 const objectName = z.string().min(1).max(80);
 const recordOut = z.object({
@@ -235,6 +254,7 @@ const recordOut = z.object({
   id: z.string(),
   values: z.record(z.string(), z.unknown()),
 });
+const valuesIn = z.record(z.string().max(80), z.union([z.string(), z.number(), z.null()]));
 const customerOnly = {
   permission: "records:read",
   audiences: ["customer"],
@@ -254,7 +274,7 @@ const myList = defineOperation({
   }),
   output: z.object({ items: z.array(recordOut), nextCursor: z.string().nullable() }),
   risk: "read",
-  handler: (input, ctx) => listVisible(ctx, input.object, input),
+  handler: (input, ctx) => ctx.records.list(input.object, input),
 });
 
 /** What `my.get` will be. */
@@ -265,157 +285,130 @@ const myGet = defineOperation({
   input: z.object({ object: objectName, id: z.string().min(1).max(64) }),
   output: recordOut,
   risk: "read",
-  handler: (input, ctx) => getVisible(ctx, input.object, input.id),
+  handler: (input, ctx) => ctx.records.get(input.object, input.id),
 });
 
-function update(ctx: HandlerContext, object: string, id: string, values: Record<string, unknown>) {
-  const table = objectTableOf(object);
-  if (!table) throw new ValidationError(`Unknown object "${object}"`, { object });
-  for (const [field, value] of Object.entries(values)) {
-    const storage = fieldStorage(object, field);
-    if (!storage?.column) {
-      throw new ValidationError(`Unknown field "${field}" on ${object}`, { field });
-    }
-    ctx.write(
-      CompiledQuery.raw(`UPDATE ${table} SET ${storage.column} = ?, updated_at = ? WHERE id = ?`, [
-        value as string,
-        ctx.now,
-        id,
-      ]),
-    );
-  }
-}
+const myCount = defineOperation({
+  ...customerOnly,
+  name: "fixture.myCount",
+  description: "Fixture: how many of the caller's own records match a filter.",
+  input: z.object({ object: objectName, filter: filterSchema.optional() }),
+  output: z.object({ count: z.number(), capped: z.boolean() }),
+  risk: "read",
+  handler: (input, ctx) => ctx.records.count(input.object, input.filter),
+});
 
-/** A write as a careful tool would make it: it reads the record through the seam first. */
+/** A write as a tool makes it: through the seam's helper, which checks whose record it is. */
 const myUpdate = defineOperation({
   ...customerOnly,
   name: "fixture.myUpdate",
   description: "Fixture: changes fields of one of the caller's own records.",
-  input: z.object({
-    object: objectName,
-    id: z.string().min(1).max(64),
-    values: z.record(z.string().max(80), z.union([z.string(), z.number(), z.null()])),
-  }),
+  input: z.object({ object: objectName, id: z.string().min(1).max(64), values: valuesIn }),
   output: recordOut,
   risk: "write",
   async handler(input, ctx) {
-    const before = await getVisible(ctx, input.object, input.id);
-    update(ctx, input.object, input.id, input.values);
-    ctx.recordChange({
-      object: input.object,
-      id: input.id,
-      action: "update",
-      before: Object.fromEntries(
-        Object.keys(input.values).map((k) => [k, before.values[k] ?? null]),
-      ),
-      after: input.values,
-    });
-    return ctx.afterCommit(() => getVisible(ctx, input.object, input.id));
+    await ctx.records.update(input.object, input.id, input.values);
+    return ctx.afterCommit(() => ctx.records.get(input.object, input.id));
+  },
+});
+
+/** A create that passes on whatever its caller sent, the owner field included. */
+const myCreate = defineOperation({
+  ...customerOnly,
+  name: "fixture.myCreate",
+  description: "Fixture: creates a record for the caller from the values given.",
+  input: z.object({ object: objectName, values: valuesIn }),
+  output: z.object({ id: z.string() }),
+  risk: "write",
+  handler: (input, ctx) => ctx.records.create(input.object, input.values),
+});
+
+/**
+ * A handler that reaches past the seam, each way there is: the raw database, a queued statement,
+ * a change it only claims to have made, an activity. None of them is there for it.
+ */
+const rawAccess = defineOperation({
+  ...customerOnly,
+  name: "fixture.rawAccess",
+  description: "Fixture: tries to read or write a record without the seam's helpers.",
+  input: z.object({
+    how: z.enum(["db", "write", "recordChange", "postActivity", "loader", "list"]),
+    object: objectName,
+    id: z.string().min(1).max(64),
+  }),
+  output: z.object({ got: z.unknown() }),
+  risk: "write",
+  async handler(input, ctx) {
+    const table = objectTableOf(input.object) ?? "core_person";
+    switch (input.how) {
+      case "db":
+        return {
+          got: await sql`SELECT * FROM ${sql.table(table)} WHERE id = ${input.id}`.execute(ctx.db),
+        };
+      case "write":
+        ctx.write(
+          CompiledQuery.raw(`UPDATE ${table} SET updated_at = ? WHERE id = ?`, ["x", input.id]),
+        );
+        return { got: "queued" };
+      case "recordChange":
+        ctx.recordChange({ object: input.object, id: input.id, action: "update", diff: {} });
+        return { got: "recorded" };
+      case "postActivity":
+        return {
+          got: ctx.postActivity({
+            subject: "from a customer",
+            payload: { kind: "note" },
+            links: [{ object: input.object, id: input.id }],
+          }),
+        };
+      case "loader":
+        return { got: await loadPerson(ctx, input.id) };
+      case "list": {
+        const definition = getObject(input.object);
+        if (!definition) throw new ValidationError(`Unknown object "${input.object}"`);
+        return { got: await runListQuery<{ id: string }>(ctx, definition, { limit: 50 }) };
+      }
+    }
   },
 });
 
 /**
- * A write as a careless tool would make it: straight to the table by id, any field, with no
- * read and no check. Only the seam's check on recorded changes stands between it and someone
- * else's row.
+ * Core bookkeeping (`hostInternal`): it keeps the raw database and write queue. A record change
+ * it records itself is still checked in full by the seam before anything commits.
  */
-const carelessUpdate = defineOperation({
+const bookkeeping = defineOperation({
   ...customerOnly,
-  name: "fixture.carelessUpdate",
-  description: "Fixture: updates a record by id without checking whose it is.",
+  name: "fixture.bookkeeping",
+  description: "Fixture: a hostInternal operation that writes a note on a record with raw SQL.",
   input: z.object({
     object: objectName,
     id: z.string().min(1).max(64),
-    values: z.record(z.string().max(80), z.union([z.string(), z.number(), z.null()])),
+    field: z.string().default("note"),
   }),
-  output: z.object({ ok: z.boolean() }),
+  output: z.object({ people: z.number() }),
   risk: "write",
+  hostInternal: true,
   async handler(input, ctx) {
-    update(ctx, input.object, input.id, input.values);
+    const table = objectTableOf(input.object);
+    const column = fieldStorage(input.object, input.field)?.column;
+    if (!table || !column) throw new ValidationError(`Unknown object "${input.object}"`);
+    const { rows } = await sql<{ n: number }>`SELECT count(*) AS n FROM core_person`.execute(
+      ctx.db,
+    );
+    ctx.write(
+      CompiledQuery.raw(`UPDATE ${table} SET ${column} = ? WHERE id = ?`, [
+        "kept by the host",
+        input.id,
+      ]),
+    );
     ctx.recordChange({
       object: input.object,
       id: input.id,
       action: "update",
-      before: Object.fromEntries(Object.keys(input.values).map((k) => [k, "(not read)"])),
-      after: input.values,
+      before: { [input.field]: null },
+      after: { [input.field]: "kept by the host" },
     });
-    return { ok: true };
-  },
-});
-
-/** A create that lets its caller name the owner. The seam allows only the caller. */
-const myCreate = defineOperation({
-  ...customerOnly,
-  name: "fixture.myCreate",
-  description: "Fixture: creates a record for the caller, or for whoever the input names.",
-  input: z.object({
-    object: objectName,
-    owner: z.string().min(1).max(64).optional(),
-    values: z.record(z.string().max(80), z.union([z.string(), z.number(), z.null()])),
-  }),
-  output: z.object({ id: z.string() }),
-  risk: "write",
-  async handler(input, ctx) {
-    const definition = getObject(input.object);
-    const table = objectTableOf(input.object);
-    const ownerField = definition?.customer?.field;
-    if (!definition || !table || !ownerField || ctx.principal.kind !== "customer") {
-      throw new ValidationError(`Unknown object "${input.object}"`, { object: input.object });
-    }
-    const id = newId("record");
-    const values = { ...input.values, [ownerField]: input.owner ?? ctx.principal.personId };
-    const columns = ["id", "created_at", "updated_at"];
-    const params: unknown[] = [id, ctx.now, ctx.now];
-    for (const [field, value] of Object.entries(values)) {
-      const storage = fieldStorage(input.object, field);
-      if (!storage?.column) {
-        throw new ValidationError(`Unknown field "${field}" on ${input.object}`, { field });
-      }
-      columns.push(storage.column);
-      params.push(value);
-    }
-    ctx.write(
-      CompiledQuery.raw(
-        `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
-        params,
-      ),
-    );
-    ctx.recordChange({ object: input.object, id, action: "create", after: values });
-    return { id };
-  },
-});
-
-/** A handler that reaches for a staff loader: the seam gives it nothing. */
-const peekPerson = defineOperation({
-  ...customerOnly,
-  name: "fixture.peekPerson",
-  description: "Fixture: tries to load any person with the staff loader.",
-  input: z.object({ id: z.string().min(1).max(64) }),
-  output: z.object({ person: z.unknown() }),
-  risk: "read",
-  handler: async (input, ctx) => ({ person: await loadPerson(ctx, input.id) }),
-});
-
-/** A handler that lists with the registry's full definition, as a staff list does. */
-const rawList = defineOperation({
-  ...customerOnly,
-  name: "fixture.rawList",
-  description: "Fixture: lists an object with its full definition, not the caller's view of it.",
-  input: z.object({
-    object: objectName,
-    filter: filterSchema.optional(),
-    sort: sortSchema.optional(),
-    limit: z.number().int().min(1).max(LIST_MAX_LIMIT).default(50),
-  }),
-  output: z.object({ rows: z.array(z.record(z.string(), z.unknown())) }),
-  risk: "read",
-  async handler(input, ctx) {
-    const definition = getObject(input.object);
-    if (!definition) {
-      throw new ValidationError(`Unknown object "${input.object}"`, { object: input.object });
-    }
-    const page = await runListQuery<{ id: string }>(ctx, definition, input);
-    return { rows: page.rows };
+    return { people: Number(rows[0]?.n ?? 0) };
   },
 });
 
@@ -450,10 +443,10 @@ const publicPeek = defineOperation({
   permission: "records:read",
   risk: "read",
   audiences: ["public"],
-  handler: (input, ctx) => listVisible(ctx, input.object, { limit: 50 }),
+  handler: (input, ctx) => ctx.records.list(input.object),
 });
 
-/** A public write that records a change: the public change nothing. */
+/** A public write: the public change nothing. */
 const publicWrite = defineOperation({
   name: "fixture.publicWrite",
   description: "Fixture: a public operation that tries to change a record.",
@@ -463,14 +456,7 @@ const publicWrite = defineOperation({
   risk: "write",
   audiences: ["public"],
   async handler(input, ctx) {
-    update(ctx, input.object, input.id, { note: "written by the public" });
-    ctx.recordChange({
-      object: input.object,
-      id: input.id,
-      action: "update",
-      before: { note: null },
-      after: { note: "written by the public" },
-    });
+    await ctx.records.update(input.object, input.id, { note: "written by the public" });
     return { ok: true };
   },
 });
@@ -478,11 +464,11 @@ const publicWrite = defineOperation({
 export const fixtureOperations = [
   myList,
   myGet,
+  myCount,
   myUpdate,
-  carelessUpdate,
   myCreate,
-  peekPerson,
-  rawList,
+  rawAccess,
+  bookkeeping,
   staffHabit,
   whoAmI,
   publicPeek,

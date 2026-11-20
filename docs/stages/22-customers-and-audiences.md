@@ -222,3 +222,21 @@ Migrations 0400 to 0409. ADRs 0410 to 0414, and ADR 0402 amended as built.
 
 Steps 1 to 3 are the spine: they decide whether a customer can ever see another's data. They are
 built and reviewed before anything else is handed out.
+
+## Amendments
+
+### 2026-11-20, after the review of steps 1 to 3
+- **Criterion 3 is met by a ratchet.** A read of a record view or table outside the seam fails a
+  test unless its file is on the test's list with a count and a reason. The list had 180 reads in
+  36 files when it was written, and stage 14a empties it (ADR 0410).
+- **A handler called by a customer or the public has no raw database.** It reads and writes
+  records through `ctx.records` only. A core operation marked `hostInternal` keeps the database
+  for account and session bookkeeping, and the generated list shows the flag (ADR 0413).
+- **The generated list is `packages/core/open-operations.json`.** A fixture operation is never
+  in it: tests use a registry of their own (ADR 0411).
+- **A deploy-time floor that asks for review does not apply to customers or the public.** One
+  that denies does.
+- **An audience refusal and a failed read by an outside caller write no audit row.**
+- **The audit tables no longer constrain the actor.** The pipeline validates it (migration 0400).
+- **A pack's tool called by a customer runs as that customer,** and lists per object the fields
+  it may set beyond `customer.write` (ADR 0414).

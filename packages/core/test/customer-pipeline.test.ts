@@ -4,14 +4,18 @@
 // a staff call carries.
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   type ActingUser,
   type AutomationQueueMessage,
   coreOperations,
+  createRegistry,
+  defineOperation,
   evaluateOutsideGate,
   type InvocationContext,
   invokeByName,
   type OutsideInvocationContext,
+  openOperations,
   RISK_CLASSES,
   scopeOf,
 } from "../src/index.ts";
@@ -19,6 +23,7 @@ import {
   type Customer,
   call,
   createCustomer,
+  fixtureRegistry,
   installShop,
   ORDER,
   outside,
@@ -147,10 +152,16 @@ describe("the gate allows or refuses, and never queues", () => {
     for (const risk of RISK_CLASSES) {
       expect(evaluateOutsideGate(risk)).toBe(risk === "read" || risk === "write" ? "auto" : "deny");
     }
-    // A floor can only refuse, and one that asks for review refuses.
-    expect(evaluateOutsideGate("write", { "*": { write: "review" } })).toBe("deny");
-    expect(evaluateOutsideGate("write", { "*": { "*": "deny" } })).toBe("deny");
-    expect(evaluateOutsideGate("read", { "*": { write: "review" } })).toBe("auto");
+    // A floor that asks for review is about calls that can wait: it does not apply here.
+    expect(evaluateOutsideGate("write", { "*": { write: "review" } })).toBe("auto");
+    expect(evaluateOutsideGate("write", { "*": { "*": "review" } })).toBe("auto");
+    expect(evaluateOutsideGate("write", { "*": { write: { autoUpTo: 0, above: "review" } } })).toBe(
+      "auto",
+    );
+    // A floor that denies still denies.
+    expect(evaluateOutsideGate("write", { "*": { write: "deny" } })).toBe("deny");
+    expect(evaluateOutsideGate("read", { "*": { "*": "deny" } })).toBe("deny");
+    expect(evaluateOutsideGate("read", { "*": { write: "deny" } })).toBe("auto");
     expect(
       evaluateOutsideGate("write", { mcp: { write: "deny" }, "*": { destructive: "deny" } }),
     ).toBe("auto");
@@ -173,19 +184,29 @@ describe("the gate allows or refuses, and never queues", () => {
     }
   });
 
-  it("a floor that would send the write to review refuses it, and that is audited", async () => {
+  it("a floor that asks for review does not apply: the write lands and nothing is queued", async () => {
     const id = a.records[ORDER]?.[0] as string;
     const pending = await count("SELECT count(*) AS n FROM core_pending_action");
+    const done = await call(
+      "fixture.myUpdate",
+      { object: ORDER, id, values: { note: "under a review floor" } },
+      outside(a.principal, { floor: { "*": { write: "review" } } }),
+    );
+    expect(done).toMatchObject({ ok: true, value: { values: { note: "under a review floor" } } });
+    expect(await count("SELECT count(*) AS n FROM core_pending_action")).toBe(pending);
+  });
+
+  it("a floor that denies refuses the write, and that is audited", async () => {
+    const id = a.records[ORDER]?.[0] as string;
     const refused = await call(
       "fixture.myUpdate",
-      { object: ORDER, id, values: { note: "under a floor" } },
-      outside(a.principal, { floor: { "*": { write: "review" } } }),
+      { object: ORDER, id, values: { note: "under a deny floor" } },
+      outside(a.principal, { floor: { "*": { write: "deny" } } }),
     );
     expect(refused).toEqual({
       ok: false,
       error: { code: "denied", message: "fixture.myUpdate is not available" },
     });
-    expect(await count("SELECT count(*) AS n FROM core_pending_action")).toBe(pending);
     const row = await env.DB.prepare(
       "SELECT actor, user_id, gate_decision, outcome FROM core_audit WHERE operation = 'fixture.myUpdate' AND outcome = 'denied' AND user_id = ?",
     )
@@ -261,12 +282,12 @@ describe("audit", () => {
 
     const id = "rec_01NOTTHERE0000000000000000";
     await call(
-      "fixture.carelessUpdate",
+      "fixture.myUpdate",
       { object: ORDER, id, values: { note: "x" } },
       outside(a.principal),
     );
     const row = await env.DB.prepare(
-      "SELECT actor, outcome, error FROM core_audit WHERE operation = 'fixture.carelessUpdate' AND outcome = 'error' ORDER BY at DESC LIMIT 1",
+      "SELECT actor, outcome, error FROM core_audit WHERE operation = 'fixture.myUpdate' AND outcome = 'error' ORDER BY at DESC LIMIT 1",
     ).first<{ actor: string; outcome: string; error: string }>();
     expect(row).toMatchObject({ actor: "customer", outcome: "error" });
     expect(JSON.parse(row?.error ?? "{}")).toMatchObject({ code: "not_found" });
@@ -289,5 +310,95 @@ describe("events", () => {
     expect(sent).toHaveLength(1);
     expect(JSON.stringify(sent[0])).toContain('"actor":"customer"');
     expect(JSON.stringify(sent[0])).toContain(a.principal.customerId);
+  });
+});
+
+describe("the closed handler context (ADR 0413)", () => {
+  it("the generated list shows which open operations keep the raw database", () => {
+    const listed = openOperations(fixtureRegistry.list()).operations;
+    expect(listed.filter((op) => op.hostInternal).map((op) => op.name)).toEqual([
+      "fixture.bookkeeping",
+    ]);
+    expect(listed.find((op) => op.name === "fixture.myUpdate")).toEqual({
+      name: "fixture.myUpdate",
+      audiences: ["customer"],
+      risk: "write",
+    });
+  });
+
+  it("an open operation without the flag has no database, write queue, change or activity", async () => {
+    const id = a.records[ORDER]?.[0] as string;
+    const activities = await count("SELECT count(*) AS n FROM core_activity");
+    for (const how of ["db", "write", "recordChange", "postActivity", "loader", "list"]) {
+      expect(
+        await call("fixture.rawAccess", { how, object: ORDER, id }, outside(a.principal)),
+        how,
+      ).toEqual({ ok: false, error: { code: "internal", message: "Internal error" } });
+    }
+    expect(await count("SELECT count(*) AS n FROM core_activity")).toBe(activities);
+  });
+
+  it("a hostInternal operation keeps them, and the seam still checks the change it records", async () => {
+    const id = a.records[ORDER]?.[0] as string;
+    const kept = await call("fixture.bookkeeping", { object: ORDER, id }, outside(a.principal));
+    expect(kept).toMatchObject({ ok: true });
+    expect((kept as { value: { people: number } }).value.people).toBeGreaterThan(0);
+    // A field the customer may not write, recorded by the handler itself: refused in full.
+    const hidden = await call(
+      "fixture.bookkeeping",
+      { object: ORDER, id, field: "internalNote" },
+      outside(a.principal),
+    );
+    expect(hidden).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    const row = await env.DB.prepare(
+      `SELECT internal_note AS n FROM ${`x_${ORDER.replace(".", "_")}`} WHERE id = ?`,
+    )
+      .bind(id)
+      .first<{ n: string }>();
+    expect(row?.n).toBe(a.values[ORDER]?.internalNote);
+  });
+
+  it("the flag is refused on an extension tool and on an operation that is not open", () => {
+    const base = {
+      description: "A fixture operation for the hostInternal checks.",
+      input: z.object({}),
+      output: z.object({}),
+      permission: "records:read",
+      risk: "read",
+      handler: async () => ({}),
+    } as const;
+    expect(() =>
+      defineOperation({
+        ...base,
+        name: "x.shop.tool",
+        audiences: ["customer"],
+        hostInternal: true,
+      }),
+    ).toThrow(/an extension tool can never be hostInternal/);
+    expect(() =>
+      createRegistry([
+        { ...base, name: "x.shop.tool", audiences: ["customer"], hostInternal: true } as never,
+      ]),
+    ).toThrow(/an extension tool can never be hostInternal/);
+    expect(() => defineOperation({ ...base, name: "fixture.closed", hostInternal: true })).toThrow(
+      /hostInternal is only for an operation open to customer or public callers/,
+    );
+  });
+});
+
+describe("the audit actor is checked in code (migration 0400 dropped the CHECK)", () => {
+  it("a call with an actor that is not one cannot be written", async () => {
+    const audits = await count("SELECT count(*) AS n FROM core_audit");
+    const forged = context(admin, { actor: "robot" as never });
+    expect(await call("person.create", { givenName: "Robot" }, forged)).toMatchObject({
+      ok: false,
+      error: { code: "internal" },
+    });
+    expect(await count("SELECT count(*) AS n FROM core_audit")).toBe(audits);
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM core_audit WHERE actor NOT IN ('human','assistant','mcp','automation','extension','customer','public')",
+      ),
+    ).toBe(0);
   });
 });

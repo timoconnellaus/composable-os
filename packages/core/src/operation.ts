@@ -32,6 +32,7 @@ import {
   type RiskClass,
 } from "./principals.ts";
 import type { UpdaterRuntime } from "./updates.ts";
+import type { RecordAccess } from "./visibility/records.ts";
 
 /** One record touched by an operation, recorded as field diffs in core_audit_changes. */
 export interface RecordChange {
@@ -127,6 +128,12 @@ export interface HandlerContext {
   readonly grantedPermissions?: readonly Permission[] | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
+  /**
+   * Records through the visibility seam: what the caller may see and, for a customer, change.
+   * On a customer's or the public's call this is the only way to the database: `db`, `write`,
+   * `recordChange` and `postActivity` throw there unless the operation is `hostInternal`.
+   */
+  readonly records: RecordAccess;
   /** Queues statements (Kysely insert/update/delete builders) for the commit batch, in order. */
   write(...statements: (Compilable | CompiledQuery)[]): void;
   /**
@@ -303,6 +310,13 @@ export interface OperationDefinition<
   output: Out;
   permission: Permission;
   risk: RiskClass;
+  /**
+   * Core operations only, and only ones open to customers or the public: the handler keeps the
+   * raw database and write queue (`ctx.db`, `ctx.write`). For account and session bookkeeping
+   * that is not a record (sign-in, sign-out, sessions, deleting the account). Every use shows in
+   * open-operations.json. Never on an extension tool (ADR 0413).
+   */
+  hostInternal?: boolean;
   /** Actor types allowed to call it at all. Default: every actor. */
   actors?: readonly Actor[];
   /**
@@ -384,6 +398,13 @@ export function operationProblems(op: AnyOperation): string[] {
   }
   if (typeof op.handler !== "function") problems.push("handler missing");
   problems.push(...audienceProblems(op));
+  if (op.hostInternal !== undefined) {
+    if (op.hostInternal !== true) problems.push("hostInternal is true or left out");
+    if (op.name?.startsWith("x.")) problems.push("an extension tool can never be hostInternal");
+    if (!isOpenOutside(op)) {
+      problems.push("hostInternal is only for an operation open to customer or public callers");
+    }
+  }
   if (isOpenOutside(op) && op.alwaysReview) {
     problems.push("an operation open to customer or public callers is never queued for review");
   }

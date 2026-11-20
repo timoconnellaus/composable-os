@@ -22,6 +22,7 @@ import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import { applyStageBehaviour, type StageCache, type StageOutcome } from "../records/stages.ts";
 import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
+import { setRecordWriter } from "../visibility/writes.ts";
 
 const objectName = z
   .string()
@@ -581,6 +582,74 @@ export const recordGet = defineOperation({
   },
 });
 
+/**
+ * Queues the writes that change one record (validation, the stage behaviour, search, audit).
+ * Returns false when `values` is empty. record.update and the visibility seam's write helper
+ * share it.
+ */
+export async function updateRecord(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  values: Record<string, unknown>,
+): Promise<boolean> {
+  const input = { object: object.name, id, values };
+  const before = await loadRecord(ctx, object, input.id);
+  if (!before) throw new NotFoundError(input.object, input.id);
+  let prepared = await prepareValues(ctx, object, input.values, "update");
+  if (!prepared.length) return false;
+  assertChoiceRequirements(object, prepared, {
+    ...before.values,
+    ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
+  });
+  assertOneOf(object, {
+    ...before.values,
+    ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
+  });
+  const outcome = await applyStageBehaviour(
+    ctx,
+    object,
+    input.id,
+    before.values,
+    valuesOf(prepared),
+  );
+  prepared = withHostValues(prepared, outcome, object);
+  const own = prepared.filter((p) => p.own);
+  if (own.length || !isCoreObject(object.name)) {
+    const table = objectTableOf(object.name);
+    if (table) {
+      ctx.write(
+        CompiledQuery.raw(
+          `UPDATE ${table} SET ${[...own.map((p) => `${p.column} = ?`), "updated_at = ?", "updated_by = ?"].join(", ")} WHERE id = ? AND deleted_at IS NULL`,
+          [...own.map((p) => p.stored), ctx.now, ctx.user.id, input.id],
+        ),
+      );
+    }
+  }
+  ctx.write(...sideWrites(input.id, prepared), ...outcome.history);
+  const after = {
+    ...before.values,
+    ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
+  };
+  const timeline = await timelineFor(ctx, object, input.id, before.values, after, outcome);
+  if (object.titleField && prepared.some((p) => p.field.name === object.titleField)) {
+    const title = after[object.titleField];
+    ctx.write(...searchDoc(object.name, input.id, title == null ? null : String(title)));
+  }
+  ctx.recordChange({
+    object: object.name,
+    id: input.id,
+    action: "update",
+    before: snapshot(before),
+    after,
+    ...(timeline ? { timeline } : {}),
+  });
+  return true;
+}
+
+// The seam's write helper (visibility/writes.ts) changes extension records with this code.
+setRecordWriter({ create: createRecord, update: updateRecord });
+
 export const recordUpdate = defineOperation({
   name: "record.update",
   description:
@@ -594,56 +663,7 @@ export const recordUpdate = defineOperation({
   risk: "write",
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    const before = await loadRecord(ctx, object, input.id);
-    if (!before) throw new NotFoundError(input.object, input.id);
-    let prepared = await prepareValues(ctx, object, input.values, "update");
-    if (!prepared.length) return before;
-    assertChoiceRequirements(object, prepared, {
-      ...before.values,
-      ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
-    });
-    assertOneOf(object, {
-      ...before.values,
-      ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
-    });
-    const outcome = await applyStageBehaviour(
-      ctx,
-      object,
-      input.id,
-      before.values,
-      valuesOf(prepared),
-    );
-    prepared = withHostValues(prepared, outcome, object);
-    const own = prepared.filter((p) => p.own);
-    if (own.length || !isCoreObject(object.name)) {
-      const table = objectTableOf(object.name);
-      if (table) {
-        ctx.write(
-          CompiledQuery.raw(
-            `UPDATE ${table} SET ${[...own.map((p) => `${p.column} = ?`), "updated_at = ?", "updated_by = ?"].join(", ")} WHERE id = ? AND deleted_at IS NULL`,
-            [...own.map((p) => p.stored), ctx.now, ctx.user.id, input.id],
-          ),
-        );
-      }
-    }
-    ctx.write(...sideWrites(input.id, prepared), ...outcome.history);
-    const after = {
-      ...before.values,
-      ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
-    };
-    const timeline = await timelineFor(ctx, object, input.id, before.values, after, outcome);
-    if (object.titleField && prepared.some((p) => p.field.name === object.titleField)) {
-      const title = after[object.titleField];
-      ctx.write(...searchDoc(object.name, input.id, title == null ? null : String(title)));
-    }
-    ctx.recordChange({
-      object: object.name,
-      id: input.id,
-      action: "update",
-      before: snapshot(before),
-      after,
-      ...(timeline ? { timeline } : {}),
-    });
+    await updateRecord(ctx, object, input.id, input.values);
     return ctx.afterCommit(async () => (await loadRecord(ctx, object, input.id)) as RecordOutput);
   },
 });

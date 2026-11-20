@@ -25,7 +25,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | N | 0350–0379 | 0340–0359 | Stage 17, One proactive assistant (ADRs 0340–0351 used by the spec; wave 1 used migrations 0350–0351, W2 wiring 0358–0360, W3 memory 0352, W9 voice 0361–0362 with 0363 reserved, W4 routines 0365–0369, W5 agents and approvals 0370–0374) | in flight |
 | O | 0380–0389 | 0400–0409 | Stage 20, Move in (migration 0380 used: the view rename; ADRs 0400–0405 used by the design) | in flight |
 | P | — | — | Stage 21, Extension skills (no migrations; ADR 0405 from block O) | specced |
-| Q | 0400–0409 | 0410–0414 | Stage 22, Customers and audiences (ADR 0402 amended as built; steps 1 to 3 use ADRs 0410–0412 and migration 0400) | in flight |
+| Q | 0400–0409 | 0410–0414 | Stage 22, Customers and audiences (ADR 0402 amended as built; ADRs 0410–0414 used; migrations 0400 on) | in flight |
 | R | 0410–0419 | 0415–0419 | Stage 23, HTTP surface and typed client (ADR 0403 amended as built) | specced |
 | S | — | 0420–0424 | Stage 24, Client apps (no migrations; ADR 0401 amended as built) | specced |
 | T | 0420–0439 | 0425–0429 | Stage 25, States, orders and payments | specced |

@@ -79,6 +79,7 @@ import {
 } from "./operation.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
 import {
+  ACTORS,
   type ActingUser,
   type Actor,
   type Origin,
@@ -92,7 +93,14 @@ import {
 import { resolveInputFilter } from "./relative.ts";
 import { loadApprovalPolicy } from "./settings.ts";
 import type { UpdaterRuntime } from "./updates.ts";
-import { assertVisibleWrites } from "./visibility/writes.ts";
+import { orgReader } from "./visibility/index.ts";
+import { recordAccess } from "./visibility/records.ts";
+import {
+  assertVisibleWrites,
+  createVisible,
+  type SeamWriter,
+  updateVisible,
+} from "./visibility/writes.ts";
 
 /** Everything an adapter supplies for one call. */
 export interface InvocationContext {
@@ -575,6 +583,10 @@ async function invokeOnce<O extends AnyOperation>(
   const now = (ctx.clock?.() ?? new Date()).toISOString();
   // Audience first (ADR 0402, ADR 0411): a caller the operation is not open to gets the answer
   // an unknown name gets, before the input is looked at, so nothing tells them it exists.
+  // The audit log holds any text as its actor since migration 0400: it is checked here instead.
+  if (!(ACTORS as readonly string[]).includes(ctx.actor)) {
+    throw new OperationError("internal", "Unknown actor");
+  }
   if (!allowsAudience(op, staffPrincipal(ctx.user))) throw new UnknownOperationError(op.name);
   const parsed = op.input.safeParse(rawInput);
   if (!parsed.success) {
@@ -681,6 +693,7 @@ async function invokeOnce<O extends AnyOperation>(
     actor: ctx.actor,
     user: ctx.user,
     principal: staffPrincipal(ctx.user),
+    records: recordAccess({ db: ctx.db.query, principal: staffPrincipal(ctx.user) }),
     origin: ctx.origin,
     now,
     auditId,
@@ -1279,6 +1292,25 @@ export interface OutsideInvocationContext {
 
 export type AnyInvocationContext = InvocationContext | OutsideInvocationContext;
 
+/** The plain members of a host context, without its throwing getters. */
+function pick(host: HandlerContext) {
+  const { origin, now, auditId, db, floor, grantedPermissions, write, recordChange, postActivity } =
+    host;
+  return {
+    operation: host.operation,
+    origin,
+    now,
+    auditId,
+    db,
+    floor,
+    grantedPermissions,
+    write,
+    recordChange,
+    postActivity,
+    afterCommit,
+  };
+}
+
 function isOutside(ctx: AnyInvocationContext): ctx is OutsideInvocationContext {
   const c = ctx as { principal?: unknown; user?: unknown; actor?: unknown };
   if (c.principal === undefined) return false;
@@ -1428,24 +1460,28 @@ async function invokeOutside<O extends AnyOperation>(
     );
   };
   const reader = { db: ctx.db.query, principal };
-  const handlerCtx: HandlerContext = {
+  // What the host itself writes with, on the caller's behalf: the real database and write queue.
+  // It is given to the seam's write helpers and to `hostInternal` operations, and to nothing else.
+  const checkedBySeam = new Set<RecordChange>();
+  const host: HandlerContext = {
     operation: op.name,
     get actor() {
       return staffOnly("actor");
     },
-    get user() {
-      return staffOnly("user");
-    },
     get pipeline() {
       return staffOnly("pipeline");
     },
-    principal,
+    // Record code stamps who wrote a row: the customer account, or `public`.
+    user: { id: subjectId ?? "public", email: "", name: actor, role: "viewer" },
+    // The host's own reads while it writes (the row before, a relation's target) are org-wide.
+    principal: orgReader(ctx.db.query).principal,
     origin,
     now,
     auditId,
     db: ctx.db.query,
     floor: ctx.floor ?? {},
     grantedPermissions: [],
+    records: recordAccess(orgReader(ctx.db.query)),
     write: (...statements) => {
       writes.push(...statements);
     },
@@ -1459,6 +1495,69 @@ async function invokeOutside<O extends AnyOperation>(
     },
     afterCommit,
   };
+  const seam: SeamWriter = {
+    reader,
+    host,
+    mark: (change) => {
+      checkedBySeam.add(change);
+    },
+  };
+  const records = recordAccess(reader, {
+    create: (object, values) => createVisible(seam, object, values),
+    update: (object, id, values) => updateVisible(seam, object, id, values),
+  });
+  // What the operation's own handler gets. Unless the operation is `hostInternal` (core
+  // bookkeeping that is not a record, ADR 0413) it has no database and no write queue: it reads
+  // and writes records through `ctx.records`, so it cannot read past the seam or write unseen.
+  const closed = (what: string): never => {
+    throw new OperationError(
+      "internal",
+      `${op.name} used ctx.${what} on a call by a ${actor} caller: use ctx.records, or mark a ` +
+        "core bookkeeping operation hostInternal",
+    );
+  };
+  const hostInternal = op.hostInternal === true && !op.name.startsWith("x.");
+  const handlerCtx: HandlerContext = hostInternal
+    ? {
+        ...pick(host),
+        get actor() {
+          return staffOnly("actor");
+        },
+        get user() {
+          return staffOnly("user");
+        },
+        get pipeline() {
+          return staffOnly("pipeline");
+        },
+        principal,
+        records,
+      }
+    : {
+        operation: op.name,
+        get actor() {
+          return staffOnly("actor");
+        },
+        get user() {
+          return staffOnly("user");
+        },
+        get pipeline() {
+          return staffOnly("pipeline");
+        },
+        get db() {
+          return closed("db");
+        },
+        principal,
+        origin,
+        now,
+        auditId,
+        floor: ctx.floor ?? {},
+        grantedPermissions: [],
+        records,
+        write: () => closed("write"),
+        recordChange: () => closed("recordChange"),
+        postActivity: () => closed("postActivity"),
+        afterCommit,
+      };
 
   const fail = async (error: unknown): Promise<never> => {
     const typed = outsideError(error);
@@ -1473,7 +1572,7 @@ async function invokeOutside<O extends AnyOperation>(
       throw new OperationError("internal", `${op.name} is a read but queued writes`);
     }
     // The seam has the last word on every record the call would change.
-    await assertVisibleWrites(reader, changes);
+    await assertVisibleWrites(reader, changes, checkedBySeam);
   } catch (error) {
     return fail(error);
   }
@@ -1491,7 +1590,7 @@ async function invokeOutside<O extends AnyOperation>(
   for (const change of changes) {
     const diff = change.diff ?? diffRecords(change.before, change.after);
     const timeline = timelineActivity(op.name, change, diff);
-    if (timeline) handlerCtx.postActivity(timeline);
+    if (timeline) host.postActivity(timeline);
     changeRows.push({ o: change.object, r: change.id, a: change.action, d: JSON.stringify(diff) });
   }
   statements.push(...activities);

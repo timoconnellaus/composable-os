@@ -24,6 +24,7 @@ export interface AudienceDeclaration {
   readonly name: string;
   readonly risk: RiskClass;
   readonly audiences?: readonly Audience[] | undefined;
+  readonly hostInternal?: boolean | undefined;
 }
 
 export function audiencesOf(op: Pick<AudienceDeclaration, "audiences">): readonly Audience[] {
@@ -77,6 +78,8 @@ export interface OpenOperation {
   name: string;
   audiences: Audience[];
   risk: RiskClass;
+  /** Present and true when the handler keeps the raw database (ADR 0413). */
+  hostInternal?: true;
 }
 
 /** The shape of packages/core/open-operations.json. */
@@ -100,6 +103,7 @@ export function openOperations(operations: readonly AudienceDeclaration[]): Open
         name: op.name,
         audiences: AUDIENCES.filter((a) => audiencesOf(op).includes(a)),
         risk: op.risk,
+        ...(op.hostInternal ? { hostInternal: true as const } : {}),
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   };

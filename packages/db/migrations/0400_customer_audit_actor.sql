@@ -7,7 +7,8 @@
 -- (ADR 0090).
 --
 -- SQLite cannot alter a CHECK constraint, so both tables are rebuilt with the same rows, as
--- migration 0020 did for the `extension` actor. core_audit's children (core_audit_changes,
+-- migration 0020 did for the `extension` actor. This rebuild drops the CHECK on `actor`
+-- altogether: the pipeline validates it in code, so this is the last rebuild an actor needs. core_audit's children (core_audit_changes,
 -- core_audit_redactions) reference it by name; foreign keys are deferred so the swap is checked
 -- once, at commit. The two triggers on core_audit_redactions that name core_audit (one writes
 -- it, one reads it) are dropped first and recreated after, so the rename sees a consistent
@@ -24,8 +25,9 @@ CREATE TABLE core_audit_next (
   operation TEXT NOT NULL,
   risk TEXT NOT NULL
     CHECK (risk IN ('read', 'write', 'bulk-write', 'destructive', 'schema', 'extension', 'outbound')),
-  actor TEXT NOT NULL
-    CHECK (actor IN ('human', 'assistant', 'mcp', 'automation', 'extension', 'customer', 'public')),
+  -- No CHECK: the pipeline validates the actor (ACTORS and OUTSIDE_ACTORS in principals.ts), so
+  -- a new actor never needs this table rebuilt again.
+  actor TEXT NOT NULL,
   -- The staff user (usr_…), the customer account (cus_…) for actor `customer`, or null.
   user_id TEXT,
   origin TEXT NOT NULL CHECK (json_valid(origin)),
@@ -114,8 +116,7 @@ END;
 CREATE TABLE core_audit_read_counts_next (
   -- The UTC hour, 'YYYY-MM-DDTHH:00:00.000Z'.
   hour TEXT NOT NULL,
-  actor TEXT NOT NULL
-    CHECK (actor IN ('human', 'assistant', 'mcp', 'automation', 'extension', 'customer', 'public')),
+  actor TEXT NOT NULL,
   -- The staff user, the customer account (cus_…) for actor `customer`, '' for actor `public`.
   user_id TEXT NOT NULL,
   -- Who exactly, within the actor: the connected app (cap_…) for MCP, the extension id, the

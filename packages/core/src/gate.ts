@@ -239,15 +239,15 @@ export function evaluateGate(
 /**
  * The gate for a caller outside the org, a customer or the public (ADR 0402): it allows or
  * refuses, and never queues. Reads and writes are allowed and nothing else is, in code, whatever
- * the preset. The floor's `*` rows can only refuse: one that asks for review refuses, because no
- * one reviews a customer's call.
+ * the preset. Of the floor's `*` rows only a `deny` applies: a rule that asks for review is
+ * about calls that can wait for a person, and these never do.
  */
 export function evaluateOutsideGate(risk: RiskClass, floor: GateFloor = {}): "auto" | "deny" {
   if (risk !== "read" && risk !== "write") return "deny";
   const rules = [floor["*"]?.[risk], floor["*"]?.["*"]].filter(
     (rule): rule is GateRule => rule !== undefined,
   );
-  return rules.every((rule) => applyRule(rule, 1) === "auto") ? "auto" : "deny";
+  return rules.some((rule) => applyRule(rule, 1) === "deny") ? "deny" : "auto";
 }
 
 /** True when moving from `from` to `to` makes any cell less strict. Used to audit loosening. */

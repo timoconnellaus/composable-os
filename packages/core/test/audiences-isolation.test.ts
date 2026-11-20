@@ -31,6 +31,7 @@ import {
   type Outcome,
   outside,
   PUBLIC,
+  REQUEST,
   SUPPLIER,
   snapshot,
   TICKET,
@@ -190,7 +191,10 @@ function inputsFor(op: AnyOperation): Record<string, unknown>[] {
     );
     add(base);
     for (const name of Object.keys(properties)) {
-      for (const value of hostile(name, object, definition)) {
+      for (const value of [
+        ...hostile(name, object, definition),
+        ...(properties[name]?.enum ?? []),
+      ]) {
         add({ ...base, [name]: value });
         // A hostile id together with each hostile set of values, for writes.
         if (isId(name) && "values" in properties) {
@@ -247,7 +251,7 @@ describe("isolation: every open operation, as A, aimed at B", () => {
 
   it("is not vacuous: the same operations show A their own records, and B theirs", async () => {
     for (const customer of [a, b]) {
-      for (const object of [ORDER, TICKET]) {
+      for (const object of [ORDER, TICKET, REQUEST]) {
         const page = await call("fixture.myList", { object }, outside(customer.principal));
         expect(page.ok, JSON.stringify(page)).toBe(true);
         const items = (page as { value: { items: { id: string }[] } }).value.items;
@@ -311,24 +315,28 @@ describe("isolation: every open operation, as A, aimed at B", () => {
       outside(a.principal),
     );
     expect(done).toMatchObject({ ok: true, value: { values: { note: "A changed their note" } } });
-    const careless = await call(
-      "fixture.carelessUpdate",
-      { object: ORDER, id, values: { note: "and again" } },
-      outside(a.principal),
-    );
-    expect(careless).toEqual({ ok: true, value: { ok: true } });
+    const kept = await call("fixture.bookkeeping", { object: ORDER, id }, outside(a.principal));
+    expect(kept).toMatchObject({ ok: true });
   });
 
-  it("a careless handler that writes B's row by id is stopped by the seam, not by itself", async () => {
+  it("a handler cannot reach B's row past the seam, by any way there is", async () => {
     const before = await snapshot(b);
     const id = b.records[ORDER]?.[0] as string;
-    const stolen = await call(
-      "fixture.carelessUpdate",
-      { object: ORDER, id, values: { note: "A was here" } },
-      outside(a.principal),
-    );
-    // The answer a record that does not exist gets.
-    expect(stolen).toEqual({
+    for (const how of ["db", "write", "recordChange", "postActivity", "loader", "list"]) {
+      const outcome = await call(
+        "fixture.rawAccess",
+        { how, object: ORDER, id },
+        outside(a.principal),
+      );
+      expect(outcome, how).toEqual({
+        ok: false,
+        error: { code: "internal", message: "Internal error" },
+      });
+    }
+    // Even an operation that keeps the raw database has its recorded change checked by the seam:
+    // B's record is a record that is not there.
+    const kept = await call("fixture.bookkeeping", { object: ORDER, id }, outside(a.principal));
+    expect(kept).toEqual({
       ok: false,
       error: {
         code: "not_found",
@@ -339,29 +347,34 @@ describe("isolation: every open operation, as A, aimed at B", () => {
     expect(await snapshot(b)).toBe(before);
   });
 
-  it("a create may only be for its caller", async () => {
-    const mine = await call(
+  it("a create is always for its caller", async () => {
+    // An order needs a title, which a customer may not set: they cannot create one.
+    const order = await call(
       "fixture.myCreate",
       { object: ORDER, values: { title: "A's new order", note: "please hurry" } },
       outside(a.principal),
     );
-    // `title` is not writable by a customer: the create is refused whole.
-    expect(mine).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-    const allowed = await call(
+    expect(order).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    const mine = await call(
       "fixture.myCreate",
-      { object: ORDER, values: { note: "a note alone" } },
+      { object: REQUEST, values: { text: "Please call me" } },
       outside(a.principal),
     );
-    expect(allowed.ok, JSON.stringify(allowed)).toBe(true);
-    const forB = await call(
-      "fixture.myCreate",
-      { object: ORDER, owner: b.principal.personId, values: { note: "a gift" } },
-      outside(a.principal),
-    );
-    expect(forB.ok).toBe(false);
-    const theirs = await call("fixture.myList", { object: ORDER }, outside(b.principal));
-    const items = (theirs as { value: { items: { values: { note: unknown } }[] } }).value.items;
-    expect(items.map((i) => i.values.note)).not.toContain("a gift");
+    expect(mine.ok, JSON.stringify(mine)).toBe(true);
+    const list = await call("fixture.myList", { object: REQUEST }, outside(a.principal));
+    expect((list as { value: { items: unknown[] } }).value.items).toHaveLength(3);
+    // Naming someone else as the owner, or oneself: the field is never the caller's to send.
+    for (const asker of [b.principal.personId, a.principal.personId]) {
+      const forOther = await call(
+        "fixture.myCreate",
+        { object: REQUEST, values: { text: "a gift", asker } },
+        outside(a.principal),
+      );
+      expect(forOther).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    }
+    const theirs = await call("fixture.myList", { object: REQUEST }, outside(b.principal));
+    const items = (theirs as { value: { items: { values: { text: unknown } }[] } }).value.items;
+    expect(items.map((i) => i.values.text)).not.toContain("a gift");
     expect(items).toHaveLength(2);
   });
 
@@ -383,7 +396,7 @@ describe("isolation: every open operation, as A, aimed at B", () => {
       { object: ORDER, id: b.records[ORDER]?.[0] },
       outside(PUBLIC),
     );
-    expect(write).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(write).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     expect(await snapshot(b)).toBe(before);
   });
 });

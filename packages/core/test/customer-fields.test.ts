@@ -77,14 +77,15 @@ describe("what a customer reads", () => {
     });
   });
 
-  it("a handler that lists with the full definition still gets only the listed columns", async () => {
-    const raw = await call("fixture.rawList", { object: ORDER }, asA());
-    const rows = (raw as { value: { rows: Record<string, unknown>[] } }).value.rows;
-    expect(rows).toHaveLength(2);
-    for (const row of rows) {
-      expect(Object.keys(row).sort()).toEqual(["id", "note", "status", "title", "total"]);
+  it("a handler that reaches past the seam gets nothing, even of the caller's own record", async () => {
+    const id = a.records[ORDER]?.[0] as string;
+    for (const how of ["db", "write", "recordChange", "postActivity", "loader", "list"]) {
+      const outcome = await call("fixture.rawAccess", { how, object: ORDER, id }, asA());
+      expect(outcome, how).toEqual({
+        ok: false,
+        error: { code: "internal", message: "Internal error" },
+      });
     }
-    for (const value of hidden(ORDER)) expect(JSON.stringify(raw)).not.toContain(value);
   });
 
   it("staff still read every field of the same record", async () => {
@@ -99,7 +100,7 @@ describe("what a customer reads", () => {
 });
 
 describe("filters and sorts", () => {
-  for (const operation of ["fixture.myList", "fixture.rawList"]) {
+  for (const operation of ["fixture.myList", "fixture.myCount"]) {
     it(`${operation}: filtering on an unlisted field is refused as an unknown field is`, async () => {
       for (const object of [ORDER, TICKET]) {
         const unknown = await call(
@@ -130,24 +131,27 @@ describe("filters and sorts", () => {
       }
     });
 
-    it(`${operation}: sorting on an unlisted field is refused as an unknown field is`, async () => {
-      for (const object of [ORDER, TICKET]) {
-        const unknown = await call(
-          operation,
-          { object, sort: { field: NOT_A_FIELD, direction: "asc" } },
-          asA(),
-        );
-        expect(unknown).toMatchObject({ ok: false, error: { code: "invalid_input" } });
-        for (const field of UNLISTED[object] ?? []) {
-          const refused = await call(
+    it.skipIf(operation === "fixture.myCount")(
+      `${operation}: sorting on an unlisted field is refused as an unknown field is`,
+      async () => {
+        for (const object of [ORDER, TICKET]) {
+          const unknown = await call(
             operation,
-            { object, sort: { field, direction: "desc" } },
+            { object, sort: { field: NOT_A_FIELD, direction: "asc" } },
             asA(),
           );
-          expect(withName(refused, field)).toBe(withName(unknown, NOT_A_FIELD));
+          expect(unknown).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+          for (const field of UNLISTED[object] ?? []) {
+            const refused = await call(
+              operation,
+              { object, sort: { field, direction: "desc" } },
+              asA(),
+            );
+            expect(withName(refused, field)).toBe(withName(unknown, NOT_A_FIELD));
+          }
         }
-      }
-    });
+      },
+    );
   }
 
   it("filtering and sorting on listed fields work, over the caller's rows only", async () => {
@@ -233,7 +237,7 @@ describe("writes and field diffs", () => {
 
   it("writing an unlisted field is refused as a field that does not exist, and nothing is written", async () => {
     const id = a.records[ORDER]?.[0] as string;
-    for (const operation of ["fixture.myUpdate", "fixture.carelessUpdate"]) {
+    for (const operation of ["fixture.myUpdate"]) {
       const unknown = await call(
         operation,
         { object: ORDER, id, values: { [NOT_A_FIELD]: "x" } },
@@ -277,7 +281,7 @@ describe("writes and field diffs", () => {
   it("a field they can read but not write is refused by name, and whose record it is cannot change", async () => {
     const id = a.records[ORDER]?.[0] as string;
     const status = await call(
-      "fixture.carelessUpdate",
+      "fixture.myUpdate",
       { object: ORDER, id, values: { status: "paid" } },
       asA(),
     );
@@ -290,11 +294,13 @@ describe("writes and field diffs", () => {
       },
     });
     const owner = await call(
-      "fixture.carelessUpdate",
+      "fixture.myUpdate",
       { object: ORDER, id, values: { buyer: "per_01SOMEONEELSE0000000000000" } },
       asA(),
     );
-    expect(owner).toMatchObject({ ok: false, error: { code: "not_found" } });
+    // The customer field is not listed: to the caller it is a field that does not exist.
+    expect(owner).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(JSON.stringify(owner)).toContain("Unknown field");
     const record = await invoke("record.get", { object: ORDER, id }, context(admin));
     expect(record.values).toMatchObject({ status: "open", buyer: a.principal.personId });
   });
@@ -313,9 +319,9 @@ describe("errors", () => {
       ["fixture.myList", { object: ORDER, filter: { field: "status", op: "eq", value: { x: 1 } } }],
       ["fixture.myUpdate", { object: ORDER, id, values: { note: { nested: true } } }],
       ["fixture.myUpdate", { object: ORDER, id }],
-      ["fixture.rawList", { object: ORDER, sort: { field: "status", direction: "sideways" } }],
+      ["fixture.myList", { object: ORDER, sort: { field: "status", direction: "sideways" } }],
       ["fixture.staffHabit", {}],
-      ["fixture.peekPerson", { id: a.principal.personId }],
+      ["fixture.rawAccess", { how: "loader", object: "person", id: a.principal.personId }],
     ] as const) {
       outcomes.push(await call(name, input, asA()));
     }
@@ -334,21 +340,20 @@ describe("errors", () => {
     });
   });
 
-  it("a staff loader gives a customer the unknown-object answer, even for their own person", async () => {
-    expect(await call("fixture.peekPerson", { id: a.principal.personId }, asA())).toEqual({
-      ok: false,
-      error: {
-        code: "invalid_input",
-        message: 'Unknown object "person"',
-        details: { object: "person" },
-      },
-    });
+  it("a staff loader gives a customer nothing, even for their own person", async () => {
+    expect(
+      await call(
+        "fixture.rawAccess",
+        { how: "loader", object: "person", id: a.principal.personId },
+        asA(),
+      ),
+    ).toEqual({ ok: false, error: { code: "internal", message: "Internal error" } });
   });
 });
 
 describe("an object with no customer, and a declaration that does not hold together", () => {
   it("an object that declares no customer does not exist for one", async () => {
-    for (const operation of ["fixture.myList", "fixture.rawList"]) {
+    for (const operation of ["fixture.myList", "fixture.myCount"]) {
       const none = await call(operation, { object: "nope.nope" }, asA());
       for (const object of [SUPPLIER, "person", "organisation", "task", "activity"]) {
         const closed = await call(operation, { object }, asA());
