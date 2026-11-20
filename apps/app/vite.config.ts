@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cloudflare } from "@cloudflare/vite-plugin";
+import { productAlias } from "@relationship-os/product/node";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
@@ -27,7 +28,10 @@ const PORT = Number(process.env.PORT ?? 5173);
 
 export default defineConfig(({ command }) => ({
   // `#/…` is src/ (tsconfig paths), as in `import { callOp } from "#/lib/operations"`.
-  resolve: { alias: { "#": fileURLToPath(new URL("./src", import.meta.url)) } },
+  // COS_PRODUCT builds for another product: the active product module becomes its definition.
+  resolve: {
+    alias: { "#": fileURLToPath(new URL("./src", import.meta.url)), ...productAlias() },
+  },
   server: { port: PORT, strictPort: true },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),

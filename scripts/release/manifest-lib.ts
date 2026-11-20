@@ -17,6 +17,7 @@
 // about how installed deployments get it.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { deployedName, deployedNameList, type ProductDefinition } from "@relationship-os/product";
 import {
   type AiGatewayConfig,
   channelOf,
@@ -296,7 +297,12 @@ export interface WorkerBuild {
   assets?: WorkerEntry["assets"];
 }
 
+/** Vars whose value is a comma-separated list of Worker names. */
+const WORKER_LIST_VARS = new Set(["AI_SECRET_SCRIPTS"]);
+
 interface Context {
+  /** The product the release is of: every Worker and resource is named from it. */
+  product: ProductDefinition;
   version: string;
   resources: Map<string, ResourceEntry>;
 }
@@ -323,7 +329,10 @@ function addResource(
 export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promise<WorkerEntry> {
   const { pkg } = build;
   const config = pkg.config;
-  const name = String(config.name);
+  // wrangler.jsonc names Workers and resources with the platform's prefix; a release names them
+  // for the product (packages/product).
+  const named = (local: unknown) => deployedName(ctx.product, String(local));
+  const name = named(config.name);
   const unknown = Object.keys(config).filter((key) => !HANDLED_KEYS.has(key));
   if (unknown.length) {
     throw new Error(
@@ -338,7 +347,7 @@ export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promis
   const dependsOn = new Set<string>();
 
   for (const db of config.d1_databases ?? []) {
-    const dbName = String(db.database_name);
+    const dbName = named(db.database_name);
     const ref = placeholder("D1_ID", dbName);
     bindings.push({ type: "d1", name: db.binding, database_id: ref });
     addResource(
@@ -349,11 +358,12 @@ export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promis
     );
   }
   for (const bucket of config.r2_buckets ?? []) {
-    const ref = placeholder("R2_NAME", bucket.bucket_name);
+    const bucketName = named(bucket.bucket_name);
+    const ref = placeholder("R2_NAME", bucketName);
     bindings.push({ type: "r2_bucket", name: bucket.binding, bucket_name: ref });
     addResource(
       ctx,
-      { type: "r2", name: bucket.bucket_name, placeholder: ref, implicit: false },
+      { type: "r2", name: bucketName, placeholder: ref, implicit: false },
       name,
       optional,
     );
@@ -374,17 +384,17 @@ export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promis
     bindings.push({
       type: "service",
       name: service.binding,
-      service: placeholder("WORKER_NAME", service.service),
+      service: placeholder("WORKER_NAME", named(service.service)),
       ...(service.entrypoint ? { entrypoint: service.entrypoint } : {}),
     });
-    if (service.service !== name) dependsOn.add(service.service);
+    if (named(service.service) !== name) dependsOn.add(named(service.service));
   }
   for (const ns of config.durable_objects?.bindings ?? []) {
     bindings.push({
       type: "durable_object_namespace",
       name: ns.name,
       class_name: ns.class_name,
-      ...(ns.script_name ? { script_name: placeholder("WORKER_NAME", ns.script_name) } : {}),
+      ...(ns.script_name ? { script_name: placeholder("WORKER_NAME", named(ns.script_name)) } : {}),
     });
     if (!ns.script_name) {
       addResource(
@@ -399,18 +409,24 @@ export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promis
     bindings.push({
       type: "workflow",
       name: workflow.binding,
-      workflow_name: workflow.name,
+      workflow_name: named(workflow.name),
       class_name: workflow.class_name,
       ...(workflow.script_name
-        ? { script_name: placeholder("WORKER_NAME", workflow.script_name) }
+        ? { script_name: placeholder("WORKER_NAME", named(workflow.script_name)) }
         : {}),
     });
     if (!workflow.script_name) {
-      addResource(ctx, { type: "workflow", name: workflow.name, implicit: true }, name, optional);
+      addResource(
+        ctx,
+        { type: "workflow", name: named(workflow.name), implicit: true },
+        name,
+        optional,
+      );
     }
   }
   for (const producer of config.queues?.producers ?? []) {
-    const ref = placeholder("QUEUE_NAME", producer.queue);
+    const queue = named(producer.queue);
+    const ref = placeholder("QUEUE_NAME", queue);
     bindings.push({
       type: "queue",
       name: producer.binding,
@@ -419,27 +435,29 @@ export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promis
     });
     addResource(
       ctx,
-      { type: "queue", name: producer.queue, placeholder: ref, implicit: false },
+      { type: "queue", name: queue, placeholder: ref, implicit: false },
       name,
       optional,
     );
   }
   const queueConsumers: WorkerEntry["queueConsumers"] = [];
   for (const consumer of config.queues?.consumers ?? []) {
-    const ref = placeholder("QUEUE_NAME", consumer.queue);
+    const queue = named(consumer.queue);
+    const deadLetter = consumer.dead_letter_queue ? named(consumer.dead_letter_queue) : undefined;
+    const ref = placeholder("QUEUE_NAME", queue);
     addResource(
       ctx,
-      { type: "queue", name: consumer.queue, placeholder: ref, implicit: false },
+      { type: "queue", name: queue, placeholder: ref, implicit: false },
       name,
       optional,
     );
-    if (consumer.dead_letter_queue) {
+    if (deadLetter) {
       addResource(
         ctx,
         {
           type: "queue",
-          name: consumer.dead_letter_queue,
-          placeholder: placeholder("QUEUE_NAME", consumer.dead_letter_queue),
+          name: deadLetter,
+          placeholder: placeholder("QUEUE_NAME", deadLetter),
           implicit: false,
         },
         name,
@@ -456,9 +474,7 @@ export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promis
     queueConsumers.push({
       queue: ref,
       settings,
-      ...(consumer.dead_letter_queue
-        ? { deadLetterQueue: placeholder("QUEUE_NAME", consumer.dead_letter_queue) }
-        : {}),
+      ...(deadLetter ? { deadLetterQueue: placeholder("QUEUE_NAME", deadLetter) } : {}),
     });
   }
   // Vectorize and Workers AI, from wrangler.jsonc and from the package's feature bindings.
@@ -478,13 +494,14 @@ export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promis
   for (const [source, feature] of sources) {
     const tag = feature ? { feature } : {};
     for (const index of source.vectorize ?? []) {
-      const ref = placeholder("VECTORIZE_NAME", index.index_name);
+      const indexName = named(index.index_name);
+      const ref = placeholder("VECTORIZE_NAME", indexName);
       bindings.push({ type: "vectorize", name: index.binding, index_name: ref, ...tag });
       addResource(
         ctx,
         {
           type: "vectorize",
-          name: index.index_name,
+          name: indexName,
           placeholder: ref,
           implicit: false,
           // wrangler.jsonc does not say how an index was created: deploy-inputs.json `vectorize`
@@ -540,6 +557,9 @@ export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promis
   if (pkg.role === "runner" && "APP_ORIGIN" in vars) vars.APP_ORIGIN = "https://$HOSTNAME";
   if (pkg.role === "gatekeeper" && "BASE_URL" in vars) {
     vars.BASE_URL = `https://$HOSTNAME/gatekeeper/${shortName}`;
+  }
+  for (const key of WORKER_LIST_VARS) {
+    if (typeof vars[key] === "string") vars[key] = deployedNameList(ctx.product, vars[key]);
   }
   for (const [key, value] of Object.entries(vars).sort(([a], [b]) => a.localeCompare(b))) {
     bindings.push(
@@ -611,6 +631,8 @@ export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promis
 
 export interface ReleaseSources {
   root: string;
+  /** The product the release is of (`--product`). */
+  product: ProductDefinition;
   version: string;
   commit: string;
   repository: string;
@@ -650,7 +672,11 @@ export async function generateManifest(
   builds: WorkerBuild[],
   migrations: [string, string][],
 ): Promise<ReleaseManifest> {
-  const ctx: Context = { version: sources.version, resources: new Map() };
+  const ctx: Context = {
+    product: sources.product,
+    version: sources.version,
+    resources: new Map(),
+  };
   const workers: WorkerEntry[] = [];
   for (const build of [...builds].sort((a, b) => a.pkg.dir.localeCompare(b.pkg.dir))) {
     workers.push(await buildWorkerEntry(build, ctx));
@@ -670,7 +696,7 @@ export async function generateManifest(
     {
       name: "HOSTNAME",
       kind: "placeholder",
-      description: "Public hostname: <ros-app>.<subdomain>.workers.dev or a hostname on your zone",
+      description: `Public hostname: ${sources.product.names.app}.<subdomain>.workers.dev or a hostname on your zone`,
     },
   ];
   for (const [varName, info] of Object.entries(INPUT_VARS)) {
@@ -703,7 +729,8 @@ export async function generateManifest(
 
   return {
     manifestVersion: MANIFEST_VERSION,
-    product: "relationship-os",
+    product: sources.product.id,
+    productLabel: sources.product.label,
     version: sources.version,
     channel: channelOf(sources.version),
     commit: sources.commit,

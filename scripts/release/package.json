@@ -11,6 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@relationship-os/product": "workspace:*",
+    "@relationship-os/products": "workspace:*",
     "@relationship-os/release": "workspace:*"
   },
   "devDependencies": {

@@ -48,7 +48,7 @@ export class FakeGitHub {
     const legacy = release.manifest.product === LEGACY_PRODUCT;
     const names = legacy
       ? { ...legacyReleaseAssetNames(release.version), sums: "SHA256SUMS" }
-      : releaseAssetNames(release.version);
+      : releaseAssetNames(release.manifest.product, release.version);
     let bundle = release.bundle;
     let sums = release.sums;
     if (options.tamper) {

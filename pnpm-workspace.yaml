@@ -2,6 +2,7 @@ packages:
   - apps/*
   - packages/*
   - extensions/*
+  - products
   - evals/*
   - scripts/release
 

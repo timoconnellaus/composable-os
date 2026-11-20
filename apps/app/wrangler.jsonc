@@ -133,9 +133,10 @@
     // Release (stage 8, ADR 0160): the installed release's version, set by the release manifest.
     // Empty means a source deploy (`pnpm run deploy`), which the self-updater cannot update.
     "ROS_RELEASE_VERSION": "",
-    // Where Settings → Updates reads releases from (public GitHub Releases, no telemetry).
-    // Forks that publish their own releases change it.
-    "ROS_RELEASE_REPO": "timoconnellaus/relationship-os",
+    // Where Settings → Updates reads releases from (public GitHub Releases, no telemetry). Empty
+    // means the product's own repository (products/<id>/product.ts). Forks that publish their own
+    // releases set it.
+    "ROS_RELEASE_REPO": "",
     // The Cloudflare account the self-updater deploys to. Filled in by the installer from the
     // release manifest's $ACCOUNT_ID placeholder; never committed.
     "ROS_ACCOUNT_ID": "",

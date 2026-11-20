@@ -12,6 +12,9 @@ import {
 } from "../manifest.ts";
 import { channelOf } from "../semver.ts";
 
+/** The product id the fixture release is of. */
+export const FIXTURE_PRODUCT = "relationship-os";
+
 export interface FixtureRelease {
   version: string;
   manifest: ReleaseManifest;
@@ -264,7 +267,8 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
   const contract = options.contract ?? { version: 1, supported: [1] };
   const built: ReleaseManifest = {
     manifestVersion: MANIFEST_VERSION,
-    product: "relationship-os",
+    product: FIXTURE_PRODUCT,
+    productLabel: "Relationship OS",
     version,
     channel: channelOf(version),
     commit: "0".repeat(40),
@@ -387,7 +391,9 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     migrations: migrationSql,
   });
   const digest = await sha256Hex(bytes);
-  const names = options.legacy ? legacyReleaseAssetNames(version) : releaseAssetNames(version);
+  const names = options.legacy
+    ? legacyReleaseAssetNames(version)
+    : releaseAssetNames(manifest.product, version);
   const sums = formatSums(
     new Map([
       [names.bundle, digest],

@@ -88,7 +88,7 @@ function accountNames(cf: FakeCloudflare) {
 describe("a pre-rename install", () => {
   it("is found by its crm database", async () => {
     const { api, databaseId } = await legacyInstall();
-    const located = await locateDeployment(api, ACCOUNT);
+    const located = await locateDeployment(api, ACCOUNT, "ros");
     expect(located?.databaseId).toBe(databaseId);
     expect(located?.state && isLegacyState(located.state)).toBe(true);
   });
@@ -220,6 +220,7 @@ describe("pre-rename releases", () => {
     expect(parseManifest(fixture.manifestText).product).toBe("crm");
     const verified = await verifyBundleBytes({
       bytes: fixture.bundle,
+      product: "relationship-os",
       version: "1.0.0",
       sums: fixture.sums,
       repository: "timoconnellaus/relationship-os",

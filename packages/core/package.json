@@ -46,6 +46,7 @@
     "@relationship-os/agent-a2ui": "workspace:*",
     "@relationship-os/agent-core": "workspace:*",
     "@relationship-os/db": "workspace:*",
+    "@relationship-os/products": "workspace:*",
     "@relationship-os/release": "workspace:*",
     "@relationship-os/sdk": "workspace:*",
     "ai": "7.0.145",

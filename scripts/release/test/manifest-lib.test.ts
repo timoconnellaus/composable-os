@@ -8,6 +8,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { ProductDefinition } from "@relationship-os/product";
+import { loadProduct } from "@relationship-os/product/node";
+import { DEFAULT_PRODUCT, products } from "@relationship-os/products";
 import {
   assertUnresolved,
   deployOrder,
@@ -31,7 +34,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..", "..");
 const GOLDEN = join(HERE, "testdata", "golden-manifest.json");
 
-async function fixtureManifest(version = "1.0.0"): Promise<ReleaseManifest> {
+const PRODUCT = products[DEFAULT_PRODUCT] as ProductDefinition;
+const DEMO = join(HERE, "testdata", "products", "demo", "product.ts");
+
+async function fixtureManifest(version = "1.0.0", product = PRODUCT): Promise<ReleaseManifest> {
   const packages = readDeployablePackages(ROOT);
   const assets = await collectAssets(join(HERE, "testdata", "fixture-assets"));
   const builds: WorkerBuild[] = [];
@@ -49,9 +55,10 @@ async function fixtureManifest(version = "1.0.0"): Promise<ReleaseManifest> {
   return generateManifest(
     {
       root: ROOT,
+      product,
       version,
       commit: "0123456789abcdef0123456789abcdef01234567",
-      repository: "timoconnellaus/relationship-os",
+      repository: product.updateRepository,
       wranglerVersion: "0.0.0-fixture",
     },
     builds,
@@ -60,6 +67,32 @@ async function fixtureManifest(version = "1.0.0"): Promise<ReleaseManifest> {
 }
 
 describe("release manifest", () => {
+  it("names every Worker and resource from the product definition", async () => {
+    const demo = await loadProduct(DEMO);
+    const manifest = await fixtureManifest("1.0.0", demo);
+    expect(manifest.product).toBe("demo");
+    expect(manifest.productLabel).toBe("Demo");
+    const names = manifest.workers.map((w) => w.name);
+    expect(names).toContain("demo-app");
+    expect(names).toContain("demo-runner");
+    expect(names.filter((n) => !n.startsWith("demo-"))).toEqual([]);
+    expect(names.filter((n) => n.startsWith("demo-gatekeeper-")).length).toBeGreaterThan(0);
+    expect(manifest.resources.find((r) => r.type === "d1")?.name).toBe("demo");
+    // Nothing in the manifest still carries the default product's names.
+    const text = stableStringify(manifest);
+    for (const name of [PRODUCT.names.app, PRODUCT.names.runner, PRODUCT.names.resourcePrefix]) {
+      expect(text).not.toContain(`"${name}`);
+      expect(text).not.toContain(`(${name}`);
+    }
+    const app = manifest.workers.find((w) => w.role === "app");
+    expect(app?.bindings).toContainEqual({
+      type: "plain_text",
+      name: "AI_SECRET_SCRIPTS",
+      text: "demo-app,demo-runner",
+    });
+    expect(app?.dependsOn).toEqual(["demo-runner"]);
+  });
+
   it("matches the golden file", async () => {
     const text = `${stableStringify(await fixtureManifest())}\n`;
     if (process.env.UPDATE_GOLDEN) writeFileSync(GOLDEN, text);
@@ -130,7 +163,14 @@ describe("release manifest", () => {
       modules: [{ name: "index.js", type: "esm", sha256: "0".repeat(64), size: 1 }],
     }));
     const manifest = await generateManifest(
-      { root: ROOT, version: "1.0.0", commit: "c", repository: "r/r", wranglerVersion: "x" },
+      {
+        root: ROOT,
+        product: PRODUCT,
+        version: "1.0.0",
+        commit: "c",
+        repository: "r/r",
+        wranglerVersion: "x",
+      },
       builds,
       readMigrations(ROOT),
     );
@@ -199,7 +239,14 @@ describe("release manifest", () => {
     }));
     await expect(
       generateManifest(
-        { root: ROOT, version: "1.0.0", commit: "c", repository: "r/r", wranglerVersion: "x" },
+        {
+          root: ROOT,
+          product: PRODUCT,
+          version: "1.0.0",
+          commit: "c",
+          repository: "r/r",
+          wranglerVersion: "x",
+        },
         builds,
         readMigrations(ROOT),
       ),
@@ -213,7 +260,14 @@ describe("release manifest", () => {
     app.config = { ...app.config, hyperdrive: [{ binding: "HD", id: "x" }] };
     await expect(
       generateManifest(
-        { root: ROOT, version: "1.0.0", commit: "c", repository: "r/r", wranglerVersion: "x" },
+        {
+          root: ROOT,
+          product: PRODUCT,
+          version: "1.0.0",
+          commit: "c",
+          repository: "r/r",
+          wranglerVersion: "x",
+        },
         packages.map((pkg) => ({ pkg, mainModule: "index.js", modules: [] })),
         readMigrations(ROOT),
       ),

@@ -3,10 +3,15 @@
 // or repository do not count.
 import { describe, expect, it } from "vitest";
 import { fetchVerifiedRelease, listReleases, VerificationError } from "../src/index.ts";
-import { buildFixtureRelease, FakeGitHub } from "../src/testing/index.ts";
+import { buildFixtureRelease, FakeGitHub, FIXTURE_PRODUCT } from "../src/testing/index.ts";
 
 function options(github: FakeGitHub) {
-  return { apiBase: github.api, fetch: github.fetch, repository: github.repository };
+  return {
+    apiBase: github.api,
+    fetch: github.fetch,
+    repository: github.repository,
+    product: FIXTURE_PRODUCT,
+  };
 }
 
 describe("release verification", () => {

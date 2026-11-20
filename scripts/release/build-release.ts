@@ -3,15 +3,21 @@
 // upload it (`wrangler deploy --dry-run --outdir`, the repository's pinned wrangler), ros-app's
 // static assets, the core migrations and the manifest, packed into one deterministic tar.gz.
 //
-//   <out>/relationship-os-<version>.tar.gz          the bundle (manifest.json, modules/, assets/, migrations/)
-//   <out>/relationship-os-<version>.manifest.json   the manifest alone, for preflight without the bundle
-//   <out>/SHA256SUMS                    sha256 of both
+//   <out>/<prefix>-<version>.tar.gz          the bundle (manifest.json, modules/, assets/, migrations/)
+//   <out>/<prefix>-<version>.manifest.json   the manifest alone, for preflight without the bundle
+//   <out>/SHA256SUMS                         sha256 of both
+//
+// <prefix> comes from the product (releaseFilePrefix in packages/product).
 //
 // Two builds of the same commit produce the same bytes (reproducibility is checked in CI by
 // building twice). Nothing about the output depends on time, the machine or build order.
 //
-// Usage: node scripts/release/build-release.ts --version 1.2.3 [--out release-out]
+// Usage: node scripts/release/build-release.ts --version 1.2.3 [--product crm] [--out release-out]
 //          [--repository owner/repo] [--skip-build]
+//
+// --product is a product id (products/<id>/product.ts) or the path of a product.ts; the default is
+// the repository's default product. The Workers, their resources, the release files and the
+// strings the UI shows are named from it, and nothing else about the build changes.
 import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
@@ -26,10 +32,11 @@ import { tmpdir } from "node:os";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
+import { loadProduct, PRODUCT_ENV, productFile } from "@relationship-os/product/node";
+import { DEFAULT_PRODUCT } from "@relationship-os/products";
 import {
   assertUnresolved,
   assetHash,
-  DEFAULT_REPOSITORY,
   formatSums,
   isVersion,
   type ManifestModule,
@@ -116,9 +123,13 @@ export async function collectAssets(dir: string) {
   return { files, blobs };
 }
 
-function run(cwd: string, command: string, args: string[]) {
+function run(cwd: string, command: string, args: string[], env: Record<string, string> = {}) {
   console.log(`$ (${relative(ROOT, cwd) || "."}) ${command} ${args.join(" ")}`);
-  execFileSync(command, args, { cwd, stdio: "inherit", env: { ...process.env, CI: "true" } });
+  execFileSync(command, args, {
+    cwd,
+    stdio: "inherit",
+    env: { ...process.env, CI: "true", ...env },
+  });
 }
 
 function parseArgs(argv: string[]) {
@@ -145,7 +156,13 @@ async function main() {
   if (!isVersion(version))
     throw new Error(`--version must be X.Y.Z or X.Y.Z-beta.N, got ${version}`);
   const out = resolve(String(args.out ?? "release-out"));
-  const repository = String(args.repository ?? process.env.GITHUB_REPOSITORY ?? DEFAULT_REPOSITORY);
+  const chosen = typeof args.product === "string" ? args.product : process.env[PRODUCT_ENV]?.trim();
+  const product = await loadProduct(chosen || DEFAULT_PRODUCT);
+  // Every build step below bundles the chosen product's definition (packages/product/src/node.ts).
+  const productEnv: Record<string, string> = chosen ? { [PRODUCT_ENV]: productFile(chosen) } : {};
+  const repository = String(
+    args.repository ?? process.env.GITHUB_REPOSITORY ?? product.updateRepository,
+  );
   const commit =
     process.env.GITHUB_SHA ??
     execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
@@ -154,7 +171,7 @@ async function main() {
   ).version as string;
 
   // 1. Build every package (turbo): the runner and gatekeepers write their dry-run bundles to dist/.
-  if (!args["skip-build"]) run(ROOT, "pnpm", ["build"]);
+  if (!args["skip-build"]) run(ROOT, "pnpm", ["build"], productEnv);
 
   const packages = readDeployablePackages(ROOT);
   const scratch = mkdtempSync(join(tmpdir(), "ros-release-"));
@@ -170,7 +187,12 @@ async function main() {
         // vite build wrote dist/server (the Worker) and dist/client (assets); wrangler bundles the
         // redirected config the Cloudflare Vite plugin left in .wrangler/deploy.
         outDir = join(scratch, "app");
-        run(dir, "pnpm", ["exec", "wrangler", "deploy", "--dry-run", "--outdir", outDir]);
+        run(
+          dir,
+          "pnpm",
+          ["exec", "wrangler", "deploy", "--dry-run", "--outdir", outDir],
+          productEnv,
+        );
         const collected = await collectAssets(join(dir, "dist/client"));
         const generated = JSON.parse(readFileSync(join(dir, "dist/server/wrangler.json"), "utf8"));
         const { directory: _directory, binding: _binding, ...config } = generated.assets ?? {};
@@ -192,7 +214,7 @@ async function main() {
 
   const migrations = readMigrations(ROOT);
   const manifest = await generateManifest(
-    { root: ROOT, version, commit, repository, wranglerVersion },
+    { root: ROOT, product, version, commit, repository, wranglerVersion },
     builds,
     migrations,
   );
@@ -212,7 +234,7 @@ async function main() {
 
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
-  const names = releaseAssetNames(version);
+  const names = releaseAssetNames(product.id, version);
   writeFileSync(join(out, names.bundle), bundle);
   writeFileSync(join(out, names.manifest), manifestText);
   const sums = formatSums(
@@ -223,7 +245,7 @@ async function main() {
   );
   writeFileSync(join(out, names.sums), sums);
   console.log(
-    `\nrelease ${version}: ${manifest.workers.length} Workers, ${moduleBlobs.size} modules, ` +
+    `\n${product.label} ${version}: ${manifest.workers.length} Workers, ${moduleBlobs.size} modules, ` +
       `${assetBlobs.size} assets, ${migrations.length} migrations -> ${relative(process.cwd(), out)}\n${sums}`,
   );
 }

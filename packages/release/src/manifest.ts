@@ -16,7 +16,6 @@
 //
 // The list is closed: the renderer fails on any other `$TOKEN`, so a manifest that needs a new
 // kind of value bumps MANIFEST_VERSION and the renderer together.
-import { LEGACY_PRODUCT, PRODUCT } from "./legacy.ts";
 import type { Channel } from "./semver.ts";
 
 export const MANIFEST_VERSION = 1;
@@ -191,8 +190,10 @@ export interface AiGatewayConfig {
 
 export interface ReleaseManifest {
   manifestVersion: typeof MANIFEST_VERSION;
-  /** `relationship-os`; releases from before the rename say `crm` (legacy.ts). */
-  product: "relationship-os" | "crm";
+  /** The product's id (products/<id>/product.ts); releases from before the rename say `crm` (legacy.ts). */
+  product: string;
+  /** The product's name as people read it, for messages about this release. */
+  productLabel: string;
   version: string;
   channel: Channel;
   commit: string;
@@ -372,9 +373,11 @@ export function assertUnresolved(manifest: ReleaseManifest): void {
 export function parseManifest(text: string): ReleaseManifest {
   const manifest = JSON.parse(text) as ReleaseManifest;
   // A pre-rename (`crm`) manifest is read too: the installed release's, for preflight and rollback.
-  if (manifest?.product !== PRODUCT && manifest?.product !== LEGACY_PRODUCT) {
-    throw new Error("not a Relationship OS release manifest");
+  if (typeof manifest?.product !== "string" || !manifest.product) {
+    throw new Error("not a release manifest");
   }
+  // Manifests from before the label was recorded are named by their id.
+  manifest.productLabel ??= manifest.product;
   if (manifest.manifestVersion !== MANIFEST_VERSION) {
     throw new Error(
       `manifest version ${manifest.manifestVersion} is not supported by this tool (expects ${MANIFEST_VERSION}); update create-relationship-os`,

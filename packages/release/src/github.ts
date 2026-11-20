@@ -11,11 +11,20 @@ import {
   visibleOnChannel,
 } from "./semver.ts";
 
-export const DEFAULT_REPOSITORY = "timoconnellaus/relationship-os";
 export const GITHUB_API = "https://api.github.com";
 
-export interface GitHubOptions {
-  repository?: string;
+/** The user agent of every request the installer and the self-updater make to GitHub. */
+export const USER_AGENT = "ros-updater";
+
+export interface GitHubOptions extends RequestOptions {
+  /** GitHub `owner/repo` releases are read from: the product's update repository, or a fork's. */
+  repository: string;
+  /** The product's id: one repository can publish releases of several products. */
+  product: string;
+}
+
+/** How a request to GitHub is made, whatever it asks for. */
+export interface RequestOptions {
   /** API base, for tests (a fake GitHub). */
   apiBase?: string;
   fetch?: typeof fetch;
@@ -46,16 +55,16 @@ interface GitHubRelease {
   assets: { name: string; browser_download_url: string; url: string }[];
 }
 
-function headers(options: GitHubOptions): HeadersInit {
+function headers(options: RequestOptions): HeadersInit {
   return {
     accept: "application/vnd.github+json",
     "x-github-api-version": "2022-11-28",
-    "user-agent": "ros-updater",
+    "user-agent": USER_AGENT,
     ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
   };
 }
 
-export async function githubJson<T>(path: string, options: GitHubOptions): Promise<T> {
+export async function githubJson<T>(path: string, options: RequestOptions): Promise<T> {
   const response = await (options.fetch ?? fetch)(`${options.apiBase ?? GITHUB_API}${path}`, {
     headers: headers(options),
   });
@@ -65,13 +74,13 @@ export async function githubJson<T>(path: string, options: GitHubOptions): Promi
   return (await response.json()) as T;
 }
 
-function toInfo(release: GitHubRelease): ReleaseInfo | null {
+function toInfo(release: GitHubRelease, product: string): ReleaseInfo | null {
   const version = bareVersion(release.tag_name);
   if (release.draft || !isVersion(version)) return null;
   const channel: Channel = version.includes("-") ? "beta" : "stable";
   // A tag and its prerelease flag must agree; a mismatch is not a release we offer.
   if (release.prerelease !== (channel === "beta")) return null;
-  const names = releaseAssetNames(version);
+  const names = releaseAssetNames(product, version);
   const legacy = legacyReleaseAssetNames(version);
   const find = (name: string, old?: string) =>
     release.assets.find((a) => a.name === name || a.name === old)?.browser_download_url;
@@ -95,35 +104,38 @@ function toInfo(release: GitHubRelease): ReleaseInfo | null {
 /** Published releases visible on `channel`, newest first. Drafts and odd tags are skipped. */
 export async function listReleases(
   channel: Channel,
-  options: GitHubOptions = {},
+  options: GitHubOptions,
 ): Promise<ReleaseInfo[]> {
-  const repo = options.repository ?? DEFAULT_REPOSITORY;
+  const repo = options.repository;
   const releases = await githubJson<GitHubRelease[]>(
     `/repos/${repo}/releases?per_page=50`,
     options,
   );
   return releases
-    .map(toInfo)
+    .map((release) => toInfo(release, options.product))
     .filter((r): r is ReleaseInfo => r !== null && visibleOnChannel(r.version, channel))
     .sort((a, b) => compareVersions(b.version, a.version));
 }
 
 /** One release by version. */
-export async function getRelease(version: string, options: GitHubOptions = {}) {
-  const repo = options.repository ?? DEFAULT_REPOSITORY;
+export async function getRelease(version: string, options: GitHubOptions) {
+  const repo = options.repository;
   const release = await githubJson<GitHubRelease>(
     `/repos/${repo}/releases/tags/v${bareVersion(version)}`,
     options,
   );
-  const info = toInfo(release);
+  const info = toInfo(release, options.product);
   if (!info) throw new Error(`v${version} is not a published release`);
   return info;
 }
 
 /** Downloads a release asset (follows GitHub's redirect to its storage). */
-export async function downloadAsset(url: string, options: GitHubOptions = {}): Promise<Uint8Array> {
+export async function downloadAsset(
+  url: string,
+  options: RequestOptions = {},
+): Promise<Uint8Array> {
   const response = await (options.fetch ?? fetch)(url, {
-    headers: { "user-agent": "ros-updater", accept: "application/octet-stream" },
+    headers: { "user-agent": USER_AGENT, accept: "application/octet-stream" },
     redirect: "follow",
   });
   if (!response.ok) throw new Error(`download ${url}: HTTP ${response.status}`);

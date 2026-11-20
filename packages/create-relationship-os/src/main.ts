@@ -17,6 +17,8 @@ import {
   ROLE_PRESETS,
   RoleLayerError,
 } from "@relationship-os/core/ai-roles";
+import type { ProductDefinition } from "@relationship-os/product";
+import { DEFAULT_PRODUCT, products } from "@relationship-os/products";
 import {
   adoptLegacyNames,
   apiKillSwitchStore,
@@ -26,7 +28,6 @@ import {
   type Channel,
   CloudflareClient,
   compareVersions,
-  DEFAULT_REPOSITORY,
   type DeploymentState,
   d1ApiMigrations,
   databaseIdOf,
@@ -43,6 +44,7 @@ import {
   JUDGE_BYOK_VAR,
   JUDGE_GATEWAY_PROVIDER,
   killSwitchControl,
+  LEGACY_PRODUCT,
   legacyName,
   legacyReleaseAssetNames,
   listReleases,
@@ -121,7 +123,8 @@ Options
   --secret NAME=VALUE    a secret to set (repeatable); WORKER:NAME=VALUE for a gatekeeper's
   --update-token <t>     store a scoped token so Settings → Updates can update in place
   --store-update-token   store --token itself for one-click updates
-  --repo <owner/repo>    where releases come from (default ${DEFAULT_REPOSITORY})
+  --product <id>         the product to install (default ${DEFAULT_PRODUCT}; one of ${Object.keys(products).join(", ")})
+  --repo <owner/repo>    where releases come from (default: the product's own repository)
   --no-gh                skip \`gh attestation verify\` even if gh is installed
   --require-gh           fail unless \`gh attestation verify\` passes (full Sigstore check)
   --wait                 after install, wait until /api/health answers
@@ -228,6 +231,8 @@ function str(flags: Flags, key: string): string | undefined {
 }
 
 interface Session {
+  /** The product being installed or operated on (`--product`): its names and its repository. */
+  product: ProductDefinition;
   api: CloudflareClient;
   accountId: string;
   github: GitHubOptions;
@@ -239,8 +244,19 @@ interface Session {
   unverified: boolean;
 }
 
+/** `--product`, or the default product. */
+function productOf(flags: Flags): ProductDefinition {
+  const id = str(flags, "product") ?? DEFAULT_PRODUCT;
+  const product = products[id];
+  if (!product) {
+    throw new CliError(`Unknown product ${id}. Known: ${Object.keys(products).join(", ")}.`);
+  }
+  return product;
+}
+
 async function session(flags: Flags, deps: Deps): Promise<Session> {
   const { io, env } = deps;
+  const product = productOf(flags);
   let token = str(flags, "token") ?? env.CLOUDFLARE_API_TOKEN;
   if (!token) {
     if (!io.interactive || flags.yes)
@@ -271,9 +287,10 @@ async function session(flags: Flags, deps: Deps): Promise<Session> {
     );
     accountId = accounts.find((a) => label.endsWith(`(${a.id})`))?.id as string;
   }
-  const repository = str(flags, "repo") ?? DEFAULT_REPOSITORY;
+  const repository = str(flags, "repo") ?? product.updateRepository;
   const github: GitHubOptions = {
     repository,
+    product: product.id,
     ...(env.ROS_GITHUB_API ? { apiBase: env.ROS_GITHUB_API } : {}),
     ...(deps.fetch ? { fetch: deps.fetch } : {}),
     ...(env.GITHUB_TOKEN ? { token: env.GITHUB_TOKEN } : {}),
@@ -287,6 +304,7 @@ async function session(flags: Flags, deps: Deps): Promise<Session> {
     throw new CliError("--require-gh: the GitHub CLI (gh) is not installed.");
   }
   return {
+    product,
     api,
     accountId,
     github,
@@ -298,7 +316,10 @@ async function session(flags: Flags, deps: Deps): Promise<Session> {
 }
 
 async function verified(s: Session, version: string, deps: Deps) {
-  const names = [releaseAssetNames(version).bundle, legacyReleaseAssetNames(version).bundle];
+  const names = [
+    releaseAssetNames(s.product.id, version).bundle,
+    legacyReleaseAssetNames(version).bundle,
+  ];
   const local = s.bundleDir
     ? (names.map((n) => join(s.bundleDir as string, n)).find((p) => existsSync(p)) ?? null)
     : null;
@@ -310,6 +331,7 @@ async function verified(s: Session, version: string, deps: Deps) {
     if (s.unverified) deps.io.err("  WARNING: --unverified: skipping the build attestation check.");
     const { digest } = await verifyBundleBytes({
       bytes,
+      product: s.product.id,
       version,
       sums,
       repository: s.repository,
@@ -321,9 +343,14 @@ async function verified(s: Session, version: string, deps: Deps) {
     if (bundle.manifest.version !== version) {
       throw new CliError(`${local} holds ${bundle.manifest.version}, not ${version}`);
     }
+    if (bundle.manifest.product !== s.product.id && bundle.manifest.product !== LEGACY_PRODUCT) {
+      throw new CliError(
+        `${local} is a release of ${bundle.manifest.product}, not ${s.product.id}`,
+      );
+    }
     return { bundle, digest };
   }
-  deps.io.out(`Downloading Relationship OS ${version} and verifying it…`);
+  deps.io.out(`Downloading ${s.product.label} ${version} and verifying it…`);
   const release = await fetchVerifiedRelease(version, {
     ...s.github,
     ...(s.extra ? { extra: s.extra } : {}),
@@ -334,12 +361,16 @@ async function verified(s: Session, version: string, deps: Deps) {
   return release;
 }
 
-function parseSecrets(flags: Flags, redactor: Redactor): Record<string, Record<string, string>> {
+function parseSecrets(
+  flags: Flags,
+  redactor: Redactor,
+  appWorker: string,
+): Record<string, Record<string, string>> {
   const out: Record<string, Record<string, string>> = {};
   for (const entry of flags.secret ?? []) {
     const match = /^(?:([\w-]+):)?([A-Z][A-Z0-9_]*)=(.*)$/s.exec(entry);
     if (!match) throw new CliError(`--secret expects NAME=VALUE or WORKER:NAME=VALUE`);
-    const worker = match[1] ?? "ros-app";
+    const worker = match[1] ?? appWorker;
     out[worker] ??= {};
     (out[worker] as Record<string, string>)[match[2] as string] = match[3] as string;
     redactor.add(match[3]);
@@ -411,7 +442,7 @@ async function latestVersion(s: Session, channel: Channel): Promise<string> {
 async function install(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
-  const existing = await locateDeployment(s.api, s.accountId);
+  const existing = await locateDeployment(s.api, s.accountId, s.product.names.database);
   const found = existing?.state ?? null;
   const channelFlag = str(flags, "channel");
   if (channelFlag && !CHANNELS.includes(channelFlag as Channel))
@@ -420,7 +451,7 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
   const version = str(flags, "version") ?? found?.version ?? (await latestVersion(s, channel));
   if (found && compareVersions(version, found.version) > 0) {
     throw new CliError(
-      `Relationship OS ${found.version} is already installed here. Run \`ros upgrade --version ${version}\` to update it.`,
+      `${s.product.label} ${found.version} is already installed here. Run \`ros upgrade --version ${version}\` to update it.`,
     );
   }
   if (found)
@@ -449,7 +480,7 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
       );
     }
     if (!choice || choice === "workers.dev") {
-      hostname = await workersDevHostname(s.api, s.accountId, app.name);
+      hostname = await workersDevHostname(s.api, s.accountId, app.name, s.product.names.database);
     } else {
       hostnameMode = "custom";
       hostname = choice.toLowerCase();
@@ -491,11 +522,11 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
     .map((g) => g.trim())
     .filter(Boolean)
     .map((g) =>
-      g.startsWith("ros-")
+      g.startsWith(s.product.names.gatekeeperPrefix)
         ? g
-        : g.startsWith("crm-")
-          ? g.replace(/^crm-/, "ros-")
-          : `ros-gatekeeper-${g}`,
+        : g.startsWith("crm-gatekeeper-")
+          ? `${s.product.names.gatekeeperPrefix}${g.slice("crm-gatekeeper-".length)}`
+          : `${s.product.names.gatekeeperPrefix}${g}`,
     );
   for (const name of requested) {
     if (!optional.some((w) => w.name === name)) throw new CliError(`Unknown gatekeeper ${name}.`);
@@ -523,7 +554,7 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
   if (modelRoles && !ai) throw new CliError("--model-roles needs in-app AI on (--ai on)");
 
   // Secrets: values only for what this run sets; stored ones are kept.
-  const secrets = parseSecrets(flags, deps.redactor);
+  const secrets = parseSecrets(flags, deps.redactor, app.name);
   secrets[app.name] ??= {};
   const appSecrets = secrets[app.name] as Record<string, string>;
   const scripts = new Set((await s.api.listScripts(s.accountId)).map((sc) => sc.id));
@@ -594,7 +625,7 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
   }
 
   io.out(
-    `\nInstalling Relationship OS ${version} into account ${s.accountId} at https://${hostname}`,
+    `\nInstalling ${s.product.label} ${version} into account ${s.accountId} at https://${hostname}`,
   );
   if (!ai) io.out("In-app AI is off (--ai off): no Workers AI or Vectorize bindings.");
   io.out("Resources:");
@@ -694,7 +725,7 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
       ...(deps.smokeDelayMs !== undefined ? { delayMs: deps.smokeDelayMs } : {}),
     });
   }
-  io.out(`\nDone. Relationship OS ${version} is at ${result.url}`);
+  io.out(`\nDone. ${s.product.label} ${version} is at ${result.url}`);
   io.out(`Open ${result.url}/setup to create the first admin and finish setting up.`);
   if (!updateToken) {
     io.out(
@@ -707,10 +738,10 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
 // ---- upgrade ------------------------------------------------------------------------------------
 
 async function locate(s: Session) {
-  const located = await locateDeployment(s.api, s.accountId);
+  const located = await locateDeployment(s.api, s.accountId, s.product.names.database);
   if (!located?.state) {
     throw new CliError(
-      "No Relationship OS installed from a release was found in this account. Run `npx create-relationship-os` first.",
+      `No ${s.product.label} installed from a release was found in this account. Run \`npx create-relationship-os\` first.`,
     );
   }
   return { databaseId: located.databaseId, state: located.state };
@@ -755,7 +786,7 @@ async function upgrade(flags: Flags, deps: Deps): Promise<number> {
   const target = str(flags, "version") ?? (await latestVersion(s, channel));
   if (compareVersions(target, found.version) <= 0) {
     io.out(
-      `Relationship OS ${found.version} is installed; nothing newer on the ${channel} channel.`,
+      `${s.product.label} ${found.version} is installed; nothing newer on the ${channel} channel.`,
     );
     return 0;
   }
@@ -839,7 +870,7 @@ async function upgrade(flags: Flags, deps: Deps): Promise<number> {
   });
   if (outcome.status === "succeeded") {
     io.out(
-      `\nUpdated to Relationship OS ${target}. Migrations applied: ${outcome.migrations.join(", ") || "none"}.`,
+      `\nUpdated to ${s.product.label} ${target}. Migrations applied: ${outcome.migrations.join(", ") || "none"}.`,
     );
     return 0;
   }
@@ -905,7 +936,7 @@ async function rollback(flags: Flags, deps: Deps): Promise<number> {
     status: "succeeded",
     finished_at: new Date().toISOString(),
   });
-  io.out(`Rolled back to Relationship OS ${last.from_version}.`);
+  io.out(`Rolled back to ${s.product.label} ${last.from_version}.`);
   return 0;
 }
 
@@ -929,7 +960,7 @@ async function status(flags: Flags, deps: Deps): Promise<number> {
     return 0;
   }
   io.out(
-    `Relationship OS ${state.version} (${state.channel} channel) at https://${state.hostname}`,
+    `${s.product.label} ${state.version} (${state.channel} channel) at https://${state.hostname}`,
   );
   io.out(
     `  sign-in: ${state.identityProvider}; gatekeepers: ${state.gatekeepers.join(", ") || "none"}; AI: ${state.ai === false ? "off" : "on"}`,
@@ -962,7 +993,7 @@ async function uninstall(flags: Flags, deps: Deps): Promise<number> {
   }
   const names = [
     ...new Set(
-      ["ros-app", ...state.gatekeepers, "ros-runner"].map(
+      [s.product.names.app, ...state.gatekeepers, s.product.names.runner].map(
         (n) => state.workerNames[n] ?? state.workerNames[legacyName(n)] ?? n,
       ),
     ),

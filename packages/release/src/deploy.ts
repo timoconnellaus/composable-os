@@ -515,7 +515,7 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
       ...(worker.observability ? { observability: worker.observability } : {}),
       ...(assetsJwt ? { assets: { jwt: assetsJwt, config: worker.assets?.config ?? {} } } : {}),
       annotations: {
-        "workers/message": `Relationship OS ${manifest.version}`,
+        "workers/message": `${manifest.productLabel} ${manifest.version}`,
         "workers/tag": manifest.version,
       },
       ...(namespaced && state.tags?.length ? { tags: state.tags } : {}),
@@ -550,7 +550,7 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
         state.accountId,
         item.deployedName,
         item.versionId,
-        `Relationship OS ${manifest.version}`,
+        `${manifest.productLabel} ${manifest.version}`,
       );
       result.push({ name: item.worker.name, deployedAs: item.deployedName, via: "version" });
     } else {
@@ -594,17 +594,21 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
   return { url: `https://${state.hostname}`, workers: result };
 }
 
-/** Resolves the public hostname for workers.dev mode: `<app>.<subdomain>.workers.dev`. */
+/**
+ * Resolves the public hostname for workers.dev mode: `<app>.<subdomain>.workers.dev`. An account
+ * with no workers.dev subdomain gets `<subdomainPrefix>-<start of the account id>`.
+ */
 export async function workersDevHostname(
   api: CloudflareClient,
   accountId: string,
   appWorker: string,
+  subdomainPrefix: string,
 ): Promise<string> {
   let subdomain = await api.workersSubdomain(accountId);
   if (!subdomain) {
     subdomain = await api.createWorkersSubdomain(
       accountId,
-      `ros-${accountId.slice(0, 8).toLowerCase()}`,
+      `${subdomainPrefix}-${accountId.slice(0, 8).toLowerCase()}`,
     );
   }
   return `${appWorker}.${subdomain}.workers.dev`;

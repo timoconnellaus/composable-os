@@ -57,13 +57,13 @@ function workerName(state: DeploymentState, name: string) {
  */
 export function gatewayIdFor(state: DeploymentState, manifest: ReleaseManifest): string {
   if (typeof state.aiGateway === "string" && state.aiGateway) return state.aiGateway;
-  const app = manifest.workers.find((w) => w.role === "app")?.name ?? "ros-app";
+  const app = manifest.workers.find((w) => w.role === "app")?.name ?? "";
   const base = workerName(state, app)
     .toLowerCase()
     .replace(/-app$/, "")
     .replace(/[^a-z0-9-]/g, "-")
     .replace(/^-+|-+$/g, "");
-  return (base || "ros").slice(0, 64);
+  return (base || manifest.product).slice(0, 64);
 }
 
 /** Workers that read AI_GATEWAY_ID (and so get AI_GATEWAY_TOKEN), by manifest name. */
@@ -342,7 +342,7 @@ export async function provisionAiGateway(
         const [read] = await api.permissionGroups(accountId, WORKERS_AI_READ_PERMISSION);
         const token = await api.createAccountToken(
           accountId,
-          `${id} AI Gateway (Relationship OS)`,
+          `${id} AI Gateway (${manifest.productLabel})`,
           read ? [run.id, read.id] : [run.id],
         );
         setAll(token.value);

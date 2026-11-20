@@ -7,6 +7,7 @@
 // Workers for Platforms every customer is its own script, so an isolate only ever serves one
 // deployment's D1 and one module-level cache is enough. Counts run only when a limit is set.
 import type { CoreDatabase } from "@relationship-os/db";
+import { product } from "@relationship-os/products/active";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { PlanLimitError } from "./errors.ts";
@@ -15,7 +16,7 @@ export const PLANS = ["free", "team", "business", "enterprise"] as const;
 export type Plan = (typeof PLANS)[number];
 
 /** Where a customer upgrades (the control plane's billing page). */
-export const BILLING_URL = "https://app.relationshiposcrm.com/billing";
+export const BILLING_URL = product.billingUrl;
 
 export const ENTITLEMENTS_KEY = "plan";
 export const ENTITLEMENTS_TTL_MS = 60_000;

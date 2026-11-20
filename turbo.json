@@ -15,7 +15,7 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"],
-      "env": ["WORKERS_CI_COMMIT_SHA", "GIT_COMMIT", "ROS_WRANGLER_CONFIG"]
+      "env": ["WORKERS_CI_COMMIT_SHA", "GIT_COMMIT", "ROS_WRANGLER_CONFIG", "COS_PRODUCT"]
     },
     "typecheck": {
       "dependsOn": ["^typecheck"]

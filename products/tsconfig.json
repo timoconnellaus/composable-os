@@ -1,0 +1,4 @@
+{
+  "extends": "@relationship-os/config/tsconfig.base.json",
+  "include": ["*.ts", "*/product.ts"]
+}

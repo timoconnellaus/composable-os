@@ -1,6 +1,7 @@
 // Where the control plane gets release bundles: the same verified GitHub releases the CLI and the
 // self-updater install (Stage 8: SHA256SUMS + build attestation, ADR 0162). Bundles are kept per
 // isolate, so a rollout that updates many tenants downloads and verifies each version once.
+import { product } from "@relationship-os/products/active";
 import {
   type Channel,
   fetchVerifiedRelease,
@@ -21,7 +22,11 @@ export interface ReleaseSource {
 
 export function githubReleaseSource(options: { token?: string | undefined }): ReleaseSource {
   const cache = new Map<string, Promise<LoadedRelease>>();
-  const github = options.token ? { token: options.token } : {};
+  const github = {
+    repository: product.updateRepository,
+    product: product.id,
+    ...(options.token ? { token: options.token } : {}),
+  };
   return {
     async latest(channel) {
       const [found] = await listReleases(channel, github);

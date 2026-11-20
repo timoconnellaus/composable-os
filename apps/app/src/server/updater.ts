@@ -4,9 +4,9 @@
 // `ros upgrade` (@relationship-os/release). Downloads are verified (SHA256SUMS + build attestation) before
 // anything is deployed, so a tampered bundle is refused here exactly as in the CLI.
 import type { UpdaterRuntime } from "@relationship-os/core";
+import { product } from "@relationship-os/products/active";
 import {
   CloudflareClient,
-  DEFAULT_REPOSITORY,
   type DeploymentState,
   d1ApiMigrations,
   databaseIdOf,
@@ -72,11 +72,12 @@ async function defaultSmoke(env: UpdaterEnv, hostname: string, version: string) 
 }
 
 export function updaterRuntimeFor(env: UpdaterEnv, deps: UpdaterDeps = {}): UpdaterRuntime {
-  const repository = env.ROS_RELEASE_REPO || DEFAULT_REPOSITORY;
+  const repository = env.ROS_RELEASE_REPO || product.updateRepository;
   const currentVersion =
     env.ROS_RELEASE_VERSION && isVersion(env.ROS_RELEASE_VERSION) ? env.ROS_RELEASE_VERSION : null;
   const github: GitHubOptions = {
     repository,
+    product: product.id,
     ...(deps.githubApi ? { apiBase: deps.githubApi } : {}),
     ...(deps.githubFetch ? { fetch: deps.githubFetch } : {}),
   };

@@ -7,26 +7,22 @@ import { type DeploymentState, readDeploymentState } from "./deploy.ts";
 import { LEGACY_DATABASE_NAME } from "./legacy.ts";
 import type { InstalledExtension } from "./preflight.ts";
 
-export const DATABASE_NAME = "ros";
-
 export interface Located {
   databaseId: string;
   state: DeploymentState | null;
 }
 
-/** Finds the deployment's database and stored state in an account. */
+/** Finds a product's deployment in an account: its database (by the product's name for it) and stored state. */
 export async function locateDeployment(
   api: CloudflareClient,
   accountId: string,
-  databaseName = DATABASE_NAME,
+  databaseName: string,
 ): Promise<Located | null> {
   const databases = await api.listD1(accountId);
   // An install from before the rename (ADR 0190) keeps its `crm` database.
   const db =
     databases.find((d) => d.name === databaseName) ??
-    (databaseName === DATABASE_NAME
-      ? databases.find((d) => d.name === LEGACY_DATABASE_NAME)
-      : undefined);
+    databases.find((d) => d.name === LEGACY_DATABASE_NAME);
   if (!db) return null;
   return { databaseId: db.uuid, state: await readDeploymentState(api, accountId, db.uuid) };
 }

@@ -9,12 +9,8 @@
 //   node scripts/release/changelog.ts --tag v1.2.0 [--repo owner/repo]   notes for one release
 //   node scripts/release/changelog.ts --all > CHANGELOG.md               every release tag
 import { execFileSync } from "node:child_process";
-import {
-  bareVersion,
-  compareVersions,
-  DEFAULT_REPOSITORY,
-  isVersion,
-} from "@relationship-os/release";
+import { DEFAULT_PRODUCT, products } from "@relationship-os/products";
+import { bareVersion, compareVersions, isVersion } from "@relationship-os/release";
 
 export interface Commit {
   subject: string;
@@ -102,7 +98,7 @@ function main() {
   const args = process.argv.slice(2);
   const repository = args.includes("--repo")
     ? (args[args.indexOf("--repo") + 1] as string)
-    : (process.env.GITHUB_REPOSITORY ?? DEFAULT_REPOSITORY);
+    : (process.env.GITHUB_REPOSITORY ?? products[DEFAULT_PRODUCT]?.updateRepository ?? "");
   const tags = releaseTags();
   if (args.includes("--all")) {
     const sections = [

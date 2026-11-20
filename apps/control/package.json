@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@relationship-os/core": "workspace:*",
+    "@relationship-os/products": "workspace:*",
     "@relationship-os/release": "workspace:*"
   },
   "devDependencies": {

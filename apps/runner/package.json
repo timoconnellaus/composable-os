@@ -10,7 +10,7 @@
   "scripts": {
     "bundle": "node scripts/bundle.mjs",
     "dev": "node scripts/bundle.mjs && wrangler dev",
-    "build": "node scripts/bundle.mjs && wrangler deploy --dry-run --outdir dist",
+    "build": "node scripts/bundle.mjs && node ../../scripts/wrangler-build.mjs",
     "types": "wrangler types --strict-vars=false",
     "typecheck": "node scripts/bundle.mjs && wrangler types --strict-vars=false --check && tsc --noEmit",
     "test": "node scripts/bundle.mjs && vitest run && node scripts/bundle-budget.mjs"

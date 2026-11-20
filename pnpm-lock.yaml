@@ -47,6 +47,12 @@ importers:
       '@relationship-os/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@relationship-os/product':
+        specifier: workspace:*
+        version: link:../../packages/product
+      '@relationship-os/products':
+        specifier: workspace:*
+        version: link:../../products
       '@relationship-os/release':
         specifier: workspace:*
         version: link:../../packages/release
@@ -147,6 +153,9 @@ importers:
       '@relationship-os/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@relationship-os/products':
+        specifier: workspace:*
+        version: link:../../products
       '@relationship-os/release':
         specifier: workspace:*
         version: link:../../packages/release
@@ -653,6 +662,9 @@ importers:
       '@relationship-os/db':
         specifier: workspace:*
         version: link:../db
+      '@relationship-os/products':
+        specifier: workspace:*
+        version: link:../../products
       '@relationship-os/release':
         specifier: workspace:*
         version: link:../release
@@ -705,6 +717,12 @@ importers:
       '@relationship-os/core':
         specifier: workspace:*
         version: link:../core
+      '@relationship-os/product':
+        specifier: workspace:*
+        version: link:../product
+      '@relationship-os/products':
+        specifier: workspace:*
+        version: link:../../products
       '@relationship-os/release':
         specifier: workspace:*
         version: link:../release
@@ -1250,7 +1268,26 @@ importers:
         specifier: 5.1.0
         version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
 
+  packages/product:
+    devDependencies:
+      '@relationship-os/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+
   packages/release:
+    dependencies:
+      '@relationship-os/product':
+        specifier: workspace:*
+        version: link:../product
     devDependencies:
       '@relationship-os/config':
         specifier: workspace:*
@@ -1339,8 +1376,27 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  products:
+    dependencies:
+      '@relationship-os/product':
+        specifier: workspace:*
+        version: link:../packages/product
+    devDependencies:
+      '@relationship-os/config':
+        specifier: workspace:*
+        version: link:../packages/config
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   scripts/release:
     dependencies:
+      '@relationship-os/product':
+        specifier: workspace:*
+        version: link:../../packages/product
+      '@relationship-os/products':
+        specifier: workspace:*
+        version: link:../../products
       '@relationship-os/release':
         specifier: workspace:*
         version: link:../../packages/release

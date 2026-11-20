@@ -19,9 +19,9 @@ export async function ghAvailable(): Promise<boolean> {
   }
 }
 
-export const ghVerifier: ExtraVerifier = async ({ bytes, repository, version }) => {
+export const ghVerifier: ExtraVerifier = async ({ bytes, repository, product, version }) => {
   const dir = await mkdtemp(join(tmpdir(), "ros-verify-"));
-  const file = join(dir, releaseAssetNames(version).bundle);
+  const file = join(dir, releaseAssetNames(product, version).bundle);
   try {
     await writeFile(file, bytes);
     await run("gh", [

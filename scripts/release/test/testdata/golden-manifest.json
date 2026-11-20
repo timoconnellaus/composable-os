@@ -37,7 +37,7 @@
   },
   "inputs": [
     {
-      "description": "Public hostname: <ros-app>.<subdomain>.workers.dev or a hostname on your zone",
+      "description": "Public hostname: ros-app.<subdomain>.workers.dev or a hostname on your zone",
       "kind": "placeholder",
       "name": "HOSTNAME"
     },
@@ -391,6 +391,7 @@
     }
   ],
   "product": "relationship-os",
+  "productLabel": "Relationship OS",
   "repository": "timoconnellaus/relationship-os",
   "resources": [
     {
@@ -767,7 +768,7 @@
         },
         {
           "name": "ROS_RELEASE_REPO",
-          "text": "timoconnellaus/relationship-os",
+          "text": "",
           "type": "plain_text"
         },
         {
@@ -945,7 +946,7 @@
           "source": "installer"
         }
       ],
-      "sha256": "70aaabdeb6eaa3a047064f1afcc459db476106d5e7f8186a9587431dcc17b1eb"
+      "sha256": "663923001986ea5062edee36286708cccdac9c18a717532d1d8f8f327cbe5bb7"
     },
     {
       "bindings": [

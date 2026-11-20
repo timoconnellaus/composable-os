@@ -4,7 +4,12 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { modelRolesVar } from "@relationship-os/core/ai-roles";
-import { buildFixtureRelease, FakeCloudflare, FakeGitHub } from "@relationship-os/release/testing";
+import {
+  buildFixtureRelease,
+  FakeCloudflare,
+  FakeGitHub,
+  FIXTURE_PRODUCT,
+} from "@relationship-os/release/testing";
 import { nodeSqliteEngine } from "@relationship-os/release/testing/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Redactor } from "../src/io.ts";
@@ -141,6 +146,16 @@ describe("create-relationship-os install", () => {
     expect(output).not.toContain(TOKEN);
     expect(output).not.toContain("update-token-abcdef123");
     expect(output).not.toContain(app?.secrets.get("BETTER_AUTH_SECRET"));
+  });
+
+  it("--product names the product to install, and an unknown one is refused before anything is read", async () => {
+    await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
+    const unknown = await cli("--yes", "--product", "nope");
+    expect(unknown.code).toBe(1);
+    expect(unknown.output).toContain("Unknown product nope");
+    expect(world.cf.scripts.size).toBe(0);
+    const named = await cli("--yes", "--product", FIXTURE_PRODUCT);
+    expect(named.code, named.output).toBe(0);
   });
 
   it("--ai off installs without Workers AI and Vectorize, and re-runs keep it off", async () => {

@@ -7,6 +7,7 @@
 //
 // Opening a bundle checks every file against the manifest's hashes, so a bundle whose outer
 // sha256 matched but whose contents were swapped (or a hand-assembled one) is refused too.
+import { releaseFilePrefix } from "@relationship-os/product";
 import { type ArchiveEntry, gunzip, gzip, readTar, writeTar } from "./archive.ts";
 import { assetHash, sha256Hex } from "./hash.ts";
 import { parseManifest, type ReleaseManifest, stableStringify } from "./manifest.ts";
@@ -102,11 +103,12 @@ export async function openBundle(bytes: Uint8Array): Promise<ReleaseBundle> {
   };
 }
 
-/** The release asset names for a version. */
-export function releaseAssetNames(version: string) {
+/** The release asset names for a version of a product (by id). */
+export function releaseAssetNames(product: string, version: string) {
+  const prefix = releaseFilePrefix(product);
   return {
-    bundle: `relationship-os-${version}.tar.gz`,
-    manifest: `relationship-os-${version}.manifest.json`,
+    bundle: `${prefix}-${version}.tar.gz`,
+    manifest: `${prefix}-${version}.manifest.json`,
     sums: "SHA256SUMS",
   };
 }

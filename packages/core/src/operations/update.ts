@@ -9,6 +9,7 @@
 //
 // Everything that leaves the Worker goes through ctx.updater (src/server/updater.ts in ros-app).
 // No telemetry: the only outbound reads are public GitHub release pages (ADR 0166).
+import { product } from "@relationship-os/products/active";
 import {
   CHANNELS,
   type Channel,
@@ -146,7 +147,7 @@ export const updateStatus = defineOperation({
     return {
       currentVersion: ctx.updater?.currentVersion ?? state?.version ?? null,
       channel: await loadChannel(ctx, state),
-      repository: ctx.updater?.repository ?? "timoconnellaus/relationship-os",
+      repository: ctx.updater?.repository ?? product.updateRepository,
       canUpdateInApp: Boolean(ctx.updater?.canUpdate && state),
       installedFromRelease: Boolean(state),
       hostname: state?.hostname ?? null,
