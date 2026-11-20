@@ -5,7 +5,7 @@ import { z } from "zod";
 import { ValidationError } from "./errors.ts";
 import type { FieldDefinition, ObjectDefinition } from "./fields/types.ts";
 import { compileFilter, filterSchema } from "./filter.ts";
-import { type Reader, visibleSource } from "./visibility/index.ts";
+import { type Reader, visibleObject, visibleSource } from "./visibility/index.ts";
 
 export const sortSchema = z.object({
   field: z.string().min(1).max(64),
@@ -188,7 +188,9 @@ export async function runListQuery<Row extends { id: string }>(
   const query = (ctx.db as Kysely<any>)
     .selectFrom(visibleSource(ctx, object))
     .selectAll() as unknown as SelectQueryBuilder<Record<string, Row>, string, Row>;
-  return pageQuery(query, object, input, object.source);
+  // Filter and sort against the fields the caller may see: for a customer, a field the object
+  // does not list is an unknown field here.
+  return pageQuery(query, visibleObject(ctx, object), input, object.source);
 }
 
 /**

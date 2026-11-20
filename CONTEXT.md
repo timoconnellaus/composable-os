@@ -533,7 +533,9 @@ never loses an event.
 
 **Principal**
 The authenticated caller of a request: `{ userId, email, name, roles }`, resolved by the identity
-adapter for every route and server function.
+adapter for every route and server function. In the operation layer the principal is one of three
+kinds, one per audience: `staff` (a user and their role), `customer` (a customer account and its
+Person) or `public` (no account). A handler reads it as `ctx.principal` (stage 22, ADR 0412).
 _Avoid_: user (when you mean the caller of a request), session
 
 **Identity adapter**
@@ -867,7 +869,23 @@ The repository holding one product's client apps, its own extensions and its pro
 Started from the template, not a fork of the platform (stage 24).
 
 **Audience**
-Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402).
+Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402). An operation
+lists its audiences, staff only when it lists none. A caller outside them gets the answer an
+unknown operation gets (ADR 0411).
+
+**Open operation**
+An operation that lists `customer` or `public`. It is a `read` or a `write`, never more, and is
+named in the generated `packages/core/open-operations.json` (ADR 0411).
+
+**Visibility seam**
+`packages/core/src/visibility/`: the one place that decides which records, and which fields of
+them, a caller may read or change. Every read of a record takes its source from it
+(`visibleSource`). Staff see everything; a customer sees the rows whose customer field is their
+own Person and the fields the object lists (ADRs 0244, 0410, 0412).
+_Avoid_: row-level security (the database has none; the seam is in the host)
+
+**Scope**
+What the visibility seam gives one caller of one object: `all`, `customer` or `none`.
 
 **Staff**
 A signed-in user of the org with a role. Every user of the existing code is staff.

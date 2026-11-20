@@ -7,7 +7,7 @@ import type { RecordEventType } from "@composable-os/sdk";
 import { capValue } from "../approvals/caps.ts";
 import { diffRecords, type FieldDiff } from "../diff.ts";
 import type { RecordChange } from "../operation.ts";
-import type { Actor, Origin } from "../principals.ts";
+import type { Actor, Origin, OutsideActor } from "../principals.ts";
 import {
   type ApprovalDecidedMessage,
   type AutomationQueueMessage,
@@ -58,7 +58,7 @@ export function isBulkOperation(name: string, bulkSize: number): boolean {
 }
 
 export function eventOriginOf(input: {
-  actor: Actor;
+  actor: Actor | OutsideActor;
   userId: string;
   origin: Origin;
   operation: string;

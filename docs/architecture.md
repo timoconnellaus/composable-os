@@ -863,6 +863,23 @@ Every operation declares its audiences: `staff` (the default), `customer`, `publ
   Code Mode, `query.sql`, dashboards or exports.
 - **Public** callers have no account. Public operations are few, low risk and rate limited.
 
+Built so far (stage 22, steps 1 to 3; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
+[0411](adr/0411-audiences-on-operations-as-built.md),
+[0412](adr/0412-customer-scope-and-principals-as-built.md)):
+
+- **The visibility seam** (`packages/core/src/visibility/`). `visibleSource(ctx, object)` is the
+  source every read of a record takes. Staff get the plain view. A customer gets a source holding
+  only their rows and only the columns the object lists, and the public get none.
+- **The audience check** is the pipeline's first step. A caller outside an operation's audiences
+  gets the answer an unknown operation gets. `packages/core/open-operations.json` lists what is
+  open, and a test keeps it equal to the registry.
+- **A call for a customer or the public** carries a principal and no staff user. It takes a
+  short path of its own in the pipeline: no role, no approval queue, a write check at the seam
+  before the batch commits, and an audit row with actor `customer` or `public`.
+
+Accounts, sign-in, the `customer` key in the SDK and the `me.*` and `my.*` operations are the
+stage's later steps. Until they land, no operation is open and no object declares a customer.
+
 ### The HTTP surface and the typed client
 
 Stage 23; [ADR 0403](adr/0403-http-surface-and-typed-client.md).

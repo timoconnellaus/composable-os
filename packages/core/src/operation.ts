@@ -105,9 +105,14 @@ export function runAfterCommit<T>(value: AfterCommit<T>): Promise<T> {
  */
 export interface HandlerContext {
   readonly operation: string;
+  /**
+   * The staff-side actor and the staff user the call acts for. A customer's or the public's
+   * call has neither: reading them there throws, so code written for staff can never run for
+   * someone outside the org by mistake. Operations open to them read `principal`.
+   */
   readonly actor: Actor;
   readonly user: ActingUser;
-  /** Who the call is for, as the visibility seam sees them (`visibleSource(ctx, …)`). */
+  /** Who the call is for: staff, a customer or the public. The visibility seam reads it. */
   readonly principal: Principal;
   readonly origin: Origin;
   /** The invocation's timestamp (ISO-8601 UTC). Use it for created_at/updated_at. */

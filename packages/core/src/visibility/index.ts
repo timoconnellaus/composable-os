@@ -4,6 +4,9 @@
 //
 // This is the seam's first door. Staff have the scope `all`: the plain view, no predicate, the
 // same SQL and the same `rows_read` as before the seam (test/visibility-staff-unchanged.test.ts).
+// A customer has the rows whose declared customer field is their own Person, and of those only
+// the fields the object lists (customer.ts). The public, and a customer on an object that
+// declares no customer, have nothing: for them the object does not exist.
 // Stage 14a adds staff scopes (own, own team), the rewrite of user SQL and search hydration to
 // this module. It must extend this seam and not add a second one.
 //
@@ -16,6 +19,9 @@ import { objectTableOf } from "../extensions/schema.ts";
 import { type CoreObjectName, getObject, isCoreObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { type Principal, staffPrincipal } from "../principals.ts";
+import { type CustomerScope, customerObject, customerScope, unknownObject } from "./customer.ts";
+
+export { type CustomerScope, customerProblems } from "./customer.ts";
 
 /** Who is reading. A handler's context is one. */
 export interface Viewer {
@@ -30,14 +36,47 @@ export interface Reader extends Viewer {
 /**
  * What a caller may see of one object.
  * - `all`: every row and every field. Staff, until stage 14a restricts an object.
+ * - `customer`: the rows whose customer field is the caller's Person, the listed fields only.
+ * - `none`: nothing. The object does not exist for this caller.
  */
-export type Scope = { readonly kind: "all" };
+export type Scope = { readonly kind: "all" } | CustomerScope | { readonly kind: "none" };
+
+const NONE: Scope = Object.freeze({ kind: "none" });
 
 /** The caller's scope for `object`. Pure: it reads nothing. */
-export function scopeOf(principal: Principal, _object: ObjectDefinition): Scope {
+export function scopeOf(principal: Principal, given: ObjectDefinition): Scope {
+  // Always the registry's own definition: a narrowed copy (visibleObject) names the same object.
+  const object = getObject(given.name) ?? given;
   switch (principal.kind) {
     case "staff":
       return { kind: "all" };
+    case "customer":
+      return customerScope(object, principal.personId) ?? NONE;
+    case "public":
+      return NONE;
+    default:
+      // A principal this code does not know sees nothing.
+      return NONE;
+  }
+}
+
+/**
+ * The object as the caller may see it: for staff the definition itself; for a customer only `id`
+ * and the fields the object lists as readable, so a filter or sort on any other field fails as
+ * it does for a field that does not exist. Throws the unknown-object error when the caller may
+ * see nothing of it, or when there is no such object: the two are one answer.
+ */
+export function visibleObject(ctx: Viewer, object: string | ObjectDefinition): ObjectDefinition {
+  const definition = typeof object === "string" ? getObject(object) : object;
+  if (!definition) throw unknownObject(String(object));
+  const scope = scopeOf(ctx.principal, definition);
+  switch (scope.kind) {
+    case "all":
+      return definition;
+    case "customer":
+      return customerObject(definition, scope);
+    case "none":
+      throw unknownObject(definition.name);
   }
 }
 
@@ -98,16 +137,28 @@ export function visibleSource(
 ): VisibleSource<AnyRow, string> {
   const definition = resolve(object);
   const scope = scopeOf(ctx.principal, definition);
+  const name = alias ?? definition.source;
   switch (scope.kind) {
     case "all":
-      return sql<AnyRow>`${sql.table(definition.source)}`.as(alias ?? definition.source);
+      return sql<AnyRow>`${sql.table(definition.source)}`.as(name);
+    case "customer": {
+      // Only the caller's rows, and only the listed columns: a column that is not listed is not
+      // in the source at all, so no filter, sort or select can reach it. Registry columns are
+      // trusted identifiers (fields/types.ts); the person id is a bound parameter.
+      const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
+      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${sql.ref(scope.column)} = ${scope.personId})`.as(
+        name,
+      );
+    }
+    case "none":
+      throw unknownObject(definition.name);
   }
 }
 
 /**
  * The table behind an object, with its soft-deleted rows: for the loads that need them (a get
- * that may include the Trash, the snapshot before a write). Filtered for the caller like
- * `visibleSource`. Prefer `visibleSource` for anything that only reads live records.
+ * that may include the Trash, the snapshot before a write). Staff only: a customer and the
+ * public are refused. Prefer `visibleSource` for anything that only reads live records.
  */
 export function visibleTable<N extends CoreObjectName>(
   ctx: Viewer,
@@ -137,6 +188,9 @@ export function visibleTable(
   switch (scope.kind) {
     case "all":
       return sql<AnyRow>`${sql.table(ident(table))}`.as(alias ?? table);
+    default:
+      // Tables hold the Trash and every column. Only staff read them.
+      throw unknownObject(definition.name);
   }
 }
 

@@ -80,7 +80,10 @@ export type UserRole = "admin" | "member" | "viewer";
 export type ActivityType = "note" | "email" | "call" | "meeting" | "system";
 export type ActivityAuthorActor = "human" | "assistant" | "mcp" | "automation" | "system";
 export type TaskStatus = "open" | "done";
-export type AuditActor = "human" | "assistant" | "mcp" | "automation" | "extension";
+/** Who a staff-side call is made by: the actors the approval policy and the queue know. */
+export type StaffActor = "human" | "assistant" | "mcp" | "automation" | "extension";
+/** Every actor the audit log records: staff-side actors, customers and the public (migration 0400). */
+export type AuditActor = StaffActor | "customer" | "public";
 export type AuditRisk =
   | "read"
   | "write"
@@ -970,7 +973,7 @@ export interface CoreChangeSetTable {
   client_id: string | null;
   client_name: string | null;
   user_id: string;
-  actor: AuditActor;
+  actor: StaffActor;
   origin: JsonText;
   explicit: Defaulted<number>;
   state: Defaulted<ChangeSetState>;
@@ -988,7 +991,7 @@ export interface CorePendingActionTable {
   risk: AuditRisk;
   input: JsonText;
   reason: string;
-  actor: AuditActor;
+  actor: StaffActor;
   user_id: string;
   origin: JsonText;
   granted_permissions: JsonText | null;

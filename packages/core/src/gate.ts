@@ -236,6 +236,20 @@ export function evaluateGate(
   };
 }
 
+/**
+ * The gate for a caller outside the org, a customer or the public (ADR 0402): it allows or
+ * refuses, and never queues. Reads and writes are allowed and nothing else is, in code, whatever
+ * the preset. The floor's `*` rows can only refuse: one that asks for review refuses, because no
+ * one reviews a customer's call.
+ */
+export function evaluateOutsideGate(risk: RiskClass, floor: GateFloor = {}): "auto" | "deny" {
+  if (risk !== "read" && risk !== "write") return "deny";
+  const rules = [floor["*"]?.[risk], floor["*"]?.["*"]].filter(
+    (rule): rule is GateRule => rule !== undefined,
+  );
+  return rules.every((rule) => applyRule(rule, 1) === "auto") ? "auto" : "deny";
+}
+
 /** True when moving from `from` to `to` makes any cell less strict. Used to audit loosening. */
 export function isLoosening(from: PolicyPreset, to: PolicyPreset): boolean {
   const a = PRESET_MATRICES[from];

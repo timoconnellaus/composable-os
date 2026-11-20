@@ -169,9 +169,11 @@ export * from "./operations/user.ts";
 export * from "./operations/view.ts";
 export * from "./operations/voice.ts";
 export {
+  type AnyInvocationContext,
   type CommitEvent,
   type InvocationContext,
   invokeOperation,
+  type OutsideInvocationContext,
   operationObject,
   type QueuedEvent,
   readCountHour,
@@ -218,3 +220,6 @@ export * from "./sync/signals.ts";
 export * from "./updates.ts";
 export { type PrincipalLike, resolveActingUser, SYSTEM_USER } from "./users.ts";
 export * from "./views/spec.ts";
+export * from "./visibility/index.ts";
+export { getVisible, listVisible, type VisibleRecord } from "./visibility/records.ts";
+export { assertVisibleWrites } from "./visibility/writes.ts";
