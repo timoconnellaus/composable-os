@@ -7,7 +7,8 @@ Read first: [`AGENTS.md`](../../AGENTS.md), [`CONTEXT.md`](../../CONTEXT.md), AD
 `automation.ts`, `automation-check.ts`, `testing.ts`), `extensions/deals/`, `extensions/leads/`,
 `docs/stages/03-extensions.md`, ADRs 0023, 0024, 0025, 0100, 0130.
 
-Status: **spec agreed** (interview 2026-11-20). Builds on stage 20.
+Status: **built** (2026-11-20; spec agreed at the interview the same day). Builds on stage 20. What
+the build decided is in ADR 0405, "As built".
 
 ## Goal
 

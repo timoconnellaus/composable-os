@@ -2,7 +2,7 @@
   "extends": "@composable-os/config/tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["@types/node"]
+    "types": ["@cloudflare/workers-types", "@types/node"]
   },
   "include": ["src", "test"]
 }

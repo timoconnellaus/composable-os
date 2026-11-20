@@ -82,6 +82,8 @@ Usage
   cos rollback                           redeploy the previous release and restore its bookmark
   cos status                             installed version, channel, URL and available releases
   cos uninstall                          delete the Workers, database, bucket and namespace (asks)
+  cos ext check <dir> | test <dir>       in a checkout of the repository: check an extension with
+                                         the checks the host runs, and run its tests
 
 Options
   --token <t>            Cloudflare API token (or CLOUDFLARE_API_TOKEN). Needs, on the account:
@@ -1010,8 +1012,31 @@ async function uninstall(flags: Flags, deps: Deps): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+/**
+ * `cos ext check|test <dir>` (ADR 0405). Its code is loaded only when asked for: it needs the
+ * TypeScript compiler and esbuild, which a Composable OS checkout has and `npx
+ * create-composable-os` does not install.
+ */
+async function ext(argv: string[], deps: Deps): Promise<number> {
+  let runExt: typeof import("@composable-os/extension-check/cli").runExt;
+  try {
+    ({ runExt } = await import("@composable-os/extension-check/cli"));
+    return await runExt(argv, deps.io);
+  } catch (error) {
+    if ((error as { code?: string }).code === "ERR_MODULE_NOT_FOUND") {
+      deps.io.err(
+        "cos ext runs in a checkout of the Composable OS repository, after pnpm install: " +
+          "pnpm cos ext check <dir>",
+      );
+      return 2;
+    }
+    throw error;
+  }
+}
+
 export async function runCli(argv: string[], input: Deps): Promise<number> {
   const deps = input;
+  if (argv[0] === "ext") return ext(argv.slice(1), deps);
   let parsed: ReturnType<typeof parseArgs>;
   try {
     parsed = parseArgs(argv);

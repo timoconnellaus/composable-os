@@ -96,8 +96,8 @@ Rules worth knowing before the first check:
 | `recordPanels` | The same shape, shown as a card in the record page's side panel. |
 | `settings` | Typed settings, edited by admins in Settings → Extensions: `{ type: "text" \| "number" \| "boolean" \| "select", label, description?, required?, default?, min?, max?, options? }`. Read them with `extensionSettings.list`. |
 | `tools` | Operations named `x.<ext>.<tool>` (zod input/output, description, risk `read`/`write`/`bulk-write`/`destructive`). They run in the sandbox. |
-| `automations` | `defineAutomation({ label, description, trigger, conditions?, steps, onRejected?, rails?, run })`: see Automations below. |
-| `permissions` | `read` / `write` (objects; write implies read), `operations` (exact names, e.g. `task.create`, `search.global`), `modules` (`ops`, `storage`, `log`, `ai`). Own objects are always allowed. `extension.*`, `policy.*`, `user.*` and `audit.*` can never be granted. Destructive operations must be listed in `operations`. |
+| `automations` | `defineAutomation({ label, description, trigger, conditions?, steps, onRejected?, rails?, connections?, enabled?, run })`: see Automations below. |
+| `permissions` | `read` / `write` (objects; write implies read), `operations` (exact names, e.g. `task.create`, `search.global`), `modules` (`ops`, `storage`, `log`, `ai`, and gatekeepers by name, e.g. `email-send`). Own objects are always allowed. `extension.*`, `policy.*`, `user.*` and `audit.*` can never be granted. Destructive operations must be listed in `operations`. |
 
 ### Object behaviour (ADR 0100)
 
@@ -233,13 +233,24 @@ nothing from a formula reaches SQL verbatim.
 | `storage.get/set/delete/list` | `storage` | Per-extension key-value storage (JSON values ≤ 128 KB). |
 | `log.info/warn/error(message, data?)` | `log` | Shown in the extension's run history. |
 | `ai.summarise/extract/classify` | `ai` | Model roles (ADR 0009); Workers AI by default, through AI Gateway when configured. Fails with a clear error when the deployment has no AI binding. |
+| `gatekeeper(name).connections/call/types` | a gatekeeper (`GATEKEEPER_MODULES`: `google`, `microsoft`, `slack`, `slack-post`, `mcp`, `email`, `email-send`, `zoominfo`, `websearch`, `webhook`) | The only way out to an external service (ADR 0050). `call(connectionId, resource, method, ...args)` goes through the integration host as the connection's owner; reads are observations, and side effects come back in `pending` as outbound actions until a person approves them. Declare the gatekeeper's name in `permissions.modules`. |
 
-There is no network: `fetch` fails (`globalOutbound: null`). External services arrive as
-gatekeeper modules in stage 6. A module the extension did not declare is absent from `ctx`.
+There is no network: `fetch` fails (`globalOutbound: null`). An external service is reached only
+through a gatekeeper. A module the extension did not declare is absent from `ctx`, and
+`ctx.gatekeeper(name)` of an undeclared gatekeeper fails.
 
 One version of an extension may serve many runs from the same warm sandbox (ADR 0043), so
 module-scope variables can outlive a run. Keep per-call state inside the handler, and persist
 anything that must last in `ctx.storage`.
+
+## Checking an extension in a checkout
+
+A shipped extension (`extensions/<id>/`) is checked without a deployment by the `cos` command
+(ADR 0405): `pnpm cos ext check extensions/<id>` runs the checks `extension.check` runs (imports,
+types, contract, formulas, automations, a dry-run reconcile on an empty local database) and
+prints each issue with a file, the manifest path, the message and the fix where there is one;
+`pnpm cos ext test extensions/<id>` runs its tests and refuses a tool or automation that no test
+names. The skills in `skills/` give the order of work.
 
 ## Testing an extension
 
@@ -338,9 +349,19 @@ export default defineExtension({
 | `record` | `object`, `on: ["created" \| "updated" \| "deleted" \| "restored"]`, `includeBulk?` | after a record change commits (bulk changes only with `includeBulk`) |
 | `fieldChanged` | `object`, `field`, `from?`, `to?`, `includeBulk?` | when the field changes; `from`/`to` are a value, `{ in: [...] }` or, on the object's stage field, `{ stageType: "open" \| "won" \| "lost" }` |
 | `schedule` | `cron` (5 fields) | in the automation timezone (Settings → Automations) |
-| `dateRelative` | `object`, `field` (date/datetime), `offsetDays` (−365…365) | once a day for each record whose date is that many days away |
+| `dateRelative` | `object`, `field` (date/datetime), `offsetDays` (−365…365) | once a day for each record, `offsetDays` days after its date (positive) or before it (negative: `-30` is 30 days before); 0 is the day itself |
 | `manual` | `object`, `label`, `bulk?` | a button on the record page (and a bulk action on lists) |
 | `approvalDecided` | `decision?`, `operation?`, `object?` | when a pending action is approved or rejected |
+| `webhook` | `endpoint` (the id an admin set up), `events?` | on a verified delivery to that inbound webhook endpoint (the `webhook` gatekeeper, ADR 0113); the typed event is in `event.integration` |
+| `syncEvent` | `event` (`SyncEventType`), `from?: "person" \| "organisation" \| "either"` | when email or calendar sync writes, changes or removes an activity (ADR 0112); the trigger record is that activity, and the extension needs `"activity"` in `permissions.read` |
+
+**Connections.** An automation that reaches an external service declares `connections: [{ id,
+gatekeeper, purpose }]` (`AutomationConnection`) and the gatekeeper in `permissions.modules`. A
+person binds each one when the automation is approved or installed; until all are bound it does
+not run. Steps call `ctx.gatekeeper(gatekeeper).call(id, resource, method, ...args)`.
+
+**On or off.** `enabled: false` installs the automation turned off, for a person to turn on under
+Automations. Only the first install reads it.
 
 **Conditions.** `conditions` is a view filter (`{ field, op, value }`, `and`, `or`) on the
 trigger record, checked before a run starts and shown in the summary ("if its status is Open").
