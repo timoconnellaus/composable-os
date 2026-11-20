@@ -17,6 +17,7 @@
     "test": "turbo run test",
     "test:e2e": "pnpm --filter @composable-os/app test:e2e",
     "deploy": "node scripts/deploy.mjs",
+    "cos": "node packages/create-composable-os/build.mjs && node packages/create-composable-os/dist/cli.js",
     "types": "turbo run types",
     "db:seed": "pnpm --filter @composable-os/db seed",
     "upstream:check": "node scripts/upstream-sync-check.mjs",

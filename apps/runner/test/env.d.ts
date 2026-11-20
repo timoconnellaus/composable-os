@@ -10,4 +10,11 @@ declare global {
       };
     }
   }
+  // Vite's glob import, as same-issues.test.ts uses it (source text of the fixture extensions).
+  interface ImportMeta {
+    glob<T>(
+      pattern: string,
+      options: { query: "?raw"; import: "default"; eager: true },
+    ): Record<string, T>;
+  }
 }

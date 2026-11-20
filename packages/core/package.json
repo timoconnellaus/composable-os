@@ -23,7 +23,8 @@
     "./judge-orchestrator": "./src/judge/questions/orchestrator-suggest.ts",
     "./judge-routine-gate": "./src/judge/questions/routine-gate.ts",
     "./adjudicator-agreement": "./src/adjudicator/agreement.ts",
-    "./cron": "./src/automations/cron.ts"
+    "./cron": "./src/automations/cron.ts",
+    "./extension-check": "./src/extensions/check.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

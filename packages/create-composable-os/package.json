@@ -26,8 +26,10 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261104.1",
     "@composable-os/config": "workspace:*",
     "@composable-os/core": "workspace:*",
+    "@composable-os/extension-check": "workspace:*",
     "@composable-os/product": "workspace:*",
     "@composable-os/products": "workspace:*",
     "@composable-os/release": "workspace:*",
