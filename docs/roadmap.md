@@ -120,7 +120,7 @@ in [`parallel-work.md`](parallel-work.md) as usual.
 ### Suggested order
 
 1. **20**, alone. It moves every file, so nothing else runs beside it.
-2. **21** and **stage 14a** in parallel. 21 is documents, a CLI and an eval; 14a is the read paths.
+2. **21** and **stage 14a** in parallel. 21 is two skills and a CLI; 14a is the read paths.
 3. **22**, then **23**. These two change what the host exposes and are reviewed with most care.
 4. **26** can run beside 22 and 23: it touches record writes, not read paths.
 5. **24** and **25** in parallel after 23.

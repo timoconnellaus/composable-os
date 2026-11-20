@@ -72,23 +72,23 @@ AGENTS.md          the rules for agents in a client repo
   company's site at its own domain signs people in without a redirect to another address.
 
 ### Deploying a client repo
-- `composable deploy` in a client repo: resolves the platform version in `product.ts`, downloads
+- `cos deploy` in a client repo: resolves the platform version in `product.ts`, downloads
   and verifies that release, deploys the host with the product's packs and the org's extensions,
   then builds and deploys `apps/web` with the binding.
 - The org's own extensions in `extensions/` are installed as shipped extensions of this product:
   checked with `pnpm ext check`, then reconciled on deploy. They need no approval in the
   deployment because they arrived by a reviewed deploy, as packs do.
-- `composable upgrade` moves `product.ts` to a newer platform version, runs the updater's
+- `cos upgrade` moves `product.ts` to a newer platform version, runs the updater's
   preflight against the org's extensions, regenerates the typed client, and reports type errors in
   the client apps before anything is deployed.
 
 ### The block registry
 - A block is a folder of source files with a small manifest: the pack it belongs to, the skin
   (`web` or `native`), the operations it calls, the files, and the blocks it depends on.
-- `composable add <block>` copies a block's files into the client repo, into `apps/web` or
+- `cos add <block>` copies a block's files into the client repo, into `apps/web` or
   `apps/mobile`, and records its name and version in a lock file. After that the files are the
   client's.
-- `composable diff <block>` shows what has changed upstream since the copy, for an agent or a
+- `cos diff <block>` shows what has changed upstream since the copy, for an agent or a
   person to apply by hand. Nothing updates a copied block automatically.
 - The web base layer is the shadcn-style components of `packages/ui`, copied the same way. The
   native base layer is a small set written for this stage: screen, list, row, sheet, tab bar,
@@ -99,7 +99,7 @@ AGENTS.md          the rules for agents in a client repo
   calculation, a capacity check or a permission check instead of calling an operation.
 
 ### Skills
-- The template installs the platform's skills at the version in `product.ts`; `composable upgrade`
+- The template installs the platform's skills at the version in `product.ts`; `cos upgrade`
   replaces them.
 - Two skills are added: **`start-client-app`** (run the template, choose packs, first deploy) and
   **`add-block`** (find a block, copy it, restyle it to the client's brand, wire it to a route).
@@ -112,7 +112,7 @@ AGENTS.md          the rules for agents in a client repo
 - Preview deployments per branch.
 
 ## Acceptance criteria
-1. **One command:** against a fake Cloudflare API, `create-composable-os` then `composable deploy`
+1. **One command:** against a fake Cloudflare API, `create-composable-os` then `cos deploy`
    yields a host and a web app; a customer signs in on the web app and the example page shows
    their name from `me.get`.
 2. **No authority of its own:** the web Worker's bundle and config hold no database binding and no
@@ -123,9 +123,9 @@ AGENTS.md          the rules for agents in a client repo
 4. **Packs moved:** Deals, Leads and lifecycle live under `packs/`; a CRM release
    built before and after has the same manifest apart from paths.
 5. **Product packs:** a product that lists no packs deploys a host with base records only.
-6. **Blocks:** `composable add` copies files and writes the lock file; editing a copied file and
-   running `composable diff` shows upstream changes without touching the edit.
-7. **Upgrade:** `composable upgrade` to a fixture release that changes an operation reports the
+6. **Blocks:** `cos add` copies files and writes the lock file; editing a copied file and
+   running `cos diff` shows upstream changes without touching the edit.
+7. **Upgrade:** `cos upgrade` to a fixture release that changes an operation reports the
    type error in the client app and deploys nothing.
 8. **Block lint:** a fixture block with a price calculation fails the lint.
 9. **Skills:** each of the two skills is used once by an agent that has not seen this spec, from
@@ -144,7 +144,7 @@ No migrations. ADRs 0420 to 0424, and ADR 0401 amended as built.
 1. Packs as packages; the CRM still builds the same.
 2. The service binding entrypoint and its refusal tests.
 3. The web template, deployed by hand.
-4. `composable deploy` and `upgrade`.
+4. `cos deploy` and `upgrade`.
 5. The mobile template.
 6. The block registry, the base layers, the lint.
 7. The two skills, each tried once.
@@ -158,4 +158,5 @@ No migrations. ADRs 0420 to 0424, and ADR 0401 amended as built.
   proposed, or on the host's address.
 - **Does the staff admin stay on the host's address,** or can a company put it under its own
   domain.
-- **One CLI or two:** `create-composable-os` and `composable`, or everything in one.
+- **One CLI or two:** `create-composable-os` (install) and `cos` (deploy, upgrade, add, diff) as
+  they are today, or everything under `cos`.
