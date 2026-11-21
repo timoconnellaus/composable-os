@@ -2,21 +2,9 @@
   "name": "courses-course",
   "pack": "courses",
   "skin": "web",
-  "operations": [
-    "x.courses.course",
-    "x.courses.buy",
-    "order.checkout",
-    "media.play"
-  ],
-  "files": [
-    "course-page.tsx",
-    "LICENSE"
-  ],
-  "dependsOn": [
-    "ui-button",
-    "ui-input",
-    "ui-label"
-  ],
+  "operations": ["x.courses.course", "x.courses.buy", "order.checkout", "media.play"],
+  "files": ["course-page.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label"],
   "packages": {
     "@composable-os/pack-courses": "*"
   }

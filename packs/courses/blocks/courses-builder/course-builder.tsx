@@ -24,7 +24,11 @@ export function CourseBuilder({
 }: {
   courses: Pick<
     CoursesHooks,
-    "useWorkingCopy" | "useSaveOutline" | "usePublishCourse" | "useLibraryVideos" | "usePublishedPrograms"
+    | "useWorkingCopy"
+    | "useSaveOutline"
+    | "usePublishCourse"
+    | "useLibraryVideos"
+    | "usePublishedPrograms"
   >;
   courseId: string;
 }) {
@@ -73,22 +77,32 @@ export function CourseBuilder({
           <legend className="px-1 font-semibold">{section.title}</legend>
           <ol className="grid gap-3">
             {(section.lessons ?? []).map((lesson, i) => (
-              <li key={lesson.key} className="grid gap-2 rounded border p-3" aria-label={lesson.title}>
+              <li
+                key={lesson.key}
+                className="grid gap-2 rounded border p-3"
+                aria-label={lesson.title}
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
                     aria-label="Lesson title"
                     value={lesson.title}
                     onChange={(e) =>
-                      setOutline(outlineEdits.updateLesson(outline, lesson.key, { title: e.target.value }))
+                      setOutline(
+                        outlineEdits.updateLesson(outline, lesson.key, { title: e.target.value }),
+                      )
                     }
                   />
-                  <span className="text-sm">{KINDS.find((k) => k.value === lesson.kind)?.label}</span>
+                  <span className="text-sm">
+                    {KINDS.find((k) => k.value === lesson.kind)?.label}
+                  </span>
                   <Button
                     size="sm"
                     variant="ghost"
                     aria-label="Move up"
                     disabled={i === 0}
-                    onClick={() => setOutline(outlineEdits.moveLesson(outline, lesson.key, section.key, i - 1))}
+                    onClick={() =>
+                      setOutline(outlineEdits.moveLesson(outline, lesson.key, section.key, i - 1))
+                    }
                   >
                     ↑
                   </Button>
@@ -96,7 +110,9 @@ export function CourseBuilder({
                     size="sm"
                     variant="ghost"
                     aria-label="Move down"
-                    onClick={() => setOutline(outlineEdits.moveLesson(outline, lesson.key, section.key, i + 1))}
+                    onClick={() =>
+                      setOutline(outlineEdits.moveLesson(outline, lesson.key, section.key, i + 1))
+                    }
                   >
                     ↓
                   </Button>
@@ -106,14 +122,23 @@ export function CourseBuilder({
                       variant="ghost"
                       onClick={() =>
                         setOutline(
-                          outlineEdits.moveLesson(outline, lesson.key, outline.sections[s - 1]?.key ?? section.key, 999),
+                          outlineEdits.moveLesson(
+                            outline,
+                            lesson.key,
+                            outline.sections[s - 1]?.key ?? section.key,
+                            999,
+                          ),
                         )
                       }
                     >
                       To the section above
                     </Button>
                   ) : null}
-                  <Button size="sm" variant="ghost" onClick={() => setOutline(outlineEdits.removeLesson(outline, lesson.key))}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setOutline(outlineEdits.removeLesson(outline, lesson.key))}
+                  >
                     Remove
                   </Button>
                 </div>
@@ -121,7 +146,13 @@ export function CourseBuilder({
                   <input
                     type="checkbox"
                     checked={lesson.preview === true}
-                    onChange={(e) => setOutline(outlineEdits.updateLesson(outline, lesson.key, { preview: e.target.checked }))}
+                    onChange={(e) =>
+                      setOutline(
+                        outlineEdits.updateLesson(outline, lesson.key, {
+                          preview: e.target.checked,
+                        }),
+                      )
+                    }
                   />
                   Free preview
                 </label>
@@ -154,7 +185,11 @@ export function CourseBuilder({
                       value={("program" in lesson && lesson.program) || ""}
                       onChange={(e) =>
                         setOutline(
-                          outlineEdits.updateLesson(outline, lesson.key, { program: e.target.value, week: 1, session: 0 }),
+                          outlineEdits.updateLesson(outline, lesson.key, {
+                            program: e.target.value,
+                            week: 1,
+                            session: 0,
+                          }),
                         )
                       }
                     >
@@ -176,7 +211,16 @@ export function CourseBuilder({
                 key={kind.value}
                 size="sm"
                 variant="outline"
-                onClick={() => setOutline(outlineEdits.addLesson(outline, section.key, kind.value, `New ${kind.label.toLowerCase()}`))}
+                onClick={() =>
+                  setOutline(
+                    outlineEdits.addLesson(
+                      outline,
+                      section.key,
+                      kind.value,
+                      `New ${kind.label.toLowerCase()}`,
+                    ),
+                  )
+                }
               >
                 {`Add ${kind.label.toLowerCase()}`}
               </Button>
@@ -195,7 +239,11 @@ export function CourseBuilder({
       >
         <div className="grid gap-1">
           <Label htmlFor="new-section">New section</Label>
-          <Input id="new-section" value={newSection} onChange={(e) => setNewSection(e.target.value)} />
+          <Input
+            id="new-section"
+            value={newSection}
+            onChange={(e) => setNewSection(e.target.value)}
+          />
         </div>
         <Button type="submit" variant="outline">
           Add section
@@ -205,7 +253,11 @@ export function CourseBuilder({
         <Button onClick={() => void onSave()} disabled={save.isPending}>
           Save
         </Button>
-        <Button variant="secondary" onClick={() => void onPublish()} disabled={save.isPending || publish.isPending}>
+        <Button
+          variant="secondary"
+          onClick={() => void onPublish()}
+          disabled={save.isPending || publish.isPending}
+        >
           Publish
         </Button>
       </div>

@@ -4,6 +4,7 @@
 
 import { syncOperations } from "../sync/ingest.ts";
 import { a2uiOperations } from "./a2ui.ts";
+import { accessOperations } from "./access.ts";
 import { activityOperations } from "./activity.ts";
 import { adjudicatorOperations } from "./adjudicator.ts";
 import { affiliationOperations } from "./affiliation.ts";
@@ -53,7 +54,6 @@ import { personOperations } from "./person.ts";
 import { planOperations } from "./plan.ts";
 import { policyOperations } from "./policy.ts";
 import { publicReadOperations } from "./public-read.ts";
-import { accessOperations } from "./access.ts";
 import { queryOperations } from "./query.ts";
 import { recordOperations } from "./record.ts";
 import { recordImportOperations } from "./record-import.ts";

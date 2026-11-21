@@ -1270,7 +1270,10 @@ export function validateManifest(
       const local = field?.to?.startsWith(`${m.id}.`) ? field.to.slice(m.id.length + 1) : null;
       const target = local ? m.objects[local] : undefined;
       if (field?.type !== "relation" || field.many || !target) {
-        contract(path, `"${fieldName}" must be a relation of ${name} to one of this extension's objects`);
+        contract(
+          path,
+          `"${fieldName}" must be a relation of ${name} to one of this extension's objects`,
+        );
       } else if (!target.access) {
         contract(path, `"${fieldName}" points to ${local}, which declares no access`);
       } else if (!object.customer?.read.includes(fieldName)) {

@@ -26,7 +26,11 @@ export function CourseCatalogue({
     <section className="grid gap-6" aria-label="Courses">
       {data.themes.length ? (
         <nav className="flex flex-wrap gap-2" aria-label="Themes">
-          <Button variant={theme ? "outline" : "default"} size="sm" onClick={() => setTheme(undefined)}>
+          <Button
+            variant={theme ? "outline" : "default"}
+            size="sm"
+            onClick={() => setTheme(undefined)}
+          >
             All
           </Button>
           {data.themes.map((t) => (
@@ -47,7 +51,11 @@ export function CourseCatalogue({
           <li key={course.id}>
             <Card>
               {course.cover ? (
-                <img src={mediaPath(course.cover.media, 640)} alt="" className="w-full rounded-t-lg" />
+                <img
+                  src={mediaPath(course.cover.media, 640)}
+                  alt=""
+                  className="w-full rounded-t-lg"
+                />
               ) : null}
               <CardHeader>
                 <CardTitle>{course.title}</CardTitle>
@@ -63,7 +71,9 @@ export function CourseCatalogue({
               </CardHeader>
               <CardContent className="grid gap-3">
                 {course.summary ? <p>{course.summary}</p> : null}
-                <Button onClick={() => course.slug && onOpenCourse(course.slug)}>See the course</Button>
+                <Button onClick={() => course.slug && onOpenCourse(course.slug)}>
+                  See the course
+                </Button>
               </CardContent>
             </Card>
           </li>

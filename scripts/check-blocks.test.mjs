@@ -40,7 +40,9 @@ test("every block the platform ships holds no rules", () => {
 
 test("a noPurchase block that buys or shows a price fails (stage 42: no buying in the app)", () => {
   const problems = lintBlocks([fixture("native-buy")], root);
-  assert.ok(problems.some((p) => /block\.json: no-purchase: the block lists x\.courses\.buy/.test(p)));
+  assert.ok(
+    problems.some((p) => /block\.json: no-purchase: the block lists x\.courses\.buy/.test(p)),
+  );
   assert.ok(problems.some((p) => /buy-screen\.tsx:\d+: no-purchase/.test(p)));
   assert.equal(lintNoPurchase("const { start } = courses.useBuy();")[0]?.rule, "no-purchase");
   assert.equal(lintNoPurchase("<Text>{course.price}</Text>")[0]?.rule, "no-purchase");

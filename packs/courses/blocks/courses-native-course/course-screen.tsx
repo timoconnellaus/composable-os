@@ -33,10 +33,18 @@ export function CourseScreen({
                 <Row
                   key={lesson.key}
                   title={`${course.done.includes(lesson.key) ? "✓ " : ""}${lesson.title}`}
-                  detail={[section.title, minutes(lesson.duration), lesson.preview ? "Free preview" : null]
+                  detail={[
+                    section.title,
+                    minutes(lesson.duration),
+                    lesson.preview ? "Free preview" : null,
+                  ]
                     .filter(Boolean)
                     .join(" · ")}
-                  onPress={course.holds || lesson.preview ? () => onOpenLesson(course.id, lesson.key) : undefined}
+                  onPress={
+                    course.holds || lesson.preview
+                      ? () => onOpenLesson(course.id, lesson.key)
+                      : undefined
+                  }
                 />
               )),
             )}

@@ -2,16 +2,9 @@
   "name": "courses-native-catalogue",
   "pack": "courses",
   "skin": "native",
-  "operations": [
-    "x.courses.catalogue"
-  ],
-  "files": [
-    "catalogue-screen.tsx",
-    "LICENSE"
-  ],
-  "dependsOn": [
-    "native-base"
-  ],
+  "operations": ["x.courses.catalogue"],
+  "files": ["catalogue-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
   "packages": {
     "@composable-os/pack-courses": "*"
   },

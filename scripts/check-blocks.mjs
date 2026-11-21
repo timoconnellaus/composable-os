@@ -81,7 +81,8 @@ export const RULES = [
 ];
 
 /** What a `noPurchase` block may not name, in its operations or its code. */
-const PURCHASE_OPERATION = /^(?:order\.(?:start|checkout|cancel)|x\.[a-z0-9]+\.(?:buy|orderStart|checkout))$/;
+const PURCHASE_OPERATION =
+  /^(?:order\.(?:start|checkout|cancel)|x\.[a-z0-9]+\.(?:buy|orderStart|checkout))$/;
 const PURCHASE_CODE = /\b(?:price|prices|useBuy|checkout|orderStart|formatPrice)\b/;
 const NO_PURCHASE =
   "buys or shows a price in a block marked noPurchase: buying is on the web only; show no price and no buy button";
@@ -92,7 +93,8 @@ export function lintNoPurchase(source) {
   codeOnly(source)
     .split("\n")
     .forEach((line, index) => {
-      if (PURCHASE_CODE.test(line)) problems.push({ line: index + 1, rule: "no-purchase", message: NO_PURCHASE });
+      if (PURCHASE_CODE.test(line))
+        problems.push({ line: index + 1, rule: "no-purchase", message: NO_PURCHASE });
     });
   return problems;
 }
@@ -137,7 +139,9 @@ export function lintBlocks(folders, root) {
     if (noPurchase) {
       for (const op of spec.operations ?? []) {
         if (PURCHASE_OPERATION.test(op)) {
-          out.push(`${relative(root, join(dir, "block.json"))}: no-purchase: the block lists ${op}: ${NO_PURCHASE}`);
+          out.push(
+            `${relative(root, join(dir, "block.json"))}: no-purchase: the block lists ${op}: ${NO_PURCHASE}`,
+          );
         }
       }
     }

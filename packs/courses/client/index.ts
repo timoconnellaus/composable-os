@@ -8,8 +8,8 @@
 import { type ClientHolding, type PackClient, packHooks } from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import {
-  type Lesson,
   LESSON_KINDS,
+  type Lesson,
   type LessonKind,
   type Outline,
   type Section,
@@ -127,7 +127,10 @@ export function refreshInMs(expiresAt: string, now = Date.now()): number {
 }
 
 /** A price as the host gave it, in its currency (`99.00 AUD`). Display only: never worked out. */
-export function formatPrice(price: number | null | undefined, currency: string | null | undefined): string {
+export function formatPrice(
+  price: number | null | undefined,
+  currency: string | null | undefined,
+): string {
   if (price === null || price === undefined) return "";
   try {
     return currency
@@ -180,10 +183,7 @@ const keysOf = (outline: Outline) =>
 export const outlineEdits = {
   addSection(outline: Outline, title: string): Outline {
     return {
-      sections: [
-        ...outline.sections,
-        { key: newKey(title, keysOf(outline)), title, lessons: [] },
-      ],
+      sections: [...outline.sections, { key: newKey(title, keysOf(outline)), title, lessons: [] }],
     };
   },
   renameSection(outline: Outline, key: string, title: string): Outline {
@@ -245,7 +245,10 @@ export type UseQuery = <T>(options: {
   queryKey: readonly unknown[];
   queryFn: () => Promise<T>;
   enabled?: boolean;
-  refetchInterval?: number | false | ((query: { state: { data: T | undefined } }) => number | false);
+  refetchInterval?:
+    | number
+    | false
+    | ((query: { state: { data: T | undefined } }) => number | false);
 }) => { data: T | undefined; isPending: boolean; error: unknown };
 
 /** The app's `useMutation`, as far as these hooks use it. */
@@ -301,7 +304,10 @@ const none = <T>(name: string) => ({
   queryFn: async () => undefined as T,
 });
 
-function allCoursesHooks(react: { useQuery: UseQuery; useMutation: UseMutation }, api: CoursesClient) {
+function allCoursesHooks(
+  react: { useQuery: UseQuery; useMutation: UseMutation },
+  api: CoursesClient,
+) {
   const { useQuery, useMutation } = react;
   return {
     /** The catalogue: published courses, bundles and themes, with the host's prices. */
@@ -328,9 +334,10 @@ function allCoursesHooks(react: { useQuery: UseQuery; useMutation: UseMutation }
         courseId && lessonKey
           ? api.query("x.courses.lesson", { courseId, lessonKey })
           : none("lesson");
-      return useQuery({ ...options, enabled: Boolean(courseId && lessonKey) } as never) as ReturnType<
-        typeof useQuery<CoursesOperations["x.courses.lesson"]["output"]>
-      >;
+      return useQuery({
+        ...options,
+        enabled: Boolean(courseId && lessonKey),
+      } as never) as ReturnType<typeof useQuery<CoursesOperations["x.courses.lesson"]["output"]>>;
     },
     /**
      * A token to play a lesson's video (or a trailer), from the host's `media.play`; asked for
@@ -376,7 +383,9 @@ function allCoursesHooks(react: { useQuery: UseQuery; useMutation: UseMutation }
         // "Preparing your sessions": ask again in a few seconds until it is there.
         refetchInterval: (query: { state: { data: { preparing?: boolean } | undefined } }) =>
           query.state.data?.preparing ? 3000 : false,
-      } as never) as ReturnType<typeof useQuery<CoursesOperations["x.courses.startSession"]["output"]>>;
+      } as never) as ReturnType<
+        typeof useQuery<CoursesOperations["x.courses.startSession"]["output"]>
+      >;
     },
     /** Staff: give a person access, with a reason. */
     useEnrol() {

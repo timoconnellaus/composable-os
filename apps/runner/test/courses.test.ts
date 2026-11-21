@@ -14,8 +14,8 @@
 import { env, exports } from "cloudflare:workers";
 import {
   type ActingUser,
-  createFakeStream,
   type CustomerPrincipal,
+  createFakeStream,
   type ExtensionHost,
   getObject,
   type InvocationContext,
@@ -107,7 +107,13 @@ const guest: OutsideInvocationContext = {
   extensionHost: shippedHost,
 };
 const as = (principal: CustomerPrincipal, extra: Partial<OutsideInvocationContext> = {}) =>
-  ({ principal, db, integrations, extensionHost: shippedHost, ...extra }) as OutsideInvocationContext;
+  ({
+    principal,
+    db,
+    integrations,
+    extensionHost: shippedHost,
+    ...extra,
+  }) as OutsideInvocationContext;
 
 function run<T = Record<string, unknown>>(
   name: string,
@@ -129,10 +135,11 @@ async function refusal(call: Promise<unknown>) {
 
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff(admin))).id;
-const publish = (object: string, id: string) =>
-  run("record.publish", { object, id }, staff(admin));
+const publish = (object: string, id: string) => run("record.publish", { object, id }, staff(admin));
 
-async function createCustomer(label: string): Promise<{ principal: CustomerPrincipal; email: string }> {
+async function createCustomer(
+  label: string,
+): Promise<{ principal: CustomerPrincipal; email: string }> {
   const tag = unique(label).toLowerCase();
   const email = `${tag}@students.test`;
   const person = await run<{ id: string }>(
@@ -224,13 +231,21 @@ const outline = (video: string, extra: Outline["sections"][number]["lessons"] = 
       key: "start",
       title: "Start here",
       lessons: [
-        { kind: "video", key: "welcome", title: "Welcome", preview: true, video: { media: previewVideo } },
+        {
+          kind: "video",
+          key: "welcome",
+          title: "Welcome",
+          preview: true,
+          video: { media: previewVideo },
+        },
         { kind: "video", key: "wrists", title: "Wrists", duration: 8, video: { media: video } },
         {
           kind: "text",
           key: "read",
           title: "Read this",
-          body: { blocks: [{ type: "paragraph", content: [{ type: "text", text: "Holders-only-text" }] }] },
+          body: {
+            blocks: [{ type: "paragraph", content: [{ type: "text", text: "Holders-only-text" }] }],
+          },
         },
         ...extra,
       ],
@@ -239,7 +254,14 @@ const outline = (video: string, extra: Outline["sections"][number]["lessons"] = 
       key: "train",
       title: "Train",
       lessons: [
-        { kind: "session", key: "day-1", title: "Day one", program: programId, week: 1, session: 0 },
+        {
+          kind: "session",
+          key: "day-1",
+          title: "Day one",
+          program: programId,
+          week: 1,
+          session: 0,
+        },
       ],
     },
   ],
@@ -253,21 +275,34 @@ beforeAll(async () => {
   // Courses requires Programs: installed first, it is refused and says so.
   await refreshSchemaRegistry(db.query);
   expect(getObject(COURSE)).toBeUndefined();
-  const early = await refusal(run("extension.install", { id: "courses", shipped: true }, staff(admin)));
+  const early = await refusal(
+    run("extension.install", { id: "courses", shipped: true }, staff(admin)),
+  );
   expect(JSON.stringify(early)).toContain("requires the programs extension");
   await run("extension.install", { id: "programs", shipped: true }, staff(admin));
   await run("extension.install", { id: "courses", shipped: true }, staff(admin));
   await refreshSchemaRegistry(db.query);
   expect(getObject(COURSE)?.access?.sources).toHaveLength(2);
+  // On-demand online courses, no place (ADR 0479): taxed once an admin turns tax on.
+  expect(getObject(COURSE)?.sellable?.tax?.code).toBe("txcd_20060158");
+  expect(getObject(BUNDLE)?.sellable?.tax?.code).toBe("txcd_20060158");
 
-  await run("order.settings.update", { currency: "AUD", returnOrigins: ["https://studio.test"] }, staff(admin));
+  await run(
+    "order.settings.update",
+    { currency: "AUD", returnOrigins: ["https://studio.test"] },
+    staff(admin),
+  );
   await run("integration.setVendor", { vendor: "payments", enabled: true }, staff(admin));
   const payments = await run<{ connection: { id: string } }>(
     "connection.create",
     { vendor: "payments", scope: "org" },
     staff(admin),
   );
-  await run("connection.bindResource", { id: payments.connection.id, url: "payments://merchant/fake" }, staff(admin));
+  await run(
+    "connection.bindResource",
+    { id: payments.connection.id, url: "payments://merchant/fake" },
+    staff(admin),
+  );
 
   // A published program with one session a week, for the session lesson.
   const pike = await create("programs.exercise", { name: "Pike", measure: "reps" });
@@ -285,7 +320,11 @@ beforeAll(async () => {
                 {
                   label: "A",
                   items: [
-                    { kind: "all", label: "A1", exercises: [{ exercise: pike, sets: [{ kind: "reps", reps: 5 }] }] },
+                    {
+                      kind: "all",
+                      label: "A1",
+                      exercises: [{ exercise: pike, sets: [{ kind: "reps", reps: 5 }] }],
+                    },
                   ],
                 },
               ],
@@ -311,14 +350,43 @@ beforeAll(async () => {
   otherId = await create(COURSE, {
     title: "Mobility",
     price: 49,
-    outline: { sections: [{ key: "m", title: "M", lessons: [{ kind: "video", key: "hips", title: "Hips", video: { media: otherVideo } }] }] },
+    outline: {
+      sections: [
+        {
+          key: "m",
+          title: "M",
+          lessons: [{ kind: "video", key: "hips", title: "Hips", video: { media: otherVideo } }],
+        },
+      ],
+    },
   });
   thirdId = await create(COURSE, {
     title: "Splits",
     price: 49,
-    outline: { sections: [{ key: "s", title: "S", lessons: [{ kind: "text", key: "s1", title: "S1", body: { blocks: [{ type: "paragraph", content: [{ type: "text", text: "Splits-text" }] }] } }] }] },
+    outline: {
+      sections: [
+        {
+          key: "s",
+          title: "S",
+          lessons: [
+            {
+              kind: "text",
+              key: "s1",
+              title: "S1",
+              body: {
+                blocks: [{ type: "paragraph", content: [{ type: "text", text: "Splits-text" }] }],
+              },
+            },
+          ],
+        },
+      ],
+    },
   });
-  bundleId = await create(BUNDLE, { title: "Starter", price: 120, courses: { items: [otherId, courseId] } });
+  bundleId = await create(BUNDLE, {
+    title: "Starter",
+    price: 120,
+    courses: { items: [otherId, courseId] },
+  });
   for (const id of [courseId, otherId, thirdId]) await publish(COURSE, id);
   await publish(BUNDLE, bundleId);
 }, 180_000);
@@ -326,11 +394,10 @@ beforeAll(async () => {
 afterAll(() => setVideoHost(undefined));
 
 const lesson = (who: OutsideInvocationContext, key = "wrists", id = courseId) =>
-  run<{ lesson: Record<string, unknown>; video: { media: string; record: { object: string; id: string }; field: string } | null }>(
-    "x.courses.lesson",
-    { courseId: id, lessonKey: key },
-    who,
-  );
+  run<{
+    lesson: Record<string, unknown>;
+    video: { media: string; record: { object: string; id: string }; field: string } | null;
+  }>("x.courses.lesson", { courseId: id, lessonKey: key }, who);
 const play = (who: OutsideInvocationContext, media: string) =>
   run<{ hls: string; expiresAt: string }>("media.play", { id: media }, who);
 
@@ -340,7 +407,9 @@ describe("buying one course (criteria 4 and 7)", () => {
     const stranger = await createCustomer("stranger");
     // Before buying: the free preview plays, the lesson is not there.
     expect(await refusal(lesson(as(buyer.principal)))).toMatchObject(GONE);
-    expect(await play(as(buyer.principal), previewVideo)).toMatchObject({ hls: expect.stringContaining(BASE) });
+    expect(await play(as(buyer.principal), previewVideo)).toMatchObject({
+      hls: expect.stringContaining(BASE),
+    });
     expect(await play(guest, trailer)).toBeTruthy();
 
     const order = await run<Order>("x.courses.buy", { courseId }, as(buyer.principal));
@@ -349,14 +418,30 @@ describe("buying one course (criteria 4 and 7)", () => {
     await waitForState(order.id, "paid");
     const granted = await enrolmentsOf(order.id);
     expect(granted).toHaveLength(1);
-    expect(granted[0]?.values).toMatchObject({ course: courseId, holder: buyer.principal.personId, status: "active", source: "purchase" });
+    expect(granted[0]?.values).toMatchObject({
+      course: courseId,
+      holder: buyer.principal.personId,
+      status: "active",
+      source: "purchase",
+    });
 
     const read = await lesson(as(buyer.principal));
-    expect(read.video).toEqual({ media: lessonVideo, poster: null, record: { object: COURSE, id: courseId }, field: "outline" });
+    expect(read.video).toEqual({
+      media: lessonVideo,
+      poster: null,
+      record: { object: COURSE, id: courseId },
+      field: "outline",
+    });
     // The app asks the host for the token with what `lesson` named; it plays.
-    const token = await run<{ hls: string }>("media.play", { id: lessonVideo, record: read.video?.record, field: "outline" }, as(buyer.principal));
+    const token = await run<{ hls: string }>(
+      "media.play",
+      { id: lessonVideo, record: read.video?.record, field: "outline" },
+      as(buyer.principal),
+    );
     expect((await stream.fake.handle(new Request(token.hls))).status).toBe(200);
-    expect(JSON.stringify(await lesson(as(buyer.principal), "read"))).toContain("Holders-only-text");
+    expect(JSON.stringify(await lesson(as(buyer.principal), "read"))).toContain(
+      "Holders-only-text",
+    );
 
     // A stranger: not found, not playable, and no holders' part in what they read.
     expect(await refusal(lesson(as(stranger.principal)))).toMatchObject(GONE);
@@ -366,12 +451,22 @@ describe("buying one course (criteria 4 and 7)", () => {
     expect(JSON.stringify(seen)).not.toContain(lessonVideo);
     expect(JSON.stringify(seen)).not.toContain("Holders-only-text");
     // Buying it again is refused as a course that is not there.
-    expect(await refusal(run("x.courses.buy", { courseId }, as(buyer.principal)))).toMatchObject({ inner: "not_found" });
+    expect(await refusal(run("x.courses.buy", { courseId }, as(buyer.principal)))).toMatchObject({
+      inner: "not_found",
+    });
 
     // Enrolments and progress are their student's: the stranger sees none of the buyer's.
-    const theirs = await run<{ items: unknown[] }>("my.list", { object: ENROLMENT, limit: 50 }, as(stranger.principal));
+    const theirs = await run<{ items: unknown[] }>(
+      "my.list",
+      { object: ENROLMENT, limit: 50 },
+      as(stranger.principal),
+    );
     expect(theirs.items).toEqual([]);
-    const mine = await run<{ courses: { id: string; why: string }[] }>("x.courses.myCourses", {}, as(buyer.principal));
+    const mine = await run<{ courses: { id: string; why: string }[] }>(
+      "x.courses.myCourses",
+      {},
+      as(buyer.principal),
+    );
     expect(mine.courses).toEqual([expect.objectContaining({ id: courseId, why: "bought" })]);
 
     // A full refund, approved by a person, voids it in the refund's batch: access ends.
@@ -385,14 +480,23 @@ describe("buying one course (criteria 4 and 7)", () => {
     expect((await enrolmentsOf(order.id))[0]?.values.status).toBe("void");
     expect(await refusal(lesson(as(buyer.principal)))).toMatchObject(GONE);
     expect(await refusal(play(as(buyer.principal), lessonVideo))).toMatchObject(NOT_FOUND);
-    expect(await refusal(run("x.courses.progress", { courseId, lessonKey: "wrists" }, as(buyer.principal)))).toMatchObject({ inner: "not_found" });
+    expect(
+      await refusal(
+        run("x.courses.progress", { courseId, lessonKey: "wrists" }, as(buyer.principal)),
+      ),
+    ).toMatchObject({ inner: "not_found" });
   });
 
   it("access given by staff until a date that has passed gives nothing", async () => {
     const lapsed = await createCustomer("lapsed");
     await run(
       "x.courses.enrol",
-      { personId: lapsed.principal.personId, courseId, until: "2020-01-01T00:00:00.000Z", reason: "An old pass" },
+      {
+        personId: lapsed.principal.personId,
+        courseId,
+        until: "2020-01-01T00:00:00.000Z",
+        reason: "An old pass",
+      },
       staff(admin),
     );
     expect(await refusal(lesson(as(lapsed.principal)))).toMatchObject(GONE);
@@ -403,11 +507,21 @@ describe("buying one course (criteria 4 and 7)", () => {
       staff(admin),
     );
     expect((await lesson(as(given.principal))).video?.media).toBe(lessonVideo);
-    await run("x.courses.endEnrolment", { enrolmentId: enrolled.enrolmentId, reason: "Scholarship over" }, staff(admin));
+    await run(
+      "x.courses.endEnrolment",
+      { enrolmentId: enrolled.enrolmentId, reason: "Scholarship over" },
+      staff(admin),
+    );
     expect(await refusal(lesson(as(given.principal)))).toMatchObject(GONE);
     // No customer moves an enrolment to void, nor staff: a void is a refund's (the host's).
     expect(
-      await refusal(run("record.update", { object: ENROLMENT, id: enrolled.enrolmentId, values: { status: "void" } }, staff(admin))),
+      await refusal(
+        run(
+          "record.update",
+          { object: ENROLMENT, id: enrolled.enrolmentId, values: { status: "void" } },
+          staff(admin),
+        ),
+      ),
     ).toMatchObject({ code: "invalid_input" });
   });
 });
@@ -419,16 +533,33 @@ describe("buying a bundle (criterion 5)", () => {
     expect(order.total).toBe(12000);
     await checkoutAndPay(order, as(buyer.principal));
     await waitForState(order.id, "paid");
-    expect((await enrolmentsOf(order.id))[0]?.values).toMatchObject({ bundle: bundleId, status: "active" });
+    expect((await enrolmentsOf(order.id))[0]?.values).toMatchObject({
+      bundle: bundleId,
+      status: "active",
+    });
     expect((await lesson(as(buyer.principal), "hips", otherId)).video?.media).toBe(otherVideo);
     expect((await lesson(as(buyer.principal))).video?.media).toBe(lessonVideo);
     expect(await refusal(lesson(as(buyer.principal), "s1", thirdId))).toMatchObject(GONE);
     // Staff add the third course to the bundle: nothing until it is published.
-    await run("record.update", { object: BUNDLE, id: bundleId, values: { courses: { items: [otherId, courseId, thirdId] } } }, staff(admin));
+    await run(
+      "record.update",
+      {
+        object: BUNDLE,
+        id: bundleId,
+        values: { courses: { items: [otherId, courseId, thirdId] } },
+      },
+      staff(admin),
+    );
     expect(await refusal(lesson(as(buyer.principal), "s1", thirdId))).toMatchObject(GONE);
     await publish(BUNDLE, bundleId);
-    expect(JSON.stringify(await lesson(as(buyer.principal), "s1", thirdId))).toContain("Splits-text");
-    const mine = await run<{ courses: { id: string; why: string }[] }>("x.courses.myCourses", {}, as(buyer.principal));
+    expect(JSON.stringify(await lesson(as(buyer.principal), "s1", thirdId))).toContain(
+      "Splits-text",
+    );
+    const mine = await run<{ courses: { id: string; why: string }[] }>(
+      "x.courses.myCourses",
+      {},
+      as(buyer.principal),
+    );
     expect(mine.courses.map((c) => c.id).sort()).toEqual([courseId, otherId, thirdId].sort());
     expect(new Set(mine.courses.map((c) => c.why))).toEqual(new Set(["bundle"]));
   });
@@ -437,11 +568,22 @@ describe("buying a bundle (criterion 5)", () => {
 describe("progress and session lessons (criteria 8 and 9)", () => {
   it("marks done, resumes a video, completes the course, and survives a new version that keeps the key", async () => {
     const student = await createCustomer("student");
-    await run("x.courses.enrol", { personId: student.principal.personId, courseId, reason: "Testing progress" }, staff(admin));
+    await run(
+      "x.courses.enrol",
+      { personId: student.principal.personId, courseId, reason: "Testing progress" },
+      staff(admin),
+    );
     const me = as(student.principal);
-    const first = await run<{ state: string }>("x.courses.progress", { courseId, lessonKey: "wrists", position: 42 }, me);
+    const first = await run<{ state: string }>(
+      "x.courses.progress",
+      { courseId, lessonKey: "wrists", position: 42 },
+      me,
+    );
     expect(first.state).toBe("started");
-    expect((await run<{ position: number }>("x.courses.lesson", { courseId, lessonKey: "wrists" }, me)).position).toBe(42);
+    expect(
+      (await run<{ position: number }>("x.courses.lesson", { courseId, lessonKey: "wrists" }, me))
+        .position,
+    ).toBe(42);
     const ended = await run<{ state: string }>(
       "x.courses.progress",
       { courseId, lessonKey: "wrists", position: 475, duration: 480 },
@@ -475,17 +617,33 @@ describe("progress and session lessons (criteria 8 and 9)", () => {
     for (const key of ["welcome", "read", "day-1"]) {
       await run("x.courses.progress", { courseId, lessonKey: key, state: "done" }, me);
     }
-    const course = await run<{ complete: boolean; done: string[] }>("x.courses.course", { slug: "handstands-101" }, me);
+    const course = await run<{ complete: boolean; done: string[] }>(
+      "x.courses.course",
+      { slug: "handstands-101" },
+      me,
+    );
     expect(course.complete).toBe(true);
 
     // A new published version that keeps the keys (and adds a lesson): their done lessons stay.
     await run(
       "record.update",
-      { object: COURSE, id: courseId, values: { outline: outline(lessonVideo, [{ kind: "text", key: "extra", title: "Extra", body: { blocks: [] } }]) } },
+      {
+        object: COURSE,
+        id: courseId,
+        values: {
+          outline: outline(lessonVideo, [
+            { kind: "text", key: "extra", title: "Extra", body: { blocks: [] } },
+          ]),
+        },
+      },
       staff(admin),
     );
     await publish(COURSE, courseId);
-    const after = await run<{ complete: boolean; done: string[]; sections: unknown }>("x.courses.course", { slug: "handstands-101" }, me);
+    const after = await run<{ complete: boolean; done: string[]; sections: unknown }>(
+      "x.courses.course",
+      { slug: "handstands-101" },
+      me,
+    );
     expect(JSON.stringify(after.sections)).toContain("extra");
     expect(after.done.sort()).toEqual(["day-1", "read", "welcome", "wrists"]);
     expect(after.complete).toBe(false);
@@ -494,11 +652,18 @@ describe("progress and session lessons (criteria 8 and 9)", () => {
   it("someone without access gets no assignment, no session, and cannot log or keep progress", async () => {
     const outsider = await createCustomer("outsider");
     const them = as(outsider.principal);
-    expect(await refusal(run("x.courses.progress", { courseId, lessonKey: "welcome" }, them))).toMatchObject({ inner: "not_found" });
-    expect(await refusal(run("x.courses.startSession", { courseId, lessonKey: "day-1" }, them))).toMatchObject({ inner: "not_found" });
+    expect(
+      await refusal(run("x.courses.progress", { courseId, lessonKey: "welcome" }, them)),
+    ).toMatchObject({ inner: "not_found" });
+    expect(
+      await refusal(run("x.courses.startSession", { courseId, lessonKey: "day-1" }, them)),
+    ).toMatchObject({ inner: "not_found" });
     const assignments = await run<{ items: unknown[] }>(
       "record.list",
-      { object: "programs.assignment", filter: { field: "person", op: "eq", value: outsider.principal.personId } },
+      {
+        object: "programs.assignment",
+        filter: { field: "person", op: "eq", value: outsider.principal.personId },
+      },
       staff(admin),
     );
     expect(assignments.items).toEqual([]);
@@ -515,7 +680,9 @@ describe("the assistant's draft (criterion 14, ADR 0480)", () => {
     );
     expect(drafted.published).toBe(false);
     expect(drafted.videos).toContain(lessonVideo);
-    const asked = await refusal(run("record.publish", { object: COURSE, id: drafted.courseId }, mcp));
+    const asked = await refusal(
+      run("record.publish", { object: COURSE, id: drafted.courseId }, mcp),
+    );
     expect(asked.code).toBe("pending_approval");
     const read = await run<{ publishState: string | null; values?: { publishState?: string } }>(
       "record.get",
@@ -528,13 +695,36 @@ describe("the assistant's draft (criterion 14, ADR 0480)", () => {
 
 describe("the hooks (step 7, ADR 0453)", () => {
   it("a customer's client gets the customer hooks only, and playback refreshes before it expires", () => {
-    const customerOps = ["x.courses.catalogue", "x.courses.course", "x.courses.buy", "order.checkout", "x.courses.lesson", "media.play", "x.courses.progress", "x.courses.myCourses", "x.courses.startSession"];
+    const customerOps = [
+      "x.courses.catalogue",
+      "x.courses.course",
+      "x.courses.buy",
+      "order.checkout",
+      "x.courses.lesson",
+      "media.play",
+      "x.courses.progress",
+      "x.courses.myCourses",
+      "x.courses.startSession",
+    ];
     const hooks = createCoursesHooks(
       { useQuery: (() => ({})) as never, useMutation: (() => ({})) as never },
-      { operations: Object.fromEntries(customerOps.map((n) => [n, true])), query: () => ({}), mutation: () => ({}) } as never,
+      {
+        operations: Object.fromEntries(customerOps.map((n) => [n, true])),
+        query: () => ({}),
+        mutation: () => ({}),
+      } as never,
     );
     expect(Object.keys(hooks).sort()).toEqual(
-      ["useBuy", "useCatalogue", "useCourse", "useLesson", "useMyCourses", "usePlayback", "useProgress", "useStartSession"].sort(),
+      [
+        "useBuy",
+        "useCatalogue",
+        "useCourse",
+        "useLesson",
+        "useMyCourses",
+        "usePlayback",
+        "useProgress",
+        "useStartSession",
+      ].sort(),
     );
     expect(Object.keys(COURSES_HOOKS_CALL)).toContain("useEnrol");
     const now = Date.parse("2026-11-22T10:00:00Z");

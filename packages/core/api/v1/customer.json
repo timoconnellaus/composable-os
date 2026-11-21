@@ -1826,6 +1826,835 @@
       "pack": "content"
     },
     {
+      "name": "x.courses.buy",
+      "description": "Start an order for one course or one bundle. A signed-in customer buys as themselves; a guest gives their email address. The host prices it from the record and refuses one outside its sale window. A course the caller already holds access to is refused as one that does not exist. Nothing is paid here: the buyer then calls order.checkout with the order's id (and a guest's token) to pay on the provider's page. Amounts in the minor unit. (Extension tool from Courses 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "bundleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "description": "A guest's email address"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "token": {
+            "description": "A guest's key to this order, shown once",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "state", "currency", "total", "token"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.courses.catalogue",
+        "x.courses.course",
+        "x.courses.lesson",
+        "x.courses.myCourses",
+        "x.courses.startSession"
+      ],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.catalogue",
+      "description": "The published courses, bundles and themes, for a catalogue page: each course's title, theme, level, summary, cover, trailer, price and number of lessons; each bundle's courses and price; the themes in their order. Prices are in the major unit of `currency`. Filter by theme or level. Only what the public may read: a draft is not here. Read-only. (Extension tool from Courses 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "theme": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "level": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "themes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": ["string", "null"]
+                },
+                "slug": {
+                  "type": ["string", "null"]
+                },
+                "summary": {
+                  "type": ["string", "null"]
+                },
+                "picture": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media": {
+                          "type": "string"
+                        },
+                        "alt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["media"],
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["id", "name", "slug", "summary", "picture"],
+              "additionalProperties": false
+            }
+          },
+          "courses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "slug": {
+                  "type": ["string", "null"]
+                },
+                "theme": {
+                  "type": ["string", "null"]
+                },
+                "level": {
+                  "type": ["number", "null"]
+                },
+                "summary": {
+                  "type": ["string", "null"]
+                },
+                "cover": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media": {
+                          "type": "string"
+                        },
+                        "alt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["media"],
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "trailer": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media": {
+                          "type": "string"
+                        },
+                        "poster": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["media"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "price": {
+                  "description": "In the major unit of `currency`",
+                  "type": ["number", "null"]
+                },
+                "lessons": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "slug",
+                "theme",
+                "level",
+                "summary",
+                "cover",
+                "trailer",
+                "price",
+                "lessons"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "bundles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "slug": {
+                  "type": ["string", "null"]
+                },
+                "summary": {
+                  "type": ["string", "null"]
+                },
+                "cover": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media": {
+                          "type": "string"
+                        },
+                        "alt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["media"],
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "courses": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "price": {
+                  "type": ["number", "null"]
+                }
+              },
+              "required": ["id", "title", "slug", "summary", "cover", "courses", "price"],
+              "additionalProperties": false
+            }
+          },
+          "currency": {
+            "description": "The currency prices are in (ISO 4217), the deployment's one; null until it is set",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["themes", "courses", "bundles", "currency"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.course",
+      "description": "One published course by its address (slug): its fields, its description, its outline's sections and lessons (title, kind, minutes, whether a free preview) and, for a signed-in customer, whether they hold access and which lessons they have done. Not found for a draft or an unknown address. Read-only. (Extension tool from Courses 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "slug": {
+            "type": ["string", "null"]
+          },
+          "theme": {
+            "type": ["string", "null"]
+          },
+          "level": {
+            "type": ["number", "null"]
+          },
+          "summary": {
+            "type": ["string", "null"]
+          },
+          "cover": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "media": {
+                    "type": "string"
+                  },
+                  "alt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["media"],
+                "additionalProperties": {}
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trailer": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "media": {
+                    "type": "string"
+                  },
+                  "poster": {
+                    "type": "string"
+                  }
+                },
+                "required": ["media"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price": {
+            "description": "In the major unit of `currency`",
+            "type": ["number", "null"]
+          },
+          "lessons": {
+            "type": "number"
+          },
+          "description": {
+            "description": "Rich text"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "lessons": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": ["video", "text", "session", "download"]
+                      },
+                      "duration": {
+                        "type": ["number", "null"]
+                      },
+                      "preview": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["key", "title", "kind", "duration", "preview"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["key", "title", "lessons"],
+              "additionalProperties": false
+            }
+          },
+          "currency": {
+            "description": "The currency prices are in (ISO 4217), the deployment's one; null until it is set",
+            "type": ["string", "null"]
+          },
+          "holds": {
+            "type": "boolean",
+            "description": "The caller holds access: show open, not buy"
+          },
+          "done": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The lesson keys the caller has done"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "slug",
+          "theme",
+          "level",
+          "summary",
+          "cover",
+          "trailer",
+          "price",
+          "lessons",
+          "description",
+          "sections",
+          "currency",
+          "holds",
+          "done",
+          "complete"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.lesson",
+      "description": "One lesson of a published course for someone who holds access to it (or any lesson marked a free preview): its kind and its material (a video and notes, a page of text, a training session, a download), where the student left its video, and the next lesson. A video is named with where it is shown: the app asks media.play for a token to play it. Not found without access, as a lesson that does not exist. Read-only. (Extension tool from Courses 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "lessonKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "required": ["courseId", "lessonKey"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string"
+          },
+          "lesson": {
+            "propertyNames": {
+              "type": "string"
+            },
+            "description": "The lesson as the outline has it",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": {}
+          },
+          "video": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "media": {
+                    "type": "string"
+                  },
+                  "poster": {
+                    "type": ["string", "null"]
+                  },
+                  "record": {
+                    "type": "object",
+                    "properties": {
+                      "object": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["object", "id"],
+                    "additionalProperties": false
+                  },
+                  "field": {
+                    "type": "string"
+                  }
+                },
+                "required": ["media", "poster", "record", "field"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass to media.play to get a token and the address it plays at"
+          },
+          "position": {
+            "description": "Seconds: where the student left the video",
+            "type": ["number", "null"]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["started", "done"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["video", "text", "session", "download"]
+                  },
+                  "duration": {
+                    "type": ["number", "null"]
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["key", "title", "kind", "duration", "preview"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["courseId", "lesson", "video", "position", "state", "next"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.myCourses",
+      "description": "Every course the signed-in student holds access to and why (bought, in a bundle, given by staff, imported), with how far they are (lessons done of those that count, complete) and the lesson to continue with. The host says which they hold; nothing here decides it. Read-only. (Extension tool from Courses 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "courses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "slug": {
+                  "type": ["string", "null"]
+                },
+                "theme": {
+                  "type": ["string", "null"]
+                },
+                "level": {
+                  "type": ["number", "null"]
+                },
+                "summary": {
+                  "type": ["string", "null"]
+                },
+                "cover": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media": {
+                          "type": "string"
+                        },
+                        "alt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["media"],
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "trailer": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media": {
+                          "type": "string"
+                        },
+                        "poster": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["media"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "price": {
+                  "description": "In the major unit of `currency`",
+                  "type": ["number", "null"]
+                },
+                "lessons": {
+                  "type": "number"
+                },
+                "why": {
+                  "type": "string",
+                  "enum": ["bought", "bundle", "given", "imported"]
+                },
+                "done": {
+                  "type": "number"
+                },
+                "counted": {
+                  "type": "number"
+                },
+                "complete": {
+                  "type": "boolean"
+                },
+                "continueWith": {
+                  "description": "The first lesson not done yet",
+                  "type": ["string", "null"]
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "slug",
+                "theme",
+                "level",
+                "summary",
+                "cover",
+                "trailer",
+                "price",
+                "lessons",
+                "why",
+                "done",
+                "counted",
+                "complete",
+                "continueWith"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["courses"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.progress",
+      "description": "Mark a lesson started or done, and keep where its video was left (seconds), for the signed-in student. A video watched to within 10 seconds of its end counts as done (give its `duration`). The host refuses it, as a course that does not exist, when the student does not hold access to the course. Returns the lesson's progress and the course's. (Extension tool from Courses 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "lessonKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "state": {
+            "type": "string",
+            "enum": ["started", "done"]
+          },
+          "position": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 86400
+          },
+          "duration": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 86400,
+            "description": "The video's length, seconds"
+          }
+        },
+        "required": ["courseId", "lessonKey"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "lessonKey": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["started", "done"]
+          },
+          "position": {
+            "type": ["number", "null"]
+          },
+          "done": {
+            "type": "number"
+          },
+          "counted": {
+            "type": "number"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": ["lessonKey", "state", "position", "done", "counted", "complete"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.courses.catalogue",
+        "x.courses.course",
+        "x.courses.lesson",
+        "x.courses.myCourses",
+        "x.courses.startSession"
+      ],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.startSession",
+      "description": "For a session lesson: the signed-in student's own Programs session for it, once the program is assigned to them (it is, from the day they first open the course: the dates are a suggested pace). They then log sets with Programs' own tools. `preparing` while the assignment is being made. Not found without access to the course. (Extension tool from Courses 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "lessonKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "required": ["courseId", "lessonKey"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "preparing": {
+            "type": "boolean"
+          },
+          "sessionId": {
+            "type": ["string", "null"]
+          },
+          "date": {
+            "type": ["string", "null"]
+          },
+          "programId": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["preparing", "sessionId", "date", "programId"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "courses"
+    },
+    {
       "name": "x.programs.classToday",
       "description": "A class type's sessions on a date (default today, UTC), with their plans: every level of every item, typed targets, and the bank exercises. What a coach runs a class from and a member reads before it. Notes for coaches only are left out for members. Read-only. (Extension tool from Programs 0.1.0.)",
       "risk": "read",

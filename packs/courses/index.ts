@@ -123,7 +123,16 @@ export default defineExtension({
         },
       },
       publishable: {
-        content: ["title", "theme", "level", "summary", "description", "cover", "trailer", "outline"],
+        content: [
+          "title",
+          "theme",
+          "level",
+          "summary",
+          "description",
+          "cover",
+          "trailer",
+          "outline",
+        ],
         slug: "slug",
       },
       public: {
@@ -181,14 +190,22 @@ export default defineExtension({
             root: {
               type: "object",
               fields: {
-                items: { type: "array", min: 2, max: 10, of: { type: "ref", to: "courses.course" } },
+                items: {
+                  type: "array",
+                  min: 2,
+                  max: 10,
+                  of: { type: "ref", to: "courses.course" },
+                },
               },
             },
           } as never,
         },
         price: { type: "currency", label: "Price", required: true },
       },
-      publishable: { content: ["title", "summary", "description", "cover", "courses"], slug: "slug" },
+      publishable: {
+        content: ["title", "summary", "description", "cover", "courses"],
+        slug: "slug",
+      },
       public: { read: ["title", "slug", "summary", "description", "cover", "courses", "price"] },
       sellable: {
         price: "price",
@@ -272,7 +289,8 @@ export default defineExtension({
       plural: "Progress",
       icon: "list-checks",
       titleField: "lessonKey",
-      description: "One student's progress on one lesson: started or done, and where a video was left.",
+      description:
+        "One student's progress on one lesson: started or done, and where a video was left.",
       navigation: "settings",
       fields: {
         holder: { type: "relation", label: "Student", to: "person", required: true },
@@ -312,7 +330,10 @@ export default defineExtension({
         // Written only while the student holds access to the course (ADR 0478).
         requireAccess: ["course"],
       },
-      indexes: [["holder", "course"], ["course", "lessonKey"]],
+      indexes: [
+        ["holder", "course"],
+        ["course", "lessonKey"],
+      ],
     },
   },
   views: {

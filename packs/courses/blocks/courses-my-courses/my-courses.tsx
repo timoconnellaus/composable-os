@@ -4,7 +4,12 @@ import type { CoursesHooks } from "@composable-os/pack-courses/client";
 import { Button } from "../ui-button/button.tsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui-card/card.tsx";
 
-const WHY = { bought: "Bought", bundle: "In a bundle", given: "Given to you", imported: "From your old account" } as const;
+const WHY = {
+  bought: "Bought",
+  bundle: "In a bundle",
+  given: "Given to you",
+  imported: "From your old account",
+} as const;
 
 export function MyCourses({
   courses,
@@ -29,7 +34,12 @@ export function MyCourses({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <progress value={course.done} max={Math.max(course.counted, 1)} aria-label="Progress" className="w-full" />
+              <progress
+                value={course.done}
+                max={Math.max(course.counted, 1)}
+                aria-label="Progress"
+                className="w-full"
+              />
               <Button onClick={() => onContinue(course.id, course.continueWith)}>
                 {course.done ? "Carry on" : "Start"}
               </Button>

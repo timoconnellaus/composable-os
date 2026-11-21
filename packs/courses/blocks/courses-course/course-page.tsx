@@ -26,7 +26,13 @@ export function CoursePage({
 }) {
   const { data: course, isPending, error } = courses.useCourse(slug);
   const trailer = courses.usePlayback(
-    course?.trailer ? { media: course.trailer.media, record: { object: "courses.course", id: course.id }, field: "trailer" } : null,
+    course?.trailer
+      ? {
+          media: course.trailer.media,
+          record: { object: "courses.course", id: course.id },
+          field: "trailer",
+        }
+      : null,
   );
   const buy = courses.useBuy();
   const [email, setEmail] = useState("");
@@ -61,7 +67,13 @@ export function CoursePage({
       {course.summary ? <p className="text-lg">{course.summary}</p> : null}
       {trailer.data ? (
         // biome-ignore lint/a11y/useMediaCaption: captions come in the stream's own manifest.
-        <video controls playsInline src={trailer.data.hls} poster={trailer.data.poster} className="w-full rounded-lg" />
+        <video
+          controls
+          playsInline
+          src={trailer.data.hls}
+          poster={trailer.data.poster}
+          className="w-full rounded-lg"
+        />
       ) : null}
       {course.holds ? (
         <p>
@@ -85,7 +97,13 @@ export function CoursePage({
           {signedIn ? null : (
             <>
               <Label htmlFor="buyer-email">Your email</Label>
-              <Input id="buyer-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Input
+                id="buyer-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </>
           )}
           <Button type="submit" disabled={buy.start.isPending || buy.checkout.isPending}>
@@ -107,7 +125,11 @@ export function CoursePage({
                     {lesson.duration ? ` · ${minutes(lesson.duration)}` : ""}
                   </span>
                   {course.holds || lesson.preview ? (
-                    <Button size="sm" variant="ghost" onClick={() => onOpenLesson(course.id, lesson.key)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onOpenLesson(course.id, lesson.key)}
+                    >
                       {lesson.preview && !course.holds ? "Watch the preview" : "Open"}
                     </Button>
                   ) : null}

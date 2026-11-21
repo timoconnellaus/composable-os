@@ -308,7 +308,10 @@ export const lesson = defineTool({
       });
       outline = asOutline(version.values.outline);
     } else {
-      const record = await ctx.ops.call<RecordShape>("my.get", { object: COURSE, id: input.courseId });
+      const record = await ctx.ops.call<RecordShape>("my.get", {
+        object: COURSE,
+        id: input.courseId,
+      });
       outline = asOutline(record.values.outline);
     }
     const found = findLesson(outline, input.lessonKey);
@@ -371,7 +374,10 @@ export const progress = defineTool({
   risk: "write",
   audiences: ["customer"],
   async handler(input, ctx) {
-    const record = await ctx.ops.call<RecordShape>("my.get", { object: COURSE, id: input.courseId });
+    const record = await ctx.ops.call<RecordShape>("my.get", {
+      object: COURSE,
+      id: input.courseId,
+    });
     const outline = asOutline(record.values.outline);
     if (!findLesson(outline, input.lessonKey)) throw notFound("lesson", input.lessonKey);
     const rows = await progressRows(ctx, input.courseId);
@@ -396,7 +402,9 @@ export const progress = defineTool({
       });
     }
     const done = new Set(
-      [...rows.values()].filter((r) => r.values.state === "done").map((r) => String(r.values.lessonKey)),
+      [...rows.values()]
+        .filter((r) => r.values.state === "done")
+        .map((r) => String(r.values.lessonKey)),
     );
     if (state === "done") done.add(input.lessonKey);
     const sum = completion(outline, done);
@@ -440,7 +448,11 @@ export const myCourses = defineTool({
     const bundles = new Map<string, string[]>();
     for (const e of enrolments.items) {
       const reason =
-        e.values.source === "staff" ? "given" : e.values.source === "import" ? "imported" : "bought";
+        e.values.source === "staff"
+          ? "given"
+          : e.values.source === "import"
+            ? "imported"
+            : "bought";
       const courseId = text(e.values.course);
       const bundleId = text(e.values.bundle);
       if (courseId) {
@@ -449,7 +461,10 @@ export const myCourses = defineTool({
       }
       if (bundleId && !bundles.has(bundleId)) {
         try {
-          const bundle = await ctx.ops.call<RecordShape>("public.get", { object: BUNDLE, id: bundleId });
+          const bundle = await ctx.ops.call<RecordShape>("public.get", {
+            object: BUNDLE,
+            id: bundleId,
+          });
           bundles.set(bundleId, bundleCourses(bundle));
           for (const c of bundleCourses(bundle)) if (!why.has(c)) why.set(c, "bundle");
         } catch {
@@ -465,7 +480,9 @@ export const myCourses = defineTool({
       const outline = asOutline(record.values.outline);
       const rows = await progressRows(ctx, courseId);
       const done = new Set(
-        [...rows.values()].filter((r) => r.values.state === "done").map((r) => String(r.values.lessonKey)),
+        [...rows.values()]
+          .filter((r) => r.values.state === "done")
+          .map((r) => String(r.values.lessonKey)),
       );
       const sum = completion(outline, done, completed.has(courseId));
       const first = outline.sections
@@ -521,7 +538,8 @@ export const buy = defineTool({
         filter: { field: "bundle", op: "eq", value: input.bundleId },
         limit: 5,
       });
-      if (mine.items.some((e) => e.values.status === "active")) throw notFound(BUNDLE, input.bundleId);
+      if (mine.items.some((e) => e.values.status === "active"))
+        throw notFound(BUNDLE, input.bundleId);
     }
     const order = await ctx.ops.call<{
       id: string;
@@ -585,7 +603,11 @@ export const enrol = defineTool({
         holder: input.personId,
         ...(input.courseId ? { course: input.courseId } : { bundle: input.bundleId }),
         source: "staff",
-        reason: `${input.reason}${ctx.caller?.kind === "staff" ? ` (${ctx.caller.name})` : ""}`.slice(0, 1000),
+        reason:
+          `${input.reason}${ctx.caller?.kind === "staff" ? ` (${ctx.caller.name})` : ""}`.slice(
+            0,
+            1000,
+          ),
         from: new Date().toISOString(),
         ...(input.until ? { until: input.until } : {}),
       },
@@ -741,7 +763,9 @@ export const draft = defineTool({
     const brief = wordsOf(input.brief);
     const score = (r: RecordShape) =>
       [...wordsOf(String(r.values.name ?? ""))].filter((w) => brief.has(w)).length;
-    const videos = [...library.items].sort((a, b) => score(b) - score(a)).slice(0, sectionsWanted * 3);
+    const videos = [...library.items]
+      .sort((a, b) => score(b) - score(a))
+      .slice(0, sectionsWanted * 3);
     const lessons: Lesson[] = videos.map((v, i) => ({
       kind: "video",
       key: `lesson-${i + 1}`,
@@ -807,7 +831,10 @@ export const startSession = defineTool({
   risk: "read",
   audiences: ["customer"],
   async handler(input, ctx) {
-    const record = await ctx.ops.call<RecordShape>("my.get", { object: COURSE, id: input.courseId });
+    const record = await ctx.ops.call<RecordShape>("my.get", {
+      object: COURSE,
+      id: input.courseId,
+    });
     const found = findLesson(asOutline(record.values.outline), input.lessonKey);
     if (!found || found.kind !== "session") throw notFound("lesson", input.lessonKey);
     // Without access the seam gave no program (a holders' part), so there is no session.

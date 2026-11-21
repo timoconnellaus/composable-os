@@ -7,8 +7,8 @@ import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "
 import { getObject, isCoreObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext, RecordChange } from "../operation.ts";
-import { jsonList } from "../records/common.ts";
 import { viewColumnOf } from "../records/columns.ts";
+import { jsonList } from "../records/common.ts";
 import { holdsAccess } from "./access.ts";
 import { unknownObject } from "./customer.ts";
 import {

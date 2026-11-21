@@ -43,7 +43,8 @@ const common: Record<string, DocumentNode> = {
     min: 1,
     max: 40,
     chars: KEY_CHARS,
-    description: "The lesson's name for good: progress is kept by it. Never changed once published.",
+    description:
+      "The lesson's name for good: progress is kept by it. Never changed once published.",
   },
   title: { type: "text", min: 1, max: 200, noMarkup: true },
   duration: optional({
@@ -96,7 +97,10 @@ export const OUTLINE_SCHEMA: DocumentSchema = {
                 type: "union",
                 tag: "kind",
                 variants: {
-                  video: lesson({ video: VIDEO_NODE, notes: optional(richText) }, ["video", "notes"]),
+                  video: lesson({ video: VIDEO_NODE, notes: optional(richText) }, [
+                    "video",
+                    "notes",
+                  ]),
                   text: lesson({ body: richText }, ["body"]),
                   session: lesson(
                     {

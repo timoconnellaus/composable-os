@@ -40,7 +40,10 @@ export const assignSessions = defineAutomation({
     const progressId = event.record?.id;
     if (!progressId) return { skipped: "no progress row" };
     const wanted = await step.do("findPrograms", async () => {
-      const row = await ctx.ops.call<RecordShape>("record.get", { object: PROGRESS, id: progressId });
+      const row = await ctx.ops.call<RecordShape>("record.get", {
+        object: PROGRESS,
+        id: progressId,
+      });
       const person = String(row.values.holder ?? "");
       const courseId = String(row.values.course ?? "");
       if (!person || !courseId) return { person, programs: [] as string[] };

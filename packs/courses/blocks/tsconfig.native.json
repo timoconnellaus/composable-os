@@ -1,9 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": [
-      "ES2023"
-    ],
+    "lib": ["ES2023"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
@@ -13,15 +11,8 @@
     "skipLibCheck": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "types": [
-      "react-native"
-    ],
-    "rootDirs": [
-      ".",
-      "../../../blocks"
-    ]
+    "types": ["react-native"],
+    "rootDirs": [".", "../../../blocks"]
   },
-  "include": [
-    "courses-native-*/*.tsx"
-  ]
+  "include": ["courses-native-*/*.tsx"]
 }

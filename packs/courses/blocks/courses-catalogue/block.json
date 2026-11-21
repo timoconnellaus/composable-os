@@ -2,17 +2,9 @@
   "name": "courses-catalogue",
   "pack": "courses",
   "skin": "web",
-  "operations": [
-    "x.courses.catalogue"
-  ],
-  "files": [
-    "catalogue.tsx",
-    "LICENSE"
-  ],
-  "dependsOn": [
-    "ui-button",
-    "ui-card"
-  ],
+  "operations": ["x.courses.catalogue"],
+  "files": ["catalogue.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card"],
   "packages": {
     "@composable-os/pack-courses": "*"
   }

@@ -28,7 +28,10 @@ export function CatalogueScreen({
             <Row
               key={course.id}
               title={course.title ?? "Course"}
-              detail={[course.level ? LEVELS[course.level as 1 | 2 | 3] : null, `${course.lessons} lessons`]
+              detail={[
+                course.level ? LEVELS[course.level as 1 | 2 | 3] : null,
+                `${course.lessons} lessons`,
+              ]
                 .filter(Boolean)
                 .join(" · ")}
               onPress={course.slug ? () => onOpen(course.slug as string) : undefined}

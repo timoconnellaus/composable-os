@@ -24,7 +24,9 @@ export function MyCoursesScreen({
             <Row
               key={course.id}
               title={course.title ?? "Course"}
-              detail={course.complete ? "Complete" : `${course.done} of ${course.counted} lessons done`}
+              detail={
+                course.complete ? "Complete" : `${course.done} of ${course.counted} lessons done`
+              }
               onPress={() => onContinue(course.id, course.continueWith)}
             />
           ))}

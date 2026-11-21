@@ -1017,6 +1017,447 @@
       "pack": "content"
     },
     {
+      "name": "x.courses.buy",
+      "description": "Start an order for one course or one bundle. A signed-in customer buys as themselves; a guest gives their email address. The host prices it from the record and refuses one outside its sale window. A course the caller already holds access to is refused as one that does not exist. Nothing is paid here: the buyer then calls order.checkout with the order's id (and a guest's token) to pay on the provider's page. Amounts in the minor unit. (Extension tool from Courses 0.1.0.)",
+      "risk": "write",
+      "audiences": ["public"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "bundleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "description": "A guest's email address"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "token": {
+            "description": "A guest's key to this order, shown once",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "state", "currency", "total", "token"],
+        "additionalProperties": false
+      },
+      "invalidates": ["x.courses.catalogue", "x.courses.course"],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.catalogue",
+      "description": "The published courses, bundles and themes, for a catalogue page: each course's title, theme, level, summary, cover, trailer, price and number of lessons; each bundle's courses and price; the themes in their order. Prices are in the major unit of `currency`. Filter by theme or level. Only what the public may read: a draft is not here. Read-only. (Extension tool from Courses 0.1.0.)",
+      "risk": "read",
+      "audiences": ["public"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "theme": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "level": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "themes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": ["string", "null"]
+                },
+                "slug": {
+                  "type": ["string", "null"]
+                },
+                "summary": {
+                  "type": ["string", "null"]
+                },
+                "picture": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media": {
+                          "type": "string"
+                        },
+                        "alt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["media"],
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["id", "name", "slug", "summary", "picture"],
+              "additionalProperties": false
+            }
+          },
+          "courses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "slug": {
+                  "type": ["string", "null"]
+                },
+                "theme": {
+                  "type": ["string", "null"]
+                },
+                "level": {
+                  "type": ["number", "null"]
+                },
+                "summary": {
+                  "type": ["string", "null"]
+                },
+                "cover": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media": {
+                          "type": "string"
+                        },
+                        "alt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["media"],
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "trailer": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media": {
+                          "type": "string"
+                        },
+                        "poster": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["media"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "price": {
+                  "description": "In the major unit of `currency`",
+                  "type": ["number", "null"]
+                },
+                "lessons": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "slug",
+                "theme",
+                "level",
+                "summary",
+                "cover",
+                "trailer",
+                "price",
+                "lessons"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "bundles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "slug": {
+                  "type": ["string", "null"]
+                },
+                "summary": {
+                  "type": ["string", "null"]
+                },
+                "cover": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media": {
+                          "type": "string"
+                        },
+                        "alt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["media"],
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "courses": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "price": {
+                  "type": ["number", "null"]
+                }
+              },
+              "required": ["id", "title", "slug", "summary", "cover", "courses", "price"],
+              "additionalProperties": false
+            }
+          },
+          "currency": {
+            "description": "The currency prices are in (ISO 4217), the deployment's one; null until it is set",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["themes", "courses", "bundles", "currency"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.course",
+      "description": "One published course by its address (slug): its fields, its description, its outline's sections and lessons (title, kind, minutes, whether a free preview) and, for a signed-in customer, whether they hold access and which lessons they have done. Not found for a draft or an unknown address. Read-only. (Extension tool from Courses 0.1.0.)",
+      "risk": "read",
+      "audiences": ["public"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "slug": {
+            "type": ["string", "null"]
+          },
+          "theme": {
+            "type": ["string", "null"]
+          },
+          "level": {
+            "type": ["number", "null"]
+          },
+          "summary": {
+            "type": ["string", "null"]
+          },
+          "cover": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "media": {
+                    "type": "string"
+                  },
+                  "alt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["media"],
+                "additionalProperties": {}
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trailer": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "media": {
+                    "type": "string"
+                  },
+                  "poster": {
+                    "type": "string"
+                  }
+                },
+                "required": ["media"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price": {
+            "description": "In the major unit of `currency`",
+            "type": ["number", "null"]
+          },
+          "lessons": {
+            "type": "number"
+          },
+          "description": {
+            "description": "Rich text"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "lessons": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": ["video", "text", "session", "download"]
+                      },
+                      "duration": {
+                        "type": ["number", "null"]
+                      },
+                      "preview": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["key", "title", "kind", "duration", "preview"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["key", "title", "lessons"],
+              "additionalProperties": false
+            }
+          },
+          "currency": {
+            "description": "The currency prices are in (ISO 4217), the deployment's one; null until it is set",
+            "type": ["string", "null"]
+          },
+          "holds": {
+            "type": "boolean",
+            "description": "The caller holds access: show open, not buy"
+          },
+          "done": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The lesson keys the caller has done"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "slug",
+          "theme",
+          "level",
+          "summary",
+          "cover",
+          "trailer",
+          "price",
+          "lessons",
+          "description",
+          "sections",
+          "currency",
+          "holds",
+          "done",
+          "complete"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "courses"
+    },
+    {
       "name": "x.ticketing.eventsOnSale",
       "description": "The events on sale now, soonest first, each with its ticket types (name, price and its currency, sale window, most per order, deposit) and whether places are left. Prices and deposits are in the major unit of `currency` (45.5 is 45.50). For an event page or a list of events. Only what the public may read: an event that is not on sale is not here. Read-only. (Extension tool from Ticketing 0.1.0.)",
       "risk": "read",

@@ -195,7 +195,9 @@ export class RunHost extends RpcTarget {
 
   /** The events queue for a tool's own calls, where this Worker has one. */
   #events(): { events?: EventSink } {
-    return this.#env.AUTOMATION_EVENTS ? { events: queueEventSink(this.#env.AUTOMATION_EVENTS) } : {};
+    return this.#env.AUTOMATION_EVENTS
+      ? { events: queueEventSink(this.#env.AUTOMATION_EVENTS) }
+      : {};
   }
 
   /**

@@ -38,7 +38,9 @@ export function LessonScreen({
   const { data, isPending, error } = courses.useLesson(courseId, lessonKey);
   const playback = courses.usePlayback(data?.video ?? null);
   const progress = courses.useProgress();
-  const lesson = data?.lesson as { kind?: string; title?: string; notes?: unknown; body?: unknown } | undefined;
+  const lesson = data?.lesson as
+    | { kind?: string; title?: string; notes?: unknown; body?: unknown }
+    | undefined;
   return (
     <Screen title={lesson?.title ?? "Lesson"}>
       {isPending ? <Text accessibilityRole="progressbar">Loading the lesson…</Text> : null}
@@ -47,7 +49,9 @@ export function LessonScreen({
         <Player
           playback={playback.data}
           startAt={data.position ?? 0}
-          onPosition={(position, duration) => progress.mutate({ courseId, lessonKey, position, duration })}
+          onPosition={(position, duration) =>
+            progress.mutate({ courseId, lessonKey, position, duration })
+          }
           onEnded={() => progress.mutate({ courseId, lessonKey, state: "done" })}
         />
       ) : null}
@@ -61,7 +65,13 @@ export function LessonScreen({
           onPress={() => progress.mutate({ courseId, lessonKey, state: "done" })}
         />
       ) : null}
-      {data?.next ? <Button label={`Next: ${data.next.title}`} quiet onPress={() => data.next && onNext(data.next.key)} /> : null}
+      {data?.next ? (
+        <Button
+          label={`Next: ${data.next.title}`}
+          quiet
+          onPress={() => data.next && onNext(data.next.key)}
+        />
+      ) : null}
     </Screen>
   );
 }

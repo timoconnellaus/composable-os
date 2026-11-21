@@ -2,16 +2,9 @@
   "name": "courses-native-course",
   "pack": "courses",
   "skin": "native",
-  "operations": [
-    "x.courses.course"
-  ],
-  "files": [
-    "course-screen.tsx",
-    "LICENSE"
-  ],
-  "dependsOn": [
-    "native-base"
-  ],
+  "operations": ["x.courses.course"],
+  "files": ["course-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
   "packages": {
     "@composable-os/pack-courses": "*"
   },
