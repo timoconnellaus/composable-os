@@ -122,5 +122,8 @@ over a taken slug (1); a revoked preview link still working (1); markup kept in 
   "IMAGES" }`, every width is the original. Nothing else changes when it is added.
 - A user has no record page, so the spec's "record tab of posts on their author" is not built; a
   post's author is a staff account the public does not read.
+- On a host behind Cloudflare Access (ADR 0455), `/api/media/*` is a staff path: the public is
+  served pictures through the client-app binding, which Access does not front, and a client app
+  forwards its own `/api/media/<id>` route to it.
 - An uploaded original whose row then fails to commit is left in R2 with no row naming it, never a
   row with no object; nothing serves it.

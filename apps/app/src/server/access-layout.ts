@@ -132,6 +132,12 @@ export const ACCESS_STAFF: readonly StaffPath[] = [
   },
   { path: "/connect/handoff", why: "The end of an integration's connect popup, staff only." },
   {
+    path: "/api/media/*",
+    why:
+      "The media library (stage 28, ADR 0444): staff upload and view pictures. The public is " +
+      "served published content's pictures through the client-app binding, which Access does not front.",
+  },
+  {
     path: "/blocks",
     why: "A pack's web block mounted on its own, in development only; a deployed host renders nothing there.",
   },
