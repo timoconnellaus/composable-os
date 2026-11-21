@@ -78,6 +78,24 @@
       ]
     },
     {
+      "default": "*",
+      "description": "The packs this deployment installs: \"*\" every pack in the release, a comma-separated list, or \"\" for none (set by cos deploy, ADR 0422)",
+      "kind": "var",
+      "name": "COS_PACKS",
+      "workers": [
+        "crm-runner"
+      ]
+    },
+    {
+      "default": "",
+      "description": "sha256 of the org's own extensions in the BLOBS bucket, installed as shipped (set by cos deploy, ADR 0422)",
+      "kind": "var",
+      "name": "COS_ORG_EXTENSIONS",
+      "workers": [
+        "crm-runner"
+      ]
+    },
+    {
       "default": "",
       "description": "AI Gateway every model call goes through (usage and spend per role, BYOK)",
       "kind": "var",
@@ -1150,6 +1168,16 @@
           "type": "plain_text"
         },
         {
+          "name": "COS_ORG_EXTENSIONS",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "COS_PACKS",
+          "text": "*",
+          "type": "plain_text"
+        },
+        {
           "name": "COS_TENANT_ID",
           "text": "",
           "type": "plain_text"
@@ -1225,7 +1253,7 @@
       ],
       "role": "runner",
       "secrets": [],
-      "sha256": "77a096429a86cb753c704eed740d98fdccd1ba03c9d7c8d5e6d7ae6701e7983e"
+      "sha256": "96437343803be8ced6ce7494968aba0e74332c14da5e9891708d9a524ee5909a"
     },
     {
       "bindings": [],

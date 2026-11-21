@@ -77,7 +77,8 @@ export const HELP = `cos: the Composable OS command. One command for a company's
 installing a product with no repository.
 
 A client repo (stage 24)
-  cos create <dir> [--with-mobile]       a new client repo from the release's template (also
+  cos create <dir> [--label <name>] [--with-mobile] [--version x.y.z]
+                                         a new client repo from the release's template (also
                                          \`npm create composable-os <dir>\`)
   cos init                               adopt the repo you are in: adds product.ts, skills/, the
                                          typed client and the rules in AGENTS.md; shows a diff of
@@ -88,6 +89,8 @@ A client repo (stage 24)
                                          version, regenerate the client, replace skills/, report type
                                          errors; deploys nothing
   cos add <block>, cos diff <block>      copy a block from the release; show its upstream changes
+                                         (cos add with no block lists them, with their skins)
+  cos client generate                    in a client repo: each app's typed client, again
 
 Installing a product with no client repo
   cos install [options]                  install, or repair an existing install (idempotent)
@@ -1082,6 +1085,13 @@ async function ext(argv: string[], deps: Deps): Promise<number> {
  * `cos ext`: it reads extension source with esbuild, which a checkout has.
  */
 async function client(argv: string[], deps: Deps): Promise<number> {
+  // In a client repo (stage 24): each app's client, from the release product.ts names.
+  if (argv[0] === "generate" && !argv.includes("--out")) {
+    const repo = await import("./client-repo.ts");
+    const parsed = parseArgs(["client", ...argv.slice(1)]);
+    const dir = str(parsed.flags, "dir") ?? process.cwd();
+    if (repo.isClientRepo(dir)) return repo.regenerate(parsed.flags, deps);
+  }
   try {
     const { runClient } = await import("@composable-os/client-gen/cli");
     return await runClient(argv, deps.io);

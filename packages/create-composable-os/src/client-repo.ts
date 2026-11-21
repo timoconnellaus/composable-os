@@ -390,6 +390,10 @@ export async function create(argv: string[], flags: Flags, deps: Deps): Promise<
   const skills = writeSkills(root, kit);
   const product = await loadClientProduct(root);
   await generateClients(root, product, kit, io);
+  // A repository from the start, so copied blocks and generated files can be committed.
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+  } catch {}
   io.out(
     `Created ${values.label} in ${target}: ${files.size} files and ${skills} skills from ${release.label} ${version}.`,
   );
@@ -730,6 +734,9 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     io.err("The apps have type errors: nothing was deployed.");
     return 1;
   }
+  io.out(
+    `Checked: ${orgExtensionDirs(root).length} extension(s) with cos ext check${flags["no-typecheck"] ? "" : ", the apps' types"}.`,
+  );
   const release = releaseProduct(deps, product.platform.release);
   const own = orgExtensionSources(root);
   for (const extension of own) {
@@ -805,6 +812,9 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     const url = await deployWeb(api, accountId, root, product, appWorker(manifest), flags, io);
     io.out(`Web app: ${url}, bound to ${appWorker(manifest)} (ClientApp).`);
   }
+  io.out(
+    `\nThe host's staff admin: ${appWorker(manifest)}'s address (printed above); open /setup there to create the first admin, and choose the email connection customer codes go out from (Settings, or customer.settings.update).`,
+  );
   io.out(`\n${EDGE_RULE_STEP}`);
   return 0;
 }
@@ -872,6 +882,22 @@ function kitPacks(kit: ClientKit): Set<string> {
   const listed = kit.get("packs.json");
   if (listed) for (const id of JSON.parse(decode(listed)) as string[]) packs.add(id);
   return packs;
+}
+
+/** `cos client generate` in a client repo: each app's typed client from its release, again. */
+export async function regenerate(flags: Flags, deps: Deps): Promise<number> {
+  const root = resolve(str(flags, "dir") ?? process.cwd());
+  const product = await loadClientProduct(root);
+  const { kit } = await fetchKit(
+    flags,
+    deps,
+    product.platform.release,
+    product.platform.repository,
+    product.platform.version,
+  );
+  const written = await generateClients(root, product, kit, deps.io);
+  if (!written.length) deps.io.out("product.ts names no app: nothing to generate.");
+  return 0;
 }
 
 /** True when the repo the command runs in is a client repo (its product.ts is a client product). */

@@ -51,15 +51,27 @@ function writeLock(root: string, lock: Lock) {
   writeFileSync(join(root, LOCK), `${JSON.stringify(sorted, null, 2)}\n`);
 }
 
+/** Every block in a release, one line each: name, skin, pack, operations, depends on. */
+export function listBlocks(kit: ClientKit): string {
+  const lines = [...kit.keys()]
+    .filter((p) => /^blocks\/[^/]+\/block\.json$/.test(p))
+    .sort()
+    .map((p) => {
+      const b = JSON.parse(decode(kit.get(p) as Uint8Array)) as BlockManifest;
+      const parts = [
+        `${b.skin}`,
+        b.pack ? `pack ${b.pack}` : "base",
+        b.operations.length ? `calls ${b.operations.join(", ")}` : "",
+        b.dependsOn.length ? `with ${b.dependsOn.join(", ")}` : "",
+      ].filter(Boolean);
+      return `  ${b.name.padEnd(16)} ${parts.join("; ")}`;
+    });
+  return `Blocks (cos add <name>):\n${lines.join("\n")}`;
+}
+
 export function blockManifest(kit: ClientKit, name: string): BlockManifest {
   const bytes = kit.get(`blocks/${name}/block.json`);
-  if (!bytes) {
-    const names = [...kit.keys()]
-      .filter((p) => p.endsWith("/block.json"))
-      .map((p) => p.split("/")[1])
-      .join(", ");
-    throw new CliError(`No block ${name} in this release. Blocks: ${names}`);
-  }
+  if (!bytes) throw new CliError(`No block ${name} in this release.\n${listBlocks(kit)}`);
   return JSON.parse(decode(bytes)) as BlockManifest;
 }
 
@@ -68,7 +80,6 @@ const blockDir = (app: string, name: string) => join(app, "src", "blocks", name)
 
 export async function add(argv: string[], flags: Flags, deps: Deps): Promise<number> {
   const name = argv[0];
-  if (!name) throw new CliError("Usage: cos add <block>");
   const root = resolve(str(flags, "dir") ?? process.cwd());
   const product = await loadClientProduct(root);
   const { kit, version } = await fetchKit(
@@ -78,6 +89,10 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
     product.platform.repository,
     product.platform.version,
   );
+  if (!name) {
+    deps.io.out(listBlocks(kit));
+    return 0;
+  }
   const lock = readLock(root);
   const added: string[] = [];
   const needs = new Map<string, string>();

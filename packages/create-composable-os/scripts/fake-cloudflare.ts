@@ -17,7 +17,12 @@ const ACCOUNT = "localfakeaccount0000000000000000";
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf("--port") + 1] ?? 8787) || 8787;
 
-const cf = new FakeCloudflare({ token: TOKEN, accountId: ACCOUNT, sql: nodeSqliteEngine, subdomain: "local" });
+const cf = new FakeCloudflare({
+  token: TOKEN,
+  accountId: ACCOUNT,
+  sql: nodeSqliteEngine,
+  subdomain: "local",
+});
 function summaryJson() {
   const workers = [...cf.scripts.keys()].map((name) => ({
     name,
