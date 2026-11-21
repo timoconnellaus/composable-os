@@ -34,3 +34,6 @@ COS_UPDATE_TOKEN=
 # Local only, never in production: "true" uses stand-in speech (no key, no network), even with
 # the key above. `pnpm dev` adds it when there is no key.
 # AI_FAKE_VOICE=
+# Native sign-in through the system browser (ADRs 0455, 0457): cos content import's door on this
+# computer, and a stand-in app scheme the e2e journey uses. cos deploy sets the real list.
+NATIVE_REDIRECT_URIS=http://127.0.0.1/cos-sign-in,cosdev://staff-sign-in

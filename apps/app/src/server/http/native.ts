@@ -88,11 +88,18 @@ export function destinationOf(redirectUri: string): string {
   return `the app that opens ${url.protocol}// links`;
 }
 
-/** A POST that this page's own form made: same origin, by the Origin header or Fetch metadata. */
-function sameOrigin(request: Request): boolean {
+/**
+ * A POST that this page's own form made (ADR 0457, amended). An Origin that names a site must be
+ * the host's own. An Origin of `null` names none (a browser sends it when a page's referrer policy
+ * withholds the origin, or from a sandboxed frame or a file), so it proves nothing on its own:
+ * then, as with no Origin at all, only `Sec-Fetch-Site: same-origin` passes, a header a page
+ * cannot set. Anything else is refused. The page's one-time token is the real protection; this
+ * keeps a cross-site form from even spending it.
+ */
+export function sameOrigin(request: Request): boolean {
   const own = new URL(request.url).origin;
   const origin = request.headers.get("origin");
-  if (origin) return origin === own;
+  if (origin && origin !== "null") return origin === own;
   return request.headers.get("sec-fetch-site") === "same-origin";
 }
 
@@ -152,6 +159,9 @@ ${hidden("redirect_uri", asked.redirectUri)}${hidden("code_challenge", asked.cha
     headers: {
       "content-type": "text/html; charset=utf-8",
       ...PAGE_HEADERS,
+      // The page's own form then sends its real Origin, in browsers without Fetch metadata too;
+      // nothing goes to another site (the redirect with the code is sent with no referrer).
+      "referrer-policy": "same-origin",
       "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' ${formTarget}; frame-ancestors 'none'; base-uri 'none'`,
     },
   });
