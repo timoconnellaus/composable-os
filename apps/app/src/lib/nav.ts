@@ -17,6 +17,7 @@ import {
   ScrollTextIcon,
   SettingsIcon,
   ShieldCheckIcon,
+  ShoppingBagIcon,
   SparklesIcon,
   Trash2Icon,
   UserCheckIcon,
@@ -33,6 +34,7 @@ export interface NavItem {
     | "/assistant"
     | "/people"
     | "/organisations"
+    | "/orders"
     | "/tasks"
     | "/automations"
     | "/notifications"
@@ -51,7 +53,8 @@ export interface NavItem {
     | "/settings/automations"
     | "/settings/integrations"
     | "/settings/ai"
-    | "/settings/duplicates";
+    | "/settings/duplicates"
+    | "/settings/orders";
   label: string;
   icon: LucideIcon;
   /** Extra words the palette matches on. */
@@ -69,6 +72,12 @@ export const MAIN_NAV: NavItem[] = [
   },
   { to: "/people", label: "People", icon: UsersIcon, keywords: ["contacts", "persons"] },
   { to: "/organisations", label: "Organisations", icon: Building2Icon, keywords: ["companies"] },
+  {
+    to: "/orders",
+    label: "Orders",
+    icon: ShoppingBagIcon,
+    keywords: ["payments", "refunds", "checkout", "sales", "overdue", "paid late"],
+  },
   { to: "/tasks", label: "Tasks", icon: CheckSquareIcon, keywords: ["todo"] },
   {
     to: "/assistant",
@@ -183,6 +192,13 @@ export const SETTINGS_NAV: NavItem[] = [
     label: "Duplicate settings",
     icon: CopyIcon,
     keywords: ["merge", "dedupe", "scan", "phone", "settings"],
+    adminOnly: true,
+  },
+  {
+    to: "/settings/orders",
+    label: "Order settings",
+    icon: ShoppingBagIcon,
+    keywords: ["currency", "payments", "expiry", "part payment", "return sites", "settings"],
     adminOnly: true,
   },
 ];

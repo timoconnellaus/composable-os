@@ -26,6 +26,7 @@ import { getAgentByName } from "agents";
 import { type AiAppEnv, aiContextFor } from "./ai.ts";
 import { type AssistantAgent, threadName } from "./assistant/agent.ts";
 import { type AgentJob, jobName } from "./assistant/job.ts";
+import { ensureDevSellable } from "./dev-sellable.ts";
 import { blobStoreFor, integrationRuntimeFor } from "./integrations.ts";
 import { deleteGrantTokens } from "./mcp/handler.ts";
 import { runner } from "./runner.ts";
@@ -239,6 +240,7 @@ export async function runOperation(
   }
   try {
     await ensureShippedExtensions(env);
+    ensureDevSellable(env);
     const db = createCrmDb(env.DB);
     const extensionHost = extensionHostFor(env);
     const integrations = integrationRuntimeFor(env, appOrigin);
