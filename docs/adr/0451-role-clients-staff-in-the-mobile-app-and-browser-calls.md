@@ -2,8 +2,8 @@
 
 Status: accepted, 2026-11-21 (client releases and environments fix, second part). Builds on
 [ADR 0418](0418-the-typed-client-as-built.md), [ADR 0421](0421-the-client-app-binding-and-customer-sign-in.md),
-[ADR 0436](0436-pack-roles-and-the-door-role.md) and ADR 0455 (native sign-in by tokens, on the
-identity branch `fix/staff-invites-and-native-sign-in`, not merged when this was written).
+[ADR 0436](0436-pack-roles-and-the-door-role.md) and
+[ADR 0455](0455-staff-invites-and-native-sign-in-by-tokens.md) (native sign-in by tokens).
 
 ## Context
 The first client's door scanner is part of the gym's own app, used by coaches who hold Ticketing's
@@ -24,8 +24,9 @@ served sign-in only. And the mobile host module made no write on React Native (n
   beside the app's customer client: only those operations, `record.get` and `record.list` typed to
   take only the role's objects, factory `create<Pack><Role>Client`. The whole staff client is never
   written into a client repo. The web app gets none: its binding never serves staff (ADR 0421).
-- **Staff sign in in the template's mobile app** (`staffSession` in its host module), against the
-  identity branch's token routes: by an emailed code (`/api/v1/auth/staff/code`, `/staff/sign-in`)
+- **Staff sign in in the template's mobile app** (`staffSession` in its host module, on the
+  runtime's `tokenSession` and `startBrowserSignIn`), against ADR 0455's routes: an invited staff
+  member by an emailed code (`/api/v1/auth/staff/code`, `/staff/sign-in`)
   or, where staff sign in with Google or Cloudflare Access, in the system browser
   (`/native/staff-sign-in` with a PKCE challenge, then `/api/v1/auth/staff/exchange`). The staff
   session has its own slot in the secure store (`staffSecureStore`): a device holds at most one
@@ -35,10 +36,9 @@ served sign-in only. And the mobile host module made no write on React Native (n
   `<scheme>://staff-sign-in`, from `product.ts` (`mobile.scheme`, per environment, default the
   product's id), and the template declares that scheme in `app.json`.
 - **Signing out needs no operation.** A pack role may call nothing but its own operations, and must
-  still be able to end its session: the staff session signs out with the runtime's
-  `tokenSession(...).signOut()`, which the identity branch makes call its
-  `POST /api/v1/auth/sign-out { refreshToken }` (ADR 0455) and clear the store even if the call
-  fails. Until that merges, signing out forgets the tokens on the phone only.
+  still be able to end its session: both sessions sign out with the runtime's
+  `tokenSession(...).signOut()`, which calls `POST /api/v1/auth/sign-out { refreshToken }`
+  (ADR 0455) and clears the store even if the call fails.
 - **Customer sign-in in the mobile host module answers with tokens**, never a cookie
   (`/api/v1/auth/customer/code` and `/customer/sign-in`, ADR 0455). The cookie exchange
   (`/api/v1/auth/token`) is no longer used by the template.
@@ -62,8 +62,8 @@ served sign-in only. And the mobile host module made no write on React Native (n
   throttle the site's own routes for everyone behind one address.
 
 ## Consequences
-- Until the identity branch merges, a host does not serve the token sign-in routes the mobile host
-  module uses; its tests run against a stand-in host that answers as ADR 0455 fixes them.
+- Sign-in by code works only once a human admin has chosen the host's mail connection and allowed
+  it to send sign-in codes (Settings → Users); `cos deploy` does not do it.
 - The door role's client is four operations. A role that later gains a tool gets it in its client
   when the repo regenerates against the new release.
 
@@ -72,12 +72,12 @@ served sign-in only. And the mobile host module made no write on React Native (n
 staff operation; `record.list` of `person` and `person.list` are type errors);
 `packages/create-composable-os/test/client-repo.test.ts` (`cos client generate` writes the role
 client; `cos deploy` sets `NATIVE_REDIRECT_URIS` per environment; a role of an unlisted pack is
-refused; the tsconfig diff; the `cos add` command); `apps/app/test/staff-app.test.ts` (staff sign
-in by code and in the browser against a stand-in of ADR 0455's routes built from the host's real
-parts; a door-role device session reaches only the role's operations over the real surface; one
-staff session per device, apart from the customer's; "signing out ends it on the host" is a todo
-until the identity branch merges); `apps/app/test/mobile-app.test.ts` (customer sign-in by tokens
-against the same kind of stand-in); `packages/client-gen/test/targets.test.ts` (the template's
+refused; the tsconfig diff; the `cos add` command); `apps/app/test/staff-app.test.ts` (on the
+host's real native sign-in routes: an invited door-role coach signs in by code and a staff member
+in the system browser; the door session reaches only the role's operations; signing out, and
+signing in again, end the session on the host; no cookie is sent); `apps/app/test/mobile-app.test.ts`
+(customer sign-in by tokens on the real routes, no cookie sent or set, sign-out ends the session);
+`packages/client-gen/test/targets.test.ts` (the template's
 mobile host module in a context with no `crypto`: refused at start-up without `random`, a write
 with it); `apps/app/test/company-web.test.ts` (the operation route: allowed calls, a write with no
 `Origin`, another site, an operation not allowed, not JSON, an `Authorization` header not

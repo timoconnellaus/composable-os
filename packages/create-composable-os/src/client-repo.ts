@@ -1305,7 +1305,7 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     );
   }
   io.out(
-    `\nThe host's staff admin${envLabel}: ${hostWorker}'s address (printed above); open /setup there to create the first admin, and, as a human admin, choose the email connection customer codes go out from (customer.settings.update, emailConnectionId).`,
+    `\nThe host's staff admin${envLabel}: ${hostWorker}'s address (printed above); open /setup there to create the first admin. Then a human admin, in Settings → Users, chooses the host's mail connection and turns on "Send sign-in codes without review" for it: until then sign-in by code (customers and staff) answers that it is not set up. cos deploy does not do this step.`,
   );
   io.out(`\n${edgeRuleStep(product)}`);
   return 0;

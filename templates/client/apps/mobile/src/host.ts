@@ -12,20 +12,16 @@
 // No framework and no native module in here: App.tsx passes in the secure store and the secure
 // random source (expo-crypto: React Native has no `crypto`), and the tests run this file against
 // a local host.
-//
-// The token routes are fixed by ADR 0455 (`/api/v1/auth/customer/*`, `/api/v1/auth/staff/*`,
-// `/native/staff-sign-in`, `/api/v1/auth/sign-out`). Waiting on the identity branch
-// (fix/staff-invites-and-native-sign-in): until it merges, a host does not serve them.
 import {
   ApiError,
   type FetchLike,
+  startBrowserSignIn,
   type TokenStore,
-  type Tokens,
   tokenSession,
 } from "@composable-os/client";
 import { createCustomerClient } from "./client/customer.ts";
 
-/** The app's secure random source: `expo-crypto` in the app. */
+/** The app's secure random source: `expo-crypto` in the app (src/secure-random.ts). */
 export interface SecureRandom {
   /** `n` random bytes (expo-crypto's getRandomBytes). */
   bytes(n: number): Uint8Array;
@@ -45,20 +41,7 @@ export interface HostOptions {
   fetch?: FetchLike;
 }
 
-const json = { "content-type": "application/json" };
-
 const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-const b64url = (bytes: Uint8Array) => {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const n = ((bytes[i] ?? 0) << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
-    out += chars.charAt((n >> 18) & 63) + chars.charAt((n >> 12) & 63);
-    if (i + 1 < bytes.length) out += chars.charAt((n >> 6) & 63);
-    if (i + 2 < bytes.length) out += chars.charAt(n & 63);
-  }
-  return out;
-};
 
 function checked(options: { random?: SecureRandom }): SecureRandom {
   // Said at start-up, not at the first write: without it every mutation would throw.
@@ -77,29 +60,9 @@ function fetcherOf(options: { fetch?: FetchLike }): FetchLike {
   );
 }
 
-/** POST to a token route; the tokens, or false for the one refusal a wrong code gets. */
-async function post(fetcher: FetchLike, url: string, body: unknown): Promise<unknown> {
-  const response = await fetcher(url, {
-    method: "POST",
-    headers: json,
-    body: JSON.stringify(body),
-  });
-  const parsed = JSON.parse(await response.text()) as {
-    data?: unknown;
-    error?: { code: string; message: string; details?: unknown };
-  };
-  if (response.status === 200) return parsed.data;
-  throw new ApiError(
-    parsed.error?.code ?? "internal",
-    parsed.error?.message ?? `The host answered ${response.status}`,
-    response.status,
-    parsed.error?.details,
-  );
-}
-
+/** A wrong, used or expired code: the one refusal a sign-in answers (ADR 0455). */
 const wrongCode = (error: unknown) =>
   error instanceof ApiError &&
-  error.status === 401 &&
   (error.details as { reason?: string } | undefined)?.reason === "invalid_code";
 
 export function hostSession(options: HostOptions) {
@@ -118,19 +81,16 @@ export function hostSession(options: HostOptions) {
     api,
     /** Asks the host to email a sign-in code. The answer is the same whoever the address is. */
     async requestCode(email: string): Promise<boolean> {
-      await post(fetcher, `${base}/api/v1/auth/customer/code`, { email });
+      await session.requestCode(email, "customer");
       return true;
     },
-    /** Signs in with the emailed code: the host answers with this device's tokens, no cookie. */
+    /**
+     * Signs in with the emailed code: the host answers with this device's tokens, no cookie.
+     * False for a wrong, used or expired code.
+     */
     async signIn(email: string, code: string): Promise<boolean> {
       try {
-        const tokens = (await post(fetcher, `${base}/api/v1/auth/customer/sign-in`, {
-          email,
-          code,
-          deviceName: options.deviceName,
-        })) as Tokens & { account?: string };
-        const { account: _account, ...kept } = tokens;
-        await options.store.save(kept);
+        await session.signInWithCode(email, code, options.deviceName, "customer");
         return true;
       } catch (error) {
         if (wrongCode(error)) return false;
@@ -141,14 +101,8 @@ export function hostSession(options: HostOptions) {
     async signedIn(): Promise<boolean> {
       return (await options.store.load()) !== null;
     },
-    /** Ends this device's session on the host, then forgets its tokens. */
-    async signOut(): Promise<void> {
-      try {
-        await api.call("me.signOut", {});
-      } finally {
-        await session.signOut();
-      }
-    },
+    /** Ends this device's session on the host, then forgets its tokens (even if offline). */
+    signOut: () => session.signOut(),
   };
 }
 
@@ -166,10 +120,10 @@ export interface StaffOptions {
   /** The app's secure random source (expo-crypto). */
   random: SecureRandom;
   /**
-   * For browser-based sign-in (Google, Cloudflare Access): the app's redirect, `<scheme>://staff-sign-in`,
-   * which the deployment lists (cos deploy sets NATIVE_REDIRECT_URIS from product.ts), and a way
-   * to open the system browser and get the URL it came back to (expo-web-browser's
-   * `openAuthSessionAsync(url, redirectUri)`), or null when the person cancelled.
+   * For browser-based sign-in (Google, Cloudflare Access): the app's redirect,
+   * `<scheme>://staff-sign-in`, which the host lists (cos deploy sets NATIVE_REDIRECT_URIS from
+   * product.ts), and a way to open the system browser and get the URL it came back to
+   * (expo-web-browser's `openAuthSessionAsync(url, redirectUri)`), or null when cancelled.
    */
   redirectUri?: string;
   openBrowser?: (url: string, redirectUri: string) => Promise<string | null>;
@@ -181,34 +135,23 @@ export function staffSession(options: StaffOptions) {
   const base = options.hostUrl.replace(/\/+$/, "");
   const fetcher = fetcherOf(options);
   const session = tokenSession({ baseUrl: base, store: options.store, fetch: fetcher });
-  const save = async (tokens: Tokens) => {
-    // One staff session on this device at a time: the one it replaces is ended first.
-    if ((await options.store.load()) !== null) await signOut();
-    await options.store.save(tokens);
+  const randomKey = () => hex(random.bytes(16));
+  // One staff session on this device at a time: the one a new sign-in replaces is ended first.
+  const endPrevious = async () => {
+    if ((await options.store.load()) !== null) await session.signOut();
   };
-  async function signOut(): Promise<void> {
-    // Not an operation: a pack role may call nothing but its own, and still signs out. The
-    // runtime's signOut ends the session on the host (`POST /api/v1/auth/sign-out`) and forgets
-    // the tokens even if that call fails. Waiting on the identity branch (ADR 0455): until it
-    // merges, signOut only forgets the tokens here.
-    await session.signOut();
-  }
 
   return {
     /** Asks the host to email a staff sign-in code (an invited or verified staff address). */
     async requestCode(email: string): Promise<boolean> {
-      await post(fetcher, `${base}/api/v1/auth/staff/code`, { email });
+      await session.requestCode(email, "staff");
       return true;
     },
-    /** Signs a staff member in with the emailed code. */
+    /** Signs a staff member in with the emailed code. False for a wrong one. */
     async signIn(email: string, code: string): Promise<boolean> {
+      await endPrevious();
       try {
-        const tokens = (await post(fetcher, `${base}/api/v1/auth/staff/sign-in`, {
-          email,
-          code,
-          deviceName: options.deviceName,
-        })) as Tokens;
-        await save(tokens);
+        await session.signInWithCode(email, code, options.deviceName, "staff");
         return true;
       } catch (error) {
         if (wrongCode(error)) return false;
@@ -224,26 +167,23 @@ export function staffSession(options: StaffOptions) {
       if (!redirectUri || !openBrowser) {
         throw new Error("staffSession needs redirectUri and openBrowser for browser sign-in");
       }
-      const verifier = b64url(random.bytes(32));
-      const state = b64url(random.bytes(16));
-      const link = new URL(`${base}/native/staff-sign-in`);
-      link.searchParams.set("redirect_uri", redirectUri);
-      link.searchParams.set("code_challenge", b64url(await random.sha256(verifier)));
-      link.searchParams.set("code_challenge_method", "S256");
-      link.searchParams.set("state", state);
-      const back = await openBrowser(link.toString(), redirectUri);
-      if (!back) return false;
-      const answer = new URL(back);
-      const code = answer.searchParams.get("code");
-      if (!code || answer.searchParams.get("state") !== state) return false;
+      const started = await startBrowserSignIn({
+        hostUrl: base,
+        redirectUri,
+        randomKey,
+        sha256: (text) => random.sha256(text),
+      });
+      const callbackUrl = await openBrowser(started.url, redirectUri);
+      if (!callbackUrl) return false;
+      await endPrevious();
       try {
-        const tokens = (await post(fetcher, `${base}/api/v1/auth/staff/exchange`, {
-          code,
-          codeVerifier: verifier,
+        await session.finishBrowserSignIn({
+          callbackUrl,
+          state: started.state,
+          verifier: started.verifier,
           redirectUri,
           deviceName: options.deviceName,
-        })) as Tokens;
-        await save(tokens);
+        });
         return true;
       } catch (error) {
         if (wrongCode(error)) return false;
@@ -266,15 +206,13 @@ export function staffSession(options: StaffOptions) {
         randomKey: () => string;
       }) => T,
     ): T {
-      return create({
-        baseUrl: base,
-        fetch: fetcher,
-        headers: session.headers,
-        randomKey: () => hex(random.bytes(16)),
-      });
+      return create({ baseUrl: base, fetch: fetcher, headers: session.headers, randomKey });
     },
-    /** Ends this device's staff session on the host, then forgets its tokens. */
-    signOut,
+    /**
+     * Ends this device's staff session on the host and forgets its tokens. No operation: a pack
+     * role may call nothing but its own, and still signs out (`/api/v1/auth/sign-out`).
+     */
+    signOut: () => session.signOut(),
   };
 }
 

@@ -112,9 +112,11 @@ a live host side by side in one account, `environments` in `product.ts`): each i
      then `wrangler deploy`. Built without it, a staging site binds to the live host.
 9. **A person then does, by hand:**
    - open the host's address `/setup` to create the first staff admin;
-   - connect an email-send connection and choose it for customer sign-in codes with the
-     `customer.settings.update` operation (`emailConnectionId`; over MCP, as a human admin; the
-     admin has no picker yet). Until then code requests answer that sign-in is not set up;
+   - connect an email-send connection (Settings → Integrations), then, as a human admin, in
+     Settings → Users choose it as the host's mail connection and turn on "Send sign-in codes
+     without review". Until then code requests (customers and staff) answer that sign-in is not
+     set up. `cos deploy` does not do this, in any environment;
+   - invite staff (Settings → Users), with a pack role for a coach at the door;
    - for a custom hostname, `web.hostname` in `product.ts` (or `environments.<name>.web.hostname`)
      and its DNS;
    - the gatekeepers' secrets `cos deploy` named;

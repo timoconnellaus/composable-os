@@ -1,7 +1,7 @@
 // Stage 24, acceptance criterion 5: the template's mobile app signs in against a local host and
 // shows the same record the web app does, with the same client package. Its host module
 // (templates/client/apps/mobile/src/host.ts) runs here as the app runs it, over HTTP to the host's
-// public routes (/api/customer-auth/*, /api/v1/*); only the secure store is a test's memory. The
+// native sign-in routes (/api/v1/auth/customer/*, ADR 0455) and the surface (/api/v1/*); only the secure store is a test's memory. The
 // screens (App.tsx) and Expo itself are not run here: there is no simulator in this suite.
 import { env } from "cloudflare:workers";
 import { createIdentityProvider } from "@composable-os/auth";
@@ -10,7 +10,7 @@ import { inviteCustomer } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { hostSession, type SecureRandom } from "../../../templates/client/apps/mobile/src/host.ts";
-import { handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
+import { handleApi } from "../src/server/http/api.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv, sentCodes } from "./bound-env.ts";
 import { ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
@@ -25,62 +25,22 @@ const random: SecureRandom = {
     new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))),
 };
 
-const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
-  new Request(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify(body),
-  });
+/** Every cookie the phone sent or an answer set: both must stay empty (ADR 0455). */
+const cookies: string[] = [];
 
 /**
- * The host's public address, as the phone reaches it. The customer token routes are the identity
- * branch's (ADR 0455); until it merges, a stand-in answers as ADR 0455 fixes them, made of the
- * host's real parts: the customer sign-in by code, then the real /api/v1/auth/token exchange.
+ * The host's public address, as the phone reaches it: the HTTP surface, whose native sign-in
+ * routes (`/api/v1/auth/customer/*`, `/api/v1/auth/sign-out`) answer with tokens and no cookie.
  */
 const host: FetchLike = async (url, init) => {
-  const { pathname } = new URL(url);
-  const body = init?.body ? JSON.parse(String(init.body)) : {};
-  if (pathname === "/api/v1/auth/customer/code") {
-    await handleCustomerAuth(
-      post(`${ORIGIN}/api/customer-auth/email-otp/send-verification-otp`, {
-        email: body.email,
-        type: "sign-in",
-      }),
-      hostEnv,
-    );
-    return Response.json({ data: { ok: true } });
+  for (const [name, value] of Object.entries(init.headers)) {
+    if (name.toLowerCase() === "cookie") cookies.push(`sent ${value}`);
   }
-  if (pathname === "/api/v1/auth/customer/sign-in") {
-    const signedIn = await handleCustomerAuth(
-      post(`${ORIGIN}/api/customer-auth/sign-in/email-otp`, { email: body.email, otp: body.code }),
-      hostEnv,
-    );
-    const cookie = signedIn.headers
-      .getSetCookie()
-      .map((c) => c.split(";")[0])
-      .join("; ");
-    if (signedIn.status !== 200 || !cookie) {
-      return Response.json(
-        {
-          error: {
-            code: "forbidden",
-            message: "That code did not work",
-            details: { reason: "invalid_code" },
-          },
-        },
-        { status: 401 },
-      );
-    }
-    const tokens = (await handleApi(
-      post(`${ORIGIN}/api/v1/auth/token`, { deviceName: body.deviceName }, { cookie }),
-      hostEnv,
-    )) as Response;
-    const { data } = (await tokens.json()) as { data: Record<string, unknown> };
-    return Response.json({ data: { ...data, account: "ready" } });
-  }
-  return (
-    (await handleApi(new Request(url, init), hostEnv)) ?? new Response("Not found", { status: 404 })
-  );
+  const response =
+    (await handleApi(new Request(url, init), hostEnv)) ??
+    new Response("Not found", { status: 404 });
+  for (const set of response.headers.getSetCookie()) cookies.push(`set ${set}`);
+  return response;
 };
 
 function memoryStore() {
@@ -146,6 +106,8 @@ describe("the template's mobile app against a local host", () => {
       body: "{}",
     });
     expect(after.status).toBe(401);
+    // No cookie, sent or set, at any step.
+    expect(cookies).toEqual([]);
   });
 
   it("refuses a wrong code and keeps nothing", async () => {

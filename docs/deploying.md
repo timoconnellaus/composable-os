@@ -309,7 +309,13 @@ export const product = defineClientProduct({
   refuses and lists them; with one it deploys it; with none declared it behaves as before, and
   `--env` is refused. Redeploying one never changes the other.
 - **Each web app's `HOST`** points at its own environment's host, and each host's
-  `CUSTOMER_AUTH_URL` at its own web app.
+  `CUSTOMER_AUTH_URL` at its own web app, and its `NATIVE_REDIRECT_URIS` at its own app build.
+- **Under [Cloudflare Access](#cloudflare-access)** each environment's host is its own hostname,
+  so each needs its own pair of Access applications: the one in front of the host, and the Bypass
+  one over the paths in [What stays behind Access](#what-stays-behind-access-and-what-is-bypassed).
+  The fake payment provider's page (`/gatekeeper/payments/fake/pay/*`) belongs only in an
+  environment marked `live: false`; `cos deploy` refuses the fake provider anywhere else. Staff are
+  invited per environment: an account on staging is not one on live.
 
 **An adopted site** (`web.deploy: "own"`) keeps its own Worker and its own deploy. `cos deploy
 --env <name>` deploys that environment's host and prints what the site's Worker config needs
@@ -343,6 +349,12 @@ environment's web app origin (`https://<web.hostname>`, else its workers.dev add
 secret, never printed and never written to disk or the repository. A later deploy never changes it.
 A product with no web app gets neither.
 
+**What `cos deploy` does not do: sending the codes.** Sign-in codes (customers' and staff's, on the
+web app and in the mobile app) go out only through the host's mail connection, and only once a
+human admin of that environment's host has chosen it and turned on **Send sign-in codes without
+review** for it in Settings → Users. Until then a code request answers `503`
+(`sign_in_not_set_up`). It is a human admin's decision, per environment, and no deploy makes it.
+
 **Rotating it** signs every customer out of that environment (their sessions no longer verify):
 `pnpm cos deploy --env <name> --rotate-customer-auth-secret`, or by hand
 `npx wrangler secret put CUSTOMER_AUTH_SECRET --name <id>-app` with a new random value
@@ -356,7 +368,9 @@ Staff sign in with the template's `staffSession`, by an emailed code or in the s
 For the browser, `cos deploy` sets the host's `NATIVE_REDIRECT_URIS` to `<scheme>://staff-sign-in`,
 the scheme being `mobile.scheme` (default the product's id; per environment,
 `environments.<name>.mobile.scheme`), which must match `expo.scheme` in the app's `app.json`. The
-token sign-in routes are the identity branch's (ADR 0455).
+native sign-in routes the app uses are ADR 0455's (`/api/v1/auth/{customer,staff}/code` and
+`/sign-in`, `/api/v1/auth/staff/exchange`, `/api/v1/auth/sign-out`); they answer with tokens and
+never a cookie. Staff need an invite with the role first (Settings → Users).
 
 ### Gatekeepers and their settings
 `product.ts` names the gatekeepers a host installs and their settings, for the whole product
@@ -383,9 +397,10 @@ environment not marked `live: false`, or a product without environments).
 2. In `product.ts`, set `ALLOWED_SENDER_DOMAINS` to that domain and `INTERNAL_DOMAINS` to the org's
    own, and if you want the binding limited to some addresses, `sendEmail.allowedSenderAddresses`.
 3. `pnpm cos deploy --env <name>`.
-4. As a human admin on the host, Settings → Integrations: enable email sending, create the org
-   connection, then choose it for customer mail (`customer.settings.update`, `emailConnectionId`).
-   Customer sign-in codes go out from it.
+4. As a human admin on the host, Settings → Integrations: enable email sending and create the org
+   connection. Then Settings → Users: choose it as the host's mail connection and turn on **Send
+   sign-in codes without review** for it. Customer and staff sign-in codes go out from it. `cos
+   deploy` never does this step.
 
 #### Stripe (payments), in a client repo
 The design is ADR 0429; the platform's own test-mode run is
