@@ -15,6 +15,7 @@ import type {
   IntegrationCallResult,
   IntegrationRuntime,
 } from "../integrations/runtime.ts";
+import type { CheckoutTax } from "./tax.ts";
 
 /** The vendor of the payments gatekeeper (`GATEKEEPER_PAYMENTS`, `/gatekeeper/payments/*`). */
 export const PAYMENTS_VENDOR = "payments";
@@ -40,6 +41,15 @@ export interface CheckoutRequest {
   returnUrl: string;
   customerEmail?: string | undefined;
   idempotencyKey: string;
+  /** Tax at checkout (ADR 0479): absent, the request is exactly as before tax existed. */
+  tax?: CheckoutTax;
+}
+
+/** The tax the provider calculated on a payment (gatekeeper PaymentsTaxReport). */
+export interface PaymentsTaxReport {
+  amount: number;
+  country: string | null;
+  lines: { ref: string; amount: number }[];
 }
 
 export interface ProviderCheckout {
@@ -70,6 +80,7 @@ export type PaymentsEvent =
       currency: string;
       paymentRef: string | null;
       occurredAt: string;
+      tax?: PaymentsTaxReport;
     }
   | {
       kind: "refund";
@@ -82,6 +93,7 @@ export type PaymentsEvent =
       amount: number;
       currency: string;
       occurredAt: string;
+      tax?: { amount: number };
     };
 
 const notConnected = () =>

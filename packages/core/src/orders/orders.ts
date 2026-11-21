@@ -75,6 +75,9 @@ export function orderSnapshot(row: OrderRow): Record<string, unknown> {
     paidAt: row.paid_at,
     cancelledAt: row.cancelled_at,
     refundedAt: row.refunded_at,
+    taxAmount: row.tax_amount,
+    taxRefunded: row.tax_refunded,
+    taxCountry: row.tax_country,
   };
 }
 
@@ -385,6 +388,9 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     access_until: null,
     email_link_hash: null,
     refunded: 0,
+    tax_amount: 0,
+    tax_refunded: 0,
+    tax_country: null,
     paid_at: null,
     cancelled_at: null,
     refunded_at: null,
@@ -445,6 +451,9 @@ export type OrderChange = Partial<
     | "paid_at"
     | "cancelled_at"
     | "refunded_at"
+    | "tax_amount"
+    | "tax_refunded"
+    | "tax_country"
   >
 >;
 

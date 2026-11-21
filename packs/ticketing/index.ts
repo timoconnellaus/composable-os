@@ -76,6 +76,19 @@ export default defineExtension({
             "shown, and its reminders sent, on this zone's days. Empty: this deployment's zone.",
         },
         venue: { type: "text", label: "Venue" },
+        // Where the event is, for tax at checkout (ADR 0479): admission is taxed where the event
+        // is held, so the payment provider is given this address, not the buyer's. Staff only.
+        taxCountry: {
+          type: "text",
+          label: "Country (for tax)",
+          description:
+            "Two letters, e.g. AU. Needed to sell tickets while tax at checkout is on: tickets " +
+            "are taxed where the event is held.",
+        },
+        taxRegion: { type: "text", label: "State or region (for tax)" },
+        taxPostcode: { type: "text", label: "Postcode (for tax)" },
+        taxCity: { type: "text", label: "City (for tax)" },
+        taxAddress: { type: "text", label: "Street address (for tax)" },
         description: { type: "longText", label: "Description" },
         image: { type: "url", label: "Image" },
         status: {
@@ -172,6 +185,21 @@ export default defineExtension({
             code: "code",
           },
           void: "void",
+        },
+        // Tax at checkout (ADR 0479), only once a human admin turns it on: Stripe's "Admission to
+        // Amusement, Entertainment & Recreation Venues – Participant", taxed at the event's place.
+        // Which code fits the company's events is its accountant's call; an admin may change it
+        // in Settings → Orders.
+        tax: {
+          code: "txcd_50010001",
+          place: {
+            via: "event",
+            country: "taxCountry",
+            region: "taxRegion",
+            postcode: "taxPostcode",
+            city: "taxCity",
+            line1: "taxAddress",
+          },
         },
       },
       // A ticket type is public while its event is on sale; its places are capacity.get's.

@@ -1607,3 +1607,242 @@ describe("the door role (criterion 6b, ADR 0436)", () => {
     }
   });
 });
+
+// --- Stage 42 section 4: tax at checkout on tickets (ADR 0479) -----------------------------------
+// The same pack with tax turned on by a human admin: the ticket type's default code, the event's
+// place, the real gatekeeper's fake provider calculating tax as the provider does (registered in
+// AU at 10%, NZ at 15% and GB at 20%; elsewhere nothing), and everything else exactly as above.
+
+describe("tax at checkout on tickets (stage 42 criteria 12a, 12b and 12c)", () => {
+  const ADMISSION = "txcd_50010001";
+  const NZ_PLACE = { taxCountry: "NZ", taxRegion: "Otago", taxPostcode: "9300" };
+
+  /** Pays on the fake provider's page from `country`, the billing address Stripe requires. */
+  async function payFrom(url: string, country: string | null) {
+    return runner.gatekeeperFetch(
+      "payments",
+      new Request(url, {
+        method: "POST",
+        body: new URLSearchParams({ outcome: "pay", ...(country ? { country } : {}) }),
+        redirect: "manual",
+      }),
+    );
+  }
+
+  async function openCheckout(order: Order, ctx: OutsideInvocationContext, amount?: number) {
+    return run<{ url: string; amount: number }>(
+      "order.checkout",
+      {
+        id: order.id,
+        ...(order.token ? { token: order.token } : {}),
+        returnUrl: RETURN,
+        ...(amount ? { amount } : {}),
+      },
+      ctx,
+    );
+  }
+
+  type PaymentRow = {
+    amount: number;
+    tax_amount: number | null;
+    tax_country: string | null;
+    payment_ref: string;
+  };
+  async function paymentsOf(orderId: string) {
+    const { results } = await env.DB.prepare(
+      "SELECT amount, tax_amount, tax_country, payment_ref FROM core_order_payment WHERE order_id = ? AND outcome = 'applied' ORDER BY received_at, event_id",
+    )
+      .bind(orderId)
+      .all<PaymentRow>();
+    return results;
+  }
+
+  /** An event on sale in New Zealand, its tax address set, with ticket types of it. */
+  async function taxedEvent(types: Record<string, unknown>[]) {
+    const made = await eventWith(types);
+    await run("record.update", { object: EVENT, id: made.event, values: NZ_PLACE }, staff(admin));
+    return made;
+  }
+
+  beforeAll(async () => {
+    await run("order.settings.update", { tax: true }, staff(admin));
+  });
+  afterAll(async () => {
+    await run("order.settings.update", { tax: false }, staff(admin));
+  });
+
+  it("declares the admission code by default", async () => {
+    expect(getObject(TICKET_TYPE)?.sellable?.tax).toMatchObject({
+      code: ADMISSION,
+      place: { via: "event", country: "taxCountry" },
+    });
+    const settings = await run<{ taxObjects: { object: string; code: string }[] }>(
+      "order.settings.get",
+      {},
+      staff(admin),
+    );
+    expect(settings.taxObjects).toContainEqual(
+      expect.objectContaining({ object: TICKET_TYPE, code: ADMISSION }),
+    );
+  });
+
+  it("two ticket types: each line's code and the event's place; tax per payment and in total (12a)", async () => {
+    const { event, types } = await taxedEvent([{ price: 45 }, { price: 120 }]);
+    const order = await run<Order>(
+      "x.ticketing.orderStart",
+      {
+        lines: [
+          { ticketTypeId: types[0], quantity: 2 },
+          { ticketTypeId: types[1], quantity: 1 },
+        ],
+        email: buyerEmail(),
+      },
+      guest,
+    );
+    expect(order.total).toBe(21000);
+    expect(await counter(EVENT, event)).toEqual({ held: 3, taken: 0 });
+    const checkout = await openCheckout(order, guest);
+    // The amount asked is the price: tax is inside it.
+    expect(checkout.amount).toBe(21000);
+    const sent = await env.DB.prepare(
+      "SELECT tax_lines FROM core_order_checkout WHERE order_id = ?",
+    )
+      .bind(order.id)
+      .first<{ tax_lines: string }>();
+    const place = { country: "NZ", region: "Otago", postcode: "9300" };
+    expect(JSON.parse(sent?.tax_lines ?? "null")).toEqual([
+      expect.objectContaining({ amount: 9000, taxCode: ADMISSION, place }),
+      expect.objectContaining({ amount: 12000, taxCode: ADMISSION, place }),
+    ]);
+    // The provider requires the billing address: without it nothing is paid.
+    expect((await payFrom(checkout.url, null)).status).toBe(400);
+    expect((await orderState(order.id)).state).toBe("pending");
+    // Paid from Australia; admission is taxed where the event is (New Zealand, 15%).
+    expect((await payFrom(checkout.url, "AU")).status).toBe(303);
+    await waitForState(order.id, "paid");
+    const paid = await run<{
+      total: number;
+      paid: number;
+      taxAmount: number;
+      taxCountry: string;
+      lines: { taxAmount: number }[];
+    }>("order.get", { id: order.id }, staff(admin));
+    // 9000 - round(9000 / 1.15) = 1174; 12000 - round(12000 / 1.15) = 1565.
+    expect(paid).toMatchObject({ total: 21000, paid: 21000, taxAmount: 2739, taxCountry: "NZ" });
+    expect(paid.lines.map((l) => l.taxAmount)).toEqual([1174, 1565]);
+    expect(await paymentsOf(order.id)).toEqual([
+      expect.objectContaining({ amount: 21000, tax_amount: 2739, tax_country: "NZ" }),
+    ]);
+    // Places held and confirmed, tickets granted and checked in, as without tax.
+    expect(await counter(EVENT, event)).toEqual({ held: 0, taken: 3 });
+    const tickets = await ticketsOf(order.id);
+    expect(tickets.map((t) => t.values.state)).toEqual(["valid", "valid", "valid"]);
+    const scan = await run<{ accepted: boolean }>(
+      "x.ticketing.checkIn",
+      { code: tickets[0]?.values.code },
+      staff(door),
+    );
+    expect(scan.accepted).toBe(true);
+  });
+
+  it("a deposit and the balance in two parts: each payment taxed on its own amount (12b)", async () => {
+    const { types } = await taxedEvent([
+      { price: 1000, depositAmount: 200, balanceDue: NEXT_YEAR },
+    ]);
+    const buyer = await createCustomer("taxdeposit");
+    const order = await run<Order>(
+      "x.ticketing.orderStart",
+      { lines: [{ ticketTypeId: types[0] }], pay: "deposit" },
+      as(buyer.principal),
+    );
+    for (const [amount, country, paidSoFar] of [
+      [undefined, "AU", 20000],
+      [30000, "GB", 50000],
+      [50000, "NZ", 100000],
+    ] as const) {
+      const checkout = await openCheckout(order, as(buyer.principal), amount);
+      expect((await payFrom(checkout.url, country)).status).toBe(303);
+      await vi.waitFor(async () => expect((await orderState(order.id)).paid).toBe(paidSoFar), {
+        timeout: 20_000,
+      });
+    }
+    // The buyer's address moved between payments; the event's place did not, nor did the rate.
+    const rows = await paymentsOf(order.id);
+    expect(rows.map((r) => [r.amount, r.tax_amount, r.tax_country])).toEqual([
+      [20000, 2609, "NZ"],
+      [30000, 3913, "NZ"],
+      [50000, 6522, "NZ"],
+    ]);
+    const paid = await run<{ state: string; total: number; paid: number; taxAmount: number }>(
+      "order.get",
+      { id: order.id },
+      staff(admin),
+    );
+    // Owed exactly as without tax; the order's tax is the sum of what the provider said.
+    expect(paid).toMatchObject({
+      state: "paid",
+      total: 100000,
+      paid: 100000,
+      taxAmount: 2609 + 3913 + 6522,
+    });
+    expect(await ticketsOf(order.id)).toHaveLength(1);
+  });
+
+  it("a part-paid order cancelled, then each payment refunded as its own action (12c)", async () => {
+    const { event, types } = await taxedEvent([
+      { price: 1000, depositAmount: 200, balanceDue: NEXT_YEAR },
+    ]);
+    const buyer = await createCustomer("taxcancel");
+    const order = await run<Order>(
+      "x.ticketing.orderStart",
+      { lines: [{ ticketTypeId: types[0] }], pay: "deposit" },
+      as(buyer.principal),
+    );
+    for (const [amount, paidSoFar] of [
+      [undefined, 20000],
+      [30000, 50000],
+    ] as const) {
+      const checkout = await openCheckout(order, as(buyer.principal), amount);
+      await payFrom(checkout.url, "AU");
+      await vi.waitFor(async () => expect((await orderState(order.id)).paid).toBe(paidSoFar), {
+        timeout: 20_000,
+      });
+    }
+    await run("order.cancel", { id: order.id }, staff(admin));
+    expect((await orderState(order.id)).state).toBe("cancelled");
+    expect((await ticketsOf(order.id)).map((t) => t.values.state)).toEqual(["void"]);
+    expect(await counter(EVENT, event)).toEqual({ held: 0, taken: 0 });
+
+    const asked = await run<{
+      refunds: { paymentRef: string; amount: number; pendingActionId: string }[];
+    }>("order.refund", { id: order.id, reason: "Event cancelled" }, staff(admin));
+    const payments = await paymentsOf(order.id);
+    // One refund per payment, each back to its own payment, for that payment's amount.
+    expect(asked.refunds.map((r) => `${r.paymentRef}:${r.amount}`).sort()).toEqual(
+      payments.map((p) => `${p.payment_ref}:${p.amount}`).sort(),
+    );
+    for (const refund of asked.refunds) {
+      await run("approval.approve", { actionIds: [refund.pendingActionId] }, staff(admin));
+    }
+    await vi.waitFor(
+      async () => {
+        const row = await env.DB.prepare("SELECT refunded FROM core_order WHERE id = ?")
+          .bind(order.id)
+          .first<{ refunded: number }>();
+        expect(row?.refunded).toBe(50000);
+      },
+      { timeout: 20_000 },
+    );
+    const refunds = await env.DB.prepare(
+      "SELECT payment_ref, amount, tax_amount FROM core_order_refund WHERE order_id = ? AND status = 'confirmed'",
+    )
+      .bind(order.id)
+      .all<{ payment_ref: string; amount: number; tax_amount: number | null }>();
+    // Each payment's tax is known (the provider reported it). A refund's is recorded only when the
+    // provider's refund event says it: Stripe's Refund carries no tax figure, and the fake provider
+    // behaves the same, so none is recorded rather than one the host worked out (ADR 0479).
+    expect(refunds.results.map((r) => r.tax_amount)).toEqual([null, null]);
+    expect(payments.map((p) => p.tax_amount)).toEqual([2609, 3913]);
+    expect((await orderState(order.id)).state).toBe("cancelled");
+  });
+});

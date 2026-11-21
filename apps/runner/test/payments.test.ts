@@ -15,8 +15,9 @@ import {
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { manifestSchema, toManifest } from "@composable-os/sdk";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import boxOfficeExtension from "../../../packages/core/test/fixtures/boxoffice/index.ts";
+import courseExtension from "../../../packages/core/test/fixtures/onlinecourse/index.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { createAdmin, db, install, unique } from "./helpers.ts";
 
@@ -263,5 +264,148 @@ describe("refunds (criterion 8)", () => {
     expect(refund).toEqual({ status: "confirmed", amount: 9000 });
     // Refunded in full: what it granted is void (stage 27).
     expect((await ticketsOf(order.id)).map((t) => t.state)).toEqual(["void", "void"]);
+  });
+});
+
+// --- Stage 42 section 4: tax at checkout (ADR 0479), criteria 11 and 12 --------------------------
+
+describe("tax at checkout through the fake provider (stage 42 criteria 11 and 12)", () => {
+  const COURSE_EXT = unique("crs").slice(0, 20);
+  let course: string;
+
+  /** The fake page: Pay, from `country` (the billing address the provider requires with tax). */
+  async function payFrom(url: string, country?: string) {
+    return runner.gatekeeperFetch(
+      "payments",
+      new Request(url, {
+        method: "POST",
+        body: new URLSearchParams({ outcome: "pay", ...(country ? { country } : {}) }),
+        redirect: "manual",
+      }),
+    );
+  }
+
+  async function buyCourse() {
+    const order = (await invokeByName(
+      "order.start",
+      {
+        lines: [{ object: `${COURSE_EXT}.course`, id: course }],
+        email: `${unique("learner")}@buyers.test`.toLowerCase(),
+      },
+      guest,
+    )) as { id: string; token: string; total: number };
+    const checkout = (await invokeByName(
+      "order.checkout",
+      { id: order.id, token: order.token, returnUrl: RETURN },
+      guest,
+    )) as { url: string; amount: number };
+    return { order, checkout };
+  }
+
+  const taxLinesOf = async (orderId: string) =>
+    (
+      await env.DB.prepare("SELECT tax_lines FROM core_order_checkout WHERE order_id = ?")
+        .bind(orderId)
+        .first<{ tax_lines: string | null }>()
+    )?.tax_lines;
+
+  beforeAll(async () => {
+    const json = JSON.stringify(toManifest(courseExtension)).replaceAll(
+      '"onlinecourse',
+      `"${COURSE_EXT}`,
+    );
+    const plan = await planReconcile(db.query, manifestSchema.parse(JSON.parse(json)), {
+      now: new Date().toISOString(),
+    });
+    expect(plan.issues).toEqual([]);
+    await applyPlan((statements) => db.batch(statements), plan);
+    await refreshSchemaRegistry(db.query);
+    course = (
+      (await invokeByName(
+        "record.create",
+        { object: `${COURSE_EXT}.course`, values: { name: "Mobility", price: 99 } },
+        staff(admin),
+      )) as { id: string }
+    ).id;
+  });
+  afterAll(async () => {
+    await invokeByName("order.settings.update", { tax: false }, staff(admin));
+  });
+
+  it("off: the course's checkout is as before tax, and is paid with no address (12)", async () => {
+    const { order, checkout } = await buyCourse();
+    expect(await taxLinesOf(order.id)).toBeNull();
+    const page = await (await runner.gatekeeperFetch("payments", new Request(checkout.url))).text();
+    expect(page).not.toContain('name="country"');
+    expect((await payFrom(checkout.url)).status).toBe(303);
+    await vi.waitFor(async () => expect((await view(order.id, order.token)).state).toBe("paid"), {
+      timeout: 15_000,
+    });
+    const row = await env.DB.prepare(
+      "SELECT tax_amount, tax_country FROM core_order_payment WHERE order_id = ?",
+    )
+      .bind(order.id)
+      .first();
+    expect(row).toEqual({ tax_amount: null, tax_country: null });
+  });
+
+  it("on: automatic tax, inclusive, address required; the provider's tax stored (11)", async () => {
+    await invokeByName("order.settings.update", { tax: true }, staff(admin));
+    // The box office's ticket type declares no code: exactly as before, with tax on (12).
+    const plain = await startAndOpen();
+    expect(await taxLinesOf(plain.order.id)).toBeNull();
+
+    const { order, checkout } = await buyCourse();
+    expect(order.total).toBe(9900);
+    expect(checkout.amount).toBe(9900);
+    expect(JSON.parse((await taxLinesOf(order.id)) ?? "null")).toEqual([
+      expect.objectContaining({ amount: 9900, taxCode: "txcd_20060158", name: "Mobility" }),
+    ]);
+    const page = await (await runner.gatekeeperFetch("payments", new Request(checkout.url))).text();
+    expect(page).toContain('name="country" required');
+    expect((await payFrom(checkout.url)).status).toBe(400);
+    // From Australia, where the fake provider is registered at 10%: 9900 - round(9900 / 1.1).
+    expect((await payFrom(checkout.url, "AU")).status).toBe(303);
+    await vi.waitFor(async () => expect((await view(order.id, order.token)).state).toBe("paid"), {
+      timeout: 15_000,
+    });
+    const paid = (await invokeByName("order.get", { id: order.id }, staff(admin))) as {
+      total: number;
+      paid: number;
+      taxAmount: number;
+      taxCountry: string;
+      lines: { taxAmount: number }[];
+    };
+    expect(paid).toMatchObject({ total: 9900, paid: 9900, taxAmount: 900, taxCountry: "AU" });
+    expect(paid.lines[0]?.taxAmount).toBe(900);
+
+    // From the United States, where it is not registered: no tax, and the order says zero.
+    const elsewhere = await buyCourse();
+    await payFrom(elsewhere.checkout.url, "US");
+    await vi.waitFor(
+      async () =>
+        expect((await view(elsewhere.order.id, elsewhere.order.token)).state).toBe("paid"),
+      { timeout: 15_000 },
+    );
+    expect(await invokeByName("order.get", { id: elsewhere.order.id }, staff(admin))).toMatchObject(
+      { paid: 9900, taxAmount: 0, taxCountry: "US" },
+    );
+
+    // A refund records as before.
+    const asked = (await invokeByName(
+      "order.refund",
+      { id: order.id, reason: "Changed mind" },
+      staff(admin),
+    )) as { refunds: { amount: number; pendingActionId: string }[] };
+    expect(asked.refunds.map((r) => r.amount)).toEqual([9900]);
+    await invokeByName(
+      "approval.approve",
+      { actionIds: [asked.refunds[0]?.pendingActionId] },
+      staff(admin),
+    );
+    await vi.waitFor(
+      async () => expect((await view(order.id, order.token)).state).toBe("refunded"),
+      { timeout: 15_000 },
+    );
   });
 });

@@ -12,6 +12,7 @@ import {
 import { Input } from "@composable-os/ui/components/input";
 import { Label } from "@composable-os/ui/components/label";
 import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { Switch } from "@composable-os/ui/components/switch";
 import { Textarea } from "@composable-os/ui/components/textarea";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { LockIcon } from "lucide-react";
@@ -43,7 +44,10 @@ function OrderSettingsPage() {
       }
     >
       {isAdmin ? (
-        <OrderSettingsForm />
+        <div className="grid gap-6">
+          <OrderSettingsForm />
+          <TaxSettings />
+        </div>
       ) : (
         <p
           className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2 text-sm"
@@ -54,6 +58,106 @@ function OrderSettingsPage() {
         </p>
       )}
     </PageLayout>
+  );
+}
+
+/**
+ * Tax at checkout (ADR 0479): a human admin's switch, off until turned on, and the product tax
+ * code each object for sale is taxed at. The provider (Stripe Tax) works the tax out inside the
+ * price, so what a buyer pays does not change.
+ */
+function TaxSettings() {
+  const settings = useOp("order.settings.get", {});
+  const update = useOpMutation("order.settings.update");
+  const [error, setError] = useState<string | null>(null);
+  if (settings.isPending) return <Skeleton className="h-48" />;
+  if (settings.isError) return null;
+  const current = settings.data;
+
+  async function save(values: { tax?: boolean; taxCodes?: Record<string, string> }) {
+    setError(null);
+    try {
+      await update.mutateAsync(values);
+      toast.success("Tax settings saved");
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function onCodes(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const taxCodes: Record<string, string> = {};
+    for (const item of current.taxObjects) {
+      const code = String(form.get(item.object) ?? "").trim();
+      // An object left at its pack's code keeps no override.
+      if (code && code !== item.declared) taxCodes[item.object] = code;
+    }
+    await save({ taxCodes });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Tax at checkout</CardTitle>
+        <CardDescription>
+          The payment provider works out the tax inside each price, from the buyer's billing
+          address, or where an event is held. Prices stay what the buyer pays; turning this on
+          changes what the company keeps. The provider charges tax only where the company has added
+          a tax registration in its own Stripe account: with none, nothing is charged anywhere. See
+          the Stripe runbook (docs/payments-stripe-runbook.md) before turning it on.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-5" data-testid="tax-settings">
+        <div className="flex items-center gap-3">
+          <Switch
+            id="order-tax"
+            checked={current.tax}
+            disabled={update.isPending}
+            onCheckedChange={(on) => void save({ tax: on })}
+          />
+          <Label htmlFor="order-tax">
+            {current.tax ? "On: the provider calculates tax" : "Off: no tax is calculated"}
+          </Label>
+        </div>
+        {current.taxObjects.length ? (
+          <form onSubmit={onCodes} className="grid gap-3" key={JSON.stringify(current.taxCodes)}>
+            {current.taxObjects.map((item) => (
+              <div key={item.object} className="grid gap-1">
+                <Label htmlFor={`tax-${item.object}`}>
+                  {item.label} {item.place ? "(taxed where the event is held)" : ""}
+                </Label>
+                <Input
+                  id={`tax-${item.object}`}
+                  name={item.object}
+                  defaultValue={item.code}
+                  placeholder={item.declared}
+                  className="w-48 font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Its pack's code is {item.declared}. Which code applies is the company's call with
+                  its accountant.
+                </p>
+              </div>
+            ))}
+            <div>
+              <Button type="submit" variant="outline" disabled={update.isPending}>
+                Save tax codes
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Nothing for sale declares a tax code yet, so nothing would be taxed.
+          </p>
+        )}
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

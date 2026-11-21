@@ -13,11 +13,14 @@ import {
   baseUrl,
   fakeEnabled,
   fakeWebhookSecret,
+  stripeAccount,
+  stripeApiBase,
+  stripeSecretKey,
   stripeWebhookSecret,
   type VerifiedWebhook,
 } from "./provider.js";
 import { signatureHeader } from "./signature.js";
-import { verifyStripeWebhook } from "./stripe.js";
+import { StripeProvider, verifyStripeWebhook, withStripeTaxLines } from "./stripe.js";
 import type { PaymentsProviderName } from "./types.js";
 
 type Env = Cloudflare.Env;
@@ -128,11 +131,29 @@ export async function handleInbound(
       : await verifyFakeWebhook(fakeWebhookSecret(env), headers, body, nowSeconds);
   const events = eventsStub(env, provider);
   if (!verified.ok) {
+    if (verified.retry) return json(500, { ok: false, error: "try again" });
     await events.countRejected();
     return json(401, { ok: false, error: verified.reason });
   }
   if (verified.events.length === 0) return json(200, { ok: true, ignored: true });
-  const { duplicate } = await events.receive(verified.eventId, verified.events);
+  let received = verified.events;
+  if (provider === "stripe" && received.some((e) => e.kind === "payment" && e.tax)) {
+    // Each line's tax is on the session's line items, not in the webhook: read it before storing.
+    const stripe = new StripeProvider({
+      secretKey: stripeSecretKey(env),
+      webhookSecret: stripeWebhookSecret(env),
+      apiBase: stripeApiBase(env),
+      account: stripeAccount(env),
+    });
+    try {
+      received = await Promise.all(
+        received.map((event) => withStripeTaxLines(event, (ref) => stripe.taxLines(ref))),
+      );
+    } catch {
+      return json(500, { ok: false, error: "try again" });
+    }
+  }
+  const { duplicate } = await events.receive(verified.eventId, received);
   return json(200, duplicate ? { ok: true, duplicate: true } : { ok: true });
 }
 
@@ -221,8 +242,16 @@ async function submitFakePage(request: Request, env: Env, ref: string): Promise<
     if (!checkout) return new Response("Not found", { status: 404 });
     return redirect(checkout.returnUrl);
   }
-  const paid = await ledger.pay(ref, null);
+  const country = form.get("country");
+  if (country !== null && country !== "" && !/^[A-Z]{2}$/.test(country)) {
+    return new Response("country must be two upper-case letters", { status: 400 });
+  }
+  const paid = await ledger.pay(ref, null, country || null);
   if (!paid.found) return new Response("Not found", { status: 404 });
+  // Stripe requires the billing address when it calculates tax; so does the fake.
+  if (paid.needsAddress) {
+    return new Response("A billing address is required: choose a country", { status: 400 });
+  }
   const { checkout } = paid;
   if (paid.newlyPaid) {
     await deliverFakeEvent(env, {
@@ -236,6 +265,7 @@ async function submitFakePage(request: Request, env: Env, ref: string): Promise<
         amount: checkout.paidAmount ?? checkout.amount,
         currency: checkout.currency,
         paymentRef: checkout.paymentRef,
+        ...(checkout.taxReport ? { tax: checkout.taxReport } : {}),
       },
     });
   }

@@ -85,6 +85,62 @@ Take a screenshot at each numbered check into `docs/stages/assets/stage-25-strip
 2. Pay on the Stripe page. **Check 11:** the order stays Expired, appears under Orders → Paid
    late, and admins get a notice. Honour it or refund it; it leaves the list.
 
+## 8. Tax at checkout (stage 42 criterion 13; ADR 0479)
+**Status: not yet run; needs a person with a Stripe account.** Automated tests use the fake
+provider only. Take screenshots into `docs/stages/assets/stage-42-tax/`.
+
+### What the company sets up in its own Stripe account (not the platform's work)
+- **Stripe Tax on, with its head office address** (Dashboard → Tax → Settings, or the Tax
+  Settings API: `head_office`). Until it is set, Stripe Tax's settings are `pending` and nothing
+  is calculated.
+- **A registration for every place it must collect** (Dashboard → Tax → Registrations): for
+  online courses, where its buyers are; for events, each place it holds them. Stripe collects only
+  where a registration is active: a host that turns tax on with none charges no tax anywhere, and
+  the order says zero.
+- **The product tax codes.** The packs declare Stripe's `txcd_20060158` (on-demand online
+  courses, streamed) and `txcd_50010001` (admission, participant). Which code fits its courses and
+  events (a camp with lodging may need another treatment, a workshop may be `txcd_20060044`
+  Training) is the company's call with its accountant. Change one in Settings → Orders → Tax at
+  checkout. Stripe's default product tax code (Tax → Settings) cannot be an event code; set it to
+  something general, such as `txcd_20030000`.
+- **Who files and pays the returns.** Stripe reports; filing is the company's or a partner's.
+- **Stripe Tax's fee** is the company's: on the Australian price page (read 2026-11-22), 0.5% per
+  transaction where it is registered, for Checkout. Check the current page for its country.
+- **The API version.** The gatekeeper sends `Stripe-Version: 2026-09-30.endive` on its tax calls
+  only (the version Stripe documents for event tax). Nothing to set.
+- **A restricted key** also needs write access to Tax Locations and read access to Checkout
+  Session line items (check the permission names in the Dashboard; not checked by the build).
+
+### The run (test mode)
+1. In test mode: set the head office and add a test registration, for example Australia (GST)
+   and, for the event check, New Zealand.
+2. As a human admin, Settings → Orders → Tax at checkout: turn it on. **Check 12:** the screen
+   says the provider charges only where the company is registered, and lists Ticket type
+   (`txcd_50010001`, taxed where the event is held) and any course object.
+3. Course: sell something whose object declares `txcd_20060158` (the fixture
+   `packages/core/test/fixtures/onlinecourse`, installed as the box office is in part 3, until the
+   Courses pack exists), priced 99.00. Buy it with a billing address in Australia.
+   **Check 13:** Stripe's page asks for the billing address and shows the price, tax included
+   (not added); the order shows Paid 99.00 with "Including tax" 9.00 (10% inside); Stripe →
+   the payment → Tax shows the same. Buy it again from a country with no registration (for
+   example the United States). **Check 14:** no tax; the order says tax 0.
+4. Event: create a Ticketing event with Country (for tax) `NZ` and its region and postcode, on
+   sale, with a ticket type priced 45.00. Buy two from an Australian billing address.
+   **Check 15:** Stripe calculates New Zealand tax (15% inside: 11.74 on 90.00), by the event's
+   place, not the buyer's; the order and each line show it. Stripe → Tax → Locations lists the
+   venue once, and a second order reuses it.
+5. Deposit: a ticket type with a deposit; pay the deposit, then the balance in two parts.
+   **Check 16:** each payment carries its own tax; the order's tax is their sum; the amount owed is
+   as without tax.
+6. Refund one payment. **Check 17:** the refund goes through; Stripe's tax report shows the
+   reversal; the host records the refund with its tax as not reported (Stripe's Refund carries no
+   tax field, ADR 0479). Note what Stripe's reports show for the refunded tax: it decides how
+   criterion 12c is met.
+7. An event with no Country (for tax): **Check 18:** checkout is refused while tax is on, with
+   a message that the event has no country for tax.
+8. Turn tax off. **Check 19:** a new checkout is exactly as before (Stripe's page asks for no
+   address unless Stripe needs one for the card).
+
 ## Afterwards
 Uninstall the box office extension if you installed it for this run, and delete the test-mode
 webhook endpoint if you do not need it again. Record the date, who ran it and any differences in this file's status line.

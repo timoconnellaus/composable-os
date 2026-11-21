@@ -630,9 +630,35 @@ Step 1 can run in parallel with steps 2 to 4: it is orders and the gatekeeper, t
 the seam. Steps 2 to 4 are the spine of courses: video that only a holder can play, and the one
 rule that says who is a holder.
 
+## Build step 1, tax at checkout, as built (2026-11-22)
+ADR 0479, migration 0516. Where the build read the spec one way, or decided what it left open:
+
+- **Stripe Tax can take an event's place at Checkout** (read 2026-11-22): a tax location of type
+  `performance` (`POST /v1/tax/locations`) passed as
+  `line_items[].price_data.product_data.tax_details.performance_location`, from API version
+  `2026-09-30.endive`. `txcd_50010001` requires one. So a Ticketing event has a tax address
+  (`taxCountry`, `taxRegion`, `taxPostcode`, `taxCity`, `taxAddress`) and the ticket type declares
+  `txcd_50010001` with it; an event with no country for tax cannot be sold while tax is on.
+- **Each payment's tax is on `core_order_payment`** (the verified payment), not on
+  `core_order_checkout`, which keeps what was asked (`tax_lines`): a checkout may never be paid.
+- **A payment is split over the lines in proportion to their totals**, so each share has its
+  code; a deposit's share is in proportion too, not each line's own deposit.
+- **A refund's tax is not known with Stripe:** its Refund object has no tax field (the guess at
+  the field is answered: there is none). The host records a refund's tax only when the provider's
+  event says it, so criterion 12c's "each refund records the tax returned" is not met with
+  Stripe, and the fake provider, behaving as Stripe does, reports none either. **Open for the
+  owner:** how a refund's tax is to be known (Stripe's reports, or another Stripe API, read by
+  hand in the runbook's check 17), since the host does not work it out.
+- **An order mixing lines with a code and lines without one** cannot be paid while tax is on
+  (Stripe would use the account's default code).
+- **Settings → Orders → Tax at checkout**: the switch, each object's code, and the warning that
+  nothing is charged without registrations.
+- Not run: Stripe in test mode (criterion 13, the runbook's part 8).
+
 ## Still open
-- **Whether Stripe Tax can take an event's place at Checkout** is checked in build step 1; if it
-  cannot, the build stops for a decision before tickets are taxed.
+- **Whether Stripe Tax can take an event's place at Checkout**: answered in build step 1, yes
+  (above).
+- **How a refund's tax is known with Stripe** (above): the owner's decision.
 - **Whether an AI may ask for a publish** is the platform's open question, not this stage's; this
   spec fits either answer.
 
