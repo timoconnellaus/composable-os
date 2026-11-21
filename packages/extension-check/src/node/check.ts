@@ -44,6 +44,17 @@ function siblingsNamed(dir: string, id: string, manifest: unknown): string[] {
     const name = match[1] as string;
     if (name !== id && existsSync(join(dirname(resolve(dir)), name, "index.ts"))) names.add(name);
   }
+  // The extensions it requires (stage 42, ADR 0478), named or not.
+  const required = (manifest as { requires?: unknown } | null)?.requires;
+  for (const name of Array.isArray(required) ? required : []) {
+    if (
+      typeof name === "string" &&
+      name !== id &&
+      existsSync(join(dirname(resolve(dir)), name, "index.ts"))
+    ) {
+      names.add(name);
+    }
+  }
   return [...names].sort();
 }
 
@@ -65,7 +76,9 @@ async function installSibling(
     if (why) return `${sibling}: ${why}`;
   }
   await refreshSchemaRegistry(local.db);
-  const { issues, plan } = await checkManifest(local.db, id, evaluated.manifest, now);
+  const { issues, plan } = await checkManifest(local.db, id, evaluated.manifest, now, {
+    installed: [...done],
+  });
   if (issues.length || !plan) return issues[0]?.message ?? "it has no reconcile plan";
   local.batch(plan.statements);
   return null;
@@ -142,8 +155,8 @@ export async function checkExtensionDir(
   const local = await createLocalDb(platform.migrations);
   try {
     const before: CheckIssue[] = [];
+    const done = new Set([id]);
     if (evaluated.ok) {
-      const done = new Set([id]);
       for (const sibling of siblingsNamed(root, id, evaluated.manifest)) {
         const why = await installSibling(platform, local, join(dirname(root), sibling), now, done);
         if (why) {
@@ -158,7 +171,7 @@ export async function checkExtensionDir(
       }
     }
     await refreshSchemaRegistry(local.db);
-    const result = await checkEvaluated(local.db, id, evaluated, now);
+    const result = await checkEvaluated(local.db, id, evaluated, now, { installed: [...done] });
     const issues = [...before, ...result.issues];
     return {
       ...result,

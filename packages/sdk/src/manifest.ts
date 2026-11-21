@@ -199,6 +199,7 @@ export const objectManifestSchema = z.object({
       field: z.string().max(40),
       read: z.array(z.string().max(40)).max(100),
       write: z.array(z.string().max(40)).max(100),
+      requireAccess: z.array(z.string().max(40)).max(10).optional(),
     })
     .strict()
     .optional(),
@@ -420,6 +421,10 @@ export const manifestSchema = z.object({
   contractVersion: z.number().int(),
   label: z.string().max(100).optional(),
   description: z.string().max(2000).optional(),
+  requires: z
+    .array(z.string().regex(/^[a-z][a-z0-9]*$/))
+    .max(10)
+    .optional(),
   permissions: permissionsManifestSchema.default({
     read: [],
     write: [],
@@ -495,7 +500,8 @@ function checkDocumentField(
     contract(`${path}.schema`, "A document field declares its schema");
     return;
   }
-  const problems = checkDocumentSchema(field.schema, known);
+  // A document's refs may also name the media library (stage 42, ADR 0475): a lesson's video.
+  const problems = checkDocumentSchema(field.schema, new Set([...known, "media"]));
   for (const [at, message] of problems) contract(`${path}.schema${at ? `.${at}` : ""}`, message);
   if (
     field.maxBytes !== undefined &&
@@ -645,6 +651,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
       ]),
     ),
     ...(extension.grantable ? { grantable: [...extension.grantable] } : {}),
+    ...(extension.requires?.length ? { requires: [...extension.requires] } : {}),
     roles: Object.fromEntries(
       Object.entries(extension.roles ?? {}).map(([name, role]) => [
         name,
@@ -1243,6 +1250,32 @@ export function validateManifest(
         `${path}.field`,
         `customerVia.field "${v.field}" must be one ${local}'s customer may read (customer.read)`,
       );
+    }
+  }
+
+  // The extensions this one needs installed first (stage 42): never itself, each once.
+  for (const [i, required] of (m.requires ?? []).entries()) {
+    if (required === m.id) contract(`requires.${i}`, "An extension does not require itself");
+    if ((m.requires ?? []).indexOf(required) !== i) {
+      contract(`requires.${i}`, `"${required}" is listed twice`);
+    }
+  }
+
+  // A customer's write that needs access to what it points to (stage 42, ADR 0478): relations of
+  // the object to one record of another of this extension's objects that declares `access`.
+  for (const [name, object] of Object.entries(m.objects)) {
+    for (const fieldName of object.customer?.requireAccess ?? []) {
+      const path = `objects.${name}.customer.requireAccess`;
+      const field = object.fields[fieldName];
+      const local = field?.to?.startsWith(`${m.id}.`) ? field.to.slice(m.id.length + 1) : null;
+      const target = local ? m.objects[local] : undefined;
+      if (field?.type !== "relation" || field.many || !target) {
+        contract(path, `"${fieldName}" must be a relation of ${name} to one of this extension's objects`);
+      } else if (!target.access) {
+        contract(path, `"${fieldName}" points to ${local}, which declares no access`);
+      } else if (!object.customer?.read.includes(fieldName)) {
+        contract(path, `"${fieldName}" must be one the customer reads (customer.read)`);
+      }
     }
   }
 

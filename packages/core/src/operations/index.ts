@@ -53,6 +53,7 @@ import { personOperations } from "./person.ts";
 import { planOperations } from "./plan.ts";
 import { policyOperations } from "./policy.ts";
 import { publicReadOperations } from "./public-read.ts";
+import { accessOperations } from "./access.ts";
 import { queryOperations } from "./query.ts";
 import { recordOperations } from "./record.ts";
 import { recordImportOperations } from "./record-import.ts";
@@ -122,6 +123,7 @@ export const coreOperations = [
   ...automationBindingOperations,
   ...myWriteOperations,
   ...publicReadOperations,
+  ...accessOperations,
   ...notificationOperations,
   ...notificationDeliveryOperations,
   ...assistantOperations,
