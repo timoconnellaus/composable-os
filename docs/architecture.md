@@ -776,7 +776,8 @@ packages/
                        real since stage 17 W1, the others are placeholders for later waves)
   release/             release bundles, manifest types, verification, the Cloudflare API deploy
                        engine, preflight and the update procedure (Node and Workers)
-  create-composable-os/ the installer CLI: npx @composable-os/cli install, cos upgrade / rollback / status,
+  create-composable-os/ `cos` (published as @composable-os/cli): the client-repo commands (create, init,
+                       deploy, upgrade, add, diff) and the installer: cos install, upgrade / rollback / status,
                        and cos ext check / test in a checkout
   gatekeeper-interface/ the gatekeeper RPC interface (vendored from cloudflare-os, see UPSTREAMS.md)
   gatekeeper-kit/      gatekeeper building blocks (vendored)
@@ -788,7 +789,9 @@ packages/
 products/
   crm/                 the CRM: its definition (product.ts) and its apps
     apps/control/      hosted SaaS control plane and dispatch Worker (stage 10)  → "crm-control", "crm-dispatch"
-skills/                agent skills for building on the platform (stage 21, ADR 0405)
+skills/                agent skills for building on the platform (stage 21, ADR 0405) and in client repos (stage 24)
+templates/client/      the client repo `cos create` writes (stage 24): apps/web, apps/mobile, product.ts
+blocks/                the platform's blocks (stage 24, MIT): ui-* (web base layer), native-base, sign-in
 packs/                 shipped extensions with their client parts (stage 24): <id>/index.ts and its
                        files (the extension), client/ (headless hooks), blocks/ (screens)
   deals/               (stage 4) Deals: pipelines, stages, deals, participants (ADR 0026, 0100)
@@ -1004,6 +1007,16 @@ platform. A **block** is a screen for a pack in a web skin (Radix or Base UI und
 components) or a native skin (React Native), copied into the client repo from a registry and owned
 there. Blocks hold no rules.
 
+As built (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
+[0424](adr/0424-blocks-as-built.md)): a pack is `packs/<id>/` (the extension, `client/` hooks,
+`blocks/`), published as `@composable-os/pack-<id>`; a product's release has the packs it lists, and
+a deployment installs those `COS_PACKS` names. A block is a folder with a `block.json` (pack,
+skin, operations, files, dependsOn, packages) in `blocks/` or `packs/<id>/blocks/`, MIT, shipped
+in the release's client kit and copied with `cos add`. The web base layer (`blocks/ui-*`) is
+generated from `packages/ui` (Radix underneath); the native base layer is `blocks/native-base`;
+sign-in ships in both skins. `scripts/check-blocks.mjs` (in `pnpm lint`) refuses a block that
+calculates a price, checks a capacity or checks a permission.
+
 | Pack | Built from | Status |
 | --- | --- | --- |
 | Deals | `stages` | exists |
@@ -1024,6 +1037,22 @@ The staff admin and the MCP surface are the host's and are not rebuilt per clien
 As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
 [0421](adr/0421-the-client-app-binding-and-customer-sign-in.md)):
 
+- **`cos`** ([ADR 0422](adr/0422-client-repos-and-one-command-as-built.md)) is the one command:
+  `create` (also `npm create composable-os`), `init`, `deploy`, `upgrade`, `add`, `diff`,
+  `client generate`, `ext`, and `install` for a product with no client repo. Everything a client
+  repo takes from the platform (the template, the skills, the blocks, the API contract) comes from
+  the **client kit** inside the verified release its `product.ts` names
+  (`defineClientProduct({ platform: { version, release, repository }, packs, web, mobile })`).
+- **Deploying** (`cos deploy`): `cos ext check` on `extensions/` and a type check of the apps
+  first; then the host from the release, with `COS_PACKS` from the product and the org's own
+  extensions in BLOBS pinned by `COS_ORG_EXTENSIONS` (installed by the runner as shipped, with
+  no approval); then the built web app with its one binding. The host keeps the release's
+  names and strings.
+- **The template** (`templates/client`): `apps/web` (TanStack Start, `src/host.ts` framework-free)
+  and `apps/mobile` (Expo, `--with-mobile`; its `src/host.ts` signs in and keeps a device session).
+- **npm** ([ADR 0423](adr/0423-npm-packages-from-the-release-commit.md)): client, sdk, product,
+  cli, each pack and `create-composable-os`, built from the release commit, dry-run on every
+  release, published only when turned on.
 - **The binding.** The web app binds to cos-app's `ClientApp` entrypoint
   (`apps/app/src/server/http/bound.ts`). It serves customer sign-in (`/api/customer-auth/*`) and
   the HTTP surface, through `invoke()`, and nothing else. The caller is the customer whose session
@@ -1039,7 +1068,11 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
 
 Stage 21; [ADR 0405](adr/0405-skills-ship-with-the-platform.md).
 
-Instructions for agents, in `skills/`: `write-extension` and `add-automations-tools-dashboards`.
+Instructions for agents, in `skills/`: `write-extension` and `add-automations-tools-dashboards`
+(stage 21), and `start-client-app` and `add-block` (stage 24), which are for client repos. A
+release's client kit carries them all as a client repo reads them: a paragraph between
+`<!-- platform-repo -->` markers is swapped for its `<!-- client-repo -->` text (in a client repo
+a gap is reported, not closed). `cos create`, `cos init` and `cos upgrade` write them to `skills/`.
 Each is one `SKILL.md` in four parts (when to use it, the steps, the rules, the check command),
 plain Markdown that points at the SDK and at Deals. `.claude/skills/` links to them and
 `AGENTS.md` points other agents at the folder. `skills/CONTRACT_VERSION` holds the contract

@@ -71,3 +71,16 @@ written per client.
   verified session cookie, and never a staff session or a token. Customers sign in on the web
   app's hostname; the host's cookie is passed through, host-only, and `CUSTOMER_AUTH_URL` names the
   web app: [ADR 0421](0421-the-client-app-binding-and-customer-sign-in.md).
+
+## As built (stage 24, steps 3 to 10, 2026-11-21)
+- `cos` is the one command; a client repo's `product.ts` names a platform release, its packs and
+  its apps; the release carries the client kit (template, skills, blocks, contract); packs are
+  chosen at deploy and the org's own extensions are installed by deploy as shipped:
+  [ADR 0422](0422-client-repos-and-one-command-as-built.md).
+- The npm packages are built from the release commit and published only when turned on:
+  [ADR 0423](0423-npm-packages-from-the-release-commit.md).
+- Blocks, the base layers (Radix under the web layer) and the block lint:
+  [ADR 0424](0424-blocks-as-built.md).
+- Changed from the decision above: "A product definition naming the packs and platform version"
+  holds; the host keeps its release's names and strings, because they are built into the
+  verified release. Naming it for the client's product is platform work for later (ADR 0422).

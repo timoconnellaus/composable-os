@@ -257,6 +257,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       2,
     )}\n`,
   );
+  // For trying the packages before they are published: `pnpm.overrides` for a client repo.
+  writeFileSync(
+    join(out, "overrides.json"),
+    `${JSON.stringify(
+      Object.fromEntries(Object.keys(PACKAGES).map((name, i) => [name, `file:${tarballs[i]}`])),
+      null,
+      2,
+    )}\n`,
+  );
   console.log(
     `npm packages ${version}:\n${tarballs.map((t) => `  ${relative(process.cwd(), t)}`).join("\n")}`,
   );

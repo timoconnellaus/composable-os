@@ -235,3 +235,28 @@ No migrations. ADRs 0420 to 0424, and ADR 0401 amended as built.
 
 Steps 2 and 5's sign-in are the spine: they decide what a company's own Worker can do on a
 customer's behalf.
+
+## As built (2026-11-21)
+
+Status: built, in review. ADRs [0420](../adr/0420-packs-as-packages-as-built.md) to
+[0424](../adr/0424-blocks-as-built.md); ADR 0401 amended.
+
+- **The binding** serves customer sign-in and the HTTP surface for customers and the public, and
+  nothing else. **The native token routes (`/api/v1/auth/*`) are left off it on purpose:** a web
+  app signs customers in with a cookie and has no use for device tokens, so the binding gives
+  less than the public hostname, never more (ADR 0421).
+- **Staying signed in:** the template web app renews the customer cookie's lifetime once a day at
+  most (`keepCustomerSignedIn`); the HTTP surface is unchanged.
+- **Cookies apart** rests on `CUSTOMER_AUTH_URL` naming the web app. Native sign-in that returns
+  tokens with no cookie on the host's address is filed for later.
+- **The host keeps its release's names and strings** (`crm-app`, "CRM"). The spec's
+  "product.ts: names, branding" holds for the client's own Workers; naming the host for the
+  client's product needs names applied at deploy time, which is platform work for later (stage 27
+  needs it). `product.ts` is `defineClientProduct` and names the release it deploys.
+- **Packs are chosen at deploy** (`COS_PACKS`), from the packs in the release; the org's own
+  extensions reach the host through BLOBS, pinned by hash (`COS_ORG_EXTENSIONS`), and install as
+  shipped. A release built for a product has only that product's packs.
+- **The template's build is the app's own** (`pnpm run build`, TanStack Start's output in
+  `dist/server`); `cos deploy` uploads it. Radix is under the web base layer.
+- **npm:** published only when the `NPM_PUBLISH` variable is turned on, with trusted publishing
+  (no token anywhere); every release dry-runs it (ADR 0423).

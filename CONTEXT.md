@@ -886,8 +886,11 @@ release.
 _Avoid_: module, plugin (a plugin is an assistant plugin, ADR 0347), app
 
 **Block**
-A screen, or part of one, for a pack, in a web skin or a native skin. Copied into a client repo
-from the registry; the client owns the copy (stage 24, ADR 0401).
+A screen, or part of one, for a pack or the base layer, in a web skin or a native skin: a folder
+with a `block.json` (its pack, skin, operations, files and the blocks it depends on). Shipped,
+MIT, inside the release; copied into a client app with `cos add`, recorded in
+`blocks.lock.json`, and the client's from then on (`cos diff` shows upstream changes). A block
+holds no rules; the block lint refuses one that does (stage 24, ADRs 0401, 0424).
 _Avoid_: component (too general), widget (a widget is a dashboard tile), template
 
 **Client app**
@@ -898,8 +901,22 @@ and never as staff (ADR 0421); a phone over HTTPS.
 _Avoid_: frontend, site (a site is one kind of client app)
 
 **Client repo**
-The repository holding one product's client apps, its own extensions and its product definition.
-Started from the template, not a fork of the platform (stage 24).
+The repository holding one product's client apps, its own extensions (`extensions/`), copied
+blocks and its product definition (`product.ts`, `defineClientProduct`: the platform release the
+host is deployed from, its packs, its apps). Started from the template (`cos create`) or adopted
+in place (`cos init`), never a fork of the platform; it holds no platform code and no path to the
+database (stage 24, ADR 0422).
+
+**Client kit**
+What a release carries for client repos, verified with the rest of the bundle: the template, the
+skills as a client repo reads them, the blocks, the API contract per audience and the list of its
+packs. `cos create`, `init`, `add`, `diff` and `upgrade` read the kit of the release that matches
+the repo's platform version (stage 24, ADR 0422).
+
+**`ClientApp` (the client-app binding)**
+cos-app's entrypoint a company's web app binds to: customer sign-in and the HTTP surface for
+customers and the public only, the caller decided from the customer's verified session cookie,
+never staff (stage 24, ADR 0421).
 
 **Audience**
 Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402). An operation

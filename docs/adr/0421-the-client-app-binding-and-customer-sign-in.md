@@ -1,6 +1,7 @@
 # ADR 0421: The client-app binding, and customers signing in on the company's hostname
 
-Status: proposed for review, 2026-11-21 (stage 24 build, step 2 and the sign-in part of step 5).
+Status: accepted, 2026-11-21 (stage 24 build, step 2 and the sign-in part of step 5; accepted at
+the review of the spine, 2026-11-21).
 Builds part of [ADR 0401](0401-platform-packs-screens.md) on
 [ADR 0415](0415-the-http-surface-as-built.md) and
 [ADR 0419](0419-native-sessions-and-customer-sign-in.md).
@@ -89,6 +90,18 @@ the customer identity reads only its own cookie anyway.
   Binding to cos-app's default entrypoint instead would give exactly the public hostname's door,
   which needs a staff credential the web app cannot have to be staff.
 - Better Auth refreshes a session's expiry in the database when it is used after a day, but the
-  surface does not pass that refresh's cookie on, so the browser's cookie keeps its first
-  `Max-Age` (seven days) and the customer signs in again after it. The web app can call
-  `/api/customer-auth/get-session` to get a refreshed cookie; the template decides.
+  surface does not pass that refresh's cookie on, so the browser's cookie would keep its first
+  `Max-Age` (seven days).
+
+## Amended 2026-11-21 (review of the spine)
+- **Staying signed in.** `keepCustomerSignedIn` in `@composable-os/client` (used by the template
+  web app's `withSessionKept`): once a day at most, on a page request with the customer's cookie,
+  the web app asks `/api/customer-auth/get-session` over the binding and sets the same cookie
+  again with a lifetime to the session's current expiry, with its own `cos-session-checked`
+  marker. An ended session clears both. The HTTP surface is unchanged. Test: a session used on
+  day 6 is still valid on day 8 (`apps/app/test/client-binding.test.ts`).
+- **Cookies apart rests on configuration,** as stated above: `CUSTOMER_AUTH_URL` naming the web
+  app. Native sign-in returning tokens with no cookie on the host's address is filed for later.
+- **The edge rule** for the web app's zone is printed by `cos create`, `cos init` and `cos deploy`
+  as a step a person does before opening the app to the public.
+- **The native token routes stay off the binding.**
