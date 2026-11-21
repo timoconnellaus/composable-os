@@ -12,9 +12,11 @@ stages [25](25-states-orders-payments.md), [26](26-capacity-and-holds.md),
 stage 32" section); `packages/core/src/orders/`, `packages/core/src/capacity/`,
 `packages/core/src/visibility/access.ts`, `packages/gatekeeper-payments/src/`, `packs/courses`.
 
-Status: **spec proposed** (2026-11-23). Not agreed: the interview settles the questions at the end
-first. The decisions already made at stage 42's interview are listed below and are not asked
-again. Where this spec guesses, it says **(guess)**.
+Status: **32a spec agreed** (interview 2026-11-22: questions 1 to 7, each with its recommended
+answer; 32a building); **32b agreed** (questions 8 to 16 answered the same day; it waits for
+stage 31). The decisions already made at stage
+42's interview are listed below and are not asked again. Where this spec guesses, it says
+**(guess)**.
 
 ## Goal
 
@@ -29,6 +31,33 @@ person has left.
 The first client needs it in two steps: first **the course subscription**, so its online program
 can finish moving off the hosted course platform; then **memberships and passes**, which, with
 stages 31 (bookings) and 33 (leaving its current booking system), replace that system.
+
+## Decided at the interview (2026-11-22)
+
+Questions 1 to 7 (32a) were settled, each with the recommended answer; the questions are kept at the
+end with their decision. 32b's questions, 8 to 16, were
+answered the same day. Question 8 was answered with every option, including limits by time of
+day: the spec holds that a time-of-day limit needs the booking's time, so stage 31 carries that
+part. 32b waits for stage 31.
+
+| Question | Decision |
+| --- | --- |
+| 1. Split the stage | (b): 32a (the subscription, the course plan, the course subscribers' move) first; 32b (allowances, Memberships) later, with stage 31 |
+| 2. Who runs the schedule | (a): the provider keeps the card, charges, retries, emails and ends the subscription; the host mirrors verified events |
+| 3. Every paid period an order | (a): a paid order per period, created by the host from the verified invoice event |
+| 4. While a renewal is failing | (a): the member keeps everything while the provider retries; access stops when it gives up (the provider's setting for exhausted retries is "cancel") |
+| 5. Members' billing | (a): the provider's portal for the card and past invoices only; cancel and resume are host operations |
+| 6. Who emails about failed payments | (a): the provider, from its own settings; the host tells staff |
+| 7. Continuation and the trial | (a): the continuation replaces the 7-day trial: free until the paid-up date, then charged |
+| 8. What the gym sells (32b) | (c): everything listed, including limits by class type and by time of day (the time-of-day limit needs stage 31's booking time) |
+| 9. Carry-over (32b) | (a): no carry-over: each period starts fresh |
+| 10. Pauses (32b) | (b): paused by staff, for a set time |
+| 11. Minimum term (32b) | (a): no minimum term: cancel any time, effective at the period's end |
+| 12. Plan changes (32b) | (c): upgrades at once, prorated; downgrades at the next period |
+| 13. One person pays for another (32b) | (b): a payer and a holder (a parent pays for a child), each holder with their own allowance; no shared pool |
+| 14. Moving members' billing (32b) | (a), (b) the fallback: ask the current provider about transferring card data to Stripe now; members subscribing again (32a's continuation offers) is the fallback |
+| 15. Late cancel or no-show (32b) | (a): no money: a late cancel or a no-show keeps the use |
+| 16. Pick any N courses (32b) | (b): no pick-any-N course credit passes; fixed bundles only |
 
 ## Decided already (stage 42 interview, 2026-11-23)
 
@@ -98,13 +127,13 @@ its access reads the subscription itself.
 
 ## Scope, 32a: the subscription
 
-### Recurring billing: the provider runs the schedule (proposed, question 2)
+### Recurring billing: the provider runs the schedule (decided, question 2)
 - **The provider keeps the card, charges each period, retries a failed charge, and ends the
   subscription when told or when its retries run out.** The platform stores no card and schedules
   no charge, as stage 25 decided for everything else. The host learns what happened only from
   verified events.
 
-| | The provider runs it (proposed) | The host schedules charges |
+| | The provider runs it (decided) | The host schedules charges |
 | --- | --- | --- |
 | A failed payment | The provider retries on its own schedule (Smart Retries) and emails the customer; the host mirrors `past_due` | The host's cron retries; we write the schedule, the emails and the give-up rule |
 | A card update | The provider's own page (customer portal); 3D Secure on a renewal goes to its hosted invoice page | We store a payment method (still at the provider), run a setup flow, and handle 3D Secure off-session ourselves |
@@ -129,8 +158,10 @@ its access reads the subscription itself.
   status and pause-on-failure need it (32b).
 
 ### The subscription record
-- **`core_subscription`, a base record**, beside Order: its Person (the payer and holder; question
-  13 for a payer who is not the holder), the plan (object and id) and the plan's title and price
+- **`core_subscription`, a base record**, beside Order: two People, the payer (the provider's
+  customer) and the holder (who what it grants is for), the holder the payer in 32a (question 13
+  was answered (b): 32b lets them differ, with no breaking migration; access and the one-trial
+  rule follow the holder, billing, the portal, cancel and resume the payer), the plan (object and id) and the plan's title and price
   as they were at the start, the provider's references (customer, subscription), the state, the
   trial's end, the current period's start and end, whether it ends at the period's end, when it
   ended and why. It declares `customer`, so a customer reads their own; staff read all. It is in
@@ -155,7 +186,7 @@ its access reads the subscription itself.
   had one on any record of that plan object (**guess**: per object, so a second course plan later
   gives no second trial), and the provider's page then asks for the first payment at once.
 
-### An order per paid period (proposed, question 3)
+### An order per paid period (decided, question 3)
 - When the provider says a period's invoice is paid, the host writes a `core_order` born `paid`
   (a new `host` path: created and paid in one batch, from the verified event), one line for the
   plan, with the period's dates, the provider's tax figures (ADR 0479's columns) and the
@@ -461,14 +492,15 @@ columns; 32b: `core_allowance_use` and its counters). ADRs 0485 to 0494. Claimed
 Steps 1 to 3 are the spine of 32a; step 5 is the spine of 32b.
 
 ## Questions for the interview
-Ordered by how much each changes the build; 32a's first.
+Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:
+1 to 7 as recommended; 8 with every option (time-of-day limits are stage 31's to carry).
 
 1. **Split the stage, and ship the course subscription first?**
    - (a) One stage: subscriptions, allowances and Memberships together.
    - (b) 32a (the subscription, the course plan, the course subscribers' move) first; 32b
      (allowances, Memberships) after, with stage 31.
    - (c) 32a and 32b in parallel sessions from the start.
-   **Recommended: (b).** The online program's move is waiting only on 32a, and 32a needs nothing
+   **Decided 2026-11-22: (b)**, as recommended. **Recommended: (b).** The online program's move is waiting only on 32a, and 32a needs nothing
    from 32b; 32b's main spender (bookings) does not exist yet, and building it beside 31 lets the
    two meet on a real booking instead of a fixture alone.
 
@@ -477,7 +509,7 @@ Ordered by how much each changes the build; 32a's first.
      subscription; the host mirrors verified events.
    - (b) The host: cards saved at the provider, charges scheduled and retried by the host's cron.
    - (c) The provider for the course subscription, the host for gym memberships.
-   **Recommended: (a).** It keeps stage 25's rule that nothing on the platform charges a card on
+   **Decided 2026-11-22: (a)**, as recommended. **Recommended: (a).** It keeps stage 25's rule that nothing on the platform charges a card on
    its own, and it buys retries, card updates, 3D Secure on renewals, proration and pauses from
    the provider instead of writing them. Its cost is the provider's billing fee on recurring
    volume, which the company pays (**check at build**). (b) is a payments system of our own.
@@ -485,7 +517,7 @@ Ordered by how much each changes the build; 32a's first.
 3. **Is every paid period an order?**
    - (a) Yes: a paid order per period, created by the host from the verified invoice event.
    - (b) No: the subscription keeps its own payment rows; revenue is read from two places.
-   **Recommended: (a).** Revenue, tax figures, refunds, the confirmation email, `rec_order` and every
+   **Decided 2026-11-22: (a)**, as recommended. **Recommended: (a).** Revenue, tax figures, refunds, the confirmation email, `rec_order` and every
    dashboard stay one path; a refund of a month is a refund of an order, through approval, as
    built.
 
@@ -493,7 +525,7 @@ Ordered by how much each changes the build; 32a's first.
    - (a) Everything, while the provider retries; access and uses stop when it gives up.
    - (b) Nothing from the first failure until it is paid.
    - (c) A set number of days' grace (for example 7), then nothing until paid.
-   **Recommended: (a)**, with the provider's retry window left at its default (Smart Retries: up to
+   **Decided 2026-11-22: (a)**, as recommended. **Recommended: (a)**, with the provider's retry window left at its default (Smart Retries: up to
    8 retries within 2 weeks). Most failures are a card that has expired or a bank's refusal that clears; cutting
    a member off at the first failure makes the gym's front desk the dunning team. The setting for
    what happens when retries run out should be "cancel", so the host sees the end.
@@ -503,14 +535,14 @@ Ordered by how much each changes the build; 32a's first.
      resume (and, in 32b, pause and plan change), through host operations.
    - (b) The provider's portal for everything, configured by the company.
    - (c) Our own blocks for everything except typing a card.
-   **Recommended: (a).** Cancelling, pausing and changing plan carry the host's rules (one trial,
+   **Decided 2026-11-22: (a)**, as recommended. **Recommended: (a).** Cancelling, pausing and changing plan carry the host's rules (one trial,
    allowances, a commitment, reasons for staff), so they should be host operations the company's
    screens call; the card is the provider's job.
 
 6. **Who emails a member about a failed payment or a card about to expire?**
    - (a) The provider, from its own settings, with the company's branding.
    - (b) The host, through the email connection, from its own templates.
-   **Recommended: (a)** for 32a. The provider can send an email after each failed card payment with
+   **Decided 2026-11-22: (a)**, as recommended. **Recommended: (a)** for 32a. The provider can send an email after each failed card payment with
    a link to update the card, one a month before a card expires, a reminder 7 days before a trial
    ends, and a link to confirm a payment that needs 3D Secure; it knows when it retries. The host
    tells staff. (b) can follow if the company wants the messages in
@@ -520,10 +552,10 @@ Ordered by how much each changes the build; 32a's first.
    - (a) Yes: free until their paid-up date, then charged; no trial on top.
    - (b) No: the 7-day trial is added after their paid-up date.
    - (c) Only when their paid-up date is less than 7 days away, the trial instead.
-   **Recommended: (a).** They are not trying the program, they are continuing it; (b) gives every
+   **Decided 2026-11-22: (a)**, as recommended. **Recommended: (a).** They are not trying the program, they are continuing it; (b) gives every
    moving subscriber a free week the company did not decide to give.
 
-8. **What does the gym sell?** (32b; the model depends on it)
+8. **What does the gym sell?** *Decided 2026-11-22: (c) (32b).* (32b; the model depends on it)
    - (a) Unlimited memberships, memberships of N classes a week, and class packs of N visits that
      expire.
    - (b) As (a), plus drop-ins and an intro offer (a cheap first pass, once per person).
@@ -533,14 +565,14 @@ Ordered by how much each changes the build; 32a's first.
    as the trial. Class-type limits are in the model (`spendsOn`); time-of-day limits would need
    the booking's time, which is stage 31's, so (c) is a 31 question.
 
-9. **Do unused weekly or monthly uses carry over?**
+9. **Do unused weekly or monthly uses carry over?** *Decided 2026-11-22: (a) (32b).*
    - (a) No: each period starts fresh.
    - (b) Into the next period only.
    - (c) They bank up to a cap.
    **Recommended: (a).** It is the common rule and needs no balance to explain; (b) and (c) need a
    ledger of carried uses and make "how many have I got" a calculation.
 
-10. **Can a membership be paused (frozen)?**
+10. **Can a membership be paused (frozen)?** *Decided 2026-11-22: (b) (32b).*
     - (a) No.
     - (b) Yes, by staff, for a set time (a minimum and maximum the company sets), nothing charged
       and nothing spent meanwhile.
@@ -550,7 +582,7 @@ Ordered by how much each changes the build; 32a's first.
     paying. (c) is a block and a rule more, later (the provider's own portal pause allows one pause
     in 12 months and starts at the period's end, which may not be the gym's rule).
 
-11. **Do memberships have a minimum term or a notice period?**
+11. **Do memberships have a minimum term or a notice period?** *Decided 2026-11-22: (a) (32b).*
     - (a) No: cancel any time, effective at the period's end.
     - (b) A minimum term (for example 3 or 12 months), with early ending only by staff.
     - (c) A notice period (a cancellation takes effect after N days).
@@ -560,14 +592,14 @@ Ordered by how much each changes the build; 32a's first.
     schedule cannot be changed or cancelled in the provider's portal, and pauses are refused while
     one is attached. It should be built only if it is sold.
 
-12. **When does a plan change take effect?**
+12. **When does a plan change take effect?** *Decided 2026-11-22: (c) (32b).*
     - (a) At the next period, with no proration.
     - (b) At once, prorated by the provider.
     - (c) Upgrades at once, prorated; downgrades at the next period.
     **Recommended: (c).** A member who upgrades wants the classes now and pays the difference; a
     downgrade mid-period would hand back money for uses already spent.
 
-13. **Can one person pay for another's membership?**
+13. **Can one person pay for another's membership?** *Decided 2026-11-22: (b) (32b).*
     - (a) No: each person holds and pays for their own.
     - (b) Yes, a payer and a holder (a parent pays for a child), each holder with their own
       allowance.
@@ -575,7 +607,7 @@ Ordered by how much each changes the build; 32a's first.
     **Recommended: (b) only if the gym sells it today, otherwise (a).** (b) is a second Person on the
     subscription and in the seam's reads; (c) is a shared counter and a question of who spent what.
 
-14. **How do the gym's members' cards and billing move?** (stage 33 runs it; 32b builds the means)
+14. **How do the gym's members' cards and billing move?** *Decided 2026-11-22: (a), (b) the fallback (32b).* (stage 33 runs it; 32b builds the means)
     - (a) The current processor exports the card data to the company's Stripe account through
       Stripe's migration process, and each membership is recreated with its first charge on its
       next billing date.
@@ -587,7 +619,7 @@ Ordered by how much each changes the build; 32a's first.
     current processor agreeing and on weeks of lead time; (b) is already built by 32a; (c) keeps
     two systems for as long as the longest member stays.
 
-15. **Can a late cancel or a no-show cost money?** (stage 31's rule, 32's mechanism)
+15. **Can a late cancel or a no-show cost money?** *Decided 2026-11-22: (a) (32b).* (stage 31's rule, 32's mechanism)
     - (a) No money: it keeps the use (the use is not returned).
     - (b) A fee charged to the member's saved card by the host.
     - (c) A fee added to their next invoice by the provider.
@@ -595,7 +627,7 @@ Ordered by how much each changes the build; 32a's first.
     card on its own, which the platform does nowhere; (c) is possible later with the provider's
     invoice items, once a fee is actually wanted.
 
-16. **Build "pick any three" courses now, on the allowance?**
+16. **Build "pick any three" courses now, on the allowance?** *Decided 2026-11-22: (b) (32b).*
     - (a) Yes: a course credit pass of N, spent by choosing a course, which grants its enrolment.
     - (b) No: fixed bundles only, as stage 42 has.
     **Recommended: (b) unless it is sold today.** It is a good second spender to prove the
