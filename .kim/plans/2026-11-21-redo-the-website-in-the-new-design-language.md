@@ -2,7 +2,7 @@
 
 ## Decided
 - **Design language:** the reference you sent. Light blue page, bold Poppins headings, lime pill button, dark pill in the header, blue arches behind a product picture, navy and lime as accents.
-- **Skill:** `landing-page-generator` (borghei/Claude-Skills) gets copied into `skills/landing-page-generator` and linked into `.claude/skills`, like the other skills. Its licence is MIT plus the Commons Clause (no selling the skill itself), so the copy carries the licence notice and a line in `UPSTREAMS.md`.
+- **Skill:** `landing-page-generator` (borghei/Claude-Skills), copied into `.claude/skills/landing-page-generator`. Its licence is MIT plus the Commons Clause (no selling the skill itself), so the copy carries the licence notice and a line in `UPSTREAMS.md`.
 - **Instructions:** `CLAUDE.md` only imports `AGENTS.md`, so the two new rules go in `AGENTS.md`: use the skill for any work on the site, and update the site when a feature ships.
 
 - **The angle:** you can compose a custom product that fits the business. Building the right product for any business is the reason Composable OS exists. "Your AI builds, you approve" is how it stays safe, and moves down the page as support.
@@ -39,14 +39,15 @@
 10. Questions
 11. Close: the Book a call form (name, email, company, what you need)
 
-## What the build changes
-- `apps/marketing`: new tokens and styles (light only, Poppins self-hosted), sections rewritten as above, the old Pricing, Enterprise, waitlist and hero demo components removed.
-- The Worker's form: the call form posts as a contact request with name, company and message (a new migration adds the columns). Existing waitlist rows stay in the database.
-- Tests, screenshots, the social image, the README and ADR 0191 (a dated note) updated to match.
-- `skills/landing-page-generator` added with its licence notice, linked into `.claude/skills`, listed in `skills/README.md` and `UPSTREAMS.md`.
-- `apps/marketing/SITE.md`: a short file saying what the site says, section by section (the angle, the reader, the one action, each section's claims, and what is marked "in design"). An agent reads this to see whether a change touches the site, without reading the page's source.
-- `AGENTS.md`: use that skill for any work on the site. When a change adds or alters something the site describes, update the site and `SITE.md` in the same PR.
-- The skill's three checks (calls to action, conversion checklist, page weight) run on the built page.
+## What the build changed
+- `apps/marketing`: new tokens and styles (light only, Poppins self-hosted), the sections above, and the old pricing, enterprise, waitlist and hero demo removed.
+- The call form posts to the site's existing endpoint as a `sales` request. That endpoint already stored name, company and message, so no migration was needed. Existing waitlist rows stay.
+- Browser tests, screenshots, the social image, the favicon and the README updated to match.
+- The skill is at `.claude/skills/landing-page-generator`, copied unchanged with its licence, beside the other vendored skill (`animate`). `skills/` is for this repository's own extension skills, which a lint ties to the extension contract version. Recorded in `UPSTREAMS.md`.
+- `apps/marketing/SITE.md` says what the site claims, section by section.
+- `AGENTS.md` (which `CLAUDE.md` imports): use the skill for any work on the site; when a change adds or alters something the site describes, update the site and `SITE.md` in the same PR.
+- ADR 0465 records the angle, the offer and the look; ADR 0191 has a dated note.
+- The skill's three checks all pass on the built page.
 
-## Open
-- Your go-ahead on the prototype as it stands.
+## Still to come
+- Ghetto's quote and case study: a new section after "What can go in" when they exist.

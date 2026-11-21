@@ -1,8 +1,8 @@
-// cos-site: static assets (the Astro build) plus one endpoint, POST /api/signup, for the
-// waitlist and contact-sales forms. The forms work without JavaScript: a browser POST is answered
-// with a redirect. A waitlist signup goes back to the landing page, to its form's "You're on the
-// list" message (/#joined-hero or /#joined-waitlist); a sales request goes to /thanks/; a problem
-// goes to /check-form/ or /try-later/. `accept: application/json` gets JSON instead.
+// cos-site: static assets (the Astro build) plus one endpoint, POST /api/signup, for the page's
+// call form (a "sales" request). The form works without JavaScript: a browser POST is answered
+// with a redirect, to /thanks/, or to /check-form/ or /try-later/ on a problem.
+// `accept: application/json` gets JSON instead. The endpoint still accepts the first site's
+// "waitlist" kind, which redirects to /#joined-<source>; the page no longer has such a form.
 import { formFields, HONEYPOT, SignupInput, saveSignup } from "./signup.ts";
 import { FORM_SOURCES, type FormSource, joinedAnchor } from "./team-size.ts";
 

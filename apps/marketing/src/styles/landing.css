@@ -479,7 +479,11 @@
   color: #d9e4f7;
   border-radius: var(--radius);
   padding: 26px;
-  font: 13.5px / 1.9 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    13.5px / 1.9 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
   overflow-x: auto;
   white-space: pre;
 }
