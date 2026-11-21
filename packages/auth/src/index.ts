@@ -1,5 +1,10 @@
 import type { RateLimitBinding } from "@composable-os/core";
-import { type BetterAuthInstance, betterAuthProvider, createBetterAuth } from "./better-auth.ts";
+import {
+  type BetterAuthInstance,
+  betterAuthProvider,
+  createBetterAuth,
+  type StaffCodes,
+} from "./better-auth.ts";
 import { cloudflareAccessProvider } from "./cloudflare-access.ts";
 import {
   type CustomerIdentity,
@@ -10,11 +15,20 @@ import {
 import type { IdentityProvider, IdentityProviderKind } from "./principal.ts";
 
 export {
+  addressKey,
   BETTER_AUTH_BASE_PATH,
   type BetterAuthInstance,
   type BetterAuthOptions,
   betterAuthProvider,
+  type CodeRequestRefusal,
+  codeRequestRefusal,
   createBetterAuth,
+  requestStaffCode,
+  STAFF_CODE_ATTEMPTS,
+  STAFF_CODE_LENGTH,
+  STAFF_CODE_TTL_SECONDS,
+  type StaffCodes,
+  staffSignInWithCode,
 } from "./better-auth.ts";
 export {
   ACCESS_JWT_HEADER,
@@ -49,6 +63,10 @@ export interface IdentityEnv {
   AUTH_ALLOW_SIGNUP?: string;
   CF_ACCESS_TEAM_DOMAIN?: string;
   CF_ACCESS_AUD?: string;
+  /** Code requests per address asked for: staff and customers share it (ADR 0455). */
+  CUSTOMER_CODE_RATE_LIMIT?: RateLimitBinding;
+  /** Code requests per client address, keyed by a hash of it. */
+  CUSTOMER_CODE_ADDRESS_RATE_LIMIT?: RateLimitBinding;
 }
 
 export class IdentityConfigError extends Error {
@@ -65,6 +83,16 @@ export function identityProviderKind(
 }
 
 const betterAuthCache = new WeakMap<object, BetterAuthInstance>();
+const staffCodes = new WeakMap<object, StaffCodes>();
+
+/**
+ * How the host sends staff sign-in codes for this env (ADR 0455). cos-app gives it on every
+ * request, before any route; without it, a staff code request answers that sign-in by code is
+ * not set up, the same for every address.
+ */
+export function provideStaffCodes(env: object, codes: StaffCodes): void {
+  staffCodes.set(env, codes);
+}
 
 /** Better Auth for this env, built once per isolate. Null when another adapter is active. */
 export function getBetterAuth(env: IdentityEnv): BetterAuthInstance | null {
@@ -81,6 +109,9 @@ export function getBetterAuth(env: IdentityEnv): BetterAuthInstance | null {
           ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET }
           : undefined,
       allowSignUp: env.AUTH_ALLOW_SIGNUP === "true",
+      codes: () => staffCodes.get(env) ?? null,
+      codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
+      codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
     });
     betterAuthCache.set(env, auth);
   }
@@ -121,6 +152,8 @@ export function signInMethods(env: IdentityEnv) {
   return {
     kind,
     email: kind === "better-auth",
+    /** Sign-in by an emailed code (invited staff, verified accounts; ADR 0455). */
+    code: kind === "better-auth",
     google: kind === "better-auth" && Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
   };
 }

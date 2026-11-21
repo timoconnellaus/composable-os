@@ -34,7 +34,9 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | W | 0460–0469 | 0440–0444 | Stage 28, Content | specced |
 | X | 0470–0479 | 0445–0449 | Stage 41, Programs (steps 1 to 3: the document field, `publishable` without its public half, the signed-in scope, the pack's spine) | in flight |
 | Y | — | 0450–0454 | Client releases and environments (every pack in a release, environments, customer auth on deploy, role clients; ADR 0450 used; ADRs 0420, 0421, 0422, 0423 amended) | in flight |
+| Z | 0490–0499 | 0455–0459 | Staff invites, native sign-in by tokens, the host behind Cloudflare Access (`fix/staff-invites-and-native-sign-in`; block Y went to client releases) | in flight |
 | AA | — | 0460–0464 | The first client's gaps (`fix/ticketing-client-gaps`): ADR 0460, time zones; no migrations | in flight |
+| AB | — | 0465–0469 | The site redone (`apps/marketing`): the build-and-maintain service angle and the new design language; ADR 0465 used, ADR 0191 amended; no migrations | in flight |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.

@@ -1008,6 +1008,18 @@ rotates on every use, for one audience, named by the device. A reused refresh to
 so does a period without use (ADR 0419).
 _Avoid_: token session, API key
 
+**Staff invite**
+A human admin's invitation of a person to a staff account, by email address, with the role, pack
+role and permission grants the account will hold from the start. Accepted once, before it expires,
+by signing in with a code the host emails to that address, or under Cloudflare Access by the first
+request. It never applies to an account that exists, and it holds no secret (ADR 0455).
+_Avoid_: sign-up link, invitation token
+
+**Host mail**
+Mail the host sends as itself (the system user) through the one email connection a human admin
+chose: customer and staff sign-in codes, invite notices, a declined erase request (ADRs 0419,
+0455). No staff member is its sender.
+
 **Headless entry**
 A pack's functions and hooks over the typed client, with no markup (`<package>/headless`). Blocks
 render what it returns (ADR 0418).

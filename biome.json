@@ -16,6 +16,8 @@
       "!**/playwright-report",
       "!**/test-results",
       "!**/*.md",
+      "!.kim",
+      "!.claude/skills/landing-page-generator",
       "!docs/stages/assets",
       "!scripts/release/test/testdata",
       "!packages/client/test/generated",

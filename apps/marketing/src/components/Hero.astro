@@ -1,26 +1,117 @@
 ---
-// The top of the page: what Composable OS is, and the two things a visitor can do next.
+// The top of the page: what Zero BS AI does with Composable OS, the one action, and a picture of
+// a product composed for an invented business (a coffee roaster), so it reads as "this could be
+// yours" and not as a CRM.
+import { CTA } from "../links.ts";
+import Logo from "./Logo.astro";
+
+const columns = [
+  {
+    name: "To roast · 3",
+    orders: [
+      { who: "Kestrel Cafe", what: "24 kg · house blend" },
+      { who: "Northfield Deli", what: "8 kg · decaf" },
+      { who: "Pine & Rye", what: "12 kg · single origin" },
+    ],
+  },
+  {
+    name: "Roasting · 2",
+    orders: [
+      { who: "Lumen Hotel", what: "40 kg · house blend", tone: "lime" },
+      { who: "Oakline Studio", what: "6 kg · filter" },
+    ],
+  },
+  {
+    name: "Packed · 2",
+    orders: [
+      { who: "Fennel Foods", what: "18 kg · espresso" },
+      { who: "Tidewater Group", what: "60 kg · standing order", tone: "navy" },
+    ],
+  },
+  { name: "Delivered · 1", orders: [{ who: "Brightwater Labs", what: "10 kg · filter" }] },
+];
+const side = [
+  "Orders",
+  "Wholesale accounts",
+  "Roast schedule",
+  "Deliveries",
+  "Dashboards",
+  "Automations",
+];
 ---
 
 <section class="hero" aria-labelledby="hero-title">
-  <div class="orb" aria-hidden="true"></div>
-  <div class="orb s" aria-hidden="true"></div>
   <div class="wrap">
-    <span class="eyebrow">A platform for company software</span>
-    <h1 id="hero-title">
-      Compose the software <span class="chrome-text">your company runs on.</span>
-    </h1>
+    <h1 id="hero-title">A head start on custom software to fit your business</h1>
     <p class="lead">
-      Composable OS is a trusted host that runs in your own Cloudflare account. Products are
-      composed on it from records, rules and screens. Your AI drafts each change, and a person
-      approves it before it runs.
+      The parts every business product needs are already built: records, rules, screens, approvals
+      and connections. Zero BS AI composes them into the product your business needs, then looks
+      after it for you.
     </p>
-    <div class="hero-actions">
-      <a class="btn" href="#crm">See the first product: the CRM</a>
-      <a class="btn ghost" href="#install">Install it</a>
+    <div class="actions">
+      <a class="btn" href="#call">{CTA}</a>
+      <a class="btn ghost" href="#pieces">See what can go in</a>
     </div>
-    <p class="sub2">
-      Source available, free to self-host. <a class="textlink" href="#platform">What the platform does</a>
-    </p>
+    <p class="fine">30 minutes about how your business runs. No slides.</p>
+    <figure
+      class="stage"
+      role="img"
+      aria-label="An example product: a coffee roaster's orders board, with a change waiting for approval"
+    >
+      <i class="arch b"></i><i class="arch a"></i><i class="arch c"></i><i class="arch d"></i>
+      <div class="app" aria-hidden="true">
+        <div class="app-side">
+          <div class="logo"><Logo />Harbour Roasters</div>
+          {side.map((item, i) => <span class:list={{ on: i === 0 }}>{item}</span>)}
+          <span>Approvals <b>1</b></span>
+        </div>
+        <div class="app-main">
+          <div class="app-bar">
+            <div class="app-ask">
+              <span>Add a standing order to wholesale accounts and remind us two days before each roast</span>
+            </div>
+            <span class="app-chip">Filters</span>
+            <span class="app-chip">This week</span>
+          </div>
+          <div class="app-title">Orders</div>
+          <div class="board">
+            {
+              columns.map((column) => (
+                <div class="board-col">
+                  <span>{column.name}</span>
+                  {column.orders.map((order) => (
+                    <div class:list={["order", order.tone]}>
+                      <b>{order.who}</b>
+                      <small>{order.what}</small>
+                    </div>
+                  ))}
+                </div>
+              ))
+            }
+          </div>
+        </div>
+        <div class="change">
+          <strong>Change waiting for you</strong>
+          <p>Nothing runs until you approve.</p>
+          <ul>
+            <li><i>field</i>Add “Standing order” to accounts</li>
+            <li><i>auto</i>Remind us 2 days before each roast</li>
+            <li><i>test</i>Test run: 4 accounts would get one</li>
+          </ul>
+          <div class="change-row"><span>Reject</span><span class="ok">Approve</span></div>
+        </div>
+      </div>
+    </figure>
   </div>
 </section>
+
+<div class="facts">
+  <div class="wrap">
+    <ul>
+      <li>Built for your business</li>
+      <li>Looked after by us, on one subscription</li>
+      <li>The code is yours if you want it</li>
+      <li>Your data stays yours</li>
+    </ul>
+  </div>
+</div>

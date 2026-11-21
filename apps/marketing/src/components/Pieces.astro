@@ -1,0 +1,58 @@
+---
+// What can go into a company's product. Each line is true of the repository today: "Customers and
+// sales" is the base records plus the Deals and Leads packs; ticketing is a pack being built with
+// its first client (stage 27) and content is designed and not built, and each says so. The last card is the piece built only for this business.
+import Icon from "./Icon.astro";
+
+const pieces = [
+  {
+    icon: "users",
+    title: "Customers and sales",
+    body: "People, organisations, deals and leads, with pipelines and email on the timeline. Ready today.",
+  },
+  {
+    soon: "Being built",
+    title: "Ticketing",
+    body: "Events, ticket types, checkout and door scanning.",
+  },
+  {
+    soon: "In design",
+    title: "Content",
+    body: "Pages and posts with drafts, preview and publishing.",
+  },
+];
+---
+
+<section id="pieces" aria-labelledby="pieces-title">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">What can go in</span>
+      <h2 id="pieces-title">Take the pieces your business needs. Leave the rest.</h2>
+      <p class="lead">
+        Each piece works with the others, on the same records and rules. Yours might be one of
+        them, all of them, or mostly something nobody else has.
+      </p>
+    </div>
+    <div class="grid four">
+      {
+        pieces.map((piece) => (
+          <div class="card reveal">
+            {piece.soon ? (
+              <span class="soon">{piece.soon}</span>
+            ) : (
+              <div class="ic">
+                <Icon name={piece.icon ?? "grid"} />
+              </div>
+            )}
+            <h3>{piece.title}</h3>
+            <p>{piece.body}</p>
+          </div>
+        ))
+      }
+      <div class="card own reveal">
+        <h3>The part only you have</h3>
+        <p>The thing no subscription does the way you do it. We build that piece for you.</p>
+      </div>
+    </div>
+  </div>
+</section>

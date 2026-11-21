@@ -17,7 +17,6 @@
 // The HTTP routes that mount `handle` are stage 23's.
 import {
   type CustomerPrincipal,
-  checkCodeRequestLimit,
   customerMayGetCode,
   customerSignedInStatement,
   linkCustomer,
@@ -25,14 +24,12 @@ import {
   newId,
   type PublicPrincipal,
   type RateLimitBinding,
-  RateLimitedError,
-  rateLimit,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { emailOTP } from "better-auth/plugins/email-otp";
-import { randomId } from "./better-auth.ts";
+import { beforeCodeRequest, randomId, uniformCodeSignIn } from "./better-auth.ts";
 
 export const CUSTOMER_AUTH_BASE_PATH = "/api/customer-auth";
 /** Customer cookies are `cos-customer.*`; staff cookies keep Better Auth's `better-auth.*`. */
@@ -79,15 +76,6 @@ export interface CustomerAuthOptions {
   ready?: (() => Promise<string | null>) | undefined;
 }
 
-/** A client address as a rate-limit key: hashed with the secret, so no address is passed on. */
-async function addressKey(address: string, secret: string): Promise<string> {
-  const data = new TextEncoder().encode(`${secret}\n${address}`);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return [...new Uint8Array(digest).slice(0, 16)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 const CODE_REQUEST_PATH = "/email-otp/send-verification-otp";
 
 const timestamps = { createdAt: "created_at", updatedAt: "updated_at" } as const;
@@ -112,33 +100,13 @@ export function createCustomerAuth(options: CustomerAuthOptions) {
       before: createAuthMiddleware(async (ctx) => {
         if (ctx.path !== CODE_REQUEST_PATH) return;
         // Not set up (stage 23): said before anything is made or counted, the same for everyone.
-        const problem = options.ready ? await options.ready() : null;
-        if (problem) {
-          throw new APIError("SERVICE_UNAVAILABLE", {
-            message: `Customer sign-in is not set up: ${problem}`,
-            code: "SIGN_IN_NOT_SET_UP",
-          });
-        }
-        const address = ctx.headers?.get("cf-connecting-ip");
-        if (address && options.codeAddressRateLimit) {
-          const limited = await rateLimit(
-            options.codeAddressRateLimit,
-            `code-from:${await addressKey(address, options.secret)}`,
-          );
-          if (!limited.ok) {
-            throw new APIError("TOO_MANY_REQUESTS", {
-              message: `Too many sign-in code requests; retry in ${limited.retryAfterSeconds}s`,
-            });
-          }
-        }
-        const email = (ctx.body as { email?: unknown } | undefined)?.email;
-        if (typeof email !== "string") return;
-        try {
-          await checkCodeRequestLimit(options.codeRateLimit, email);
-        } catch (error) {
-          if (!(error instanceof RateLimitedError)) throw error;
-          throw new APIError("TOO_MANY_REQUESTS", { message: error.message });
-        }
+        await beforeCodeRequest(ctx, {
+          ready: options.ready,
+          secret: options.secret,
+          codeRateLimit: options.codeRateLimit,
+          codeAddressRateLimit: options.codeAddressRateLimit,
+          what: "Customer sign-in",
+        });
       }),
     },
     emailAndPassword: { enabled: false },
@@ -190,7 +158,13 @@ export function createCustomerAuth(options: CustomerAuthOptions) {
           try {
             await options.sendCode({ to: email, code: otp });
           } catch (error) {
-            // A failed send must not answer differently from a refused one.
+            // Not sent (queued for review, or failed): the code is removed, as for a refused
+            // address, so a code nobody received never works. Queued, its text is in the
+            // Approvals preview, where whoever approves it could otherwise sign in as this
+            // address (ADR 0455). The answer is the same as for a sent code.
+            await ctx?.context.internalAdapter.deleteVerificationByIdentifier(
+              `${type}-otp-${email.toLowerCase()}`,
+            );
             console.error(
               "customer sign-in code not sent",
               error instanceof Error ? error.message : error,
@@ -267,6 +241,21 @@ export interface CustomerIdentity {
    * request is not for one. A route outside the customer list answers 404.
    */
   handle(request: Request): Promise<Response | null>;
+  /**
+   * A native app asks for a code (ADR 0455): the browser route's checks and answer, no cookie.
+   * Throws Better Auth's error for a refusal (`codeRequestRefusal`).
+   */
+  requestCode(email: string, headers: Headers): Promise<void>;
+  /**
+   * A native app signs in with the code (ADR 0455): Better Auth's sign-in and its hooks, then
+   * the cookie session it made is deleted at once. The account, for a device session, or null
+   * for every refusal.
+   */
+  signInWithCode(
+    email: string,
+    code: string,
+    headers: Headers,
+  ): Promise<{ customerId: string; account: "ready" | "needs_attention" } | null>;
 }
 
 /** Whether a signed-in account is ready, or waits for staff to merge people. */
@@ -310,7 +299,10 @@ export function customerIdentity(auth: CustomerAuthInstance, d1: D1Database): Cu
         return new Response("Not found", { status: 404 });
       }
       const response = await auth.handler(request);
-      if (route !== "/sign-in/email-otp" || !response.ok) return response;
+      if (route !== "/sign-in/email-otp") return response;
+      // One answer for every failed sign-in: "expired" or "too many tries" would say a code was
+      // sent to the address (ADR 0455).
+      if (!response.ok) return uniformCodeSignIn(response);
       // Signed in: say whether the account is ready or needs a moment (staff are merging people).
       const body = (await response.json()) as { user?: { id?: unknown } } & Record<string, unknown>;
       const customerId = typeof body.user?.id === "string" ? body.user.id : null;
@@ -321,6 +313,23 @@ export function customerIdentity(auth: CustomerAuthInstance, d1: D1Database): Cu
         status: response.status,
         headers,
       });
+    },
+    async requestCode(email, headers) {
+      await auth.api.sendVerificationOTP({ body: { email, type: "sign-in" }, headers });
+    },
+    async signInWithCode(email, code, headers) {
+      let result: { token: string; user: { id: string } };
+      try {
+        result = await auth.api.signInEmailOTP({ body: { email, otp: code }, headers });
+      } catch (error) {
+        if (error instanceof APIError) return null;
+        throw error;
+      }
+      await d1
+        .prepare("DELETE FROM core_customer_session WHERE token = ?")
+        .bind(result.token)
+        .run();
+      return { customerId: result.user.id, account: await accountState(crm, result.user.id) };
     },
   };
   return identity;

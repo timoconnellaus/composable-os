@@ -64,6 +64,7 @@ import {
 } from "./gate.ts";
 import { findProvisionalIds, newId } from "./ids.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
+import type { HostMail } from "./invites.ts";
 import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
@@ -181,6 +182,8 @@ export interface InvocationContext {
   voice?: VoiceRuntime;
   /** The agents' Durable Objects (ADR 0344). Nested invocations inherit it. */
   agentJobs?: AgentJobHost;
+  /** The host's own mail for staff (ADR 0455). Not inherited when nested. */
+  hostMail?: HostMail;
   /**
    * Set on an agent's calls (ADR 0344): what its grant allows, checked on every call. Passed by the
    * AgentJob object, never by a model. Not inherited when nested, which is why operations that run
@@ -811,6 +814,7 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.assistantThreads ? { assistantThreads: ctx.assistantThreads } : {}),
     ...(ctx.voice ? { voice: ctx.voice } : {}),
     ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
+    ...(ctx.hostMail ? { hostMail: ctx.hostMail } : {}),
     pipeline: {
       crm: ctx.db,
       resolve: (name) => ctx.resolveOperation?.(name),

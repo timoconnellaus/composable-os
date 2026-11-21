@@ -394,8 +394,10 @@ export const userDeactivate = defineOperation({
         .updateTable("core_user")
         .set({ deactivated_at: ctx.now, updated_at: ctx.now })
         .where("id", "=", user.id),
-      // Their sessions end now.
+      // Their sessions end now: the browser's and every device's (ADR 0455), so reactivating
+      // the account does not bring an old phone's session back.
       ctx.db.deleteFrom("core_session").where("user_id", "=", user.id),
+      ctx.db.deleteFrom("core_device_session").where("user_id", "=", user.id),
     );
     const plan = await revokeBindingsPlan(
       ctx.db,

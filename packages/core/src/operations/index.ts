@@ -36,6 +36,7 @@ import { fieldOptionsOperations } from "./field-options.ts";
 import { importOperations } from "./import.ts";
 import { importRecordsOperations } from "./import-records.ts";
 import { integrationOperations } from "./integration.ts";
+import { inviteOperations } from "./invite.ts";
 import { judgeOperations } from "./judge.ts";
 import { meOperations } from "./me.ts";
 import { memoryOperations } from "./memory.ts";
@@ -75,6 +76,7 @@ export const coreOperations = [
   ...affiliationOperations,
   ...trashOperations,
   ...userOperations,
+  ...inviteOperations,
   ...activityOperations,
   ...taskOperations,
   ...viewOperations,

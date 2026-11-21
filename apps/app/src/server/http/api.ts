@@ -17,14 +17,19 @@
 // Every call goes through `coreInvoker`, which is `invoke()`. A customer's or the public's call
 // gets an outside context: a principal and the database for the pipeline, never a staff user.
 import {
+  addressKey,
   CUSTOMER_AUTH_BASE_PATH,
   CUSTOMER_COOKIE_PREFIX,
   type CustomerIdentity,
   type CustomerIdentityEnv,
+  codeRequestRefusal,
   createIdentityProvider,
+  getBetterAuth,
   getCustomerIdentity,
   type IdentityEnv,
   type Principal,
+  requestStaffCode,
+  staffSignInWithCode,
 } from "@composable-os/auth";
 import {
   type AnyInvocationContext,
@@ -37,6 +42,7 @@ import {
   ForbiddenError,
   type HttpReply,
   hostMailCall,
+  invalidCode,
   issueDeviceSession,
   loadCustomer,
   type OutsideInvocationContext,
@@ -44,11 +50,15 @@ import {
   parseAllowedOrigins,
   parseFloor,
   type RateLimitBinding,
+  RateLimitedError,
+  rateLimit,
   readBounded,
+  redeemNativeHandoff,
   refreshDeviceSession,
   resolveAccessToken,
   resolveActingUser,
   sendCustomerCode,
+  signOutDeviceSession,
   ValidationError,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
@@ -223,14 +233,176 @@ async function body(request: Request): Promise<Record<string, unknown>> {
   throw new ValidationError("The request body is not a JSON object");
 }
 
+/** A required string field of a sign-in body. */
+function field(input: Record<string, unknown>, name: string, max: number): string {
+  const value = input[name];
+  if (typeof value !== "string" || !value.trim() || value.length > max) {
+    throw new ValidationError(`${name} is required`, { field: name });
+  }
+  return value.trim();
+}
+
+/** The native sign-in routes (ADR 0455): no cookie is read or set, and no token is taken. */
+const NATIVE_ROUTES = new Set([
+  "/auth/customer/code",
+  "/auth/customer/sign-in",
+  "/auth/staff/code",
+  "/auth/staff/sign-in",
+  "/auth/staff/exchange",
+  "/auth/sign-out",
+]);
+
+const notSetUp = (message: string) =>
+  new ForbiddenError(message, { reason: "sign_in_not_set_up", httpStatus: 503 });
+
+/**
+ * The headers Better Auth sees on a native sign-in: the client address (for the per-address
+ * limit) and nothing else, so no cookie the request carries is read.
+ */
+function nativeHeaders(request: Request): Headers {
+  const headers = new Headers();
+  const address = request.headers.get("cf-connecting-ip");
+  if (address) headers.set("cf-connecting-ip", address);
+  return headers;
+}
+
+/** Sign-in attempts, exchanges and sign-outs per client address, as code requests are limited. */
+async function limitAttempts(request: Request, env: ApiEnv): Promise<void> {
+  const address = request.headers.get("cf-connecting-ip");
+  if (!address || !env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT) return;
+  const limited = await rateLimit(
+    env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
+    `auth-from:${await addressKey(address, env.BETTER_AUTH_SECRET ?? "")}`,
+  );
+  if (!limited.ok) {
+    throw new RateLimitedError(
+      `Too many sign-in attempts; retry in ${limited.retryAfterSeconds}s`,
+      {
+        retryAfterSeconds: limited.retryAfterSeconds,
+      },
+    );
+  }
+}
+
+/** Asks for a code; the same answer whoever the address is. */
+async function requestCode(ask: () => Promise<void>): Promise<HttpReply> {
+  try {
+    await ask();
+  } catch (error) {
+    const refusal = codeRequestRefusal(error);
+    if (refusal?.refused === "not_set_up") throw notSetUp(refusal.message);
+    if (refusal?.refused === "rate_limited") {
+      throw new RateLimitedError(refusal.message, {
+        retryAfterSeconds: refusal.retryAfterSeconds,
+      });
+    }
+    // Better Auth's other refusal here is a malformed address: the same for everyone.
+    if (error instanceof Error && "statusCode" in error && error.statusCode === 400) {
+      throw new ValidationError("email is not an email address", { field: "email" });
+    }
+    throw error;
+  }
+  return dataReply({ ok: true });
+}
+
+/** A staff account that may still hold a session: refused as a wrong code otherwise. */
+async function activeStaff(db: CrmDb, userId: string): Promise<string> {
+  const user = await db.query
+    .selectFrom("core_user")
+    .select(["id", "kind", "deactivated_at"])
+    .where("id", "=", userId)
+    .executeTakeFirst();
+  if (user?.kind !== "human" || user.deactivated_at) throw invalidCode();
+  return user.id;
+}
+
+async function nativeRoute(
+  route: string,
+  request: Request,
+  env: ApiEnv,
+  input: Record<string, unknown>,
+): Promise<HttpReply> {
+  const db = createCrmDb(env.DB);
+  const now = new Date();
+  const headers = nativeHeaders(request);
+  if (route === "/auth/sign-out") {
+    await limitAttempts(request, env);
+    const refreshToken = field(input, "refreshToken", 300);
+    // Ends that one device session if the token is its own; the same answer either way.
+    await signOutDeviceSession(db, refreshToken, now);
+    return dataReply({ ok: true });
+  }
+  if (route === "/auth/customer/code" || route === "/auth/customer/sign-in") {
+    const identity = customers(env);
+    if (!identity) {
+      throw notSetUp("Customer sign-in is not set up on this deployment (CUSTOMER_AUTH_SECRET)");
+    }
+    const email = field(input, "email", 254);
+    if (route === "/auth/customer/code") {
+      return requestCode(() => identity.requestCode(email, headers));
+    }
+    await limitAttempts(request, env);
+    const code = field(input, "code", 20);
+    const deviceName = deviceNameSchema(input.deviceName);
+    const signedIn = await identity.signInWithCode(email, code, headers);
+    if (!signedIn) throw invalidCode();
+    const tokens = await issueDeviceSession(
+      db,
+      { audience: "customer", subjectId: signedIn.customerId },
+      deviceName,
+      now,
+    );
+    return dataReply({ ...tokens, account: signedIn.account });
+  }
+  if (route === "/auth/staff/exchange") {
+    await limitAttempts(request, env);
+    const deviceName = deviceNameSchema(input.deviceName);
+    const userId = await redeemNativeHandoff(
+      db,
+      {
+        code: field(input, "code", 200),
+        codeVerifier: field(input, "codeVerifier", 200),
+        redirectUri: field(input, "redirectUri", 500),
+      },
+      now,
+    );
+    const subjectId = await activeStaff(db, userId);
+    return dataReply(
+      await issueDeviceSession(db, { audience: "staff", subjectId }, deviceName, now),
+    );
+  }
+  // Staff sign-in by code: the host's own sign-in only (Better Auth); under Access there is none.
+  const auth = getBetterAuth(env);
+  if (!auth) throw notSetUp("Staff sign in through Cloudflare Access here, not by code");
+  const email = field(input, "email", 254);
+  if (route === "/auth/staff/code") {
+    return requestCode(() => requestStaffCode(auth, email, headers));
+  }
+  await limitAttempts(request, env);
+  const code = field(input, "code", 20);
+  const deviceName = deviceNameSchema(input.deviceName);
+  const signedIn = await staffSignInWithCode(auth, env.DB, email, code, headers);
+  if (!signedIn) throw invalidCode();
+  const subjectId = await activeStaff(db, signedIn.userId);
+  return dataReply(await issueDeviceSession(db, { audience: "staff", subjectId }, deviceName, now));
+}
+
 /**
  * `/auth/token`: exchanges the sign-in the request carries (a staff or customer cookie session)
- * for a native app's tokens. `/auth/refresh`: rotates them. Neither takes a bearer token.
+ * for a native app's tokens. `/auth/refresh`: rotates them. Neither takes a bearer token. The
+ * native sign-in routes (ADR 0455) answer with tokens and never touch a cookie.
  */
 async function authRoutes(route: string, request: Request, env: ApiEnv): Promise<HttpReply | null> {
-  if (route !== "/auth/token" && route !== "/auth/refresh") return null;
+  const native = NATIVE_ROUTES.has(route);
+  if (!native && route !== "/auth/token" && route !== "/auth/refresh") return null;
   try {
     const input = await body(request);
+    if (native) {
+      if (request.headers.get("authorization")) {
+        throw new ValidationError("Sign in without an Authorization header");
+      }
+      return await nativeRoute(route, request, env, input);
+    }
     const db = createCrmDb(env.DB);
     const now = new Date();
     if (route === "/auth/refresh") {

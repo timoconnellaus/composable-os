@@ -214,6 +214,51 @@ export const userPackRoles = defineOperation({
   },
 });
 
+/**
+ * Refuses a pack role that is not `<pack>.<role>`, that no installed pack declares, or that would
+ * go to an admin (ADR 0436). Shared by user.setPackRole and the invites (ADR 0455).
+ */
+export async function checkPackRole(
+  ctx: Pick<Parameters<typeof userPackRoles.handler>[1], "db">,
+  packRole: string,
+  accountRole: (typeof ROLES)[number],
+  field: string,
+): Promise<void> {
+  if (!PACK_ROLE_NAME_RE.test(packRole)) {
+    throw new ValidationError("A pack role is named <pack>.<role>", { field });
+  }
+  const roles = await availablePackRoles(ctx.db);
+  if (!roles.some((role) => role.name === packRole)) {
+    throw new ValidationError(
+      `No installed pack declares the role ${packRole}. user.packRoles lists them.`,
+      { field, available: roles.map((role) => role.name) },
+    );
+  }
+  if (accountRole === "admin") {
+    throw new ConflictError(
+      "An admin holds everything. Change their role to member or viewer first.",
+      { field },
+    );
+  }
+}
+
+/** Refuses permissions that cannot be granted (ADR 0449); returns the list sorted, once each. */
+export async function checkGrants(
+  ctx: Pick<Parameters<typeof userPackRoles.handler>[1], "db">,
+  permissions: readonly string[],
+  field: string,
+): Promise<string[]> {
+  const available = new Set((await grantable(ctx)).map((g) => g.permission));
+  const unknown = permissions.filter((p) => !available.has(p));
+  if (unknown.length) {
+    throw new ValidationError(
+      `${unknown.join(", ")} cannot be granted. user.grantablePermissions lists what can.`,
+      { field, unknown, available: [...available] },
+    );
+  }
+  return [...new Set(permissions)].sort();
+}
+
 export const userSetPackRole = defineOperation({
   name: "user.setPackRole",
   description:
@@ -241,24 +286,7 @@ export const userSetPackRole = defineOperation({
       .where("id", "=", input.id)
       .executeTakeFirst();
     if (!before) throw new NotFoundError("user", input.id);
-    if (input.role !== null) {
-      if (!PACK_ROLE_NAME_RE.test(input.role)) {
-        throw new ValidationError("A pack role is named <pack>.<role>", { field: "role" });
-      }
-      const roles = await availablePackRoles(ctx.db);
-      if (!roles.some((role) => role.name === input.role)) {
-        throw new ValidationError(
-          `No installed pack declares the role ${input.role}. user.packRoles lists them.`,
-          { field: "role", available: roles.map((role) => role.name) },
-        );
-      }
-      if (before.role === "admin") {
-        throw new ConflictError(
-          "An admin holds everything. Change their role to member or viewer first.",
-          { field: "role" },
-        );
-      }
-    }
+    if (input.role !== null) await checkPackRole(ctx, input.role, before.role, "role");
     const role = input.role === null ? before.role : "viewer";
     let update = ctx.db
       .updateTable("core_user")
@@ -282,8 +310,8 @@ export const userSetPackRole = defineOperation({
 });
 
 /** What an admin may grant now: the core list and the grantable permissions of installed packs. */
-async function grantable(
-  ctx: Parameters<typeof userPackRoles.handler>[1],
+export async function grantable(
+  ctx: Pick<Parameters<typeof userPackRoles.handler>[1], "db">,
 ): Promise<{ permission: string; label: string; from: string }[]> {
   const rows = await ctx.db
     .selectFrom("core_extensions")
@@ -365,15 +393,7 @@ export const userSetPermissions = defineOperation({
       .where("id", "=", input.id)
       .executeTakeFirst();
     if (!before) throw new NotFoundError("user", input.id);
-    const available = new Set((await grantable(ctx)).map((g) => g.permission));
-    const unknown = input.permissions.filter((p) => !available.has(p));
-    if (unknown.length) {
-      throw new ValidationError(
-        `${unknown.join(", ")} cannot be granted. user.grantablePermissions lists what can.`,
-        { field: "permissions", unknown, available: [...available] },
-      );
-    }
-    const permissions = [...new Set(input.permissions)].sort();
+    const permissions = await checkGrants(ctx, input.permissions, "permissions");
     const previous = parseGrants(before.granted_permissions);
     ctx.write(
       ctx.db
