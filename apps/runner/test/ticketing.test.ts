@@ -1283,7 +1283,7 @@ describe("a holder's tickets name their event and ticket type, whatever the even
   });
 });
 
-// --- An event's own time zone (ADR 0450) ----------------------------------------------------------
+// --- An event's own time zone (ADR 0460) ----------------------------------------------------------
 
 describe("an event's own time zone", () => {
   it("defaults to the deployment's zone, refuses one that is not a zone, and is in every holder-facing output", async () => {

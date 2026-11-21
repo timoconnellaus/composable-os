@@ -65,7 +65,7 @@ export default defineExtension({
         name: { type: "text", label: "Name", required: true },
         startsAt: { type: "datetime", label: "Starts" },
         endsAt: { type: "datetime", label: "Ends" },
-        // Where the event's clock is (ADR 0450): its days and times are this zone's, for buyers,
+        // Where the event's clock is (ADR 0460): its days and times are this zone's, for buyers,
         // holders, the emails and the reminders. Left empty, the deployment's zone.
         timezone: {
           type: "timezone",

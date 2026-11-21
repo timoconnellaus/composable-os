@@ -155,7 +155,7 @@ function numberType(widget: WidgetKind) {
 }
 
 /**
- * Whether `name` is an IANA time zone this runtime knows (ADR 0450): one of
+ * Whether `name` is an IANA time zone this runtime knows (ADR 0460): one of
  * `Intl.supportedValuesOf("timeZone")`, or `UTC`. Aliases the list leaves out are refused, so a
  * stored zone is always one every reader can format in.
  */
@@ -167,7 +167,7 @@ export function isTimeZoneName(name: string): boolean {
 let zones: Set<string> | undefined;
 
 export const FIELD_TYPE_REGISTRY: Record<FieldTypeName, FieldTypeSpec> = {
-  // A time zone (ADR 0450): text, but only a name from the runtime's list of zones.
+  // A time zone (ADR 0460): text, but only a name from the runtime's list of zones.
   timezone: textType(
     64,
     "text",

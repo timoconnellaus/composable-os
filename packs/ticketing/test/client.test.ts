@@ -90,7 +90,7 @@ describe("plain functions", () => {
     expect(formatPrice(45.5, "AUD")).toBe("45.50 AUD");
   });
 
-  it("shows an event's times in its own zone, and says the zone when it is not the viewer's (ADR 0450)", () => {
+  it("shows an event's times in its own zone, and says the zone when it is not the viewer's (ADR 0460)", () => {
     // 06:30 on 1 March in Bangkok (UTC+7) is 23:30 UTC on 28 February, and 10:30 in Sydney.
     const camp = { startsAt: "2027-02-28T23:30:00Z", endsAt: null, timeZone: "Asia/Bangkok" };
     const fromSydney = eventTime(camp, { viewer: "Australia/Sydney", locale: "en-GB" });

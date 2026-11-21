@@ -18,7 +18,7 @@ import { type DispatchEnv, type StartResult, startRuns } from "./dispatch.ts";
 
 /** core_automation_counters row that marks the day's date-relative scan as done. */
 export const DATE_RELATIVE_MARKER = "~dateRelative";
-/** Marks an hour's scan of date-relative triggers counted in each record's own zone (ADR 0450). */
+/** Marks an hour's scan of date-relative triggers counted in each record's own zone (ADR 0460). */
 export const ZONED_DATE_RELATIVE_MARKER = "~dateRelativeZoned";
 
 export async function runAutomationCron(
@@ -74,7 +74,7 @@ export async function runAutomationCron(
     }
   }
   // Triggers counted in each record's own zone: once an hour, from five past, so a record's
-  // local day is seen within its first hour wherever it is (ADR 0450).
+  // local day is seen within its first hour wherever it is (ADR 0460).
   let zonedDateRelative: StartResult | null = null;
   if (at.getUTCMinutes() >= 5) {
     const hour = iso.slice(0, 13);
@@ -97,7 +97,7 @@ export async function runAutomationCron(
 }
 
 /**
- * Date-relative matches of the triggers that name a `zoneField` (ADR 0450): each record's day is
+ * Date-relative matches of the triggers that name a `zoneField` (ADR 0460): each record's day is
  * counted in its own time zone, and is due on that zone's day. The idempotency key is the record
  * and that local day, so the hourly scans start one run per record per day.
  */

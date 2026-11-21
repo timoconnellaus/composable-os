@@ -76,7 +76,7 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    `run`. A `dateRelative` trigger's `offsetDays` is negative before the date and positive
    after it, in days only (a month before is `-30`). When the record's days belong to its own place (an
    event abroad), add `zoneField: "<a timezone field>"`: days are then counted in each record's
-   zone, and the run starts in the first hour of that local day (ADR 0450; Ticketing:
+   zone, and the run starts in the first hour of that local day (ADR 0460; Ticketing:
    `eventReminder`, `eventEnded`). An automation the request itself asks for
    ships on; one you added as an extra ships off with `enabled: false` (Leads).
 5. **Declare every step and its intents.** A camelCase `name` each. A `do` step lists `reads`

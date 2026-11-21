@@ -111,7 +111,7 @@ export async function idsMatchingConditions(
  * field), at most `limit` ids.
  */
 /**
- * Date-relative matches counted in each record's own time zone (ADR 0450): the records whose
+ * Date-relative matches counted in each record's own time zone (ADR 0460): the records whose
  * `field`, read as a day in the zone `zoneField` names (or `fallbackZone` when it is empty), is
  * that zone's today minus `offsetDays`. "Today" is `at` in the record's zone, so a run for an
  * event in Bangkok is due on Bangkok's day, whatever the deployment's zone. The rows read are the

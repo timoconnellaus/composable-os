@@ -24,7 +24,7 @@ export const FIELD_TYPES = [
   // A JSON document checked against a schema the field declares (stage 41, ADR 0445).
   "document",
   // An IANA time zone name (`Asia/Bangkok`), checked against the runtime's list of zones. Left
-  // empty on a new record, the host fills in the deployment's zone (ADR 0450).
+  // empty on a new record, the host fills in the deployment's zone (ADR 0460).
   "timezone",
 ] as const;
 export type FieldTypeName = (typeof FIELD_TYPES)[number];

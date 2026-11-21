@@ -1147,7 +1147,7 @@ records to a customer. Not the Person's contact email, which staff can change.
 _Avoid_: primary email (the Person's contact address), login
 
 **Time zone** (field)
-A `timezone` field (ADR 0450): an IANA zone name the runtime knows, the deployment's zone when a
+A `timezone` field (ADR 0460): an IANA zone name the runtime knows, the deployment's zone when a
 new record leaves it empty. A record's datetimes are shown, and a date trigger with `zoneField`
 counts its days, in it.
 _Avoid_: offset (an offset changes with daylight saving), locale

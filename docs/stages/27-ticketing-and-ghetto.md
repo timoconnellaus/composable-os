@@ -314,4 +314,4 @@ Gaps the gym's own repository ran into, fixed on the platform:
   live, whatever the event's state. The blocks no longer take an `eventName` prop. The order page
   already named its lines (a line keeps its title).
 - **Events have a time zone:** a required `timezone` field (the deployment's zone by default), in
-  `eventsOnSale` and `myTickets`, the emails, and the reminder and "ended" days (ADR 0450).
+  `eventsOnSale` and `myTickets`, the emails, and the reminder and "ended" days (ADR 0460).

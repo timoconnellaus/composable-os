@@ -120,7 +120,7 @@ export type AutomationTrigger =
       /**
        * `offsetDays` days after (positive) or before (negative) a date field of each live record
        * of `object`; 0 is the day itself. Evaluated once a day, in the automation timezone; or,
-       * with `zoneField`, in each record's own time zone (ADR 0450): the day of the date and
+       * with `zoneField`, in each record's own time zone (ADR 0460): the day of the date and
        * "today" are both that zone's, and the run starts in the first hour of that local day.
        */
       type: "dateRelative";

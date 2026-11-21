@@ -1029,7 +1029,7 @@ other's records. `my.list` and `my.get` read it. Buying reads `buyableSource`, t
 it: reading is not buying. The seam also adds `currency` (the deployment's) beside a sellable
 object's records, and `me.get` returns the account's verified sign-in address (`signInEmail`).
 
-**Time zones** ([ADR 0450](adr/0450-time-zones-on-records.md)). A `timezone` field type (an IANA
+**Time zones** ([ADR 0460](adr/0460-time-zones-on-records.md)). A `timezone` field type (an IANA
 name the runtime knows; the deployment's zone when left empty on create), and date-relative
 triggers that count days in a record's own zone (`zoneField`), scanned hourly by cos-runner's cron.
 

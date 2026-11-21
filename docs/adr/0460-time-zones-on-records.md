@@ -1,4 +1,4 @@
-# ADR 0450: A record's own time zone, and date triggers counted in it
+# ADR 0460: A record's own time zone, and date triggers counted in it
 
 Status: accepted, 2026-11-21 (stage 27 follow-up, from the first client's build). Builds on ADRs
 [0023](0023-extension-contract.md) (the extension contract and its field types), [0130](0130-automation-runtime.md)
@@ -52,8 +52,15 @@ March and not on 28 February or 2 March; the real "event ended" automation leave
 a `zoneField` that is not a timezone field is refused.
 
 ## Consequences
-- An event created before this change has no zone; its holders' outputs return `timeZone: null`,
-  the hooks fall back to the viewer's zone and the zoned triggers to the automation zone. Staff set
-  it on the record.
+- **Records that already exist get the deployment's zone.** When the reconciler adds a
+  `timezone` field (with no default of its own) to an object that has records, it fills the new
+  column with the deployment's zone in the same batch (`UPDATE … SET <zone> = <org_timezone, or
+  UTC> WHERE <zone> IS NULL`), as `record.create` does for a new record. So Ticketing's required
+  zone is never empty on an event that existed before it. A required field is checked when it is
+  set, not on every save, so even a record left with none (written past the record code) takes an
+  unrelated edit; clearing it, or setting a name that is not a zone, is refused. Should a row still
+  have none, the tools return `timeZone: null`, the hooks fall back to the viewer's zone and the
+  zoned triggers to the automation zone. Test: `packages/core/test/customer-via.test.ts`, "a time
+  zone added to records that already exist" (without the reconciler's fill it fails).
 - Zoned triggers read their candidate rows once an hour instead of once a day.
 - The admin edits a zone as text (the field's validation names the format); a picker is for later.

@@ -114,7 +114,7 @@ export function viewerTimeZone(): string {
 
 /**
  * When an event starts (or ends, with `at: "endsAt"`), as a buyer or holder reads it: the day and
- * time in the event's own zone (ADR 0450), never the device's, so a camp in Bangkok reads as
+ * time in the event's own zone (ADR 0460), never the device's, so a camp in Bangkok reads as
  * Bangkok's time on a phone in Sydney. When the event's zone is not the viewer's, the zone is
  * said (`… (Bangkok time)`). Display only.
  */

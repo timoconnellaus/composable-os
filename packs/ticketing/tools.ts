@@ -41,7 +41,7 @@ const currency = z
       "Null until an admin sets it, and until then nothing can be bought.",
   );
 
-/** An event's own time zone: its days and times are this zone's (ADR 0450). */
+/** An event's own time zone: its days and times are this zone's (ADR 0460). */
 const timeZone = z
   .string()
   .nullable()

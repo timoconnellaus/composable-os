@@ -87,6 +87,10 @@ a holder still reads the ticket type of an ended event and cannot buy another.
   exist (with `visibleSource` in place of `buyableSource` in `priceLines`, that test fails); the
   order page still names the line.
 - `packages/core/test/public-scope.test.ts`: the declaration's checks and the runtime refusal.
+- `packages/core/test/customer-via.test.ts`: `customerVia` beside `signedIn` on one object. Every
+  member reads a class's shared fields; a pass holder also reads its room, another member sees the
+  room empty and cannot find it by filtering; no member reads the coach's note; the public reads
+  nothing.
 
 ## Consequences
 - One subquery per read of an object a customer reaches this way. It reads the `from` view by its

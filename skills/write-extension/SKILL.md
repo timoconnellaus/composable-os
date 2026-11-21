@@ -166,7 +166,7 @@ extension declares it; it never implements it. Each behaviour the platform has i
   not buying: a customer buys only what they may read as their own or as the public. Only a pack
   or the org's own extension may declare it. See Ticketing: `objects.event.customerVia`,
   `objects.tickettype.customerVia`, and the `myTickets` tool.
-- **A `timezone` field** (ADR 0450) for a record whose days belong to a place (an event in
+- **A `timezone` field** (ADR 0460) for a record whose days belong to a place (an event in
   another country): an IANA name (`Asia/Bangkok`), refused when it is not one; left empty on a
   new record it is the deployment's zone. Keep instants in `datetime` fields (UTC) and the zone
   beside them, return both from your tools, and show times in the record's zone. See Ticketing:

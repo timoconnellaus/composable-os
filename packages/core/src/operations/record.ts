@@ -554,7 +554,7 @@ async function applyDefaults(
 
 /**
  * A `timezone` field left empty on a new record, with no default of its own, is the deployment's
- * zone (Settings → General, `timezone`; ADR 0450): an event created in Sydney is in Sydney until
+ * zone (Settings → General, `timezone`; ADR 0460): an event created in Sydney is in Sydney until
  * someone says it is in Bangkok.
  */
 async function withZoneDefaults(

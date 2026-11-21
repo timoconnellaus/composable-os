@@ -66,7 +66,7 @@ const money = (minor: number, currency: string) => `${(minor / 100).toFixed(2)} 
 
 /**
  * When an event starts, as its holders read it: the day and time in the event's own zone, and
- * the zone, so a camp in Bangkok sold from Sydney says Bangkok's time (ADR 0450).
+ * the zone, so a camp in Bangkok sold from Sydney says Bangkok's time (ADR 0460).
  */
 export function eventTimeText(iso: string | null, zone: string | null): string | null {
   if (!iso) return null;

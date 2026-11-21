@@ -161,7 +161,7 @@ describe("automation contract checks", () => {
     ]);
   });
 
-  it("dateRelative's zoneField must be a timezone field of the object (ADR 0450)", () => {
+  it("dateRelative's zoneField must be a timezone field of the object (ADR 0460)", () => {
     expect(
       issues({
         trigger: {
