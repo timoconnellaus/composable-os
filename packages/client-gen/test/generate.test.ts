@@ -42,7 +42,12 @@ function typecheck(dir: string, files: Record<string, string>): string[] {
       skipLibCheck: true,
       lib: ["lib.es2023.d.ts"],
       types: [],
-      paths: { "@composable-os/client": [runtime] },
+      paths: {
+        "@composable-os/client": [runtime],
+        "@composable-os/extension-deals/headless": [
+          join(here, "..", "..", "..", "extensions", "deals", "headless.ts"),
+        ],
+      },
     },
   );
   return ts.getPreEmitDiagnostics(program).map((d) => {
@@ -134,12 +139,18 @@ export const b = api.query("fixture.save", { text: "x" });
     const files = renderClient(productContract([deals, leads, lifecycle]), { product: "crm" });
     const app = `import { createCustomerClient } from "./customer.ts";
 import { createStaffClient } from "./staff.ts";
+import { createDealsHooks } from "@composable-os/extension-deals/headless";
 const customer = createCustomerClient({ baseUrl: "https://h" });
 const staff = createStaffClient({ baseUrl: "https://h" });
 export const me = customer.query("me.get", {});
 export const update = customer.mutation("me.update");
 export const people = staff.query("person.list", {});
 export const stages = staff.call("x.deals.stageMetrics", { pipelineId: "x" });
+// The Deals pack's headless entry takes the generated staff client as it is (criterion: pack hooks).
+export const dealsHooks = createDealsHooks(
+  <T>(o: { queryKey: readonly unknown[]; queryFn: () => Promise<T> }) => ({ data: undefined as T | undefined, isPending: true, error: o.queryKey }),
+  staff,
+);
 `;
     expect(typecheck(dir, { ...files, "app.ts": app })).toEqual([]);
   });

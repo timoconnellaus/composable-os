@@ -5,7 +5,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./headless": "./headless.ts"
   },
   "description": "Deals, pipelines and stages: the first shipped extension (stage 4, ADR 0026). Bundled as source into cos-runner.",
   "scripts": {
