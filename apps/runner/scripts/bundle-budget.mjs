@@ -18,7 +18,9 @@ import { fileURLToPath } from "node:url";
 // assignment rules, stage 16's duplicates and stage 17's A2UI catalogue, which each fit alone,
 // took it to 5,741 KiB together. No React or compiler came with them. Raised to 6,656 KiB
 // (2026-11-21): stages 22, 23, 25 and 26 (customers, the HTTP surface, orders and payments,
-// capacity) took it to 6,146 KiB. No React or compiler came with them either.
+// capacity) took it to 6,146 KiB. No React or compiler came with them either. Measured
+// 2026-11-21 when a release began to carry every pack (ADR 0420 as amended): 6,246 KiB with four
+// packs (the shipped sources grew from 69 KiB to 120 KiB); not raised.
 const MAIN_BUDGET_KIB = 6_656;
 
 const here = dirname(fileURLToPath(import.meta.url));

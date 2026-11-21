@@ -1,12 +1,15 @@
 import type { Migration } from "@composable-os/db";
 
 declare global {
-  /** Vite's glob import, used by the test that reads the source (visibility-one-seam). */
+  /**
+   * Vite's glob import: the test that reads the source (visibility-one-seam), and every pack the
+   * release carries (release-packs.ts).
+   */
   interface ImportMeta {
-    glob(
+    glob<T = unknown>(
       pattern: string,
-      options: { query: string; import: string; eager: true },
-    ): Record<string, unknown>;
+      options: { query?: string; import?: string; eager: true },
+    ): Record<string, T>;
   }
 
   namespace Cloudflare {

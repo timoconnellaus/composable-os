@@ -2,7 +2,11 @@
 
 Deploying for the first time? Follow [first-deploy.md](first-deploy.md). This page is the reference.
 
-One deployment = one Cloudflare account (ADR 0001). It has two Workers and one D1 database:
+One deployment = one Cloudflare account (ADR 0001), with one exception: a client repo's
+environments (a staging host and a live host of one product) sit side by side in one account, each
+with its own names (ADR 0450, [below](#environments)). A deployment has two Workers and one D1
+database (the names here are a CRM install's; a client product's host is `<id>-app`, `<id>-runner`
+and so on):
 
 | Resource | Name | Notes |
 | --- | --- | --- |
@@ -132,17 +136,19 @@ own Worker on the company's hostname (`shop.example.com`); the host keeps its ow
 may be a subdomain (`admin.example.com`), and staff sign in there.
 
 1. In the web app's wrangler config, one service binding to the host's app Worker and its
-   `ClientApp` entrypoint, and no D1, R2, KV or secret of its own:
+   `ClientApp` entrypoint, and no D1, R2, KV or secret of its own. The host of a client product
+   `shop` is `shop-app` (`shop-staging-app` for its staging environment):
    ```jsonc
-   "services": [{ "binding": "HOST", "service": "crm-app", "entrypoint": "ClientApp" }]
+   "services": [{ "binding": "HOST", "service": "shop-app", "entrypoint": "ClientApp" }]
    ```
    The binding serves customer sign-in (`/api/customer-auth/*`) and the HTTP surface
    (`/api/v1/op/*`, `/api/v1/manifest`) for customers and the public only. It never reads a staff
    session and refuses a bearer token (ADR 0421).
-2. On the host, set `CUSTOMER_AUTH_URL` to the web app's origin (`https://shop.example.com`).
+2. On the host, `CUSTOMER_AUTH_URL` is the web app's origin (`https://shop.example.com`).
    Customer cookies are then for that origin (`__Secure-` and `Secure` on https), and Better Auth
-   refuses a sign-in posted from any other page, the host's own included. `CUSTOMER_AUTH_SECRET`
-   and the customer mail connection are set as in [Customer sign-in](#customer-sign-in).
+   refuses a sign-in posted from any other page, the host's own included. `cos deploy` sets it,
+   and makes `CUSTOMER_AUTH_SECRET` once per deployment ([below](#customer-sign-in-on-the-web-apps-hostname));
+   the customer mail connection is set as in [Customer sign-in](#customer-sign-in).
 3. The web app forwards its sign-in form to `HOST.fetch("https://host/api/customer-auth/...")`
    with the browser's `Origin` and `cf-connecting-ip`, and passes the `Set-Cookie` it gets back to
    the browser unchanged: the cookie is host-only, so it is kept for the web app's hostname. Its
@@ -226,10 +232,154 @@ installs them as shipped extensions, with no approval. A failed check, or a type
 stops it before anything in the account changes. Then it uploads the built web app with its one
 binding, `HOST`, to the host's `ClientApp` entrypoint, and refuses a build with a database, bucket
 or KV binding of its own. **What a person does by hand:** the DNS for the web app's custom
-hostname (`web.hostname` in `product.ts`), and the edge rule below on the web app's zone.
+hostname (`web.hostname` in `product.ts`), the gatekeepers' secrets, and the edge rule below on the
+web app's zone.
 
-The host keeps the release's names (`crm-app`) and its strings ("CRM"): naming the host for the
-company's own product needs names applied at deploy time, which the platform does not do yet.
+**The host is named for the product** (ADR 0422 as amended): a first install of product `shop`
+makes `shop-app`, `shop-runner`, `shop-gatekeeper-…`, the `shop` database and `shop-…` resources,
+and every screen says the product's `label`. A host deployed before client names keeps the
+release's (`crm-app`); nothing deployed is ever renamed (ADR 0193).
+
+### Packs
+A release carries every pack in the platform repository (`packs/*`; ADR 0420 as amended), and its
+client kit lists them in `packs.json`. `product.ts`'s `packs` chooses which the host installs
+(`COS_PACKS`). `cos deploy` checks them against `packs.json` only, before any call to Cloudflare,
+and refuses a pack the release does not carry, naming the pack and the release. A runner told to
+install a pack it does not carry fails loudly: it logs it at start-up and its ping fails, so the
+host's `/api/health` answers 503 with the reason, and nothing is installed from that list. A CRM
+install (`COS_PACKS` `*`) installs the CRM's own packs, as before.
+
+### Environments
+A product can declare environments (ADR 0450): a staging host and a live host, side by side in one
+account, each with its own Workers, database, deployment state, secrets and addresses.
+
+```ts
+// product.ts
+export const product = defineClientProduct({
+  id: "gym",
+  label: "Gym",
+  platform: { version: "0.3.0", release: "crm", repository: "timoconnellaus/composable-os" },
+  packs: ["ticketing"],
+  web: { dir: ".", worker: "gym-site", deploy: "own" },
+  environments: {
+    staging: {
+      live: false, // test settings allowed: the fake payment provider
+      hostname: "admin.staging.gym.example", // the staff admin's address
+      web: { hostname: "staging.gym.example", worker: "gym-site-staging" },
+      gatekeepers: {
+        "email-send": { ALLOWED_SENDER_DOMAINS: "staging.gym.example" },
+        payments: { PAYMENTS_FAKE_PROVIDER: true },
+      },
+    },
+    live: {
+      hostname: "admin.gym.example",
+      web: { hostname: "gym.example" },
+      gatekeepers: {
+        "email-send": { ALLOWED_SENDER_DOMAINS: "gym.example", INTERNAL_DOMAINS: "gym.example" },
+        payments: {},
+      },
+    },
+  },
+});
+```
+
+- **Names.** An environment other than `live` is named from the id and its name: `gym-staging-app`,
+  `gym-staging-runner`, `gym-staging-gatekeeper-…`, the `gym-staging` database, `gym-staging-…`
+  resources, and the web app `<web.worker>-staging`. `live` keeps the names a product without
+  environments has (`gym-app`), so a host deployed before environments is the live one. Each name
+  can be overridden (`environments.<name>.names`, `.web.worker`); two environments may not share
+  one.
+- **`cos deploy --env <name>`** deploys that one. With several environments and no `--env` it
+  refuses and lists them; with one it deploys it; with none declared it behaves as before, and
+  `--env` is refused. Redeploying one never changes the other.
+- **Each web app's `HOST`** points at its own environment's host, and each host's
+  `CUSTOMER_AUTH_URL` at its own web app.
+
+**An adopted site** (`web.deploy: "own"`) keeps its own Worker and its own deploy. `cos deploy
+--env <name>` deploys that environment's host and prints what the site's Worker config needs
+there, for example:
+
+```
+Its Worker (gym-site-staging) in its staging environment needs this service binding, now that the host exists:
+  "env": { "staging": { "services": [{ "binding": "HOST", "service": "gym-staging-app", "entrypoint": "ClientApp" }] } }
+HOST's target is gym-staging-app, entrypoint ClientApp.
+```
+
+Wrangler does not carry `services` from the top level into an environment, so each environment of
+the site's config names its own `HOST`. **Order matters:** add a binding only after that
+environment's host exists. A site that deploys its main branch on every push would otherwise fail
+its own deploy, binding to a Worker that is not there. That is why `cos init` never adds `HOST` to
+the top level of an adopted site's config: with `--envs staging,live` it writes the binding under
+a matching environment of the site's config (shown as a diff, applied with `--yes`), and prints the
+rest, to add once that host is deployed.
+
+**Choosing the site's environment at build time.** A Vite or Astro site built with the Cloudflare
+Vite plugin picks its wrangler environment when it is built, from `CLOUDFLARE_ENV`, not with
+`wrangler deploy --env`: the build writes the resolved config that the deploy then uses. Build
+staging with `CLOUDFLARE_ENV=staging pnpm run build && wrangler deploy`, and live with no
+`CLOUDFLARE_ENV` (or the name of its environment, if live has one). A staging site built without it
+is bound to the live host.
+
+### Customer sign-in on the web app's hostname
+For a product with a web app, `cos deploy` sets the host's `CUSTOMER_AUTH_URL` to that
+environment's web app origin (`https://<web.hostname>`, else its workers.dev address), and creates
+`CUSTOMER_AUTH_SECRET` as a Worker secret on its first deploy: random, different from the staff
+secret, never printed and never written to disk or the repository. A later deploy never changes it.
+A product with no web app gets neither.
+
+**Rotating it** signs every customer out of that environment (their sessions no longer verify):
+`pnpm cos deploy --env <name> --rotate-customer-auth-secret`, or by hand
+`npx wrangler secret put CUSTOMER_AUTH_SECRET --name <id>-app` with a new random value
+(`openssl rand -hex 32`). Do it when the secret may have leaked.
+
+### Gatekeepers and their settings
+`product.ts` names the gatekeepers a host installs and their settings, for the whole product
+(`gatekeepers`) or per environment (`environments.<name>.gatekeepers`, over the product's), by the
+gatekeeper's short name (ADR 0452). Each takes only the settings that gatekeeper declares in the
+release; `cos deploy` refuses anything else before any call, and applies them as deploy-time
+configuration (the verified release is deployed unchanged). Values the deploy can derive are
+derived: payments' `BASE_URL` is `https://<the environment's host>/gatekeeper/payments`.
+
+| Gatekeeper | Settings in `product.ts` | Secrets a person sets |
+| --- | --- | --- |
+| `email-send` | `ALLOWED_SENDER_DOMAINS`, `INTERNAL_DOMAINS`, `sendEmail: { allowedSenderAddresses, destinationAddress, allowedDestinationAddresses }` (the `send_email` binding's limits) | none |
+| `payments` | `STRIPE_ACCOUNT`, `PAYMENTS_FAKE_PROVIDER` (only where `live: false`) | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
+
+Secrets never go in `product.ts`: `cos deploy` refuses one there. After a deploy it names each
+missing secret and the command to set it, for example
+`npx wrangler secret put STRIPE_SECRET_KEY --name gym-staging-gatekeeper-payments`. It never prints a
+value. The fake payment provider is refused in an environment that is live (`live` itself, any
+environment not marked `live: false`, or a product without environments).
+
+#### Sending email (email-send)
+1. In the Cloudflare dashboard, turn on Email Service for the sending domain (Email → Email
+   Sending), and add the DNS records it asks for.
+2. In `product.ts`, set `ALLOWED_SENDER_DOMAINS` to that domain and `INTERNAL_DOMAINS` to the org's
+   own, and if you want the binding limited to some addresses, `sendEmail.allowedSenderAddresses`.
+3. `pnpm cos deploy --env <name>`.
+4. As a human admin on the host, Settings → Integrations: enable email sending, create the org
+   connection, then choose it for customer mail (`customer.settings.update`, `emailConnectionId`).
+   Customer sign-in codes go out from it.
+
+#### Stripe (payments), in a client repo
+The design is ADR 0429; the platform's own test-mode run is
+[payments-stripe-runbook.md](payments-stripe-runbook.md). In a client repo nothing is hand-edited:
+1. Staging first: `payments: { PAYMENTS_FAKE_PROVIDER: true }` in an environment marked
+   `live: false` lets people try checkout with no Stripe account. Deploy it.
+2. In Stripe (test mode for staging, live mode for live), create a restricted key with write access
+   to Checkout Sessions and Refunds and read access to Payment Intents. Set it on that
+   environment's gatekeeper: `npx wrangler secret put STRIPE_SECRET_KEY --name <id>-staging-gatekeeper-payments`.
+   For a Stripe Connect connected account, set `STRIPE_ACCOUNT` in `product.ts`.
+3. Add a webhook endpoint in Stripe: `https://<the environment's host>/gatekeeper/payments/in/stripe`,
+   with `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `refund.created`
+   and `refund.updated`. Set its signing secret:
+   `npx wrangler secret put STRIPE_WEBHOOK_SECRET --name <id>-staging-gatekeeper-payments`.
+4. Take `PAYMENTS_FAKE_PROVIDER` out (or set it `false`) and `pnpm cos deploy --env staging`.
+5. As an admin on the host, Settings → Integrations: enable Payments, create the org connection,
+   add the resource Payment account → Stripe. Settings → Orders: the currency, and under "Sites a
+   buyer may come back to" the web app's origin.
+6. Then checks 2 to 11 of the platform runbook, on the web app. Repeat 2 to 5 for live with live
+   keys, on `<id>-gatekeeper-payments`.
 
 ### Publishing to npm
 

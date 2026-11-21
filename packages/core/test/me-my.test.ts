@@ -8,8 +8,10 @@ import committed from "../open-operations.json";
 import {
   type ActingUser,
   coreRegistry,
+  forPacks,
   invoke,
   newId,
+  type OpenOperationsFile,
   openOperations,
   personObject,
 } from "../src/index.ts";
@@ -62,10 +64,9 @@ describe("what this step opens", () => {
     expect(direct.map((entry) => entry.name)).toEqual(OPENED);
     // Beside the core operations, the committed list names the open tools of the release's
     // packs (Ticketing's, stage 27).
-    expect({
-      ...committed,
-      operations: committed.operations.filter((op: { name: string }) => !op.name.startsWith("x.")),
-    }).toEqual(openOperations(coreRegistry.list()));
+    expect(forPacks(committed as OpenOperationsFile, [])).toEqual(
+      openOperations(coreRegistry.list()),
+    );
     for (const entry of direct as { name: string; hostInternal?: boolean }[]) {
       expect(entry.hostInternal === true, entry.name).toBe(
         ["me.deleteAccount", "me.sessions.list", "me.sessions.revoke", "me.signOut"].includes(

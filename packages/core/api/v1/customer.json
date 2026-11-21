@@ -1406,7 +1406,8 @@
         "required": ["date", "sessions"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.history",
@@ -1567,7 +1568,8 @@
         "required": ["exercise", "sets", "best", "capped"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.logAdd",
@@ -1733,7 +1735,8 @@
         "x.programs.progress",
         "x.programs.sessionGet",
         "x.programs.today"
-      ]
+      ],
+      "pack": "programs"
     },
     {
       "name": "x.programs.logUpdate",
@@ -1880,7 +1883,8 @@
         "x.programs.progress",
         "x.programs.sessionGet",
         "x.programs.today"
-      ]
+      ],
+      "pack": "programs"
     },
     {
       "name": "x.programs.progress",
@@ -1987,7 +1991,8 @@
         "required": ["exercises", "assignments", "capped"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.sessionComplete",
@@ -2101,7 +2106,8 @@
         "x.programs.progress",
         "x.programs.sessionGet",
         "x.programs.today"
-      ]
+      ],
+      "pack": "programs"
     },
     {
       "name": "x.programs.sessionGet",
@@ -2338,7 +2344,8 @@
         "required": ["session", "exercises", "logged"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.today",
@@ -2499,7 +2506,8 @@
         "required": ["date", "sessions"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.ticketing.eventsOnSale",
@@ -2662,7 +2670,8 @@
         "required": ["events"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.myTickets",
@@ -2774,7 +2783,8 @@
         "required": ["items", "nextCursor"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.orderStart",
@@ -2913,7 +2923,8 @@
         "my.list",
         "x.ticketing.eventsOnSale",
         "x.ticketing.myTickets"
-      ]
+      ],
+      "pack": "ticketing"
     }
   ]
 }
