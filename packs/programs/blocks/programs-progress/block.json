@@ -1,0 +1,11 @@
+{
+  "name": "programs-progress",
+  "pack": "programs",
+  "skin": "web",
+  "operations": ["x.programs.progress", "x.programs.history"],
+  "files": ["progress.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "programs-builder",
+  "pack": "programs",
+  "skin": "web",
+  "operations": [
+    "record.get",
+    "record.update",
+    "record.list",
+    "record.create",
+    "record.versions",
+    "record.publish",
+    "record.restoreVersion",
+    "user.me",
+    "person.list",
+    "x.programs.assign",
+    "x.programs.draft",
+    "x.programs.importText"
+  ],
+  "files": ["program-builder.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

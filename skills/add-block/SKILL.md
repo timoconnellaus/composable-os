@@ -42,13 +42,20 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `<SignInForm onSignedIn={() => window.location.assign("/account")} />`. In the Expo app, render
    it from the screen the app's navigation uses (`App.tsx` in the template; an `app/` route file
    with expo-router): `<SignInScreen actions={session} onSignedIn={...} />`.
-   A pack's block (Ticketing's `ticketing-*`) takes the pack's hooks as a prop: make them once
-   with `createTicketingHooks({ useQuery, useMutation, useState }, api)` from
-   `@composable-os/pack-ticketing/client` and pass them down. Add that package (the block's
+   A pack's block (Ticketing's `ticketing-*`, Programs' `programs-*`) takes the pack's hooks as a
+   prop named for the pack: make them once with
+   `createTicketingHooks({ useQuery, useMutation, useState }, api)` from
+   `@composable-os/pack-ticketing/client` (Programs: `createProgramsHooks({ useQuery,
+   useMutation, useState, useEffect }, api)` from `@composable-os/pack-programs/client`, whose
+   builder saves itself and so needs `useEffect`) and pass them down. Add that package (the block's
    `packages` say so) at the release's version. A native block that needs the device (a camera,
    a QR code, the screen's brightness, haptics) takes what it needs as a prop with a small type
-   (`Scanner`, `Qr`, `brightness`, `haptics`), so pass the app's own (for example
-   `expo-camera`, `react-native-qrcode-svg`, `expo-brightness`, `expo-haptics`).
+   (`Scanner`, `Qr`, `brightness`, `haptics`, Programs' `onRestDone`), so pass the app's own
+   (for example `expo-camera`, `react-native-qrcode-svg`, `expo-brightness`, `expo-haptics`).
+   To try a pack's web block before copying it, in the platform's own repository run `pnpm dev`
+   and open
+   `/blocks?block=<name>&component=<export>&props=<json>`: it mounts the block where it sits, in
+   development only, as whoever is signed in.
 6. **Later, upstream changes.** After `cos upgrade`, `pnpm cos diff <name>` says which of your
    copied files you edited and shows what changed in the block between the version you copied and
    the release you are on. Nothing changes your copy: apply what you want by hand.

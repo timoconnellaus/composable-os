@@ -1,6 +1,9 @@
 @import "@composable-os/ui/globals.css";
 
 @source "./";
+/* Pack web blocks mounted at /blocks in development (stage 41). */
+@source "../../../packs/*/blocks";
+@source "../../../blocks";
 
 /* Page changes cross-fade the page region only (router.tsx opts in where supported). The sidebar
    and app header stay put. */

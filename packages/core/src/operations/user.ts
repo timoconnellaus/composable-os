@@ -7,7 +7,7 @@ import { defineObject } from "../fields/types.ts";
 import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts";
 import { defineOperation } from "../operation.ts";
 import { availablePackRoles, PACK_ROLE_NAME_RE, parseGrants } from "../pack-roles.ts";
-import { GRANTABLE_PERMISSIONS, ROLES } from "../principals.ts";
+import { GRANTABLE_PERMISSIONS, holdsPermission, PERMISSIONS, ROLES } from "../principals.ts";
 
 /** Users are not a record object (no tags, links or timeline); this only drives user.list. */
 export const userObject = defineObject({
@@ -421,7 +421,34 @@ export const userSetPermissions = defineOperation({
   },
 });
 
+export const userMe = defineOperation({
+  name: "user.me",
+  description:
+    "The signed-in staff account: id, name, role, the permissions granted to it one by one, and " +
+    "every permission it holds (its role's and its grants). For an app to offer what the account " +
+    "may do (publish a program); the host still decides each call. Read-only.",
+  input: z.object({}),
+  output: z.object({
+    id: z.string(),
+    name: z.string(),
+    role: z.enum(ROLES),
+    granted: z.array(z.string()),
+    permissions: z.array(z.string()),
+  }),
+  permission: "records:read",
+  risk: "read",
+  mcp: { idempotent: true },
+  async handler(_input, ctx) {
+    const granted = [...(ctx.permissionGrants ?? [])].filter((p) =>
+      (GRANTABLE_PERMISSIONS as readonly string[]).includes(p),
+    );
+    const permissions = PERMISSIONS.filter((p) => holdsPermission(ctx.user, granted, p));
+    return { id: ctx.user.id, name: ctx.user.name, role: ctx.user.role, granted, permissions };
+  },
+});
+
 export const userOperations = [
+  userMe,
   userList,
   userUpdateRole,
   userPackRoles,

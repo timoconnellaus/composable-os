@@ -1,0 +1,11 @@
+{
+  "name": "programs-native-coach-client",
+  "pack": "programs",
+  "skin": "native",
+  "operations": ["record.list"],
+  "files": ["coach-client-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

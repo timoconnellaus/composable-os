@@ -9,6 +9,7 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { devSecrets } from "./dev-secrets.ts";
+import { packBlocks } from "./pack-blocks-plugin.ts";
 import pkg from "./package.json" with { type: "json" };
 import { configuratorSpecs } from "./src/components/integrations/configurator/vite-plugin.ts";
 
@@ -54,6 +55,8 @@ export default defineConfig(({ command }) => ({
     __APP_COMMIT__: JSON.stringify(gitCommit()),
   },
   plugins: [
+    // Pack web blocks mounted where they sit (development, /blocks and e2e).
+    ...(command === "serve" ? [packBlocks(fileURLToPath(new URL("../..", import.meta.url)))] : []),
     // cos-runner runs in the same local runtime as an auxiliary Worker, so `pnpm dev` starts both
     // and the RUNNER service binding resolves locally.
     cloudflare({

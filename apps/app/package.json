@@ -24,6 +24,8 @@
     "@composable-os/agent-voice": "workspace:*",
     "@composable-os/auth": "workspace:*",
     "@composable-os/core": "workspace:*",
+    "@composable-os/pack-programs": "workspace:*",
+    "@composable-os/pack-ticketing": "workspace:*",
     "@composable-os/db": "workspace:*",
     "@composable-os/product": "workspace:*",
     "@composable-os/products": "workspace:*",

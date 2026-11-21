@@ -1,0 +1,16 @@
+{
+  "name": "programs-session",
+  "pack": "programs",
+  "skin": "web",
+  "operations": [
+    "x.programs.sessionGet",
+    "x.programs.logAdd",
+    "x.programs.logUpdate",
+    "x.programs.sessionComplete"
+  ],
+  "files": ["session-view.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card", "ui-input"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

@@ -74,3 +74,8 @@ same one statement, through the same `staffMayCall`.
 ## Consequences
 - `user.list` and the staff contract show `permissions` on every user.
 - The admin UI has no screen for grants yet; it is `user.setPermissions` from a person.
+
+## Amendment, 2026-11-21 (stage 41, step 4)
+Grants are on screen in Settings > Users (the permissions dialog that came with staff invites,
+ADR 0455). `user.me` gives a signed-in staff account its own role, grants and permissions, so a screen
+offers an action only to an account that holds it. The host still decides every call.

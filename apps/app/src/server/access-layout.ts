@@ -132,6 +132,10 @@ export const ACCESS_STAFF: readonly StaffPath[] = [
   },
   { path: "/connect/handoff", why: "The end of an integration's connect popup, staff only." },
   {
+    path: "/blocks",
+    why: "A pack's web block mounted on its own, in development only; a deployed host renders nothing there.",
+  },
+  {
     path: "/gatekeeper/*",
     why:
       "Every other gatekeeper route: OAuth callbacks and connect pages opened in a staff " +
