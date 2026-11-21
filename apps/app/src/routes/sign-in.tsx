@@ -150,6 +150,9 @@ function SignInPage() {
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
   const callbackURL = safeRedirect(target);
+  // One email field on the page at a time: the password form, or the code form (ADR 0455).
+  const [withCode, setWithCode] = useState(false);
+  const codeOffered = methods.code && !methods.firstAccount;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -186,7 +189,7 @@ function SignInPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
-          {methods.email && (
+          {methods.email && !withCode && (
             <form className="grid gap-3" method="post" onSubmit={onSubmit}>
               {methods.firstAccount && (
                 <div className="grid gap-1.5">
@@ -225,12 +228,24 @@ function SignInPage() {
               </Button>
             </form>
           )}
-          {methods.code && !methods.firstAccount && (
-            <>
-              <p className="text-center text-xs text-muted-foreground">Invited, or no password?</p>
-              <CodeSignIn callbackURL={callbackURL} hydrated={hydrated} />
-            </>
-          )}
+          {codeOffered &&
+            (withCode ? (
+              <>
+                <CodeSignIn callbackURL={callbackURL} hydrated={hydrated} />
+                <Button type="button" variant="ghost" onClick={() => setWithCode(false)}>
+                  Use a password instead
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={!hydrated}
+                onClick={() => setWithCode(true)}
+              >
+                Invited, or no password? Use a code from email
+              </Button>
+            ))}
           {methods.google && (
             <Button
               variant="outline"
