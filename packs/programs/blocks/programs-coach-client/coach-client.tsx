@@ -12,7 +12,16 @@ export function CoachClient({
   programs,
   personId,
 }: {
-  programs: Pick<ProgramsHooks, "useClientSessions">;
+  programs: Pick<
+    ProgramsHooks,
+    | "useClientSessions"
+    | "useHistory"
+    | "useLogSet"
+    | "useMarkSession"
+    | "useProgress"
+    | "useSession"
+    | "useUpdateSet"
+  >;
   personId: string;
 }) {
   const sessions = programs.useClientSessions(personId);

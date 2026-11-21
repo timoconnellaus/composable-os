@@ -12,7 +12,15 @@ export function ClassToday({
   classTypeId,
   date,
 }: {
-  programs: Pick<ProgramsHooks, "useClassToday" | "useClassTypes">;
+  programs: Pick<
+    ProgramsHooks,
+    | "useClassToday"
+    | "useClassTypes"
+    | "useLogSet"
+    | "useMarkSession"
+    | "useSession"
+    | "useUpdateSet"
+  >;
   classTypeId?: string;
   date?: string;
 }) {
