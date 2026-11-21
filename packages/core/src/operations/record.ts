@@ -9,8 +9,9 @@ import type { FieldManifest } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
+import { assertNoConfirmedClaims, counterWrite } from "../capacity/records.ts";
 import { NotFoundError, ValidationError } from "../errors.ts";
-import { fieldStorage, objectTableOf } from "../extensions/schema.ts";
+import { CAPACITY_FIELDS, fieldStorage, objectTableOf } from "../extensions/schema.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
 import { getObject, isCoreObject, listObjects } from "../fields/index.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
@@ -90,6 +91,13 @@ function fromRow(object: ObjectDefinition, row: Record<string, unknown>): Record
       type === "formula"
         ? formulaFromStorage(field.options?.resultType, rawValue)
         : FIELD_TYPE_REGISTRY[type].fromStorage(rawValue ?? null);
+  }
+  // The capacity behaviour's read-only values (ADR 0431): held, taken, available.
+  if (object.capacity) {
+    for (const field of CAPACITY_FIELDS) {
+      const raw = field.column ? row[field.column] : null;
+      values[field.name] = raw === undefined || raw === null ? null : Number(raw);
+    }
   }
   const titleColumn = object.titleField
     ? object.fields.find((f) => f.name === object.titleField)?.column
@@ -416,6 +424,9 @@ export async function createRecord(
     ...sideWrites(id, prepared),
     ...outcome.history,
   );
+  // The record's capacity counter (ADR 0431), after the record it belongs to.
+  const counter = await counterWrite(ctx, object, id, valuesOf(prepared), "create");
+  if (counter) ctx.write(counter);
   const title = prepared.find((p) => p.field.name === object.titleField)?.value;
   ctx.write(...searchDoc(object.name, id, title == null ? null : String(title)));
   const assigned = assignment
@@ -631,6 +642,16 @@ export async function updateRecord(
     ...before.values,
     ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
   };
+  // Places or pool changed: the counter follows, and the database refuses places below what is
+  // held and taken, with the numbers (ADR 0431).
+  const counter = await counterWrite(
+    ctx,
+    object,
+    input.id,
+    after,
+    prepared.map((p) => p.field.name),
+  );
+  if (counter) ctx.write(counter);
   const timeline = await timelineFor(ctx, object, input.id, before.values, after, outcome);
   if (object.titleField && prepared.some((p) => p.field.name === object.titleField)) {
     const title = after[object.titleField];
@@ -681,6 +702,8 @@ export const recordDelete = defineOperation({
     const object = requireExtensionObject(input.object);
     const before = await loadRecord(ctx, object, input.id);
     if (!before) throw new NotFoundError(input.object, input.id);
+    // Places people have paid for keep their record out of Trash (ADR 0431).
+    await assertNoConfirmedClaims(ctx, object, input.id);
     const table = objectTableOf(object.name) as string;
     ctx.write(
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -812,6 +835,16 @@ export const objectInfoSchema = z.object({
   navigation: z.enum(["main", "settings", "none"]),
   /** The stage behaviour, when it has one (ADR 0100). */
   stages: z.record(z.string(), z.unknown()).nullable(),
+  /** The capacity behaviour, when it has one (ADR 0430). */
+  capacity: z
+    .object({
+      places: z.string(),
+      pool: z.object({ field: z.string(), object: z.string() }).nullable(),
+      show: z.enum(["exact", "low", "availability"]),
+      lowAt: z.number().nullable(),
+      releaseOnRefund: z.boolean(),
+    })
+    .nullable(),
   timelineLinks: z.array(z.string()),
   /** The owner field assignment rules set (ADR 0246), when the object has one. */
   ownerField: z.string().nullable(),
@@ -834,6 +867,15 @@ export function objectInfo(object: ObjectDefinition): ObjectInfo {
     view: object.source,
     navigation: object.navigation ?? "main",
     stages: object.stages ? { ...object.stages } : null,
+    capacity: object.capacity
+      ? {
+          places: object.capacity.places,
+          pool: object.capacity.pool ? { ...object.capacity.pool } : null,
+          show: object.capacity.show,
+          lowAt: object.capacity.lowAt ?? null,
+          releaseOnRefund: object.capacity.releaseOnRefund,
+        }
+      : null,
     timelineLinks: [...(object.timelineLinks ?? [])],
     ownerField: object.ownerField ?? null,
     navigationOrder: object.navigationOrder ?? 100,

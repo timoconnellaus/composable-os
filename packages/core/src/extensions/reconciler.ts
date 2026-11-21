@@ -19,6 +19,7 @@ import {
   isLosslessChange,
 } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely } from "kysely";
+import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import {
   columnName,
@@ -168,6 +169,7 @@ export function planFromState(
       ...(object.indexes?.length ? { indexes: object.indexes } : {}),
       ...(object.timelineLinks?.length ? { timelineLinks: object.timelineLinks } : {}),
       ...(object.stages ? { stages: object.stages } : {}),
+      ...(object.capacity ? { capacity: object.capacity } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),
       ...(object.navigationOrder !== undefined ? { navigationOrder: object.navigationOrder } : {}),
@@ -507,7 +509,7 @@ export function planFromState(
     current,
     next,
     tableDdl,
-    [...dataStatements, ...seedWrites],
+    [...dataStatements, ...seedWrites, ...capacityBackfill(next, ext, now)],
     changes,
     issues,
   );
@@ -658,7 +660,55 @@ export async function planDropHidden(
       tableDdl.push(`DROP TABLE IF EXISTS ${ident(table)}`);
     }
   }
-  return finishPlan(db, ext, current, next, tableDdl, [], changes, []);
+  // Counters and claims of a dropped object go with its table (ADR 0431).
+  const capacityDrops = droppedObjects
+    .filter((o) => o.definition.capacity)
+    .flatMap((o) => dropCapacityStatements(o.name));
+  return finishPlan(db, ext, current, next, tableDdl, capacityDrops, changes, []);
+}
+
+/**
+ * A counter for every record of the extension's objects with a capacity that has none (ADR 0431):
+ * records made before their object declared one, and seed records. Pools first, so a record's
+ * counter can name its pool's. Records with counters are left alone.
+ */
+function capacityBackfill(state: SchemaState, ext: string, now: string): CompiledQuery[] {
+  const objects = state.objects.filter(
+    (o) => o.extensionId === ext && o.status === "active" && o.definition.capacity,
+  );
+  const ordered = [
+    ...objects.filter((o) => !o.definition.capacity?.pool),
+    ...objects.filter((o) => o.definition.capacity?.pool),
+  ];
+  const statements: CompiledQuery[] = [];
+  for (const object of ordered) {
+    const capacity = object.definition.capacity;
+    if (!capacity) continue;
+    const column = (local: string) =>
+      state.fields.find(
+        (f) =>
+          f.object === object.name &&
+          f.extensionId === ext &&
+          f.localName === local &&
+          f.tableName === object.tableName,
+      );
+    const places = column(capacity.places);
+    if (!places?.columnName) continue;
+    const pool = capacity.pool ? column(capacity.pool) : undefined;
+    statements.push(
+      backfillCounters({
+        object: object.name,
+        table: ident(object.tableName),
+        placesColumn: ident(places.columnName),
+        pool:
+          pool?.columnName && pool.definition.to
+            ? { column: ident(pool.columnName), object: pool.definition.to }
+            : undefined,
+        now,
+      }),
+    );
+  }
+  return statements;
 }
 
 /** Applies a plan atomically (one D1 batch). Refuses plans with issues. */

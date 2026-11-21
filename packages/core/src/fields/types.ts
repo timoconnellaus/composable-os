@@ -101,6 +101,8 @@ export interface ObjectDefinition {
   timelineLinks?: readonly string[];
   /** Extension objects: the stage behaviour (ADR 0100), with registry (local) field names. */
   stages?: StagesDefinition;
+  /** Extension objects: a limited number of places (stage 26, ADR 0430). */
+  capacity?: CapacityDefinition;
   /**
    * The user field that holds the record's owner (ADR 0246): `ownerId` on people and
    * organisations, the declared `owner` of an extension object. Assignment rules set it.
@@ -129,6 +131,18 @@ export interface CustomerDeclaration {
   readonly field: string;
   readonly read: readonly string[];
   readonly write: readonly string[];
+}
+
+/** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */
+export interface CapacityDefinition {
+  /** The number field holding the places. Empty: unlimited. */
+  places: string;
+  /** The relation field to the pool record, and the pool's object. */
+  pool?: { field: string; object: string } | undefined;
+  show: "exact" | "low" | "availability";
+  /** `low`'s threshold. */
+  lowAt?: number | undefined;
+  releaseOnRefund: boolean;
 }
 
 /** A stage behaviour as the host enforces it (the SDK's StagesSpec, validated). */
