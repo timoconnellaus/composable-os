@@ -311,8 +311,8 @@ ADR 0429, migration 0422. Where the build read the spec one way, or decided what
   expiry sweep and left-over events in cos-runner's minute cron.
 - **A guest told there are not enough places** gets `{ rule: "capacity" }` only.
 - **The host's pages:** `/orders`, `/orders/<id>`, Settings → Orders, the guest's `/order/<id>`
-  and a plain `/buy` page. Until stage 27's `sellable`, local dev sells Deals
-  (`ORDERS_DEV_SELLABLE`).
+  and a plain `/buy` page. Until stage 27's `sellable`, local dev sold Deals
+  (`ORDERS_DEV_SELLABLE`; replaced in stage 27 by the box office fixture extension, ADR 0435).
 - **Stage 26 is wired** (`orders/holds.ts`).
 - Not checked: a real Stripe run (the runbook), real D1 concurrency beyond workerd's.
 

@@ -115,3 +115,8 @@ uses the move hook (ADR 0426).
 - An order carries `refunded` (what has gone back); refunds are in `core_order_refund`.
 - Order moves post on the Person's timeline; "no timeline post of its own yet" no longer holds.
 - Holds are wired (stage 26): see ADR 0429.
+
+## Amendment, 2026-11-21 (stage 27, ADR 0435)
+- What may be bought is no longer the host's list: `registerSellable` is gone. An object is for
+  sale when its manifest declares `sellable` (ADR 0435), which also gives a sale window, a most per
+  order and what a paid line grants. The rest of "The host prices the order" stands.

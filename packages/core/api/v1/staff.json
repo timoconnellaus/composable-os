@@ -43753,6 +43753,20 @@
                     }
                   ]
                 },
+                "sellable": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "states": {
                   "anyOf": [
                     {
@@ -43802,6 +43816,7 @@
                 "navigation",
                 "stages",
                 "capacity",
+                "sellable",
                 "states",
                 "timelineLinks",
                 "ownerField",

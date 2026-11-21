@@ -957,7 +957,7 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
 Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).
 
 The rules products share, declared in a manifest and enforced by the host in the write's own batch.
-`stages`, `states` and `capacity` exist. `sellable`, `publishable`, `recurring` and `allowance`
+`stages`, `states`, `capacity` and `sellable` exist. `publishable`, `recurring` and `allowance`
 are added as stages need them. Behaviours stack: an event is publishable, sellable and has a
 capacity.
 
@@ -980,6 +980,18 @@ writes for them at the seam, and the public move nothing
 ([ADR 0426](adr/0426-who-moves-a-record-and-what-follows-a-move.md)). Platform code can register
 a hook on an object's moves (`onRecordMove`): it runs in the batch of the write that makes the
 move, which is how `capacity` and `sellable` act when an order is paid. Extensions cannot.
+
+`sellable` ([ADR 0435](adr/0435-sellable-what-may-be-bought-and-what-a-paid-line-grants.md),
+`packages/sdk/src/sellable.ts`, `packages/core/src/orders/sellable.ts` and `grants.ts`) is what
+makes an object's records something an order line may point at: its price field and currency,
+and optionally a sale window, a most per order and a deposit, all read from the record by the
+host when the order starts (a line outside them is refused, and no order exists). It may also
+declare what a paid line grants: one record of another of the extension's objects per unit,
+which the order's move hook creates as the host when the order is first paid (`paid`, or
+`part_paid` for a deposit), in that batch, with fields set from the line, the item and the order
+and an unguessable code, and moves to its declared void state when the order is refunded in full
+or cancelled after a deposit. `core_order_grant` (migration 0450) records each grant and keeps
+codes unique.
 
 ### Orders
 

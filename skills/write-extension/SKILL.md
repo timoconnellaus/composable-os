@@ -100,6 +100,18 @@ extension declares it; it never implements it. Each behaviour the platform has i
   public are told. Records get read-only `held`, `taken` and `available`, so don't declare fields
   with those names. Never count places in a tool: claims are made by the host in the write that
   needs them (an order). See `CapacitySpec` in `packages/sdk/src/capacity.ts` and ADR 0431.
+- **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
+  an object that declares it can go on an order, and the host reads its price and rules from the
+  record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,
+  deposit?: { amount, balanceDue }, grants? }`. For what a paid line gives the buyer (a ticket
+  per place), declare `grants: { object: "<another of your objects>", set: { <field>: "item" |
+  "item.<field>" | "order" | "order.person" | "order.email" | "line" | "line.title" |
+  "line.unitPrice" | "code" }, void: "<state>" }`: the host creates them when the order is paid,
+  in the same batch, and voids them on a full refund. The granted object declares `states` with a
+  `host` move into `void` from every state that is not final; a `code` goes in a `readOnly` text
+  field; every required field must be set. Never create tickets or check a sale window in a tool
+  or an automation. Don't name a field `order` (an SQL keyword): use `orderId`. See
+  `SellableSpec` in `packages/sdk/src/sellable.ts` and ADR 0435.
 
 ## The rules
 

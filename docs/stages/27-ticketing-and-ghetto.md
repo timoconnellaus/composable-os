@@ -210,3 +210,23 @@ from the reconciler). ADRs 0435 to 0439.
 5. Hooks, then the web blocks, then the native blocks.
 6. Ghetto: the deployment, the site's event page, the app's tab and scanner, a test-mode sale.
 7. The live sale.
+
+## Step 1, `sellable`, as built (2026-11-21)
+ADR 0435, migration 0450. Where the build read the spec one way, or decided what it left open:
+
+- **The declaration:** `sellable: { price, currency?, saleWindow?: { from?, until? },
+  maxPerOrder?, deposit?: { amount, balanceDue }, grants?: { object, set, void } }`, every rule a
+  field of the record. `grants.set` maps the granted object's fields to `item`, `item.<field>`,
+  `order`, `order.person`, `order.email`, `line`, `line.title`, `line.unitPrice` or `code`.
+- **One granted record per unit** bought. The code is 26 characters of Crockford base32 (130
+  random bits), in a read-only field; `core_order_grant` keeps it unique and finds an order's
+  grants and a code's record.
+- **Granted at the first payment:** `pending` or `expired` (honoured late) to `paid` or
+  `part_paid`. **Voided** on `refunded` and on `cancelled`, as the host, from any state but void
+  and the final ones; the declaration must give the host a move into void from each.
+- **The fixture** is the box office (`packages/core/test/fixtures/boxoffice`: an event, a ticket
+  type, a ticket), used by the host's tests, the runner's payment test (installed as a runtime
+  extension through the sandbox) and the orders e2e (proposed over MCP and approved). Deals is
+  not sellable; `ORDERS_DEV_SELLABLE` and `dev-sellable.ts` are gone.
+- **Found:** a field named `order` breaks the reconciler's SQL (an unquoted keyword) and
+  `cos ext check` passes it. The pack's ticket field is `orderId`.

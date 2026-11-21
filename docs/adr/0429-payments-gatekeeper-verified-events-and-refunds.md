@@ -95,3 +95,8 @@ window applies to both).
 - Stripe has been checked by hand only through its documentation: `docs/payments-stripe-runbook.md`
   is the test-mode run a person makes.
 - `core_payment_event` keeps applied events; their retention joins the purge later.
+
+## Amendment, 2026-11-21 (stage 27, ADR 0435)
+- `ORDERS_DEV_SELLABLE` is gone with `registerSellable`. Local development and the orders
+  end-to-end spec sell the box office fixture extension (`packages/core/test/fixtures/boxoffice`),
+  whose ticket type declares `sellable`.

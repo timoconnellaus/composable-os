@@ -27,7 +27,7 @@ two calls.
 | `stages` | Ordered stages, required fields, history (exists, ADR 0100) | Deals |
 | `states` | A general state machine: allowed moves, who may make them, required fields, history | Orders |
 | `capacity` | A count of places that can never go below zero; holds that last as long as what they were taken for | Ticketing, bookings |
-| `sellable` | Prices and what a paid order grants | Ticketing |
+| `sellable` | Prices, sale windows and limits per order; what a paid order grants, voided on a full refund (exists, ADR 0435) | Ticketing |
 | `publishable` | Draft, published, scheduled; revisions; public reads see published only | CMS, event pages |
 | `recurring` | A schedule that generates dated records | Timetables |
 | `allowance` | A pass or membership grants uses; a booking spends one | Bookings |
@@ -47,5 +47,10 @@ set is small and shared, a pack is mostly a manifest.
   clock of its own: it is confirmed or released by what it was taken for, so an order's holds
   last exactly as long as the order is unpaid. No actor sells beyond the limit; staff raise the
   capacity first. Each object chooses what the public is told about places left.
+- **`sellable` is settled** (2026-11-21, stage 27, ADR 0435). Only an object that declares it can
+  be bought. The host reads the price, the sale window, the most per order and the deposit from
+  the record, and creates what a paid line grants (a record per unit, with an unguessable code
+  when asked) in the batch that marks the order paid, by declaration: no extension code runs. A
+  full refund, or cancelling after a deposit, voids it in the same batch.
 - "Entitlement" already means a hosted plan's limits (ADR 0211). The pass-and-uses behaviour is
   called `allowance` to keep the two apart.
