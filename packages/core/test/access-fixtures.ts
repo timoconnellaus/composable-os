@@ -20,7 +20,7 @@ export const ENROLMENT = `${ACCESS_EXT}.enrolment`;
 
 export const FAKE_STREAM_BASE = "https://host.test/api/v1/media/fake-stream";
 
-const SOURCE = { states: ["active"], until: "until" } as const;
+const SOURCE = { states: ["active"], until: "until" };
 
 export function accessManifest(ext = ACCESS_EXT) {
   const course = `${ext}.course`;
@@ -66,7 +66,10 @@ export function accessManifest(ext = ACCESS_EXT) {
                     type: "object",
                     optional: true,
                     private: true,
-                    fields: { text: { type: "text", max: 200 } },
+                    fields: {
+                      text: { type: "text", max: 200 },
+                      clip: { type: "ref", to: "media", media: "video", optional: true },
+                    },
                   },
                 },
               },
@@ -179,6 +182,7 @@ export interface AccessWorld {
   previewVideo: string;
   trailer: string;
   otherVideo: string;
+  privateVideo: string;
   holder: CustomerPrincipal;
   bundleHolder: CustomerPrincipal;
   stranger: CustomerPrincipal;
@@ -190,7 +194,12 @@ const create = async (admin: ActingUser, object: string, values: Record<string, 
   (await invoke("record.create", { object, values }, context(admin))).id;
 
 /** The outline of a course: a free preview lesson and a lesson for holders. */
-export function outline(lessonVideo: string, previewVideo: string, notes = "Holders-only-notes") {
+export function outline(
+  lessonVideo: string,
+  previewVideo: string,
+  notes = "Holders-only-notes",
+  privateVideo?: string,
+) {
   return {
     lessons: [
       {
@@ -202,7 +211,7 @@ export function outline(lessonVideo: string, previewVideo: string, notes = "Hold
       },
       { key: "one", title: "Lesson one", video: { media: lessonVideo }, notes },
     ],
-    staffNote: { text: "Staff-only-note" },
+    staffNote: { text: "Staff-only-note", ...(privateVideo ? { clip: privateVideo } : {}) },
   };
 }
 
@@ -219,10 +228,11 @@ export async function createAccessWorld(admin: ActingUser, ext = ACCESS_EXT): Pr
   const previewVideo = await readyVideo(admin, "preview.mp4");
   const trailer = await readyVideo(admin, "trailer.mp4");
   const otherVideo = await readyVideo(admin, "other.mp4");
+  const privateVideo = await readyVideo(admin, "private.mp4");
   const course = await create(admin, courseObject, {
     title: "Handstands",
     trailer: { media: trailer },
-    outline: outline(lessonVideo, previewVideo),
+    outline: outline(lessonVideo, previewVideo, undefined, privateVideo),
   });
   const other = await create(admin, courseObject, {
     title: "Mobility",
@@ -265,6 +275,7 @@ export async function createAccessWorld(admin: ActingUser, ext = ACCESS_EXT): Pr
     previewVideo,
     trailer,
     otherVideo,
+    privateVideo,
     holder,
     bundleHolder,
     stranger,

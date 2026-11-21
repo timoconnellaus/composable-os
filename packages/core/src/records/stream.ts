@@ -152,7 +152,7 @@ export function base64url(bytes: Uint8Array): string {
 }
 
 /** Bytes of base64url (or base64) text. */
-export function fromBase64url(text: string): Uint8Array {
+export function fromBase64url(text: string): Uint8Array<ArrayBuffer> {
   const b64 = text.replace(/-/g, "+").replace(/_/g, "/");
   const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
   const binary = atob(padded);

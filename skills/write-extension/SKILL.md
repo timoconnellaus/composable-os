@@ -189,6 +189,19 @@ extension declares it; it never implements it. Each behaviour the platform has i
   get `publishState` (draft, scheduled, published, unpublished) and `publishAt`, for views.
   Publishing, scheduling (`record.schedulePublish`) and unpublishing are a person's; your code and
   the assistant write the working copy only. See Content: `packs/content/index.ts`.
+- **Videos and downloads** (stage 42, ADR 0475): a **`video`** field (`{ media, poster? }`, a
+  ready video in Cloudflare Stream, checked by the host), or in your own document a ref to media
+  with its kind: `{ type: "ref", to: "media", media: "video" }` (`VIDEO_NODE`) or
+  `media: "file"` for a PDF (`FILE_NODE`). A video plays only with a token from `media.play`
+  (ADR 0476), which the host gives only to someone who may read the part that shows it: never
+  build a player address yourself.
+- **What only paying customers read** (ADR 0477): declare `access: { sources: [...] }` (a record
+  of yours that declares a customer, such as an enrolment, in the states that give access and
+  before its `until`, pointing at the record or, with `through`, at a record whose list names it),
+  and mark the parts of a document for holders: `holders: { keys: [...], unless?: "<boolean>" }`
+  on an object node (or `holders: true` for the whole node). Never check access in a tool or a
+  block: the host removes those parts for everyone else, and `media.play` refuses them. Only a
+  pack or the org's own extension may declare it. A refund's void state gives no access.
 
 ### Roles
 

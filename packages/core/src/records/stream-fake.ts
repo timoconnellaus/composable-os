@@ -15,13 +15,13 @@
 // one for the dev server's life. Never configured in a deployment (STREAM_FAKE is for dev).
 import {
   BASIC_UPLOAD_MAX_BYTES,
-  base64url,
   fromBase64url,
   type StreamCaption,
   type StreamPlayback,
   type StreamProvider,
   type StreamSigner,
   type StreamVideoDetails,
+  streamSigner,
   TUS_CHUNK_BYTES,
   type VideoHost,
 } from "./stream.ts";
@@ -191,25 +191,15 @@ export function createFakeStream(options: FakeStreamOptions): VideoHost & {
     },
   };
 
+  // The host's own signer (stream.ts), with a key the fake made: what Stream would verify.
+  let real: StreamSigner | undefined;
   const signer: StreamSigner = {
-    async sign({ uid, expiresAt, notBefore }) {
-      const header = { alg: "RS256", kid: KEY_ID };
-      const claims = {
-        sub: uid,
-        kid: KEY_ID,
-        exp: Math.floor(expiresAt.getTime() / 1000),
-        ...(notBefore ? { nbf: Math.floor(notBefore.getTime() / 1000) } : {}),
-      };
-      const enc = new TextEncoder();
-      const unsigned = `${base64url(enc.encode(JSON.stringify(header)))}.${base64url(
-        enc.encode(JSON.stringify(claims)),
-      )}`;
-      const signature = await crypto.subtle.sign(
-        RS256,
-        (await keyPair()).privateKey,
-        enc.encode(unsigned),
-      );
-      return `${unsigned}.${base64url(new Uint8Array(signature))}`;
+    async sign(input) {
+      if (!real) {
+        const jwk = await crypto.subtle.exportKey("jwk", (await keyPair()).privateKey);
+        real = streamSigner(KEY_ID, jwk as JsonWebKey);
+      }
+      return real.sign(input);
     },
   };
 

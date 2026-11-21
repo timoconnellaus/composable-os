@@ -16,6 +16,7 @@ import {
 import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  type AccessSource,
   type ActingUser,
   getObject,
   holdsAccess,
@@ -42,6 +43,10 @@ import { context, createUser, db, unique } from "./helpers.ts";
 
 let admin: ActingUser;
 let world: AccessWorld;
+
+/** A kind source's options, as the fixture kind reads them. */
+const optionsOf = (source: AccessSource) =>
+  ("options" in source ? (source.options ?? {}) : {}) as Record<string, unknown>;
 
 type Lesson = {
   key: string;
@@ -142,7 +147,7 @@ describe("the holders' flag on a document (ADR 0477)", () => {
               fields: {
                 name: { type: "text", label: "Name", required: true },
                 doc: {
-                  type: "document",
+                  type: "document" as const,
                   label: "Doc",
                   schema: {
                     root: {
@@ -152,7 +157,7 @@ describe("the holders' flag on a document (ADR 0477)", () => {
                     },
                   },
                   ...(paths ? { paths } : {}),
-                },
+                } as never,
               },
             },
           },
@@ -183,7 +188,7 @@ describe("the access declaration is checked (ADR 0477)", () => {
             name: { type: "text", label: "Name", required: true },
             price: { type: "currency", label: "Price" },
           },
-          access: { sources: [source] },
+          access: { sources: [source as never] },
           ...(grants
             ? {
                 sellable: {
@@ -385,6 +390,8 @@ describe("media.play follows the same answer (criteria 3, 4 and 5)", () => {
     // The free preview and the trailer play for anyone who may read the course.
     expect(await play(world.previewVideo, PUBLIC)).toMatchObject({ ok: true });
     expect(await play(world.trailer, world.stranger)).toMatchObject({ ok: true });
+    // A video in a private part is no outsider's, holder or not.
+    expect(await play(world.privateVideo, world.holder)).toEqual(NOT_FOUND);
     // A bundle holder plays the bundle's course's video.
     expect(await play(world.otherVideo, world.bundleHolder)).toMatchObject({ ok: true });
     expect(await play(world.otherVideo, world.holder)).toEqual(NOT_FOUND);
@@ -413,6 +420,7 @@ describe("media.play follows the same answer (criteria 3, 4 and 5)", () => {
       [world.trailer]: "all",
       [world.previewVideo]: "all",
       [world.lessonVideo]: "holders",
+      [world.privateVideo]: "private",
     });
   });
 
@@ -434,7 +442,9 @@ describe("media.play follows the same answer (criteria 3, 4 and 5)", () => {
       {
         object: COURSE,
         id: world.course,
-        values: { outline: outline(world.lessonVideo, world.previewVideo) },
+        values: {
+          outline: outline(world.lessonVideo, world.previewVideo, undefined, world.privateVideo),
+        },
       },
       context(admin),
     );
@@ -456,11 +466,11 @@ describe("the seam takes a third kind of source (criterion 6)", () => {
   beforeAll(async () => {
     registerAccessSource(KIND, {
       problems: (_object, source) =>
-        typeof source.options?.setting === "string" ? [] : ["a fixture pass names its setting"],
+        typeof optionsOf(source).setting === "string" ? [] : ["a fixture pass names its setting"],
       async holders(query, source) {
         const row = await sql<{
           value: string;
-        }>`SELECT value FROM core_settings WHERE key = ${String(source.options?.setting)}`.execute(
+        }>`SELECT value FROM core_settings WHERE key = ${String(optionsOf(source).setting)}`.execute(
           query.db,
         );
         const passes = JSON.parse(row.rows[0]?.value ?? "{}") as Record<string, string[]>;

@@ -45,7 +45,12 @@ export function MediaPicker({
   onPick: (media: PickedMedia) => void;
 }) {
   const client = useQueryClient();
-  const library = useOp("media.list", { limit: 60 }, { enabled: open });
+  // Pictures only: a video or a file is not a picture (stage 42).
+  const library = useOp(
+    "media.list",
+    { limit: 60, filter: { field: "kind", op: "eq", value: "image" } },
+    { enabled: open },
+  );
   const [alt, setAlt] = useState("");
   const [busy, setBusy] = useState(false);
 
