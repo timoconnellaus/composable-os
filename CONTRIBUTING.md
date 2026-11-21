@@ -66,10 +66,14 @@ checks. Otherwise these jobs run in parallel, each on its own runner:
   layout, balanced by measured time; CI's matrix is generated from it. The last shard takes every
   package the others don't name, so a new package is tested without touching the layout, and
   `pnpm lint` fails if a package with a `test` script would run in no shard or in two.
+- **npm packages**: what the release's build job does for npm, on every change: the release
+  bundle, every package's tarball (`scripts/release/npm-packages.ts`, where a pack's type
+  declarations are emitted, which `pnpm typecheck` does not do), a fresh client repo made and
+  built from them (`check-npm-packages.ts`), and `npm publish --dry-run` on each tarball.
 - **E2E**: the app's Playwright suite in four shards, the control plane's, and the landing page's.
 
 Two jobs only gather results, and they are the names to require: **Lint, typecheck, unit tests**
-(lint, typecheck and every unit shard) and **E2E smoke (Playwright)** (the e2e shards and the
+(lint, typecheck, every unit shard and the npm packages) and **E2E smoke (Playwright)** (the e2e shards and the
 control plane).
 
 To run one unit shard locally, exactly as CI does (`turbo run test` with its filters, so its

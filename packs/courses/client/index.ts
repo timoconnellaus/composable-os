@@ -251,6 +251,21 @@ export type UseQuery = <T>(options: {
     | ((query: { state: { data: T | undefined } }) => number | false);
 }) => { data: T | undefined; isPending: boolean; error: unknown };
 
+/** What a query hook returns, as `UseQuery` gives it. */
+export interface QueryResult<T> {
+  data: T | undefined;
+  isPending: boolean;
+  error: unknown;
+}
+
+/** A query's key and function, as the typed client gives them. */
+interface QueryOptions<T> {
+  queryKey: readonly unknown[];
+  queryFn: () => Promise<T>;
+}
+
+type Out<N extends keyof CoursesOperations> = CoursesOperations[N]["output"];
+
 /** The app's `useMutation`, as far as these hooks use it. */
 export type UseMutation = <I, O>(options: {
   mutationKey: readonly unknown[];
@@ -315,11 +330,11 @@ function allCoursesHooks(
       return useQuery(api.query("x.courses.catalogue", input));
     },
     /** One published course by its address, with whether the caller holds it. */
-    useCourse(slug: string | null) {
-      const options = slug ? api.query("x.courses.course", { slug }) : none(String("course"));
-      return useQuery({ ...options, enabled: slug !== null } as never) as ReturnType<
-        typeof useQuery<CoursesOperations["x.courses.course"]["output"]>
-      >;
+    useCourse(slug: string | null): QueryResult<Out<"x.courses.course">> {
+      const options: QueryOptions<Out<"x.courses.course">> = slug
+        ? api.query("x.courses.course", { slug })
+        : none("course");
+      return useQuery({ ...options, enabled: slug !== null });
     },
     /** Start an order for a course or a bundle; then `checkout` it (web only). */
     useBuy() {
@@ -329,15 +344,15 @@ function allCoursesHooks(
       };
     },
     /** One lesson for a holder (or a free preview). */
-    useLesson(courseId: string | null, lessonKey: string | null) {
-      const options =
+    useLesson(
+      courseId: string | null,
+      lessonKey: string | null,
+    ): QueryResult<Out<"x.courses.lesson">> {
+      const options: QueryOptions<Out<"x.courses.lesson">> =
         courseId && lessonKey
           ? api.query("x.courses.lesson", { courseId, lessonKey })
           : none("lesson");
-      return useQuery({
-        ...options,
-        enabled: Boolean(courseId && lessonKey),
-      } as never) as ReturnType<typeof useQuery<CoursesOperations["x.courses.lesson"]["output"]>>;
+      return useQuery({ ...options, enabled: Boolean(courseId && lessonKey) });
     },
     /**
      * A token to play a lesson's video (or a trailer), from the host's `media.play`; asked for
@@ -345,7 +360,7 @@ function allCoursesHooks(
      */
     usePlayback(
       video: { media: string; record?: { object: string; id: string }; field?: string } | null,
-    ) {
+    ): QueryResult<Playback> {
       const input = video
         ? {
             id: video.media,
@@ -372,8 +387,11 @@ function allCoursesHooks(
       return useQuery(api.query("x.courses.myCourses", {}));
     },
     /** A session lesson's own Programs session, once it is assigned. */
-    useStartSession(courseId: string | null, lessonKey: string | null) {
-      const options =
+    useStartSession(
+      courseId: string | null,
+      lessonKey: string | null,
+    ): QueryResult<Out<"x.courses.startSession">> {
+      const options: QueryOptions<Out<"x.courses.startSession">> =
         courseId && lessonKey
           ? api.query("x.courses.startSession", { courseId, lessonKey })
           : none("session");
@@ -381,11 +399,8 @@ function allCoursesHooks(
         ...options,
         enabled: Boolean(courseId && lessonKey),
         // "Preparing your sessions": ask again in a few seconds until it is there.
-        refetchInterval: (query: { state: { data: { preparing?: boolean } | undefined } }) =>
-          query.state.data?.preparing ? 3000 : false,
-      } as never) as ReturnType<
-        typeof useQuery<CoursesOperations["x.courses.startSession"]["output"]>
-      >;
+        refetchInterval: (query) => (query.state.data?.preparing ? 3000 : false),
+      });
     },
     /** Staff: give a person access, with a reason. */
     useEnrol() {
