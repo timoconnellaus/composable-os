@@ -82,6 +82,14 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `StagesSpec` in `contract.ts`, the README's "Object behaviour", and Deals: `objects.stage` and
   `objects.deal.stages`. A smaller rule on one choice is `requires` on a select option
   (Leads: `status`).
+- **`capacity`** on an object: its records have a limited number of places that the host never
+  gives out twice (ticket types, classes, slots). Declare a number field and
+  `capacity: { places: "<field>" }`; add `pool: "<relation>"` to draw on a parent's places too (a
+  ticket type within its event; the parent object must declare a capacity and no pool), and
+  `show: "exact" | "low" | "availability"` (with `lowAt` for `low`) for what customers and the
+  public are told. Records get read-only `held`, `taken` and `available`, so don't declare fields
+  with those names. Never count places in a tool: claims are made by the host in the write that
+  needs them (an order). See `CapacitySpec` in `packages/sdk/src/capacity.ts` and ADR 0431.
 
 ## The rules
 

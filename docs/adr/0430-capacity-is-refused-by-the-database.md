@@ -44,5 +44,13 @@ same rush sells all 500.
 - The refusal message relies on SQLite accepting an expression as `RAISE`'s message. Workerd's
   SQLite does. If a D1 database ever did not, the migration would fail to apply rather than the
   rule silently weakening, and the CHECK alone still holds the limit.
+- **Before release** (review, 2026-11-21): migration 0440 must be applied once to a real remote
+  D1, checking that it accepts `RAISE` with an expression as its message and that the trigger's
+  message reaches the host through D1's error (a refused claim reports `asked` and `available`).
+  If it does not, the fallback is to drop the triggers and, on a CHECK failure only
+  (`core_capacity_within_places`), read the counter after the refusal to fill in the numbers. The
+  CHECK stays the guarantee either way.
+- A refusal names the counter that refused: the pool's when the pool is full (review,
+  2026-11-21).
 - The local proof runs on workerd's D1 simulation, which, like D1, runs one statement at a time
   per database. It does not measure production latency.

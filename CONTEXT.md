@@ -846,7 +846,8 @@ behaviour, an automation, a view, a dashboard, a gatekeeper capability, or a bas
 **Behaviour**
 A declarative rule set an object opts into in its manifest, enforced by the host in the same batch
 as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**, which exists),
-`states`, `capacity`, `sellable`, `publishable`, `recurring`, `allowance`.
+`states`, `capacity` (exists: places, holds and claims, ADRs 0430 to 0433), `sellable`,
+`publishable`, `recurring`, `allowance`.
 _Avoid_: hook, trigger (a trigger starts an automation), plugin
 
 **Pack**
@@ -928,8 +929,21 @@ HTTP (the last from stage 23).
 The package generated from the operations registry: types and TanStack Query option factories for
 each operation, usable in TanStack Start and React Native (stage 23, ADR 0403).
 
+**Capacity**
+A record's limited number of places (a ticket type's, a class's), declared by its object. The host
+keeps a counter (places, held, taken) and the database refuses any claim past the places, for every
+actor. A record may also draw on one parent's places, its **pool** (a ticket type within its
+event). What customers and the public are told is the object's `show` (stage 26, ADRs 0430 to 0433).
+
+**Claim**
+Places taken from a capacity for something: an order line, later a booking. `held`, then
+`confirmed` once paid, or `released`. Made, confirmed and released in the batch of the owner's own
+write.
+
 **Hold**
-Places taken out of a capacity for a short time while someone pays. It expires by itself (stage 26).
+A held claim: places taken out of a capacity while an order is unpaid. It has no clock of its own:
+it lasts as long as the order is unpaid, which may be weeks for a deposit, and is released when the
+order is cancelled or expires (stage 26, ADR 0432).
 _Avoid_: reservation (a reservation is a booking a customer keeps), lock
 
 **Order**
