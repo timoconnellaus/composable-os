@@ -873,8 +873,8 @@ behaviour, an automation, a view, a dashboard, a gatekeeper capability, or a bas
 A declarative rule set an object opts into in its manifest, enforced by the host in the same batch
 as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**) and `states` (the
 **state machine**), which exist and share the **transition engine**; `capacity` (places, holds
-and claims, ADRs 0430 to 0433), which exists; `sellable`, `publishable`, `recurring` and
-`allowance`, which are designed.
+and claims, ADRs 0430 to 0433) and `sellable` (prices, sale rules and what a paid line grants,
+ADR 0435), which exist; `publishable`, `recurring` and `allowance`, which are designed.
 _Avoid_: hook, trigger (a trigger starts an automation), plugin
 
 **Pack**
@@ -1027,6 +1027,26 @@ verified makes an order paid or part paid (ADR 0427); no operation does. A paid 
 something (a ticket, later a pass). A base record from stage 25, with its own `order.*`
 operations.
 _Avoid_: purchase, sale, booking (a booking is a place in a class), invoice (stage 35)
+
+**Sellable**
+The behaviour of an object whose records can be put on an order (stage 27, ADR 0435): its price
+field, and optionally its currency, sale window, most per order, deposit and what a paid line
+grants. Only an object that declares it can be bought. The host reads every price and rule from
+the record, so a caller sends none.
+_Avoid_: product (a product is what the platform is composed into, ADR 0400), SKU
+
+**Grant**
+A record the host creates when an order is first paid, one per unit of a line whose object
+declares what it grants (a ticket per place), in the batch that marks the order paid or part
+paid, with its fields set from the line, the item and the order and, when declared, a code. Kept
+in `core_order_grant`. Refunding the order in full, or cancelling it after a deposit, moves what
+it granted to its void state (stage 27, ADR 0435).
+_Avoid_: entitlement (a hosted plan's limits, ADR 0211), allowance (a pass's uses), fulfilment
+
+**Code** (of a grant)
+The long, random, unguessable value the host gives a granted record that asks for one (a
+ticket's): read-only, unique across every grant. A QR shows only the code.
+_Avoid_: ticket number, PIN
 
 **Deposit**
 Paying part of an order now and the balance by a date, when what is bought offers it. The amount

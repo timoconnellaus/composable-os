@@ -52,7 +52,6 @@ import {
   ValidationError,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
-import { ensureDevSellable } from "../dev-sellable.ts";
 import { integrationRuntimeFor } from "../integrations.ts";
 import {
   automationWiring,
@@ -133,7 +132,6 @@ export async function outsideContext(
   const extensionHost = extensionHostFor(env);
   const { events } = automationWiring(env);
   const integrations = integrationRuntimeFor(env);
-  ensureDevSellable(env);
   return {
     principal,
     db,

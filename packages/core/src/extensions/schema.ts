@@ -6,6 +6,7 @@ import {
   type FieldManifest,
   type FieldTypeName,
   formulaTypeOf,
+  type SellableManifest,
   type StagesManifest,
   type StatesManifest,
 } from "@composable-os/sdk";
@@ -44,6 +45,7 @@ export interface ObjectDefinitionJson {
   timelineLinks?: string[];
   stages?: StagesManifest;
   capacity?: CapacityManifest;
+  sellable?: SellableManifest;
   states?: StatesManifest;
   owner?: string;
   /** The object's customer (ADR 0402), as declared. */
@@ -411,6 +413,49 @@ function capacityDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
   };
 }
 
+/**
+ * The sellable declaration with registry field names, or undefined (ADR 0435). The granted
+ * object's fields are named by their registry names, which for an object's own fields are their
+ * local names.
+ */
+function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefinition["sellable"] {
+  const declared = object.definition.sellable;
+  if (!declared) return undefined;
+  const nameOf = (local: string) => own.find((f) => f.localName === local)?.name ?? local;
+  const opt = (local: string | undefined) => (local === undefined ? undefined : nameOf(local));
+  const priceField = own.find((f) => f.localName === declared.price);
+  const currency = declared.currency ?? priceField?.definition.currency;
+  const { amount, balanceDue } = declared.deposit ?? {};
+  const grants = declared.grants;
+  return {
+    price: nameOf(declared.price),
+    ...(currency ? { currency } : {}),
+    ...(declared.saleWindow
+      ? {
+          saleWindow: {
+            from: opt(declared.saleWindow.from),
+            until: opt(declared.saleWindow.until),
+          },
+        }
+      : {}),
+    ...(declared.maxPerOrder ? { maxPerOrder: nameOf(declared.maxPerOrder) } : {}),
+    ...(amount && balanceDue
+      ? { deposit: { amount: nameOf(amount), balanceDue: nameOf(balanceDue) } }
+      : {}),
+    ...(grants
+      ? {
+          grants: {
+            object: grants.object.includes(".")
+              ? grants.object
+              : `${object.extensionId}.${grants.object}`,
+            set: { ...grants.set },
+            void: grants.void,
+          },
+        }
+      : {}),
+  };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Field registry
 
@@ -511,6 +556,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       (f) => f.object === object.name && f.extensionId !== object.extensionId,
     );
     const capacity = capacityDefinition(object, own);
+    const sellable = sellableDefinition(object, own);
     const fields = [
       ...SYSTEM_FIELDS,
       ...own.map((f) => registryField(f, object.name)),
@@ -534,6 +580,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
         : {}),
       ...(object.definition.stages ? { stages: object.definition.stages } : {}),
       ...(capacity ? { capacity } : {}),
+      ...(sellable ? { sellable } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),

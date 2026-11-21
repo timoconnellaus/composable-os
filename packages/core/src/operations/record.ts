@@ -867,6 +867,8 @@ export const objectInfoSchema = z.object({
       releaseOnRefund: z.boolean(),
     })
     .nullable(),
+  /** The sellable behaviour, when it has one (ADR 0435): its price, rules and what it grants. */
+  sellable: z.record(z.string(), z.unknown()).nullable(),
   /** The state machine, when it has one (ADR 0425). */
   states: z.record(z.string(), z.unknown()).nullable(),
   timelineLinks: z.array(z.string()),
@@ -900,6 +902,7 @@ export function objectInfo(object: ObjectDefinition): ObjectInfo {
           releaseOnRefund: object.capacity.releaseOnRefund,
         }
       : null,
+    sellable: object.sellable ? { ...object.sellable } : null,
     states: object.states ? { ...object.states } : null,
     timelineLinks: [...(object.timelineLinks ?? [])],
     ownerField: object.ownerField ?? null,

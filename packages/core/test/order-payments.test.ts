@@ -14,22 +14,19 @@ import {
   confirmationMessage,
   coreRegistry,
   devJudge,
-  type IntegrationRuntime,
   loadOrderRow,
   memoryEventSink,
-  type PaymentsEvent,
   recordPaymentEvent,
   recordTriggerSource,
-  registerSellable,
   runOrderNotices,
   sendOrderConfirmation,
-  submitOutbound,
   type ValidationError,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 import { opRequest, outcomeOf, surfaceOver } from "./http-helpers.ts";
 import { CURRENCY, outside, PUBLIC, refusal, run } from "./order-fixtures.ts";
+import { paymentsDouble } from "./payments-double.ts";
 
 const SHOP = extId("shop");
 /** For sale, with places in a pool, and a deposit. Releases on refund (the default). */
@@ -48,99 +45,10 @@ interface OrderOut {
   token?: string | null;
 }
 
-// --- The payments gatekeeper's test double -----------------------------------------------------
+// --- The payments gatekeeper's test double (payments-double.ts) ---------------------------------
 
-interface Gateway {
-  checkouts: { ref: string; orderId: string; amount: number; currency: string }[];
-  emails: { to: string[]; subject: string; text: string }[];
-  refunds: Map<number, { orderId: string; paymentRef: string; amount: number; refundId: string }>;
-  applied: number[];
-  action: number;
-}
-const gw: Gateway = { checkouts: [], emails: [], refunds: new Map(), applied: [], action: 0 };
-let connectionId: string;
-
-const no = () => Promise.reject(new Error("not used in this test"));
-const runtime: IntegrationRuntime = {
-  availableVendors: async () => ["payments"],
-  startConnect: no,
-  provision: no,
-  redeem: no,
-  reconnect: no,
-  disconnect: no,
-  bindResource: no,
-  unbindResource: no,
-  configure: no,
-  supportedResources: no,
-  types: no,
-  setSync: no,
-  syncNow: no,
-  async callAsHost(input) {
-    if (input.method === "createCheckout") {
-      const request = input.args[0] as { orderId: string; amount: number; currency: string };
-      const ref = `fcs_${unique("c")}`;
-      gw.checkouts.push({ ref, ...request });
-      return {
-        value: { provider: "fake", ref, url: `https://pay.example/${ref}`, expiresAt: null },
-        pending: [],
-        applied: [],
-      };
-    }
-    if (input.method === "send") {
-      gw.emails.push(input.args[0] as Gateway["emails"][number]);
-      return {
-        value: { status: "sent" },
-        pending: [],
-        applied: [{ action: 1, actionKind: "email.send", title: "x" }],
-      };
-    }
-    throw new Error(`unexpected ${input.method}`);
-  },
-  // A refund: submitted to the approval queue exactly as the integration host submits one.
-  async call(input) {
-    if (input.method !== "refund") throw new Error(`unexpected ${input.method}`);
-    const request = input.args[0] as Gateway["refunds"] extends Map<number, infer R> ? R : never;
-    gw.action += 1;
-    const action = gw.action;
-    gw.refunds.set(action, request);
-    const decision = await submitOutbound(db, {
-      connectionId,
-      connectionTitle: "Payments",
-      vendor: "payments",
-      facetKey: "merchant",
-      resourceTitle: "Payments with Fake provider",
-      action,
-      description: {
-        title: `Refund ${request.amount} on order ${request.orderId}`,
-        description: "Refund a payment.",
-        fields: [
-          { label: "Payment", value: request.paymentRef },
-          { label: "Amount", value: String(request.amount) },
-        ],
-        actionKind: { tag: "payments.refund", label: "Refund a payment" },
-        autoApprovable: false,
-        descriptionIsComplete: true,
-      },
-      actor: input.caller.actor,
-      user: {
-        id: input.caller.userId,
-        email: "",
-        name: input.caller.userName,
-        role: input.caller.role,
-      },
-      origin: input.caller.origin,
-    });
-    return {
-      value: { status: "pending", id: action },
-      pending: decision.decision === "review" ? [decision.pending] : [],
-      applied: [],
-    };
-  },
-  async applyOutbound(input) {
-    gw.applied.push(input.action);
-  },
-  rejectOutbound: async () => undefined,
-};
+const payments = paymentsDouble(() => events);
+const { gw, runtime, providerPays, providerRefunds } = payments;
 
 // --- Helpers -------------------------------------------------------------------------------------
 
@@ -175,52 +83,6 @@ async function checkout(order: OrderOut, amount?: number) {
     { id: order.id, token: order.token, returnUrl: RETURN, ...(amount ? { amount } : {}) },
     guest(),
   );
-}
-
-/** Plays the provider: the gatekeeper verified this payment and delivered it to the host. */
-async function providerPays(orderId: string, amount?: number, currency = CURRENCY) {
-  const opened = gw.checkouts.filter((c) => c.orderId === orderId).at(-1);
-  if (!opened) throw new Error("no checkout");
-  const event: PaymentsEvent = {
-    kind: "payment",
-    provider: "fake",
-    eventId: `fevt_${unique("e")}`,
-    orderId,
-    checkoutRef: opened.ref,
-    amount: amount ?? opened.amount,
-    currency,
-    paymentRef: `fpi_${unique("p")}`,
-    occurredAt: new Date().toISOString(),
-  };
-  return deliver(event);
-}
-
-async function deliver(event: PaymentsEvent) {
-  const key = await recordPaymentEvent(db, event, connectionId, new Date().toISOString());
-  if (!key) throw new Error("not stored");
-  const result = await applyStoredPaymentEvent(
-    { crm: db, integrations: runtime, events, appOrigin: "https://crm.example.com" },
-    key,
-  );
-  return { event, result };
-}
-
-/** Plays the provider confirming refund action `action` by webhook. */
-async function providerRefunds(action: number, amount?: number) {
-  const request = gw.refunds.get(action);
-  if (!request) throw new Error("no refund");
-  return deliver({
-    kind: "refund",
-    provider: "fake",
-    eventId: `fevt_${unique("r")}`,
-    orderId: request.orderId,
-    refundId: request.refundId,
-    refundRef: `fre_${unique("f")}`,
-    paymentRef: request.paymentRef,
-    amount: amount ?? request.amount,
-    currency: CURRENCY,
-    occurredAt: new Date().toISOString(),
-  });
 }
 
 const state = async (id: string) => (await loadOrderRow(db.query, id)).state;
@@ -286,6 +148,10 @@ beforeAll(async () => {
             event: { type: "relation", label: "Event", to: EVENT },
           },
           capacity: { places: "places", pool: "event" },
+          sellable: {
+            price: "price",
+            deposit: { amount: "depositAmount", balanceDue: "balanceDue" },
+          },
         },
         keepsake: {
           label: "Keepsake",
@@ -297,16 +163,11 @@ beforeAll(async () => {
             places: { type: "number", label: "Places" },
           },
           capacity: { places: "places", releaseOnRefund: false },
+          sellable: { price: "price" },
         },
       },
     }),
   );
-  registerSellable({
-    object: SEAT,
-    price: "price",
-    deposit: { amount: "depositAmount", balanceDue: "balanceDue" },
-  });
-  registerSellable({ object: KEEPSAKE, price: "price" });
   await run(
     "order.settings.update",
     { currency: CURRENCY, returnOrigins: ["https://shop.example.com"], minPartPayment: 1000 },
@@ -324,28 +185,7 @@ beforeAll(async () => {
   cheap = await createRecord(SEAT, { name: "Day seat", price: 120, places: 500, event });
   keepsake = await createRecord(KEEPSAKE, { name: "Poster", price: 30, places: 100 });
 
-  connectionId = `con_${unique("pay").toUpperCase()}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_integration_connection (id, vendor, scope, owner_user_id, title, status, resources, created_at, updated_at) VALUES (?, 'payments', 'org', ?, 'Payments', 'active', ?, ?, ?)",
-  )
-    .bind(
-      connectionId,
-      admin.id,
-      JSON.stringify([
-        {
-          key: "merchant",
-          url: "payments://merchant/fake",
-          pattern: "payments://merchant/:provider",
-          title: "Payments with Fake provider",
-          tsType: "PaymentsSession",
-          bindingName: "PAYMENTS",
-        },
-      ]),
-      now,
-      now,
-    )
-    .run();
+  await payments.connect(admin.id);
 });
 
 beforeEach(async () => {
@@ -398,7 +238,7 @@ describe("paid only by a verified event (criteria 4 and 5)", () => {
 
     // Delivered again (the gatekeeper retried, or the provider resent it): nothing changes.
     const key = { provider: "fake", eventId: paid.eventId };
-    await recordPaymentEvent(db, paid, connectionId, new Date().toISOString());
+    await recordPaymentEvent(db, paid, payments.connectionId(), new Date().toISOString());
     const again = await applyStoredPaymentEvent({ crm: db, integrations: runtime }, key);
     expect(again.outcome).toBe("duplicate");
     expect((await loadOrderRow(db.query, order.id)).paid).toBe(12000);
@@ -655,7 +495,7 @@ describe("the confirmation email (criterion 7)", () => {
     await env.DB.prepare(
       "INSERT INTO core_settings (key, value, updated_at) VALUES ('notification_delivery', ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
     )
-      .bind(JSON.stringify({ email: connectionId }), new Date().toISOString())
+      .bind(JSON.stringify({ email: payments.connectionId() }), new Date().toISOString())
       .run()
       .catch(() => undefined);
     const order = await startAsGuest([{ object: SEAT, id: cheap }]);
@@ -822,7 +662,7 @@ describe("order.paid and order.partPaid reach an automation once per order (crit
     const order = await startAsGuest([{ object: SEAT, id: cheap }]);
     await checkout(order);
     const { event: paid } = await providerPays(order.id);
-    await recordPaymentEvent(db, paid, connectionId, new Date().toISOString());
+    await recordPaymentEvent(db, paid, payments.connectionId(), new Date().toISOString());
     await applyStoredPaymentEvent({ crm: db, events }, { provider: "fake", eventId: paid.eventId });
     expect(runsFor(events.messages, paidAutomation, order.id)).toHaveLength(1);
     expect(runsFor(events.messages, partAutomation, order.id)).toHaveLength(0);

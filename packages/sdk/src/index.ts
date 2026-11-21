@@ -24,4 +24,5 @@ export {
   runAutomation,
   runExtension,
 } from "./runtime.ts";
+export * from "./sellable.ts";
 export * from "./states.ts";

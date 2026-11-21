@@ -3,8 +3,8 @@
 // missing (generating BETTER_AUTH_SECRET and opening sign-up so the e2e test user can be created),
 // then applies core migrations to the local D1 database.
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -89,15 +89,6 @@ if (existsSync(appVars) && !/^AI_FAKE_MODEL=/m.test(readFileSync(appVars, "utf8"
   );
 }
 
-// Until stage 27's manifest `sellable`, nothing can be bought in a running app: let the buy page
-// sell Deals (by their value) locally.
-if (existsSync(appVars) && !/^ORDERS_DEV_SELLABLE=/m.test(readFileSync(appVars, "utf8"))) {
-  writeFileSync(
-    appVars,
-    `${readFileSync(appVars, "utf8").trimEnd()}\n\n# Local only: lets the buy page sell Deals until stage 27.\nORDERS_DEV_SELLABLE=deals.deal:value\n`,
-  );
-}
-
 // Stand-in speech for local dev and e2e, unless this checkout has a real key to try (ADR 0349).
 if (
   existsSync(appVars) &&
@@ -119,3 +110,45 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
   stdio: "inherit",
   env: { ...process.env, CI: "true" },
 });
+
+// Stage 27: something to sell locally. The box office fixture extension
+// (packages/core/test/fixtures/boxoffice) is the org's own extension here, delivered the way
+// `cos deploy` delivers one (ADR 0422): its files in BLOBS under their sha256, pinned by the
+// runner's COS_ORG_EXTENSIONS. It is optional, so nothing installs it until an admin does
+// (extension.install { id: "boxoffice", shipped: true }); the orders e2e spec does. A runtime
+// extension cannot declare `sellable` (ADR 0435).
+{
+  const fixture = join(root, "packages/core/test/fixtures/boxoffice/index.ts");
+  const text = JSON.stringify({
+    extensions: [
+      {
+        id: "boxoffice",
+        version: "1.0.0",
+        optional: true,
+        files: { "index.ts": readFileSync(fixture, "utf8") },
+      },
+    ],
+  });
+  const hash = createHash("sha256").update(text).digest("hex");
+  const blob = join(root, "apps/app/.wrangler/org-extensions.json");
+  mkdirSync(dirname(blob), { recursive: true });
+  writeFileSync(blob, text);
+  execFileSync(
+    "pnpm",
+    [
+      "exec",
+      "wrangler",
+      "r2",
+      "object",
+      "put",
+      `cos-blobs/org-extensions/${hash}.json`,
+      "--file",
+      blob,
+      "--local",
+    ],
+    { cwd: join(root, "apps/app"), stdio: "inherit", env: { ...process.env, CI: "true" } },
+  );
+  // apps/app/vite.config.ts pins it on the local runner (not .dev.vars, which `wrangler types`
+  // reads).
+  writeFileSync(join(root, "apps/app/.wrangler/org-extensions.sha256"), hash);
+}

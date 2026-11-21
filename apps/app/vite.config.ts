@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cloudflare } from "@cloudflare/vite-plugin";
@@ -25,6 +26,21 @@ function gitCommit(): string {
 }
 
 const PORT = Number(process.env.PORT ?? 5173);
+
+/**
+ * Local dev's own org extensions (stage 27): the box office fixture, which scripts/dev-setup.mjs
+ * puts in local BLOBS under this hash, as `cos deploy` would. Empty when it has not run.
+ */
+function devOrgExtensions(): string {
+  try {
+    return readFileSync(
+      new URL("./.wrangler/org-extensions.sha256", import.meta.url),
+      "utf8",
+    ).trim();
+  } catch {
+    return "";
+  }
+}
 
 export default defineConfig(({ command }) => ({
   // `#/…` is src/ (tsconfig paths), as in `import { callOp } from "#/lib/operations"`.
@@ -63,6 +79,7 @@ export default defineConfig(({ command }) => ({
                 // Local dev and e2e also run our inbound webhook gatekeeper (ADR 0113), bound
                 // as a deployment would bind it, so webhook-triggered automations run locally.
                 config: (runner) => ({
+                  vars: { ...runner.vars, COS_ORG_EXTENSIONS: devOrgExtensions() },
                   services: [
                     ...(runner.services ?? []),
                     {

@@ -65,7 +65,13 @@ async function check(dir: string, json: boolean, io: ExtIo): Promise<number> {
 /** The parts of a manifest this reads. */
 interface OpensOutside {
   id: string;
-  objects: Record<string, { customer?: { field: string; read: string[]; write: string[] } }>;
+  objects: Record<
+    string,
+    {
+      customer?: { field: string; read: string[]; write: string[] };
+      sellable?: { price: string; grants?: { object: string } };
+    }
+  >;
   tools: Record<
     string,
     { risk: string; audiences?: string[]; customerFields?: Record<string, string[]> }
@@ -81,6 +87,13 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
   if (!manifest) return [];
   const lines: string[] = [];
   for (const [name, object] of Object.entries(manifest.objects)) {
+    if (object.sellable) {
+      const grants = object.sellable.grants;
+      lines.push(
+        `  anyone can buy ${manifest.id}.${name} (priced by ${object.sellable.price})` +
+          (grants ? `; a paid line grants ${grants.object}` : ""),
+      );
+    }
     const c = object.customer;
     if (!c) continue;
     lines.push(

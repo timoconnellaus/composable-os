@@ -32,6 +32,7 @@ import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { openCheckout } from "../orders/checkout.ts";
 import { applyPaymentEvent } from "../orders/events.ts";
+import { grantsFollowPerson } from "../orders/grants.ts";
 import {
   hashOrderToken,
   newOrderToken,
@@ -480,6 +481,8 @@ export const orderSetPerson = defineOperation({
       { person_id: input.personId },
       callerMover(ctx),
     );
+    // What the order already granted to its buyer (a ticket's holder) follows, in this batch.
+    await grantsFollowPerson(ctx, row.id, input.personId);
     return fromRow(next, await linesOf(ctx, row.id), true);
   },
 });

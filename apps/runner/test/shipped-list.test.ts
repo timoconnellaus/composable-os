@@ -54,6 +54,16 @@ describe("the org's own extensions", () => {
     expect(withPacks.map((e) => e.id)).toEqual(["deals", "renewals"]);
   });
 
+  it("keep `optional`, so an admin installs one (local dev's box office, stage 27)", async () => {
+    const hash = await putOrg([{ ...renewals, id: "optin", optional: true } as typeof renewals]);
+    const list = await shippedExtensions({
+      COS_PACKS: "",
+      COS_ORG_EXTENSIONS: hash,
+      BLOBS: env.BLOBS,
+    });
+    expect(list).toEqual([{ ...renewals, id: "optin", optional: true }]);
+  });
+
   it("fail closed when the object is not the one the deploy pinned", async () => {
     // A pinned object no call has read yet (a read one is kept for the isolate).
     const hash = await putOrg([{ ...renewals, version: "0.2.0" }]);

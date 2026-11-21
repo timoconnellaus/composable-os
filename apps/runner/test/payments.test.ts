@@ -2,12 +2,31 @@
 // provider: a guest starts an order and opens the provider's page; coming back changes nothing;
 // the provider's verified webhook makes it paid, once; an unverified one is refused; a refund
 // waits for a person, is sent when approved, and the order is refunded only when the provider
-// confirms it (acceptance criteria 4, 7 and 8, ADR 0429).
+// confirms it (acceptance criteria 4, 7 and 8, ADR 0429). What is sold is the box office fixture
+// (packages/core/test/fixtures/boxoffice): its ticket type declares `sellable` (stage 27, ADR
+// 0435), so the paid order grants a ticket per place, and the refund voids them. As a runtime
+// extension it is refused; it is reconciled as a shipped one would be.
 import { env, exports } from "cloudflare:workers";
-import { type ActingUser, invokeByName, registerSellable } from "@composable-os/core";
+import {
+  type ActingUser,
+  applyPlan,
+  invokeByName,
+  planReconcile,
+  refreshSchemaRegistry,
+} from "@composable-os/core";
+import { manifestSchema, toManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import boxOfficeExtension from "../../../packages/core/test/fixtures/boxoffice/index.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
-import { createAdmin, db, install, source, unique } from "./helpers.ts";
+import { createAdmin, db, install, unique } from "./helpers.ts";
+
+const boxOffice = Object.values(
+  import.meta.glob<string>("../../../packages/core/test/fixtures/boxoffice/index.ts", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }),
+)[0] as string;
 
 const integrations = integrationRuntime(env);
 const runner = exports.default as unknown as {
@@ -18,6 +37,31 @@ const RETURN = "https://shop.test/thanks";
 let admin: ActingUser;
 let ticket: string;
 const ext = unique("pay").slice(0, 20);
+const TICKET_TYPE = `${ext}.tickettype`;
+const TICKET = `${ext}.ticket`;
+
+/** The tickets an order granted, as staff read them. */
+async function ticketsOf(orderId: string) {
+  const { results } = await env.DB.prepare(
+    "SELECT record_id FROM core_order_grant WHERE order_id = ? ORDER BY record_id",
+  )
+    .bind(orderId)
+    .all<{ record_id: string }>();
+  return Promise.all(
+    results.map(
+      async (row) =>
+        (
+          (await invokeByName(
+            "record.get",
+            { object: TICKET, id: row.record_id },
+            staff(admin),
+          )) as {
+            values: Record<string, unknown>;
+          }
+        ).values,
+    ),
+  );
+}
 
 function staff(user: ActingUser, extra: Record<string, unknown> = {}) {
   return {
@@ -40,31 +84,45 @@ async function view(id: string, token: string) {
 
 beforeAll(async () => {
   admin = await createAdmin();
-  await install(
-    admin,
-    ext,
-    source(
-      ext,
-      `objects: {
-    ticket: {
-      label: "Ticket", plural: "Tickets", titleField: "name",
-      fields: {
-        name: { type: "text", label: "Name", required: true },
-        price: { type: "currency", label: "Price", currency: "AUD" },
-      },
-    },
-  },`,
-    ),
+  expect(boxOffice).toContain('id: "boxoffice"');
+  // A runtime extension may not declare `sellable` (ADR 0435): installing the source through the
+  // workspace is refused by the check, and nothing is reconciled.
+  const refused = await install(admin, ext, {
+    "index.ts": boxOffice.replaceAll('"boxoffice', `"${ext}`),
+  }).then(
+    () => null,
+    (error: unknown) => error as { code?: string; details?: unknown },
   );
-  registerSellable({ object: `${ext}.ticket`, price: "price" });
+  expect(refused?.code).toBe("invalid_input");
+  expect(JSON.stringify(refused?.details)).toContain("objects.tickettype.sellable");
+  expect(
+    await db.query
+      .selectFrom("core_extensions")
+      .select("id")
+      .where("id", "=", ext)
+      .executeTakeFirst(),
+  ).toBeUndefined();
+  // Installed the way a shipped pack or the org's own extension is: its manifest reconciled.
+  const json = JSON.stringify(toManifest(boxOfficeExtension)).replaceAll('"boxoffice', `"${ext}`);
+  const plan = await planReconcile(db.query, manifestSchema.parse(JSON.parse(json)), {
+    now: new Date().toISOString(),
+  });
+  expect(plan.issues).toEqual([]);
+  await applyPlan((statements) => db.batch(statements), plan);
+  await refreshSchemaRegistry(db.query);
   await invokeByName(
     "order.settings.update",
     { currency: "AUD", returnOrigins: ["https://shop.test"] },
     staff(admin),
   );
+  const event = (await invokeByName(
+    "record.create",
+    { object: `${ext}.event`, values: { name: "Camp", places: 100 } },
+    staff(admin),
+  )) as { id: string };
   const created = (await invokeByName(
     "record.create",
-    { object: `${ext}.ticket`, values: { name: "General", price: 45 } },
+    { object: TICKET_TYPE, values: { name: "General", price: 45, places: 50, event: event.id } },
     staff(admin),
   )) as { id: string };
   ticket = created.id;
@@ -87,7 +145,7 @@ async function startAndOpen() {
   const email = `${unique("guest")}@buyers.test`.toLowerCase();
   const order = (await invokeByName(
     "order.start",
-    { lines: [{ object: `${ext}.ticket`, id: ticket, quantity: 2 }], email },
+    { lines: [{ object: TICKET_TYPE, id: ticket, quantity: 2 }], email },
     guest,
   )) as { id: string; token: string; total: number };
   const checkout = (await invokeByName(
@@ -118,8 +176,9 @@ describe("paid only by the provider's verified webhook (criterion 4)", () => {
     expect(checkout.url).toMatch(/^http:\/\/crm\.test\/gatekeeper\/payments\/fake\/pay\//);
 
     // The buyer is on the provider's page, or back on the return page without paying: nothing
-    // the buyer's side does moves the order.
+    // the buyer's side does moves the order, and nothing is granted.
     expect((await view(order.id, order.token)).state).toBe("pending");
+    expect(await ticketsOf(order.id)).toEqual([]);
 
     const paid = await pay(checkout.url);
     expect(paid.status).toBe(303);
@@ -137,6 +196,12 @@ describe("paid only by the provider's verified webhook (criterion 4)", () => {
       .all();
     expect(payments.results).toEqual([{ outcome: "applied" }]);
     expect((await view(order.id, order.token)).paid).toBe(9000);
+    // The paid order granted one ticket per place (stage 27), each with its own code, once.
+    const tickets = await ticketsOf(order.id);
+    expect(tickets).toHaveLength(2);
+    expect(tickets.map((t) => t.state)).toEqual(["valid", "valid"]);
+    expect(new Set(tickets.map((t) => t.code)).size).toBe(2);
+    expect(tickets.every((t) => t.ticketType === ticket && t.order === order.id)).toBe(true);
   });
 
   it("refuses an unverified webhook at the gatekeeper", async () => {
@@ -196,5 +261,7 @@ describe("refunds (criterion 8)", () => {
       .bind(order.id)
       .first();
     expect(refund).toEqual({ status: "confirmed", amount: 9000 });
+    // Refunded in full: what it granted is void (stage 27).
+    expect((await ticketsOf(order.id)).map((t) => t.state)).toEqual(["void", "void"]);
   });
 });
