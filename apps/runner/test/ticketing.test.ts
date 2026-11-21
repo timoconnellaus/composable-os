@@ -397,6 +397,58 @@ describe("buying (criterion 2)", () => {
   });
 });
 
+// --- The sales summary ---------------------------------------------------------------------------
+
+describe("the sales summary", () => {
+  it("reports sold, held, remaining and revenue per ticket type from the host's numbers", async () => {
+    const { event, types } = await eventWith([{ price: 45, places: 10 }, { price: 120 }], 20);
+    const paid = await run<Order>(
+      "x.ticketing.orderStart",
+      {
+        lines: [
+          { ticketTypeId: types[0], quantity: 2 },
+          { ticketTypeId: types[1], quantity: 1 },
+        ],
+        email: buyerEmail(),
+      },
+      guest,
+    );
+    await checkoutAndPay(paid, guest);
+    await waitForState(paid.id, "paid");
+    // One more held by an order still being paid.
+    await run(
+      "x.ticketing.orderStart",
+      { lines: [{ ticketTypeId: types[0] }], email: buyerEmail() },
+      guest,
+    );
+    const summary = await run<{
+      ticketTypes: {
+        id: string;
+        sold: number;
+        held: number;
+        remaining: number | null;
+        revenue: number;
+      }[];
+      totals: { sold: number; held: number; remaining: number | null; revenue: number };
+    }>("x.ticketing.salesSummary", { eventId: event }, staff(admin));
+    const byId = Object.fromEntries(summary.ticketTypes.map((t) => [t.id, t]));
+    expect(byId[types[0] as string]).toMatchObject({
+      sold: 2,
+      held: 1,
+      remaining: 7,
+      revenue: 9000,
+    });
+    // Unlimited on its own: what is left is the event's (20 - 4).
+    expect(byId[types[1] as string]).toMatchObject({
+      sold: 1,
+      held: 0,
+      remaining: 16,
+      revenue: 12000,
+    });
+    expect(summary.totals).toEqual({ sold: 3, held: 1, remaining: 16, revenue: 21000 });
+  });
+});
+
 // --- Criterion 3: the host's rules ---------------------------------------------------------------
 
 describe("the host's rules (criterion 3)", () => {
