@@ -1,6 +1,7 @@
 // Display and edit widgets for every extension field type (ADR 0023), picked by the field-type
 // registry's widget descriptor (`FIELD_TYPE_REGISTRY[type].widget`). Formula fields are read-only
 // and show their expression in a tooltip.
+
 import { FIELD_TYPE_REGISTRY } from "@composable-os/core/client";
 import { Badge } from "@composable-os/ui/components/badge";
 import { Checkbox } from "@composable-os/ui/components/checkbox";
@@ -19,9 +20,12 @@ import { SigmaIcon } from "lucide-react";
 import { RecordPicker } from "#/components/record-picker";
 import { formatDate, formatDateTime } from "#/lib/format";
 import { useOp } from "#/lib/query";
+import { richTextSummary } from "#/lib/rich-text-map";
 import type { FieldInfo } from "#/lib/schema";
 import { recordHref } from "#/lib/schema";
 import { useUserLabel, useUsers } from "#/lib/users-adapter";
+import { ImageFieldEditor } from "./media-picker.tsx";
+import { RichTextEditor } from "./rich-text-editor.tsx";
 
 type Choice = { value: string; label: string; color?: string };
 
@@ -162,6 +166,27 @@ export function FieldDisplay({ field, value }: { field: FieldInfo; value: unknow
       );
     case "textarea":
       return <span className="whitespace-pre-wrap">{String(value)}</span>;
+    case "richText": {
+      // Rich text (ADR 0440): its words here; the editor draws it in full.
+      const words = richTextSummary(value);
+      return (
+        <span className="line-clamp-3 whitespace-pre-wrap" data-rich-text-summary="">
+          {words || "—"}
+        </span>
+      );
+    }
+    case "image": {
+      const picture = value as { media?: string; alt?: string } | null;
+      return picture?.media ? (
+        <img
+          src={`/api/media/${encodeURIComponent(picture.media)}?w=320`}
+          alt={picture.alt ?? ""}
+          className="max-h-24 w-fit rounded"
+        />
+      ) : (
+        <>—</>
+      );
+    }
     case "document":
       // A structured document (ADR 0445): shown as its JSON here; a pack's block edits it.
       return (
@@ -369,6 +394,10 @@ export function FieldEditor({
     case null:
     case "formula":
       return <FieldDisplay field={field} value={value} />;
+    case "richText":
+      return <RichTextEditor id={id} value={value} onChange={onChange} />;
+    case "image":
+      return <ImageFieldEditor id={id} value={value} onChange={onChange} />;
     case "textarea":
       return (
         <Textarea id={id} value={(value as string) ?? ""} onChange={(e) => text(e.target.value)} />

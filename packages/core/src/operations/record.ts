@@ -1037,6 +1037,18 @@ export const objectInfoSchema = z.object({
   sellable: z.record(z.string(), z.unknown()).nullable(),
   /** The state machine, when it has one (ADR 0425). */
   states: z.record(z.string(), z.unknown()).nullable(),
+  /**
+   * Versions of its content (ADRs 0446, 0441), when it has them: the content fields, its slug
+   * field and date field, and whether the public reads it (ADR 0442: then it has previews).
+   */
+  publishable: z
+    .object({
+      content: z.array(z.string()),
+      slug: z.string().nullable(),
+      date: z.string().nullable(),
+      public: z.boolean(),
+    })
+    .nullable(),
   timelineLinks: z.array(z.string()),
   /** The owner field assignment rules set (ADR 0246), when the object has one. */
   ownerField: z.string().nullable(),
@@ -1070,6 +1082,14 @@ export function objectInfo(object: ObjectDefinition): ObjectInfo {
       : null,
     sellable: object.sellable ? { ...object.sellable } : null,
     states: object.states ? { ...object.states } : null,
+    publishable: object.publishable
+      ? {
+          content: [...object.publishable.content],
+          slug: object.publishable.slug ?? null,
+          date: object.publishable.date ?? null,
+          public: Boolean(object.public),
+        }
+      : null,
     timelineLinks: [...(object.timelineLinks ?? [])],
     ownerField: object.ownerField ?? null,
     navigationOrder: object.navigationOrder ?? 100,
