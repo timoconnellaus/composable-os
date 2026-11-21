@@ -5,9 +5,9 @@ import {
   clientWeb,
   defineClientProduct,
   defineProduct,
-  environmentNames,
   deployedName,
   deployedNameList,
+  environmentNames,
   LOCAL_PREFIX,
   type ProductDefinition,
 } from "../src/index.ts";
@@ -137,6 +137,26 @@ describe("a client product's environments (ADR 0450)", () => {
       }),
     ).toThrow(/both use the name gym/);
     expect(() => defineClientProduct({ ...gym, environments: {} })).toThrow(/is empty/);
+    // The fake payment provider only where the product says real money is not used.
+    const fake = { payments: { PAYMENTS_FAKE_PROVIDER: true } };
+    expect(() =>
+      defineClientProduct({
+        ...gym,
+        environments: { staging: { gatekeepers: fake }, live: {} },
+      }),
+    ).toThrow(/environment staging is live and turns on the fake payment provider/);
+    expect(
+      defineClientProduct({
+        ...gym,
+        environments: { staging: { live: false, gatekeepers: fake }, live: {} },
+      }),
+    ).toBeTruthy();
+    expect(() =>
+      defineClientProduct({ ...gym, environments: undefined, gatekeepers: fake }),
+    ).toThrow(/the product is live/);
+    expect(() => defineClientProduct({ ...gym, environments: { live: { live: false } } })).toThrow(
+      /cannot be marked live: false/,
+    );
     expect(() => defineClientProduct({ ...gym, environments: { Staging: {} } })).toThrow(
       /environment Staging/,
     );

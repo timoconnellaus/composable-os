@@ -717,6 +717,23 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
   if (customerAuthUrl !== undefined) {
     vars[app.name] = { ...vars[app.name], CUSTOMER_AUTH_URL: customerAuthUrl };
   }
+  // A client product's gatekeeper settings (ADR 0452): plain vars the gatekeeper declares, by
+  // the release's Worker name, checked by cos deploy against the manifest. Kept by upgrades.
+  const gatekeeperVars = str(flags, "gatekeeper-vars");
+  if (gatekeeperVars !== undefined) {
+    const parsed = JSON.parse(gatekeeperVars) as Record<string, Record<string, string>>;
+    for (const [worker, values] of Object.entries(parsed)) {
+      if (!manifest.workers.some((w) => w.name === worker && w.role === "gatekeeper")) {
+        throw new CliError(`--gatekeeper-vars names ${worker}, not a gatekeeper of this release`);
+      }
+      vars[worker] = { ...vars[worker], ...values };
+    }
+  }
+  const sendEmailFlag = str(flags, "send-email");
+  const sendEmail: DeploymentState["sendEmail"] = {
+    ...(previous?.sendEmail ?? {}),
+    ...(sendEmailFlag ? (JSON.parse(sendEmailFlag) as DeploymentState["sendEmail"]) : {}),
+  };
   // A client product's label (issue #155): every surface that shows the product's name reads it.
   const label = str(flags, "label");
   if (label !== undefined) {
@@ -770,6 +787,7 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
         ? { resourceNames: names.resources }
         : {}),
     vars,
+    ...(sendEmail && Object.keys(sendEmail).length ? { sendEmail } : {}),
     resources,
     bundleDigest: digest,
     installedAt: previous?.installedAt ?? new Date().toISOString(),
