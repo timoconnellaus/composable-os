@@ -117,11 +117,14 @@ export function servedWidth(asked: number | null): number | null {
 }
 
 /**
- * The media items a version's content references: every `media` ref of its document-valued
- * fields (a rich text picture, an `image` field), in first-seen order.
+ * The media items a version's content references, with the field each is in: every `media` ref
+ * of its document-valued fields (a rich text picture, an `image` field), once per field.
  */
-export function mediaIdsOf(object: ObjectDefinition, content: Record<string, unknown>): string[] {
-  const ids = new Set<string>();
+export function mediaUsesOf(
+  object: ObjectDefinition,
+  content: Record<string, unknown>,
+): { media: string; field: string }[] {
+  const uses = new Map<string, { media: string; field: string }>();
   for (const field of object.fields) {
     if (!Object.hasOwn(content, field.name)) continue;
     const schema = documentSchemaOf({
@@ -131,8 +134,9 @@ export function mediaIdsOf(object: ObjectDefinition, content: Record<string, unk
     const value = content[field.name];
     if (!schema || value === null || value === undefined) continue;
     for (const ref of documentRefs(schema, value)) {
-      if (ref.to === RICH_TEXT_MEDIA_OBJECT) ids.add(ref.id);
+      if (ref.to !== RICH_TEXT_MEDIA_OBJECT) continue;
+      uses.set(`${ref.id}|${field.name}`, { media: ref.id, field: field.name });
     }
   }
-  return [...ids];
+  return [...uses.values()];
 }

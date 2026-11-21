@@ -37,6 +37,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | Z | 0490–0499 | 0455–0459 | Staff invites, native sign-in by tokens, the host behind Cloudflare Access (`fix/staff-invites-and-native-sign-in`; block Y went to client releases); the host's sign-in mail (`fix/host-sign-in-mail`: migration 0491, ADR 0456) | in flight |
 | AA | — | 0460–0464 | The first client's gaps (`fix/ticketing-client-gaps`): ADR 0460, time zones; no migrations | in flight |
 | AB | — | 0465–0469 | The site redone (`apps/marketing`): the build-and-maintain service angle and the new design language; ADR 0465 used, ADR 0191 amended; no migrations | in flight |
+| AC | 0500–0509 | — | Content media for client sites (`fix/content-media-for-client-sites`, issue #181): migration 0500 (after 0470, which it reads); no ADRs, ADR 0444 amended | in flight |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.

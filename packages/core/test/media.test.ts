@@ -50,6 +50,7 @@ const text = (s: string) => new TextEncoder().encode(s);
 
 const EXT = extId("med");
 const POST = `${EXT}.post`;
+const STORY = `${EXT}.story`;
 let admin: ActingUser;
 
 const asStaff = (extra: Record<string, unknown> = {}) =>
@@ -94,6 +95,20 @@ beforeAll(async () => {
           },
           publishable: { content: ["title", "body", "cover"], slug: "slug" },
           public: { read: ["title", "slug", "body", "cover"] },
+        },
+        // A picture among the content that the public does not read (issue #181).
+        story: {
+          label: "Story",
+          plural: "Stories",
+          titleField: "title",
+          fields: {
+            title: { type: "text", label: "Title", required: true },
+            slug: { type: "slug", label: "Slug" },
+            body: { type: "richText", label: "Body" },
+            backstage: { type: "image", label: "Backstage picture" },
+          },
+          publishable: { content: ["title", "body", "backstage"], slug: "slug" },
+          public: { read: ["title", "slug", "body"] },
         },
       },
     }),
@@ -333,5 +348,100 @@ describe("the Trash and the purge (criterion 9)", () => {
     expect(
       await env.DB.prepare("SELECT key FROM core_blob_deletion WHERE key = ?").bind(key).first(),
     ).toBeNull();
+  });
+});
+
+describe("serving follows the reader's fields, and every use (issue #181)", () => {
+  const NOT_FOUND = {
+    ok: false,
+    error: { code: "not_found", message: "Not found", details: { object: "media" } },
+  };
+  const publicServe = (id: string) => call("media.serve", { id }, outside(PUBLIC));
+
+  it("a picture only in a field the public does not read is not theirs, though it is published", async () => {
+    const picture = await upload(png(40, 40));
+    const story = await invoke(
+      "record.create",
+      {
+        object: STORY,
+        values: { title: "Behind the scenes", backstage: { media: picture.id, alt: "Crew" } },
+      },
+      context(admin),
+    );
+    await invoke("record.publish", { object: STORY, id: story.id }, context(admin));
+    expect(await publicServe(picture.id)).toEqual(NOT_FOUND);
+    expect(await attempt(invoke("media.serve", { id: picture.id }, context(admin)))).toMatchObject({
+      ok: true,
+    });
+    // Shown in a field the public reads too, it is served.
+    await invoke(
+      "record.update",
+      { object: STORY, id: story.id, values: { body: doc(picture.id) } },
+      context(admin),
+    );
+    await invoke("record.publish", { object: STORY, id: story.id }, context(admin));
+    expect(await publicServe(picture.id)).toMatchObject({ ok: true, value: { public: true } });
+  });
+
+  it("a picture whose first twenty uses are not public, and a later one is, is served", async () => {
+    const picture = await upload(png(50, 50));
+    for (let i = 0; i < 21; i += 1) {
+      const post = await invoke(
+        "record.create",
+        { object: POST, values: { title: `Gone ${i}`, body: doc(picture.id) } },
+        context(admin),
+      );
+      await invoke("record.publish", { object: POST, id: post.id }, context(admin));
+      // Deleted: its version still names the picture, and the public reads none of it.
+      await invoke("record.delete", { object: POST, id: post.id }, context(admin));
+    }
+    expect(await publicServe(picture.id)).toEqual(NOT_FOUND);
+    const live = await invoke(
+      "record.create",
+      { object: POST, values: { title: "Still here", body: doc(picture.id) } },
+      context(admin),
+    );
+    await invoke("record.publish", { object: POST, id: live.id }, context(admin));
+    const uses = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_published_media WHERE media_id = ?",
+    )
+      .bind(picture.id)
+      .first<{ n: number }>();
+    expect(uses?.n).toBe(22);
+    expect(await publicServe(picture.id)).toMatchObject({ ok: true, value: { public: true } });
+  });
+
+  it("migration 0500's backfill finds what publishing writes", async () => {
+    const one = await upload(png(10, 10));
+    const two = await upload(png(10, 10));
+    const post = await invoke(
+      "record.create",
+      {
+        object: POST,
+        values: { title: "Backfilled", body: doc(one.id), cover: { media: two.id, alt: "c" } },
+      },
+      context(admin),
+    );
+    await invoke("record.publish", { object: POST, id: post.id }, context(admin));
+    const written = await env.DB.prepare(
+      "SELECT media_id, field FROM core_published_media WHERE record_id = ? ORDER BY field",
+    )
+      .bind(post.id)
+      .all<{ media_id: string; field: string }>();
+    const backfill = await env.DB.prepare(
+      `SELECT j.value AS media_id,
+         substr(substr(j.fullkey, 3), 1, instr(substr(j.fullkey, 3) || '.', '.') - 1) AS field
+       FROM core_publish_version v, json_tree(v.content) j
+       WHERE v.current = 1 AND v.record_id = ? AND j.key = 'media' AND j.type = 'text'
+         AND j.value LIKE 'med\\_%' ESCAPE '\\'
+       ORDER BY field`,
+    )
+      .bind(post.id)
+      .all<{ media_id: string; field: string }>();
+    expect(written.results).toEqual([
+      { media_id: one.id, field: "body" },
+      { media_id: two.id, field: "cover" },
+    ]);
+    expect(backfill.results).toEqual(written.results);
   });
 });

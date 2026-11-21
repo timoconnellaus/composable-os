@@ -80,12 +80,9 @@ export default {
     // The assistant thread's WebSocket (ADR 0340) goes straight to the person's object: TanStack
     // Start does not pass a 101 response through. Identity is enforced here the same way.
     if (pathname === SOCKET_PATH) return assistantSocket(request, env);
-    // The HTTP surface for client apps (stage 23, ADR 0403): /api/v1/*. It resolves its own
-    // caller (staff, customer or public) from the request's session, so it is not behind the
-    // staff-only identity middleware that guards TanStack Start's routes.
-    if (isApiPath(pathname)) return apiResponse(request, env as unknown as ApiEnv);
     // The media library's pictures (stage 28, ADR 0444): staff upload, and whoever may see a
-    // picture is served it, as media.serve decides.
+    // picture is served it, as media.serve decides. Before the surface: /api/v1/media/<id> is the
+    // outside world's address for one (issue #181).
     if (isMediaPath(pathname)) {
       const api = env as unknown as ApiEnv & MediaEnv;
       return handleMedia(request, {
@@ -96,6 +93,10 @@ export default {
         uploads: true,
       });
     }
+    // The HTTP surface for client apps (stage 23, ADR 0403): /api/v1/*. It resolves its own
+    // caller (staff, customer or public) from the request's session, so it is not behind the
+    // staff-only identity middleware that guards TanStack Start's routes.
+    if (isApiPath(pathname)) return apiResponse(request, env as unknown as ApiEnv);
     // Customer sign-in (stage 22's routes, mounted by stage 23): a code by email, then a session.
     if (isCustomerAuthPath(pathname)) return handleCustomerAuth(request, env as unknown as ApiEnv);
     // A native app's staff sign-in through the system browser (ADR 0455): a staff page.
