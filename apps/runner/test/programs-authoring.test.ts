@@ -1,6 +1,6 @@
 // Stage 41, step 6 in the real host (criterion 8): the assistant's draft uses only bank exercises
-// and is never published without a person; pasted shorthand becomes structured targets, with the
-// lines it could not read listed. This runner has no AI configured, so the draft reads the brief
+// and is never published without a person (its publish request waits for one, ADR 0480); pasted
+// shorthand becomes structured targets, with the lines it could not read listed. This runner has no AI configured, so the draft reads the brief
 // without a model: the model role is asked for and its refusal is the fallback (what never runs
 // here is a real model reading a brief).
 import { env } from "cloudflare:workers";
@@ -59,7 +59,8 @@ describe("the assistant's draft (criterion 8)", () => {
       .bind(out.programId)
       .first<{ n: number }>();
     expect(versions?.n).toBe(0);
-    // Asked by the assistant: it drafts, and still cannot publish what it drafted.
+    // Asked by the assistant: it drafts, and asks for what it drafted to be published. The
+    // request waits for a person (criterion 12, ADR 0480), who approves it.
     const assistant = staff(admin, {
       actor: "assistant",
       origin: { surface: "assistant", sessionId: unique("ath") },
@@ -69,11 +70,24 @@ describe("the assistant's draft (criterion 8)", () => {
       { brief: "a month of hollow holds" },
       assistant,
     );
-    expect(
-      await refusal(
-        run("record.publish", { object: PROGRAM, id: byAssistant.programId }, assistant),
-      ),
-    ).toMatchObject({ code: "forbidden" });
+    const asked = await refusal(
+      run("record.publish", { object: PROGRAM, id: byAssistant.programId }, assistant),
+    );
+    expect(asked.code).toBe("pending_approval");
+    const actionId = (asked.details as { actionId: string }).actionId;
+    const waiting = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_publish_version WHERE record_id = ?",
+    )
+      .bind(byAssistant.programId)
+      .first<{ n: number }>();
+    expect(waiting?.n).toBe(0);
+    await run("approval.approve", { actionIds: [actionId] }, staff(admin));
+    const live = await run<{ version: number; requestedVia: string | null }>(
+      "record.version",
+      { object: PROGRAM, id: byAssistant.programId },
+      staff(admin),
+    );
+    expect(live).toMatchObject({ version: 1, requestedVia: "assistant", publishedBy: admin.id });
   });
 });
 

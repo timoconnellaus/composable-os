@@ -784,6 +784,15 @@ async function invokeOnce<O extends AnyOperation>(
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
     reason: ctx.reason,
+    ...(ctx.approval
+      ? {
+          approval: {
+            actionId: ctx.approval.actionId,
+            approvedBy: ctx.approval.approvedBy,
+            preview: ctx.approval.preview,
+          },
+        }
+      : {}),
     write: (...statements) => {
       writes.push(...statements);
     },

@@ -1205,7 +1205,9 @@ _Avoid_: revision (the audit log's diffs are history, not versions), draft
 
 **Publish** (a record)
 Make a snapshot of a publishable record's working copy its current version: what readers are
-given (ADR 0446). Only a person with `records:publish` publishes, never an AI actor. Stage 28 adds
+given (ADR 0446). Only a person with `records:publish` publishes. An AI actor may **ask for a
+publish**: its request always waits for a person who holds `records:publish` to approve it, and is
+refused if the record changed since it was asked for (ADR 0480). Stage 28 adds
 **scheduling** (the snapshot is taken when a person schedules, and the minute cron makes it
 current at the set time) and **unpublishing** (no version is current; the versions are kept). A
 record's **publish state** is read from its versions and its schedule: `draft` (never

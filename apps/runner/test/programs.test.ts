@@ -485,7 +485,7 @@ describe("versions and assign (criteria 3 and 4)", () => {
     expect(first.assignmentId).toBeTruthy();
   });
 
-  it("publishing is a person's with the permission: not a coach without it, not an AI, not the pack", async () => {
+  it("publishing is a person's with the permission: not a coach without it; an AI only asks", async () => {
     const id = await program("Gated", "client");
     expect(
       await refusal(run("record.publish", { object: PROGRAM, id }, staff(coach))),
@@ -493,18 +493,25 @@ describe("versions and assign (criteria 3 and 4)", () => {
       code: "forbidden",
       details: { permission: "records:publish" },
     });
+    const assistant = (user: ActingUser) =>
+      staff(user, {
+        actor: "assistant",
+        origin: { surface: "assistant", sessionId: unique("ath") },
+      });
+    // The assistant acting for an admin asks, and the request waits for a person (ADR 0480).
     expect(
-      await refusal(
-        run(
-          "record.publish",
-          { object: PROGRAM, id },
-          staff(admin, {
-            actor: "assistant",
-            origin: { surface: "assistant", sessionId: unique("ath") },
-          }),
-        ),
-      ),
-    ).toMatchObject({ code: "forbidden" });
+      await refusal(run("record.publish", { object: PROGRAM, id }, assistant(admin))),
+    ).toMatchObject({ code: "pending_approval" });
+    // Acting for a coach without the permission, it cannot even ask.
+    expect(
+      await refusal(run("record.publish", { object: PROGRAM, id }, assistant(coach))),
+    ).toMatchObject({ code: "forbidden", details: { permission: "records:publish" } });
+    const versions = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_publish_version WHERE record_id = ?",
+    )
+      .bind(id)
+      .first<{ n: number }>();
+    expect(versions?.n).toBe(0);
   });
 
   it("assigning to a class type dates its sessions, which every signed-in member reads and the public do not", async () => {

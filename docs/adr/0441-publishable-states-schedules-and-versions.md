@@ -78,3 +78,15 @@ field that differs between two versions, or a version and the working copy, with
   (`forbidden`), not queued for a person. Queueing it would need an AI actor allowed to call it
   with the gate's approval always required. The door is open: publishing is its own operation
   with its own permission and risk class.
+
+## Amendment, 2026-11-22 (criterion 12, ADR 0480)
+Criterion 12 is met. The owner decided that an AI actor may ask for a publish and that a person
+always approves it. `record.publish`, `record.schedulePublish`, `record.unpublish` and
+`record.cancelSchedule` now take every actor and are always reviewed for every actor but a person
+(`alwaysReview`), so the assistant, an MCP client, an automation or an extension asking is queued
+under every preset and floor, and the adjudicator never approves it. "Refused for the assistant, an
+MCP client, an automation" in the proof above now reads: queued for a person. Only a person holding
+`records:publish` approves; the request is refused on approval when the working copy, the live
+version or the schedule changed since it was asked for. A scheduled publish keeps who approved it
+and who asked (`core_publish_schedule.requested_by`, `requested_via`, migration 0520) and carries
+them to the version the cron publishes. See [ADR 0480](0480-an-ai-asks-to-publish-a-person-approves.md).
