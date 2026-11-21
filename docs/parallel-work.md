@@ -33,6 +33,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | V | 0450–0459 | 0435–0439 | Stage 27, Ticketing and the first client (step 1, `sellable`: migration 0450, ADR 0435; steps 2 and 3, the pack, the door role and public reads: migration 0451, ADRs 0436 to 0438) | in flight |
 | W | 0460–0469 | 0440–0444 | Stage 28, Content | specced |
 | X | 0470–0479 | 0445–0449 | Stage 41, Programs (steps 1 to 3: the document field, `publishable` without its public half, the signed-in scope, the pack's spine) | in flight |
+| Z | 0490–0499 | 0455–0459 | Staff invites, native sign-in by tokens, the host behind Cloudflare Access (`fix/staff-invites-and-native-sign-in`; block Y left to the other client-gap fixes) | in flight |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.
