@@ -61,8 +61,8 @@ working copy and stops). An AI may still edit the working copy, as any write the
   unpublishing (`current` set to 0 with the versions kept). This stage has no state on the record:
   "published" means it has a current version.
 - **Slugs** and their redirects; **preview links**; **comparing** two versions; cache purges.
-- **Whether a member may publish.** Admins only, as `orders:refund`, until stage 14a's roles give
-  out permissions one by one. A gym whose coaches are members has an admin publish.
+- ~~Whether a member may publish.~~ Settled at review: a human admin grants `records:publish` to a
+  member (ADR 0449); still never to an AI actor.
 
 None of these changes the table, the four operations or the fields above.
 

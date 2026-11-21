@@ -99,8 +99,6 @@ export type FieldSpec =
       type:
         | "text"
         | "longText"
-        | "number"
-        | "percent"
         | "date"
         | "datetime"
         | "boolean"
@@ -109,11 +107,16 @@ export type FieldSpec =
         | "phone"
         | "url";
     })
-  | (FieldBase & {
-      type: "currency";
-      /** ISO 4217 code shown with the value. Default USD. */
-      currency?: string;
-    })
+  | (FieldBase &
+      NumberBounds & {
+        type: "number" | "percent";
+      })
+  | (FieldBase &
+      NumberBounds & {
+        type: "currency";
+        /** ISO 4217 code shown with the value. Default USD. */
+        currency?: string;
+      })
   | (FieldBase & {
       type: "select" | "multiSelect";
       options: readonly SelectOption[];
@@ -148,6 +151,17 @@ export type FieldSpec =
       /** An expression over fields of the same record. See the SDK README for the grammar. */
       expression: string;
     });
+
+/**
+ * Bounds of a number field (stage 41): the host refuses a value below `min`, above `max`, or not
+ * a multiple of `step` from `min` (or from 0), for every actor, in imports and in the dry run.
+ * An RPE is `{ min: 1, max: 10, step: 0.5 }`; a count of reps `{ min: 0, step: 1 }`.
+ */
+export interface NumberBounds {
+  min?: number;
+  max?: number;
+  step?: number;
+}
 
 export type FieldSpecs = Record<string, FieldSpec>;
 
@@ -664,6 +678,13 @@ export interface ExtensionSpec {
   automations?: Record<string, AutomationSpec<any>>;
   /** Fixed staff roles an admin can give to a staff account (ADR 0436). */
   roles?: Record<string, RoleSpec>;
+  /**
+   * Permissions of this extension's tools (`<id>:<word>`) a human admin may grant to a staff
+   * account one by one (ADR 0449), on top of its role: a coach who is a member granted the
+   * permission of a tool a member could not otherwise call. Only shipped extensions and an org's
+   * own may declare them.
+   */
+  grantable?: readonly string[];
 }
 
 const EXTENSION = Symbol.for("ops.extension");

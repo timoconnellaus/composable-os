@@ -39,6 +39,8 @@ export interface CoreUserTable {
    * account may do only what the role lists.
    */
   pack_role: ColumnType<string | null, string | null | undefined, string | null>;
+  /** JSON list of permissions a human admin granted (migration 0471, ADR 0449). */
+  granted_permissions: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 export type UserKind = "human" | "extension";
@@ -402,6 +404,7 @@ export interface CrmUsersView {
   email: string;
   role: UserRole;
   pack_role: string | null;
+  granted_permissions: string | null;
   image: string | null;
   created_at: string;
 }

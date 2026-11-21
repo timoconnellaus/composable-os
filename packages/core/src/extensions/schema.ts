@@ -594,6 +594,9 @@ function registryField(field: FieldState, object: string): FieldDefinition {
     ...(field.type === "formula"
       ? { expression: def.expression ?? "", resultType: def.resultType ?? "text" }
       : {}),
+    ...(def.min !== undefined ? { min: def.min } : {}),
+    ...(def.max !== undefined ? { max: def.max } : {}),
+    ...(def.step !== undefined ? { step: def.step } : {}),
     ...(field.type === "document" && def.schema
       ? { document: { schema: def.schema, maxBytes: def.maxBytes } }
       : {}),

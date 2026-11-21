@@ -922,6 +922,154 @@ describe("logging (criterion 5)", () => {
   });
 });
 
+describe("number bounds on the log (stage 41)", () => {
+  it("a staff record.update cannot store an RPE of 50, a negative load or a half rep", async () => {
+    const id = (
+      await run<{ items: { id: string }[] }>("record.list", { object: LOG, limit: 1 }, staff(admin))
+    ).items[0]?.id as string;
+    for (const [values, message] of [
+      [{ rpe: 50 }, "rpe: At most 10"],
+      [{ rpe: 7.25 }, "rpe: In steps of 0.5 from 1"],
+      [{ actualLoad: -5 }, "actualLoad: At least 0"],
+      [{ actualReps: 2.5 }, "actualReps: In steps of 1 from 0"],
+    ] as const) {
+      expect(
+        await refusal(run("record.update", { object: LOG, id, values }, staff(admin))),
+      ).toMatchObject({
+        code: "invalid_input",
+        message: `Invalid value for ${LOG}.${Object.keys(values)[0]}: ${message}`,
+      });
+    }
+  });
+});
+
+describe("erasing a person (ADR 0320, ADR 0448)", () => {
+  it("their sets go; their assignment and sessions stay with nothing that names them", async () => {
+    const e = await createCustomer("erased");
+    const email = (
+      await env.DB.prepare("SELECT email FROM core_customer WHERE id = ?")
+        .bind(e.customerId)
+        .first<{
+          email: string;
+        }>()
+    )?.email as string;
+    // A coach wrote the client's address into the program's notes: it is in a version, and in the
+    // plans of the sessions made from it.
+    const value = layout();
+    (value.weeks[0]?.sessions[0] as { notes?: { text: string }[] }).notes = [
+      { text: `Ask ${email} about the knee` },
+    ];
+    const id = await program("Erasable", "client", value);
+    await publish(id);
+    const out = await run<{ assignmentId: string }>(
+      "x.programs.assign",
+      { programId: id, personId: e.personId, startDate: "2028-03-06" },
+      staff(coach),
+    );
+    const session = (await run<Sessions>("x.programs.today", { date: "2028-03-06" }, as(e)))
+      .sessions[0]?.id as string;
+    await run(
+      "x.programs.logAdd",
+      { sessionId: session, item: "A2", setNumber: 1, actual: { reps: 8 }, note: `from ${email}` },
+      as(e),
+    );
+    await run("person.erase", { id: e.personId }, staff(admin));
+
+    // Their sets are gone: a set exists only to be someone's (its person is required).
+    const sets = await env.DB.prepare("SELECT count(*) AS n FROM x_programs_log WHERE session = ?")
+      .bind(session)
+      .first<{ n: number }>();
+    expect(sets?.n).toBe(0);
+    // Their assignment and sessions stay, for the gym's planned-and-done numbers, with no person
+    // and nothing in their text or plans that names them.
+    const assignment = await run<{ values: Record<string, unknown> }>(
+      "record.get",
+      { object: ASSIGNMENT, id: out.assignmentId },
+      staff(admin),
+    );
+    expect(assignment.values.person).toBeNull();
+    expect(String(assignment.values.title)).not.toContain("Given-");
+    const kept = await env.DB.prepare(
+      "SELECT * FROM x_programs_session WHERE assignment = ? ORDER BY date",
+    )
+      .bind(out.assignmentId)
+      .all<Record<string, unknown>>();
+    expect(kept.results).toHaveLength(4);
+    for (const row of kept.results) expect(row.person).toBeNull();
+    const versions = await env.DB.prepare(
+      "SELECT content FROM core_publish_version WHERE record_id = ?",
+    )
+      .bind(id)
+      .all<{ content: string }>();
+    const everything = JSON.stringify([assignment, kept.results, versions.results]);
+    expect(everything).not.toContain(email);
+    expect(everything).not.toContain(e.personId);
+    expect(everything).toContain("about the knee");
+    // The plan still reads as its schema.
+    const plan = JSON.parse(String(kept.results[0]?.plan));
+    expect(plan.notes).toEqual([{ text: "Ask [erased] about the knee" }]);
+  });
+});
+
+describe("assign refuses a program that was never published", () => {
+  it("with a clear message, and makes nothing", async () => {
+    const id = await program("Never published", "client");
+    const before = await env.DB.prepare("SELECT count(*) AS n FROM x_programs_assignment").first<{
+      n: number;
+    }>();
+    const refused = await refusal(
+      run(
+        "x.programs.assign",
+        { programId: id, personId: a.personId, startDate: "2028-06-05" },
+        staff(coach),
+      ),
+    );
+    expect(refused).toMatchObject({ inner: "invalid_input" });
+    expect(refused.message).toContain(
+      "This program has not been published: a person with the publish permission publishes it first",
+    );
+    const after = await env.DB.prepare("SELECT count(*) AS n FROM x_programs_assignment").first<{
+      n: number;
+    }>();
+    expect(after?.n).toBe(before?.n);
+  });
+});
+
+describe("a coach who is a member publishes once granted (ADR 0449)", () => {
+  it("publishes and assigns; refused again when the grant is taken away", async () => {
+    const id = await program("Coach's own", "client");
+    expect(
+      await refusal(run("record.publish", { object: PROGRAM, id }, staff(coach))),
+    ).toMatchObject({
+      code: "forbidden",
+    });
+    await run(
+      "user.setPermissions",
+      { id: coach.id, permissions: ["records:publish"] },
+      staff(admin),
+    );
+    expect(
+      (await run<{ version: number }>("record.publish", { object: PROGRAM, id }, staff(coach)))
+        .version,
+    ).toBe(1);
+    expect(
+      (
+        await run<{ sessions: number }>(
+          "x.programs.assign",
+          { programId: id, personId: a.personId, startDate: "2028-07-03" },
+          staff(coach),
+        )
+      ).sessions,
+    ).toBe(4);
+    await run("user.setPermissions", { id: coach.id, permissions: [] }, staff(admin));
+    expect(
+      await refusal(run("record.publish", { object: PROGRAM, id }, staff(coach))),
+    ).toMatchObject({
+      code: "forbidden",
+    });
+  });
+});
+
 describe("the statement budget of an assignment (ADR 0448)", () => {
   it("a program of 52 weeks of 14 sessions is assigned in batches of 50", async () => {
     const big: Layout = {

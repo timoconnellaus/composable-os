@@ -63,7 +63,32 @@ class types' sessions), finds the prescription in its plan and copies the target
 A member's set is written with `my.create`, which makes it theirs and refuses a session they
 cannot see (ADR 0447); a coach's with `record.create`, the person being the session's, or the
 member they name on a class session. RPE is 1 to 10 in halves and actuals are bounded, by the
-tool's input.
+tool's input and by the fields' own bounds below.
+
+**The numbers are bounded by the host.** Number fields have `min`, `max` and `step` (added to the
+platform at review, held for every actor, the import and the dry run): RPE 1 to 10 in halves; set
+number 1 to 30 and level 1 to 5, whole; reps 0 to 999 and seconds 0 to 7,200, whole; load 0 to
+1,000 kg in quarters; a session's week 1 to 52 and day 1 to 7. A staff `record.update` cannot store
+an RPE of 50.
+
+**Erasing a person (ADR 0320).** The erase finds Programs' records through the schema, as for
+every extension, in the erase's own batch:
+- **Their logged sets are deleted.** A set's person is required: it exists only to be someone's.
+  Keeping sets in anonymous form was considered for the gym's numbers and not done: the set's note
+  is the person's own words, which no rule can show does not identify them, and its session and
+  assignment tie it to the rest of their schedule. Keeping them would need an object to declare
+  what an erase keeps, field by field; that is later work if a gym asks.
+- **Their assignments and sessions are kept with no person:** the relation is cleared, and their
+  text fields and plans lose the person's identifying terms and names (an assignment's title "…
+  for Ada" becomes "… for [erased]"). What is left is a program version given from a date and
+  which sessions were done, which says nothing about who. A gym's planned-and-done counts keep
+  them.
+- **Documents are scrubbed inside, not dropped** (`scrubDocument`, `erase-stores.ts`): every
+  string in a document field that is their address, phone or id becomes `[erased]`, and others
+  lose their terms and names, so the document keeps its shape and still reads as its schema.
+  Published versions in `core_publish_version` that mention their terms are scrubbed the same way,
+  keeping their numbers.
+Proof: `apps/runner/test/programs.test.ts`, "erasing a person".
 
 **Reading and progress are worked out in the host from records the caller may see.**
 `today`, `sessionGet` and `classToday` read sessions with their plans, the bank exercises they use,

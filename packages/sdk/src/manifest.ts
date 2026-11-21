@@ -102,6 +102,10 @@ export const fieldManifestSchema = z.object({
   to: z.string().max(80).optional(),
   many: z.boolean().optional(),
   expression: z.string().max(2000).optional(),
+  // Number fields' bounds (stage 41).
+  min: z.number().finite().optional(),
+  max: z.number().finite().optional(),
+  step: z.number().finite().positive().optional(),
   // Document fields (ADR 0445): the schema is checked by checkDocumentSchema, with its paths.
   schema: z.record(z.string(), z.unknown()).optional(),
   maxBytes: z.number().int().optional(),
@@ -120,6 +124,12 @@ export const fieldManifestSchema = z.object({
     .optional(),
 });
 export type FieldManifest = z.infer<typeof fieldManifestSchema>;
+
+/** Whether `value` is a whole number of `step`s from `from` (with room for binary fractions). */
+export function onStep(value: number, from: number, step: number): boolean {
+  const steps = (value - from) / step;
+  return Math.abs(steps - Math.round(steps)) < 1e-9;
+}
 
 /** Field names a publishable object's records get from the host (ADR 0446). */
 export const PUBLISHED_FIELD_NAMES = ["publishedVersion", "publishedAt"] as const;
@@ -370,6 +380,8 @@ export const manifestSchema = z.object({
   tools: z.record(z.string(), toolManifestSchema).default({}),
   automations: z.record(z.string(), automationManifestSchema).default({}),
   roles: z.record(z.string(), roleManifestSchema).default({}),
+  /** Tool permissions an admin may grant one by one (ADR 0449). */
+  grantable: z.array(z.string().max(80)).max(20).optional(),
 });
 export type ExtensionManifest = z.infer<typeof manifestSchema>;
 
@@ -546,6 +558,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
         },
       ]),
     ),
+    ...(extension.grantable ? { grantable: [...extension.grantable] } : {}),
     roles: Object.fromEntries(
       Object.entries(extension.roles ?? {}).map(([name, role]) => [
         name,
@@ -791,6 +804,27 @@ export function validateManifest(
         contract(`${path}.readOnly`, "A read-only field is set by the host and cannot be required");
       }
       checkDocumentField(path, name, field, fields, known, contract);
+      if (["number", "currency", "percent"].includes(field.type)) {
+        if (field.min !== undefined && field.max !== undefined && field.min > field.max) {
+          contract(`${path}.min`, "min is above max");
+        }
+        if (typeof field.default === "number") {
+          const d = field.default;
+          const step = field.step;
+          if (
+            (field.min !== undefined && d < field.min) ||
+            (field.max !== undefined && d > field.max) ||
+            (step !== undefined && !onStep(d, field.min ?? 0, step))
+          ) {
+            contract(`${path}.default`, "The default is outside the field's min, max or step");
+          }
+        }
+      } else {
+        for (const key of ["min", "max", "step"] as const) {
+          if (field[key] !== undefined)
+            contract(`${path}.${key}`, `Only number fields take ${key}`);
+        }
+      }
       if (field.type === "formula") {
         if (field.required) contract(`${path}.required`, "Formula fields cannot be required");
         if (field.track)
@@ -1144,6 +1178,17 @@ export function validateManifest(
       }
     }
   }
+
+  // Grantable permissions (ADR 0449): permissions this extension's tools declare, for staff.
+  (m.grantable ?? []).forEach((permission, i) => {
+    const tool = Object.values(m.tools).find((t) => t.permission === permission);
+    if (!tool) {
+      contract(
+        `grantable.${i}`,
+        `"${permission}" is not the permission of any of this extension's tools (tools.<name>.permission)`,
+      );
+    }
+  });
 
   // Roles (ADR 0436): each holds permissions this extension's tools declare and reads objects
   // of its own, and nothing else, so a role can never reach past the extension that declares it.

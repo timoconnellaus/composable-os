@@ -159,6 +159,14 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       });
     }
   }
+  if (manifest.grantable?.length) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: "grantable",
+      message: `A runtime extension cannot declare a permission an admin grants. ${why}`,
+    });
+  }
   for (const name of Object.keys(manifest.roles ?? {})) {
     issues.push({
       stage: "contract",

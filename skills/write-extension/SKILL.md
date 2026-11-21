@@ -48,6 +48,10 @@ Read these before writing. They are the source of truth; this skill only gives t
    reads only the same record's fields. See Deals: `objects.deal.fields`, `weightedValue`.
    `ObjectSpec` has more than the examples use; read it for `owner` (the record's user field),
    `titleDefault` (a title taken from a relation) and `requireOneOf` (Leads uses all three).
+   A number a person or a device records has bounds: `min`, `max` and `step` on a `number`,
+   `currency` or `percent` field (an RPE `{ min: 1, max: 10, step: 0.5 }`, a count `{ min: 0,
+   step: 1 }`); the host refuses a value outside them for every actor. Never bound it only in a
+   tool's input.
    Something whole and nested that is edited, versioned or copied as one (a program's layout of
    weeks, sessions and items) is one **`document`** field with a `schema`, not records per level:
    `{ type: "document", schema: { root, defs? }, maxBytes?, paths? }` (`DocumentSchema` in
@@ -168,6 +172,12 @@ and `read`, objects of its own (`<id>.<object>`) the holder may open and list. A
 it to a staff account; while it is held it is all that account may do, on every operation. Use a
 role only for that; ordinary staff need none. Only a pack or the org's own extension may declare
 one. See Ticketing: `roles` in `packs/ticketing/index.ts`.
+
+To let some staff call one tool their role does not reach (a viewer at the door), declare its
+permission **grantable** instead (`grantable: ["<id>:<word>"]`, ADR 0449): a human admin grants it
+to an account with `user.setPermissions`, on top of its role. The platform's own grantable
+permissions are `records:publish` (a coach who is a member publishing programs) and
+`orders:refund`.
 
 ## The rules
 

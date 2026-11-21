@@ -1124,6 +1124,13 @@ Ticketing's pack role (`ticketing.door`): check tickets in, and read events, tic
 tickets. No people, orders, leads or settings.
 _Avoid_: scanner role, coach role
 
+**Permission grant**
+A named permission a human admin grants one staff account on top of its role (ADR 0449):
+`records:publish` (a coach who is a member publishes programs), `orders:refund`, or a pack tool's
+permission the pack declares grantable. Read from the account on every call; a pack role replaces
+it; it never lets an AI actor do what only a person may.
+_Avoid_: role (a role is admin, member or viewer), scope (an MCP token's)
+
 **Signed-in scope** (`signedIn`)
 What an object declares every signed-in customer may read, whoever's record it is (ADR 0447):
 fields, of the records meeting a condition (a class's sessions), or of every live record (the

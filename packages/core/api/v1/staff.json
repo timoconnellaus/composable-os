@@ -51295,9 +51295,56 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.grantablePermissions",
         "user.list",
         "user.packRoles"
       ]
+    },
+    {
+      "name": "user.grantablePermissions",
+      "description": "List the permissions an admin can grant a staff account one by one, on top of its role: publishing versions of programs and other publishable records, refunding orders, and the tool permissions installed packs declare grantable. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "permission": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "permission",
+                "label",
+                "from"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "user.list",
@@ -51464,6 +51511,12 @@
                     "null"
                   ]
                 },
+                "permissions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "image": {
                   "type": [
                     "string",
@@ -51603,6 +51656,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.grantablePermissions",
         "user.list",
         "user.packRoles"
       ]
@@ -51668,6 +51722,12 @@
               "null"
             ]
           },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "image": {
             "type": [
               "string",
@@ -51690,6 +51750,7 @@
           "email",
           "role",
           "packRole",
+          "permissions",
           "image",
           "createdAt",
           "previousPackRole"
@@ -51697,6 +51758,106 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.grantablePermissions",
+        "user.list",
+        "user.packRoles"
+      ]
+    },
+    {
+      "name": "user.setPermissions",
+      "description": "Set the permissions a staff account is granted one by one, on top of its role (user.grantablePermissions lists them; an empty list takes them all away). A member granted records:publish publishes programs; one granted orders:refund approves refunds. A grant never lets an AI assistant or MCP client do what only a person may, and an account with a pack role holds only that role. Admins only, and only a human can call it. Returns the user.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "User id (usr_…)"
+          },
+          "permissions": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        },
+        "required": [
+          "id",
+          "permissions"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "packRole": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "previousPermissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "packRole",
+          "permissions",
+          "image",
+          "createdAt",
+          "previousPermissions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "user.grantablePermissions",
         "user.list",
         "user.packRoles"
       ]
@@ -51758,6 +51919,12 @@
               "null"
             ]
           },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "image": {
             "type": [
               "string",
@@ -51782,6 +51949,7 @@
           "email",
           "role",
           "packRole",
+          "permissions",
           "image",
           "createdAt",
           "previousRole"
@@ -51789,6 +51957,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.grantablePermissions",
         "user.list",
         "user.packRoles"
       ]

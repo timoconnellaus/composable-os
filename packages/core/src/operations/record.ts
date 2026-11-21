@@ -85,6 +85,9 @@ function manifestOf(field: FieldDefinition): FieldManifest {
     ...(field.options?.choices ? { options: [...field.options.choices] } : {}),
     ...(field.options?.to ? { to: field.options.to } : {}),
     ...(field.options?.many !== undefined ? { many: field.options.many } : {}),
+    ...(field.options?.min !== undefined ? { min: field.options.min } : {}),
+    ...(field.options?.max !== undefined ? { max: field.options.max } : {}),
+    ...(field.options?.step !== undefined ? { step: field.options.step } : {}),
     ...(field.options?.document
       ? {
           schema: field.options.document.schema,
@@ -205,7 +208,9 @@ async function prepareValues(
     const parsed = spec.schema(manifestOf(field)).safeParse(value);
     if (!parsed.success) {
       // A document's fault is named by its path in the message too (ADR 0445).
-      const first = storage.type === "document" ? parsed.error.issues[0] : undefined;
+      const first = ["document", "number", "currency", "percent"].includes(storage.type)
+        ? parsed.error.issues[0]
+        : undefined;
       const where = first
         ? `: ${[name, ...first.path.map(String)].join(".")}: ${first.message}`
         : "";

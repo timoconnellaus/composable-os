@@ -1060,6 +1060,13 @@ own role grants nothing. Ticketing's door role checks tickets in and reads event
 and tickets. Stage 14a's roles and teams extend this check rather than add another. Tools learn
 who started them from the host (`ctx.caller`), to record who checked a ticket in.
 
+**Permission grants** ([ADR 0449](adr/0449-permissions-granted-one-by-one.md)). A human admin
+grants a staff account named permissions on top of its role (`user.setPermissions`,
+`core_user.granted_permissions`, migration 0471): `records:publish`, `orders:refund`, and pack
+tool permissions a pack declares `grantable`. Read in the pack role's statement on every call;
+additive to the role, replaced by a pack role, and judged beside an operation's `actors`, so a
+grant never lets an AI actor publish.
+
 ### Orders
 
 An **Order** is a base record in core

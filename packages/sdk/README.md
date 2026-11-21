@@ -144,6 +144,10 @@ are reserved. Rename with `renamedFrom: "<old name>"`; without it a missing fiel
 | `formula` | none (computed in the view) | its result type | its result type's ops | the value |
 | `document` | TEXT (JSON) | one JSON value checked against the field's `schema` | none: declare `paths` | the JSON |
 
+A `number`, `currency` or `percent` field may declare `min`, `max` and `step` (a multiple of
+`step` from `min`, or from 0): a value outside them is refused with `invalid_input`, the message
+naming the bound (`rpe: At most 10`), for every actor, in imports and in the dry run.
+
 A `document` field (ADR 0445) declares `schema: { root, defs? }`, a tree of nodes (`object`,
 `array` with a `max`, `text`, `number`, `boolean`, `choice`, `ref` to a record of an object,
 `union` with a `tag`, `use` of a named definition; see `document.ts`), and optionally `maxBytes`

@@ -96,6 +96,30 @@ export function roleHasPermission(role: Role, permission: Permission): boolean {
 }
 
 /**
+ * Core permissions a human admin may grant to a staff account one by one, on top of its role
+ * (ADR 0449): a coach who is a member publishing programs, a manager refunding. A pack adds the
+ * permissions of its own tools it declares `grantable`. Nothing that changes identity, policy,
+ * users or extensions is grantable.
+ */
+export const GRANTABLE_PERMISSIONS = ["records:publish", "orders:refund"] as const;
+
+/**
+ * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role
+ * replaces both (ADR 0436): the pipeline asks the role then, never this.
+ */
+export function holdsPermission(
+  user: { role: Role },
+  grants: readonly string[] | undefined,
+  permission: Permission,
+): boolean {
+  return (
+    roleHasPermission(user.role, permission) ||
+    ((GRANTABLE_PERMISSIONS as readonly string[]).includes(permission) &&
+      (grants ?? []).includes(permission))
+  );
+}
+
+/**
  * OAuth scopes an MCP client can be granted (ADR 0021). Each scope implies the ones before it.
  * A token's effective permissions are its user's role ∩ its scopes (`effectivePermissions`).
  * Policy changes stay human-only whatever the scope: `policy.update` is `actors: ["human"]`.

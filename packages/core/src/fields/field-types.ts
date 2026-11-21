@@ -5,6 +5,7 @@ import {
   type DocumentSchema,
   type FieldManifest,
   type FieldTypeName,
+  onStep,
   validateDocument,
 } from "@composable-os/sdk";
 import { z } from "zod";
@@ -133,7 +134,19 @@ function numberType(widget: WidgetKind) {
     filterType: () => "number",
     multi: () => false,
     sortable: () => true,
-    schema: () => nullable(z.number().finite()),
+    // The field's bounds (stage 41): below `min`, above `max` or off `step` is refused.
+    schema: (field: FieldManifest) => {
+      let n = z.number().finite();
+      if (field.min !== undefined) n = n.min(field.min, `At least ${field.min}`);
+      if (field.max !== undefined) n = n.max(field.max, `At most ${field.max}`);
+      const { step } = field;
+      const from = field.min ?? 0;
+      return nullable(
+        step === undefined
+          ? n
+          : n.refine((v) => onStep(v, from, step), `In steps of ${step} from ${from}`),
+      );
+    },
     toStorage: identity,
     fromStorage: identity,
     csv: csvNumber,

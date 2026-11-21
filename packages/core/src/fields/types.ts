@@ -77,6 +77,10 @@ export interface ExtensionFieldOptions {
   /** Formula source (shown in the UI tooltip) and its result type. */
   expression?: string;
   resultType?: string;
+  /** Number, currency and percent fields: the bounds a value is checked against (stage 41). */
+  min?: number;
+  max?: number;
+  step?: number;
   /** Document fields (ADR 0445): the schema its value is checked against, and its size limit. */
   document?: { schema: Record<string, unknown>; maxBytes?: number | undefined };
   /** A declared path of a document field (ADR 0445): the field and the path it reads. */

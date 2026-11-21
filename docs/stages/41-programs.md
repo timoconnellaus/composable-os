@@ -203,3 +203,8 @@ data lands in.
   a document's refs, which the bank's contents (names, videos, cues) do not warrant. A session
   carries its own plan, copied from the assigned version, rather than reading the version. Load is
   in kilograms.
+- **Added at review** ([ADR 0449](../adr/0449-permissions-granted-one-by-one.md)): a human admin grants
+  `records:publish` (or `orders:refund`, or a pack tool's grantable permission) to a staff account,
+  so a coach who is a member publishes. Number fields gained `min`, `max` and `step`, and the log
+  uses them (RPE 1 to 10 in halves). Erasing a person deletes their logged sets and keeps their
+  assignments and sessions with no person, documents and versions scrubbed inside (ADR 0448).
