@@ -1379,7 +1379,8 @@
         "required": ["events"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.myTickets",
@@ -1454,7 +1455,8 @@
         "required": ["items", "nextCursor"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.orderStart",
@@ -1593,7 +1595,8 @@
         "my.list",
         "x.ticketing.eventsOnSale",
         "x.ticketing.myTickets"
-      ]
+      ],
+      "pack": "ticketing"
     }
   ]
 }

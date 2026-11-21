@@ -7,17 +7,11 @@
 // To update the files after changing the API on purpose:
 //   pnpm --filter @composable-os/core api-contract
 import { env } from "cloudflare:workers";
-import deals from "@composable-os/pack-deals";
-import leads from "@composable-os/pack-leads";
-import lifecycle from "@composable-os/pack-lifecycle";
-import ticketing from "@composable-os/pack-ticketing";
-import { toManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import customer from "../api/v1/customer.json";
 import publicContract from "../api/v1/public.json";
 import staff from "../api/v1/staff.json";
-import { toolOperation } from "../src/extensions/tools.ts";
 import {
   API_VERSION,
   type ApiContract,
@@ -26,19 +20,19 @@ import {
   contractFor,
   coreRegistry,
   defineOperation,
+  forPacks,
+  withPacks,
 } from "../src/index.ts";
+import { releasePackIds, releasePackTools } from "./release-packs.ts";
 
-const shippedTools = [deals, leads, lifecycle, ticketing].flatMap((extension) => {
-  const manifest = toManifest(extension);
-  return Object.entries(manifest.tools).map(([name, tool]) =>
-    toolOperation(manifest, name, tool, "shipped"),
-  );
-});
+// Every pack the release carries (packs/*), each tool named with its pack in the files.
+const shippedTools = releasePackTools;
 const contract = buildContract([...coreRegistry.list(), ...shippedTools]);
+// The release's files are the union over every pack it carries, each tool named with its pack.
 const computed = {
-  staff: contractFor(contract, "staff"),
-  customer: contractFor(contract, "customer"),
-  public: contractFor(contract, "public"),
+  staff: withPacks(contractFor(contract, "staff"), releasePackIds),
+  customer: withPacks(contractFor(contract, "customer"), releasePackIds),
+  public: withPacks(contractFor(contract, "public"), releasePackIds),
 };
 // scripts/write-api-contract.mjs reads these lines (only it asks for them: they are large).
 if ((env as { PRINT_API_CONTRACT?: string }).PRINT_API_CONTRACT === "1")
@@ -66,6 +60,23 @@ describe("the committed API contract", () => {
       ).toEqual(committed[audience]);
     });
   }
+
+  it("names every tool's pack, and a pack's slice is what a host with only that pack serves", () => {
+    for (const audience of ["staff", "customer", "public"] as const) {
+      for (const op of committed[audience].operations) {
+        expect(op.pack, op.name).toBe(op.name.startsWith("x.") ? op.name.split(".")[1] : undefined);
+      }
+    }
+    for (const pack of releasePackIds) {
+      const tools = releasePackTools.filter((op) => op.name.startsWith(`x.${pack}.`));
+      const served = contractFor(buildContract([...coreRegistry.list(), ...tools]), "staff");
+      expect(forPacks(committed.staff, [pack]), pack).toEqual(served);
+    }
+    // No pack installed: the core operations only.
+    expect(forPacks(committed.staff, [])).toEqual(
+      contractFor(buildContract(coreRegistry.list()), "staff"),
+    );
+  });
 
   it("names no staff operation to customers or the public", () => {
     const staffOnly = new Set(

@@ -14,7 +14,9 @@ import {
   createInvoker,
   createRegistry,
   defineOperation,
+  forPacks,
   invokeByName,
+  type OpenOperationsFile,
   operationProblems,
   RISK_CLASSES,
   UnknownOperationError,
@@ -70,7 +72,7 @@ describe("audiences on operations", () => {
     // The committed list also names the open tools of every pack in the release (Ticketing's,
     // stage 27); a deployment has those of the packs it installed. This one has none open.
     const listed = new Set(
-      committed.operations.filter((op) => !op.name.startsWith("x.")).map((op) => op.name),
+      forPacks(committed as OpenOperationsFile, []).operations.map((op) => op.name),
     );
     const open = coreOperations.filter((op) => audiencesOf(op).some((a) => a !== "staff"));
     expect(open.map((op) => op.name).sort()).toEqual([...listed].sort());

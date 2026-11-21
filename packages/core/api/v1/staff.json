@@ -57614,7 +57614,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "deals"
     },
     {
       "name": "x.leads.convert",
@@ -57708,7 +57709,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "leads"
     },
     {
       "name": "x.leads.disqualify",
@@ -57765,7 +57767,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "leads"
     },
     {
       "name": "x.ticketing.checkIn",
@@ -57961,7 +57964,8 @@
       },
       "invalidates": [
         "x.ticketing.salesSummary"
-      ]
+      ],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.salesSummary",
@@ -58097,7 +58101,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.undoCheckIn",
@@ -58241,7 +58246,8 @@
       },
       "invalidates": [
         "x.ticketing.salesSummary"
-      ]
+      ],
+      "pack": "ticketing"
     }
   ]
 }

@@ -10,7 +10,13 @@
 //   no session gets.
 import { env } from "cloudflare:workers";
 import { createCustomerAuth, createIdentityProvider, customerIdentity } from "@composable-os/auth";
-import { coreInvoker, inviteCustomer, loadCustomer } from "@composable-os/core";
+import {
+  coreInvoker,
+  forPacks,
+  inviteCustomer,
+  loadCustomer,
+  type OpenOperationsFile,
+} from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import openOperations from "../../../packages/core/open-operations.json";
@@ -304,15 +310,14 @@ describe("the caller is the session's", () => {
     expect(names).toContain("me.get");
     // Exactly the generated list's operations for each audience (tool-only ones are not called
     // directly), so a newly opened one (stage 26's capacity.get) is expected without naming it.
+    // The generated list is the union over every pack the release carries, each tool named with
+    // its pack; this deployment installs no pack, so it serves exactly the list's core slice.
+    // The packs this test's host installs: none (it loads no extension).
+    const INSTALLED_PACKS: string[] = [];
     const listed = (audience: "customer" | "public") =>
-      openOperations.operations
-        // A pack's open tools are listed for every pack in the release; this deployment has
-        // installed none that are open (Ticketing's are stage 27's, and the CRM lists no Ticketing).
-        .filter(
-          (op) =>
-            (op.audiences as string[]).includes(audience) &&
-            !("toolOnly" in op) &&
-            !op.name.startsWith("x."),
+      forPacks(openOperations as OpenOperationsFile, INSTALLED_PACKS)
+        .operations.filter(
+          (op) => (op.audiences as string[]).includes(audience) && !("toolOnly" in op),
         )
         .map((op) => op.name)
         .sort();

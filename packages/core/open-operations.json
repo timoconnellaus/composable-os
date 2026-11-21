@@ -106,17 +106,20 @@
     {
       "name": "x.ticketing.eventsOnSale",
       "audiences": ["customer", "public"],
-      "risk": "read"
+      "risk": "read",
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.myTickets",
       "audiences": ["customer"],
-      "risk": "read"
+      "risk": "read",
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.orderStart",
       "audiences": ["customer", "public"],
-      "risk": "write"
+      "risk": "write",
+      "pack": "ticketing"
     }
   ]
 }
