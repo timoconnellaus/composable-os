@@ -2,9 +2,12 @@
 //
 // 1. The SDK as one ES module string (`cos-sdk` inside the sandbox): defineExtension, z,
 //    runExtension, … with zod inlined, since Dynamic Workers cannot resolve packages.
-// 2. Every shipped extension under extensions/<id>/ as source text (its .ts files, minus tests
-//    and config), so it goes through the same transpile → check → sandbox path as runtime
-//    extensions. There is no static fast path.
+// 2. The packs the product lists (`packs` in its product.ts, stage 24), each the shipped extension
+//    under packs/<id>/ as source text (its .ts files, minus tests, config, and the pack's
+//    client/ and blocks/, which are client code and never run in the host), so it goes through the
+//    same transpile → check → sandbox path as runtime extensions. There is no static fast path. A
+//    pack the product does not list is not in its build. The product is COS_PRODUCT's, else the
+//    default product.
 // 3. The declarations for the in-Worker type check of extension source (sdk-types.ts).
 // 4. The TypeScript compiler as an ES module (typescript.js), and the type checker's Dynamic Worker
 //    (checker.txt: the compiler, the declarations and src/checker/entry.ts in one module). The
@@ -16,8 +19,8 @@
 // typescript.{js,d.ts} (gitignored). Runs before typecheck, test, dev and build (see package.json).
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import ts from "typescript";
@@ -25,6 +28,9 @@ import {
   buildSdkTypes,
   sdkBundleOptions,
 } from "../../../packages/extension-check/src/sdk-artifacts.ts";
+import { loadProduct } from "../../../packages/product/src/node.ts";
+import { productPacks } from "../../../packages/product/src/packs.ts";
+import { DEFAULT_PRODUCT } from "../../../products/index.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
@@ -33,50 +39,8 @@ const out = join(here, "..", "src", "generated");
 const sdk = await build(sdkBundleOptions(join(root, "packages", "sdk", "src", "index.ts")));
 const sdkSource = sdk.outputFiles[0].text;
 
-async function sourceFiles(dir, base = dir) {
-  const files = {};
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (["node_modules", "test", "tests", "dist", ".turbo"].includes(entry.name)) continue;
-      Object.assign(files, await sourceFiles(path, base));
-    } else if (/\.(ts|js)$/.test(entry.name) && !/\.(test|config)\.(ts|js)$/.test(entry.name)) {
-      files[relative(base, path).split("\\").join("/")] = await readFile(path, "utf8");
-    }
-  }
-  return files;
-}
-
-const shipped = [];
-const extensionsDir = join(root, "extensions");
-for (const entry of (await readdir(extensionsDir, { withFileTypes: true })).sort((a, b) =>
-  a.name.localeCompare(b.name),
-)) {
-  if (!entry.isDirectory()) continue;
-  const dir = join(extensionsDir, entry.name);
-  // A folder left behind after an extension is removed (only git-ignored node_modules/.turbo) is
-  // not an extension. Skip it rather than crash dev, test and build.
-  const hasPackage = await stat(join(dir, "package.json")).then(
-    () => true,
-    () => false,
-  );
-  if (!hasPackage) {
-    console.warn(`bundle: skipping extensions/${entry.name} (no package.json)`);
-    continue;
-  }
-  const pkg = JSON.parse(await readFile(join(dir, "package.json"), "utf8"));
-  await stat(join(dir, "index.ts"));
-  // `composableOs.optional`: shipped but opt-in (installed by an admin, not at boot; ADR 0246).
-  const meta = pkg.composableOs ?? {};
-  shipped.push({
-    id: entry.name,
-    version: pkg.version,
-    ...(meta.optional ? { optional: true } : {}),
-    ...(meta.label ? { label: meta.label } : {}),
-    ...(meta.description ? { description: meta.description } : {}),
-    files: await sourceFiles(dir),
-  });
-}
+const product = await loadProduct(process.env.COS_PRODUCT?.trim() || DEFAULT_PRODUCT);
+const shipped = productPacks(product, root);
 
 // 3. The declarations the in-Worker type checker needs (src/extensions/typecheck.ts): @composable-os/sdk's
 //    .d.ts (emitted from packages/sdk/src), the zod .d.ts files they reach, and the ES2022 lib
@@ -120,7 +84,7 @@ await writeFile(
 await writeFile(join(out, "sdk-bundle.txt"), sdkSource);
 await writeFile(
   join(out, "shipped.ts"),
-  `${banner}/** Shipped extensions (extensions/<id>/), as source. */\nexport const SHIPPED_EXTENSIONS: readonly { id: string; version: string; optional?: boolean; label?: string; description?: string; files: Record<string, string> }[] = ${JSON.stringify(shipped, null, 2)};\n`,
+  `${banner}/** The product's packs (packs/<id>/), the shipped extensions, as source. */\nexport const SHIPPED_EXTENSIONS: readonly { id: string; version: string; optional?: boolean; label?: string; description?: string; files: Record<string, string> }[] = ${JSON.stringify(shipped, null, 2)};\n`,
 );
 
 // The checker's Dynamic Worker: one ES module with the compiler, the declarations and the entry.
@@ -188,5 +152,5 @@ export const SDK_TYPES_HASH = ${JSON.stringify(sha(sdkTypesJson))};
 `,
 );
 console.log(
-  `bundled cos-sdk (${(sdkSource.length / 1024).toFixed(0)} KiB), its type declarations (${Object.keys(sdkTypes.files).length} files, ${(sdkTypesJson.length / 1024).toFixed(0)} KiB), the checker worker with typescript ${typescriptVersion} (${(checkerSource.length / 1024).toFixed(0)} KiB) and ${shipped.length} shipped extension(s)`,
+  `bundled cos-sdk (${(sdkSource.length / 1024).toFixed(0)} KiB), its type declarations (${Object.keys(sdkTypes.files).length} files, ${(sdkTypesJson.length / 1024).toFixed(0)} KiB), the checker worker with typescript ${typescriptVersion} (${(checkerSource.length / 1024).toFixed(0)} KiB) and ${shipped.length} pack(s) of ${product.id}`,
 );

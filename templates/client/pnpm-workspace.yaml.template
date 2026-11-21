@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+  - extensions/*
+
+onlyBuiltDependencies:
+  - esbuild
+  - workerd

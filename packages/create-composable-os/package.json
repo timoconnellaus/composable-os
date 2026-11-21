@@ -10,7 +10,7 @@
   },
   "type": "module",
   "bin": {
-    "create-composable-os": "dist/cli.js",
+    "create-composable-os": "dist/create.js",
     "cos": "dist/cli.js"
   },
   "files": [
@@ -34,6 +34,7 @@
     "@composable-os/product": "workspace:*",
     "@composable-os/products": "workspace:*",
     "@composable-os/release": "workspace:*",
+    "@composable-os/sdk": "workspace:*",
     "@types/node": "24.19.2",
     "esbuild": "0.28.2",
     "typescript": "6.0.3",

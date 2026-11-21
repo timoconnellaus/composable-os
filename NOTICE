@@ -14,6 +14,14 @@ under the MIT License, copyright 2026 Tim O'Connell; each carries its own LICENS
 applies to that directory (ADR 0350). They import no other code from this repository, so they can
 be used on their own.
 
+The blocks are an exception too. blocks/ and every packs/<id>/blocks/ directory hold the screens a
+client app copies into its own repository (ADR 0401, ADR 0424): the web base layer (blocks/ui-*),
+the native base layer (blocks/native-base) and the sign-in blocks. They are licensed under the MIT
+License, copyright 2026 Tim O'Connell; blocks/LICENSE applies to blocks/, and a release ships it
+inside every block it carries. Once a block is copied into a client's repository, that copy is
+the client's under the MIT License. The web base layer's components are generated from shadcn/ui,
+also MIT (below).
+
 Relicensing
 -----------
 

@@ -259,6 +259,14 @@ const INPUT_VARS: Record<string, { description: string; options?: string[] }> = 
     options: ["false", "true"],
   },
   APPROVAL_FLOOR: { description: "Approval-policy floor no preset can loosen (JSON, ADR 0011)" },
+  COS_PACKS: {
+    description:
+      'The packs this deployment installs: "*" every pack in the release, a comma-separated list, or "" for none (set by cos deploy, ADR 0422)',
+  },
+  COS_ORG_EXTENSIONS: {
+    description:
+      "sha256 of the org's own extensions in the BLOBS bucket, installed as shipped (set by cos deploy, ADR 0422)",
+  },
   AI_GATEWAY_ID: {
     description: "AI Gateway every model call goes through (usage and spend per role, BYOK)",
   },

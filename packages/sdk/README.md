@@ -1,6 +1,6 @@
 # @composable-os/sdk
 
-The extension contract (ADR 0005, ADR 0023). Shipped extensions (`extensions/<id>/`) and runtime
+The extension contract (ADR 0005, ADR 0023). Shipped extensions (packs, `packs/<id>/`) and runtime
 extensions (written by AI into the extension workspace) are written against it and run the same
 way: in a sandboxed Dynamic Worker with only the host modules they declare (ADR 0025).
 
@@ -105,7 +105,7 @@ On `objects.<name>`, next to `fields`:
 
 | Key | What |
 | --- | --- |
-| `stages` | A stage behaviour, enforced by the host in `record.create`, `record.update` and CSV import for every actor. `field` (a relation to your stage object), `stage: { type, order, requiredFields?, probability?, group? }` (fields of the stage object: a select with `open`/`won`/`lost`, a number, a multiSelect of this object's field names, a number/percent, a relation to the group object), and optionally `group`, `probability: { field, overridden }`, `closedDate` and `status` (read-only fields) and `requiredByType: { lost: ["lostReason"] }`. Entering a stage with a required field empty fails with `invalid_input` and `details: { rule, field, fields, labels, stage }`. Moves are kept in `rec_stage_history` and, with `track: "timeline"` on the stage field, posted as "Moved to <stage>". See `extensions/deals/index.ts`. |
+| `stages` | A stage behaviour, enforced by the host in `record.create`, `record.update` and CSV import for every actor. `field` (a relation to your stage object), `stage: { type, order, requiredFields?, probability?, group? }` (fields of the stage object: a select with `open`/`won`/`lost`, a number, a multiSelect of this object's field names, a number/percent, a relation to the group object), and optionally `group`, `probability: { field, overridden }`, `closedDate` and `status` (read-only fields) and `requiredByType: { lost: ["lostReason"] }`. Entering a stage with a required field empty fails with `invalid_input` and `details: { rule, field, fields, labels, stage }`. Moves are kept in `rec_stage_history` and, with `track: "timeline"` on the stage field, posted as "Moved to <stage>". See `packs/deals/index.ts`. |
 | `capacity` | A limited number of places the host never gives out twice, for every actor (ADRs 0430 to 0433). `places` (a number field; empty is unlimited), optionally `pool` (a relation to another of your objects that declares a capacity and no pool: its places are drawn on too), `show` (`exact`, `low` with `lowAt`, or `availability`, the default: what customers and the public are told) and `releaseOnRefund` (default true). Lowering places below what is held and taken fails with `invalid_input` and `details: { rule: "capacity", object, record, places, held, taken }`. Records get read-only `held`, `taken` and `available`. Claims are made by the host in the write that needs them (an order), never by a tool. See `CapacitySpec` in `capacity.ts`. |
 | `states` | A fixed state machine (ADR 0425), for a lifecycle whose states are set in code and not edited by admins; an object has `stages` or `states`, not both. `field` (a select whose options are the states; not read-only, no `editableOptions`), `initial`, and `moves: [{ from, to, by, requires?, final? }]`. `from` is one state or a list; `by` lists who may make the move: `staff` (people, MCP clients, automations and extensions, your own code included), `customer`, or `host` (platform code only: no caller can make it); `requires` names fields that must have a value; `final` ends the lifecycle in `to`. A record starts in `initial`. A write that makes an undeclared move, a move its caller is not listed for, or a move with a required field empty fails with `invalid_input` and `details: { rule, field, fields, labels, state, from }` (`rule` is `state_move_not_declared`, `state_move_not_permitted`, `state_final`, `state_required_fields` or `no_state`). Moves are kept in `rec_state_history` (`state`, `is_final`, `entered_at`, `left_at`, `is_current`, `days_in_state`, `entered_by`, `entered_as`) and, with `track: "timeline"` on the state field, posted as "Moved to <state>". |
 | `timelineLinks` | Relation fields whose records also get this object's timeline posts (`["organisation"]`). |
@@ -247,11 +247,11 @@ anything that must last in `ctx.storage`.
 
 ## Checking an extension in a checkout
 
-A shipped extension (`extensions/<id>/`) is checked without a deployment by the `cos` command
-(ADR 0405): `pnpm cos ext check extensions/<id>` runs the checks `extension.check` runs (imports,
+A shipped extension (a pack, `packs/<id>/`) is checked without a deployment by the `cos` command
+(ADR 0405): `pnpm cos ext check packs/<id>` runs the checks `extension.check` runs (imports,
 types, contract, formulas, automations, a dry-run reconcile on an empty local database) and
 prints each issue with a file, the manifest path, the message and the fix where there is one;
-`pnpm cos ext test extensions/<id>` runs its tests and refuses a tool or automation that no test
+`pnpm cos ext test packs/<id>` runs its tests and refuses a tool or automation that no test
 names. The skills in `skills/` give the order of work.
 
 ## Testing an extension

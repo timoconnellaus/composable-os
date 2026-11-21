@@ -12,7 +12,7 @@ Describes extension contract version 1 (`CONTRACT_VERSION` in `packages/sdk/src/
 Someone asks for something an extension does rather than stores: an action on a record ("convert
 this lead"), work that happens on its own (remind the owner, create follow-up tasks every
 morning), or numbers and charts over its records. The extension and its objects exist already;
-if not, start with `write-extension`. It is for a shipped extension in `extensions/<id>/`.
+if not, start with `write-extension`. It is for a shipped extension, a pack, in `packs/<id>/`.
 
 - A **tool** is an operation `x.<id>.<tool>` that a person, the assistant or an MCP client
   calls, and can be a button on a record page.
@@ -32,8 +32,8 @@ Read these before writing. They are the source of truth; this skill only gives t
 - `packages/core/src/dashboards/spec.ts`: the spec shipped dashboards are validated against
   (filter types, `widgetMappingSchema`, `widgetOptionsSchema`, `clickThroughSchema`,
   `SYSTEM_PARAMS`). `click-through.ts` beside it turns a click into a list filter.
-- The worked examples: `extensions/deals/` (`tools.ts`, `automations.ts`, `dashboards.ts`,
-  `test/`) and `extensions/leads/` (`tools.ts`, `automations.ts`, `dashboards.ts`).
+- The worked examples: `packs/deals/` (`tools.ts`, `automations.ts`, `dashboards.ts`,
+  `test/`) and `packs/leads/` (`tools.ts`, `automations.ts`, `dashboards.ts`).
 
 Each kind has its own file, wired into `defineExtension` (Deals: the last keys of `index.ts`).
 
@@ -89,12 +89,12 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    its declared shape (the sign of `offsetDays`), and pass `period` for `schedule` and
    `dateRelative` runs and assert the dates taken from it. See Deals: `test/automations.test.ts`.
 10. **A headless entry, for client apps (optional, stage 23, ADR 0418).** A pack whose tools a
-    phone or a site calls may ship `headless.ts`, exported as `<package>/headless`: functions and
+    phone or a site calls may ship `client/index.ts`, exported as `<package>/client`: functions and
     hooks over the typed client, with no markup. Type the operations it calls from the tools' own
     schemas (`z.input<typeof tool.input>`, `z.output<typeof tool.output>`), take the client as an
     argument (a structural interface the generated client fits), and build hooks from the app's
     own `useQuery` rather than importing React or TanStack Query. It holds no rules: those are
-    the host's. See Deals: `headless.ts` and `test/headless.test.ts`.
+    the host's. See Deals: `client/index.ts` and `test/client.test.ts`.
 11. **Check, fix, repeat** (last section), then run `pnpm lint`, `pnpm typecheck` and `pnpm test`
     at the repository root.
 
@@ -120,21 +120,35 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
 - **Tests are required.** At least one per tool and one per automation, with `createTestHost`,
   and every automation test asserts `run.undeclared` is empty.
 
+<!-- platform-repo -->
 **When something is missing.** If the work needs something the platform, the contract or this
 skill does not have (a trigger, a gatekeeper, a core operation, a widget type), changing them is
 part of the work, done properly, with an ADR where `AGENTS.md` asks for one and this skill
 updated to match. Never fake it in extension code with a shortcut or a workaround (a rule enforced
 in a tool, a write past an operation, a call past a gatekeeper). If the change is too large
 for the request, say so and stop; do not ship the workaround.
+<!-- /platform-repo -->
+<!-- client-repo
+**When something is missing.** In a client repo you cannot change the platform. When the work
+needs something the platform, the contract or this skill does not have (a behaviour, an
+operation, a gatekeeper, a trigger), stop that part and say exactly what the platform needs and
+why, then build the rest. Never work around it in the extension or in an app (a rule enforced in
+a tool or a screen, a write past an operation, a call past a gatekeeper, a database opened).
+
+In a client repo the worked examples are the packs as installed:
+`node_modules/@composable-os/pack-deals/` and its siblings. Your extension lives in
+`extensions/<id>/`; check it with `pnpm cos ext check extensions/<id>` and test it with
+`pnpm cos ext test extensions/<id>`. `cos deploy` installs it.
+-->
 
 ## The check command
 
 ```bash
-pnpm cos ext check extensions/<id>
+pnpm cos ext check packs/<id>
 ```
 
 ```bash
-pnpm cos ext test extensions/<id>
+pnpm cos ext test packs/<id>
 ```
 
 `check` reads issues in the format `write-extension` describes. Automation and dashboard issues

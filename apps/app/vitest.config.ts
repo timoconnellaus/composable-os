@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineWorkersTestConfig } from "@composable-os/config/vitest";
+import { build } from "esbuild";
 import { mergeConfig } from "vitest/config";
 import { configuratorSpecs } from "./src/components/integrations/configurator/vite-plugin.ts";
 
@@ -38,6 +39,22 @@ export default class extends WorkerEntrypoint {
   }
 }`;
 
+/**
+ * A stand-in for a company's own web app (stage 24): test/fixtures/company-web, bundled as one
+ * module. It binds to this Worker's ClientApp entrypoint and has no other binding.
+ */
+async function companyWebScript(): Promise<string> {
+  const result = await build({
+    entryPoints: [fileURLToPath(new URL("./test/fixtures/company-web/worker.ts", import.meta.url))],
+    bundle: true,
+    format: "esm",
+    platform: "neutral",
+    target: "es2022",
+    write: false,
+  });
+  return result.outputFiles[0]?.text ?? "";
+}
+
 export default mergeConfig(
   defineWorkersTestConfig({
     include: ["src/**/*.test.ts", "test/**/*.test.{ts,tsx}"],
@@ -56,7 +73,12 @@ export default mergeConfig(
           AI_FAKE_VOICE: "true",
           ...liveVoiceBindings(),
         },
-        serviceBindings: { RUNNER: "cos-runner" },
+        serviceBindings: {
+          RUNNER: "cos-runner",
+          // The company-web fixture, and the same binding it holds (to call it as that Worker).
+          COMPANY_WEB: "company-web",
+          COMPANY_WEB_HOST: { name: "cos-app", entrypoint: "ClientApp" },
+        },
         // The fake Cloudflare account's D1 database in the self-updater tests.
         d1Databases: { UPDATER_FAKE_D1: "updater-fake-d1" },
         workers: [
@@ -65,6 +87,17 @@ export default mergeConfig(
             modules: true,
             script: RUNNER_STUB,
             compatibilityDate: "2026-10-01",
+          },
+          {
+            // The company's web app: a service binding to cos-app's ClientApp entrypoint (this
+            // test Worker exports the real class) and nothing else, as the template's has.
+            name: "company-web",
+            modules: true,
+            script: await companyWebScript(),
+            compatibilityDate: "2026-10-01",
+            // The pool renames the Worker under test to its runner (`vitest-plugin-runner-` and
+            // the project's name, which is empty here); an auxiliary Worker binds to it by that.
+            serviceBindings: { HOST: { name: "vitest-plugin-runner-", entrypoint: "ClientApp" } },
           },
         ],
       },

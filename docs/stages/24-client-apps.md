@@ -235,3 +235,52 @@ No migrations. ADRs 0420 to 0424, and ADR 0401 amended as built.
 
 Steps 2 and 5's sign-in are the spine: they decide what a company's own Worker can do on a
 customer's behalf.
+
+## As built (2026-11-21)
+
+Status: built, in review. ADRs [0420](../adr/0420-packs-as-packages-as-built.md) to
+[0424](../adr/0424-blocks-as-built.md); ADR 0401 amended.
+
+- **The binding** serves customer sign-in and the HTTP surface for customers and the public, and
+  nothing else. **The native token routes (`/api/v1/auth/*`) are left off it on purpose:** a web
+  app signs customers in with a cookie and has no use for device tokens, so the binding gives
+  less than the public hostname, never more (ADR 0421).
+- **Staying signed in:** the template web app renews the customer cookie's lifetime once a day at
+  most (`keepCustomerSignedIn`); the HTTP surface is unchanged.
+- **Cookies apart** rests on `CUSTOMER_AUTH_URL` naming the web app. Native sign-in that returns
+  tokens with no cookie on the host's address is filed for later.
+- **The host keeps its release's names and strings** (`crm-app`, "CRM"). The spec's
+  "product.ts: names, branding" holds for the client's own Workers; naming the host for the
+  client's product needs names applied at deploy time, which is platform work for later (stage 27
+  needs it). `product.ts` is `defineClientProduct` and names the release it deploys.
+- **Packs are chosen at deploy** (`COS_PACKS`), from the packs in the release; the org's own
+  extensions reach the host through BLOBS, pinned by hash (`COS_ORG_EXTENSIONS`), and install as
+  shipped. A release built for a product has only that product's packs.
+- **The template's build is the app's own** (`pnpm run build`, TanStack Start's output in
+  `dist/server`); `cos deploy` uploads it. Radix is under the web base layer.
+- **npm:** published only when the `NPM_PUBLISH` variable is turned on, with trusted publishing
+  (no token anywhere); every release dry-runs it (ADR 0423).
+- **The two skills, each tried once** (criterion 13) by an agent that had not seen this spec,
+  against the real release kit, the npm tarballs and a local fake Cloudflare API
+  (`packages/create-composable-os/scripts/fake-cloudflare.ts`): `start-client-app` and
+  `add-block` from an empty folder ("a website for a yoga studio where members sign in", with the
+  web sign-in block; deployed, host and web app bound), and both in the Ghetto-shaped fixture
+  (adopted; the native sign-in block wired into the Expo app; the host deployed). What went wrong,
+  and what was fixed:
+  - `cos client generate` crashed in a client repo: it now writes each app's client from
+    `product.ts`.
+  - Blocks could only be listed by name: `cos add` with no name lists skin, pack, calls and
+    dependencies; the skill says to run the `pnpm add` line it prints.
+  - The web blocks' Tailwind classes resolved to nothing: the template web app now has Tailwind
+    and the tokens, and the skill says how to brand them.
+  - `cos deploy` assumed the template's build layout and failed on the Astro site after the host
+    had deployed: the web build is checked before the host, and an adopted web app keeps its own
+    Worker and its own deploy (`web.deploy: "own"`).
+  - `cos init` left an adopted repo without the host modules, the root app's client dependency
+    and a workspace for its mobile app, and named a new Worker: it now writes the host modules
+    (and the secure store), adds the dependency, a `pnpm-workspace.yaml` and keeps the Worker's
+    name, and says when the site has data of its own (the company's decision).
+  - The skills did not say: `--id`/`--label`, that the template already has the sign-in and
+    account pages, `/setup` and the customer mail connection, that an app without a tsconfig is
+    not type-checked, `git init`, the sign-in blocks' actions, or how to wire a block. They do now.
+  Not re-run after the fixes.

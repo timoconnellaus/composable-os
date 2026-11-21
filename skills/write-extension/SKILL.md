@@ -14,8 +14,8 @@ organisations, tasks, activities or another extension's objects. This skill cove
 how it is shown. Tools, automations and dashboards are in `add-automations-tools-dashboards`;
 do this skill first, then that one.
 
-It is for a shipped extension in a checkout of the Composable OS repository
-(`extensions/<id>/`). A runtime extension written over MCP uses the same contract and the MCP
+It is for a shipped extension in a checkout of the Composable OS repository, a pack
+(`packs/<id>/`). A runtime extension written over MCP uses the same contract and the MCP
 server's own instructions (`packages/sdk/README.md`, "Writing one over MCP").
 
 ## The steps
@@ -26,19 +26,20 @@ Read these before writing. They are the source of truth; this skill only gives t
 - `packages/sdk/src/contract.ts`: `ExtensionSpec`, `ObjectSpec`, `FieldSpec`, `StagesSpec`,
   `ViewSpec`, `RecordViewSpec`, `SettingSpec`, `PermissionsSpec`. `field-types.ts` lists the field
   types.
-- `extensions/deals/index.ts`: the worked example. `extensions/lifecycle/index.ts` is the smallest
-  one (fields on person, a view). `extensions/leads/index.ts` builds on another extension.
+- `packs/deals/index.ts`: the worked example. `packs/lifecycle/index.ts` is the smallest
+  one (fields on person, a view). `packs/leads/index.ts` builds on another extension.
 
 1. **Look at what exists.** Read the other extensions' `index.ts` and README. If one already
    models the request (Deals seeds a Renewals pipeline), extend it with fields or say why it does
    not fit, before adding a new object.
 2. **Choose the id.** 2 to 30 lowercase letters or digits, starting with a letter; usually the
-   plural of the main record (`deals`, `leads`, `renewals`). The directory is `extensions/<id>/`
+   plural of the main record (`deals`, `leads`, `renewals`). The directory is `packs/<id>/`
    and its name must equal the id. An object may not take a core name (`person`, `task`, ...).
 3. **Create the package.** Copy `package.json`, `tsconfig.json` and `vitest.config.ts` from
-   `extensions/lifecycle/`, rename the package `@composable-os/extension-<id>`, then run
-   `pnpm install`. Every directory under `extensions/` is bundled into the release and installed
-   in every deployment at boot. Keep `composableOs.optional: true` in `package.json` unless the
+   `packs/lifecycle/`, rename the package `@composable-os/pack-<id>`, then run `pnpm install`.
+   Add the id to `packs` in the product's definition (`products/<product>/product.ts`): only the
+   packs a product lists are bundled into its release, and each is installed in every deployment
+   of that product at boot. Keep `composableOs.optional: true` in `package.json` unless the
    request says everyone gets it: an optional extension does nothing until an admin installs it,
    so say that when you report the work.
 4. **Declare the objects** in `index.ts` with `defineExtension`. For each: `label`, `plural`,
@@ -52,7 +53,7 @@ Read these before writing. They are the source of truth; this skill only gives t
    to an object you do not own, use top-level `fields: { organisation: { ... } }` or
    `fields: { "deals.deal": { ... } }`; never edit the other extension. There is no `dependsOn`
    key: naming another extension's object is the dependency, and that extension must be installed
-   first. See Leads: `fields["deals.deal"]`, and `@composable-os/extension-deals` in its
+   first. See Leads: `fields["deals.deal"]`, and `@composable-os/pack-deals` in its
    `devDependencies` for tests.
 6. **Declare permissions**, the least that works. Your own objects need none. `read` and `write`
    name other objects, `operations` names operations exactly, and any of them needs `"ops"` in
@@ -118,21 +119,35 @@ extension declares it; it never implements it. Each behaviour the platform has i
   package, no `fetch`.
 - **Tests are required.** The first test above, then one for every tool and every automation.
 
+<!-- platform-repo -->
 **When something is missing.** If the work needs something the platform, the contract or this
 skill does not have, changing them is part of the work, done properly: a behaviour in the host, a
 gatekeeper, a core operation, an ADR where `AGENTS.md` asks for one, and this skill updated to
 match. Never fake it in extension code with a shortcut or a workaround (a rule enforced in a tool,
 a write past an operation, a call past a gatekeeper). If the change is too large for the request,
 say so and stop; do not ship the workaround.
+<!-- /platform-repo -->
+<!-- client-repo
+**When something is missing.** In a client repo you cannot change the platform. When the work
+needs something the platform, the contract or this skill does not have (a behaviour, an
+operation, a gatekeeper, a trigger), stop that part and say exactly what the platform needs and
+why, then build the rest. Never work around it in the extension or in an app (a rule enforced in
+a tool or a screen, a write past an operation, a call past a gatekeeper, a database opened).
+
+In a client repo the worked examples are the packs as installed:
+`node_modules/@composable-os/pack-deals/` and its siblings. Your extension lives in
+`extensions/<id>/`; check it with `pnpm cos ext check extensions/<id>` and test it with
+`pnpm cos ext test extensions/<id>`. `cos deploy` installs it.
+-->
 
 ## The check command
 
 ```bash
-pnpm cos ext check extensions/<id>
+pnpm cos ext check packs/<id>
 ```
 
 ```bash
-pnpm cos ext test extensions/<id>
+pnpm cos ext test packs/<id>
 ```
 
 `check` runs what the host's `extension.check` runs when the extension is installed: allowed
@@ -141,7 +156,7 @@ changes on an empty database (extensions yours builds on are read from the direc
 it). It exits 0 only with no issues. Each issue reads:
 
 ```
-extensions/renewals/index.ts:18  objects.renewal.fields.total.expression
+packs/renewals/index.ts:18  objects.renewal.fields.total.expression
   formula/formula_unknown_field: renewals.renewal.total: Unknown field "amout". Fields on this record: ...
   fix: ...
 ```

@@ -192,7 +192,7 @@ npx wrangler deploy -c dispatch.wrangler.jsonc       # crm-dispatch
   `vars` and redeploy it. Note that support grants don't work behind Access (ADR 0212). SLA and
   contract terms go in the form; invoicing is by contract.
 - **Managed** (their account): New enterprise customer → Managed records it. Install with
-  `npx create-composable-os --token <their token> …` from a checkout, keep the update token under
+  `npx @composable-os/cli install --token <their token> …` from a checkout, keep the update token under
   contract, and update with `cos upgrade` after each rollout's canary wave.
 
 ## 9. Rollouts after go-live

@@ -29,7 +29,7 @@ before starting the work it names.
 - Adding tools, automations or dashboards to an extension:
   [`skills/add-automations-tools-dashboards/SKILL.md`](skills/add-automations-tools-dashboards/SKILL.md).
 
-Both end in `pnpm cos ext check extensions/<id>` and `pnpm cos ext test extensions/<id>`: the
+Both end in `pnpm cos ext check packs/<id>` and `pnpm cos ext test packs/<id>`: the
 checks the host runs on an extension, and its tests. When the platform, the contract or a skill
 lacks what the work needs, changing it properly is part of the work; a shortcut or workaround in
 extension code is never acceptable (ADR 0405).

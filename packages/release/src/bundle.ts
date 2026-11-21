@@ -23,6 +23,8 @@ export interface ReleaseBundle {
   module(sha256: string): Uint8Array;
   asset(hash: string): Uint8Array;
   migration(name: string): string;
+  /** The client kit's files (path inside `client/` → bytes), verified. Empty when there is none. */
+  clientFiles: Map<string, Uint8Array>;
 }
 
 /** Writes a bundle. Every module/asset/migration the manifest names must be supplied. */
@@ -31,6 +33,8 @@ export async function writeBundle(input: {
   modules: Map<string, Uint8Array>;
   assets: Map<string, Uint8Array>;
   migrations: Map<string, string>;
+  /** The client kit, by path inside `client/`; the manifest's `client.files` must list each. */
+  client?: Map<string, Uint8Array>;
 }): Promise<{ bytes: Uint8Array; manifestText: string }> {
   const manifestText = `${stableStringify(input.manifest)}\n`;
   const encoder = new TextEncoder();
@@ -40,7 +44,20 @@ export async function writeBundle(input: {
   for (const [name, sql] of input.migrations) {
     entries.push({ path: `migrations/${name}`, bytes: encoder.encode(sql) });
   }
+  for (const [path, bytes] of input.client ?? []) entries.push({ path: `client/${path}`, bytes });
   return { bytes: await gzip(writeTar(entries)), manifestText };
+}
+
+/** The manifest's `client` entry for a client kit (path inside `client/` → bytes), sorted. */
+export async function clientKitEntry(
+  files: Map<string, Uint8Array>,
+): Promise<NonNullable<ReleaseManifest["client"]>> {
+  const entries = [];
+  for (const path of [...files.keys()].sort()) {
+    const bytes = files.get(path) as Uint8Array;
+    entries.push({ path, sha256: await sha256Hex(bytes), size: bytes.length });
+  }
+  return { files: entries };
 }
 
 /** Opens a bundle and verifies its contents against its manifest. */
@@ -85,6 +102,19 @@ export async function openBundle(bytes: Uint8Array): Promise<ReleaseBundle> {
       throw new BundleError(`migration ${migration.name} is missing or does not match its hash`);
     }
   }
+  const clientFiles = new Map<string, Uint8Array>();
+  for (const file of manifest.client?.files ?? []) {
+    if (file.path.split("/").some((part) => part === ".." || part === "")) {
+      throw new BundleError(`client file ${file.path} has an invalid path`);
+    }
+    const path = `client/${file.path}`;
+    expected.add(path);
+    const data = files.get(path);
+    if (!data || data.length !== file.size || (await sha256Hex(data)) !== file.sha256) {
+      throw new BundleError(`client file ${file.path} is missing or does not match its hash`);
+    }
+    clientFiles.set(file.path, data);
+  }
   for (const path of files.keys()) {
     if (!expected.has(path)) throw new BundleError(`unexpected file in bundle: ${path}`);
   }
@@ -100,6 +130,7 @@ export async function openBundle(bytes: Uint8Array): Promise<ReleaseBundle> {
     module: (sha) => get(`modules/${sha}`),
     asset: (hash) => get(`assets/${hash}`),
     migration: (name) => decoder.decode(get(`migrations/${name}`)),
+    clientFiles,
   };
 }
 

@@ -20,7 +20,7 @@ import type {
 } from "@composable-os/core";
 import type { BuildRecord } from "../executor/build-cache.ts";
 import { buildKey, contentHash } from "../executor/worker-code.ts";
-import { SHIPPED_EXTENSIONS } from "../generated/shipped.ts";
+import { shippedExtensions } from "./shipped-list.ts";
 
 const IDENTITY = { name: "CRM extension workspace", email: "workspace@crm.invalid" };
 /** Builds above this size (JSON) are not cached: a DO storage value is at most 2 MB. */
@@ -220,7 +220,8 @@ export class ExtensionWorkspace extends DurableObject<Env> {
   }
 
   async shipped(): Promise<ShippedExtension[]> {
-    return SHIPPED_EXTENSIONS.map(({ files: _files, ...meta }) => meta);
+    // The packs the deployment's product lists and the org's own extensions (ADR 0422).
+    return (await shippedExtensions(this.env)).map(({ files: _files, ...meta }) => meta);
   }
 
   /**
@@ -229,7 +230,7 @@ export class ExtensionWorkspace extends DurableObject<Env> {
    * it returns at once.
    */
   async commitShipped(id: string): Promise<{ commit: string; changed: boolean }> {
-    const shipped = SHIPPED_EXTENSIONS.find((s) => s.id === id);
+    const shipped = (await shippedExtensions(this.env)).find((s) => s.id === id);
     if (!shipped) throw new Error(`No shipped extension ${id}`);
     if (await this.ctx.storage.get(ejectedKey(id))) {
       throw new Error(`${id} was ejected; releases no longer update it`);
@@ -422,7 +423,7 @@ export class ExtensionWorkspace extends DurableObject<Env> {
   }
 
   async eject(id: string): Promise<WorkspaceWrite> {
-    const shipped = SHIPPED_EXTENSIONS.find((s) => s.id === id);
+    const shipped = (await shippedExtensions(this.env)).find((s) => s.id === id);
     if (!shipped) throw new Error(`No shipped extension ${id}`);
     return this.#serialise(async () => {
       await this.ctx.storage.put(ejectedKey(id), new Date().toISOString());

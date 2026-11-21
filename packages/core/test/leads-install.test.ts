@@ -1,8 +1,8 @@
 // Stage 15, AC1 (ADR 0246): Leads needs Deals. Its relation to deals.deal and its field on it have
 // nothing to attach to on a deployment without Deals, so the check refuses the install; with Deals
 // reconciled first it passes. In its own file: storage is per test file, so Deals is absent here.
-import deals from "@composable-os/extension-deals";
-import leads from "@composable-os/extension-leads";
+import deals from "@composable-os/pack-deals";
+import leads from "@composable-os/pack-leads";
 import { toManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { check, reconcile } from "./extension-helpers.ts";

@@ -37,6 +37,7 @@ import { DEFAULT_PRODUCT } from "@composable-os/products";
 import {
   assertUnresolved,
   assetHash,
+  clientKitEntry,
   formatSums,
   isVersion,
   type ManifestModule,
@@ -46,6 +47,7 @@ import {
   stableStringify,
   writeTar,
 } from "@composable-os/release";
+import { collectClientKit } from "./client-kit.ts";
 import {
   type DeployablePackage,
   generateManifest,
@@ -219,6 +221,9 @@ async function main() {
     migrations,
   );
   assertUnresolved(manifest);
+  // The client kit (stage 24): template, skills, blocks and the API contract.
+  const kit = collectClientKit(ROOT, product.packs);
+  manifest.client = await clientKitEntry(kit);
 
   const manifestText = `${stableStringify(manifest)}\n`;
   const enc = new TextEncoder();
@@ -229,6 +234,7 @@ async function main() {
   for (const [hash, bytes] of assetBlobs) entries.push({ path: `assets/${hash}`, bytes });
   for (const [name, sql] of migrations)
     entries.push({ path: `migrations/${name}`, bytes: enc.encode(sql) });
+  for (const [path, bytes] of kit) entries.push({ path: `client/${path}`, bytes });
   // node:zlib at a fixed level; the header's time and OS bytes are pinned.
   const bundle = normaliseGzipHeader(new Uint8Array(gzipSync(writeTar(entries), { level: 9 })));
 

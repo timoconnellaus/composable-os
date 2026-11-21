@@ -1,0 +1,8 @@
+{
+  "name": "clean-summary",
+  "pack": null,
+  "skin": "web",
+  "operations": [],
+  "files": ["clean-summary.tsx"],
+  "dependsOn": []
+}

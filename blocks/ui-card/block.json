@@ -1,0 +1,14 @@
+{
+  "name": "ui-card",
+  "pack": null,
+  "skin": "web",
+  "operations": [],
+  "files": [
+    "card.tsx",
+    "LICENSE"
+  ],
+  "dependsOn": [
+    "ui-utils"
+  ],
+  "packages": {}
+}

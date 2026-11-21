@@ -69,7 +69,7 @@ export function seedRecordId(extension: string, object: string, key: string): st
   return `rec_0000000000${out}`;
 }
 
-/** The Deals extension's seeded pipelines and stages (extensions/deals/index.ts), in order. */
+/** The Deals extension's seeded pipelines and stages (packs/deals/index.ts), in order. */
 export const DEAL_PIPELINES = [
   {
     key: "newBusiness",

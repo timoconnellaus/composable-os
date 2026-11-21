@@ -14,11 +14,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { buildContract, defineOperation } from "@composable-os/core";
+import deals from "@composable-os/pack-deals";
+import leads from "@composable-os/pack-leads";
+import lifecycle from "@composable-os/pack-lifecycle";
 import { build } from "esbuild";
-
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { renderClient } from "../src/index.ts";
+import { productContract, renderClient } from "../src/index.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const runtime = join(here, "..", "..", "client", "src", "index.ts");
@@ -148,6 +150,26 @@ describe("the generated client's targets", () => {
         writeFileSync(path, text);
       }
       expect(readFileSync(path, "utf8"), `${path} is stale: UPDATE_CLIENT_FIXTURE=1`).toBe(text);
+    }
+  });
+
+  it("the client template's committed client is the CRM's current customer client", () => {
+    // The template's web app (templates/client/apps/web) commits its generated client, as a
+    // client repo does, and apps/app's company-web fixture runs the template's code against the
+    // real host (stage 24). This keeps the copy current, so it is refreshed on purpose:
+    // UPDATE_CLIENT_FIXTURE=1 rewrites it. `cos create` writes a fresh one for its product.
+    const root = join(here, "..", "..", "..");
+    const text = renderClient(productContract([deals, leads, lifecycle]), { product: "crm" })[
+      "customer.ts"
+    ] as string;
+    for (const app of ["web", "mobile"]) {
+      const file = join(root, "templates", "client", "apps", app, "src", "client", "customer.ts");
+      if (process.env.UPDATE_CLIENT_FIXTURE === "1") writeFileSync(file, text);
+      expect(
+        readFileSync(file, "utf8"),
+        `${file} is not the CRM's current customer client: an operation open to customers changed. ` +
+          "Regenerate it on purpose with UPDATE_CLIENT_FIXTURE=1 pnpm --filter @composable-os/client-gen test",
+      ).toBe(text);
     }
   });
 
