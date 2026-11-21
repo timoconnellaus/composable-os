@@ -143,8 +143,11 @@ export async function customerMayGetCode(
  * one costs nothing, so it cannot make an address able to sign in.
  */
 export async function hasBought(db: Kysely<CoreDatabase>, address: string): Promise<boolean> {
+  // Through the seam as the org (no caller: the address is the one being asked about).
+  const { orgReader, visibleSource } = await import("../visibility/index.ts");
+  const { orderObject } = await import("../fields/order.ts");
   const row = await db
-    .selectFrom("core_order")
+    .selectFrom(visibleSource(orgReader(db), orderObject))
     .select("id")
     .where("email", "=", address)
     .where("paid", ">", 0)
