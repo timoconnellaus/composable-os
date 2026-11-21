@@ -67,12 +67,12 @@ describe("a customer signs in on the company's own hostname", () => {
     const email = await invitedPerson("Ada");
     expect((await browse("/account")).status).toBe(401);
 
-    const asked = await browse("/sign-in/code", { body: { email } });
+    const asked = await browse("/auth/code", { body: { email } });
     expect(asked.status, asked.text).toBe(200);
     const code = sentCodes.get(email.toLowerCase());
     expect(code).toMatch(/^\d{6}$/);
 
-    const signedIn = await browse("/sign-in", { body: { email, code } });
+    const signedIn = await browse("/auth/sign-in", { body: { email, code } });
     expect(signedIn.status, signedIn.text).toBe(200);
     // The browser keeps this cookie for shop.test: it came from shop.test and names no Domain.
     expect(signedIn.cookies).toHaveLength(1);
@@ -85,7 +85,7 @@ describe("a customer signs in on the company's own hostname", () => {
     const account = await browse("/account", { cookie: jar });
     expect(account).toMatchObject({ status: 200, text: "Signed in as Ada Lovelace" });
 
-    const out = await browse("/sign-out", { body: {}, cookie: jar });
+    const out = await browse("/auth/sign-out", { body: {}, cookie: jar });
     expect(out.status).toBe(200);
     expect(out.cookies.join("\n")).toMatch(/cos-customer\.session_token=;/);
     // The old cookie is dead even if the browser kept it.

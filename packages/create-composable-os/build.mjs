@@ -10,7 +10,7 @@ import { build } from "esbuild";
 const here = dirname(fileURLToPath(import.meta.url));
 rmSync(join(here, "dist"), { recursive: true, force: true });
 await build({
-  entryPoints: [join(here, "src", "cli.ts")],
+  entryPoints: [join(here, "src", "cli.ts"), join(here, "src", "create.ts")],
   outdir: join(here, "dist"),
   bundle: true,
   splitting: true,
@@ -22,3 +22,4 @@ await build({
   external: ["typescript", "esbuild"],
 });
 chmodSync(join(here, "dist", "cli.js"), 0o755);
+chmodSync(join(here, "dist", "create.js"), 0o755);

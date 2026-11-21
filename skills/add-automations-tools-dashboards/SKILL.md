@@ -120,12 +120,26 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
 - **Tests are required.** At least one per tool and one per automation, with `createTestHost`,
   and every automation test asserts `run.undeclared` is empty.
 
+<!-- platform-repo -->
 **When something is missing.** If the work needs something the platform, the contract or this
 skill does not have (a trigger, a gatekeeper, a core operation, a widget type), changing them is
 part of the work, done properly, with an ADR where `AGENTS.md` asks for one and this skill
 updated to match. Never fake it in extension code with a shortcut or a workaround (a rule enforced
 in a tool, a write past an operation, a call past a gatekeeper). If the change is too large
 for the request, say so and stop; do not ship the workaround.
+<!-- /platform-repo -->
+<!-- client-repo
+**When something is missing.** In a client repo you cannot change the platform. When the work
+needs something the platform, the contract or this skill does not have (a behaviour, an
+operation, a gatekeeper, a trigger), stop that part and say exactly what the platform needs and
+why, then build the rest. Never work around it in the extension or in an app (a rule enforced in
+a tool or a screen, a write past an operation, a call past a gatekeeper, a database opened).
+
+In a client repo the worked examples are the packs as installed:
+`node_modules/@composable-os/pack-deals/` and its siblings. Your extension lives in
+`extensions/<id>/`; check it with `pnpm cos ext check extensions/<id>` and test it with
+`pnpm cos ext test extensions/<id>`. `cos deploy` installs it.
+-->
 
 ## The check command
 

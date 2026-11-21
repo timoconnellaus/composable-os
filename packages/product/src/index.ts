@@ -64,6 +64,59 @@ export function defineProduct(definition: ProductDefinition): ProductDefinition 
 }
 
 /**
+ * A client repo's product (stage 24, ADR 0422): `product.ts` at the root of a company's own
+ * repository. It says which platform release the host is deployed from, which of that release's
+ * packs are on, and where the company's own apps are.
+ *
+ * The host keeps the release's names and strings (`crm-app`, "CRM"): they are built into the
+ * release, which is deployed as verified. Naming the host for the company's own product needs the
+ * platform to apply names and strings at deploy time, which it does not do yet.
+ */
+export interface ClientProductDefinition {
+  /** The company's product, lowercase: names its Workers (`<id>-web`) and the repo. */
+  id: string;
+  /** The product's name as people read it. */
+  label: string;
+  platform: {
+    /** The platform version the repo is on: the release deployed, the client kit copied from. */
+    version: string;
+    /** The platform product whose release is deployed as the host (`crm`). */
+    release: string;
+    /** GitHub `owner/repo` the platform's releases come from. */
+    repository: string;
+  };
+  /** The release's packs that are on (`deals`, `leads`, …). Empty: base records only. */
+  packs: string[];
+  /**
+   * The web app, if the repo has one: its folder, its Worker's name, its hostname (else
+   * workers.dev) and where its generated client is (default `src/client`).
+   */
+  web?: { dir: string; worker: string; hostname?: string; clientDir?: string };
+  /** The mobile app, if the repo has one: its folder, and where its generated client is. */
+  mobile?: { dir: string; clientDir?: string };
+}
+
+const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+
+/** Checks a client repo's product and returns it. Throws on the first problem. */
+export function defineClientProduct(definition: ClientProductDefinition): ClientProductDefinition {
+  const fail = (what: string): never => {
+    throw new Error(`product ${JSON.stringify(definition.id)}: ${what}`);
+  };
+  if (!NAME.test(definition.id)) fail("id must be lowercase letters, digits and single hyphens");
+  if (!definition.label.trim()) fail("label is empty");
+  if (!VERSION.test(definition.platform.version)) fail("platform.version must be x.y.z");
+  if (!NAME.test(definition.platform.release)) fail("platform.release must be a product id");
+  if (!/^[\w.-]+\/[\w.-]+$/.test(definition.platform.repository)) {
+    fail("platform.repository must be owner/repo");
+  }
+  for (const pack of definition.packs) if (!NAME.test(pack)) fail(`pack ${pack} is not an id`);
+  if (new Set(definition.packs).size !== definition.packs.length) fail("a pack is listed twice");
+  if (definition.web && !NAME.test(definition.web.worker)) fail("web.worker must be a Worker name");
+  return definition;
+}
+
+/**
  * The prefix packages use for Workers and resources in their own configuration (wrangler.jsonc,
  * deploy-inputs.json) and in local development: `cos-app`, the database `cos`. It belongs to the
  * platform. A release replaces it with the product's names (`deployedName`).

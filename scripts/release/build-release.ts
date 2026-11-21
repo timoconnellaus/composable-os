@@ -33,7 +33,6 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { loadProduct, PRODUCT_ENV, productFile } from "@composable-os/product/node";
-import { collectClientKit } from "./client-kit.ts";
 import { DEFAULT_PRODUCT } from "@composable-os/products";
 import {
   assertUnresolved,
@@ -48,6 +47,7 @@ import {
   stableStringify,
   writeTar,
 } from "@composable-os/release";
+import { collectClientKit } from "./client-kit.ts";
 import {
   type DeployablePackage,
   generateManifest,
@@ -222,7 +222,7 @@ async function main() {
   );
   assertUnresolved(manifest);
   // The client kit (stage 24): template, skills, blocks and the API contract.
-  const kit = collectClientKit(ROOT);
+  const kit = collectClientKit(ROOT, product.packs);
   manifest.client = await clientKitEntry(kit);
 
   const manifestText = `${stableStringify(manifest)}\n`;

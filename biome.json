@@ -19,7 +19,7 @@
       "!docs/stages/assets",
       "!scripts/release/test/testdata",
       "!packages/client/test/generated",
-      "!apps/app/test/fixtures/company-web/customer.ts",
+      "!templates/client/apps/web/src/client",
       "!evals/*/recordings",
       "!packages/gatekeeper-interface/src",
       "!packages/gatekeeper-interface/testing",

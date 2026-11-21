@@ -73,10 +73,24 @@ import {
 } from "@composable-os/release";
 import { choose, type Io, type Redactor } from "./io.ts";
 
-export const HELP = `create-composable-os: install a Composable OS product into your own Cloudflare account.
+export const HELP = `cos: the Composable OS command. One command for a company's own repository and for
+installing a product with no repository.
 
-Usage
-  npx create-composable-os [install] [options]     install, or repair an existing install (idempotent)
+A client repo (stage 24)
+  cos create <dir>                       a new client repo from the release's template (also
+                                         \`npm create composable-os <dir>\`)
+  cos init                               adopt the repo you are in: adds product.ts, skills/, the
+                                         typed client and the rules in AGENTS.md; shows a diff of
+                                         every change to a file that exists and applies it with --yes
+  cos deploy                             the host from the release in product.ts, with its packs and
+                                         the org's own extensions (checked first), then the web app
+  cos upgrade [--version X.Y.Z]          in a client repo: move product.ts to a newer platform
+                                         version, regenerate the client, replace skills/, report type
+                                         errors; deploys nothing
+  cos add <block>, cos diff <block>      copy a block from the release; show its upstream changes
+
+Installing a product with no client repo
+  cos install [options]                  install, or repair an existing install (idempotent)
   cos upgrade [--version X.Y.Z]          update to a newer release (preflight, bookmark, migrate,
                                          switch all Workers, smoke check; rolls back on failure)
   cos rollback                           redeploy the previous release and restore its bookmark
@@ -165,6 +179,8 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "store-update-token",
       "json",
       "unverified",
+      "skip-build",
+      "no-typecheck",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {
@@ -176,7 +192,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       flags["provider-key"] = [...((flags["provider-key"] as string[]) ?? []), String(value)];
     else flags[key] = value;
   }
-  return { command: command || "install", flags };
+  return { command, flags };
 }
 
 export interface Env {
@@ -206,18 +222,21 @@ export interface Deps {
   smokeDelayMs?: number;
 }
 
-class CliError extends Error {}
+export class CliError extends Error {}
 
-function str(flags: Flags, key: string): string | undefined {
+/** The runner's vars a client repo's deploy sets (apps/runner/src/extensions/shipped-list.ts). */
+export const PACKS_VAR = "COS_PACKS";
+export const ORG_EXTENSIONS_VAR = "COS_ORG_EXTENSIONS";
+
+export function str(flags: Flags, key: string): string | undefined {
   const value = flags[key];
   return typeof value === "string" ? value : undefined;
 }
 
-interface Session {
+/** Where a product's releases come from, and how they are verified: no Cloudflare needed. */
+export interface ReleaseSource {
   /** The product being installed or operated on (`--product`): its names and its repository. */
   product: ProductDefinition;
-  api: CloudflareClient;
-  accountId: string;
   github: GitHubOptions;
   repository: string;
   extra: ExtraVerifier | undefined;
@@ -227,8 +246,13 @@ interface Session {
   unverified: boolean;
 }
 
+interface Session extends ReleaseSource {
+  api: CloudflareClient;
+  accountId: string;
+}
+
 /** `--product`, or the default product. */
-function productOf(flags: Flags, deps: Deps): ProductDefinition {
+export function productOf(flags: Flags, deps: Deps): ProductDefinition {
   const known = deps.products ?? { all: products, default: DEFAULT_PRODUCT };
   const id = str(flags, "product") ?? known.default;
   const product = known.all[id];
@@ -271,6 +295,13 @@ async function session(flags: Flags, deps: Deps): Promise<Session> {
     );
     accountId = accounts.find((a) => label.endsWith(`(${a.id})`))?.id as string;
   }
+  const source = releaseSource(flags, deps, product);
+  return { ...source, api, accountId };
+}
+
+/** Where `product`'s releases come from (`--repo`, `--bundle-dir`, gh), without Cloudflare. */
+export function releaseSource(flags: Flags, deps: Deps, product: ProductDefinition): ReleaseSource {
+  const { env } = deps;
   const repository = str(flags, "repo") ?? product.updateRepository;
   const github: GitHubOptions = {
     repository,
@@ -289,8 +320,6 @@ async function session(flags: Flags, deps: Deps): Promise<Session> {
   }
   return {
     product,
-    api,
-    accountId,
     github,
     repository,
     extra,
@@ -299,7 +328,7 @@ async function session(flags: Flags, deps: Deps): Promise<Session> {
   };
 }
 
-async function verified(s: Session, version: string, deps: Deps) {
+export async function verified(s: ReleaseSource, version: string, deps: Deps) {
   const local = s.bundleDir
     ? join(s.bundleDir, releaseAssetNames(s.product.id, version).bundle)
     : null;
@@ -410,7 +439,7 @@ function randomSecret(): string {
   return toHex(crypto.getRandomValues(new Uint8Array(32)));
 }
 
-async function latestVersion(s: Session, channel: Channel): Promise<string> {
+export async function latestVersion(s: ReleaseSource, channel: Channel): Promise<string> {
   const releases = await listReleases(channel, s.github);
   const latest = releases[0];
   if (!latest) throw new CliError(`No ${channel} release is published in ${s.repository} yet.`);
@@ -419,7 +448,7 @@ async function latestVersion(s: Session, channel: Channel): Promise<string> {
 
 // ---- install ------------------------------------------------------------------------------------
 
-async function install(flags: Flags, deps: Deps): Promise<number> {
+export async function install(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
   const existing = await locateDeployment(s.api, s.accountId, s.product.names.database);
@@ -591,6 +620,17 @@ async function install(flags: Flags, deps: Deps): Promise<number> {
     // Per deployment, in the deployment state: upgrades keep it (ADR 0192).
     vars = withDeploymentVar(vars, manifest, MODEL_ROLES_VAR, modelRoles);
   }
+  // A client repo's deploy (stage 24, ADR 0422): the packs its product lists and the org's own
+  // extensions pinned by hash. Set as given, "" included (no packs); kept by upgrades.
+  for (const [flag, name] of [
+    ["packs", PACKS_VAR],
+    ["org-extensions", ORG_EXTENSIONS_VAR],
+  ] as const) {
+    const value = str(flags, flag);
+    if (value === undefined) continue;
+    for (const worker of varWorkers(manifest, name))
+      vars[worker] = { ...vars[worker], [name]: value };
+  }
   if (aiGateway === false) {
     // Turned off: clear a gateway an earlier install set.
     for (const [worker, values] of Object.entries(vars)) {
@@ -755,7 +795,7 @@ async function currentManifest(s: Session, version: string) {
   }
 }
 
-async function upgrade(flags: Flags, deps: Deps): Promise<number> {
+export async function upgrade(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
   const { databaseId, state: found } = await locate(s);
@@ -1060,23 +1100,40 @@ export async function runCli(argv: string[], input: Deps): Promise<number> {
   const deps = input;
   if (argv[0] === "ext") return ext(argv.slice(1), deps);
   if (argv[0] === "client") return client(argv.slice(1), deps);
+  // Commands that take one argument before their flags (stage 24).
+  const positional =
+    ["create", "add", "diff"].includes(argv[0] ?? "") && argv[1] && !argv[1].startsWith("-")
+      ? [argv[1]]
+      : [];
   let parsed: ReturnType<typeof parseArgs>;
   try {
-    parsed = parseArgs(argv);
+    parsed = parseArgs(positional.length ? [argv[0] as string, ...argv.slice(2)] : argv);
   } catch (error) {
     deps.io.err((error as Error).message);
     return 2;
   }
-  if (parsed.flags.help) {
+  if (parsed.flags.help || !argv.length) {
     deps.io.out(HELP);
-    return 0;
+    return argv.length ? 0 : 2;
   }
+  const repo = await import("./client-repo.ts");
+  const blocks = await import("./blocks.ts");
   const commands: Record<string, (flags: Flags, deps: Deps) => Promise<number>> = {
     install,
-    upgrade,
+    // In a client repo (its product.ts is a client product), `cos upgrade` moves the repo to a
+    // newer platform version; anywhere else it updates an installed deployment, as before.
+    upgrade: (flags, d) =>
+      repo.isClientRepo(str(flags, "dir") ?? process.cwd())
+        ? repo.upgradeRepo(flags, d)
+        : upgrade(flags, d),
     rollback,
     status,
     uninstall,
+    create: (flags, d) => repo.create(positional, flags, d),
+    init: repo.init,
+    deploy: repo.deploy,
+    add: (flags, d) => blocks.add(positional, flags, d),
+    diff: (flags, d) => blocks.diff(positional, flags, d),
   };
   const command = commands[parsed.command];
   if (!command) {

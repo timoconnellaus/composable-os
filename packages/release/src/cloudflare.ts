@@ -882,6 +882,18 @@ export class CloudflareClient {
     await this.request("DELETE", `/accounts/${accountId}/tokens/${id}`);
   }
 
+  /** Puts one object in an R2 bucket (the org's extensions, stage 24). */
+  async putR2Object(accountId: string, bucket: string, key: string, bytes: Uint8Array) {
+    return (
+      await this.request<unknown>(
+        "PUT",
+        `/accounts/${accountId}/r2/buckets/${bucket}/objects/${encodeURIComponent(key)}`,
+        undefined,
+        { raw: bytes as BodyInit, headers: { "content-type": "application/octet-stream" } },
+      )
+    ).result;
+  }
+
   // ---- Static assets (direct upload) ----------------------------------------------------------
 
   /** Starts an assets upload session; returns the JWT and the hashes the API still needs. */

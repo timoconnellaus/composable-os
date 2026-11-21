@@ -413,7 +413,7 @@ async function uploadAssets(
   return completion;
 }
 
-function contentTypeOf(path: string): string {
+export function contentTypeOf(path: string): string {
   const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
   const types: Record<string, string> = {
     html: "text/html",

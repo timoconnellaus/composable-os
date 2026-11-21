@@ -60,14 +60,19 @@ export function blockDirs(root: string): { name: string; dir: string }[] {
   return found.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function collectClientKit(root: string): Map<string, Uint8Array> {
+export function collectClientKit(root: string, packs: readonly string[]): Map<string, Uint8Array> {
   const kit = new Map<string, Uint8Array>();
+  // The packs this release has: a client repo's product may list any of them.
+  kit.set("packs.json", new TextEncoder().encode(`${JSON.stringify([...packs].sort())}\n`));
   walk(join(root, "templates", "client"), join(root, "templates", "client"), kit, "template/");
   const skills = join(root, "skills");
   for (const name of readdirSync(skills)) {
     const file = join(skills, name, "SKILL.md");
     if (!statSync(join(skills, name)).isDirectory() || !existsSync(file)) continue;
-    kit.set(`skills/${name}/SKILL.md`, new TextEncoder().encode(clientSkill(readFileSync(file, "utf8"))));
+    kit.set(
+      `skills/${name}/SKILL.md`,
+      new TextEncoder().encode(clientSkill(readFileSync(file, "utf8"))),
+    );
   }
   for (const { name, dir } of blockDirs(root)) walk(dir, dir, kit, `blocks/${name}/`);
   const api = join(root, "packages", "core", "api", "v1");

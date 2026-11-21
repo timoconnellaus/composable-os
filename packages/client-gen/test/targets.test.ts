@@ -153,15 +153,16 @@ describe("the generated client's targets", () => {
     }
   });
 
-  it("the company-web fixture's committed client is the CRM's current customer client", () => {
-    // apps/app/test/fixtures/company-web stands in for a client repo, which commits its
-    // generated client (stage 24). This keeps the fixture's copy current, so it is refreshed on
-    // purpose: UPDATE_CLIENT_FIXTURE=1 rewrites it.
-    const path = join(here, "..", "..", "..", "apps", "app", "test", "fixtures", "company-web");
+  it("the client template's committed client is the CRM's current customer client", () => {
+    // The template's web app (templates/client/apps/web) commits its generated client, as a
+    // client repo does, and apps/app's company-web fixture runs the template's code against the
+    // real host (stage 24). This keeps the copy current, so it is refreshed on purpose:
+    // UPDATE_CLIENT_FIXTURE=1 rewrites it. `cos create` writes a fresh one for its product.
+    const root = join(here, "..", "..", "..");
     const text = renderClient(productContract([deals, leads, lifecycle]), { product: "crm" })[
       "customer.ts"
     ] as string;
-    const file = join(path, "customer.ts");
+    const file = join(root, "templates", "client", "apps", "web", "src", "client", "customer.ts");
     if (process.env.UPDATE_CLIENT_FIXTURE === "1") writeFileSync(file, text);
     expect(
       readFileSync(file, "utf8"),

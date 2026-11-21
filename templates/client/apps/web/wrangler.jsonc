@@ -1,0 +1,13 @@
+// The company's web app (stage 24): its own Worker, on the company's own hostname. It reaches the
+// host only through HOST, a service binding to the host's ClientApp entrypoint, which serves
+// customer sign-in and the operations open to customers and the public. It has no database,
+// bucket, KV namespace or secret of its own, and never needs one (AGENTS.md).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "client-web",
+  "main": "./src/server.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "services": [{ "binding": "HOST", "service": "cos-app", "entrypoint": "ClientApp" }]
+}
