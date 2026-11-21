@@ -8,6 +8,7 @@ import {
   type AnyInvocationContext,
   audiencesOf,
   coreRegistry,
+  MAX_BODY_BYTES,
   type OpenOperationsFile,
   openOperations,
 } from "../src/index.ts";
@@ -87,6 +88,68 @@ describe("the route", () => {
     });
     const empty = await surface.handle(opRequest("fixture.whoAmI", {}, null, { body: "" }));
     expect(await said(empty)).toEqual({ status: 200, body: { data: { kind: "public" } } });
+  });
+});
+
+describe("the body", () => {
+  /** A chunked body with no content-length, counting how much of it was pulled. */
+  function endless(chunk: number, chunks: number) {
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled >= chunks) return controller.close();
+        pulled += 1;
+        controller.enqueue(new TextEncoder().encode(" ".repeat(chunk)));
+      },
+    });
+    return { body, pulled: () => pulled };
+  }
+
+  it("is read as a stream and abandoned once it passes the limit", async () => {
+    const stream = endless(64 * 1024, 1000); // 64 MB on offer
+    const response = await surface.handle(
+      new Request(`${ORIGIN}/api/v1/op/fixture.whoAmI`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: stream.body,
+      }),
+    );
+    expect(await said(response)).toEqual({
+      status: 413,
+      body: { error: { code: "invalid_input", message: "The request body is too large" } },
+    });
+    // It stopped just past MAX_BODY_BYTES (1 MB), not at the end of what was on offer.
+    expect(stream.pulled()).toBeLessThanOrEqual(Math.ceil(MAX_BODY_BYTES / (64 * 1024)) + 2);
+  });
+
+  it("a declared length over the limit is refused before reading", async () => {
+    const stream = endless(1024, 10);
+    const response = await surface.handle(
+      new Request(`${ORIGIN}/api/v1/op/fixture.whoAmI`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-length": "5000000" },
+        body: stream.body,
+      }),
+    );
+    expect(response?.status).toBe(413);
+  });
+
+  it("a body under the limit, chunked, is read whole", async () => {
+    const parts = ['{"', '":', "1}"].map((p) => new TextEncoder().encode(p));
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(part);
+        controller.close();
+      },
+    });
+    const response = await surface.handle(
+      new Request(`${ORIGIN}/api/v1/op/fixture.whoAmI`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      }),
+    );
+    expect(await said(response)).toEqual({ status: 200, body: { data: { kind: "public" } } });
   });
 });
 

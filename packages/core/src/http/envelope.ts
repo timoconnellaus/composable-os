@@ -67,7 +67,7 @@ export function errorReply(error: unknown, outside: boolean): HttpReply {
 function withoutStatus(details: unknown): unknown {
   if (!details || typeof details !== "object" || !("httpStatus" in details)) return details;
   const { httpStatus: _status, ...rest } = details as Record<string, unknown>;
-  return rest;
+  return Object.keys(rest).length ? rest : undefined;
 }
 
 /** The headers a rate-limited reply carries, so a client knows when to retry. */

@@ -2,6 +2,7 @@
 // and input, sent twice and sent twice at once, runs the handler once and returns the same
 // response; a different input with the same key is refused; a write with no key is refused.
 import { env } from "cloudflare:workers";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { objectTableOf } from "../src/extensions/schema.ts";
@@ -10,6 +11,7 @@ import {
   type AnyInvocationContext,
   CLAIM_STALE_MS,
   coreRegistry,
+  createInvoker,
   createRegistry,
   defineOperation,
   inputHash,
@@ -471,4 +473,120 @@ it("keys are purged after 24 hours", async () => {
     .where("scope", "=", "purge")
     .execute();
   expect(left).toEqual([{ idempotency_key: fresh }]);
+});
+
+it("erasing a person removes their stored replies, and any other reply that names them", async () => {
+  const c = await createCustomer(admin, "C");
+  // The fixtures' principals have no account row; this one needs one for erase to find.
+  const at = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO core_customer (id, person_id, email, email_verified, status, link_state, created_at, updated_at) VALUES (?, ?, ?, 1, 'active', 'linked', ?, ?)",
+  )
+    .bind(c.principal.customerId, c.principal.personId, `${unique("c")}@example.com`, at, at)
+    .run();
+  const mine = crypto.randomUUID();
+  await send("fixture.countedCreate", { text: unique("erase") }, outside(c.principal), mine);
+  // A staff write about them, whose stored reply holds their name.
+  const staffKey = crypto.randomUUID();
+  const staff = context(admin, { origin: { surface: "client" } });
+  const updated = await send(
+    "person.update",
+    { id: c.principal.personId, givenName: "Erasable" },
+    staff,
+    staffKey,
+  );
+  expect(updated.status).toBe(200);
+  const other = crypto.randomUUID();
+  await send("fixture.countedCreate", { text: unique("keep") }, outside(a.principal), other);
+  const keys = () =>
+    db.query
+      .selectFrom("core_idempotency_key")
+      .select("idempotency_key")
+      .where("idempotency_key", "in", [mine, staffKey, other])
+      .execute()
+      .then((rows) => rows.map((r) => r.idempotency_key).sort());
+  expect(await keys()).toEqual([mine, staffKey, other].sort());
+
+  const { invoke } = await import("../src/index.ts");
+  await invoke("person.erase", { id: c.principal.personId }, context(admin));
+  expect(await keys()).toEqual([other]);
+});
+
+/** A D1 binding that counts what it is asked to run: statements, and round trips to D1. */
+function countingD1(inner: D1Database) {
+  const count = { statements: 0, roundTrips: 0 };
+  const real = new WeakMap<object, D1PreparedStatement>();
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => {
+    const proxy = new Proxy(statement, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop) as unknown;
+        if (typeof value !== "function") return value;
+        const fn = value as (...args: unknown[]) => unknown;
+        if (prop === "bind") {
+          return (...args: unknown[]) => wrap(fn.apply(target, args) as D1PreparedStatement);
+        }
+        if (prop === "first" || prop === "all" || prop === "run" || prop === "raw") {
+          return (...args: unknown[]) => {
+            count.roundTrips += 1;
+            return fn.apply(target, args);
+          };
+        }
+        return fn.bind(target);
+      },
+    });
+    real.set(proxy, statement);
+    return proxy;
+  };
+  const d1 = new Proxy(inner, {
+    get(target, prop) {
+      if (prop === "prepare") {
+        return (query: string) => {
+          count.statements += 1;
+          return wrap(target.prepare(query));
+        };
+      }
+      if (prop === "batch") {
+        return (statements: D1PreparedStatement[]) => {
+          count.roundTrips += 1;
+          return target.batch(statements.map((s) => real.get(s) ?? s));
+        };
+      }
+      const value = Reflect.get(target, prop) as unknown;
+      return typeof value === "function" ? (value as () => unknown).bind(target) : value;
+    },
+  });
+  return { d1, count };
+}
+
+describe("what a key costs (ADR 0416)", () => {
+  it("one more round trip and three more statements than the same write without the surface", async () => {
+    const { d1, count } = countingD1(env.DB);
+    const ctx = { principal: a.principal, db: createCrmDb(d1) } as const;
+    const invoker = createInvoker(registry);
+    const direct = async () => {
+      await invoker.invokeByName("fixture.countedCreate", { text: unique("cost") }, ctx);
+    };
+    const overHttp = async () => {
+      const response = await surface.handle(
+        opRequest("fixture.countedCreate", { text: unique("cost") }, ctx),
+      );
+      expect(response?.status).toBe(200);
+    };
+    // Warm both paths (the schema registry), then measure each once.
+    await direct();
+    await overHttp();
+    const measure = async (run: () => Promise<void>) => {
+      const before = { ...count };
+      await run();
+      return {
+        statements: count.statements - before.statements,
+        roundTrips: count.roundTrips - before.roundTrips,
+      };
+    };
+    const plain = await measure(direct);
+    const keyed = await measure(overHttp);
+    expect(plain.statements).toBeGreaterThan(0);
+    expect(keyed.statements - plain.statements).toBe(3);
+    expect(keyed.roundTrips - plain.roundTrips).toBe(1);
+  });
 });

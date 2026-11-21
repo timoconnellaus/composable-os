@@ -116,6 +116,36 @@ function replyFor(outcome: BatchOutcome, outside: boolean): HttpReply | null {
   return outcome.deferred ? null : dataReply(outcome.output);
 }
 
+const tooLarge = () => new ValidationError("The request body is too large", { httpStatus: 413 });
+
+/**
+ * The body as text, read as a stream and abandoned as soon as it passes `limit` bytes, so a
+ * chunked request with no content-length (or a false one) cannot make the Worker hold more.
+ */
+export async function readBounded(request: Request, limit: number): Promise<string> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel().catch(() => {});
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 async function readInput(request: Request): Promise<unknown> {
   const type = request.headers.get("content-type") ?? "";
   if (!/^application\/json\b/i.test(type)) {
@@ -124,13 +154,8 @@ async function readInput(request: Request): Promise<unknown> {
     });
   }
   const declared = Number(request.headers.get("content-length") ?? "0");
-  if (declared > MAX_BODY_BYTES) {
-    throw new ValidationError("The request body is too large", { httpStatus: 413 });
-  }
-  const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) {
-    throw new ValidationError("The request body is too large", { httpStatus: 413 });
-  }
+  if (declared > MAX_BODY_BYTES) throw tooLarge();
+  const text = await readBounded(request, MAX_BODY_BYTES);
   if (text.trim() === "") return {};
   try {
     return JSON.parse(text) as unknown;

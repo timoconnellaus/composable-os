@@ -113,63 +113,48 @@ function stored(call: IdempotentCall, row: Committed): IdempotentReply | null {
   return { status: row.status, body: row.response, replayed: true };
 }
 
-/** Takes the key for this call, or says who has it. */
+/**
+ * Takes the key for this call in one statement, unless it already committed: an insert guarded
+ * by the key's absence, which takes over a stale claim and leaves a live one alone.
+ */
 async function claim(call: IdempotentCall, claimId: string): Promise<boolean> {
   const now = call.now();
   const stale = new Date(now.getTime() - CLAIM_STALE_MS).toISOString();
-  const taken = await call.db.query
-    .insertInto("core_idempotency_claim")
-    .values({
-      scope: call.scope,
-      idempotency_key: call.key,
-      operation: call.operation,
-      input_hash: call.hash,
-      claim: claimId,
-      claimed_at: now.toISOString(),
-    })
-    .onConflict((oc) =>
-      oc
-        .columns(["scope", "idempotency_key"])
-        .doUpdateSet({
-          operation: (eb) => eb.ref("excluded.operation"),
-          input_hash: (eb) => eb.ref("excluded.input_hash"),
-          claim: (eb) => eb.ref("excluded.claim"),
-          claimed_at: (eb) => eb.ref("excluded.claimed_at"),
-        })
-        .where("core_idempotency_claim.claimed_at", "<", stale),
+  const { rows } = await sql<{ claim: string }>`
+    INSERT INTO core_idempotency_claim
+      (scope, idempotency_key, operation, input_hash, claim, claimed_at)
+    SELECT ${call.scope}, ${call.key}, ${call.operation}, ${call.hash}, ${claimId}, ${now.toISOString()}
+    WHERE NOT EXISTS (
+      SELECT 1 FROM core_idempotency_key WHERE scope = ${call.scope} AND idempotency_key = ${call.key}
     )
-    .returning("claim")
-    .executeTakeFirst();
-  if (taken?.claim === claimId) return true;
-  const holder = await call.db.query
-    .selectFrom("core_idempotency_claim")
-    .select(["operation", "input_hash"])
-    .where("scope", "=", call.scope)
-    .where("idempotency_key", "=", call.key)
-    .executeTakeFirst();
-  if (holder && !sameCall(call, holder)) throw reused();
-  return false;
+    ON CONFLICT (scope, idempotency_key) DO UPDATE SET
+      operation = excluded.operation, input_hash = excluded.input_hash,
+      claim = excluded.claim, claimed_at = excluded.claimed_at
+    WHERE core_idempotency_claim.claimed_at < ${stale}
+    RETURNING claim`.execute(call.db.query);
+  return rows[0]?.claim === claimId;
 }
 
-/** Whether the call that committed a key is still running (filling in its response). */
-async function claimHeld(call: IdempotentCall, claimId: string): Promise<boolean> {
-  const row = await call.db.query
+async function holderOf(call: IdempotentCall) {
+  return call.db.query
     .selectFrom("core_idempotency_claim")
-    .select("claim")
+    .select(["operation", "input_hash", "claim"])
     .where("scope", "=", call.scope)
     .where("idempotency_key", "=", call.key)
     .executeTakeFirst();
-  return row?.claim === claimId;
+}
+
+function releaseStatement(call: IdempotentCall, claimId: string): Compilable {
+  return call.db.query
+    .deleteFrom("core_idempotency_claim")
+    .where("scope", "=", call.scope)
+    .where("idempotency_key", "=", call.key)
+    .where("claim", "=", claimId);
 }
 
 async function release(call: IdempotentCall, claimId: string): Promise<void> {
   try {
-    await call.db.query
-      .deleteFrom("core_idempotency_claim")
-      .where("scope", "=", call.scope)
-      .where("idempotency_key", "=", call.key)
-      .where("claim", "=", claimId)
-      .execute();
+    await call.db.batch([releaseStatement(call, claimId)]);
   } catch (error) {
     // A claim left behind is taken over once it is stale.
     console.error("idempotency claim not released", error instanceof Error ? error.message : error);
@@ -178,14 +163,15 @@ async function release(call: IdempotentCall, claimId: string): Promise<void> {
 
 /** Fills in the response of a key this call committed, when it was not known in the batch. */
 async function fillIn(call: IdempotentCall, claimId: string, reply: HttpReply): Promise<void> {
-  await call.db.query
-    .updateTable("core_idempotency_key")
-    .set({ status: reply.status, response: reply.body })
-    .where("scope", "=", call.scope)
-    .where("idempotency_key", "=", call.key)
-    .where("claim", "=", claimId)
-    .where("response", "is", null)
-    .execute();
+  await call.db.batch([
+    call.db.query
+      .updateTable("core_idempotency_key")
+      .set({ status: reply.status, response: reply.body })
+      .where("scope", "=", call.scope)
+      .where("idempotency_key", "=", call.key)
+      .where("claim", "=", claimId)
+      .where("response", "is", null),
+  ]);
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -193,6 +179,10 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
  * Runs one write under its key. `run` receives the statements to commit in the write's batch
  * and returns the reply the caller is sent; it is not called when the key already committed.
+ *
+ * What it costs a write that commits with its reply (ADR 0416): one more round trip (the claim)
+ * and three more statements (the claim, and the key row and the claim's release in the write's
+ * own batch). A reply computed after the commit adds the fill-in and the release.
  */
 export async function runIdempotent(
   call: IdempotentCall,
@@ -201,17 +191,17 @@ export async function runIdempotent(
   const claimId = crypto.randomUUID();
   const deadline = call.now().getTime() + (call.waitMs ?? WAIT_MS);
   for (;;) {
-    const before = await committedRow(call);
-    if (before) {
-      const reply = stored(call, before);
+    if (await claim(call, claimId)) return runClaimed(call, claimId, run);
+    const committed = await committedRow(call);
+    if (committed) {
+      const reply = stored(call, committed);
       if (reply) return reply;
-      if (!(await claimHeld(call, before.claim))) throw lost();
-    } else if (await claim(call, claimId)) {
-      try {
-        return await runClaimed(call, claimId, run);
-      } finally {
-        await release(call, claimId);
-      }
+      // Its response is being filled in, unless the call that committed it has gone.
+      const holder = await holderOf(call);
+      if (holder?.claim !== committed.claim) throw lost();
+    } else {
+      const holder = await holderOf(call);
+      if (holder && !sameCall(call, holder)) throw reused();
     }
     // Another call has this key: wait for its response.
     if (call.now().getTime() >= deadline) throw inFlight();
@@ -224,23 +214,45 @@ async function runClaimed(
   claimId: string,
   run: (inBatch: InBatch) => Promise<HttpReply>,
 ): Promise<IdempotentReply> {
-  // It may have committed between the look and the claim, by a call that has since let go.
-  const already = await committedRow(call);
-  if (already) {
-    const reply = stored(call, already);
-    if (reply) return reply;
-    throw inFlight();
-  }
   let committed: HttpReply | null | undefined;
   const inBatch: InBatch = (outcome) => {
     committed = call.replyFor(outcome);
-    return [keyInsert(call, claimId, committed)];
+    // A reply known now is complete: the claim goes with the commit. One computed after the
+    // commit keeps the claim until it is filled in, so a waiting call keeps waiting.
+    return [
+      keyInsert(call, claimId, committed),
+      ...(committed !== null ? [releaseStatement(call, claimId)] : []),
+    ];
   };
-  const reply = await run(inBatch);
-  const row = await committedRow(call);
+  let reply: HttpReply;
+  try {
+    reply = await run(inBatch);
+  } catch (error) {
+    await release(call, claimId);
+    throw error;
+  }
+  const succeeded = reply.status < 300;
+  if (succeeded && committed !== undefined) {
+    // The write committed, and its key with it.
+    if (committed === null) {
+      await fillIn(call, claimId, reply);
+      await release(call, claimId);
+    }
+    return { ...reply, replayed: false };
+  }
+  if (succeeded) {
+    // A write that reported success without committing its key: never expected. Say so loudly
+    // and keep the reply, so a retry does not apply it again.
+    console.error("idempotency key not committed with its write", call.operation);
+    await call.db.batch([keyInsert(call, claimId, reply)]).catch(() => {});
+    await release(call, claimId);
+    return { ...reply, replayed: false };
+  }
+  // A failure. Did anything commit under this key?
+  const row = committed === undefined ? undefined : await committedRow(call);
+  await release(call, claimId);
   if (row && row.claim === claimId) {
-    // This call committed. A response computed after the commit, or a failure after it, is
-    // what the caller was sent, so it is what a retry gets.
+    // This call committed, then failed (computing its reply): what it sent is what a retry gets.
     if (row.response === null) await fillIn(call, claimId, reply);
     return { ...reply, replayed: false };
   }
@@ -250,12 +262,6 @@ async function runClaimed(
     const theirs = stored(call, row);
     if (theirs) return theirs;
     throw inFlight();
-  }
-  if (committed === undefined && reply.status < 300) {
-    // A write that reported success without committing its key: never expected. Say so loudly
-    // and keep the reply, so a retry does not apply it again.
-    console.error("idempotency key not committed with its write", call.operation);
-    await call.db.batch([keyInsert(call, claimId, reply)]).catch(() => {});
   }
   return { ...reply, replayed: false };
 }
