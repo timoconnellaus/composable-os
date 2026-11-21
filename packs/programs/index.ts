@@ -277,7 +277,8 @@ export default defineExtension({
         when: { field: "kind", in: ["class"] },
       },
       timelineLinks: ["person"],
-      indexes: [["person", "state"], ["classType", "state"], ["program"]],
+      // A member reads their own (person) or the shared (kind): one index for each side of the OR.
+      indexes: [["person", "state"], ["kind", "state"], ["classType", "state"], ["program"]],
     },
     session: {
       label: "Session",
@@ -383,7 +384,13 @@ export default defineExtension({
         ],
         when: { field: "kind", in: ["class"] },
       },
-      indexes: [["person", "date"], ["classType", "date"], ["assignment", "week"], ["key"]],
+      indexes: [
+        ["person", "date"],
+        ["kind", "date"],
+        ["classType", "date"],
+        ["assignment", "week"],
+        ["key"],
+      ],
     },
     log: {
       label: "Logged set",
