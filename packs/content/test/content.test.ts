@@ -10,6 +10,7 @@ import {
   createContentHooks,
   embedKind,
   embedPlayer,
+  hostMediaUrl,
   mediaPath,
   plainText,
   postDate,
@@ -101,6 +102,9 @@ describe("the headless entry", () => {
       "https://player.vimeo.com/video/76979871",
     );
     expect(mediaPath("med_1", 640)).toBe("/api/media/med_1?w=640");
+    expect(hostMediaUrl("https://admin.example.com/")("med_1", 750)).toBe(
+      "https://admin.example.com/api/v1/media/med_1?w=750",
+    );
     expect(
       plainText({
         blocks: [

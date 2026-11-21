@@ -74,8 +74,8 @@ describe("every route of cos-app is accounted for behind Access", () => {
       isApiPath: "/api/v1/op/me.get",
       isCustomerAuthPath: "/api/customer-auth/sign-in/email-otp",
       NATIVE_STAFF_SIGN_IN_PATH: "/native/staff-sign-in",
-      // Stage 28 (ADR 0444): staff upload and view pictures here; the public is served them
-      // through the client-app binding, which Access does not stand in front of.
+      // Stage 28 (ADR 0444): staff upload and view pictures here. Outsiders are served them at
+      // /api/v1/media/<id> (the bypassed surface, below) or through the client-app binding.
       isMediaPath: "/api/media/med_1",
     };
     expect([...dispatched].sort()).toEqual(Object.keys(known).sort());
@@ -90,6 +90,8 @@ describe("every route of cos-app is accounted for behind Access", () => {
     // Every version of the surface, and every native sign-in route, is the bypassed surface.
     for (const path of [
       "/api/v1/manifest",
+      // A picture for a phone or anyone outside, on the host's own hostname (issue #181).
+      "/api/v1/media/med_1",
       "/api/v1/auth/customer/sign-in",
       "/api/v1/auth/staff/exchange",
       "/api/v1/auth/sign-out",

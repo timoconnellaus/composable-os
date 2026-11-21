@@ -887,7 +887,7 @@ for.
 
 | Path | When | How it authenticates without Access |
 | --- | --- | --- |
-| `/api/v1/*` | always | The HTTP surface decides the caller itself: a native app's bearer token (looked up by hash), a customer cookie signed with `CUSTOMER_AUTH_SECRET`, or an Access JWT verified against your team's keys, issuer and AUD, never trusted unverified. Anything else is the public. Browsers from other origins are refused unless in `API_ALLOWED_ORIGINS`. Native sign-in routes take a code and store only hashes |
+| `/api/v1/*` | always | The HTTP surface decides the caller itself: a native app's bearer token (looked up by hash), a customer cookie signed with `CUSTOMER_AUTH_SECRET`, or an Access JWT verified against your team's keys, issuer and AUD, never trusted unverified. Anything else is the public. Browsers from other origins are refused unless in `API_ALLOWED_ORIGINS`. Native sign-in routes take a code and store only hashes. `/api/v1/media/<id>` is a published post's picture for a phone or any outside caller: served only when content they may read shows it (`media.serve`) |
 | `/api/customer-auth/*` | customers | Customer sign-in by emailed code, its own secret and tables |
 | `/api/health` | always | Health and version only (`cos deploy` and monitors read it) |
 | `/gatekeeper/payments/in/*` | payments | The provider's webhook signature (`STRIPE_WEBHOOK_SECRET`) |
@@ -900,7 +900,9 @@ for.
 
 Behind Access: the staff app (every page), `/sign-in`, `/api/auth/*`, the assistant
 (`/api/assistant/*`), support access (`/support/*`), `/oauth/consent` (where a person signs in for
-MCP), `/connect/handoff`, `/blocks` (development only; nothing there when deployed), `/native/staff-sign-in` (a native app's staff sign-in in the system
+MCP), `/connect/handoff`, `/api/media/*` (the media library: staff upload and view pictures; a company's
+site shows its pictures through its own `/api/media/<id>` route over the binding, and a phone asks
+`/api/v1/media/<id>`), `/blocks` (development only; nothing there when deployed), `/native/staff-sign-in` (a native app's staff sign-in in the system
 browser), and every other `/gatekeeper/*` route: OAuth callbacks and connect pages open in a staff
 member's browser, which carries the Access cookie.
 

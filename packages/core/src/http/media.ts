@@ -137,7 +137,9 @@ async function readCapped(request: Request, max: number): Promise<Uint8Array> {
 }
 
 async function serve(request: Request, url: URL, options: MediaRouteOptions): Promise<Response> {
-  const prefix = url.pathname.startsWith(`${PUBLIC_MEDIA_ROUTE}/`) ? PUBLIC_MEDIA_ROUTE : MEDIA_ROUTE;
+  const prefix = url.pathname.startsWith(`${PUBLIC_MEDIA_ROUTE}/`)
+    ? PUBLIC_MEDIA_ROUTE
+    : MEDIA_ROUTE;
   const id = url.pathname.slice(prefix.length + 1);
   const notFound = () =>
     reply(

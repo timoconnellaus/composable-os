@@ -10,7 +10,6 @@ import {
   embedKind,
   type Inline,
   type ListBody,
-  mediaPath,
   type RichText as RichTextValue,
 } from "@composable-os/pack-content/client";
 import type { ReactNode } from "react";
@@ -26,8 +25,8 @@ export interface RichTextViewProps {
   /** Opens an address: a link, a button's, a video's. */
   openUrl: (url: string) => void;
   /**
-   * Where a picture is served, absolute: the app's host and the media route
-   * (`https://<host>/api/media/<id>?w=<width>`).
+   * Where a picture is, absolute: the host's public media route,
+   * `hostMediaUrl(hostUrl)` (`https://<host>/api/v1/media/<id>?w=<width>`).
    */
   mediaUrl: (id: string, width: number) => string;
   /** The width the pictures are shown at, in device pixels (the screen's). */
@@ -217,7 +216,7 @@ function DefaultBlock({
 export function RichTextView({
   value,
   openUrl,
-  mediaUrl = (id, w) => mediaPath(id, w),
+  mediaUrl,
   width = 960,
   components = {},
 }: RichTextViewProps) {

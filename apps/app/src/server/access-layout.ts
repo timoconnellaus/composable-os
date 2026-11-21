@@ -134,8 +134,9 @@ export const ACCESS_STAFF: readonly StaffPath[] = [
   {
     path: "/api/media/*",
     why:
-      "The media library (stage 28, ADR 0444): staff upload and view pictures. The public is " +
-      "served published content's pictures through the client-app binding, which Access does not front.",
+      "The media library (stage 28, ADR 0444): staff upload and view pictures. Outsiders are " +
+      "served published content's pictures at /api/v1/media/<id> (bypassed with /api/v1) or " +
+      "through the client-app binding, which Access does not front.",
   },
   {
     path: "/blocks",

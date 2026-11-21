@@ -9,10 +9,13 @@ import { RichText } from "../content-rich-text/rich-text.tsx";
 /** A post's article: shared by the page and the preview. */
 export function PostArticle({
   post,
-  mediaUrl = mediaPath,
+  mediaBase = "",
+  mediaUrl = (id, width) => mediaPath(id, width, mediaBase),
   preview = false,
 }: {
   post: PublicPost;
+  /** Another origin for the pictures than this site's /api/media route. */
+  mediaBase?: string;
   mediaUrl?: (id: string, width: number) => string;
   preview?: boolean;
 }) {
@@ -54,12 +57,14 @@ export function PostPage({
   slug,
   onRedirect,
   mediaUrl,
+  mediaBase,
 }: {
   content: Pick<ContentHooks, "usePost">;
   slug: string;
   /** The post's address now, for an old one: send a 301 there. */
   onRedirect: (slug: string) => void;
   mediaUrl?: (id: string, width: number) => string;
+  mediaBase?: string;
 }) {
   const { data, isPending, error } = content.usePost(slug);
   if (isPending) return <p aria-busy="true">Loading…</p>;
@@ -68,7 +73,13 @@ export function PostPage({
     onRedirect(data.slug);
     return <p>This post has moved.</p>;
   }
-  return <PostArticle post={data} {...(mediaUrl ? { mediaUrl } : {})} />;
+  return (
+    <PostArticle
+      post={data}
+      {...(mediaUrl ? { mediaUrl } : {})}
+      {...(mediaBase ? { mediaBase } : {})}
+    />
+  );
 }
 
 /** The working copy of a post, for whoever holds a preview link. */
@@ -77,15 +88,24 @@ export function PostPreview({
   slug,
   token,
   mediaUrl,
+  mediaBase,
 }: {
   content: Pick<ContentHooks, "usePreview">;
   slug: string;
   token: string;
   mediaUrl?: (id: string, width: number) => string;
+  mediaBase?: string;
 }) {
   const { data, isPending, error } = content.usePreview(slug, token);
   if (isPending) return <p aria-busy="true">Loading…</p>;
   if (error || !data)
     return <p role="alert">This preview link has ended or is not for this post.</p>;
-  return <PostArticle post={data} preview {...(mediaUrl ? { mediaUrl } : {})} />;
+  return (
+    <PostArticle
+      post={data}
+      preview
+      {...(mediaUrl ? { mediaUrl } : {})}
+      {...(mediaBase ? { mediaBase } : {})}
+    />
+  );
 }

@@ -217,3 +217,15 @@ export function staffSession(options: StaffOptions) {
 }
 
 export type StaffSession = ReturnType<typeof staffSession>;
+
+/**
+ * Where the app asks for a picture of the host's media library (stage 28, issue #181): the host's
+ * public media route beside the HTTP surface, `<hostUrl>/api/v1/media/<id>?w=<width>`, which
+ * Cloudflare Access lets through with the rest of /api/v1. The host serves a picture that
+ * published content shows; anything else is not found. Pass it as a native block's `mediaUrl`.
+ */
+export function mediaUrlFor(options: Pick<HostOptions, "hostUrl">) {
+  const host = options.hostUrl.replace(/\/+$/, "");
+  return (id: string, width: number): string =>
+    `${host}/api/v1/media/${encodeURIComponent(id)}${width ? `?w=${Math.round(width)}` : ""}`;
+}

@@ -27,8 +27,13 @@ export type BlockRenderer<T extends Block["type"]> = (props: {
 
 export interface RichTextProps {
   value: RichTextValue | null | undefined;
-  /** Where a picture is served: the host's media route by default (`/api/media/<id>?w=`). */
+  /**
+   * Where a picture is: by default `/api/media/<id>?w=` on this site, which the client template's
+   * media route forwards to the host. `mediaBase` puts another origin in front; `mediaUrl`
+   * replaces the address altogether.
+   */
   mediaUrl?: (id: string, width: number) => string;
+  mediaBase?: string;
   /** The app's own element for any block type, in place of the one here. */
   components?: { [T in Block["type"]]?: BlockRenderer<T> };
   className?: string;
@@ -203,7 +208,8 @@ function DefaultBlock({
 /** A rich text document. An empty or missing one draws nothing. */
 export function RichText({
   value,
-  mediaUrl = mediaPath,
+  mediaBase = "",
+  mediaUrl = (id, width) => mediaPath(id, width, mediaBase),
   components = {},
   className,
 }: RichTextProps) {

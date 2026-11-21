@@ -9,6 +9,7 @@ import {
   drainAllBlobDeletions,
   handleMedia,
   invoke,
+  isMediaPath,
   MEDIA_MAX_BYTES,
   type MediaStore,
   mediaDimensions,
@@ -286,6 +287,15 @@ describe("serving (criterion 9)", () => {
     expect(published.status).toBe(200);
     expect(published.headers.get("cache-control")).toMatch(/^public, max-age=\d+$/);
     await published.arrayBuffer();
+    // The same picture at the host's own address for a phone, beside the HTTP surface (#181).
+    const forPhone = await route("public")(
+      new Request(`https://host.test/api/v1/media/${data.id}?w=750`),
+    );
+    expect(forPhone.status).toBe(200);
+    expect(forPhone.headers.get("content-type")).toBe("image/png");
+    await forPhone.arrayBuffer();
+    expect(isMediaPath("/api/v1/media/med_1")).toBe(true);
+    expect(isMediaPath("/api/v1/op/me.get")).toBe(false);
 
     // A public caller cannot upload, and nobody uploads from another site or past the limit.
     const publicUpload = await route("public")(

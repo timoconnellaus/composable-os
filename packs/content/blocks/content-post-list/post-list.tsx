@@ -18,7 +18,8 @@ export function PostList({
   category,
   after,
   olderHref,
-  mediaUrl = mediaPath,
+  mediaBase = "",
+  mediaUrl = (id, width) => mediaPath(id, width, mediaBase),
 }: {
   content: Pick<ContentHooks, "usePosts">;
   /** The page a post is read on: `(slug) => "/blog/" + slug`. */
@@ -29,6 +30,8 @@ export function PostList({
   after?: string;
   /** The address of the next page, given its cursor: `(c) => "/blog?after=" + c`. */
   olderHref?: (cursor: string) => string;
+  /** Another origin for the pictures than this site's /api/media route. */
+  mediaBase?: string;
   mediaUrl?: (id: string, width: number) => string;
 }) {
   const { data, isPending, error } = content.usePosts({
