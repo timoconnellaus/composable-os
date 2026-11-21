@@ -208,6 +208,9 @@ importers:
       '@composable-os/extension-check':
         specifier: workspace:*
         version: link:../../packages/extension-check
+      '@composable-os/product':
+        specifier: workspace:*
+        version: link:../../packages/product
       '@composable-os/products':
         specifier: workspace:*
         version: link:../../products
@@ -671,6 +674,9 @@ importers:
       '@composable-os/db':
         specifier: workspace:*
         version: link:../db
+      '@composable-os/product':
+        specifier: workspace:*
+        version: link:../product
       '@composable-os/products':
         specifier: workspace:*
         version: link:../../products

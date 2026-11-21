@@ -89,7 +89,7 @@ async function created(): Promise<string> {
       name: "shop-web",
       main: "index.js",
       compatibility_date: "2026-10-01",
-      services: [{ binding: "HOST", service: "demo-app", entrypoint: "ClientApp" }],
+      services: [{ binding: "HOST", service: "shop-app", entrypoint: "ClientApp" }],
       assets: { directory: "../client" },
     }),
   );
@@ -112,7 +112,8 @@ describe("cos create", () => {
     expect(web.dependencies["@composable-os/client"]).toBe("1.0.0");
     const wrangler = read(dir, "apps/web/wrangler.jsonc");
     expect(wrangler).toContain('"name": "shop-web"');
-    expect(wrangler).toContain('"service": "demo-app", "entrypoint": "ClientApp"');
+    // Bound to the host as `cos deploy` names it for this product (issue #155).
+    expect(wrangler).toContain('"service": "shop-app", "entrypoint": "ClientApp"');
     expect(wrangler).not.toMatch(/d1_databases|r2_buckets|kv_namespaces/);
     expect(read(dir, ".gitignore")).toContain("node_modules");
     expect(existsSync(join(dir, "skills", "start-client-app", "SKILL.md"))).toBe(true);
@@ -162,19 +163,65 @@ describe("cos deploy", () => {
     await created();
     const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
     expect(deployed.code, deployed.output).toBe(0);
-    for (const worker of ["demo-app", "demo-runner", "shop-web"]) {
+    // The host is named for the client's product (issue #155), not the release's (demo-*).
+    for (const worker of ["shop-app", "shop-runner", "shop-web"]) {
       expect(world.cf.scripts.has(worker), worker).toBe(true);
     }
+    expect(world.cf.scripts.has("demo-app")).toBe(false);
     // One binding, to the host's ClientApp entrypoint, and nothing else.
     expect(world.cf.liveBinding("shop-web", "HOST")).toEqual({
       type: "service",
       name: "HOST",
-      service: "demo-app",
+      service: "shop-app",
       entrypoint: "ClientApp",
     });
     // No pack listed: the runner is told to install none (base records only).
-    expect(world.cf.liveBinding("demo-runner", "COS_PACKS")?.text).toBe("");
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("");
     expect(deployed.output).toContain("Web app: https://shop-web.acme.workers.dev");
+  });
+
+  it("names the host for the client's product at its first install, and the label (issue #155)", async () => {
+    await publish("1.0.0");
+    await created();
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    // Every Worker and resource takes the client's names; the release (demo-*) is unchanged.
+    expect([...world.cf.d1.values()].some((d) => d.name === "shop")).toBe(true);
+    expect([...world.cf.d1.values()].some((d) => d.name === "demo")).toBe(false);
+    expect([...world.cf.scripts.keys()].filter((n) => n.startsWith("demo-"))).toEqual([]);
+    // The product's label, for every surface that shows its name, on the app and the runner.
+    expect(world.cf.liveBinding("shop-app", "COS_PRODUCT_LABEL")?.text).toBe("Shop");
+    expect(world.cf.liveBinding("shop-runner", "COS_PRODUCT_LABEL")?.text).toBe("Shop");
+    // A second deploy finds the host under its own names and keeps them.
+    const again = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(again.code, again.output).toBe(0);
+    expect([...world.cf.d1.values()].filter((d) => d.name === "shop")).toHaveLength(1);
+    expect([...world.cf.scripts.keys()].filter((n) => n.startsWith("demo-"))).toEqual([]);
+  });
+
+  it("keeps the names of a host deployed before client names, and never renames it (ADR 0193)", async () => {
+    await publish("1.0.0");
+    await created();
+    // A host installed from the release with its own names, as every deploy did before #155.
+    const installed = await cos(
+      "install",
+      "--product",
+      "demo",
+      "--version",
+      "1.0.0",
+      "--yes",
+      "--packs",
+      "",
+    );
+    expect(installed.code, installed.output).toBe(0);
+    expect(world.cf.scripts.has("demo-app")).toBe(true);
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    expect(world.cf.scripts.has("shop-app")).toBe(false);
+    expect([...world.cf.d1.values()].some((d) => d.name === "shop")).toBe(false);
+    expect(world.cf.liveBinding("shop-web", "HOST")?.service).toBe("demo-app");
+    // The label still reaches it: it is not a name.
+    expect(world.cf.liveBinding("demo-app", "COS_PRODUCT_LABEL")?.text).toBe("Shop");
   });
 
   it("refuses a web app with a database of its own (criterion 3)", async () => {
@@ -198,9 +245,9 @@ describe("cos deploy", () => {
     });
     const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
     expect(deployed.code, deployed.output).toBe(0);
-    const hash = world.cf.liveBinding("demo-runner", "COS_ORG_EXTENSIONS")?.text ?? "";
+    const hash = world.cf.liveBinding("shop-runner", "COS_ORG_EXTENSIONS")?.text ?? "";
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
-    const stored = world.cf.r2Objects.get(`demo-blobs/org-extensions/${hash}.json`);
+    const stored = world.cf.r2Objects.get(`shop-blobs/org-extensions/${hash}.json`);
     const parsed = JSON.parse(decode(stored ?? new Uint8Array()));
     expect(parsed.extensions.map((e: { id: string }) => e.id)).toEqual(["lifecycle"]);
     expect(Object.keys(parsed.extensions[0].files)).toContain("index.ts");
@@ -454,7 +501,7 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
       expect(first.output).toContain(`--- ${path}`);
     }
     expect(first.output).toContain(
-      '+   "services": [{ "binding": "HOST", "service": "demo-app", "entrypoint": "ClientApp" }]',
+      '+   "services": [{ "binding": "HOST", "service": "movement-app", "entrypoint": "ClientApp" }]',
     );
     expect(first.output).toContain("Not changed.");
     // It keeps the site's own Worker and its own deploy, and says the site has data of its own.
@@ -506,7 +553,7 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
     expect((await cos("init", "--web", ".", "--mobile", "mobile", "--yes")).code).toBe(0);
     const deployed = await cos("deploy", "--no-typecheck");
     expect(deployed.code, deployed.output).toBe(0);
-    expect(world.cf.scripts.has("demo-app")).toBe(true);
+    expect(world.cf.scripts.has("movement-app")).toBe(true);
     expect(world.cf.scripts.has("movement-site")).toBe(false);
     expect(deployed.output).toContain('deploys itself (web.deploy "own")');
   });

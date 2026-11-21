@@ -6,6 +6,7 @@
 // row and time limits, and a 60 s Cache API result cache; nothing here writes on read.
 
 import type { CoreDatabase } from "@composable-os/db";
+import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import type { Kysely } from "kysely";
 import { z } from "zod";
@@ -199,7 +200,7 @@ async function requireEditable(ctx: HandlerContext, id: string): Promise<Dashboa
   const dashboard = await requireVisible(ctx, id);
   if (dashboard.builtIn) {
     throw new ValidationError(
-      `${dashboard.title} ships with ${product.strings.name} and cannot be changed; copy it with dashboard.create { copyFrom: "${id}" }`,
+      `${dashboard.title} ships with ${productName(product)} and cannot be changed; copy it with dashboard.create { copyFrom: "${id}" }`,
       { field: "id" },
     );
   }

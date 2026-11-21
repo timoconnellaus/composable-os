@@ -99,3 +99,30 @@ are held to the generator's output by a test.
   deploy time.
 - `create-composable-os` with no arguments no longer installs: it creates. Documentation that
   said `npx create-composable-os` to install now says `npx @composable-os/cli install`.
+
+## Amendment, 2026-11-21 (issue #155): the host is named for the client's product
+The deviation above ("the host keeps the release's names and strings") is closed.
+- **Names.** At a host's first install, `cos deploy` names its Workers and resources for the
+  client's product: `<id>-app`, `<id>-runner`, `<id>-gatekeeper-…`, the `<id>` database and
+  `<id>-…` resources, derived from `product.ts`'s `id` unless its `names` overrides them
+  (`clientNames`, `clientNameMaps` in `packages/product`). They are applied as deploy-time
+  configuration: the deployment state's `workerNames` and `resourceNames` maps (ADR 0193), which
+  the deploy engine, upgrades and the self-updater already follow. The verified release is
+  deployed byte-identical.
+- **Existing hosts are never renamed** (ADR 0193 stands). `cos deploy` looks for the host under
+  the client's database first, then under the release's; one found there keeps its names.
+- **The label.** `cos deploy` sets `COS_PRODUCT_LABEL` (the product's `label`) on the app and the
+  runner. Each Worker reads it once per isolate (`setProductLabel`), and every surface that names
+  the product reads `productName(product)`: the sidebar, the page title, sign-in, setup, the
+  settings pages, the MCP consent screen, the MCP server's title and instructions, customer
+  sign-in codes, notifications, the digest and the runner's pages. Screens get it from the root
+  route (`getProductName`, `useProductName`). Unset, everything reads as before. Copy that said
+  "the CRM" generically on those surfaces now says what it means without a product name.
+- **Tested:** `packages/create-composable-os/test/client-repo.test.ts` (a first deploy names
+  everything `shop-*` and sets the label; a second keeps them; a host deployed under the release's
+  names keeps those), `packages/release/test/update.test.ts` (an update of a host installed with a
+  client's names stays on them), `packages/core/test/product-label.test.ts` and
+  `apps/app/test/product-label.test.ts` (with the label set, no surface says "CRM").
+- **Not covered:** the MCP server's machine name (`SERVER_NAME`, the build's product id) is
+  unchanged; the hosted path (Workers for Platforms) deploys release names in a namespace and was
+  not changed.

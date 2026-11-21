@@ -4,7 +4,6 @@
 // sample.install / sample.remove).
 
 import { COMMON_CURRENCIES, POLICY_PRESETS, type PolicyPreset } from "@composable-os/core/client";
-import { product } from "@composable-os/products/active";
 import { Badge } from "@composable-os/ui/components/badge";
 import { Button } from "@composable-os/ui/components/button";
 import {
@@ -32,6 +31,7 @@ import { toast } from "sonner";
 import { PageLayout } from "#/components/layout/page-layout";
 import { AiSetupSummaryView } from "#/components/setup/ai-summary";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
+import { useProductName } from "../../components/product-name.ts";
 
 export const Route = createFileRoute("/_app/setup")({ component: SetupPage });
 
@@ -84,6 +84,7 @@ function browserTimezone(): string {
 }
 
 function SetupPage() {
+  const productName = useProductName();
   const { isAdmin } = Route.useRouteContext();
   const navigate = useNavigate();
   const status = useOp("setup.status", {});
@@ -99,14 +100,14 @@ function SetupPage() {
     return (
       <PageLayout title="Setup" width="md">
         <p className="text-sm text-muted-foreground">
-          An admin sets up this CRM. Ask one to finish setup.
+          An admin sets it up. Ask one to finish setup.
         </p>
       </PageLayout>
     );
   }
   if (status.isPending || step === null) {
     return (
-      <PageLayout title={`Set up ${product.strings.name}`} width="md">
+      <PageLayout title={`Set up ${productName}`} width="md">
         <Skeleton className="h-64 w-full" />
       </PageLayout>
     );
@@ -142,7 +143,7 @@ function SetupPage() {
 
   return (
     <PageLayout
-      title={`Set up ${product.strings.name}`}
+      title={`Set up ${productName}`}
       width="md"
       description={`Step ${index + 1} of ${STEPS.length}: ${STEP_TITLES[step]}`}
       actions={
@@ -222,8 +223,8 @@ function AdminStep({ onNext }: { onNext: () => void }) {
       title={access ? "Confirm your Cloudflare Access identity" : "You are the first admin"}
       description={
         access
-          ? "This CRM signs people in with Cloudflare Access. The first person through Access is its admin; everyone after joins as a member."
-          : "You created the first account, so you are this CRM's admin. Only you can sign up until you invite others or allow sign-up."
+          ? "People sign in here with Cloudflare Access. The first person through Access is its admin; everyone after joins as a member."
+          : "You created the first account, so you are its admin. Only you can sign up until you invite others or allow sign-up."
       }
       onNext={onNext}
       nextLabel={access ? "That's me, continue" : "Continue"}

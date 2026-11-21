@@ -68,8 +68,7 @@ export function InternalDomains() {
       <Label htmlFor={id}>Internal domains</Label>
       <p id={`${id}-help`} className="text-xs text-muted-foreground">
         Addresses at these domains are colleagues: they are never matched to people, suggested as
-        contacts or counted as external. Leave empty to use the domains of the CRM users' own
-        addresses
+        contacts or counted as external. Leave empty to use the domains of your users' own addresses
         {settings.data.effectiveInternalDomains.length > 0 &&
           ` (now ${settings.data.effectiveInternalDomains.join(", ")})`}
         .

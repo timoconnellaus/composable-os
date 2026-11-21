@@ -9,6 +9,7 @@
 // the record's title and a link.
 
 import type { CoreDatabase } from "@composable-os/db";
+import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { type Kysely, sql } from "kysely";
 import { valueMatches } from "../automations/sources.ts";
@@ -99,7 +100,7 @@ export function routeText(match: RouteMatch, title: string | null, url: string |
   const what = `${object?.label ?? match.record.object}${title ? ` "${title}"` : ""}`;
   const verb = match.action === "deleted" ? " (deleted)" : "";
   const link =
-    url && match.action !== "deleted" ? `\n<${url}|Open in ${product.strings.name}>` : "";
+    url && match.action !== "deleted" ? `\n<${url}|Open in ${productName(product)}>` : "";
   return `*${slackEscape(match.route.label)}*: ${slackEscape(what)}${verb}${link}`;
 }
 

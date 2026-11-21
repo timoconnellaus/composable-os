@@ -6,7 +6,6 @@
 
 import type { CoreOutput } from "@composable-os/core";
 import { CHANNEL_RESOURCE_PATTERNS, CHANNEL_VENDORS } from "@composable-os/core/client";
-import { product } from "@composable-os/products/active";
 import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
@@ -33,6 +32,7 @@ import { toast } from "sonner";
 import { ErrorState } from "#/components/empty-state";
 import { PageLayout, SaveBar } from "#/components/layout/page-layout";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
+import { useProductName } from "../../../components/product-name.ts";
 
 export const Route = createFileRoute("/_app/settings/notification-delivery")({
   component: NotificationDeliveryPage,
@@ -82,6 +82,7 @@ function hourLabel(hour: number): string {
 }
 
 function DeliverySettingsForm() {
+  const productName = useProductName();
   const settings = useOp("notification.deliverySettings", {});
   const connections = useOp("connection.list", { scope: "org", includeDisconnected: false });
   const save = useOpMutation("notification.updateDeliverySettings", {
@@ -128,7 +129,7 @@ function DeliverySettingsForm() {
       title="Notification delivery"
       width="md"
       back={{ to: "/settings/notifications", label: "Notifications" }}
-      description={`How notifications leave ${product.strings.name}: the org connections email and Slack go out through, escalation of unread approvals and the daily digest.`}
+      description={`How notifications leave ${productName}: the org connections email and Slack go out through, escalation of unread approvals and the daily digest.`}
       footer={
         <SaveBar dirty={dirty || save.isPending}>
           <Button variant="ghost" onClick={reset}>

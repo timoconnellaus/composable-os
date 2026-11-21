@@ -7,6 +7,7 @@
 // here, never an error.
 
 import type { CoreDatabase } from "@composable-os/db";
+import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import type { Kysely } from "kysely";
 import type {
@@ -97,7 +98,7 @@ export function notificationText(
 ): string {
   const parts = [notification.title];
   if (notification.body) parts.push(notification.body);
-  if (url) parts.push(`Open in ${product.strings.name}: ${url}`);
+  if (url) parts.push(`Open in ${productName(product)}: ${url}`);
   return clip(parts.join("\n\n"), TEXT_MAX);
 }
 
@@ -109,7 +110,7 @@ export function slackEscape(text: string): string {
 function slackText(notification: Pick<NotificationRecord, "title" | "body">, url: string | null) {
   const parts = [`*${slackEscape(oneLine(notification.title, SUBJECT_MAX))}*`];
   if (notification.body) parts.push(slackEscape(notification.body));
-  if (url) parts.push(`<${url}|Open in ${product.strings.name}>`);
+  if (url) parts.push(`<${url}|Open in ${productName(product)}>`);
   return clip(parts.join("\n"), TEXT_MAX);
 }
 
@@ -163,7 +164,7 @@ export function emailChannel(target: ChannelTarget): NotificationChannel {
       if (!context.recipient.email) return { status: "skipped", detail: "No email address" };
       return sendEmail(context.callIntegration, target, {
         to: context.recipient.email,
-        subject: `[${product.strings.name}] ${notification.title}`,
+        subject: `[${productName(product)}] ${notification.title}`,
         text: notificationText(notification, context.url),
       });
     },

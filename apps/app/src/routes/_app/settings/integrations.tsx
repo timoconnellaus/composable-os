@@ -73,7 +73,7 @@ function IntegrationsPage() {
       title="Integrations"
       width="lg"
       back={{ to: "/settings", label: "Settings" }}
-      description="Connect your mailbox, calendar and other services. Agents reach them only through the resources you add, outbound actions wait in Approvals, and you choose what syncs to the CRM."
+      description="Connect your mailbox, calendar and other services. Agents reach them only through the resources you add, outbound actions wait in Approvals, and you choose what syncs here."
       actions={
         <div className="flex items-center gap-2">
           <Checkbox

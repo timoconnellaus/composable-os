@@ -1126,8 +1126,9 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
 - **Deploying** (`cos deploy`): `cos ext check` on `extensions/` and a type check of the apps
   first; then the host from the release, with `COS_PACKS` from the product and the org's own
   extensions in BLOBS pinned by `COS_ORG_EXTENSIONS` (installed by the runner as shipped, with
-  no approval); then the built web app with its one binding. The host keeps the release's
-  names and strings.
+  no approval); then the built web app with its one binding. A first install names the host
+  for the client's product through the deployment state's name maps and sets its label
+  (`COS_PRODUCT_LABEL`), with the verified release unchanged (ADR 0422 amended, issue #155).
 - **The template** (`templates/client`): `apps/web` (TanStack Start, `src/host.ts` framework-free)
   and `apps/mobile` (Expo, `--with-mobile`; its `src/host.ts` signs in and keeps a device session).
 - **npm** ([ADR 0423](adr/0423-npm-packages-from-the-release-commit.md)): client, sdk, product,

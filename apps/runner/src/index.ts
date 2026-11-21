@@ -2,7 +2,7 @@
 // stage 0 Workflow, and the extension host. Since ADR 0043 the host is split: code runs here, in
 // the stateless entrypoint (the executor: tools, manifest evaluation, type checks, Code Mode), so
 // runs proceed in parallel; git, working copies and the build cache stay in the workspace DO.
-import { WorkerEntrypoint } from "cloudflare:workers";
+import { WorkerEntrypoint, env as workerEnv } from "cloudflare:workers";
 import {
   type AutomationQueueMessage,
   type AutomationTestInput,
@@ -32,6 +32,7 @@ import {
   type WorkspaceWrite,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
 import { dispatchAutomationMessages } from "./automations/dispatch.ts";
 import { automationHost } from "./automations/host.ts";
 import { pollIntegrationEvents } from "./automations/integration-events.ts";
@@ -44,6 +45,9 @@ import { runOrdersTick } from "./integrations/payments.ts";
 import { availableVendors, integrationRuntime } from "./integrations/runtime.ts";
 import { runNotificationCron } from "./notifications/deliver.ts";
 import type { PingResult, RunnerRpc, WorkflowRunStatus } from "./rpc.ts";
+
+// A client product's label (issue #155), for the notifications and pages the runner sends.
+setProductLabel((workerEnv as unknown as Record<string, string | undefined>)[PRODUCT_LABEL_VAR]);
 
 export {
   type AutomationRunParams,

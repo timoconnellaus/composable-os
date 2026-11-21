@@ -1,6 +1,5 @@
 // Main navigation. On phone widths the shadcn Sidebar renders as a drawer (Sheet); following a
 // link closes it.
-import { product } from "@composable-os/products/active";
 import {
   Sidebar,
   SidebarContent,
@@ -30,6 +29,7 @@ import { useExtensionObjects } from "#/lib/schema";
 import { usePendingCount } from "./approvals/hooks.ts";
 import { useThreadUnread } from "./assistant/thread-provider.tsx";
 import { useDuplicateCount } from "./duplicates/hooks.ts";
+import { useProductName } from "./product-name.ts";
 
 function NavLink({
   item,
@@ -112,6 +112,7 @@ function ExtensionObjectsNav() {
 }
 
 export function AppSidebar() {
+  const productName = useProductName();
   const { setOpenMobile } = useSidebar();
   const pendingCount = usePendingCount();
   const duplicateCount = useDuplicateCount();
@@ -122,9 +123,7 @@ export function AppSidebar() {
       className="h-dvh pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
     >
       <SidebarHeader>
-        <div className="px-2 py-1.5 text-lg font-semibold tracking-tight">
-          {product.strings.name}
-        </div>
+        <div className="px-2 py-1.5 text-lg font-semibold tracking-tight">{productName}</div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
