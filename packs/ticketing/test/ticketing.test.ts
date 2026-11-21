@@ -151,6 +151,32 @@ describe("ticketing pack (test host)", () => {
     const h = createTestHost(extension, {
       operations: {
         "my.list": (input) => {
+          // The ticket's event and type, as the seam gives a holder them (ADR 0439).
+          if (input.object === "ticketing.event") {
+            return {
+              items: [
+                {
+                  id: "ev1",
+                  title: null,
+                  values: {
+                    name: "Camp",
+                    startsAt: "2027-02-01T00:00:00Z",
+                    endsAt: null,
+                    timezone: "Asia/Bangkok",
+                    venue: "Phuket",
+                    status: "ended",
+                  },
+                },
+              ],
+              nextCursor: null,
+            };
+          }
+          if (input.object === "ticketing.tickettype") {
+            return {
+              items: [{ id: "tt1", title: null, values: { name: "Shared" } }],
+              nextCursor: null,
+            };
+          }
           asked.push(input);
           return {
             items: [
@@ -171,7 +197,20 @@ describe("ticketing pack (test host)", () => {
       { caller: { kind: "customer" } },
     );
     expect(out.items).toEqual([
-      { id: "tkt1", event: "ev1", ticketType: "tt1", code: CODE, state: "valid" },
+      {
+        id: "tkt1",
+        event: "ev1",
+        ticketType: "tt1",
+        code: CODE,
+        state: "valid",
+        eventName: "Camp",
+        startsAt: "2027-02-01T00:00:00Z",
+        endsAt: null,
+        timeZone: "Asia/Bangkok",
+        venue: "Phuket",
+        eventStatus: "ended",
+        ticketTypeName: "Shared",
+      },
     ]);
     await h.runTool("myTickets", { code: CODE, event: "ev1" }, { caller: { kind: "customer" } });
     expect(asked[0]).toMatchObject({ object: "ticketing.ticket", limit: 50 });

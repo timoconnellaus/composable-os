@@ -23,19 +23,24 @@ import {
   loadExtensionOperations,
   memoryWidgetCache,
   type OutsideInvocationContext,
+  recordsOnLocalDate,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { eventTimeText, ticketingAutomations } from "../../../packs/ticketing/automations.ts";
 import {
   createTicketingHooks,
   type estimate,
+  eventDay,
+  eventTime,
   orderStatus,
   type TicketingClient,
 } from "../../../packs/ticketing/client/index.ts";
+import { runZonedDateRelative } from "../src/automations/schedule.ts";
 import { listedPacks } from "../src/extensions/shipped-list.ts";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
-import { setPreset } from "./automation-fixture.ts";
+import { runWorkflows, setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
 
 const files = Object.fromEntries(
@@ -694,11 +699,18 @@ describe("public reads (criterion 9)", () => {
     expect(await refusal(run("public.list", { object: EVENT }, guest))).toMatchObject({
       code: "unknown_operation",
     });
-    // Nor a customer: my.* is their own records only.
+    // A customer's my.* reaches an event only as far as the seam lets them: one their ticket
+    // points to (ADR 0439), or what the public may read of one on sale. Never a draft one.
     const someone = await createCustomer("direct");
-    expect(await refusal(run("my.list", { object: EVENT }, as(someone.principal)))).toMatchObject({
-      code: "invalid_input",
-    });
+    const theirs = await run<{ items: { id: string; values: Record<string, unknown> }[] }>(
+      "my.list",
+      { object: EVENT, limit: 100 },
+      as(someone.principal),
+    );
+    expect(theirs.items.map((e) => e.id)).not.toContain(draft.event);
+    for (const word of ["places", "held", "taken", "createdBy"]) {
+      expect(JSON.stringify(theirs)).not.toContain(`"${word}"`);
+    }
   });
 
   it("places are told only about what the caller may read", async () => {
@@ -1156,6 +1168,211 @@ describe("isolation (criterion 8)", () => {
     expect(await refusal(run("x.ticketing.myTickets", {}, guest))).toMatchObject({
       code: "unknown_operation",
     });
+  });
+});
+
+// --- A holder's tickets name their event, live, whatever its state (ADR 0439) -------------------
+
+describe("a holder's tickets name their event and ticket type, whatever the event's state", () => {
+  it("shows the event's name, live dates and venue and the type's name after the event ends; no one else reads them", async () => {
+    const { event, types } = await eventWith([{}]);
+    const typeId = types[0] as string;
+    const a = await createCustomer("holder");
+    const b = await createCustomer("stranger");
+    const order = await run<Order>(
+      "x.ticketing.orderStart",
+      { lines: [{ ticketTypeId: typeId, quantity: 1 }] },
+      as(a.principal),
+    );
+    await checkoutAndPay(order, as(a.principal));
+    await waitForState(order.id, "paid");
+    const staffEvent = await run<{ values: Record<string, unknown> }>(
+      "record.get",
+      { object: EVENT, id: event },
+      staff(admin),
+    );
+    const staffType = await run<{ values: Record<string, unknown> }>(
+      "record.get",
+      { object: TICKET_TYPE, id: typeId },
+      staff(admin),
+    );
+    // Staff move the date after the sale, then the event ends: it is no longer on sale.
+    await run(
+      "record.update",
+      {
+        object: EVENT,
+        id: event,
+        values: { startsAt: "2027-05-01T02:00:00.000Z", venue: "Phuket" },
+      },
+      staff(admin),
+    );
+    await run(
+      "record.update",
+      { object: EVENT, id: event, from: "on_sale", values: { status: "ended" } },
+      staff(admin),
+    );
+    type Mine = { items: Record<string, unknown>[] };
+    const mine = await run<Mine>("x.ticketing.myTickets", {}, as(a.principal));
+    expect(mine.items).toHaveLength(1);
+    expect(mine.items[0]).toMatchObject({
+      event,
+      ticketType: typeId,
+      eventName: staffEvent.values.name,
+      startsAt: "2027-05-01T02:00:00.000Z",
+      venue: "Phuket",
+      eventStatus: "ended",
+      ticketTypeName: staffType.values.name,
+    });
+    // Only the declared fields: not the event's places or description, not the type's price.
+    const one = await run<{ values: Record<string, unknown> }>(
+      "my.get",
+      { object: EVENT, id: event },
+      as(a.principal),
+    );
+    // The declared fields, and the public's fields of an event on sale, which this one no longer
+    // is: those are empty for it (a column the holder's declaration does not list shows only on
+    // the records the public's covers).
+    expect(one.values).toMatchObject({ name: staffEvent.values.name, venue: "Phuket" });
+    expect(one.values.description ?? null).toBeNull();
+    expect(one.values.image ?? null).toBeNull();
+    for (const key of ["places", "held", "taken", "available", "createdBy"]) {
+      expect(one.values).not.toHaveProperty(key);
+    }
+    const type = await run<{ values: Record<string, unknown> }>(
+      "my.get",
+      { object: TICKET_TYPE, id: typeId },
+      as(a.principal),
+    );
+    // Its name; its price and the rest are the public's, while its event is on sale, and empty.
+    expect(type.values).toMatchObject({ name: staffType.values.name, price: null, event: null });
+    // Someone with no ticket for it reads none of it: not found, as an id that does not exist.
+    for (const [object, id] of [
+      [EVENT, event],
+      [TICKET_TYPE, typeId],
+    ] as const) {
+      const theirs = await refusal(run("my.get", { object, id }, as(b.principal)));
+      const guess = "rec_01NOTAREALID0000000000000";
+      const none = await refusal(run("my.get", { object, id: guess }, as(b.principal)));
+      expect(theirs).toEqual(JSON.parse(JSON.stringify(none).split(guess).join(id)));
+      expect(theirs.code).toBe("not_found");
+    }
+    // Reading is not buying: the holder cannot start an order for a type of an ended event.
+    const again = await refusal(
+      run(
+        "x.ticketing.orderStart",
+        { lines: [{ ticketTypeId: typeId, quantity: 1 }] },
+        as(a.principal),
+      ),
+    );
+    const guessed = await refusal(
+      run(
+        "x.ticketing.orderStart",
+        { lines: [{ ticketTypeId: "rec_01NOTAREALID0000000000000", quantity: 1 }] },
+        as(a.principal),
+      ),
+    );
+    expect(again.code).toBeDefined();
+    expect(again).toMatchObject({ code: guessed.code, inner: guessed.inner });
+    // The order page still names what was bought: an order line keeps its title (stage 25).
+    const page = await run<{ lines: { title: string }[] }>(
+      "order.get",
+      { id: order.id },
+      as(a.principal),
+    );
+    expect(page.lines.map((l) => l.title)).toEqual([staffType.values.name]);
+  });
+});
+
+// --- An event's own time zone (ADR 0450) ----------------------------------------------------------
+
+describe("an event's own time zone", () => {
+  it("defaults to the deployment's zone, refuses one that is not a zone, and is in every holder-facing output", async () => {
+    const before = await run<{ timezone: string }>("settings.get", {}, staff(admin));
+    await run("settings.update", { timezone: "Australia/Sydney" }, staff(admin));
+    try {
+      const plain = await createRecord(EVENT, { name: unique("Local") });
+      const read = await run<{ values: Record<string, unknown> }>(
+        "record.get",
+        { object: EVENT, id: plain },
+        staff(admin),
+      );
+      expect(read.values.timezone).toBe("Australia/Sydney");
+      expect(
+        await refusal(
+          run(
+            "record.update",
+            { object: EVENT, id: plain, values: { timezone: "Mars/Olympus" } },
+            staff(admin),
+          ),
+        ),
+      ).toMatchObject({ code: "invalid_input" });
+
+      // A camp in Thailand sold from Sydney: 06:30 on 2 March in Bangkok is 23:30 UTC on 1 March.
+      const camp = await createRecord(EVENT, {
+        name: unique("Camp"),
+        places: 50,
+        timezone: "Asia/Bangkok",
+        startsAt: "2027-03-01T23:30:00.000Z",
+        endsAt: "2027-03-05T15:00:00.000Z",
+      });
+      await run(
+        "record.update",
+        { object: EVENT, id: camp, values: { status: "on_sale" } },
+        staff(admin),
+      );
+      await createRecord(TICKET_TYPE, { event: camp, name: unique("Shared room"), price: 450 });
+      const seen = await run<{ events: Parameters<typeof eventTime>[0][] }>(
+        "x.ticketing.eventsOnSale",
+        { event: camp },
+        guest,
+      );
+      const shown = seen.events[0] as Parameters<typeof eventTime>[0];
+      expect(shown.timeZone).toBe("Asia/Bangkok");
+      const text = eventTime(shown, { viewer: "Australia/Sydney", locale: "en-GB" });
+      expect(text).toContain("2 Mar 2027");
+      expect(text).toContain("06:30");
+      expect(text).toContain("(Bangkok time)");
+      expect(eventDay(shown)).toBe("2027-03-02");
+      // The emails say Bangkok's day and time, and the zone.
+      const mail = eventTimeText(shown.startsAt, shown.timeZone) ?? "";
+      expect(mail).toContain("2 March 2027");
+      expect(mail).toContain("06:30");
+      expect(mail).toContain("(Asia/Bangkok time)");
+
+      // The reminder is due on Bangkok's 1 March, not on the day the UTC date says.
+      const reminder = ticketingAutomations.eventReminder.trigger as {
+        object: string;
+        field: string;
+        zoneField: string;
+        offsetDays: number;
+      };
+      const due = (at: string) =>
+        recordsOnLocalDate(db.query, reminder, new Date(at), "Australia/Sydney", 500);
+      // 17:00 on 28 February in Bangkok (21:00 in Sydney): not yet.
+      expect((await due("2027-02-28T10:00:00Z")).map((m) => m.id)).not.toContain(camp);
+      // 01:00 on 1 March in Bangkok: the day before.
+      expect(await due("2027-02-28T18:00:00Z")).toContainEqual({ id: camp, day: "2027-03-01" });
+      // 01:00 on 2 March in Bangkok: the day itself, too late.
+      expect((await due("2027-03-01T18:00:00Z")).map((m) => m.id)).not.toContain(camp);
+
+      // It ends on Bangkok's day: 22:00 on 5 March there, so it is ended on 6 March there.
+      const status = async () =>
+        (
+          await run<{ values: { status: string } }>(
+            "record.get",
+            { object: EVENT, id: camp },
+            staff(admin),
+          )
+        ).values.status;
+      // 23:30 on 5 March in Bangkok (03:30 on 6 March in Sydney): not yet.
+      await runWorkflows(() => runZonedDateRelative(env, new Date("2027-03-05T16:30:00Z")));
+      expect(await status()).toBe("on_sale");
+      // 00:30 on 6 March in Bangkok.
+      await runWorkflows(() => runZonedDateRelative(env, new Date("2027-03-05T17:30:00Z")));
+      expect(await status()).toBe("ended");
+    } finally {
+      await run("settings.update", { timezone: before.timezone }, staff(admin));
+    }
   });
 });
 

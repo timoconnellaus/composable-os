@@ -391,7 +391,7 @@
     },
     {
       "name": "my.get",
-      "description": "One of your own records, as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.",
+      "description": "One of your own records (or one that a record of yours points to, such as your ticket's event), as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -440,7 +440,7 @@
     },
     {
       "name": "my.list",
-      "description": "A page of your own records of an object, as a signed-in customer (and the records every signed-in customer may read, where the object shares some): only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.",
+      "description": "A page of your own records of an object, as a signed-in customer (and the records every signed-in customer may read, where the object shares some, and the ones a record of yours points to, such as your ticket's event): only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -2540,9 +2540,14 @@
                   "type": ["string", "null"]
                 },
                 "startsAt": {
+                  "description": "When it starts (ISO 8601, UTC)",
                   "type": ["string", "null"]
                 },
                 "endsAt": {
+                  "type": ["string", "null"]
+                },
+                "timeZone": {
+                  "description": "The event's IANA time zone, e.g. Asia/Bangkok: show its start and end, and count its days, in this zone. Null only for an event made before events had one.",
                   "type": ["string", "null"]
                 },
                 "venue": {
@@ -2643,6 +2648,7 @@
                 "name",
                 "startsAt",
                 "endsAt",
+                "timeZone",
                 "venue",
                 "description",
                 "image",
@@ -2660,7 +2666,7 @@
     },
     {
       "name": "x.ticketing.myTickets",
-      "description": "The signed-in customer's own tickets: each with its event, ticket type, code and state (valid, used or void). Only the caller's tickets exist here; a code that is not theirs finds nothing. Filter by event or by code. Read-only. (Extension tool from Ticketing 0.1.0.)",
+      "description": "The signed-in customer's own tickets: each with its event (id, name, start, end, venue and state, as they are now, whether or not the event is still on sale), its ticket type (id and name), its code and its state (valid, used or void). Only the caller's tickets exist here; a code that is not theirs finds nothing. Filter by event or by code. Read-only. (Extension tool from Ticketing 0.1.0.)",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -2718,9 +2724,46 @@
                 },
                 "state": {
                   "type": ["string", "null"]
+                },
+                "eventName": {
+                  "type": ["string", "null"]
+                },
+                "startsAt": {
+                  "description": "When the event starts (ISO 8601, UTC)",
+                  "type": ["string", "null"]
+                },
+                "endsAt": {
+                  "type": ["string", "null"]
+                },
+                "timeZone": {
+                  "description": "The event's IANA time zone, e.g. Asia/Bangkok: show its start and end, and count its days, in this zone. Null only for an event made before events had one.",
+                  "type": ["string", "null"]
+                },
+                "venue": {
+                  "type": ["string", "null"]
+                },
+                "eventStatus": {
+                  "description": "The event's state now: draft, on_sale, ended or cancelled",
+                  "type": ["string", "null"]
+                },
+                "ticketTypeName": {
+                  "type": ["string", "null"]
                 }
               },
-              "required": ["id", "event", "ticketType", "code", "state"],
+              "required": [
+                "id",
+                "event",
+                "ticketType",
+                "code",
+                "state",
+                "eventName",
+                "startsAt",
+                "endsAt",
+                "timeZone",
+                "venue",
+                "eventStatus",
+                "ticketTypeName"
+              ],
               "additionalProperties": false
             }
           },

@@ -517,9 +517,14 @@
                   "type": ["string", "null"]
                 },
                 "startsAt": {
+                  "description": "When it starts (ISO 8601, UTC)",
                   "type": ["string", "null"]
                 },
                 "endsAt": {
+                  "type": ["string", "null"]
+                },
+                "timeZone": {
+                  "description": "The event's IANA time zone, e.g. Asia/Bangkok: show its start and end, and count its days, in this zone. Null only for an event made before events had one.",
                   "type": ["string", "null"]
                 },
                 "venue": {
@@ -620,6 +625,7 @@
                 "name",
                 "startsAt",
                 "endsAt",
+                "timeZone",
                 "venue",
                 "description",
                 "image",

@@ -64,6 +64,32 @@ async function sendMail(
 
 const money = (minor: number, currency: string) => `${(minor / 100).toFixed(2)} ${currency}`;
 
+/**
+ * When an event starts, as its holders read it: the day and time in the event's own zone, and
+ * the zone, so a camp in Bangkok sold from Sydney says Bangkok's time (ADR 0450).
+ */
+export function eventTimeText(iso: string | null, zone: string | null): string | null {
+  if (!iso) return null;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  const timeZone = zone ?? "UTC";
+  try {
+    const local = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).format(at);
+    return `${local} (${timeZone.replace(/_/g, " ")} time)`;
+  } catch {
+    return iso;
+  }
+}
+
 // --- Tickets by email ---------------------------------------------------------------------------
 
 export const ticketsByEmail = defineAutomation({
@@ -83,7 +109,7 @@ export const ticketsByEmail = defineAutomation({
     {
       name: "findTickets",
       label: "Find the order's tickets",
-      reads: [TICKET],
+      reads: [TICKET, EVENT],
       calls: ["order.get", "extensionSettings.list"],
     },
     { name: "sendTickets", label: "Email the buyer their tickets" },
@@ -101,8 +127,22 @@ export const ticketsByEmail = defineAutomation({
         limit: 100,
       });
       const { ticketsUrl } = await settings(ctx);
+      // The events the tickets are for, with when each starts in its own zone.
+      const eventIds = [...new Set(tickets.items.map((t) => text(t.values.event)))].filter(
+        (id): id is string => Boolean(id),
+      );
+      const events: string[] = [];
+      for (const id of eventIds) {
+        const ev = await ctx.ops.call<RecordShape>("record.get", { object: EVENT, id });
+        const when = eventTimeText(text(ev.values.startsAt), text(ev.values.timezone));
+        const venue = text(ev.values.venue);
+        events.push(
+          `${text(ev.values.name) ?? "Your event"}${when ? `: ${when}` : ""}${venue ? `, ${venue}` : ""}`,
+        );
+      }
       return {
         email: order.email,
+        events,
         page: withOrder(ticketsUrl, orderId),
         tickets: tickets.items.map((t) => ({
           id: t.id,
@@ -121,6 +161,7 @@ export const ticketsByEmail = defineAutomation({
           found.tickets.length === 1 ? "Your ticket" : `Your ${found.tickets.length} tickets`,
         text: [
           "Thank you. Your tickets are below: show the code at the door.",
+          ...(found.events.length ? ["", ...found.events] : []),
           "",
           ...lines,
           ...(found.page ? ["", `See them any time: ${found.page}`] : []),
@@ -137,9 +178,15 @@ export const ticketsByEmail = defineAutomation({
 export const eventReminder = defineAutomation({
   label: "Event reminder",
   description:
-    "The day before an event on sale starts, emails each holder of a valid ticket a reminder " +
-    "with the time and the venue.",
-  trigger: { type: "dateRelative", object: EVENT, field: "startsAt", offsetDays: -1 },
+    "The day before an event on sale starts, counted in the event's own time zone, emails each " +
+    "holder of a valid ticket a reminder with the time (in that zone) and the venue.",
+  trigger: {
+    type: "dateRelative",
+    object: EVENT,
+    field: "startsAt",
+    offsetDays: -1,
+    zoneField: "timezone",
+  },
   conditions: { field: "status", op: "eq", value: "on_sale" },
   connections: [MAIL],
   steps: [
@@ -191,7 +238,7 @@ export const eventReminder = defineAutomation({
     if (!holders.length) return { sent: 0 };
     return step.do("sendReminders", async () => {
       const name = text(data.name) ?? "Your event";
-      const when = text(data.startsAt);
+      const when = eventTimeText(text(data.startsAt), text(data.timezone));
       const venue = text(data.venue);
       for (const holder of holders) {
         await sendMail(ctx, {
@@ -213,8 +260,15 @@ export const eventReminder = defineAutomation({
 
 export const eventEnded = defineAutomation({
   label: "Event ended",
-  description: "The day after an event on sale ends, moves it to ended.",
-  trigger: { type: "dateRelative", object: EVENT, field: "endsAt", offsetDays: 1 },
+  description:
+    "The day after an event on sale ends, counted in the event's own time zone, moves it to ended.",
+  trigger: {
+    type: "dateRelative",
+    object: EVENT,
+    field: "endsAt",
+    offsetDays: 1,
+    zoneField: "timezone",
+  },
   conditions: { field: "status", op: "eq", value: "on_sale" },
   steps: [
     {

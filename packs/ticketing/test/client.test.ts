@@ -8,6 +8,8 @@ import {
   createTicketingHooks,
   type EventOnSale,
   estimate,
+  eventDay,
+  eventTime,
   formatMoney,
   formatPrice,
   minorFromInput,
@@ -41,6 +43,7 @@ const event = (types: EventOnSale["ticketTypes"]): EventOnSale => ({
   name: "Camp",
   startsAt: null,
   endsAt: null,
+  timeZone: null,
   venue: null,
   description: null,
   image: null,
@@ -85,6 +88,20 @@ describe("plain functions", () => {
     expect(formatMoney(9000, "JPY")).toBe("9000 JPY");
     expect(minorFromInput("4500", "JPY")).toBe(4500);
     expect(formatPrice(45.5, "AUD")).toBe("45.50 AUD");
+  });
+
+  it("shows an event's times in its own zone, and says the zone when it is not the viewer's (ADR 0450)", () => {
+    // 06:30 on 1 March in Bangkok (UTC+7) is 23:30 UTC on 28 February, and 10:30 in Sydney.
+    const camp = { startsAt: "2027-02-28T23:30:00Z", endsAt: null, timeZone: "Asia/Bangkok" };
+    const fromSydney = eventTime(camp, { viewer: "Australia/Sydney", locale: "en-GB" });
+    expect(fromSydney).toContain("1 Mar 2027");
+    expect(fromSydney).toContain("06:30");
+    expect(fromSydney).toContain("(Bangkok time)");
+    const inBangkok = eventTime(camp, { viewer: "Asia/Bangkok", locale: "en-GB" });
+    expect(inBangkok).toContain("06:30");
+    expect(inBangkok).not.toContain("time)");
+    expect(eventDay(camp)).toBe("2027-03-01");
+    expect(eventTime({ startsAt: null, timeZone: "Asia/Bangkok" })).toBe("");
   });
 
   it("says an order is waiting until the host says it is paid", () => {

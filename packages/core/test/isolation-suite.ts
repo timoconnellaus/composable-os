@@ -524,8 +524,9 @@ export function isolationSuite(how: string, call: CallFn): void {
       const text = JSON.stringify(page);
       expect(text).not.toContain("backstage");
       expect(text).not.toContain("HeldBackstage-");
-      const items = (page as { value: { items: { id: string; values: Record<string, unknown> }[] } })
-        .value.items;
+      const items = (
+        page as { value: { items: { id: string; values: Record<string, unknown> }[] } }
+      ).value.items;
       const ids = items.map((item) => item.id);
       // Theirs, and the one on sale (the public's), and not B's or the draft one.
       expect(ids).toContain(heldA);

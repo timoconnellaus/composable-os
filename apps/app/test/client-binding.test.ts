@@ -256,7 +256,8 @@ describe("a bound Worker can never act as staff (criterion 3)", () => {
       boundEnv,
     );
     expect(exchanged?.status, await exchanged?.clone().text()).toBe(200);
-    const { accessToken } = ((await exchanged?.json()) as { data: { accessToken: string } }).data;
+    if (!exchanged) throw new Error("no token route");
+    const { accessToken } = ((await exchanged.json()) as { data: { accessToken: string } }).data;
     const asTheServer = (token: string) =>
       handleApi(
         new Request(`${HOST}/api/v1/op/me.get`, {
@@ -268,7 +269,8 @@ describe("a bound Worker can never act as staff (criterion 3)", () => {
       );
     const checked = await asTheServer(accessToken);
     expect(checked?.status).toBe(200);
-    const me = ((await checked?.json()) as { data: Record<string, unknown> }).data;
+    if (!checked) throw new Error("no surface");
+    const me = ((await checked.json()) as { data: Record<string, unknown> }).data;
     // The address the emailed code verified: what the company links its own member records by.
     expect(me).toMatchObject({
       id: ada.personId,

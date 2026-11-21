@@ -103,6 +103,83 @@ export function formatPrice(price: number | null, currency: string | null): stri
     : `${price.toFixed(currencyDigits(currency))}${currency ? ` ${currency}` : ""}`;
 }
 
+/** The viewer's own time zone, as their device reports it. */
+export function viewerTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/**
+ * When an event starts (or ends, with `at: "endsAt"`), as a buyer or holder reads it: the day and
+ * time in the event's own zone (ADR 0450), never the device's, so a camp in Bangkok reads as
+ * Bangkok's time on a phone in Sydney. When the event's zone is not the viewer's, the zone is
+ * said (`… (Bangkok time)`). Display only.
+ */
+export function eventTime(
+  event: { startsAt: string | null; endsAt?: string | null; timeZone: string | null },
+  options: { at?: "startsAt" | "endsAt"; viewer?: string; locale?: string } = {},
+): string {
+  const iso = options.at === "endsAt" ? (event.endsAt ?? null) : event.startsAt;
+  if (!iso) return "";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  const viewer = options.viewer ?? viewerTimeZone();
+  const zone = event.timeZone ?? viewer;
+  let text: string;
+  try {
+    text = new Intl.DateTimeFormat(options.locale, {
+      timeZone: zone,
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(at);
+  } catch {
+    return at.toISOString();
+  }
+  if (zone === viewer || sameOffset(at, zone, viewer)) return text;
+  const city = zone.split("/").pop()?.replace(/_/g, " ") ?? zone;
+  return `${text} (${city} time)`;
+}
+
+/** Whether two zones show the same wall-clock time at `at` (then saying the zone adds nothing). */
+function sameOffset(at: Date, a: string, b: string): boolean {
+  try {
+    const wall = (timeZone: string) =>
+      new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hourCycle: "h23",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(at);
+    return wall(a) === wall(b);
+  } catch {
+    return false;
+  }
+}
+
+/** The day an event starts on in its own zone (`2027-03-01`), for grouping or a calendar. */
+export function eventDay(event: { startsAt: string | null; timeZone: string | null }): string {
+  if (!event.startsAt) return "";
+  const at = new Date(event.startsAt);
+  if (Number.isNaN(at.getTime())) return "";
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: event.timeZone ?? viewerTimeZone(),
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(at);
+    return parts;
+  } catch {
+    return event.startsAt.slice(0, 10);
+  }
+}
+
 /** The currency an event's prices are in, as the host gave it with its ticket types. */
 export function eventCurrency(event: EventOnSale): string | null {
   return event.ticketTypes.find((type) => type.currency)?.currency ?? null;

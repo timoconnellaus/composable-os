@@ -40524,6 +40524,11 @@
                         "type": "integer",
                         "minimum": -365,
                         "maximum": 365
+                      },
+                      "zoneField": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
                       }
                     },
                     "required": [
@@ -41250,6 +41255,11 @@
                         "type": "integer",
                         "minimum": -365,
                         "maximum": 365
+                      },
+                      "zoneField": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
                       }
                     },
                     "required": [
@@ -42049,6 +42059,11 @@
                         "type": "integer",
                         "minimum": -365,
                         "maximum": 365
+                      },
+                      "zoneField": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
                       }
                     },
                     "required": [
@@ -43370,6 +43385,11 @@
                         "type": "integer",
                         "minimum": -365,
                         "maximum": 365
+                      },
+                      "zoneField": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
                       }
                     },
                     "required": [
