@@ -66,11 +66,15 @@ export function defineProduct(definition: ProductDefinition): ProductDefinition 
 /**
  * A client repo's product (stage 24, ADR 0422): `product.ts` at the root of a company's own
  * repository. It says which platform release the host is deployed from, which of that release's
- * packs are on, and where the company's own apps are.
+ * packs are on, and where the company's own apps are. It is the one place a client product's
+ * names are written (AGENTS.md).
  *
- * The host keeps the release's names and strings (`crm-app`, "CRM"): they are built into the
- * release, which is deployed as verified. Naming the host for the company's own product needs the
- * platform to apply names and strings at deploy time, which it does not do yet.
+ * The host is named for it at its first install (issue #155): its Workers and resources take the
+ * names `clientNames` gives (`<id>-app`, `<id>-runner`, `<id>-gatekeeper-…`, the `<id>` database,
+ * `<id>-…` resources, unless `names` overrides them), applied as deploy-time configuration (the
+ * deployment state's name maps, ADR 0193), so the verified release is deployed unchanged; and
+ * every surface that shows the product's name shows `label` (COS_PRODUCT_LABEL). A deployment that
+ * exists keeps its names: nothing deployed is renamed.
  */
 export interface ClientProductDefinition {
   /** The company's product, lowercase: names its Workers (`<id>-web`) and the repo. */
@@ -104,6 +108,72 @@ export interface ClientProductDefinition {
   };
   /** The mobile app, if the repo has one: its folder, and where its generated client is. */
   mobile?: { dir: string; clientDir?: string };
+  /** The host's names, when they are not the ones derived from `id` (`clientNames`). */
+  names?: Partial<ProductDefinition["names"]>;
+}
+
+/** The names a client product's host is deployed with: derived from its id, or as it says. */
+export function clientNames(product: ClientProductDefinition): ProductDefinition["names"] {
+  return {
+    app: `${product.id}-app`,
+    runner: `${product.id}-runner`,
+    gatekeeperPrefix: `${product.id}-gatekeeper-`,
+    database: product.id,
+    resourcePrefix: `${product.id}-`,
+    ...product.names,
+  };
+}
+
+/**
+ * The deployed name of each of a release's Worker and resource names, for a client product: the
+ * release's product's names replaced by the client's (`crm-app` → `gym-app`, the `crm` database →
+ * `gym`). Only names that differ are listed. What the deployment state's `workerNames` and
+ * `resourceNames` hold (ADR 0193).
+ */
+export function clientNameMaps(
+  release: ProductDefinition,
+  client: ProductDefinition["names"],
+  manifest: { workers: { name: string }[]; resources: { name: string }[] },
+): { workers: Record<string, string>; resources: Record<string, string> } {
+  const rename = (name: string): string => {
+    const r = release.names;
+    if (name === r.app) return client.app;
+    if (name === r.runner) return client.runner;
+    if (name === r.database) return client.database;
+    if (name.startsWith(r.gatekeeperPrefix)) {
+      return `${client.gatekeeperPrefix}${name.slice(r.gatekeeperPrefix.length)}`;
+    }
+    if (name.startsWith(r.resourcePrefix)) {
+      return `${client.resourcePrefix}${name.slice(r.resourcePrefix.length)}`;
+    }
+    return name;
+  };
+  const map = (names: string[]) =>
+    Object.fromEntries(
+      names.map((name) => [name, rename(name)] as const).filter(([from, to]) => from !== to),
+    );
+  return {
+    workers: map(manifest.workers.map((w) => w.name)),
+    resources: map(manifest.resources.map((r) => r.name)),
+  };
+}
+
+/**
+ * The deploy-time variable that holds a client product's label (`cos deploy` sets it on the app
+ * and the runner). Every surface that shows the product's name reads it through `productName`.
+ */
+export const PRODUCT_LABEL_VAR = "COS_PRODUCT_LABEL";
+
+let deployedLabel: string | null = null;
+
+/** Called once per isolate by a Worker's entry, with its COS_PRODUCT_LABEL (unset: none). */
+export function setProductLabel(value: string | null | undefined): void {
+  deployedLabel = typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** The product's name as people read it: the deployment's label when one is set, else the build's. */
+export function productName(product: Pick<ProductDefinition, "strings">): string {
+  return deployedLabel ?? product.strings.name;
 }
 
 const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
@@ -123,6 +193,17 @@ export function defineClientProduct(definition: ClientProductDefinition): Client
   for (const pack of definition.packs) if (!NAME.test(pack)) fail(`pack ${pack} is not an id`);
   if (new Set(definition.packs).size !== definition.packs.length) fail("a pack is listed twice");
   if (definition.web && !NAME.test(definition.web.worker)) fail("web.worker must be a Worker name");
+  const names = clientNames(definition);
+  for (const key of ["app", "runner", "database"] as const) {
+    if (!NAME.test(names[key])) fail(`names.${key} must be lowercase letters, digits and hyphens`);
+  }
+  for (const key of ["gatekeeperPrefix", "resourcePrefix"] as const) {
+    if (!PREFIX.test(names[key])) fail(`names.${key} must end with a hyphen`);
+  }
+  if (names.app === names.runner) fail("names.app and names.runner are the same");
+  if (definition.web && [names.app, names.runner].includes(definition.web.worker)) {
+    fail("web.worker is one of the host's Workers");
+  }
   return definition;
 }
 

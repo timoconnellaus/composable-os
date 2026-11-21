@@ -17,7 +17,7 @@ import {
   ROLE_PRESETS,
   RoleLayerError,
 } from "@composable-os/core/ai-roles";
-import type { ProductDefinition } from "@composable-os/product";
+import { PRODUCT_LABEL_VAR, type ProductDefinition } from "@composable-os/product";
 import { DEFAULT_PRODUCT, products } from "@composable-os/products";
 import {
   apiKillSwitchStore,
@@ -456,11 +456,47 @@ export async function latestVersion(s: ReleaseSource, channel: Channel): Promise
 
 // ---- install ------------------------------------------------------------------------------------
 
+/**
+ * The database a deployment's state is in: the release product's, or a client product's (`cos
+ * deploy` passes `--database`, issue #155).
+ */
+function deploymentDatabase(flags: Flags, s: Session): string {
+  return str(flags, "database") ?? s.product.names.database;
+}
+
+/**
+ * The names a first install deploys with, when they are not the release's (`--names`, a JSON
+ * `{ workers, resources }` of release name → deployed name, which `cos deploy` passes for a
+ * client product, issue #155). They go into the deployment state's maps (ADR 0193), so the
+ * verified release is deployed unchanged, and upgrades keep them. Ignored for a deployment that
+ * exists: nothing deployed is renamed.
+ */
+function firstInstallNames(flags: Flags): {
+  workers: Record<string, string>;
+  resources: Record<string, string>;
+} {
+  const text = str(flags, "names");
+  if (!text) return { workers: {}, resources: {} };
+  const parsed = JSON.parse(text) as {
+    workers?: Record<string, string>;
+    resources?: Record<string, string>;
+  };
+  const ok = (map: unknown) =>
+    map === undefined ||
+    (typeof map === "object" &&
+      map !== null &&
+      Object.values(map).every((v) => typeof v === "string" && /^[a-z0-9-]+$/.test(v)));
+  if (!ok(parsed.workers) || !ok(parsed.resources))
+    throw new CliError("--names is { workers, resources } of names");
+  return { workers: parsed.workers ?? {}, resources: parsed.resources ?? {} };
+}
+
 export async function install(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
-  const existing = await locateDeployment(s.api, s.accountId, s.product.names.database);
+  const existing = await locateDeployment(s.api, s.accountId, deploymentDatabase(flags, s));
   const found = existing?.state ?? null;
+  const names = found ? null : firstInstallNames(flags);
   const channelFlag = str(flags, "channel");
   if (channelFlag && !CHANNELS.includes(channelFlag as Channel))
     throw new CliError("--channel is stable or beta");
@@ -496,7 +532,12 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
       );
     }
     if (!choice || choice === "workers.dev") {
-      hostname = await workersDevHostname(s.api, s.accountId, app.name, s.product.names.database);
+      hostname = await workersDevHostname(
+        s.api,
+        s.accountId,
+        names?.workers[app.name] ?? app.name,
+        deploymentDatabase(flags, s),
+      );
     } else {
       hostnameMode = "custom";
       hostname = choice.toLowerCase();
@@ -639,6 +680,13 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
     for (const worker of varWorkers(manifest, name))
       vars[worker] = { ...vars[worker], [name]: value };
   }
+  // A client product's label (issue #155): every surface that shows the product's name reads it.
+  const label = str(flags, "label");
+  if (label !== undefined) {
+    for (const worker of varWorkers(manifest, PRODUCT_LABEL_VAR)) {
+      vars[worker] = { ...vars[worker], [PRODUCT_LABEL_VAR]: label };
+    }
+  }
   if (aiGateway === false) {
     // Turned off: clear a gateway an earlier install set.
     for (const [worker, values] of Object.entries(vars)) {
@@ -661,7 +709,7 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
       s.accountId,
       neededResources(manifest, gatekeepers, { ai }),
       (l) => io.out(l),
-      previous?.resourceNames,
+      previous?.resourceNames ?? names?.resources,
     )),
   };
   const base: DeploymentState = {
@@ -678,8 +726,12 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
     ...(previous?.aiGatewayCreated ? { aiGatewayCreated: true } : {}),
     ...(previous?.aiGatewayTokenId ? { aiGatewayTokenId: previous.aiGatewayTokenId } : {}),
     ...(previous?.aiGatewayTokenWorkersAi ? { aiGatewayTokenWorkersAi: true } : {}),
-    workerNames: previous?.workerNames ?? {},
-    ...(previous?.resourceNames ? { resourceNames: previous.resourceNames } : {}),
+    workerNames: previous?.workerNames ?? names?.workers ?? {},
+    ...(previous?.resourceNames
+      ? { resourceNames: previous.resourceNames }
+      : names && Object.keys(names.resources).length
+        ? { resourceNames: names.resources }
+        : {}),
     vars,
     resources,
     bundleDigest: digest,
@@ -762,8 +814,8 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
 
 // ---- upgrade ------------------------------------------------------------------------------------
 
-async function locate(s: Session) {
-  const located = await locateDeployment(s.api, s.accountId, s.product.names.database);
+async function locate(s: Session, flags: Flags = {}) {
+  const located = await locateDeployment(s.api, s.accountId, deploymentDatabase(flags, s));
   if (!located?.state) {
     throw new CliError(
       `No ${s.product.label} installed from a release was found in this account. Run \`npx @composable-os/cli install\` first.`,
@@ -806,7 +858,7 @@ async function currentManifest(s: Session, version: string) {
 export async function upgrade(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
-  const { databaseId, state: found } = await locate(s);
+  const { databaseId, state: found } = await locate(s, flags);
   const channel = found.channel;
   const target = str(flags, "version") ?? (await latestVersion(s, channel));
   if (compareVersions(target, found.version) <= 0) {
@@ -912,7 +964,7 @@ export async function upgrade(flags: Flags, deps: Deps): Promise<number> {
 async function rollback(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
-  const { databaseId, state } = await locate(s);
+  const { databaseId, state } = await locate(s, flags);
   const runs = await runsViaApi(s.api, s.accountId, databaseId, 20);
   const last = rollbackTarget(runs);
   if (!last?.from_version) {
@@ -969,7 +1021,7 @@ async function rollback(flags: Flags, deps: Deps): Promise<number> {
 async function status(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
-  const { state, databaseId } = await locate(s);
+  const { state, databaseId } = await locate(s, flags);
   const releases = await listReleases(state.channel, s.github).catch(() => []);
   const newer = releases.filter((r) => compareVersions(r.version, state.version) > 0);
   const runs = await runsViaApi(s.api, s.accountId, databaseId, 5);
@@ -1007,7 +1059,7 @@ async function status(flags: Flags, deps: Deps): Promise<number> {
 async function uninstall(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
-  const { state } = await locate(s);
+  const { state } = await locate(s, flags);
   if (!flags.yes) {
     if (!io.interactive) throw new CliError("uninstall deletes everything; pass --yes");
     const answer = await io.ask(

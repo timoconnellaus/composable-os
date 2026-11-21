@@ -15,6 +15,8 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   type ClientProductDefinition,
+  clientNameMaps,
+  clientNames,
   defineClientProduct,
   type ProductDefinition,
 } from "@composable-os/product";
@@ -350,7 +352,7 @@ export async function create(argv: string[], flags: Flags, deps: Deps): Promise<
   }
   const id = str(flags, "id") ?? slug(basename(root));
   const releaseId = str(flags, "release") ?? deps.products?.default ?? DEFAULT_PRODUCT;
-  const { kit, version, manifest, release } = await fetchKit(
+  const { kit, version, release } = await fetchKit(
     flags,
     deps,
     releaseId,
@@ -368,7 +370,8 @@ export async function create(argv: string[], flags: Flags, deps: Deps): Promise<
     version,
     release: release.id,
     repository: str(flags, "repo") ?? release.updateRepository,
-    appWorker: appWorker(manifest),
+    // The host is named for the product (issue #155): `cos deploy` installs it as <id>-app.
+    appWorker: `${id}-app`,
   };
   const files = templateFiles(kit, values);
   // The mobile app is optional (--with-mobile): without it, its folder is left out and product.ts
@@ -473,7 +476,7 @@ export async function init(flags: Flags, deps: Deps): Promise<number> {
   const webDir = str(flags, "web") ?? (await ask("Where is the web app (its Worker)?", guessWeb));
   const mobileDir = str(flags, "mobile") ?? (await ask("Where is the mobile app?", guessMobile));
   const releaseId = str(flags, "release") ?? deps.products?.default ?? DEFAULT_PRODUCT;
-  const { kit, version, manifest, release } = await fetchKit(
+  const { kit, version, release } = await fetchKit(
     flags,
     deps,
     releaseId,
@@ -608,7 +611,8 @@ export const product = defineClientProduct(${JSON.stringify(product, null, 2)});
     }
     if (config) {
       consider(relative(root, config), (before) =>
-        withBinding(config, before as string, appWorker(manifest)),
+        // The host as `cos deploy` will name it for this product (issue #155).
+        withBinding(config, before as string, `${id}-app`),
       );
     } else io.out(`No wrangler config in ${webDir}: add the HOST service binding by hand.`);
   }
@@ -874,8 +878,27 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   }
   hostFlags.account = accountId;
 
+  // The host's names (issue #155): a first install takes the client product's (derived from its
+  // id, or as product.ts says), through the deployment state's name maps, so the verified release
+  // is deployed unchanged. A host that exists keeps the names it has: one deployed before client
+  // names (under the release's) is found under those and never renamed.
+  const names = clientNames(product);
+  const ownHost = await locateDeployment(api, accountId, names.database);
+  const legacyHost = ownHost?.state
+    ? null
+    : await locateDeployment(api, accountId, release.names.database);
+  const database = legacyHost?.state ? release.names.database : names.database;
+  hostFlags.database = database;
+  hostFlags.label = product.label;
+  if (!ownHost?.state && !legacyHost?.state) {
+    hostFlags.names = JSON.stringify(clientNameMaps(release, names, manifest));
+  }
+  const deployedWorker = (name: string) =>
+    (ownHost?.state ?? legacyHost?.state)?.workerNames[name] ??
+    (legacyHost?.state ? name : (clientNameMaps(release, names, manifest).workers[name] ?? name));
+
   // The host: install, upgrade to the product's version, or repair; vars set for the product.
-  const found = await locateDeployment(api, accountId, release.names.database);
+  const found = ownHost?.state ? ownHost : legacyHost;
   if (found?.state && found.state.version !== product.platform.version) {
     io.out(`The host is on ${found.state.version}; moving it to ${product.platform.version}.`);
     const code = await upgradeHost({ ...hostFlags }, scoped);
@@ -886,7 +909,7 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
 
   // The org's own extensions, pinned by hash: the runner installs them as shipped.
   if (own.length) {
-    const located = await locateDeployment(api, accountId, release.names.database);
+    const located = await locateDeployment(api, accountId, database);
     if (!located?.state) throw new CliError("The host's deployment state is missing.");
     const bucket = blobsBucket(manifest, located.state);
     await api.putR2Object(accountId, bucket, `org-extensions/${ownHash}.json`, ownBytes);
@@ -894,15 +917,21 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   }
 
   if (built) {
-    const url = await deployWeb(api, accountId, product, appWorker(manifest), built);
-    io.out(`Web app: ${url}, bound to ${appWorker(manifest)} (ClientApp).`);
+    const url = await deployWeb(
+      api,
+      accountId,
+      product,
+      deployedWorker(appWorker(manifest)),
+      built,
+    );
+    io.out(`Web app: ${url}, bound to ${deployedWorker(appWorker(manifest))} (ClientApp).`);
   } else if (product.web?.deploy === "own") {
     io.out(
-      `Web app: ${product.web.dir} deploys itself (web.deploy "own"): deploy it as you do today. Its wrangler config binds HOST to ${appWorker(manifest)} (ClientApp).`,
+      `Web app: ${product.web.dir} deploys itself (web.deploy "own"): deploy it as you do today. Its wrangler config binds HOST to ${deployedWorker(appWorker(manifest))} (ClientApp).`,
     );
   }
   io.out(
-    `\nThe host's staff admin: ${appWorker(manifest)}'s address (printed above); open /setup there to create the first admin, and, as a human admin, choose the email connection customer codes go out from (customer.settings.update, emailConnectionId).`,
+    `\nThe host's staff admin: ${deployedWorker(appWorker(manifest))}'s address (printed above); open /setup there to create the first admin, and, as a human admin, choose the email connection customer codes go out from (customer.settings.update, emailConnectionId).`,
   );
   io.out(`\n${EDGE_RULE_STEP}`);
   return 0;
