@@ -159,6 +159,14 @@ export const objectManifestSchema = z.object({
     })
     .strict()
     .optional(),
+  customerVia: z
+    .object({
+      from: z.string().max(81),
+      field: z.string().max(40),
+      read: z.array(z.string().max(40)).min(1).max(100),
+    })
+    .strict()
+    .optional(),
   navigationOrder: z.number().int().min(0).max(10_000).optional(),
   requireOneOf: z
     .array(z.array(z.string().max(40)).min(2).max(8))
@@ -887,6 +895,53 @@ export function validateManifest(
       if (!values.has(value)) {
         contract(`${path}.when.in`, `"${value}" is not an option of ${targetName}.${p.when.field}`);
       }
+    }
+  }
+
+  // What a customer reads of a record their own record points to (ADR 0439): fields of this
+  // object, through a relation of another of this extension's objects that declares a customer.
+  for (const [name, object] of Object.entries(m.objects)) {
+    const v = object.customerVia;
+    if (!v) continue;
+    const path = `objects.${name}.customerVia`;
+    if (object.customer) {
+      contract(path, "An object that declares a customer cannot also declare customerVia");
+    }
+    if (new Set(v.read).size !== v.read.length) {
+      contract(`${path}.read`, "customerVia.read lists a field twice");
+    }
+    for (const fieldName of v.read) {
+      if (!object.fields[fieldName]) {
+        contract(
+          `${path}.read`,
+          `customerVia.read lists "${fieldName}", which is not a field of ${name}`,
+        );
+      }
+    }
+    const local = v.from.startsWith(`${m.id}.`) ? v.from.slice(m.id.length + 1) : null;
+    const from = local ? m.objects[local] : undefined;
+    if (!from || local === name) {
+      contract(
+        `${path}.from`,
+        `customerVia.from must name another of this extension's objects, as ${m.id}.<object>`,
+      );
+      continue;
+    }
+    if (!from.customer) {
+      contract(`${path}.from`, `customerVia.from must name an object that declares a customer`);
+      continue;
+    }
+    const pointer = from.fields[v.field];
+    if (pointer?.type !== "relation" || pointer.many || pointer.to !== `${m.id}.${name}`) {
+      contract(
+        `${path}.field`,
+        `customerVia.field must name a relation of ${local} to one ${name}`,
+      );
+    } else if (!from.customer.read.includes(v.field)) {
+      contract(
+        `${path}.field`,
+        `customerVia.field "${v.field}" must be one ${local}'s customer may read (customer.read)`,
+      );
     }
   }
 

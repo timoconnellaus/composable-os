@@ -15,7 +15,7 @@
 // test/visibility-one-seam.test.ts fails when code outside this folder reads a rec_* view or a
 // core record table and is not on its list of reads still to be moved.
 import type { CoreDatabase } from "@composable-os/db";
-import { type AliasedRawBuilder, type Kysely, sql } from "kysely";
+import { type AliasedRawBuilder, type Kysely, type RawBuilder, sql } from "kysely";
 import { ident } from "../extensions/naming.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { BASE_TABLES, type CoreObjectName, getObject, isCoreObject } from "../fields/index.ts";
@@ -23,9 +23,11 @@ import type { ObjectDefinition } from "../fields/types.ts";
 import { type Principal, staffPrincipal } from "../principals.ts";
 import { type CustomerScope, customerObject, customerScope, unknownObject } from "./customer.ts";
 import { type PublicScope, publicObject, publicScope } from "./public.ts";
+import { customerViaScope, type ViaScope, viaObject } from "./via.ts";
 
 export { type CustomerScope, customerProblems } from "./customer.ts";
 export { type PublicScope, publicProblems } from "./public.ts";
+export { customerViaProblems, type ViaScope } from "./via.ts";
 
 /** Who is reading. A handler's context is one. */
 export interface Viewer {
@@ -41,18 +43,30 @@ export interface Reader extends Viewer {
  * What a caller may see of one object.
  * - `all`: every row and every field. Staff, until stage 14a restricts an object.
  * - `customer`: the rows whose customer field is the caller's Person, the listed fields only.
+ * - `public`: the rows the object's `public` declaration covers, its listed fields only.
+ * - `via`: for a customer, the rows one of their own records points to, the fields the object's
+ *   `customerVia` lists, and what the public may read of it too (ADR 0439).
  * - `none`: nothing. The object does not exist for this caller.
  */
 export type Scope =
   | { readonly kind: "all" }
   | CustomerScope
   | PublicScope
+  | ViaScope
   | { readonly kind: "none" };
 
 const NONE: Scope = Object.freeze({ kind: "none" });
 
-/** The caller's scope for `object`. Pure: it reads nothing. */
-export function scopeOf(principal: Principal, given: ObjectDefinition): Scope {
+/**
+ * The caller's scope for `object`. Pure: it reads nothing. `throughOwnRecords: false` leaves out
+ * what a customer reads only through their own records (ADR 0439): what they may buy is what
+ * they may read as their own or as the public, never a ticket type they hold a ticket of.
+ */
+export function scopeOf(
+  principal: Principal,
+  given: ObjectDefinition,
+  throughOwnRecords = true,
+): Scope {
   // Always the registry's own definition: a narrowed copy (visibleObject) names the same object.
   const object = getObject(given.name) ?? given;
   switch (principal.kind) {
@@ -60,7 +74,13 @@ export function scopeOf(principal: Principal, given: ObjectDefinition): Scope {
       return { kind: "all" };
     case "customer":
       // A customer reads at least what the public may: an object declares one or the other.
-      return customerScope(object, principal.personId) ?? publicScope(object) ?? NONE;
+      // Through their own records they may read more of an object that declares `customerVia`.
+      return (
+        customerScope(object, principal.personId) ??
+        (throughOwnRecords ? customerViaScope(object, principal.personId) : null) ??
+        publicScope(object) ??
+        NONE
+      );
     case "public":
       return publicScope(object) ?? NONE;
     default:
@@ -86,6 +106,8 @@ export function visibleObject(ctx: Viewer, object: string | ObjectDefinition): O
       return customerObject(definition, scope);
     case "public":
       return publicObject(definition, scope);
+    case "via":
+      return viaObject(definition, scope);
     case "none":
       throw unknownObject(definition.name);
   }
@@ -147,8 +169,49 @@ export function visibleSource(
   alias?: string,
 ): VisibleSource<AnyRow, string> {
   const definition = resolve(object);
-  const scope = scopeOf(ctx.principal, definition);
-  const name = alias ?? definition.source;
+  return sourceOf(scopeOf(ctx.principal, definition), definition, alias ?? definition.source);
+}
+
+/**
+ * The records of `object` a customer or the public may buy: what they may read as their own or
+ * as the public, and not what they read only through their own records (ADR 0439). A holder
+ * still reads the ticket type of their ticket once its event is no longer on sale; they cannot
+ * buy another. Staff: every record, as `visibleSource`.
+ */
+export function buyableSource(
+  ctx: Viewer,
+  object: ObjectDefinition,
+): VisibleSource<AnyRow, string> {
+  const definition = resolve(object);
+  return sourceOf(scopeOf(ctx.principal, definition, false), definition, definition.source);
+}
+
+/** The predicate of a public scope: the records meeting `when` (ADR 0438). */
+function publicWhere(scope: PublicScope): RawBuilder<unknown> {
+  const { condition } = scope;
+  if (!condition) return sql`1 = 1`;
+  const values = sql.join(condition.values.map((value) => sql`${value}`));
+  // With `via`, the record it points to must meet it: a ticket type while its event is on sale.
+  return condition.via
+    ? sql`${sql.ref(condition.column)} IN (SELECT id FROM ${sql.table(condition.via.source)} WHERE ${sql.ref(condition.via.column)} IN (${values}))`
+    : sql`${sql.ref(condition.column)} IN (${values})`;
+}
+
+/**
+ * The predicate of a `via` scope: the records one of the caller's own records points to
+ * (ADR 0439). Their own records are the `from` object's rows whose customer column is their
+ * Person, exactly as that object's customer scope has them; the person id is a bound parameter.
+ */
+function reachedWhere(scope: ViaScope): RawBuilder<unknown> {
+  const { link } = scope;
+  return sql`id IN (SELECT ${sql.ref(link.pointer)} FROM ${sql.table(link.source)} WHERE ${sql.ref(link.owner)} = ${scope.personId} AND ${sql.ref(link.pointer)} IS NOT NULL)`;
+}
+
+function sourceOf(
+  scope: Scope,
+  definition: ObjectDefinition,
+  name: string,
+): VisibleSource<AnyRow, string> {
   switch (scope.kind) {
     case "all":
       return sql<AnyRow>`${sql.table(definition.source)}`.as(name);
@@ -162,16 +225,27 @@ export function visibleSource(
       );
     }
     case "public": {
-      // Only the records meeting `when`, and only the listed columns. With `via`, the record it
-      // points to must meet it: a ticket type while its event is on sale (ADR 0438).
+      // Only the records meeting `when`, and only the listed columns (ADR 0438).
       const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
-      const { condition } = scope;
-      const values = condition ? sql.join(condition.values.map((value) => sql`${value}`)) : null;
-      const where = !condition
-        ? sql`1 = 1`
-        : condition.via
-          ? sql`${sql.ref(condition.column)} IN (SELECT id FROM ${sql.table(condition.via.source)} WHERE ${sql.ref(condition.via.column)} IN (${values}))`
-          : sql`${sql.ref(condition.column)} IN (${values})`;
+      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${publicWhere(scope)})`.as(
+        name,
+      );
+    }
+    case "via": {
+      // The records the caller's own records point to, with the fields `customerVia` lists; and,
+      // on an object that is public too, the public records with the public's fields. A column
+      // only one of the two lists carries its value only on the records that one covers: a
+      // column that neither lists is not in the source at all (ADR 0439).
+      const reached = reachedWhere(scope);
+      const shared = scope.public ? publicWhere(scope.public) : null;
+      const columns = sql.join(
+        scope.columns.map(({ column, shownOn }) =>
+          shownOn === "both" || !shared
+            ? sql.ref(column)
+            : sql`CASE WHEN ${shownOn === "reached" ? reached : shared} THEN ${sql.ref(column)} END AS ${sql.ref(column)}`,
+        ),
+      );
+      const where = shared ? sql`(${reached}) OR (${shared})` : reached;
       return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${where})`.as(
         name,
       );

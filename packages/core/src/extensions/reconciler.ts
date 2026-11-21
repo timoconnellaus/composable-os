@@ -185,6 +185,7 @@ export function planFromState(
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),
       ...(object.public ? { public: object.public } : {}),
+      ...(object.customerVia ? { customerVia: object.customerVia } : {}),
       ...(object.navigationOrder !== undefined ? { navigationOrder: object.navigationOrder } : {}),
       ...(object.requireOneOf?.length ? { requireOneOf: object.requireOneOf } : {}),
       ...(object.titleDefault ? { titleDefault: object.titleDefault } : {}),

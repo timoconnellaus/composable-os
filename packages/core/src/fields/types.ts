@@ -132,6 +132,22 @@ export interface ObjectDefinition {
    * Left out, the object does not exist for the public. Enforced only at the visibility seam.
    */
   public?: PublicDeclaration;
+  /**
+   * What a customer may read of a record one of their own records points to (ADR 0439). Left
+   * out, a customer reads nothing of the object that way. Enforced only at the visibility seam.
+   */
+  customerVia?: CustomerViaDeclaration;
+}
+
+/**
+ * What a customer reads of a record their own record points to (ADR 0439): the fields in `read`
+ * of the records that a record of `from` (an object that declares a customer) whose customer is
+ * the caller points to through its single relation `field`. Names are registry names.
+ */
+export interface CustomerViaDeclaration {
+  readonly from: string;
+  readonly field: string;
+  readonly read: readonly string[];
 }
 
 /**

@@ -55,6 +55,8 @@ export interface ObjectDefinitionJson {
     read: string[];
     when?: { via?: string | undefined; field: string; in: string[] } | undefined;
   };
+  /** What a customer reads of a record their own record points to (ADR 0439), as declared. */
+  customerVia?: { from: string; field: string; read: string[] };
   navigationOrder?: number;
   requireOneOf?: string[][];
   titleDefault?: { from: string[]; suffix?: string | undefined };
@@ -590,6 +592,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
       ...(object.definition.public ? { public: object.definition.public } : {}),
+      ...(object.definition.customerVia ? { customerVia: object.definition.customerVia } : {}),
       ...(object.definition.navigationOrder !== undefined
         ? { navigationOrder: object.definition.navigationOrder }
         : {}),

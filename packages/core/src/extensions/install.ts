@@ -185,6 +185,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot make ${name} readable by the public. ${why}`,
       });
     }
+    // Fields a customer reads through their own records (ADR 0439): a reviewed change too.
+    if (object.customerVia) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.customerVia`,
+        message: `A runtime extension cannot make ${name} readable by customers through their own records. ${why}`,
+      });
+    }
     // Selling to the public opens order.start to its records (ADR 0435): a reviewed change too.
     if (object.sellable) {
       issues.push({
