@@ -47,8 +47,8 @@ place) and skipped. A repeated cycle is a new assignment.
 `bulk-write`, `bulkSize` the count): up to 50 records of one object in one batch, all or none,
 each through `record.create`'s own code. Measured in workerd's D1 (`packages/core/test/
 create-many.test.ts`): **4 statements per session** (the record, its first state's history row,
-its search document's delete and insert), so a batch of 50 is the call's own few statements plus
-200, about a fifth of D1's 1,000 queries per invocation. `assign` writes in batches of 50: the
+its search document's delete and insert), and 3 for the call itself: a batch of one is 7
+statements and a batch of 50 is 203, about a fifth of D1's 1,000 queries per invocation. `assign` writes in batches of 50: the
 largest layout (52 weeks of 14, 728 sessions) is 15 batches, and `apps/runner/test/programs.test.ts`
 assigns it. Under the balanced policy an extension's bulk write of up to 100 records applies
 without review, so a pack's batches of 50 do too; under cautious they wait for a person.
