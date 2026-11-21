@@ -89,7 +89,6 @@ if (existsSync(appVars) && !/^AI_FAKE_MODEL=/m.test(readFileSync(appVars, "utf8"
   );
 }
 
-
 // Stand-in speech for local dev and e2e, unless this checkout has a real key to try (ADR 0349).
 if (
   existsSync(appVars) &&

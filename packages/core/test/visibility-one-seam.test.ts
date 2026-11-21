@@ -122,6 +122,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/setup.ts": [1, WHY.write],
   "operations/suggestions.ts": [6, WHY.write],
   "orders/checkout.ts": [1, WHY.host],
+  "orders/grants.ts": [1, WHY.host],
   "orders/guests.ts": [1, WHY.host],
   "orders/holds.ts": [1, WHY.host],
   "orders/late.ts": [2, WHY.host],
