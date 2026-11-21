@@ -175,3 +175,15 @@ Migrations 0460 to 0469. ADRs 0440 to 0444.
 5. The editor and the publish controls.
 6. The Content pack, hooks and both renderers.
 7. Ghetto's import and the blog's routes.
+
+## As built: criterion 12 (2026-11-22)
+Decided by the owner and built on `feat/ai-publish-requests` (ADR 0480; ADRs 0441 and 0446
+amended). An AI actor (the assistant, an MCP client, an automation, an extension) may call
+`record.publish`, `record.schedulePublish`, `record.unpublish` and `record.cancelSchedule`; each
+call is always queued for a person, under every preset and floor, and the adjudicator never
+approves it (the pipeline's `alwaysReview` class). Only a person holding `records:publish`
+approves, by a press in the Approvals inbox. The request shows what would go live against what
+is live, and is refused on approval when the post changed since it was asked for. The version
+history keeps who approved and who asked. Proof: `packages/core/test/publish-requests.test.ts`,
+`apps/app/test/mcp-publish-requests.test.ts` (over `/mcp`, under the default policy and the
+autonomous one) and `apps/runner/test/content.test.ts`. Migration 0520, ADR 0480 (block AF).

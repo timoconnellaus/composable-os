@@ -1078,8 +1078,11 @@ empty, its old value kept in `core_slug_redirect` when a published record's slug
 [ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),
 `packages/core/src/operations/record-versions.ts`, `packages/core/src/records/publish.ts`).
 `publishable: { content, slug?, date? }`: the record is the working copy; `record.publish`
-(`records:publish`, admins by default, a person only, never an AI actor) snapshots the content
-fields as the next version in `core_publish_version` (migration 0470) and makes it current;
+(`records:publish`, admins by default; an AI actor's call is always queued for a person holding
+`records:publish`, `alwaysReview`, ADR 0480, and refused on approval if the working copy changed
+since) snapshots the content
+fields as the next version in `core_publish_version` (migration 0470; who approved and, for a
+request, who asked and how, migration 0520) and makes it current;
 `record.schedulePublish` takes the snapshot now and the minute cron (cos-runner,
 `record.publishDue` through the pipeline) makes it current at the set time
 (`core_publish_schedule`, migration 0460); `record.unpublish` leaves no version current and keeps

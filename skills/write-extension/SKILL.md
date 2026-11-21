@@ -172,8 +172,8 @@ extension declares it; it never implements it. Each behaviour the platform has i
   beside them, return both from your tools, and show times in the record's zone. See Ticketing:
   `objects.event.fields.timezone`.
 - **`publishable`** on an object: a working copy staff edit and published versions (ADR 0446),
-  `publishable: { content: [fields] }`. `record.publish` (a person with `records:publish`, never
-  an AI actor or your code) snapshots the content fields as the next version; `record.version`
+  `publishable: { content: [fields] }`. `record.publish` (a person with `records:publish`; your
+  code or the assistant only asks, and a person approves, ADR 0480) snapshots the content fields as the next version; `record.version`
   reads one (the current by default), `record.versions` lists them, `record.restoreVersion`
   copies one back. Records get read-only `publishedVersion` and `publishedAt`, so don't declare
   fields with those names. What follows a version (an assignment) stores its number and reads
@@ -188,7 +188,8 @@ extension declares it; it never implements it. Each behaviour the platform has i
   with `content.get { object, slug }` and `content.list`, and a draft is not found. Records also
   get `publishState` (draft, scheduled, published, unpublished) and `publishAt`, for views.
   Publishing, scheduling (`record.schedulePublish`) and unpublishing are a person's; your code and
-  the assistant write the working copy only. See Content: `packs/content/index.ts`.
+  the assistant write the working copy, and a call of theirs to publish waits for a person's
+  approval whatever the policy (ADR 0480). See Content: `packs/content/index.ts`.
 
 ### Roles
 
