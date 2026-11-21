@@ -10,20 +10,15 @@
 // the host answers with a staff device session, held in this process's memory and nowhere else,
 // and ended on the host when the run finishes. No token is read from the environment or a file,
 // and none is printed.
-import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
-import { hostname } from "node:os";
 import { join, resolve } from "node:path";
-import { startBrowserSignIn, type Tokens, tokenSession } from "@composable-os/client";
 import type { Io } from "../io.ts";
 import { reportLines, runImport } from "./engine.ts";
 import { POST_FIELDS, readFolder } from "./format.ts";
 import { sessionHost } from "./host.ts";
+import { confirmer, LOOPBACK_PATH, signInForRun } from "../import-door/sign-in.ts";
 
-/** The loopback address the browser sign-in comes back to (any port), as the host lists it. */
-export const LOOPBACK_PATH = "/cos-sign-in";
+export { LOOPBACK_PATH };
 
 export interface ImportFlags {
   host?: string;
@@ -58,56 +53,6 @@ export function readImportFolder(dir: string): {
   return { posts, pictures };
 }
 
-function memoryStore() {
-  let saved: Tokens | null = null;
-  return {
-    load: async () => saved,
-    save: async (tokens: Tokens | null) => {
-      saved = tokens;
-    },
-  };
-}
-
-const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-
-/** Opens `url` in the system browser, where the platform has a way; else says to. */
-function openBrowser(url: string, io: Io) {
-  io.out(`Sign in in your browser: ${url}`);
-  const command =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-  execFile(command, [url], () => {});
-}
-
-/** Waits for the browser to come back to 127.0.0.1 with the one-time code; its full address. */
-async function loopback(): Promise<{
-  redirectUri: string;
-  callback: Promise<string>;
-  close(): void;
-}> {
-  let settle!: (url: string) => void;
-  const callback = new Promise<string>((resolve_) => {
-    settle = resolve_;
-  });
-  const server = createServer((req, res) => {
-    const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    if (url.pathname !== LOOPBACK_PATH) {
-      res.writeHead(404).end();
-      return;
-    }
-    res
-      .writeHead(200, { "content-type": "text/plain; charset=utf-8" })
-      .end("Signed in. You can close this tab and go back to the terminal.");
-    settle(`http://127.0.0.1${req.url}`);
-  });
-  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
-  const port = (server.address() as AddressInfo).port;
-  return {
-    redirectUri: `http://127.0.0.1:${port}${LOOPBACK_PATH}`,
-    callback,
-    close: () => server.close(),
-  };
-}
-
 /** `cos content import <folder>`. */
 export async function contentImport(
   positional: string[],
@@ -140,47 +85,10 @@ export async function contentImport(
     `${plan.posts.length} post(s), ${plan.categories.length} categor${plan.categories.length === 1 ? "y" : "ies"} and ${plan.pictures.size} picture(s) in ${dir}.`,
   );
 
-  // Signed in for this run only.
-  const store = memoryStore();
-  const session = tokenSession({ baseUrl: host, store });
-  const deviceName = `cos content import on ${hostname()}`.slice(0, 100);
+  // Signed in for this run only (import-door/sign-in.ts).
+  let session: Awaited<ReturnType<typeof signInForRun>>;
   try {
-    if (flags.email) {
-      await session.requestCode(flags.email, "staff");
-      // The host answers the same whoever the address is, so it cannot say why no code came:
-      // these are what to check, on the host, by someone signed in (ADR 0457).
-      io.out(
-        `If ${flags.email} may sign in by code, a code is on its way. If none arrives in a minute or two, check on the host: ` +
-          "the address is one an admin invited, or one you confirmed (your account menu, Confirm your email), " +
-          "and Settings → Users shows sign-in codes going out (Send sign-in codes without review). " +
-          "Or run without --email to sign in with the browser.",
-      );
-      const code = await io.ask(`The sign-in code sent to ${flags.email}`, { secret: true });
-      await session.signInWithCode(flags.email, code.trim(), deviceName, "staff");
-    } else {
-      const back = await loopback();
-      try {
-        const random = () => hex(crypto.getRandomValues(new Uint8Array(16)));
-        const started = await startBrowserSignIn({
-          hostUrl: host,
-          redirectUri: back.redirectUri,
-          randomKey: random,
-          sha256: async (text) =>
-            new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))),
-        });
-        openBrowser(started.url, io);
-        const callbackUrl = await back.callback;
-        await session.finishBrowserSignIn({
-          callbackUrl,
-          state: started.state,
-          verifier: started.verifier,
-          redirectUri: back.redirectUri,
-          deviceName,
-        });
-      } finally {
-        back.close();
-      }
-    }
+    session = await signInForRun(host, flags.email, io, "cos content import");
   } catch (error) {
     io.err(`Could not sign in: ${(error as Error).message}`);
     return 1;
@@ -193,15 +101,7 @@ export async function contentImport(
       {
         dryRun: Boolean(flags.dryRun),
         publish: Boolean(flags.publish),
-        confirm: async (summary) => {
-          if (flags.yes) return true;
-          if (!io.interactive) {
-            io.err(`${summary}. Pass --yes to confirm it when running from a script.`);
-            return false;
-          }
-          const answer = await io.ask(`${summary}. Go ahead? (yes/no)`, { default: "no" });
-          return /^y(es)?$/i.test(answer.trim());
-        },
+        confirm: confirmer(io, flags.yes),
       },
     );
     for (const line of reportLines(report, Boolean(flags.dryRun))) {

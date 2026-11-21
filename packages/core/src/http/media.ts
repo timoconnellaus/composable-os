@@ -15,6 +15,9 @@
 //   POST /api/media/<id>/captions?language=&label=
 //                                           a video's WebVTT caption track: `media.captionUpload`
 //                                           (staff only; stage 42, ADR 0475)
+//   POST /api/v1/media/<id>/captions?language=&label=
+//                                           the same with a staff device token only, for an import
+//                                           a person signed in to (cos courses import, ADR 0485)
 //   *    /api/v1/media/fake-stream/*        the fake Stream's upload and playback addresses, only
 //                                           where the fake is configured (development and tests)
 //
@@ -67,6 +70,8 @@ export interface MediaRouteOptions {
 
 const ID = /^med_[A-Za-z0-9]{1,60}$/;
 const CAPTIONS = /^\/api\/media\/(med_[A-Za-z0-9]{1,60})\/captions$/;
+/** The same with a staff device token (stage 42's import, ADR 0485), beside the HTTP surface. */
+const TOKEN_CAPTIONS = /^\/api\/v1\/media\/(med_[A-Za-z0-9]{1,60})\/captions$/;
 const FAKE_STREAM_PREFIX = `${PUBLIC_MEDIA_ROUTE}/fake-stream/`;
 
 /** The fake Stream's control, when this isolate's video host is the fake. */
@@ -102,6 +107,14 @@ export async function handleMedia(request: Request, options: MediaRouteOptions):
       if (!fake)
         return reply(404, JSON.stringify({ error: { code: "not_found", message: "Not found" } }));
       return await fake.handle(request);
+    }
+    const tokenCaption = TOKEN_CAPTIONS.exec(url.pathname);
+    if (tokenCaption?.[1]) {
+      if (request.method !== "POST" || !options.tokenUploads) {
+        return reply(404, JSON.stringify({ error: { code: "not_found", message: "Not found" } }));
+      }
+      const ctx = await staffTokenContext(request, options);
+      return await captionUpload(request, url, tokenCaption[1], options, ctx);
     }
     const caption = CAPTIONS.exec(url.pathname);
     if (caption?.[1]) {
@@ -143,6 +156,18 @@ async function tokenUpload(
   url: URL,
   options: MediaRouteOptions,
 ): Promise<Response> {
+  return upload(request, url, options, await staffTokenContext(request, options));
+}
+
+/**
+ * A person's staff device session, and nothing else (ADR 0470): a bearer token a native sign-in
+ * gave them. A cookie is not taken, so no page on another site can post here; the context the host
+ * builds from such a token is a human's, and anything else is refused before the body is read.
+ */
+async function staffTokenContext(
+  request: Request,
+  options: MediaRouteOptions,
+): Promise<AnyInvocationContext> {
   if (!/^Bearer\s+cos_at_\S+$/i.test(request.headers.get("authorization") ?? "")) {
     throw new ForbiddenError("Upload with a staff device token: sign in with cos first", {
       reason: "token_required",
@@ -156,7 +181,7 @@ async function tokenUpload(
       httpStatus: 403,
     });
   }
-  return upload(request, url, options, ctx);
+  return ctx;
 }
 
 async function upload(
@@ -198,6 +223,7 @@ async function captionUpload(
   url: URL,
   id: string,
   options: MediaRouteOptions,
+  given?: AnyInvocationContext,
 ): Promise<Response> {
   const origin = request.headers.get("origin");
   if (origin && origin !== url.origin) {
@@ -210,7 +236,7 @@ async function captionUpload(
     });
   }
   const bytes = await readCapped(request, MEDIA_CAPTION_MAX_BYTES);
-  const ctx = await options.context(request);
+  const ctx = given ?? (await options.context(request));
   const label = url.searchParams.get("label");
   const result = await options.invoker.invokeByName(
     "media.captionUpload",
