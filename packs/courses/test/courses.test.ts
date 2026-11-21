@@ -74,7 +74,7 @@ describe("the manifest and the outline", () => {
     // A key is lower-case words: no spaces, no capitals.
     const badKey = structuredClone(outline);
     (badKey.sections[0] as { lessons: { key: string }[] }).lessons[0] = {
-      ...(outline.sections[0]?.lessons[0] as never),
+      ...(outline.sections[0]?.lessons[0] as object),
       key: "Bad Key",
     };
     expect(validateDocument(OUTLINE_SCHEMA, badKey).ok).toBe(false);
@@ -135,7 +135,7 @@ function hostWith(options: { held?: string[]; enrolments?: Record<string, unknow
         { id: "rec_course", title: "Handstands 101", slug: "handstands-101", theme: "rec_theme", level: 1, price: 99, outline },
       ],
       "courses.bundle": [{ id: "rec_bundle", title: "Starter", courses: { items: ["rec_course", "rec_other"] }, price: 150 }],
-      "courses.enrolment": options.enrolments ?? [],
+      "courses.enrolment": (options.enrolments ?? []) as never,
       "courses.progress": [],
       "programs.session": [{ id: "rec_session", program: "rec_program", week: 1, position: 0, date: "2026-11-23" }],
     },
@@ -148,7 +148,7 @@ function hostWith(options: { held?: string[]; enrolments?: Record<string, unknow
       "my.update": (input) => {
         const store = host.records.get(String(input.object));
         const before = store?.get(String(input.id)) ?? {};
-        store?.set(String(input.id), { ...before, ...(input.values as object) });
+        store?.set(String(input.id), { ...before, ...(input.values as object) } as never);
         return {};
       },
       "access.check": (input) => ({ held: (input.ids as string[]).filter((i) => options.held?.includes(i)) }),
@@ -259,7 +259,7 @@ describe("the tools", () => {
     const ended = await host.runTool<{ status: string }>("endEnrolment", { enrolmentId: given.enrolmentId, reason: "Asked to leave" }, { caller: STAFF });
     expect(ended.status).toBe("ended");
     const bought = await host.runTool<{ enrolmentId: string }>("enrol", { personId: "per_x", courseId: "rec_course", reason: "test row" }, { caller: STAFF });
-    host.records.get("courses.enrolment")?.set(bought.enrolmentId, { ...host.records.get("courses.enrolment")?.get(bought.enrolmentId), source: "purchase" });
+    host.records.get("courses.enrolment")?.set(bought.enrolmentId, { ...host.records.get("courses.enrolment")?.get(bought.enrolmentId), source: "purchase" } as never);
     await expect(host.runTool("endEnrolment", { enrolmentId: bought.enrolmentId, reason: "Not here" }, { caller: STAFF })).rejects.toThrow(/refunded/);
   });
 

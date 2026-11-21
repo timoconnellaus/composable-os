@@ -115,8 +115,12 @@ export async function checkManifest(
   // written in the workspace, may not open a tool or show an object to anyone but staff.
   if (manifest && options.source === "runtime") all.push(...outsideDeclarations(manifest));
   // The extensions it requires must be installed and on (stage 42, ADR 0478): Courses needs
-  // Programs. A missing one is named, never assumed.
-  const required = manifest?.requires ?? [];
+  // Programs. A missing one is named, never assumed, and named first: without it, what the
+  // extension names of it is unknown too.
+  const raw = (rawManifest as { requires?: unknown } | null)?.requires;
+  const required = Array.isArray(raw)
+    ? raw.filter((r): r is string => typeof r === "string").slice(0, 10)
+    : [];
   if (required.length) {
     const present = new Set(
       (
@@ -131,7 +135,7 @@ export async function checkManifest(
     for (const id of options.installed ?? []) present.add(id);
     required.forEach((id, i) => {
       if (!present.has(id)) {
-        all.push({
+        all.unshift({
           stage: "contract",
           code: "contract",
           path: `requires.${i}`,

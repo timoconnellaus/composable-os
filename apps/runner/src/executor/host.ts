@@ -15,11 +15,13 @@ import {
   type CodeCaller,
   coreOperations,
   type EventSink,
+  type ExtensionHost,
   invokeByName,
   type OutsidePrincipal,
   PendingApprovalError,
   type Permission,
   parseFloor,
+  queueEventSink,
   type TestSimulation,
   toOperationError,
 } from "@composable-os/core";
@@ -36,6 +38,12 @@ export const MAX_LOGS = 200;
 export interface HostEnv {
   DB: D1Database;
   APPROVAL_FLOOR?: string;
+  /**
+   * The automation events queue (ADR 0130): what a tool's own operation calls commit starts
+   * automations, as the same write made from the admin does (stage 42: a student's first
+   * progress row, written by the Courses `progress` tool, assigns their session programs).
+   */
+  AUTOMATION_EVENTS?: Queue;
   AI?: unknown;
   AI_GATEWAY_ID?: string;
 }
@@ -185,6 +193,22 @@ export class RunHost extends RpcTarget {
     }
   }
 
+  /** The events queue for a tool's own calls, where this Worker has one. */
+  #events(): { events?: EventSink } {
+    return this.#env.AUTOMATION_EVENTS ? { events: queueEventSink(this.#env.AUTOMATION_EVENTS) } : {};
+  }
+
+  /**
+   * For a call of another extension's tool (`x.<id>.<tool>`, stage 42: Courses' automation asks
+   * Programs to assign a program): this runner's own extension host, which runs it in its own
+   * sandbox under its own extension's permissions. Loaded when needed (index.ts imports this file).
+   */
+  async #tools(operation: string): Promise<{ extensionHost?: ExtensionHost }> {
+    if (!operation.startsWith("x.")) return {};
+    const { extensionHost } = await import("../index.ts");
+    return { extensionHost: extensionHost(this.#env as never) };
+  }
+
   async #crmCall(args: unknown[]): Promise<unknown> {
     const run = this.#run;
     const [name, input] = args;
@@ -201,6 +225,8 @@ export class RunHost extends RpcTarget {
             origin: { surface: "extension", extensionId: run.extensionId },
             db: createCrmDb(this.#env.DB),
             floor: parseFloor(this.#env.APPROVAL_FLOOR),
+            ...this.#events(),
+            ...(await this.#tools(operation)),
           })
         : await invokeByName(operation, input ?? {}, {
             actor: "extension",
@@ -209,6 +235,8 @@ export class RunHost extends RpcTarget {
             db: createCrmDb(this.#env.DB),
             floor: parseFloor(this.#env.APPROVAL_FLOOR),
             extension: { id: run.extensionId, permissions: run.permissions },
+            ...this.#events(),
+            ...(await this.#tools(operation)),
           });
       reply = { ok: true, value };
     } catch (error) {
@@ -253,6 +281,7 @@ export class RunHost extends RpcTarget {
         floor: parseFloor(this.#env.APPROVAL_FLOOR),
         extension: { id: run.extensionId, permissions: run.permissions },
         reason: `Automation ${automation.automationId}`,
+        ...(await this.#tools(operation)),
         ...(automation.events ? { events: automation.events } : {}),
         ...(automation.events && embedsFromEvents(this.#env) ? { embedViaEvents: true } : {}),
         ...(automation.simulate ? { simulate: automation.simulate } : {}),
