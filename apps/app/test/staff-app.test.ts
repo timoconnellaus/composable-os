@@ -99,7 +99,7 @@ const host: FetchLike = async (url, init) => {
 
 /** The system browser: follows the host's redirect back to the app. */
 const browser = async (url: string) => {
-  const answer = await host(url, {});
+  const answer = await host(url, { method: "GET", headers: {} });
   return answer.status === 302 ? answer.headers.get("location") : null;
 };
 
