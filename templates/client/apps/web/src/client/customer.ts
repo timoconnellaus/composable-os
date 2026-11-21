@@ -76,6 +76,46 @@ export type Operations = {
     input: { object: string; filter?: ({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }))[] }); sort?: { field: string; direction?: ("asc") | ("desc") }; cursor?: string; limit?: number };
     output: { items: { object: string; id: string; values: Record<string, unknown> }[]; nextCursor: (string) | (null) };
   };
+  /**
+   * Cancel an order. A signed-in customer can cancel their own order while nothing has been paid on it. Staff can also cancel an order that is part paid (a deposit was paid): that gives up its places, and refunding what was paid is a separate step. A paid order is refunded, not cancelled. Returns the order.
+   */
+  "order.cancel": {
+    kind: "mutation";
+    input: { id: string };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
+  };
+  /**
+   * Open the payment provider's own page to pay for an order, and get its address to send the buyer to. The host says what is charged: the whole price or the deposit for an order with nothing paid (no amount may be given), or, for a part-paid order, the balance or a part of it of at least the set minimum (`amount`, in the currency's minor unit). The buyer comes back to `returnUrl`, which must be on one of the deployment's listed sites; coming back does not mark anything paid. Only the provider's confirmation does. A guest passes the order's token; a signed-in customer pays their own orders.
+   */
+  "order.checkout": {
+    kind: "mutation";
+    input: { id: string; token?: string; returnUrl: string; amount?: number };
+    output: { url: string; amount: number; currency: string; kind: ("full") | ("deposit") | ("balance") | ("part"); expiresAt: (string) | (null) };
+  };
+  /**
+   * Get one order with its lines: its state, amounts (in the currency's minor unit), what has been paid, the balance and when it is due. A signed-in customer gets their own orders only; anyone else's is not found. Read-only.
+   */
+  "order.get": {
+    kind: "query";
+    input: { id: string };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
+  };
+  /**
+   * Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
+   */
+  "order.start": {
+    kind: "mutation";
+    input: { lines: { object: string; id: string; quantity?: number }[]; pay?: ("full") | ("deposit"); email?: string };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff"); token: (string) | (null) };
+  };
+  /**
+   * See one order with the token it was started with (a guest's link from order.start or the confirmation email). The token opens that order only, while it is open and for 30 days after it closes. A wrong id, a wrong token and an old link are all not found. Read-only.
+   */
+  "order.view": {
+    kind: "query";
+    input: { id: string; token: string };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
+  };
 };
 
 /** What the runtime needs: each operation's kind, and what a mutation makes stale. */
@@ -89,6 +129,11 @@ export const operations = {
   "me.update": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
   "my.get": { kind: "query", invalidates: [] },
   "my.list": { kind: "query", invalidates: [] },
+  "order.cancel": { kind: "mutation", invalidates: ["order.get","order.view"] },
+  "order.checkout": { kind: "mutation", invalidates: ["order.get","order.view"] },
+  "order.get": { kind: "query", invalidates: [] },
+  "order.start": { kind: "mutation", invalidates: ["order.get","order.view"] },
+  "order.view": { kind: "query", invalidates: [] },
 } as const;
 
 export const API_VERSION = "v1";
