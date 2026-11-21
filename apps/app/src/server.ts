@@ -17,6 +17,10 @@ import { runEmbeddingCron } from "./server/ai.ts";
 // surface that shows the product's name uses. Unset: the build's own name.
 setProductLabel((workerEnv as unknown as Record<string, string | undefined>)[PRODUCT_LABEL_VAR]);
 
+// Staff sign-in codes go out as the host's own mail (ADR 0455). Given for the module env that
+// TanStack Start's routes read (/api/auth/*) as well as the fetch handler's own.
+provideStaffCodes(workerEnv, staffCodesFor(workerEnv as unknown as ApiEnv));
+
 // Each person's assistant thread (ADR 0340), bound as ASSISTANT in wrangler.jsonc.
 export { AssistantAgent } from "./server/assistant/agent.ts";
 // One object per agent (ADR 0344), bound as AGENT_JOB.

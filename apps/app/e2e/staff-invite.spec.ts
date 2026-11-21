@@ -27,7 +27,8 @@ async function approveMail(page: Page, subject: string): Promise<void> {
     .first();
   await expect(action).toBeVisible({ timeout: 20_000 });
   const set = page.getByTestId("change-set").filter({ has: action });
-  await set.getByRole("button", { name: "Approve", exact: true }).click();
+  // The host's mail waiting in one change set (earlier invite notices too): approve it all.
+  await set.getByRole("button", { name: /^Approve( \d+)?$/ }).click();
   await expect(set.getByTestId("decision-result")).toContainText("Applied");
 }
 
@@ -65,7 +66,10 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
   const person = await guest.newPage();
   await person.goto("/sign-in");
   const ask = person.getByRole("form", { name: "Sign in with a code" });
+  // Hydrated first: the form is controlled, so text typed before React takes over is lost.
+  await expect(ask.getByRole("button", { name: "Email me a code" })).toBeEnabled();
   await ask.getByLabel("Email").fill(invitee);
+  await expect(ask.getByLabel("Email")).toHaveValue(invitee);
   await ask.getByRole("button", { name: "Email me a code" }).click();
   const enter = person.getByRole("form", { name: "Enter your code" });
   await expect(enter).toBeVisible();
@@ -113,6 +117,6 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
   });
   expect(again.status()).toBe(400);
   expect(await again.json()).toEqual({ code: "INVALID_OTP", message: "Invalid code" });
-  await other.dispose();
-  await guest.dispose();
+  await other.close();
+  await guest.close();
 });
