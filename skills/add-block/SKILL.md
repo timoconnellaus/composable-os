@@ -20,16 +20,22 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    calls and the blocks it brings with it.
 2. **Check it fits.**
    - A pack's block needs that pack in `product.ts`'s `packs`.
-   - A web block needs a React web app (the template's TanStack Start app); it does not fit a site
-     in another framework. A native block needs the mobile app.
+   - A web block needs React: the template's TanStack Start app, or **an Astro site with React
+     islands**. In the browser it calls the host through the web app's `operationRoute` (the
+     host module), so add each operation the block calls to that route's `allow` list. A site with
+     no React at all does not fit. A native block needs the mobile app.
    - The operations it calls must be in the app's generated client
-     (`<app>/src/client/customer.ts`, or `src/composable-os/` in an adopted repo). The sign-in
+     (`<app>/src/client/customer.ts`, or `src/composable-os/` in an adopted repo); a staff block
+     (the door scanner) calls a role client (`src/client/roles/<pack>.<role>.ts`, from
+     `mobile.roles` in `product.ts`), never the staff client. The sign-in
      blocks call no operation: `web-sign-in` posts to the web app's `/auth/*` routes, which its
      host module serves; `native-sign-in` takes `actions` with `requestCode` and `signIn`, which
      the mobile app's `hostSession` has.
 3. **Copy it.** `pnpm cos add <name>`. Its files go to `<app>/src/blocks/<name>/`, with the blocks
-   it depends on, and `blocks.lock.json` records each block's version and files. If it prints a
-   `pnpm add ...` line, run it in the app: those are the packages the block's files import. Commit
+   it depends on, and `blocks.lock.json` records each block's version and files. If it prints an
+   install line, run it: those are the packages the block's files import, the platform's at the
+   release's version, with the command that fits the app (`npx expo install` in an Expo app, else
+   the package manager its lockfile names). Commit
    the files (`cos create` made the repo a git repository; in an adopted repo, use its own).
 4. **Restyle it** to the company's brand. The web blocks use Tailwind v4 classes on the tokens in
    the template's `apps/web/src/styles.css` (`--primary`, `--primary-foreground`, `--destructive`,

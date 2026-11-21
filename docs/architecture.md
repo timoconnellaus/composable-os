@@ -1176,6 +1176,10 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   `CUSTOMER_AUTH_URL` to the web app's origin and makes `CUSTOMER_AUTH_SECRET` once, and installs
   the gatekeepers `product.ts` names with their settings
   ([ADR 0452](adr/0452-gatekeeper-settings-in-product-ts.md)).
+- **Role clients and browser calls** ([ADR 0451](adr/0451-role-clients-staff-in-the-mobile-app-and-browser-calls.md)):
+  a mobile app that lists a pack role gets a client with only that role's operations (from the
+  release's `api/v1/roles.json`); staff sign in in it apart from customers. A web app's
+  `operationRoute` passes the browser's allowed calls to `HOST`, same origin only.
 - **Environments** ([ADR 0450](adr/0450-client-environments.md)): `product.ts` may declare
   several deployments (`staging`, `live`), each its own host in the same account (`<id>-staging-app`;
   `live` keeps `<id>-app`), deployed with `cos deploy --env <name>`.

@@ -156,9 +156,17 @@ may be a subdomain (`admin.example.com`), and staff sign in there.
    init)` and `headers: () => customerSession(request.headers.get("cookie"))` from
    `@composable-os/client`, which forwards the customer cookie and no other.
 4. Put the [edge rule for public calls](#public-calls-a-rule-at-the-edge) on the web app's zone
-   too, over the web app's own sign-in and API paths: calls over a binding do not pass the host's
-   zone, so the host's rule does not see them. Signed-in customers are still limited per account
-   by the host.
+   too: calls over a binding do not pass the host's zone, so the host's rule does not see them.
+   Signed-in customers are still limited per account by the host. **Scope it to the routes that
+   reach the host** (the sign-in route, `/auth/` in the template, and the operation route,
+   `/api/v1/op/` by default; `web.routes` in `product.ts` names others), which is the rule `cos`
+   prints. A rule over the whole of `/api/` would, on a site with its own API, throttle the site's
+   own routes for everyone behind one address (an office, a school, a phone network).
+5. **Calls from the browser** (a web block in a page, an Astro site's React island) go to the web
+   app's own `operationRoute(request, env, { allow })` (the template's host module): same origin
+   only, JSON only, only the operations `allow` names, forwarding the customer's cookie and the
+   `Idempotency-Key` and never an `Authorization` header (ADR 0451). In the browser,
+   `createCustomerClient({ baseUrl: location.origin })` calls it.
 
 `crm-runner`'s only secrets are the AI ones ([In-app AI](#in-app-ai)). It runs extension code, which calls operations there, so set its
 `APPROVAL_FLOOR` var (in `apps/runner/wrangler.jsonc`) to the same value as crm-app's. Shipped
@@ -313,6 +321,16 @@ A product with no web app gets neither.
 `pnpm cos deploy --env <name> --rotate-customer-auth-secret`, or by hand
 `npx wrangler secret put CUSTOMER_AUTH_SECRET --name <id>-app` with a new random value
 (`openssl rand -hex 32`). Do it when the secret may have leaked.
+
+### Staff in the company's mobile app
+A pack role (the door role, ADR 0436) can be used from the company's own app (ADR 0451):
+`mobile: { dir, roles: ["ticketing.door"] }` in `product.ts` makes `cos client generate` write
+`roles/ticketing.door.ts`, a client with only that role's operations, never the whole staff client.
+Staff sign in with the template's `staffSession`, by an emailed code or in the system browser.
+For the browser, `cos deploy` sets the host's `NATIVE_REDIRECT_URIS` to `<scheme>://staff-sign-in`,
+the scheme being `mobile.scheme` (default the product's id; per environment,
+`environments.<name>.mobile.scheme`), which must match `expo.scheme` in the app's `app.json`. The
+token sign-in routes are the identity branch's (ADR 0455).
 
 ### Gatekeepers and their settings
 `product.ts` names the gatekeepers a host installs and their settings, for the whole product
