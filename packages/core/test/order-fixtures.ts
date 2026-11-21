@@ -18,7 +18,6 @@ import {
   ORDER_STATES,
   type OutsideInvocationContext,
   type PublicPrincipal,
-  registerSellable,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, db, unique } from "./helpers.ts";
@@ -28,7 +27,7 @@ export const BOX_OFFICE = extId("box");
 export const TICKET_TYPE = `${BOX_OFFICE}.ticket`;
 /** For sale, but priced in another currency. */
 export const IMPORT = `${BOX_OFFICE}.import`;
-/** Not for sale: an object nothing registers. */
+/** Not for sale: an object that declares no `sellable`. */
 export const POSTER = `${BOX_OFFICE}.poster`;
 
 export const CURRENCY = "AUD";
@@ -47,6 +46,10 @@ export async function installBoxOffice(admin: ActingUser): Promise<void> {
             depositAmount: { type: "currency", label: "Deposit", currency: CURRENCY },
             balanceDue: { type: "date", label: "Balance due" },
           },
+          sellable: {
+            price: "price",
+            deposit: { amount: "depositAmount", balanceDue: "balanceDue" },
+          },
         },
         import: {
           label: "Import",
@@ -56,6 +59,7 @@ export async function installBoxOffice(admin: ActingUser): Promise<void> {
             name: { type: "text", label: "Name", required: true },
             price: { type: "currency", label: "Price", currency: "USD" },
           },
+          sellable: { price: "price" },
         },
         poster: {
           label: "Poster",
@@ -69,12 +73,6 @@ export async function installBoxOffice(admin: ActingUser): Promise<void> {
       },
     }),
   );
-  registerSellable({
-    object: TICKET_TYPE,
-    price: "price",
-    deposit: { amount: "depositAmount", balanceDue: "balanceDue" },
-  });
-  registerSellable({ object: IMPORT, price: "price" });
   await invoke("order.settings.update", { currency: CURRENCY }, context(admin));
 }
 

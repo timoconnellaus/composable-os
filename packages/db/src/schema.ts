@@ -1404,6 +1404,18 @@ export interface CoreOrderLineTable {
   created_at: Timestamp;
 }
 
+/** A record a paid order line granted (stage 27, ADR 0435, migration 0450). */
+export interface CoreOrderGrantTable {
+  /** The granted record: its object's registry name and its id. */
+  object_type: string;
+  record_id: string;
+  order_id: string;
+  line_id: string;
+  /** The host's unguessable code, when the grant declares one. Unique. */
+  code: string | null;
+  created_at: Timestamp;
+}
+
 /** A verified payment the provider reported, once per provider event. */
 export interface CoreOrderPaymentTable {
   provider: string;
@@ -1866,6 +1878,7 @@ export interface CoreDatabase {
   core_transition_history: CoreTransitionHistoryTable;
   core_order: CoreOrderTable;
   core_order_line: CoreOrderLineTable;
+  core_order_grant: CoreOrderGrantTable;
   core_order_payment: CoreOrderPaymentTable;
   core_order_checkout: CoreOrderCheckoutTable;
   core_payment_event: CorePaymentEventTable;

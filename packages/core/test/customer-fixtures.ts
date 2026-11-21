@@ -26,7 +26,6 @@ import {
   type OutsideInvocationContext,
   type PublicPrincipal,
   refreshSchemaRegistry,
-  registerSellable,
   runListQuery,
   sortSchema,
   ValidationError,
@@ -130,6 +129,7 @@ export async function installShop(): Promise<void> {
             name: { type: "text", label: "Name", required: true },
             price: { type: "currency", label: "Price", currency: "AUD" },
           },
+          sellable: { price: "price" },
         },
         supplier: {
           label: "Supplier",
@@ -144,8 +144,8 @@ export async function installShop(): Promise<void> {
     }),
   );
   await declareCustomers();
-  // Real orders (stage 25): the item is for sale, and the deployment has a currency.
-  registerSellable({ object: ITEM, price: "price" });
+  // Real orders (stage 25): the item is for sale (it declares `sellable`), and the deployment
+  // has a currency.
   await env.DB.prepare(
     "INSERT INTO core_settings (key, value, updated_at, updated_by) VALUES ('order_currency', '\"AUD\"', ?, NULL) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
   )

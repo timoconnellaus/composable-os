@@ -5,6 +5,7 @@ import type { z } from "zod";
 import type { AutomationSpec } from "./automation.ts";
 import type { CapacitySpec } from "./capacity.ts";
 import type { FieldTypeName } from "./field-types.ts";
+import type { SellableSpec } from "./sellable.ts";
 import type { StatesSpec } from "./states.ts";
 
 /** The contract version this SDK writes. The host accepts this and the previous version. */
@@ -170,6 +171,8 @@ export interface ObjectSpec {
   stages?: StagesSpec;
   /** A limited number of places, never given out twice (see CapacitySpec, ADR 0430). */
   capacity?: CapacitySpec;
+  /** Something that can be bought, and what a paid line grants (see SellableSpec, ADR 0435). */
+  sellable?: SellableSpec;
   /** A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both. */
   states?: StatesSpec;
   /**

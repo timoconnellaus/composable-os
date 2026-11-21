@@ -89,14 +89,6 @@ if (existsSync(appVars) && !/^AI_FAKE_MODEL=/m.test(readFileSync(appVars, "utf8"
   );
 }
 
-// Until stage 27's manifest `sellable`, nothing can be bought in a running app: let the buy page
-// sell Deals (by their value) locally.
-if (existsSync(appVars) && !/^ORDERS_DEV_SELLABLE=/m.test(readFileSync(appVars, "utf8"))) {
-  writeFileSync(
-    appVars,
-    `${readFileSync(appVars, "utf8").trimEnd()}\n\n# Local only: lets the buy page sell Deals until stage 27.\nORDERS_DEV_SELLABLE=deals.deal:value\n`,
-  );
-}
 
 // Stand-in speech for local dev and e2e, unless this checkout has a real key to try (ADR 0349).
 if (

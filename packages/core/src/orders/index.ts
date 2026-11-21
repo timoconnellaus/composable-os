@@ -1,9 +1,12 @@
-// Orders (stage 25, ADRs 0427 and 0428). Importing this registers the order's hold hook.
+// Orders (stage 25, ADRs 0427 and 0428). Importing this registers the order's move hooks: its
+// holds (stage 26) and what a paid line grants (stage 27, ADR 0435).
 import "./holds.ts";
+import "./grants.ts";
 
 export * from "./checkout.ts";
 export * from "./events.ts";
 export * from "./gateway.ts";
+export * from "./grants.ts";
 export * from "./guests.ts";
 export * from "./holds.ts";
 export * from "./late.ts";

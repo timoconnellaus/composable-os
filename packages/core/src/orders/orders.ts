@@ -34,7 +34,7 @@ export type OrderRow = Selectable<CoreOrderTable>;
 
 /** The most lines one order may have. */
 export const ORDER_MAX_LINES = 50;
-/** The most of one record an order line may ask for. Stage 27's `maxPerOrder` narrows it. */
+/** The most of one record an order line may ask for. A sellable's `maxPerOrder` narrows it. */
 export const ORDER_MAX_QUANTITY = 1000;
 /** How long a guest's link shows an order after it closes (paid, cancelled, expired, refunded). */
 export const ORDER_ACCESS_DAYS_AFTER_CLOSE = 30;
@@ -103,7 +103,9 @@ export type LineRule =
   | "no_price"
   | "currency"
   | "duplicate_line"
-  | "deposit_not_offered";
+  | "deposit_not_offered"
+  | "sale_window"
+  | "max_per_order";
 
 function refuseLine(rule: LineRule, line: number, message: string, extra?: object): never {
   throw new ValidationError(message, { rule, line, ...extra });
@@ -120,14 +122,29 @@ function dueMoment(value: unknown): string | null {
 }
 
 /**
+ * A sale window's end as a moment: a datetime as it is; a date from the start of its day
+ * (`start`) or through its end (`end`), in UTC. Null when empty.
+ */
+function windowMoment(value: unknown, end: "start" | "end"): string | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const text = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}${end === "start" ? "T00:00:00.000Z" : "T23:59:59.999Z"}`
+    : value;
+  const at = new Date(text);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
+/**
  * Reads what `lines` cost, from the records, as the host. Refuses a record that is not for sale
  * (its object is not sellable, or it does not exist or is in the Trash: one answer for all
- * three), one with no price, and one priced in another currency.
+ * three), one with no price, one priced in another currency, one outside its sale window and a
+ * quantity over the record's most per order (ADR 0435).
  */
 export async function priceLines(
   db: Kysely<CoreDatabase>,
   lines: readonly LineRequest[],
   currency: string,
+  now: string = new Date().toISOString(),
 ): Promise<PricedLine[]> {
   // The host's own read, org-wide: a guest cannot see a ticket type through the seam, and the
   // price is the host's to read whoever is buying.
@@ -141,7 +158,7 @@ export async function priceLines(
     }
     seen.add(key);
     const object = getObject(line.object);
-    const sellable: Sellable | undefined = object ? sellableOf(object.name) : undefined;
+    const sellable: Sellable | undefined = object ? sellableOf(object) : undefined;
     if (!object || !sellable || sellableProblems(sellable, object).length) {
       refuseLine("not_for_sale", index, "This cannot be bought");
     }
@@ -157,8 +174,7 @@ export async function priceLines(
       const col = column(field(name));
       return col ? (row[col] ?? null) : null;
     };
-    const priceField = field(sellable.price);
-    const pricedIn = priceField?.options?.currency;
+    const pricedIn = sellable.currency ?? field(sellable.price)?.options?.currency;
     if (pricedIn && pricedIn.toUpperCase() !== currency) {
       refuseLine(
         "currency",
@@ -171,6 +187,30 @@ export async function priceLines(
     }
     const unitPrice = toMinorUnits(read(sellable.price), currency);
     if (unitPrice === null) refuseLine("no_price", index, "This has no price yet");
+    // The sale window and the most one order may hold (ADR 0435): the record's own fields.
+    if (sellable.saleWindow) {
+      const from = windowMoment(read(sellable.saleWindow.from ?? ""), "start");
+      const until = windowMoment(read(sellable.saleWindow.until ?? ""), "end");
+      if ((from && now < from) || (until && now > until)) {
+        refuseLine(
+          "sale_window",
+          index,
+          from && now < from ? "This is not on sale yet" : "This is no longer on sale",
+          { from, until },
+        );
+      }
+    }
+    if (sellable.maxPerOrder) {
+      const max = read(sellable.maxPerOrder);
+      if (typeof max === "number" && Number.isFinite(max) && line.quantity > max) {
+        refuseLine(
+          "max_per_order",
+          index,
+          `At most ${Math.max(Math.floor(max), 0)} of this on one order`,
+          { max: Math.max(Math.floor(max), 0), asked: line.quantity },
+        );
+      }
+    }
     let deposit: PricedLine["deposit"] = null;
     if (sellable.deposit) {
       const amount = toMinorUnits(read(sellable.deposit.amount), currency);
@@ -235,7 +275,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
   if (!currency) {
     throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
   }
-  const lines = await priceLines(ctx.db, input.lines, currency);
+  const lines = await priceLines(ctx.db, input.lines, currency, ctx.now);
   const total = lines.reduce((sum, line) => sum + line.total, 0);
   if (total <= 0) {
     throw new ValidationError("An order with nothing to pay cannot be started", { rule: "total" });

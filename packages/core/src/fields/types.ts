@@ -103,6 +103,8 @@ export interface ObjectDefinition {
   stages?: StagesDefinition;
   /** Extension objects: a limited number of places (stage 26, ADR 0430). */
   capacity?: CapacityDefinition;
+  /** Extension objects: something that can be bought (stage 27, ADR 0435). */
+  sellable?: SellableDefinition;
   /**
    * A fixed state machine (ADR 0425), with registry field names. An object has stages or states,
    * never both.
@@ -148,6 +150,37 @@ export interface CapacityDefinition {
   /** `low`'s threshold. */
   lowAt?: number | undefined;
   releaseOnRefund: boolean;
+}
+
+/**
+ * The sellable behaviour as the host enforces it (the SDK's SellableSpec, validated), with
+ * registry field names and the granted object's registry name.
+ */
+export interface SellableDefinition {
+  /** The number (or currency) field holding the price of one, in the currency's major unit. */
+  price: string;
+  /** What the price is in, when declared or the price field says; else the deployment's. */
+  currency?: string | undefined;
+  /** Date or datetime fields: on sale from `from` and until `until`. Either may be left out. */
+  saleWindow?: { from?: string | undefined; until?: string | undefined } | undefined;
+  /** A number field: the most of one record one order may hold. */
+  maxPerOrder?: string | undefined;
+  /** The deposit for one and the date the balance is due; offered when both have a value. */
+  deposit?: { amount: string; balanceDue: string } | undefined;
+  /** What a paid line grants: one record of `object` per unit, made by the host. */
+  grants?: GrantDefinition | undefined;
+}
+
+/** Where a granted record's field gets its value (the SDK's GrantSource). */
+export type GrantSource = string;
+
+export interface GrantDefinition {
+  /** The granted object's registry name (`<extension>.<object>`). */
+  object: string;
+  /** Registry field name of the granted object → where its value comes from. */
+  set: Readonly<Record<string, GrantSource>>;
+  /** The state what was granted moves to when the order is refunded in full or cancelled. */
+  void: string;
 }
 
 /** A stage behaviour as the host enforces it (the SDK's StagesSpec, validated). */

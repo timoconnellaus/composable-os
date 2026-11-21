@@ -180,6 +180,7 @@ export function planFromState(
       ...(object.timelineLinks?.length ? { timelineLinks: object.timelineLinks } : {}),
       ...(object.stages ? { stages: object.stages } : {}),
       ...(object.capacity ? { capacity: object.capacity } : {}),
+      ...(object.sellable ? { sellable: object.sellable } : {}),
       ...(object.states ? { states: object.states } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),
@@ -680,7 +681,26 @@ export async function planDropHidden(
   const capacityDrops = droppedObjects
     .filter((o) => o.definition.capacity)
     .flatMap((o) => dropCapacityStatements(o.name));
-  return finishPlan(db, ext, current, next, tableDdl, capacityDrops, changes, []);
+  // What orders granted of a dropped object goes with its table (ADR 0435): the orders stay.
+  const granted = new Set(
+    current.objects.flatMap((o) => {
+      const to = o.definition.sellable?.grants?.object;
+      return to ? [to.includes(".") ? to : `${o.extensionId}.${to}`] : [];
+    }),
+  );
+  const grantDrops = droppedObjects
+    .filter((o) => granted.has(o.name))
+    .map((o) => CompiledQuery.raw("DELETE FROM core_order_grant WHERE object_type = ?", [o.name]));
+  return finishPlan(
+    db,
+    ext,
+    current,
+    next,
+    tableDdl,
+    [...capacityDrops, ...grantDrops],
+    changes,
+    [],
+  );
 }
 
 /**
