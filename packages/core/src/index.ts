@@ -87,6 +87,7 @@ export * from "./fields/field-types.ts";
 export * from "./fields/index.ts";
 export * from "./filter.ts";
 export * from "./gate.ts";
+export * from "./http/index.ts";
 export * from "./ids.ts";
 export * from "./integrations/catalogue.ts";
 export * from "./integrations/events.ts";
@@ -178,7 +179,9 @@ export * from "./operations/voice.ts";
 export * from "./orders/index.ts";
 export {
   type AnyInvocationContext,
+  type BatchOutcome,
   type CommitEvent,
+  type InBatch,
   type InvocationContext,
   invokeOperation,
   type OutsideInvocationContext,

@@ -338,8 +338,10 @@ describe("sessions", () => {
       expect(Object.keys(item).sort()).toEqual([
         "createdAt",
         "current",
+        "deviceName",
         "expiresAt",
         "id",
+        "kind",
         "lastActiveAt",
       ]);
     }

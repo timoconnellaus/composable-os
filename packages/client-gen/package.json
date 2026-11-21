@@ -1,0 +1,34 @@
+{
+  "name": "@composable-os/client-gen",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "description": "`cos client generate` (stage 23, ADR 0418): a product's typed client, from its own registry, split into customer and staff entry points. Node-only; the output depends only on @composable-os/client.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cli": "./src/node/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/client": "workspace:*",
+    "@composable-os/core": "workspace:*",
+    "@composable-os/products": "workspace:*",
+    "@composable-os/sdk": "workspace:*",
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@composable-os/config": "workspace:*",
+    "@composable-os/extension-deals": "workspace:*",
+    "@composable-os/extension-leads": "workspace:*",
+    "@composable-os/extension-lifecycle": "workspace:*",
+    "@types/node": "24.19.2",
+    "vitest": "5.1.0",
+    "zod": "4.6.7"
+  }
+}

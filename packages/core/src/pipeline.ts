@@ -44,6 +44,7 @@ import {
   ForbiddenError,
   GateDeniedError,
   OperationError,
+  type PendingApproval,
   PendingApprovalError,
   toOperationError,
   UnknownOperationError,
@@ -208,7 +209,21 @@ export interface InvocationContext {
    * caller gets `pending_approval` exactly as before. Not called in test mode.
    */
   onQueued?: (event: QueuedEvent, ctx: InvocationContext) => void;
+  /** Statements the adapter commits in the call's own batch (the HTTP surface's keys, ADR 0416). */
+  inBatch?: InBatch | undefined;
 }
+
+/** How a write is about to commit: applied, or queued for review (staff only). */
+export type BatchOutcome =
+  | { kind: "applied"; output: unknown; deferred: boolean }
+  | { kind: "queued"; pending: PendingApproval };
+
+/**
+ * An adapter's statements for the batch that commits a call (ADR 0416): they commit with its
+ * writes or not at all, and one that fails aborts them. Called once per batch, never for a read,
+ * and not inherited by nested invocations.
+ */
+export type InBatch = (outcome: BatchOutcome) => (Compilable | CompiledQuery)[];
 
 /** A pending action the pipeline just queued, for the post-queue hook. */
 export interface QueuedEvent {
@@ -891,6 +906,9 @@ async function invokeOnce<O extends AnyOperation>(
       await ctx.db.batch([
         ...queued.statements,
         ...notices,
+        ...(op.risk !== "read" && ctx.inBatch
+          ? ctx.inBatch({ kind: "queued", pending: queued.pending })
+          : []),
         auditInsert(ctx.db, {
           ...base,
           pendingActionId: queued.actionId,
@@ -1048,6 +1066,9 @@ async function invokeOnce<O extends AnyOperation>(
     });
     outbox = outboxEntries(recordEventMessages(auditId, now, origin, changes));
     statements.push(...outboxInserts(ctx.db, outbox, now));
+  }
+  if (op.risk !== "read" && ctx.inBatch) {
+    statements.push(...ctx.inBatch({ kind: "applied", output, deferred: Boolean(deferred) }));
   }
 
   if (statements.length) {
@@ -1316,6 +1337,8 @@ export interface OutsideInvocationContext {
    * ADR 0429: `order.checkout` opens the payment provider's page for a buyer).
    */
   integrations?: IntegrationRuntime;
+  /** As for staff calls: the adapter's statements in the call's own batch (ADR 0416). */
+  inBatch?: InBatch | undefined;
   /** Never set: these make a context a staff one. */
   user?: undefined;
   actor?: undefined;
@@ -1709,6 +1732,9 @@ async function invokeOutside<O extends AnyOperation>(
     });
     outbox = outboxEntries(recordEventMessages(auditId, now, eventOrigin, changes));
     statements.push(...outboxInserts(ctx.db, outbox, now));
+  }
+  if (!isRead && ctx.inBatch) {
+    statements.push(...ctx.inBatch({ kind: "applied", output, deferred: Boolean(deferred) }));
   }
 
   if (statements.length) {

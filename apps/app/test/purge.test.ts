@@ -62,6 +62,8 @@ describe("runScheduledMaintenance", () => {
     expect(result.compacted).toMatchObject({ compacted: 0 });
     // No erase request is overdue (stage 22): nobody is told anything.
     expect(result.eraseRequests).toEqual({ notified: 0 });
+    // The HTTP surface's idempotency keys are purged after 24 hours (stage 23).
+    expect(result.idempotencyKeys).toEqual({ deleted: 0, more: false });
     expect(result.storage?.tables.core_extension_runs).toBe(1);
     // D1 reports the database size (meta.size_after), locally too.
     expect(result.storage?.sizeBytes).toBeGreaterThan(0);

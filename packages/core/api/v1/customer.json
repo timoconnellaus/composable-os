@@ -1,0 +1,1233 @@
+{
+  "version": "v1",
+  "operations": [
+    {
+      "name": "capacity.get",
+      "description": "How many places a record of an object with a capacity has left (a ticket type, a class). Staff get places, held (while someone pays), taken (paid), available, and the pool's numbers when the record draws on a parent's places. Customers and the public get only what the object shows: the number left, a low-stock warning, or available / sold out. Read-only; claims nothing.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares a capacity"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["available", "low", "sold_out"],
+            "description": "`low` only when the object shows a low-stock warning and few are left"
+          },
+          "available": {
+            "description": "Places left; null when unlimited. Shown to outsiders only when `show` allows",
+            "type": ["number", "null"]
+          },
+          "places": {
+            "type": ["number", "null"]
+          },
+          "held": {
+            "type": "number"
+          },
+          "taken": {
+            "type": "number"
+          },
+          "show": {
+            "type": "string",
+            "enum": ["exact", "low", "availability"]
+          },
+          "lowAt": {
+            "type": ["number", "null"]
+          },
+          "pool": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "places": {
+                    "type": ["number", "null"]
+                  },
+                  "held": {
+                    "type": "number"
+                  },
+                  "taken": {
+                    "type": "number"
+                  },
+                  "available": {
+                    "type": ["number", "null"]
+                  }
+                },
+                "required": ["object", "id", "places", "held", "taken", "available"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["object", "id", "status"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.deleteAccount",
+      "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "disabled": {
+            "type": "boolean",
+            "const": true
+          },
+          "sessionsEnded": {
+            "type": "number"
+          },
+          "eraseRequest": {
+            "type": "object",
+            "properties": {
+              "requestedAt": {
+                "type": "string"
+              },
+              "dueAt": {
+                "type": "string"
+              }
+            },
+            "required": ["requestedAt", "dueAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["disabled", "sessionsEnded", "eraseRequest"],
+        "additionalProperties": false
+      },
+      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+    },
+    {
+      "name": "me.get",
+      "description": "Your own Person, as a signed-in customer: your name, primary email and primary phone. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "givenName": {
+            "type": ["string", "null"]
+          },
+          "familyName": {
+            "type": ["string", "null"]
+          },
+          "primaryEmail": {
+            "type": ["string", "null"]
+          },
+          "primaryPhone": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "givenName",
+          "familyName",
+          "primaryEmail",
+          "primaryPhone"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.sessions.list",
+      "description": "The places you are signed in, as a signed-in customer: each session's id, whether it is a browser or an app on a device (with the device's name), when it began, when it was last used and when it expires, and which one is this one. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["browser", "device"]
+                },
+                "deviceName": {
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "lastActiveAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": ["string", "null"]
+                },
+                "current": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "deviceName",
+                "createdAt",
+                "lastActiveAt",
+                "expiresAt",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.sessions.revoke",
+      "description": "Sign out one of your sessions, as a signed-in customer, by its id from me.sessions.list. A session that is not yours is not found.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Session id from me.sessions.list"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["id", "revoked"],
+        "additionalProperties": false
+      },
+      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+    },
+    {
+      "name": "me.signOut",
+      "description": "Sign out of this session, as a signed-in customer. Your other sessions stay signed in (end them with me.sessions.revoke).",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "signedOut": {
+            "type": "boolean"
+          }
+        },
+        "required": ["signedOut"],
+        "additionalProperties": false
+      },
+      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+    },
+    {
+      "name": "me.update",
+      "description": "Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here. Returns your Person.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "givenName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "familyName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "primaryPhone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "givenName": {
+            "type": ["string", "null"]
+          },
+          "familyName": {
+            "type": ["string", "null"]
+          },
+          "primaryEmail": {
+            "type": ["string", "null"]
+          },
+          "primaryPhone": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "givenName",
+          "familyName",
+          "primaryEmail",
+          "primaryPhone"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+    },
+    {
+      "name": "my.get",
+      "description": "One of your own records, as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "The object, e.g. `person` or an extension object such as `shop.order`"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["object", "id", "values"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "my.list",
+      "description": "A page of your own records of an object, as a signed-in customer: only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "The object, e.g. `person` or an extension object such as `shop.order`"
+          },
+          "filter": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "direction": {
+                "default": "asc",
+                "type": "string",
+                "enum": ["asc", "desc"]
+              }
+            },
+            "required": ["field"]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["object"],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "neq",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "between",
+                      "in",
+                      "not_in",
+                      "contains",
+                      "not_contains",
+                      "starts_with",
+                      "ends_with",
+                      "is_null",
+                      "is_not_null"
+                    ]
+                  },
+                  "value": {}
+                },
+                "required": ["field", "op"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "and": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["and"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "or": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["or"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": ["object", "id", "values"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "order.cancel",
+      "description": "Cancel an order. A signed-in customer can cancel their own order while nothing has been paid on it. Staff can also cancel an order that is part paid (a deposit was paid): that gives up its places, and refunding what was paid is a separate step. A paid order is refunded, not cancelled. Returns the order.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["pending", "part_paid", "paid", "cancelled", "expired", "refunded"]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": ["full", "deposit"]
+          },
+          "deposit": {
+            "type": ["number", "null"]
+          },
+          "balanceDueAt": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "paidAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": ["string", "null"]
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": ["customer", "public", "staff"]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": ["order.get", "order.view"]
+    },
+    {
+      "name": "order.checkout",
+      "description": "Open the payment provider's own page to pay for an order, and get its address to send the buyer to. The host says what is charged: the whole price or the deposit for an order with nothing paid (no amount may be given), or, for a part-paid order, the balance or a part of it of at least the set minimum (`amount`, in the currency's minor unit). The buyer comes back to `returnUrl`, which must be on one of the deployment's listed sites; coming back does not mark anything paid. Only the provider's confirmation does. A guest passes the order's token; a signed-in customer pays their own orders.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "returnUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Where the buyer comes back to"
+          },
+          "amount": {
+            "description": "Part-paid orders only: how much to pay towards the balance, in minor units",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["id", "returnUrl"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The provider's payment page"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["full", "deposit", "balance", "part"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["url", "amount", "currency", "kind", "expiresAt"],
+        "additionalProperties": false
+      },
+      "invalidates": ["order.get", "order.view"]
+    },
+    {
+      "name": "order.get",
+      "description": "Get one order with its lines: its state, amounts (in the currency's minor unit), what has been paid, the balance and when it is due. A signed-in customer gets their own orders only; anyone else's is not found. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["pending", "part_paid", "paid", "cancelled", "expired", "refunded"]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": ["full", "deposit"]
+          },
+          "deposit": {
+            "type": ["number", "null"]
+          },
+          "balanceDueAt": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "paidAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": ["string", "null"]
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": ["customer", "public", "staff"]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "order.start",
+      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "The object of the record to buy"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The record to buy"
+                },
+                "quantity": {
+                  "default": 1,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": ["object", "id"]
+            },
+            "description": "What to buy. There is no price here: the host reads it from each record, and a price or total sent anyway is ignored."
+          },
+          "pay": {
+            "default": "full",
+            "description": "full: pay the whole price now. deposit: pay the deposit now and the balance by its due date, when every line offers a deposit.",
+            "type": "string",
+            "enum": ["full", "deposit"]
+          },
+          "email": {
+            "description": "The buyer's email address. Required when the caller is not a signed-in customer; a signed-in customer's order uses their account's address and must not pass one.",
+            "type": "string",
+            "maxLength": 320
+          }
+        },
+        "required": ["lines"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["pending", "part_paid", "paid", "cancelled", "expired", "refunded"]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": ["full", "deposit"]
+          },
+          "deposit": {
+            "type": ["number", "null"]
+          },
+          "balanceDueAt": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "paidAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": ["string", "null"]
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": ["customer", "public", "staff"]
+          },
+          "token": {
+            "description": "A guest's key to this order. Null for everyone else.",
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines",
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": ["order.get", "order.view"]
+    },
+    {
+      "name": "order.view",
+      "description": "See one order with the token it was started with (a guest's link from order.start or the confirmation email). The token opens that order only, while it is open and for 30 days after it closes. A wrong id, a wrong token and an old link are all not found. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The order's token"
+          }
+        },
+        "required": ["id", "token"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["pending", "part_paid", "paid", "cancelled", "expired", "refunded"]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": ["full", "deposit"]
+          },
+          "deposit": {
+            "type": ["number", "null"]
+          },
+          "balanceDueAt": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "paidAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": ["string", "null"]
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": ["customer", "public", "staff"]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    }
+  ]
+}

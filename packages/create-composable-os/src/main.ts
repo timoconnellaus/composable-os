@@ -84,6 +84,8 @@ Usage
   cos uninstall                          delete the Workers, database, bucket and namespace (asks)
   cos ext check <dir> | test <dir>       in a checkout of the repository: check an extension with
                                          the checks the host runs, and run its tests
+  cos client generate --out <dir>        in a checkout: write a product's typed client (customer.ts
+                                         and staff.ts) from its registry; see cos client --help
 
 Options
   --token <t>            Cloudflare API token (or CLOUDFLARE_API_TOKEN). Needs, on the account:
@@ -1034,9 +1036,30 @@ async function ext(argv: string[], deps: Deps): Promise<number> {
   }
 }
 
+/**
+ * `cos client generate` (ADR 0418): a product's typed client. Loaded only when asked for, like
+ * `cos ext`: it reads extension source with esbuild, which a checkout has.
+ */
+async function client(argv: string[], deps: Deps): Promise<number> {
+  try {
+    const { runClient } = await import("@composable-os/client-gen/cli");
+    return await runClient(argv, deps.io);
+  } catch (error) {
+    if ((error as { code?: string }).code === "ERR_MODULE_NOT_FOUND") {
+      deps.io.err(
+        "cos client runs in a checkout of the Composable OS repository, after pnpm install: " +
+          "pnpm cos client generate --out <dir>",
+      );
+      return 2;
+    }
+    throw error;
+  }
+}
+
 export async function runCli(argv: string[], input: Deps): Promise<number> {
   const deps = input;
   if (argv[0] === "ext") return ext(argv.slice(1), deps);
+  if (argv[0] === "client") return client(argv.slice(1), deps);
   let parsed: ReturnType<typeof parseArgs>;
   try {
     parsed = parseArgs(argv);

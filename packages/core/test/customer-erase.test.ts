@@ -278,6 +278,8 @@ describe("eraseRequest.list and decline (criterion 12)", () => {
       )
       .run();
     await invoke("notification.updateDeliverySettings", { email: id }, context(admin));
+    // Customer mail goes out from the connection the customer settings name (stage 23).
+    await invoke("customer.settings.update", { emailConnectionId: id }, context(admin));
   });
 
   it("lists open requests soonest due first, flagging overdue ones; admins only", async () => {

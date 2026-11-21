@@ -406,6 +406,14 @@
       "sha256": "d099b7700feedebb3f3ecb130f6543df93f365ed0ef5a16fcd2d06366497ce39"
     },
     {
+      "name": "0410_idempotency_keys.sql",
+      "sha256": "77225b7a6b3c36632653d9ea8dfdb3c13ef32803946c2b7f11e867840f3a7060"
+    },
+    {
+      "name": "0411_device_sessions.sql",
+      "sha256": "103b467e9530085f1e1addf5c0c4804fb1ba5ac3384e6a4c3f72f1a0523918bb"
+    },
+    {
       "name": "0420_transition_history.sql",
       "sha256": "aa9df11dd345c7c61b992fc9af5a5a4612f04025a703379be4d8d302f4f86c7e"
     },
@@ -726,6 +734,33 @@
           "type": "ratelimit"
         },
         {
+          "name": "CUSTOMER_RATE_LIMIT",
+          "namespace_id": "4104",
+          "simple": {
+            "limit": 60,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "CUSTOMER_CODE_RATE_LIMIT",
+          "namespace_id": "4105",
+          "simple": {
+            "limit": 3,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "CUSTOMER_CODE_ADDRESS_RATE_LIMIT",
+          "namespace_id": "4106",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
           "name": "AI_FAKE_MODEL",
           "text": "",
           "type": "plain_text"
@@ -768,6 +803,11 @@
         {
           "name": "AI_SECRET_SCRIPTS",
           "text": "crm-app,crm-runner",
+          "type": "plain_text"
+        },
+        {
+          "name": "API_ALLOWED_ORIGINS",
+          "text": "",
           "type": "plain_text"
         },
         {
@@ -1000,7 +1040,7 @@
           "source": "user"
         }
       ],
-      "sha256": "ceaa00750c62e27cf1256c7b84c4ddb30abd9ea1d9ab3a2ebe5b6b603b7dd2fe"
+      "sha256": "c2a4901a2ea80b5b0e2209d346274bb98b161a74fa92e53a972dd7dc53cb56c1"
     },
     {
       "bindings": [

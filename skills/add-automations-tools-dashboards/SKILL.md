@@ -88,7 +88,14 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    case where the conditions do not hold too. The test host does not evaluate the trigger: assert
    its declared shape (the sign of `offsetDays`), and pass `period` for `schedule` and
    `dateRelative` runs and assert the dates taken from it. See Deals: `test/automations.test.ts`.
-10. **Check, fix, repeat** (last section), then run `pnpm lint`, `pnpm typecheck` and `pnpm test`
+10. **A headless entry, for client apps (optional, stage 23, ADR 0418).** A pack whose tools a
+    phone or a site calls may ship `headless.ts`, exported as `<package>/headless`: functions and
+    hooks over the typed client, with no markup. Type the operations it calls from the tools' own
+    schemas (`z.input<typeof tool.input>`, `z.output<typeof tool.output>`), take the client as an
+    argument (a structural interface the generated client fits), and build hooks from the app's
+    own `useQuery` rather than importing React or TanStack Query. It holds no rules: those are
+    the host's. See Deals: `headless.ts` and `test/headless.test.ts`.
+11. **Check, fix, repeat** (last section), then run `pnpm lint`, `pnpm typecheck` and `pnpm test`
     at the repository root.
 
 ## The rules

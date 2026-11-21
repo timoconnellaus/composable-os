@@ -22,7 +22,12 @@ export default defineWorkersTestConfig({
       compatibilityDate: "2026-10-01",
       compatibilityFlags: ["nodejs_compat"],
       d1Databases: ["DB"],
-      bindings: { TEST_MIGRATIONS: await readD1Migrations(migrationsDir), ...realRelevance },
+      bindings: {
+        TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
+        // scripts/write-api-contract.mjs sets it to read the contract test prints (ADR 0417).
+        PRINT_API_CONTRACT: process.env.PRINT_API_CONTRACT ?? "",
+        ...realRelevance,
+      },
     },
   }),
   setupFiles: ["./test/apply-migrations.ts"],

@@ -724,6 +724,22 @@ export async function queueEraseCustomers(ctx: HandlerContext, s: StoreSubject):
       ctx.db.deleteFrom("core_customer").where("id", "in", part),
     );
   }
+  // The HTTP surface's stored replies (stage 23, ADR 0416): every key of their account, and any
+  // other caller's reply that names them (a staff write about them), go now, not in 24 hours.
+  const scopes = accountIds.map((id) => `customer:${id}`);
+  for (const part of chunk(scopes)) {
+    ctx.write(
+      ctx.db.deleteFrom("core_idempotency_key").where("scope", "in", part),
+      ctx.db.deleteFrom("core_idempotency_claim").where("scope", "in", part),
+    );
+  }
+  if (s.terms.length) {
+    ctx.write(
+      ctx.db
+        .deleteFrom("core_idempotency_key")
+        .where(mentionsSql(JSON.stringify(s.terms), sql`response`)),
+    );
+  }
   // Codes are stored as `<type>-otp-<address>` (Better Auth's email OTP plugin).
   const emails = jsonList([...new Set([...s.addresses, ...accounts.map((a) => a.email)])]);
   ctx.write(

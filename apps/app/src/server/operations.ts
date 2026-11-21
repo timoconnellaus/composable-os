@@ -13,6 +13,7 @@ import {
   errorForLog,
   type InvocationContext,
   invokeByName,
+  type Origin,
   parseFloor,
   queueEventSink,
   type RateLimitBinding,
@@ -227,6 +228,43 @@ export function parseOperationCall(payload: unknown): OperationCall {
   return { name, input: input ?? {} };
 }
 
+/**
+ * The context of a signed-in person's call (actor `human`): the UI's server functions (origin
+ * `ui`) and the HTTP surface (origin `client`, src/server/http/api.ts) build it the same way, so
+ * a call takes the same pipeline with the same capabilities from either.
+ */
+export async function staffContext(
+  env: OperationsEnv,
+  principal: Principal,
+  origin: Origin,
+  /** The request's origin: where integration connect popups are handed back. */
+  appOrigin?: string,
+): Promise<InvocationContext> {
+  await ensureShippedExtensions(env);
+  const db = createCrmDb(env.DB);
+  const extensionHost = extensionHostFor(env);
+  const integrations = integrationRuntimeFor(env, appOrigin);
+  const blobs = blobStoreFor(env);
+  const assistantThreads = assistantThreadsFor(env);
+  const agentJobs = agentJobsFor(env);
+  return {
+    ...(integrations ? { integrations } : {}),
+    ...(blobs ? { blobs } : {}),
+    actor: "human",
+    user: await resolveActingUser(db, principal),
+    origin,
+    db,
+    floor: parseFloor(env.APPROVAL_FLOOR),
+    ...(extensionHost ? { extensionHost } : {}),
+    ...automationWiring(env),
+    ...(assistantThreads ? { assistantThreads } : {}),
+    ...(agentJobs ? { agentJobs } : {}),
+    updater: updaterRuntimeFor(env),
+    ...aiContextFor(env, db),
+    approvalExpiryDays: Number.parseInt(env.APPROVAL_EXPIRY_DAYS ?? "", 10) || undefined,
+  };
+}
+
 /** Runs one operation for a UI caller (actor `human`, origin `ui`). */
 export async function runOperation(
   env: OperationsEnv,
@@ -239,30 +277,8 @@ export async function runOperation(
     return { ok: false, error: { code: "forbidden", message: "Sign in to continue" } };
   }
   try {
-    await ensureShippedExtensions(env);
     ensureDevSellable(env);
-    const db = createCrmDb(env.DB);
-    const extensionHost = extensionHostFor(env);
-    const integrations = integrationRuntimeFor(env, appOrigin);
-    const blobs = blobStoreFor(env);
-    const assistantThreads = assistantThreadsFor(env);
-    const agentJobs = agentJobsFor(env);
-    const ctx: InvocationContext = {
-      ...(integrations ? { integrations } : {}),
-      ...(blobs ? { blobs } : {}),
-      actor: "human",
-      user: await resolveActingUser(db, principal),
-      origin: { surface: "ui" },
-      db,
-      floor: parseFloor(env.APPROVAL_FLOOR),
-      ...(extensionHost ? { extensionHost } : {}),
-      ...automationWiring(env),
-      ...(assistantThreads ? { assistantThreads } : {}),
-      ...(agentJobs ? { agentJobs } : {}),
-      updater: updaterRuntimeFor(env),
-      ...aiContextFor(env, db),
-      approvalExpiryDays: Number.parseInt(env.APPROVAL_EXPIRY_DAYS ?? "", 10) || undefined,
-    };
+    const ctx = await staffContext(env, principal, { surface: "ui" }, appOrigin);
     const data = await invokeByName(call.name, call.input, ctx);
     if (call.name === "connectedApp.revoke" && env.OAUTH_KV) {
       // Core marks the connection revoked, which already stops it; also delete its tokens.
