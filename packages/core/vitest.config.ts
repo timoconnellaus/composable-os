@@ -22,6 +22,8 @@ export default defineWorkersTestConfig({
       compatibilityDate: "2026-10-01",
       compatibilityFlags: ["nodejs_compat"],
       d1Databases: ["DB"],
+      // The media library's originals (stage 28, ADR 0444): a real local R2 bucket.
+      r2Buckets: ["MEDIA_TEST"],
       bindings: {
         TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
         // scripts/write-api-contract.mjs sets it to read the contract test prints (ADR 0417).

@@ -1233,11 +1233,19 @@ slug changes, the old one **redirects**: `content.get` answers with the slug it 
 0442). A deleted record's slug can be taken again.
 _Avoid_: permalink, path, handle
 
+**Media** (a media item; the **media library**)
+A picture staff uploaded (JPEG, PNG, GIF, WebP or AVIF, at most 10 MB, its type read from its
+bytes), kept as one original in R2 with its size, dimensions and alt text (stage 28, ADR 0444).
+A rich text picture and an `image` field name one by id. Staff are served any; a customer or the
+public only one that published content they may read shows. Deleting one is to the Trash; the
+purge deletes its file.
+_Avoid_: asset, upload (the act, not the thing), attachment (an email's)
+
 **Preview** (link)
 A token that lets whoever holds it read one record's working copy (the fields the public would
 read) with `content.preview`, until it expires (at most 7 days). Made by staff with
 `content.previewLink`; only its hash is kept; for any other record, or after its expiry, it is
-not found (ADR 0443).
+not found (ADR 0443). Staff list a record's links and stop them (ADR 0444).
 _Avoid_: share link, draft link
 
 **Exercise** (Programs)

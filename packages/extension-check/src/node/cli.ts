@@ -101,6 +101,7 @@ interface OpensOutside {
       signedIn?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       customerVia?: { from: string; field: string; read: string[] };
       sellable?: { price: string; grants?: { object: string } };
+      publishable?: { content: string[]; slug?: string };
     }
   >;
   tools: Record<
@@ -130,8 +131,14 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
       const via = p.when?.via ? `its ${p.when.via}'s ` : "";
       const while_ = p.when
         ? ` while ${via}${p.when.field} is ${p.when.in.join(" or ")}`
-        : ", every record";
-      lines.push(`  the public sees ${manifest.id}.${name}${while_}: read ${p.read.join(", ")}`);
+        : object.publishable
+          ? ""
+          : ", every record";
+      // A publishable object's public reads its published versions only (ADR 0442).
+      const published = object.publishable ? ", published versions only, by its slug" : "";
+      lines.push(
+        `  the public sees ${manifest.id}.${name}${published}${while_}: read ${p.read.join(", ")}`,
+      );
     }
     const s = object.signedIn;
     if (s) {

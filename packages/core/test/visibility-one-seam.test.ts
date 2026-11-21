@@ -36,6 +36,8 @@ const RECORD_TABLES = [
   // Stage 25 (ADR 0427): orders and their lines are records.
   "core_order",
   "core_order_line",
+  // Stage 28 (ADR 0444): media items are records.
+  "core_media",
 ];
 
 // `rec_user` is the staff directory, not a record: no object declares it, and it is read by

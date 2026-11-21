@@ -31,6 +31,8 @@ export const FIELD_TYPES = [
   // A record's address in its object (`summer-launch`): lowercase words joined by hyphens,
   // unique among the object's live records, made from the title when left empty (ADR 0442).
   "slug",
+  // A picture from the media library, with alt text and a focal point (stage 28, ADR 0444).
+  "image",
 ] as const;
 export type FieldTypeName = (typeof FIELD_TYPES)[number];
 
@@ -66,6 +68,7 @@ export function formulaTypeOf(
     case "formula":
     case "document":
     case "richText":
+    case "image":
       return null;
   }
 }
@@ -95,6 +98,7 @@ export const LOSSLESS_TYPE_CHANGES: Readonly<Record<FieldTypeName, readonly Fiel
   timezone: ["text", "longText"],
   richText: [],
   slug: ["text", "longText"],
+  image: [],
 };
 
 export function isLosslessChange(from: FieldTypeName, to: FieldTypeName): boolean {

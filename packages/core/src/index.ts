@@ -161,6 +161,7 @@ export { coreOperations } from "./operations/index.ts";
 export * from "./operations/integration.ts";
 export * from "./operations/judge.ts";
 export * from "./operations/me.ts";
+export * from "./operations/media.ts";
 export * from "./operations/memory.ts";
 export * from "./operations/my.ts";
 export * from "./operations/notification.ts";
@@ -231,6 +232,16 @@ export {
   recordRefSchema,
   uniqueRefs,
 } from "./records/links.ts";
+export {
+  MEDIA_MAX_BYTES,
+  MEDIA_PREFIX,
+  MEDIA_WIDTHS,
+  type MediaResizer,
+  type MediaStore,
+  mediaDimensions,
+  servedWidth,
+  sniffMediaType,
+} from "./records/media.ts";
 export { type StageRuleDetails, StageRuleError } from "./records/stages.ts";
 export { type StateRef, type StateRuleDetails, StateRuleError } from "./records/states.ts";
 export * from "./records/tags.ts";

@@ -417,6 +417,15 @@ function checkDocumentField(
   known: ReadonlySet<string>,
   contract: (path: string, message: string) => void,
 ): void {
+  if (field.type === "image") {
+    for (const key of ["schema", "maxBytes", "paths"] as const) {
+      if (field[key] !== undefined) {
+        contract(`${path}.${key}`, `An image field has the platform's schema and no ${key}`);
+      }
+    }
+    if (field.track) contract(`${path}.track`, "An image is not tracked on the timeline");
+    return;
+  }
   if (field.type === "richText") {
     // One fixed schema (ADR 0440): a field declares at most its size.
     for (const key of ["schema", "paths"] as const) {

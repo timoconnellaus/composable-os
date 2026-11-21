@@ -980,7 +980,7 @@ Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).
 
 The rules products share, declared in a manifest and enforced by the host in the write's own batch.
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
-half since stage 28's steps 1 to 3; media is still to come).
+half, and the media library beside it, since stage 28).
 `recurring` and `allowance` are added as stages need them. Behaviours stack: an event is
 publishable, sellable and has a capacity.
 
@@ -1097,6 +1097,23 @@ give one not-found for everything they do not show. Their answers are cached in 
 keyed by the object's generation (`core_content_generation`), which every committed change to a
 record of the object bumps in its own batch (`content/cache.ts`).
 
+**Media** ([ADR 0444](adr/0444-media-the-editor-and-the-content-pack.md),
+`packages/core/src/operations/media.ts`, `packages/core/src/http/media.ts`). A base record,
+`media` (`core_media`, migration 0461): one original in R2 (`BLOBS`, `media/<id>`), its type read
+from its bytes, its size and dimensions. Uploads go to `POST /api/media` (cos-app, staff), which
+hands the body to `media.upload` as `ctx.upload`, never in an operation's input. `GET
+/api/media/<id>?w=` (cos-app and the client-app binding) streams what `media.serve` allows: staff
+any live item, outsiders only one the current version of a record they may read references
+(`core_published_media`, written with the version). Widths come from Cloudflare Images when
+`IMAGES` is bound. The `image` field type is `{ media, alt, focal? }`. The Trash purge deletes a
+picture's row, and a trigger queues its R2 key on the blob deletion path (ADR 0320).
+
+**The editor** (`apps/app/src/components/fields/rich-text-editor.tsx`). Rich text fields are
+edited with Tiptap, whose schema is the platform's blocks and marks; `toRichText`
+(`apps/app/src/lib/rich-text-map.ts`) maps its document to `RICH_TEXT_SCHEMA` at its edge and is
+the only thing saved. Publishable records' pages carry the publish controls
+(`components/record/publish-card.tsx`).
+
 **Programs** (`packs/programs`, stage 41, steps 1 to 6; [ADR 0448](adr/0448-programs-the-layout-assignments-and-the-log.md)):
 an exercise bank, programs whose layout is one document (weeks, sessions, blocks, items, levels,
 typed sets, notes for coaches or members), versions, class types, assignments to a person or a
@@ -1212,7 +1229,7 @@ calculates a price, checks a capacity or checks a permission.
 | Leads, lifecycle | fields, tools | exists |
 | Ticketing | `states`, `capacity`, `sellable`, `customer`, `public`, `customerVia`, a `timezone` field, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
-| Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 3 built (rich text, `publishable` completed, public reads); media, the editor, the pack and Ghetto's blog to come |
+| Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Bookings, memberships | `recurring`, `allowance`, recurring billing | later |
 
 ### Client repos

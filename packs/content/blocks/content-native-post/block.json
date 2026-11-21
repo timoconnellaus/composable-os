@@ -1,0 +1,11 @@
+{
+  "name": "content-native-post",
+  "pack": "content",
+  "skin": "native",
+  "operations": ["content.get"],
+  "files": ["post-screen.tsx", "LICENSE"],
+  "dependsOn": ["content-native-rich-text", "native-base"],
+  "packages": {
+    "@composable-os/pack-content": "*"
+  }
+}

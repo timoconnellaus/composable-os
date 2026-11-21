@@ -123,9 +123,29 @@ export const RICH_TEXT_SCHEMA: DocumentSchema = {
   },
 };
 
-/** The field types whose value is a document (ADR 0445): `document`, and `richText`. */
+/**
+ * The `image` field type (stage 28, ADR 0444): a picture from the media library, with its alt
+ * text and the point to keep in view when a client crops it (0 to 1 from the left and the top).
+ */
+export const IMAGE_SCHEMA: DocumentSchema = {
+  root: object({
+    media: { type: "ref", to: RICH_TEXT_MEDIA_OBJECT, description: "The picture, from media" },
+    alt: prose(500, { description: "What the picture shows, for people who cannot see it" }),
+    focal: optional(
+      object({
+        x: { type: "number", min: 0, max: 1 },
+        y: { type: "number", min: 0, max: 1 },
+      }),
+    ),
+  }),
+};
+
+/** The most an image field's value may be, in bytes of its JSON. */
+export const IMAGE_MAX_BYTES = 2048;
+
+/** The field types whose value is a document (ADR 0445): `document`, `richText` and `image`. */
 export function isDocumentType(type: string | undefined): boolean {
-  return type === "document" || type === "richText";
+  return type === "document" || type === "richText" || type === "image";
 }
 
 /**
@@ -137,6 +157,7 @@ export function documentSchemaOf(field: {
   schema?: unknown;
 }): DocumentSchema | undefined {
   if (field.type === "richText") return RICH_TEXT_SCHEMA;
+  if (field.type === "image") return IMAGE_SCHEMA;
   if (field.type === "document") return field.schema as DocumentSchema | undefined;
   return undefined;
 }
@@ -146,6 +167,7 @@ export function documentMaxBytesOf(field: {
   type?: string | undefined;
   maxBytes?: number | undefined;
 }): number | undefined {
+  if (field.type === "image") return IMAGE_MAX_BYTES;
   if (field.maxBytes !== undefined) return field.maxBytes;
   return field.type === "richText" ? RICH_TEXT_DEFAULT_BYTES : undefined;
 }

@@ -545,3 +545,62 @@ describe("the cache (criterion 11)", () => {
     expect(await read("cached")).toEqual(NOT_FOUND());
   });
 });
+
+describe("a slug taken while its record was in the Trash (ADR 0444)", () => {
+  it("restoring it answers a conflict naming the slug, never an internal error", async () => {
+    const first = await createPost({ title: "Coming back" });
+    await invoke("record.delete", { object: POST, id: first.id }, context(admin));
+    const second = await createPost({ title: "Coming back" });
+    expect(second.values.slug).toBe("coming-back");
+    const refused = await refusal(
+      invoke("record.restore", { object: POST, id: first.id }, context(admin)),
+    );
+    expect(refused).toMatchObject({
+      code: "conflict",
+      details: { field: "slug", slug: "coming-back", reason: "slug_taken", heldBy: second.id },
+    });
+    expect(refused.message).toContain('"coming-back"');
+    // Once the other one's address changes, it comes back.
+    await update(second.id, { slug: "coming-back-again" });
+    const restored = await invoke("record.restore", { object: POST, id: first.id }, context(admin));
+    expect(restored.values.slug).toBe("coming-back");
+  });
+});
+
+describe("preview links are listed and revoked (ADR 0444)", () => {
+  it("staff see a record's working links without their tokens, and a revoked link stops at once", async () => {
+    const post = await createPost({ title: "Revocable", body: doc("draft") });
+    const one = await invoke("content.previewLink", { object: POST, id: post.id }, context(admin));
+    const two = await invoke("content.previewLink", { object: POST, id: post.id }, context(member));
+    const links = await invoke(
+      "content.previewLinks",
+      { object: POST, id: post.id },
+      context(admin),
+    );
+    expect(links.items).toHaveLength(2);
+    expect(JSON.stringify(links)).not.toContain(one.token);
+    expect(JSON.stringify(links)).not.toContain(two.token);
+    const preview = (token: string) =>
+      call("content.preview", { object: POST, slug: "revocable", token }, outside(PUBLIC));
+    expect(await preview(one.token)).toMatchObject({ ok: true });
+    // Revoke the member's: it stops; the admin's still works.
+    const memberLink = links.items.find((l) => l.createdBy === member.id);
+    await invoke(
+      "content.revokePreview",
+      { object: POST, id: post.id, link: memberLink?.id },
+      context(admin),
+    );
+    expect(await preview(two.token)).toEqual(NOT_FOUND());
+    expect(await preview(one.token)).toMatchObject({ ok: true });
+    const all = await invoke(
+      "content.revokePreview",
+      { object: POST, id: post.id, all: true },
+      context(admin),
+    );
+    expect(all.revoked).toBe(1);
+    expect(await preview(one.token)).toEqual(NOT_FOUND());
+    expect(
+      (await invoke("content.previewLinks", { object: POST, id: post.id }, context(admin))).items,
+    ).toEqual([]);
+  });
+});

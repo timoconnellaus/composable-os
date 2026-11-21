@@ -70,6 +70,7 @@ import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
 import { notifyStatements } from "./notifications/send.ts";
+import type { MediaUpload } from "./operation.ts";
 import {
   type AnyOperation,
   type ApplyingApproval,
@@ -104,6 +105,7 @@ import {
   staffPrincipal,
 } from "./principals.ts";
 import type { RateLimitBinding } from "./rate-limit.ts";
+import type { MediaStore } from "./records/media.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { loadApprovalPolicy } from "./settings.ts";
 import type { UpdaterRuntime } from "./updates.ts";
@@ -149,6 +151,13 @@ export interface InvocationContext {
   integrations?: IntegrationRuntime;
   /** Blob storage (R2) for email bodies. */
   blobs?: BlobStore;
+  /** Where media originals are kept (R2, stage 28, ADR 0444). */
+  media?: MediaStore;
+  /**
+   * The bytes of a file a person uploaded, for `media.upload`: set by the upload route from the
+   * request's body, never from an operation's input. Not passed to nested calls.
+   */
+  upload?: MediaUpload;
   /** Actor `extension` only: the calling extension and its declared permissions (ADR 0025). */
   extension?: ExtensionCaller;
   /** Model roles (ADR 0009); absent when the deployment has no AI binding. */
@@ -800,6 +809,8 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.extensionHost ? { extensionHost: ctx.extensionHost } : {}),
     ...(ctx.integrations ? { integrations: ctx.integrations } : {}),
     ...(ctx.blobs ? { blobs: ctx.blobs } : {}),
+    ...(ctx.media ? { media: ctx.media } : {}),
+    ...(ctx.upload ? { upload: ctx.upload } : {}),
     ...(extensionCaller ? { extension: extensionCaller } : {}),
     ...(ctx.models ? { models: ctx.models } : {}),
     ...(ctx.judge ? { judge: ctx.judge } : {}),

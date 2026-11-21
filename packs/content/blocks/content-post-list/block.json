@@ -1,0 +1,11 @@
+{
+  "name": "content-post-list",
+  "pack": "content",
+  "skin": "web",
+  "operations": ["content.list"],
+  "files": ["post-list.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card"],
+  "packages": {
+    "@composable-os/pack-content": "*"
+  }
+}

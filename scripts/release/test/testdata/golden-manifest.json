@@ -464,6 +464,10 @@
       "sha256": "016ae923a5881f58b12df5b78cec001864f5a0d7a3dee1e1964daec04888c835"
     },
     {
+      "name": "0461_media.sql",
+      "sha256": "e8fca20f0e346efbdbeeed038bb63c11c6ced039a923fd38eca5360ef8a86165"
+    },
+    {
       "name": "0470_publish_versions.sql",
       "sha256": "3bb42f7ee27de56e86643b2e1e538e2221ef519886d657241ef8dc6d3a68ec99"
     },

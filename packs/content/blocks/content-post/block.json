@@ -1,0 +1,11 @@
+{
+  "name": "content-post",
+  "pack": "content",
+  "skin": "web",
+  "operations": ["content.get", "content.preview"],
+  "files": ["post-page.tsx", "LICENSE"],
+  "dependsOn": ["content-rich-text"],
+  "packages": {
+    "@composable-os/pack-content": "*"
+  }
+}

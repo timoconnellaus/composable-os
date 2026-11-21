@@ -1,0 +1,11 @@
+{
+  "name": "content-rich-text",
+  "pack": "content",
+  "skin": "web",
+  "operations": [],
+  "files": ["rich-text.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-content": "*"
+  }
+}

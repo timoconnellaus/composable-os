@@ -91,3 +91,9 @@ checked, 3; unknown keys and marks let through, 3; unknown block types let throu
   the `button` block; the spec's `callout` is kept beside it.
 - An import from HTML (Ghetto's posts, step 7) converts to this schema and lists what does not
   convert; nothing is stored as HTML to convert later.
+
+## Amendment, 2026-11-22 (stage 28, ADR 0444)
+The `media` record exists: a rich text picture names a live item of the media library, and the
+public is served it while published content shows it. The admin edits rich text with Tiptap,
+mapped to this schema at the editor's edge (`apps/app/src/lib/rich-text-map.ts`). Both renderers
+are in the Content pack.

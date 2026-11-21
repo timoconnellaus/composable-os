@@ -30,7 +30,9 @@ export type WidgetKind =
   | "phone"
   | "url"
   | "formula"
-  | "document";
+  | "document"
+  | "richText"
+  | "image";
 
 /** The storage value of a field: what goes into its column. */
 export type StoredValue = string | number | null;
@@ -317,9 +319,11 @@ export const FIELD_TYPE_REGISTRY: Record<FieldTypeName, FieldTypeSpec> = {
   // One JSON document checked against the field's schema (stage 41, ADR 0445). Not filtered or
   // sorted itself: its declared paths are columns of their own (schema.ts).
   document: documentType,
-  // Rich text (stage 28, ADR 0440): a document with the platform's one schema. The admin shows
-  // its JSON until the editor (stage 28, step 5) edits it.
-  richText: documentType,
+  // Rich text (stage 28, ADR 0440): a document with the platform's one schema, edited in the
+  // admin with the rich text editor (stage 28, step 5).
+  richText: { ...documentType, widget: { display: "richText", edit: "richText" } },
+  // A picture from the media library (stage 28, ADR 0444): a document with the image schema.
+  image: { ...documentType, widget: { display: "image", edit: "image" } },
   // A record's address (stage 28, ADR 0442). Unique among live records by an index the
   // reconciler makes; made from the title when left empty (records/slug.ts).
   slug: textType(

@@ -1894,6 +1894,34 @@ export interface CoreContentGenerationTable {
   changed_at: Timestamp;
 }
 
+/** `core_media` (migration 0461): one stored original in R2 and what the host found it to be. */
+export interface CoreMediaTable {
+  id: string;
+  key: string;
+  name: string;
+  type: "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/avif";
+  bytes: number;
+  width: number | null;
+  height: number | null;
+  alt: string | null;
+  created_at: Timestamp;
+  created_by: string | null;
+  updated_at: Timestamp;
+  updated_by: string | null;
+  deleted_at: Timestamp | null;
+  deleted_by: string | null;
+}
+
+/** `rec_media` (migration 0461): the live media items. */
+export type RecMediaView = Omit<CoreMediaTable, "deleted_at" | "deleted_by">;
+
+/** `core_published_media` (migration 0461): media a record's current version references. */
+export interface CorePublishedMediaTable {
+  media_id: string;
+  object_type: string;
+  record_id: string;
+}
+
 /** `rec_publish_version` (migration 0470): every version, without its content. */
 export interface RecPublishVersionView {
   object_type: string;
@@ -2030,6 +2058,9 @@ export interface CoreDatabase {
   core_slug_redirect: CoreSlugRedirectTable;
   core_preview_link: CorePreviewLinkTable;
   core_content_generation: CoreContentGenerationTable;
+  core_media: CoreMediaTable;
+  core_published_media: CorePublishedMediaTable;
+  rec_media: RecMediaView;
   rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;
   rec_state_history: RecStateHistoryView;

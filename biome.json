@@ -61,7 +61,10 @@
         "packs/programs/blocks/programs-today/**",
         "packs/programs/blocks/programs-class-today/**",
         "packs/programs/blocks/programs-progress/**",
-        "packs/programs/blocks/programs-coach-client/**"
+        "packs/programs/blocks/programs-coach-client/**",
+        "packs/content/blocks/content-rich-text/**",
+        "packs/content/blocks/content-post/**",
+        "packs/content/blocks/content-post-list/**"
       ],
       "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
     },

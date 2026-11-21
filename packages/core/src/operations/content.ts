@@ -277,9 +277,95 @@ export const contentPreviewLink = defineOperation({
   },
 });
 
+/** A preview link's id: the start of its token's hash. Never the token. */
+const LINK_ID_LENGTH = 16;
+
+const linkOut = z.object({
+  id: z.string().describe("The link's id (not its token): what contentRevokePreview takes"),
+  expiresAt: z.string(),
+  createdBy: z.string(),
+  createdAt: z.string(),
+});
+
+export const contentPreviewLinks = defineOperation({
+  name: "content.previewLinks",
+  description:
+    "The preview links of one record of a content object that still work: when each was made, " +
+    "by whom and when it stops. Never their tokens, which are shown once when a link is made. " +
+    "Read-only.",
+  input: z.object({ object: objectName, id: z.string().min(1).max(64).describe("Record id") }),
+  output: z.object({ items: z.array(linkOut) }),
+  permission: "records:read",
+  risk: "read",
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    const rows = await ctx.db
+      .selectFrom("core_preview_link")
+      .select(["token_hash", "expires_at", "created_by", "created_at"])
+      .where("object_type", "=", input.object)
+      .where("record_id", "=", input.id)
+      .where("expires_at", ">", ctx.now)
+      .orderBy("created_at", "desc")
+      .limit(100)
+      .execute();
+    return {
+      items: rows.map((r) => ({
+        id: r.token_hash.slice(0, LINK_ID_LENGTH),
+        expiresAt: r.expires_at,
+        createdBy: r.created_by,
+        createdAt: r.created_at,
+      })),
+    };
+  },
+});
+
+export const contentRevokePreview = defineOperation({
+  name: "content.revokePreview",
+  description:
+    "Stop preview links of one record of a content object working now: one by its id (from " +
+    "content.previewLinks), or every one with `all`. Returns how many stopped.",
+  input: z.object({
+    object: objectName,
+    id: z.string().min(1).max(64).describe("Record id"),
+    link: z
+      .string()
+      .regex(/^[0-9a-f]{16}$/)
+      .optional()
+      .describe("The link's id"),
+    all: z.boolean().optional().describe("Every link of the record"),
+  }),
+  output: z.object({ revoked: z.number().int() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    if (!input.link && !input.all) {
+      throw new ValidationError("Name a link, or say all", { field: "link" });
+    }
+    const rows = await ctx.db
+      .selectFrom("core_preview_link")
+      .select("token_hash")
+      .where("object_type", "=", input.object)
+      .where("record_id", "=", input.id)
+      .where("expires_at", ">", ctx.now)
+      .execute();
+    const doomed = rows
+      .map((r) => r.token_hash)
+      .filter((hash) => input.all || hash.startsWith(input.link ?? "\u0000"));
+    if (input.link && !doomed.length) {
+      throw new OperationError("not_found", "No such preview link", { link: input.link });
+    }
+    for (const hash of doomed) {
+      ctx.write(CompiledQuery.raw("DELETE FROM core_preview_link WHERE token_hash = ?", [hash]));
+    }
+    return { revoked: doomed.length };
+  },
+});
+
 export const contentOperations = [
   contentGet,
   contentList,
   contentPreview,
   contentPreviewLink,
+  contentPreviewLinks,
+  contentRevokePreview,
 ] as const;

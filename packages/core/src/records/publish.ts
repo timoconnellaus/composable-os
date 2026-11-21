@@ -11,6 +11,7 @@ import { CompiledQuery, sql } from "kysely";
 import { ValidationError } from "../errors.ts";
 import type { ObjectDefinition, PublishableDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
+import { mediaIdsOf } from "./media.ts";
 
 /** The most a version's content may be, in bytes of its JSON (a D1 row holds 2 MB). */
 export const VERSION_MAX_BYTES = 1_048_576;
@@ -77,15 +78,22 @@ export async function nextVersion(ctx: HandlerContext, object: string, id: strin
  * the key, as a conflict (`published_meanwhile`).
  */
 export function publishWrites(
-  object: string,
+  definition: ObjectDefinition,
   id: string,
   version: number,
   snapshot: { content: Record<string, unknown> | string; bytes: number },
   by: { at: string; user: string | null; note: string | null },
 ): CompiledQuery[] {
+  const object = definition.name;
   const content =
     typeof snapshot.content === "string" ? snapshot.content : JSON.stringify(snapshot.content);
+  const values =
+    typeof snapshot.content === "string"
+      ? (JSON.parse(snapshot.content) as Record<string, unknown>)
+      : snapshot.content;
   return [
+    // The media the new current version references (ADR 0444): what the public may be served.
+    ...publishedMediaWrites(object, id, mediaIdsOf(definition, values)),
     CompiledQuery.raw(
       "UPDATE core_publish_version SET current = 0 WHERE object_type = ? AND record_id = ? AND current = 1",
       [object, id],
@@ -101,11 +109,28 @@ export function publishWrites(
 /** No version is current: the public reads none of it. The versions are kept. */
 export function unpublishWrites(object: string, id: string): CompiledQuery[] {
   return [
+    ...publishedMediaWrites(object, id, []),
     CompiledQuery.raw(
       "UPDATE core_publish_version SET current = 0 WHERE object_type = ? AND record_id = ? AND current = 1",
       [object, id],
     ),
     clearScheduleWrite(object, id),
+  ];
+}
+
+/** The record's rows of core_published_media, replaced by `media`. */
+function publishedMediaWrites(object: string, id: string, media: string[]): CompiledQuery[] {
+  return [
+    CompiledQuery.raw("DELETE FROM core_published_media WHERE object_type = ? AND record_id = ?", [
+      object,
+      id,
+    ]),
+    ...media.map((mediaId) =>
+      CompiledQuery.raw(
+        "INSERT OR IGNORE INTO core_published_media (media_id, object_type, record_id) VALUES (?, ?, ?)",
+        [mediaId, object, id],
+      ),
+    ),
   ];
 }
 

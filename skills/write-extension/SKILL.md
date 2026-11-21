@@ -182,12 +182,13 @@ extension declares it; it never implements it. Each behaviour the platform has i
   **`richText`** field (`{ type: "richText" }`, the platform's one schema, `RICH_TEXT_SCHEMA`:
   never HTML, never a `longText` of markup); its address is a **`slug`** field, unique among live
   records and made from the title when left empty. Declare `publishable: { content, slug, date? }`
-  (the slug is not content; `date`, a content date field, is filled when it goes live) and
+  (the slug is not content; `date`, a content date field, is filled when it goes live), a picture
+  is an **`image`** field (`{ media, alt, focal? }`, a media library item the host checks), and
   `public: { read: [...] }` listing the slug. The public then reads only the published version,
   with `content.get { object, slug }` and `content.list`, and a draft is not found. Records also
   get `publishState` (draft, scheduled, published, unpublished) and `publishAt`, for views.
   Publishing, scheduling (`record.schedulePublish`) and unpublishing are a person's; your code and
-  the assistant write the working copy only.
+  the assistant write the working copy only. See Content: `packs/content/index.ts`.
 
 ### Roles
 

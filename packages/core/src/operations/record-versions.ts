@@ -131,7 +131,7 @@ export const recordPublish = defineOperation({
     const note = input.note ?? null;
     // Racing publishes take the same number: the second batch fails on the key, as a conflict.
     ctx.write(
-      ...publishWrites(object.name, input.id, version, snapshot, {
+      ...publishWrites(object, input.id, version, snapshot, {
         at: ctx.now,
         user: ctx.user.id,
         note,
@@ -321,7 +321,7 @@ export const recordPublishDue = defineOperation({
       }
       const version = await nextVersion(ctx, object.name, due.record_id);
       ctx.write(
-        ...publishWrites(object.name, due.record_id, version, due, {
+        ...publishWrites(object, due.record_id, version, due, {
           at: ctx.now,
           user: due.scheduled_by,
           note: due.note,

@@ -59,6 +59,12 @@
       "risk": "write"
     },
     {
+      "name": "media.serve",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "my.create",
       "audiences": ["customer"],
       "risk": "write",
@@ -120,6 +126,12 @@
       "audiences": ["customer", "public"],
       "risk": "read",
       "toolOnly": true
+    },
+    {
+      "name": "x.content.categories",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "pack": "content"
     },
     {
       "name": "x.programs.classToday",

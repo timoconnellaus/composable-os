@@ -8,6 +8,8 @@
 //                                             call through invoke()
 //   /api/customer-auth/*                      customer sign-in (stage 22's routes): send a code,
 //                                             sign in, get the session, sign out
+//   GET /api/media/<id>                       a picture published content shows (stage 28, ADR
+//                                             0444), as media.serve decides; never an upload
 // Not the staff UI, /mcp, the assistant, support access, or the native token routes
 // (/api/v1/auth/*): a web app signs customers in with a cookie and has no use for device tokens.
 //
@@ -35,11 +37,14 @@ import {
   coreInvoker,
   createHttpSurface,
   ForbiddenError,
+  handleMedia,
   isApiPath,
+  isMediaPath,
   type OutsideInvocationContext,
   type PublicPrincipal,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "../media.ts";
 import {
   type ApiEnv,
   customers,
@@ -100,6 +105,16 @@ const notServed = () =>
 export async function handleBound(request: Request, env: ApiEnv): Promise<Response> {
   const { pathname } = new URL(request.url);
   if (isCustomerAuthPath(pathname)) return handleCustomerAuth(request, env);
+  if (isMediaPath(pathname)) {
+    const withMedia = env as ApiEnv & MediaEnv;
+    return handleMedia(request, {
+      invoker: coreInvoker,
+      context: (req) => boundContext(req, env),
+      media: mediaStoreFor(withMedia),
+      resizer: mediaResizerFor(withMedia),
+      uploads: false,
+    });
+  }
   if (!isApiPath(pathname)) return notServed();
   let surface = surfaces.get(env);
   if (!surface) {
