@@ -1102,9 +1102,11 @@ record of the object bumps in its own batch (`content/cache.ts`).
 `media` (`core_media`, migration 0461): one original in R2 (`BLOBS`, `media/<id>`), its type read
 from its bytes, its size and dimensions. Uploads go to `POST /api/media` (cos-app, staff), which
 hands the body to `media.upload` as `ctx.upload`, never in an operation's input. `GET
-/api/media/<id>?w=` (cos-app and the client-app binding) streams what `media.serve` allows: staff
-any live item, outsiders only one the current version of a record they may read references
-(`core_published_media`, written with the version). Widths come from Cloudflare Images when
+/api/media/<id>?w=` (cos-app and the client-app binding; `/api/v1/media/<id>` on the host's own
+hostname for a phone) streams what `media.serve` allows: staff any live item, outsiders only one
+the current version of a record they may read shows in a field they may read
+(`core_published_media`, written with the version). A company's site forwards its own
+`/api/media/<id>` over the binding (the client template's `mediaRoute`). Widths come from Cloudflare Images when
 `IMAGES` is bound. The `image` field type is `{ media, alt, focal? }`. The Trash purge deletes a
 picture's row, and a trigger queues its R2 key on the blob deletion path (ADR 0320).
 

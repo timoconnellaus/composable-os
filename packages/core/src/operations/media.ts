@@ -13,15 +13,16 @@
 // The bytes never pass through an operation's input: the upload route (`/api/media`, cos-app)
 // reads the request's body and hands it to `media.upload` as `ctx.upload`, so no MCP client,
 // import or extension can store a file, and the audit log holds what was stored, not the file.
+import type { Kysely } from "kysely";
 import { z } from "zod";
 import { NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { mediaObject } from "../fields/media.ts";
+import type { ObjectDefinition } from "../fields/types.ts";
 import { filterSchema } from "../filter.ts";
 import { newId } from "../ids.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
-import type { PublicPrincipal } from "../principals.ts";
 import {
   MEDIA_MAX_BYTES,
   MEDIA_PREFIX,
@@ -29,11 +30,16 @@ import {
   servedWidth,
   sniffMediaType,
 } from "../records/media.ts";
-import { orgReader, type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
-import { getVisible, listVisible } from "../visibility/records.ts";
+import {
+  orgReader,
+  type Reader,
+  visibleObject,
+  visibleSource,
+  visibleTable,
+} from "../visibility/index.ts";
+import { listVisible } from "../visibility/records.ts";
 
 const mediaId = z.string().min(1).max(64).describe("A media item's id");
-const PUBLIC: PublicPrincipal = { kind: "public" };
 
 const mediaOut = z.object({
   id: z.string(),
@@ -325,23 +331,43 @@ export const mediaServe = defineOperation({
       public: isPublic,
     });
     if (caller.kind === "staff") return answer(false);
-    // Outsiders: only while a record the public reads now shows it (its current version names it,
-    // and the record is in the public's source: published, live, meeting its `when`).
-    const uses = await ctx.db
+    // Outsiders: only while a record they may read now shows it in a field they may read (its
+    // current version names it there, and the record is in their source: published, live,
+    // meeting its `when`). One read per object that uses it, however many records do.
+    const reader: Reader = { db: ctx.db, principal: caller };
+    const objects = await ctx.db
       .selectFrom("core_published_media")
-      .select(["object_type", "record_id"])
+      .select("object_type")
+      .distinct()
       .where("media_id", "=", input.id)
-      .limit(20)
       .execute();
-    const reader = { db: ctx.db, principal: PUBLIC };
-    for (const use of uses) {
-      const object = getObject(use.object_type);
-      if (!object?.public) continue;
-      const seen = await getVisible(reader, object, use.record_id).then(
-        () => true,
-        () => false,
-      );
-      if (seen) return answer(true);
+    for (const { object_type } of objects) {
+      const definition = getObject(object_type);
+      if (!definition) continue;
+      let visible: ObjectDefinition;
+      try {
+        visible = visibleObject(reader, definition);
+      } catch {
+        continue; // An object the caller reads nothing of.
+      }
+      const readable = visible.fields.map((f) => f.name).filter((name) => name !== "id");
+      if (!readable.length) continue;
+      const shown = await (ctx.db as unknown as Kysely<Record<string, Record<string, unknown>>>)
+        .selectFrom(visibleSource(reader, visible))
+        .select("id")
+        .where(
+          "id",
+          "in",
+          ctx.db
+            .selectFrom("core_published_media")
+            .select("record_id")
+            .where("media_id", "=", input.id)
+            .where("object_type", "=", object_type)
+            .where("field", "in", readable),
+        )
+        .limit(1)
+        .executeTakeFirst();
+      if (shown) return answer(true);
     }
     throw notServed();
   },

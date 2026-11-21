@@ -4,6 +4,10 @@
 //
 //   POST /api/media?name=<name>&alt=<alt>   the file as the body: `media.upload` (staff only)
 //   GET  /api/media/<id>?w=<width>          the picture: `media.serve` decides, R2 streams
+//   GET  /api/v1/media/<id>?w=<width>       the same, beside the HTTP surface: the address a phone
+//                                           (or anyone outside) asks the host's own hostname for,
+//                                           bypassed by Cloudflare Access with the rest of /api/v1
+//                                           (issue #181). The admin's pictures stay on /api/media.
 //
 // What may be served, to whom, is `media.serve`'s answer, through `invoke()`. This module reads
 // R2 only for an item that answer named, and writes it only through `media.upload`.
@@ -14,10 +18,16 @@ import { MEDIA_MAX_BYTES, type MediaResizer, type MediaStore } from "../records/
 import { errorReply } from "./envelope.ts";
 
 export const MEDIA_ROUTE = "/api/media";
+/** The read half beside the HTTP surface, for callers outside the org on the host's hostname. */
+export const PUBLIC_MEDIA_ROUTE = "/api/v1/media";
 
-/** Whether `pathname` is the media route's. */
+/** Whether `pathname` is the media route's (either prefix). */
 export function isMediaPath(pathname: string): boolean {
-  return pathname === MEDIA_ROUTE || pathname.startsWith(`${MEDIA_ROUTE}/`);
+  return (
+    pathname === MEDIA_ROUTE ||
+    pathname.startsWith(`${MEDIA_ROUTE}/`) ||
+    pathname.startsWith(`${PUBLIC_MEDIA_ROUTE}/`)
+  );
 }
 
 /** How long the public's copy of a picture may be kept: unpublished, it stops within this. */
@@ -127,7 +137,10 @@ async function readCapped(request: Request, max: number): Promise<Uint8Array> {
 }
 
 async function serve(request: Request, url: URL, options: MediaRouteOptions): Promise<Response> {
-  const id = url.pathname.slice(MEDIA_ROUTE.length + 1);
+  const prefix = url.pathname.startsWith(`${PUBLIC_MEDIA_ROUTE}/`)
+    ? PUBLIC_MEDIA_ROUTE
+    : MEDIA_ROUTE;
+  const id = url.pathname.slice(prefix.length + 1);
   const notFound = () =>
     reply(
       404,

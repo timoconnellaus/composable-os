@@ -821,6 +821,39 @@ describe("cos upgrade keeps the host modules current (ADR 0451, amended)", () =>
     expect(existsSync(join(dir, "mobile", "src", "composable-os", "secure-random.ts"))).toBe(true);
   });
 
+  it("brings the media route to repos made before it, created and adopted (issue #181)", async () => {
+    // The release before: the template's host.ts without its media route.
+    const before = (files: Record<string, string>) => {
+      const host = files["template/apps/web/src/host.ts"] ?? "";
+      const at = host.indexOf("/** Where this site's pages ask for a picture");
+      expect(at).toBeGreaterThan(0);
+      files["template/apps/web/src/host.ts"] = host.slice(0, at);
+    };
+    await publish("1.0.0", before);
+    await publish("1.1.0");
+    const dir = await created();
+    expect(read(dir, HOST)).not.toContain("export async function mediaRoute");
+    const recorded = JSON.parse(read(dir, "composable-os.lock.json")).hostModules[HOST].sha256;
+    const upgraded = await cos("upgrade", "--no-typecheck");
+    expect(upgraded.output).toContain(`Host modules: ${HOST} replaced with 1.1.0's.`);
+    expect(read(dir, HOST)).toContain("export async function mediaRoute");
+    const after = JSON.parse(read(dir, "composable-os.lock.json")).hostModules[HOST];
+    expect(after.version).toBe("1.1.0");
+    expect(after.sha256).not.toBe(recorded);
+
+    // An adopted site (its host module in src/composable-os/) is given it, and its hash recorded,
+    // so its next upgrade can replace it the same way.
+    const adopted = join(scratch(), "adopted-site");
+    cpSync(join(here, "fixtures", "adopt"), adopted, { recursive: true });
+    cwd = adopted;
+    expect((await cos("init", "--web", ".", "--mobile", "mobile", "--yes")).code).toBe(0);
+    const module = "src/composable-os/host.ts";
+    expect(read(adopted, module)).toContain("export async function mediaRoute");
+    expect(JSON.parse(read(adopted, "composable-os.lock.json")).hostModules[module].sha256).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+  });
+
   it("compares by content: a kit rebuilt at the same version still shows what changed", async () => {
     await publish("1.0.0");
     const dir = await created();

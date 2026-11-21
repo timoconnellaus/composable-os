@@ -131,9 +131,24 @@ export type ContentClient = PackClient<ContentOperations>;
 
 // --- Plain functions ------------------------------------------------------------------------------
 
-/** Where the host serves a picture, at the width asked for (`/api/media/<id>?w=640`). */
-export function mediaPath(id: string, width?: number): string {
-  return `/api/media/${encodeURIComponent(id)}${width ? `?w=${Math.round(width)}` : ""}`;
+/**
+ * Where a picture is, at the width asked for: `/api/media/<id>?w=640` on a site's own hostname,
+ * which the client template's media route forwards to the host (issue #181). `base` puts another
+ * origin or prefix in front (`https://cdn.example.com`).
+ */
+export function mediaPath(id: string, width?: number, base = ""): string {
+  return `${base.replace(/\/+$/, "")}/api/media/${encodeURIComponent(id)}${width ? `?w=${Math.round(width)}` : ""}`;
+}
+
+/**
+ * Where a phone asks the host itself for a picture: its public media route beside the HTTP
+ * surface, `https://<host>/api/v1/media/<id>?w=<width>` (bypassed by Cloudflare Access with the
+ * rest of /api/v1). For the native blocks' `mediaUrl`: `hostMediaUrl(hostUrl)`.
+ */
+export function hostMediaUrl(hostUrl: string): (id: string, width: number) => string {
+  const host = hostUrl.replace(/\/+$/, "");
+  return (id, width) =>
+    `${host}/api/v1/media/${encodeURIComponent(id)}${width ? `?w=${Math.round(width)}` : ""}`;
 }
 
 /** The text of inline runs, without marks: for excerpts, alt text and screen readers. */

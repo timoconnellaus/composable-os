@@ -127,3 +127,32 @@ over a taken slug (1); a revoked preview link still working (1); markup kept in 
   forwards its own `/api/media/<id>` route to it.
 - An uploaded original whose row then fails to commit is left in R2 with no row naming it, never a
   row with no object; nothing serves it.
+
+## Amendment, 2026-11-22 (issue #181): pictures on a company's own site and app
+- **The client template's web app has a media route** (`mediaRoute` in `src/host.ts`, called by
+  `src/server.ts`): `GET /api/media/<id>?w=` on the site's own hostname is forwarded to the host
+  over the `HOST` binding with the id, the width and the customer's cookie and nothing else, and
+  the picture comes back with the host's type and cache headers, `nosniff` and a `default-src
+  'none'` policy. The web blocks ask it by default (`mediaBase` for another origin). It is in a
+  host module, so `cos upgrade` brings it to a repo that has not edited its `host.ts`
+  (ADR 0451's recorded hashes), and `cos init` gives it to an adopted site.
+- **A phone asks the host itself** at `/api/v1/media/<id>?w=`, served by the same handler beside
+  the HTTP surface, so Cloudflare Access lets it through with the rest of `/api/v1` and nothing in
+  the Access layout changes; `/api/media/*` stays a staff path (the admin's uploads and pictures).
+  The mobile template's `mediaUrlFor({ hostUrl })` and the pack's `hostMediaUrl(hostUrl)` build
+  it. `docs/deploying.md` says so.
+- **`media.serve` reads the reader's fields.** `core_published_media` keeps the field each picture
+  is in (migration 0500, filled from the current versions; block AC, after 0470 which it reads).
+  An outsider is served a picture only when a record they may read shows it in a field their scope
+  lists; a staff-only picture among the content is not theirs. It reads one query per object that
+  uses the picture, however many records do, so a picture whose first twenty uses are hidden and a
+  later one public is served (the cap of twenty uses is gone).
+- **Proof:** `apps/app/test/company-web-media.test.ts` (through the real binding: a published
+  post's picture served with the host's headers, a draft's and a made-up one not found, POST
+  refused, a bearer token and other headers not passed on, HEAD); `packages/core/test/media.test.ts`
+  (a picture only in a field the public does not read is not served, and is once it is in one;
+  twenty-one uses, the first twenty deleted posts', served; migration 0500's backfill finds what
+  publishing writes; `/api/v1/media/<id>` for a phone). Both serving tests fail against the
+  previous `media.serve` (2 failed). `packages/create-composable-os/test/client-repo.test.ts`: a
+  repo made before the route gets it on `cos upgrade`, with a new recorded hash; an adopted site
+  gets it from `cos init`.

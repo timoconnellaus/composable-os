@@ -171,3 +171,42 @@ export async function operationRoute(
     headers: { "content-type": answer.headers.get("content-type") ?? "application/json" },
   });
 }
+
+/** Where this site's pages ask for a picture: `<img src="/api/media/<id>?w=640">`. */
+export const MEDIA_ROUTE = "/api/media/";
+
+const MEDIA_ID = /^med_[A-Za-z0-9]{1,60}$/;
+
+/**
+ * The pictures of the host's media library, on this site's own hostname (stage 28, ADR 0444):
+ * `GET /api/media/<id>?w=<width>` is forwarded to the host over HOST, with the id, the width and
+ * the customer's cookie and nothing else, and the picture comes back with the host's type and
+ * cache headers. What may be shown is the host's answer (`media.serve`): a picture published
+ * content shows, for whoever may read that content; anything else is not found. Null for any
+ * other request.
+ */
+export async function mediaRoute(request: Request, env: HostEnv): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith(MEDIA_ROUTE)) return null;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return refuse(405, "invalid_input", "Use GET");
+  }
+  const id = decodeURIComponent(url.pathname.slice(MEDIA_ROUTE.length));
+  if (!MEDIA_ID.test(id)) return refuse(404, "not_found", "Not found");
+  const width = url.searchParams.get("w");
+  const query = width && /^[0-9]{1,5}$/.test(width) ? `?w=${width}` : "";
+  const answer = await env.HOST.fetch(`${BOUND}/api/media/${id}${query}`, {
+    method: request.method,
+    headers: customerSession(request.headers.get("cookie")),
+  });
+  const headers = new Headers({
+    "content-type": answer.headers.get("content-type") ?? "application/octet-stream",
+    "cache-control": answer.headers.get("cache-control") ?? "no-store",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'",
+  });
+  return new Response(request.method === "HEAD" ? null : answer.body, {
+    status: answer.status,
+    headers,
+  });
+}

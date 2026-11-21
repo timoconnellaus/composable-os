@@ -56,9 +56,11 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    builder saves itself and so needs `useEffect`; Content: `createContentHooks({ useQuery,
    useMutation }, api)` from `@composable-os/pack-content/client`) and pass them down. Content's
    rich text blocks (`content-rich-text`, `content-native-rich-text`) take the document itself
-   and a `mediaUrl` for pictures: on the web a route of the app's own that forwards
-   `GET /api/media/<id>?w=` to the host's binding (which serves it); in the app the host's
-   absolute address, and the native one an `openUrl` (React Native's `Linking.openURL`). `api` is the client the
+   and find pictures by themselves on the web: the template's `src/host.ts` has `mediaRoute`, which
+   `src/server.ts` calls, forwarding `GET /api/media/<id>?w=` to the host over the binding (in an
+   adopted site, call `mediaRoute(request, env)` from the site's own Worker before its pages; pass
+   `mediaBase` for another origin). In the app, pass `mediaUrl={mediaUrlFor({ hostUrl })}` from the
+   mobile template's `src/host.ts`: the host's `/api/v1/media/<id>`, and the native one an `openUrl` (React Native's `Linking.openURL`). `api` is the client the
    screen's user holds: the customer client on a customer's screen, the role client
    (`staff.client(createTicketingDoorClient)`) on the door scanner. The hooks returned are only
    those that client can back, and the block's prop names the hooks it calls

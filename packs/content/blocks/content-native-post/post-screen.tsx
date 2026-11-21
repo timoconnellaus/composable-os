@@ -17,7 +17,7 @@ export function PostScreen({
   content: Pick<ContentHooks, "usePost">;
   slug: string;
   openUrl: (url: string) => void;
-  /** Absolute: `https://<host>/api/media/<id>?w=<width>`. */
+  /** Absolute: `hostMediaUrl(hostUrl)`, the host's `/api/v1/media/<id>?w=<width>`. */
   mediaUrl: (id: string, width: number) => string;
   onRedirect: (slug: string) => void;
   /** The screen's width in device pixels, for the pictures. */

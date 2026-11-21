@@ -6,11 +6,13 @@
 //   POST /auth/code, /auth/sign-in, /auth/sign-out   the template's sign-in routes
 //   GET  /account                                     the signed-in page: the name from me.get
 //   GET  /                                            the public page
+//   GET  /api/media/<id>                              the template's media route (issue #181)
 //
 // Bundled by the app's vitest config with esbuild and run as an auxiliary Worker.
 import {
   authRoute,
   type HostEnv,
+  mediaRoute,
   operationRoute,
   signedInCustomer,
   withSessionKept,
@@ -23,6 +25,8 @@ export default {
     // The browser's typed-client calls (ADR 0451): these two only.
     const call = await operationRoute(request, env, { allow: ["me.get", "me.update"] });
     if (call) return call;
+    const picture = await mediaRoute(request, env);
+    if (picture) return picture;
     const { pathname } = new URL(request.url);
     if (pathname === "/account") {
       const me = await signedInCustomer(env, request);

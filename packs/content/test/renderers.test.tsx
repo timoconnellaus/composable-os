@@ -48,6 +48,13 @@ describe("the web renderer", () => {
     expect(html).toContain(">Get tickets</a>");
   });
 
+  it("asks this site's /api/media route for pictures by default, or another base (issue #181)", () => {
+    const here = renderToStaticMarkup(<RichText value={fixture} />);
+    expect(here).toContain('src="/api/media/med_01FIXTURE0000000000000000?w=960"');
+    const there = renderToStaticMarkup(<RichText value={fixture} mediaBase="https://cdn.test/" />);
+    expect(there).toContain('src="https://cdn.test/api/media/med_01FIXTURE0000000000000000?w=960"');
+  });
+
   it("says every word of the document, and nothing as markup", () => {
     for (const word of words) expect(html, word).toContain(word);
     const hostile = {

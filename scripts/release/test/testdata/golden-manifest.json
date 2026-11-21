@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 491,
+  "coreSchemaVersion": 500,
   "extensionContract": {
     "supported": [
       1
@@ -482,6 +482,10 @@
     {
       "name": "0491_sign_in_mail_kind.sql",
       "sha256": "cea152e845c00dd79eccb81fdbe3c84d2e982f756b2312fa010d87c91b15a798"
+    },
+    {
+      "name": "0500_published_media_field.sql",
+      "sha256": "9772cb57eaf11f9ae2071779829fbf23fb21a40b7e1e1cc73123f6d4b67f4853"
     }
   ],
   "product": "crm",

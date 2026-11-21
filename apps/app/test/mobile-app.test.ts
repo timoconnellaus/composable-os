@@ -9,7 +9,11 @@ import type { FetchLike, Tokens } from "@composable-os/client";
 import { inviteCustomer } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
-import { hostSession, type SecureRandom } from "../../../templates/client/apps/mobile/src/host.ts";
+import {
+  hostSession,
+  mediaUrlFor,
+  type SecureRandom,
+} from "../../../templates/client/apps/mobile/src/host.ts";
 import { handleApi } from "../src/server/http/api.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv, sentCodes } from "./bound-env.ts";
@@ -118,4 +122,11 @@ describe("the template's mobile app against a local host", () => {
   });
   // The same client package and generated client as the web app: both templates' customer.ts
   // are held to the generator's one output by packages/client-gen/test/targets.test.ts.
+});
+
+describe("the template's mobile app asks the host for pictures (issue #181)", () => {
+  it("at the host's public media route, beside the HTTP surface", () => {
+    const url = mediaUrlFor({ hostUrl: "https://admin.example.com/" });
+    expect(url("med_01ABC", 750)).toBe("https://admin.example.com/api/v1/media/med_01ABC?w=750");
+  });
 });

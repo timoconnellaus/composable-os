@@ -1920,6 +1920,8 @@ export interface CorePublishedMediaTable {
   media_id: string;
   object_type: string;
   record_id: string;
+  /** The field of the version that shows it (migration 0500). */
+  field: string;
 }
 
 /** `rec_publish_version` (migration 0470): every version, without its content. */
