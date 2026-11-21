@@ -91,7 +91,17 @@ export interface ClientProductDefinition {
    * The web app, if the repo has one: its folder, its Worker's name, its hostname (else
    * workers.dev) and where its generated client is (default `src/client`).
    */
-  web?: { dir: string; worker: string; hostname?: string; clientDir?: string };
+  web?: {
+    dir: string;
+    worker: string;
+    hostname?: string;
+    clientDir?: string;
+    /**
+     * "cos" (the default): `cos deploy` builds and uploads it. "own": it deploys itself, as an
+     * adopted site does today, and `cos deploy` only checks it; its wrangler config binds HOST.
+     */
+    deploy?: "cos" | "own";
+  };
   /** The mobile app, if the repo has one: its folder, and where its generated client is. */
   mobile?: { dir: string; clientDir?: string };
 }

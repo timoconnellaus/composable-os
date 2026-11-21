@@ -260,3 +260,27 @@ Status: built, in review. ADRs [0420](../adr/0420-packs-as-packages-as-built.md)
   `dist/server`); `cos deploy` uploads it. Radix is under the web base layer.
 - **npm:** published only when the `NPM_PUBLISH` variable is turned on, with trusted publishing
   (no token anywhere); every release dry-runs it (ADR 0423).
+- **The two skills, each tried once** (criterion 13) by an agent that had not seen this spec,
+  against the real release kit, the npm tarballs and a local fake Cloudflare API
+  (`packages/create-composable-os/scripts/fake-cloudflare.ts`): `start-client-app` and
+  `add-block` from an empty folder ("a website for a yoga studio where members sign in", with the
+  web sign-in block; deployed, host and web app bound), and both in the Ghetto-shaped fixture
+  (adopted; the native sign-in block wired into the Expo app; the host deployed). What went wrong,
+  and what was fixed:
+  - `cos client generate` crashed in a client repo: it now writes each app's client from
+    `product.ts`.
+  - Blocks could only be listed by name: `cos add` with no name lists skin, pack, calls and
+    dependencies; the skill says to run the `pnpm add` line it prints.
+  - The web blocks' Tailwind classes resolved to nothing: the template web app now has Tailwind
+    and the tokens, and the skill says how to brand them.
+  - `cos deploy` assumed the template's build layout and failed on the Astro site after the host
+    had deployed: the web build is checked before the host, and an adopted web app keeps its own
+    Worker and its own deploy (`web.deploy: "own"`).
+  - `cos init` left an adopted repo without the host modules, the root app's client dependency
+    and a workspace for its mobile app, and named a new Worker: it now writes the host modules
+    (and the secure store), adds the dependency, a `pnpm-workspace.yaml` and keeps the Worker's
+    name, and says when the site has data of its own (the company's decision).
+  - The skills did not say: `--id`/`--label`, that the template already has the sign-in and
+    account pages, `/setup` and the customer mail connection, that an app without a tsconfig is
+    not type-checked, `git init`, the sign-in blocks' actions, or how to wire a block. They do now.
+  Not re-run after the fixes.

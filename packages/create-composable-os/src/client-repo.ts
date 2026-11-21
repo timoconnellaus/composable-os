@@ -482,6 +482,11 @@ export async function init(flags: Flags, deps: Deps): Promise<number> {
   );
   const repository = str(flags, "repo") ?? release.updateRepository;
   const clientDir = "src/composable-os";
+  // The web app keeps its own Worker, its name and the way it deploys today.
+  const webConfig = webDir ? wranglerConfig(join(root, webDir)) : null;
+  const existingName = webConfig
+    ? /"?name"?\s*[:=]\s*"([a-z0-9-]+)"/.exec(readFileSync(webConfig, "utf8"))?.[1]
+    : undefined;
 
   // New files: never over one that exists.
   const product: ClientProductDefinition = {
@@ -489,7 +494,16 @@ export async function init(flags: Flags, deps: Deps): Promise<number> {
     label: str(flags, "label") ?? id,
     platform: { version, release: release.id, repository },
     packs: [],
-    ...(webDir ? { web: { dir: webDir, worker: `${id}-web`, clientDir } } : {}),
+    ...(webDir
+      ? {
+          web: {
+            dir: webDir,
+            worker: existingName ?? `${id}-web`,
+            clientDir,
+            deploy: "own" as const,
+          },
+        }
+      : {}),
     ...(mobileDir ? { mobile: { dir: mobileDir, clientDir } } : {}),
   };
   const productText = `// This product: what the host is deployed from, which packs are on, and where the apps are.
@@ -503,6 +517,22 @@ export const product = defineClientProduct(${JSON.stringify(product, null, 2)});
   const skills = writeSkills(root, kit);
   added.push(`skills/ (${skills} skills)`);
   added.push(...(await generateClients(root, defineClientProduct(product), kit, io)));
+  // Each app's host module, beside its client: the template's, which does the binding or the
+  // HTTPS sign-in, and keeps a signed-in customer signed in. New files only.
+  const hostModules: [string | undefined, string, string[]][] = [
+    [webDir, "web", ["host.ts"]],
+    [mobileDir, "mobile", ["host.ts", "secure-store.ts"]],
+  ];
+  for (const [app, kind, files] of hostModules) {
+    if (!app) continue;
+    for (const file of files) {
+      const source = kit.get(`${KIT.template}apps/${kind}/src/${file}`);
+      const target = join(root, app, clientDir, file);
+      if (!source || existsSync(target)) continue;
+      writeFileSync(target, decode(source).replaceAll("./client/customer.ts", "./customer.ts"));
+      added.push(join(app, clientDir, file));
+    }
+  }
 
   // Changes to files that exist: each shown, applied only when told.
   const changes: Change[] = [];
@@ -529,15 +559,53 @@ export const product = defineClientProduct(${JSON.stringify(product, null, 2)});
       "@composable-os/product": version,
     }),
   );
+  const mobileTemplate = kit.get(`${KIT.template}apps/mobile/package.json`);
+  const secureStore = mobileTemplate
+    ? (JSON.parse(decode(mobileTemplate)).dependencies?.["expo-secure-store"] as string | undefined)
+    : undefined;
   for (const app of [webDir, mobileDir].filter((d): d is string => Boolean(d))) {
-    if (app !== "." && existsSync(join(root, app, "package.json"))) {
-      consider(join(app, "package.json"), (before) =>
-        withDependencies(before as string, "dependencies", { "@composable-os/client": version }),
+    if (!existsSync(join(root, app, "package.json"))) continue;
+    const needs: Record<string, string> = { "@composable-os/client": version };
+    if (app === mobileDir && secureStore) needs["expo-secure-store"] = secureStore;
+    if (app === ".") {
+      // The root package.json is also the web app's: one change for both.
+      const index = changes.findIndex((c) => c.path === "package.json");
+      const current = index >= 0 ? (changes[index] as Change) : null;
+      const after = withDependencies(
+        current?.after ?? readFileSync(join(root, "package.json"), "utf8"),
+        "dependencies",
+        needs,
       );
+      const before = readFileSync(join(root, "package.json"), "utf8");
+      if (current) current.after = after;
+      else if (after !== before) changes.push({ path: "package.json", before, after });
+      continue;
     }
+    consider(join(app, "package.json"), (before) =>
+      withDependencies(before as string, "dependencies", needs),
+    );
+  }
+  // Apps in folders of their own install with the root's pnpm install.
+  const members = [webDir, mobileDir].filter((d): d is string => Boolean(d) && d !== ".");
+  if (members.length && !existsSync(join(root, "pnpm-workspace.yaml"))) {
+    writeFileSync(
+      join(root, "pnpm-workspace.yaml"),
+      `packages:\n${members.map((m) => `  - ${m}\n`).join("")}`,
+    );
+    added.push("pnpm-workspace.yaml");
   }
   if (webDir) {
-    const config = wranglerConfig(join(root, webDir));
+    const config = webConfig;
+    const own = config
+      ? OWN_RESOURCES.filter((key) =>
+          new RegExp(`"?${key}"?\\s*[:=]|\\[\\[${key}\\]\\]`).test(readFileSync(config, "utf8")),
+        )
+      : [];
+    if (own.length) {
+      io.out(
+        `Note: the web app has data of its own (${own.join(", ")}). It keeps them and keeps deploying itself (web.deploy "own"). Customers' records live in the host: what moves there, and when, is the company's decision, not an agent's.`,
+      );
+    }
     if (config) {
       consider(relative(root, config), (before) =>
         withBinding(config, before as string, appWorker(manifest)),
@@ -622,16 +690,16 @@ const OWN_RESOURCES = [
   "hyperdrive",
 ];
 
-/** Uploads the built web app with its one binding, HOST, to the host's ClientApp entrypoint. */
-async function deployWeb(
-  api: CloudflareClient,
-  accountId: string,
-  root: string,
-  product: ClientProductDefinition,
-  host: string,
-  flags: Flags,
-  io: Io,
-): Promise<string> {
+interface BuiltWeb {
+  out: string;
+  config: Record<string, unknown>;
+}
+
+/**
+ * Builds the web app and checks its build, before anything in the account changes: TanStack
+ * Start's output (the template's) in `dist/server`, with no binding of its own but HOST.
+ */
+function buildWeb(root: string, product: ClientProductDefinition, flags: Flags, io: Io): BuiltWeb {
   const web = product.web as NonNullable<ClientProductDefinition["web"]>;
   const dir = join(root, web.dir);
   if (!flags["skip-build"]) {
@@ -641,7 +709,9 @@ async function deployWeb(
   const out = join(dir, "dist", "server");
   const configPath = join(out, "wrangler.json");
   if (!existsSync(configPath))
-    throw new CliError(`No build at ${relative(root, out)}: run its build.`);
+    throw new CliError(
+      `No build at ${relative(root, out)}/wrangler.json. cos deploy uploads a web app built the way the template's is (TanStack Start with the Cloudflare Vite plugin). A web app that deploys itself (an adopted site) sets web.deploy: "own" in product.ts. Nothing was deployed.`,
+    );
   const config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
   for (const key of OWN_RESOURCES) {
     if (Array.isArray(config[key]) && (config[key] as unknown[]).length) {
@@ -654,6 +724,18 @@ async function deployWeb(
   if (services.some((s) => s.binding !== "HOST")) {
     throw new CliError("The web app may have one service binding, HOST, to the host.");
   }
+  return { out, config };
+}
+
+/** Uploads the built web app with its one binding, HOST, to the host's ClientApp entrypoint. */
+async function deployWeb(
+  api: CloudflareClient,
+  accountId: string,
+  product: ClientProductDefinition,
+  host: string,
+  { out, config }: BuiltWeb,
+): Promise<string> {
+  const web = product.web as NonNullable<ClientProductDefinition["web"]>;
   const modules: ModulePart[] = walkFiles(out)
     .filter((f) => f !== "wrangler.json" && !f.endsWith(".map") && !f.startsWith("."))
     .map((name) => ({
@@ -734,6 +816,9 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     io.err("The apps have type errors: nothing was deployed.");
     return 1;
   }
+  // The web app is built and checked before the host is touched.
+  const built =
+    product.web && product.web.deploy !== "own" ? buildWeb(root, product, flags, io) : null;
   io.out(
     `Checked: ${orgExtensionDirs(root).length} extension(s) with cos ext check${flags["no-typecheck"] ? "" : ", the apps' types"}.`,
   );
@@ -808,12 +893,16 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     io.out(`Org extensions: ${own.map((e) => e.id).join(", ")} (${ownHash.slice(0, 12)}…)`);
   }
 
-  if (product.web) {
-    const url = await deployWeb(api, accountId, root, product, appWorker(manifest), flags, io);
+  if (built) {
+    const url = await deployWeb(api, accountId, product, appWorker(manifest), built);
     io.out(`Web app: ${url}, bound to ${appWorker(manifest)} (ClientApp).`);
+  } else if (product.web?.deploy === "own") {
+    io.out(
+      `Web app: ${product.web.dir} deploys itself (web.deploy "own"): deploy it as you do today. Its wrangler config binds HOST to ${appWorker(manifest)} (ClientApp).`,
+    );
   }
   io.out(
-    `\nThe host's staff admin: ${appWorker(manifest)}'s address (printed above); open /setup there to create the first admin, and choose the email connection customer codes go out from (Settings, or customer.settings.update).`,
+    `\nThe host's staff admin: ${appWorker(manifest)}'s address (printed above); open /setup there to create the first admin, and, as a human admin, choose the email connection customer codes go out from (customer.settings.update, emailConnectionId).`,
   );
   io.out(`\n${EDGE_RULE_STEP}`);
   return 0;

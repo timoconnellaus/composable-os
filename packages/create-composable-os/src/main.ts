@@ -80,9 +80,13 @@ A client repo (stage 24)
   cos create <dir> [--label <name>] [--with-mobile] [--version x.y.z]
                                          a new client repo from the release's template (also
                                          \`npm create composable-os <dir>\`)
-  cos init                               adopt the repo you are in: adds product.ts, skills/, the
-                                         typed client and the rules in AGENTS.md; shows a diff of
-                                         every change to a file that exists and applies it with --yes
+  cos init [--web <dir>] [--mobile <dir>] [--id <id>] [--label <name>] [--yes]
+                                         adopt the repo you are in: adds product.ts, skills/, each
+                                         app's typed client and host module and the rules in
+                                         AGENTS.md; shows a diff of every change to a file that
+                                         exists and applies it with --yes. The id and label default
+                                         to the folder's name; an adopted web app keeps its Worker
+                                         and deploys itself (web.deploy "own")
   cos deploy                             the host from the release in product.ts, with its packs and
                                          the org's own extensions (checked first), then the web app
   cos upgrade [--version X.Y.Z]          in a client repo: move product.ts to a newer platform

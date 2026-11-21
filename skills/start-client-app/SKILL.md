@@ -14,46 +14,74 @@ A company wants its own product on Composable OS: a website where its customers 
 app, the staff admin and MCP that come with the host. Either there is no repository yet (create
 one), or the company already has a site or an app (adopt it, moving nothing).
 
-The host (records, rules, sign-in, the admin) is deployed from a verified platform release. The
-client repo holds only the company's apps, its own extensions (`extensions/`), copied blocks and
-`product.ts`. It never holds platform code and never opens a database.
+The host (records, rules, sign-in, the staff admin) is deployed from a verified platform release.
+The client repo holds only the company's apps, its own extensions (`extensions/`), copied blocks
+and `product.ts`. It never holds platform code and never opens a database. One host serves one
+company: every client repo deployed to one Cloudflare account shares that account's host, which
+is named for the platform release (`crm-app`), not for the company.
 
 ## The steps
 
-1. **New or existing?** In an empty folder, `npm create composable-os <dir>` (or
-   `cos create <dir> --label "<Name>"`). In an existing repository, run `pnpm dlx
-   @composable-os/cli init` at its root, saying where the apps are (`--web <dir>`,
-   `--mobile <dir>`). `cos init` adds `product.ts`, `skills/`, each app's typed client
-   (`<app>/src/composable-os/customer.ts`) and the client-repo rules in `AGENTS.md`. It changes no
-   existing file without showing the diff first, and applies the diffs only with `--yes`: read
-   them, then run it again with `--yes`.
+1. **New or existing?**
+   - **New:** `npm create composable-os <dir> -- --label "<Name>"` (that is `cos create <dir>`;
+     add `--with-mobile` for the Expo app). The id comes from `<dir>`. It writes the repo, runs
+     `git init`, and generates each app's typed client.
+   - **Existing:** at its root, `pnpm dlx @composable-os/cli init --id <id> --label "<Name>"
+     --web <dir> --mobile <dir>` (leave out an app it does not have). Without `--id` and `--label`
+     both come from the folder's name. It adds `product.ts`, `skills/`, each app's typed client and
+     host module (`<app>/src/composable-os/customer.ts` and `host.ts`; the mobile app also
+     `secure-store.ts`), a `pnpm-workspace.yaml` when the apps are in folders of their own, and the
+     client-repo rules in `AGENTS.md`. It changes no file that exists without showing the diff
+     first and applies the diffs only with `--yes`: read them, then run it again with `--yes`. An
+     adopted web app keeps its Worker (`web.worker` is its name) and its own deploy
+     (`web.deploy: "own"` in `product.ts`).
 2. **Read `AGENTS.md`.** Its rules hold for everything after this.
 3. **Choose the packs.** `product.ts` lists the release's packs that are on (`packs: ["deals"]`).
-   Only list what the request needs; an empty list is base records (people, organisations,
-   activities, tasks) only. The packs a release has are in its notes; `cos deploy` refuses one it
-   does not have.
-4. **Install.** `pnpm install` at the root.
-5. **The web app** talks to the host only through `HOST`, a service binding to the host's
-   `ClientApp` entrypoint, already in the template's `apps/web/wrangler.jsonc`; `cos init` shows it
-   as a diff for an existing Worker. Call operations with the generated client:
-   `createCustomerClient({ baseUrl: "https://host", fetch: (url, init) => env.HOST.fetch(url, init),
-   headers: () => customerSession(request.headers.get("cookie")) })`. The template's
-   `apps/web/src/host.ts` does this, and the sign-in routes, and keeps customers signed in.
-6. **The mobile app** (Expo) calls the host's public address over HTTPS with the same generated
-   client, signed in with a device token (`tokenSession` in `@composable-os/client`).
-7. **Regenerate the client** after adding a pack or an extension: `pnpm cos client generate`
-   is run by `cos deploy` and `cos upgrade`; run it yourself when you change `extensions/`.
-8. **Deploy.** `CLOUDFLARE_API_TOKEN=... pnpm cos deploy`. It checks `extensions/` with
-   `cos ext check` and the apps' types first, and stops with nothing changed if either fails. Then
-   it deploys the host from the release with the product's packs and the org's extensions, and
-   the web app with its binding. It prints the web app's address.
-9. **Before opening to the public,** do the step `cos create`/`cos init`/`cos deploy` print: a
-   rate limiting rule on the web app's zone. A person does this in the Cloudflare dashboard.
+   List only what the request needs; an empty list is base records only (people, organisations,
+   activities, tasks), and each signed-in customer can always read their own Person (`me.get`).
+   `cos deploy` refuses a pack the release does not have.
+4. **Install:** `pnpm install` at the root.
+5. **The web app** reaches the host only through `HOST`, a service binding to the host's
+   `ClientApp` entrypoint: already in the template's `apps/web/wrangler.jsonc`, shown as a diff by
+   `cos init` for an existing Worker. Its host module (`apps/web/src/host.ts` in the template,
+   `src/composable-os/host.ts` when adopted) has what a page needs: `customerApi(env, request)`
+   (the typed client for the customer the request comes from), `signedInCustomer`, the sign-in
+   routes `authRoute` serves (`POST /auth/code`, `/auth/sign-in`, `/auth/sign-out`), and
+   `withSessionKept`, which keeps customers signed in. **The template already has a public page,
+   a sign-in page, an account page from `me.get` and sign-out**: for a request like "members sign
+   in and see their account" there is nothing to add, unless the platform's sign-in block is
+   wanted (the `add-block` skill).
+   - **An adopted site with data of its own** (its own D1, KV or R2): it keeps them and keeps
+     deploying itself. Customers' records live in the host. What moves into the host, and when, is
+     the company's decision: say so and do not move data or remove a binding yourself.
+   - **A framework other than React** (an Astro site): call the host from its server code with the
+     host module; the web blocks are React and do not fit it.
+6. **The mobile app** (Expo) calls the host's public address over HTTPS with the same typed
+   client. Its host module (`apps/mobile/src/host.ts`, or `src/composable-os/host.ts` when adopted)
+   has `hostSession({ hostUrl, store, deviceName })` with `requestCode`, `signIn` (the emailed code
+   is exchanged at once for a device session in the secure store), `api` and `signOut`. The host's
+   address is `expo.extra.hostUrl` in `app.json`.
+7. **Regenerate the clients** after changing `packs` or `extensions/`: `pnpm cos client generate`.
+   `cos deploy` and `cos upgrade` do it too.
+8. **Deploy:** `CLOUDFLARE_API_TOKEN=... pnpm cos deploy`. Before anything in the account changes
+   it runs `cos ext check` on every extension, type-checks every app that has a `tsconfig.json`
+   (an app without one is not checked), and builds and checks the web app (a template web app
+   must build to `dist/server/`; an adopted one with `web.deploy: "own"` is left to its own
+   deploy). It prints `Checked: ...`, then deploys the host with the product's packs and the
+   org's extensions, then the web app with its binding, and prints the web app's address.
+9. **A person then does, by hand:**
+   - open the host's address `/setup` to create the first staff admin;
+   - connect an email-send connection and choose it for customer sign-in codes with the
+     `customer.settings.update` operation (`emailConnectionId`; over MCP, as a human admin; the
+     admin has no picker yet). Until then code requests answer that sign-in is not set up;
+   - for a custom hostname, `web.hostname` in `product.ts` and its DNS;
+   - before opening the web app to the public, the rate limiting rule `cos` prints, on the web
+     app's zone.
 
 ## The rules
 
-- Call operations through the typed client only. Never give the web app a D1, R2 or KV binding
-  or a secret of its own; `cos deploy` refuses a build that has one.
+- Call operations through the typed client only. Never give a web app the template deploys a D1,
+  R2 or KV binding or a secret of its own; `cos deploy` refuses a build that has one.
 - Rules live in the host: a screen never calculates a price, checks a capacity or decides what a
   customer may see.
 - Customers sign in on the company's own hostname through the web app; staff use the admin on
@@ -64,6 +92,5 @@ client repo holds only the company's apps, its own extensions (`extensions/`), c
 
 ## The check
 
-`pnpm cos deploy` is the check: it runs `cos ext check` on every extension and type-checks the
-apps before anything is deployed. Then open the web app's address, sign in with an emailed code
-and see the account page.
+`pnpm cos deploy` is the check: it ends with the web app's address after `Checked: ...`. Then a
+person opens the web app, signs in with an emailed code and sees the account page.

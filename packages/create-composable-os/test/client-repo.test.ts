@@ -362,6 +362,24 @@ describe("blocks (criterion 10)", () => {
     ]);
   });
 
+  it("lists the release's blocks with their skin, pack and dependencies", async () => {
+    await publish("1.0.0");
+    await created();
+    const listed = await cos("add");
+    expect(listed.code).toBe(0);
+    expect(listed.output).toMatch(/web-sign-in\s+web; base; with ui-button, ui-input, ui-label/);
+    expect(listed.output).toMatch(/native-base\s+native; base/);
+  });
+
+  it("cos client generate in a client repo writes each app's client again", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    rmSync(join(dir, "apps", "web", "src", "client", "customer.ts"));
+    const generated = await cos("client", "generate");
+    expect(generated.code, generated.output).toBe(0);
+    expect(read(dir, "apps/web/src/client/customer.ts")).toContain('"me.get"');
+  });
+
   it("refuses a block of a pack the product does not list", async () => {
     await publish("1.0.0", (files) => {
       files["blocks/deal-card/block.json"] = JSON.stringify({
@@ -439,12 +457,20 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
       '+   "services": [{ "binding": "HOST", "service": "demo-app", "entrypoint": "ClientApp" }]',
     );
     expect(first.output).toContain("Not changed.");
+    // It keeps the site's own Worker and its own deploy, and says the site has data of its own.
+    expect(read(dir, "product.ts")).toContain('"worker": "movement-site"');
+    expect(read(dir, "product.ts")).toContain('"deploy": "own"');
+    expect(first.output).toContain("data of its own (d1_databases)");
     // Only its own files are new.
     for (const path of [
       "product.ts",
       "skills/start-client-app/SKILL.md",
       "src/composable-os/customer.ts",
       "mobile/src/composable-os/customer.ts",
+      "src/composable-os/host.ts",
+      "mobile/src/composable-os/host.ts",
+      "mobile/src/composable-os/secure-store.ts",
+      "pnpm-workspace.yaml",
     ]) {
       expect(existsSync(join(dir, path)), path).toBe(true);
     }
@@ -459,9 +485,11 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
     expect(read(dir, "wrangler.jsonc")).toContain('"entrypoint": "ClientApp"');
     expect(read(dir, "AGENTS.md").startsWith(before["AGENTS.md"] as string)).toBe(true);
     expect(read(dir, "AGENTS.md")).toContain("Never open a database");
-    expect(JSON.parse(read(dir, "package.json")).dependencies).toEqual(
-      JSON.parse(before["package.json"] as string).dependencies,
-    );
+    // The site is the root package: it gains the client, and keeps everything it had.
+    expect(JSON.parse(read(dir, "package.json")).dependencies).toEqual({
+      ...JSON.parse(before["package.json"] as string).dependencies,
+      "@composable-os/client": "1.0.0",
+    });
     expect(JSON.parse(read(dir, "package.json")).devDependencies["@composable-os/cli"]).toBe(
       "1.0.0",
     );
@@ -469,6 +497,18 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
       "1.0.0",
     );
     expect(read(dir, "src/pages/index.astro")).toBe(before["src/pages/index.astro"]);
+  });
+
+  it("cos deploy deploys the host and leaves the adopted site to its own deploy", async () => {
+    await publish("1.0.0");
+    const dir = fixture();
+    cwd = dir;
+    expect((await cos("init", "--web", ".", "--mobile", "mobile", "--yes")).code).toBe(0);
+    const deployed = await cos("deploy", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    expect(world.cf.scripts.has("demo-app")).toBe(true);
+    expect(world.cf.scripts.has("movement-site")).toBe(false);
+    expect(deployed.output).toContain('deploys itself (web.deploy "own")');
   });
 
   it("the adopted apps call me.get, typed: the Worker over its binding, the Expo app over HTTPS", async () => {
