@@ -5,7 +5,8 @@
 // the host recognises are taken: JPEG, PNG, GIF, WebP and AVIF. SVG is not (it can carry script),
 // nor anything else. The size is checked before anything is read.
 import {
-  documentRefs,
+  type DocumentReach,
+  documentMediaReach,
   documentSchemaOf,
   MEDIA_MAX_BYTES,
   type MediaType,
@@ -108,15 +109,25 @@ export function servedWidth(asked: number | null): number | null {
   return MEDIA_WIDTHS.find((w) => w >= asked) ?? MEDIA_WIDTHS[MEDIA_WIDTHS.length - 1] ?? null;
 }
 
+/** One media item a version shows: in which field, and who outside the org reads that part. */
+export interface MediaUse {
+  media: string;
+  field: string;
+  /** All who read the field; only holders of access to the record; or no one (ADR 0477). */
+  reach: DocumentReach;
+}
+
 /**
  * The media items a version's content references, with the field each is in: every `media` ref
- * of its document-valued fields (a rich text picture, an `image` field), once per field.
+ * of its document-valued fields (a rich text picture, an `image` or `video` field, a lesson's
+ * video in an outline), once per field, with the widest reach it has there: a picture in a
+ * `private` part is `private`, one in a `holders` part `holders` (stage 42, ADR 0477).
  */
 export function mediaUsesOf(
   object: ObjectDefinition,
   content: Record<string, unknown>,
-): { media: string; field: string }[] {
-  const uses = new Map<string, { media: string; field: string }>();
+): MediaUse[] {
+  const uses = new Map<string, MediaUse>();
   for (const field of object.fields) {
     if (!Object.hasOwn(content, field.name)) continue;
     const schema = documentSchemaOf({
@@ -125,9 +136,8 @@ export function mediaUsesOf(
     });
     const value = content[field.name];
     if (!schema || value === null || value === undefined) continue;
-    for (const ref of documentRefs(schema, value)) {
-      if (ref.to !== RICH_TEXT_MEDIA_OBJECT) continue;
-      uses.set(`${ref.id}|${field.name}`, { media: ref.id, field: field.name });
+    for (const [media, reach] of documentMediaReach(schema, value, RICH_TEXT_MEDIA_OBJECT)) {
+      uses.set(`${media}|${field.name}`, { media, field: field.name, reach });
     }
   }
   return [...uses.values()];

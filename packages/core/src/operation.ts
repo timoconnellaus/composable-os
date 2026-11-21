@@ -400,6 +400,11 @@ export interface OperationDefinition<
   /** Extra input keys to redact in the audit log (secrets matching common names always are). */
   redact?: readonly string[];
   /**
+   * Keys of the result to redact in the audit log (stage 42): a one-time upload address, a
+   * playback token. Set, secret-looking keys of the result are redacted too.
+   */
+  redactResult?: readonly string[];
+  /**
    * The operation only changes approval or connection bookkeeping (opening a change set,
    * revoking a token), never records, so the gate never queues it for review. A `deny` from the
    * policy or floor still applies.

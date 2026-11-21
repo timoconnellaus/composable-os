@@ -3,10 +3,21 @@
 // No customer or public declaration: outsiders read no media record. A picture reaches them only
 // through `media.serve`, for an item published content references.
 
-import { MEDIA_TYPES, type MediaType } from "@composable-os/sdk";
+// Stage 42 (ADR 0475): a video (held in Cloudflare Stream, played only through `media.play`) and
+// a downloadable file (a PDF, in R2, served as a picture is) are media items too.
+import {
+  MEDIA_FILE_TYPES,
+  MEDIA_KINDS,
+  MEDIA_TYPES,
+  MEDIA_VIDEO_TYPE,
+  type MediaType,
+} from "@composable-os/sdk";
 import { defineObject } from "./types.ts";
 
 export { MEDIA_TYPES, type MediaType };
+
+/** Every `type` a media item may have. */
+const ITEM_TYPES = [...MEDIA_TYPES, ...MEDIA_FILE_TYPES, MEDIA_VIDEO_TYPE] as const;
 
 export const mediaObject = defineObject({
   name: "media",
@@ -19,10 +30,19 @@ export const mediaObject = defineObject({
     { name: "id", label: "ID", type: "id", column: "id", filterable: true, sortable: true },
     { name: "name", label: "Name", type: "text", column: "name", filterable: true, sortable: true },
     {
+      name: "kind",
+      label: "Kind",
+      type: "enum",
+      enumValues: MEDIA_KINDS,
+      column: "kind",
+      filterable: true,
+      sortable: true,
+    },
+    {
       name: "type",
       label: "Type",
       type: "enum",
-      enumValues: MEDIA_TYPES,
+      enumValues: ITEM_TYPES,
       column: "type",
       filterable: true,
       sortable: true,
@@ -48,6 +68,23 @@ export const mediaObject = defineObject({
       label: "Height",
       type: "number",
       column: "height",
+      filterable: true,
+      sortable: true,
+    },
+    {
+      name: "state",
+      label: "State",
+      type: "enum",
+      enumValues: ["uploading", "processing", "ready", "failed"],
+      column: "state",
+      filterable: true,
+      sortable: true,
+    },
+    {
+      name: "duration",
+      label: "Duration (seconds)",
+      type: "number",
+      column: "duration",
       filterable: true,
       sortable: true,
     },

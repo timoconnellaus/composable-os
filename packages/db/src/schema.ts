@@ -1915,13 +1915,33 @@ export interface CoreContentGenerationTable {
   changed_at: Timestamp;
 }
 
-/** `core_media` (migration 0461): one stored original in R2 and what the host found it to be. */
+/**
+ * `core_media` (migration 0461, rebuilt by 0510): one item of the media library. A picture or a
+ * file is an original in R2 (`key`); a video is held in Cloudflare Stream (`stream_uid`, its
+ * `state`), with nothing in R2 (stage 42, ADR 0475).
+ */
 export interface CoreMediaTable {
   id: string;
-  key: string;
+  kind: Generated<"image" | "video" | "file">;
+  key: string | null;
   name: string;
-  type: "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/avif";
+  type:
+    | "image/jpeg"
+    | "image/png"
+    | "image/gif"
+    | "image/webp"
+    | "image/avif"
+    | "application/pdf"
+    | "video/stream";
   bytes: number;
+  /** A video: Stream's id for it. */
+  stream_uid: Generated<string | null>;
+  /** A video: uploading, processing, ready or failed. */
+  state: Generated<"uploading" | "processing" | "ready" | "failed" | null>;
+  /** A failed video: Stream's reason code. */
+  state_reason: Generated<string | null>;
+  /** A video: its length in seconds, once Stream knows it. */
+  duration: Generated<number | null>;
   width: number | null;
   height: number | null;
   alt: string | null;
@@ -1933,6 +1953,17 @@ export interface CoreMediaTable {
   deleted_by: string | null;
   /** SHA-256 of the file, hex (migration 0501): an upload of the same file returns this item. */
   sha256: string | null;
+}
+
+/** `core_media_caption` (migration 0510): a video's caption track in one language. */
+export interface CoreMediaCaptionTable {
+  media_id: string;
+  language: string;
+  label: string;
+  generated: Generated<number>;
+  state: "processing" | "ready" | "failed";
+  created_at: Timestamp;
+  created_by: string | null;
 }
 
 /** `rec_media` (migration 0461): the live media items. */
@@ -1956,6 +1987,11 @@ export interface CorePublishedMediaTable {
   record_id: string;
   /** The field of the version that shows it (migration 0500). */
   field: string;
+  /**
+   * Who outside the org reads the part of the field it is in (migration 0510, ADR 0477): all
+   * who read the field, only holders of access to the record, or no one (a private part).
+   */
+  reach: Generated<"all" | "holders" | "private">;
 }
 
 /** `rec_publish_version` (migration 0470): every version, without its content. */
@@ -2098,6 +2134,7 @@ export interface CoreDatabase {
   core_content_generation: CoreContentGenerationTable;
   core_media: CoreMediaTable;
   core_published_media: CorePublishedMediaTable;
+  core_media_caption: CoreMediaCaptionTable;
   core_import_key: CoreImportKeyTable;
   rec_media: RecMediaView;
   rec_publish_version: RecPublishVersionView;

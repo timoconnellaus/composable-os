@@ -2,6 +2,7 @@
 // `installExtension` is the one path that makes a version live, used by extension.install,
 // extension.rollback and (stage 3b) extension.approve. Both run inside an operation handler: the
 // install's DDL, state rows and audit commit in the operation's single D1 batch.
+
 import type { CoreDatabase } from "@composable-os/db";
 import { type ExtensionManifest, type ManifestIssue, validateManifest } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
@@ -10,6 +11,7 @@ import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
+import { hasAccessSourceKind } from "../visibility/access.ts";
 import type { EvaluateResult, ExtensionHost, SourceIssue } from "./host.ts";
 import { CORE_TARGETS, isCoreTarget } from "./naming.ts";
 import {
@@ -112,6 +114,19 @@ export async function checkManifest(
   // Who an extension opens the host to is never AI-configurable (ADR 0402): a runtime extension,
   // written in the workspace, may not open a tool or show an object to anyone but staff.
   if (manifest && options.source === "runtime") all.push(...outsideDeclarations(manifest));
+  // A source of access of a kind the host does not provide gives no one access (ADR 0477).
+  for (const [name, object] of Object.entries(manifest?.objects ?? {})) {
+    (object.access?.sources ?? []).forEach((source, i) => {
+      if ("kind" in source && source.kind !== undefined && !hasAccessSourceKind(source.kind)) {
+        all.push({
+          stage: "contract",
+          code: "contract",
+          path: `objects.${name}.access.sources.${i}.kind`,
+          message: `The host provides no source of access of kind "${source.kind}"`,
+        });
+      }
+    });
+  }
   if (manifest && manifest.id !== id) {
     all.push({
       stage: "contract",
@@ -200,6 +215,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         code: "outside_audience",
         path: `objects.${name}.customerVia`,
         message: `A runtime extension cannot make ${name} readable by customers through their own records. ${why}`,
+      });
+    }
+    // Who holds access to a record (ADR 0477): what a customer reads of it, a reviewed change too.
+    if (object.access) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.access`,
+        message: `A runtime extension cannot declare who holds access to ${name}. ${why}`,
       });
     }
     // Records every signed-in customer may read (ADR 0447): a reviewed change, as a customer is.

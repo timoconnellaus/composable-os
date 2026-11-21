@@ -62,7 +62,12 @@ const blocks: Record<RichTextBlockType, DocumentObjectNode> = {
   list: listShape(),
   quote: object({ content: inlines, attribution: optional(prose(300)) }),
   image: object({
-    media: { type: "ref", to: RICH_TEXT_MEDIA_OBJECT, description: "The picture, from media" },
+    media: {
+      type: "ref",
+      to: RICH_TEXT_MEDIA_OBJECT,
+      media: "image",
+      description: "The picture, from media",
+    },
     alt: prose(500, { description: "What the picture shows, for people who cannot see it" }),
     caption: optional(inlines),
   }),
@@ -129,7 +134,12 @@ export const RICH_TEXT_SCHEMA: DocumentSchema = {
  */
 export const IMAGE_SCHEMA: DocumentSchema = {
   root: object({
-    media: { type: "ref", to: RICH_TEXT_MEDIA_OBJECT, description: "The picture, from media" },
+    media: {
+      type: "ref",
+      to: RICH_TEXT_MEDIA_OBJECT,
+      media: "image",
+      description: "The picture, from media",
+    },
     alt: prose(500, { description: "What the picture shows, for people who cannot see it" }),
     focal: optional(
       object({
@@ -143,9 +153,45 @@ export const IMAGE_SCHEMA: DocumentSchema = {
 /** The most an image field's value may be, in bytes of its JSON. */
 export const IMAGE_MAX_BYTES = 2048;
 
-/** The field types whose value is a document (ADR 0445): `document`, `richText` and `image`. */
+/**
+ * A video from the media library (stage 42, ADR 0475), as a node a declared document may use: the
+ * video (a ready one, checked on write) and, optionally, a picture to show before it plays.
+ */
+export const VIDEO_NODE: DocumentObjectNode = object({
+  media: {
+    type: "ref",
+    to: RICH_TEXT_MEDIA_OBJECT,
+    media: "video",
+    description: "The video, from media (a ready one)",
+  },
+  poster: optional({
+    type: "ref",
+    to: RICH_TEXT_MEDIA_OBJECT,
+    media: "image",
+    description: "A picture shown before it plays",
+  }),
+});
+
+/** A downloadable file from the media library (a PDF), as a node a declared document may use. */
+export const FILE_NODE: DocumentNode = {
+  type: "ref",
+  to: RICH_TEXT_MEDIA_OBJECT,
+  media: "file",
+  description: "The file, from media",
+};
+
+/** The `video` field type (stage 42, ADR 0475): `{ media, poster? }`. */
+export const VIDEO_SCHEMA: DocumentSchema = { root: VIDEO_NODE };
+
+/** The most a video field's value may be, in bytes of its JSON. */
+export const VIDEO_MAX_BYTES = 1024;
+
+/**
+ * The field types whose value is a document (ADR 0445): `document`, `richText`, `image` and
+ * `video`.
+ */
 export function isDocumentType(type: string | undefined): boolean {
-  return type === "document" || type === "richText" || type === "image";
+  return type === "document" || type === "richText" || type === "image" || type === "video";
 }
 
 /**
@@ -158,6 +204,7 @@ export function documentSchemaOf(field: {
 }): DocumentSchema | undefined {
   if (field.type === "richText") return RICH_TEXT_SCHEMA;
   if (field.type === "image") return IMAGE_SCHEMA;
+  if (field.type === "video") return VIDEO_SCHEMA;
   if (field.type === "document") return field.schema as DocumentSchema | undefined;
   return undefined;
 }
@@ -168,6 +215,7 @@ export function documentMaxBytesOf(field: {
   maxBytes?: number | undefined;
 }): number | undefined {
   if (field.type === "image") return IMAGE_MAX_BYTES;
+  if (field.type === "video") return VIDEO_MAX_BYTES;
   if (field.maxBytes !== undefined) return field.maxBytes;
   return field.type === "richText" ? RICH_TEXT_DEFAULT_BYTES : undefined;
 }

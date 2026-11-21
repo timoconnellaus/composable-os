@@ -1,6 +1,7 @@
 // The media library (stage 28, ADR 0444): pictures staff upload, which rich text and `image`
 // fields name by id, and which the public is served only while published content references
-// them.
+// them. Stage 42 (ADR 0475) adds downloadable files (a PDF, in R2 and served as a picture is) and
+// videos (in Cloudflare Stream, played only with a token `media.play` signs: media-video.ts).
 //
 //   media.upload   a person          store an uploaded picture (bytes from the upload route)
 //   media.list     staff             the library, newest first
@@ -8,11 +9,13 @@
 //   media.update   staff             its name and alt text
 //   media.delete   staff             to the Trash (the purge deletes its R2 object)
 //   media.restore  staff             back from the Trash
-//   media.serve    anyone            may this caller be served this picture, and how
+//   media.serve    anyone            may this caller be served this picture or file, and how
 //
 // The bytes never pass through an operation's input: the upload route (`/api/media`, cos-app)
 // reads the request's body and hands it to `media.upload` as `ctx.upload`, so no MCP client,
 // import or extension can store a file, and the audit log holds what was stored, not the file.
+
+import { MEDIA_FILE_MAX_BYTES, maxBytesOf, sniffUpload } from "@composable-os/sdk";
 import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
 import { NotFoundError, OperationError, ValidationError } from "../errors.ts";
@@ -23,13 +26,8 @@ import { filterSchema } from "../filter.ts";
 import { newId } from "../ids.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
-import {
-  MEDIA_MAX_BYTES,
-  MEDIA_PREFIX,
-  mediaDimensions,
-  servedWidth,
-  sniffMediaType,
-} from "../records/media.ts";
+import { MEDIA_PREFIX, mediaDimensions, servedWidth } from "../records/media.ts";
+import { holdsAccess } from "../visibility/access.ts";
 import {
   orgReader,
   type Reader,
@@ -41,46 +39,62 @@ import { listVisible } from "../visibility/records.ts";
 
 const mediaId = z.string().min(1).max(64).describe("A media item's id");
 
-const mediaOut = z.object({
+export const mediaOut = z.object({
   id: z.string(),
+  kind: z.enum(["image", "video", "file"]).describe("A picture, a video or a downloadable file"),
   name: z.string(),
   type: z.string(),
   bytes: z.number().int(),
   width: z.number().int().nullable(),
   height: z.number().int().nullable(),
   alt: z.string().nullable(),
+  state: z
+    .enum(["uploading", "processing", "ready", "failed"])
+    .nullable()
+    .describe("A video: uploading, processing (Stream is encoding it), ready to play, or failed"),
+  stateReason: z.string().nullable().describe("A failed video: Stream's reason"),
+  duration: z.number().nullable().describe("A video's length in seconds"),
   createdAt: z.string(),
   createdBy: z.string().nullable(),
 });
 type MediaOut = z.infer<typeof mediaOut>;
 
-interface MediaRow {
+export interface MediaRow {
   id: string;
+  kind: "image" | "video" | "file";
   name: string;
   type: string;
   bytes: number;
   width: number | null;
   height: number | null;
   alt: string | null;
+  stream_uid: string | null;
+  state: "uploading" | "processing" | "ready" | "failed" | null;
+  state_reason: string | null;
+  duration: number | null;
   created_at: string;
   created_by: string | null;
-  key: string;
+  key: string | null;
 }
 
-const out = (row: MediaRow): MediaOut => ({
+export const out = (row: MediaRow): MediaOut => ({
   id: row.id,
+  kind: row.kind ?? "image",
   name: row.name,
   type: row.type,
   bytes: Number(row.bytes),
   width: row.width === null ? null : Number(row.width),
   height: row.height === null ? null : Number(row.height),
   alt: row.alt,
+  state: row.state ?? null,
+  stateReason: row.state_reason ?? null,
+  duration: row.duration === null || row.duration === undefined ? null : Number(row.duration),
   createdAt: row.created_at,
   createdBy: row.created_by,
 });
 
 /** A live media item, through the seam. */
-async function liveMedia(ctx: Reader, id: string): Promise<MediaRow | null> {
+export async function liveMedia(ctx: Reader, id: string): Promise<MediaRow | null> {
   return ((await ctx.db
     .selectFrom(visibleSource(ctx, mediaObject))
     .selectAll()
@@ -88,7 +102,7 @@ async function liveMedia(ctx: Reader, id: string): Promise<MediaRow | null> {
     .executeTakeFirst()) ?? null) as MediaRow | null;
 }
 
-async function requireMedia(ctx: HandlerContext, id: string): Promise<MediaRow> {
+export async function requireMedia(ctx: HandlerContext, id: string): Promise<MediaRow> {
   const row = await liveMedia(ctx, id);
   if (!row) throw new NotFoundError("media", id);
   return row;
@@ -106,10 +120,11 @@ const mediaName = z.string().trim().min(1).max(200);
 export const mediaUpload = defineOperation({
   name: "media.upload",
   description:
-    "Store a picture a person uploaded in the media library (JPEG, PNG, GIF, WebP or AVIF, at " +
-    "most 10 MB; the type is read from the file, never its name). The file comes from the " +
-    "upload route, not from this input. Returns the item, which rich text and image fields " +
-    "name by id.",
+    "Store a picture or a downloadable file a person uploaded in the media library: a picture " +
+    "is JPEG, PNG, GIF, WebP or AVIF, at most 10 MB; a file is a PDF, at most 50 MB; the type is " +
+    "read from the file, never its name. The file comes from the upload route, not from this " +
+    "input. A video is not uploaded here (media.videoUpload). Returns the item, which rich " +
+    "text, image fields and documents name by id.",
   input: z.object({
     name: mediaName.describe("The file's name, for the library"),
     alt: altText.optional().describe("What the picture shows"),
@@ -129,17 +144,30 @@ export const mediaUpload = defineOperation({
       });
     }
     if (bytes.byteLength === 0) throw new ValidationError("The file is empty", { reason: "empty" });
-    if (bytes.byteLength > MEDIA_MAX_BYTES) {
+    if (bytes.byteLength > MEDIA_FILE_MAX_BYTES) {
       throw new ValidationError(
-        `The file is ${bytes.byteLength} bytes; a picture is at most ${MEDIA_MAX_BYTES}`,
-        { reason: "too_large", bytes: bytes.byteLength, max: MEDIA_MAX_BYTES },
+        `The file is ${bytes.byteLength} bytes; a file is at most ${MEDIA_FILE_MAX_BYTES}`,
+        {
+          reason: "too_large",
+          bytes: bytes.byteLength,
+          max: MEDIA_FILE_MAX_BYTES,
+          httpStatus: 413,
+        },
       );
     }
-    const type = sniffMediaType(bytes);
-    if (!type) {
+    const sniffed = sniffUpload(bytes);
+    if (!sniffed) {
       throw new ValidationError(
-        "This is not a picture the library takes: JPEG, PNG, GIF, WebP or AVIF",
+        "This is not a file the library takes: a picture (JPEG, PNG, GIF, WebP or AVIF) or a PDF",
         { reason: "type" },
+      );
+    }
+    const { kind, type } = sniffed;
+    const max = maxBytesOf(kind);
+    if (bytes.byteLength > max) {
+      throw new ValidationError(
+        `The file is ${bytes.byteLength} bytes; a ${kind === "image" ? "picture" : "file"} is at most ${max}`,
+        { reason: "too_large", bytes: bytes.byteLength, max, httpStatus: 413 },
       );
     }
     // The same file again (a re-run of an import): the item the library has, nothing stored.
@@ -147,7 +175,10 @@ export const mediaUpload = defineOperation({
     const same = await liveByHash(ctx, [sha256]);
     if (same[0]) return { ...out(same[0]), existing: true };
     if (!ctx.media) throw new OperationError("config", "Media storage is not configured here");
-    const { width, height } = mediaDimensions(bytes, type);
+    const { width, height } =
+      sniffed.kind === "image"
+        ? mediaDimensions(bytes, sniffed.type)
+        : { width: null, height: null };
     const id = newId("media");
     const key = `${MEDIA_PREFIX}${id}`;
     // A dry run stores nothing; a real call stores the original before its row commits (a batch
@@ -155,6 +186,7 @@ export const mediaUpload = defineOperation({
     if (!ctx.simulation) await ctx.media.put(key, bytes, type);
     const row = {
       id,
+      kind,
       key,
       name: input.name,
       type,
@@ -169,7 +201,13 @@ export const mediaUpload = defineOperation({
       sha256,
     };
     ctx.write(ctx.db.insertInto("core_media").values(row));
-    const result = out(row);
+    const result = out({
+      ...row,
+      stream_uid: null,
+      state: null,
+      state_reason: null,
+      duration: null,
+    });
     ctx.recordChange({ object: "media", id, action: "create", after: { ...result } });
     return { ...result, existing: false };
   },
@@ -338,15 +376,95 @@ export const mediaRestore = defineOperation({
   },
 });
 
-/** The answer for a picture the caller may not be served: the same, whatever the reason. */
-const notServed = () => new OperationError("not_found", "Not found", { object: "media" });
+/** The answer for an item the caller may not be served: the same, whatever the reason. */
+export const notServed = () => new OperationError("not_found", "Not found", { object: "media" });
+
+/** Narrows `outsiderShown` to one record, or one field of it. */
+export interface ShownWithin {
+  object?: string | undefined;
+  record?: string | undefined;
+  field?: string | undefined;
+}
+
+/**
+ * Whether someone outside the org may be shown a media item (stage 28, ADR 0444; stage 42,
+ * ADR 0477): only while a record they may read now shows it, in its current version, in a field
+ * their scope lets them read, and in a part of that field they read. A `private` part is no
+ * outsider's; a `holders` part is only a holder's, by the seam's one question (`holdsAccess`).
+ * One read per object that uses the item, however many records do, and the access question once
+ * for the records that show it to holders only.
+ */
+export async function outsiderShown(
+  ctx: HandlerContext,
+  caller: Reader["principal"],
+  mediaId: string,
+  within: ShownWithin = {},
+): Promise<boolean> {
+  const reader: Reader = { db: ctx.db, principal: caller };
+  let objects = ctx.db
+    .selectFrom("core_published_media")
+    .select("object_type")
+    .distinct()
+    .where("media_id", "=", mediaId)
+    .where("reach", "in", ["all", "holders"]);
+  if (within.object) objects = objects.where("object_type", "=", within.object);
+  if (within.record) objects = objects.where("record_id", "=", within.record);
+  if (within.field) objects = objects.where("field", "=", within.field);
+  const db = ctx.db as unknown as Kysely<Record<string, Record<string, unknown>>>;
+  for (const { object_type } of await objects.execute()) {
+    const definition = getObject(object_type);
+    if (!definition) continue;
+    let visible: ObjectDefinition;
+    try {
+      visible = visibleObject(reader, definition);
+    } catch {
+      continue; // An object the caller reads nothing of.
+    }
+    const readable = visible.fields
+      .map((f) => f.name)
+      .filter((name) => name !== "id" && (!within.field || name === within.field));
+    if (!readable.length) continue;
+    const uses = (reach: "all" | "holders") => {
+      let q = ctx.db
+        .selectFrom("core_published_media")
+        .select("record_id")
+        .where("media_id", "=", mediaId)
+        .where("object_type", "=", object_type)
+        .where("field", "in", readable)
+        .where("reach", "=", reach);
+      if (within.record) q = q.where("record_id", "=", within.record);
+      return q;
+    };
+    // Shown to everyone who reads the field: one record they read is enough.
+    const open = await db
+      .selectFrom(visibleSource(reader, visible))
+      .select("id")
+      .where("id", "in", uses("all"))
+      .limit(1)
+      .executeTakeFirst();
+    if (open) return true;
+    // Shown to holders only: a record they read and hold access to.
+    if (!definition.access || caller.kind !== "customer") continue;
+    const candidates = (
+      await db
+        .selectFrom(visibleSource(reader, visible))
+        .select("id")
+        .where("id", "in", uses("holders"))
+        .limit(100)
+        .execute()
+    ).map((r) => String(r.id));
+    if (candidates.length && (await holdsAccess(reader, definition, candidates)).size) return true;
+  }
+  return false;
+}
 
 export const mediaServe = defineOperation({
   name: "media.serve",
   description:
-    "Whether the caller may be served one picture, and at what width: staff any live one; a " +
-    "customer or the public only one that a published record they may read shows. Anything " +
-    "else is not found. The media route (`/api/media/<id>`) streams it. Read-only.",
+    "Whether the caller may be served one picture or downloadable file, and at what width: " +
+    "staff any live one; a customer or the public only one that a published record they may " +
+    "read shows in a part they may read. Anything else is not found, and so is a video (it " +
+    "plays with media.play). The media route (`/api/media/<id>`) streams it. Read-only.",
   input: z.object({
     id: mediaId,
     width: z.number().int().min(1).max(10_000).optional().describe("The width asked for"),
@@ -368,56 +486,21 @@ export const mediaServe = defineOperation({
   async handler(input, ctx) {
     const caller = ctx.onBehalfOf ?? ctx.principal;
     // The item itself is read org-wide (outsiders read no media record): whether to serve it is
-    // decided below, from the records the public reads.
+    // decided below, from the records the caller reads.
     const row = await liveMedia(orgReader(ctx.db), input.id);
-    if (!row) throw notServed();
+    // A video is never in R2: it plays with a token (media.play) and is never served.
+    if (!row || !row.key || row.kind === "video") throw notServed();
+    const key = row.key;
     const answer = (isPublic: boolean) => ({
       id: row.id,
-      key: row.key,
+      key,
       type: row.type,
       bytes: Number(row.bytes),
-      width: servedWidth(input.width ?? null),
+      width: row.kind === "image" ? servedWidth(input.width ?? null) : null,
       public: isPublic,
     });
     if (caller.kind === "staff") return answer(false);
-    // Outsiders: only while a record they may read now shows it in a field they may read (its
-    // current version names it there, and the record is in their source: published, live,
-    // meeting its `when`). One read per object that uses it, however many records do.
-    const reader: Reader = { db: ctx.db, principal: caller };
-    const objects = await ctx.db
-      .selectFrom("core_published_media")
-      .select("object_type")
-      .distinct()
-      .where("media_id", "=", input.id)
-      .execute();
-    for (const { object_type } of objects) {
-      const definition = getObject(object_type);
-      if (!definition) continue;
-      let visible: ObjectDefinition;
-      try {
-        visible = visibleObject(reader, definition);
-      } catch {
-        continue; // An object the caller reads nothing of.
-      }
-      const readable = visible.fields.map((f) => f.name).filter((name) => name !== "id");
-      if (!readable.length) continue;
-      const shown = await (ctx.db as unknown as Kysely<Record<string, Record<string, unknown>>>)
-        .selectFrom(visibleSource(reader, visible))
-        .select("id")
-        .where(
-          "id",
-          "in",
-          ctx.db
-            .selectFrom("core_published_media")
-            .select("record_id")
-            .where("media_id", "=", input.id)
-            .where("object_type", "=", object_type)
-            .where("field", "in", readable),
-        )
-        .limit(1)
-        .executeTakeFirst();
-      if (shown) return answer(true);
-    }
+    if (await outsiderShown(ctx, caller, input.id)) return answer(true);
     throw notServed();
   },
 });

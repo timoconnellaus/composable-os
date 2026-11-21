@@ -28826,6 +28826,197 @@
       ]
     },
     {
+      "name": "media.captionDelete",
+      "description": "Remove one video's caption track in a language.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A media item's id"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$",
+            "description": "The caption's language, a BCP 47 tag: en, pt-BR"
+          }
+        },
+        "required": [
+          "id",
+          "language"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "language"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "media.findByHash",
+        "media.get",
+        "media.list",
+        "media.play",
+        "media.serve",
+        "media.settings.get"
+      ]
+    },
+    {
+      "name": "media.captionGenerate",
+      "description": "Ask Cloudflare Stream to generate a caption track for a ready video in a language it supports. Stream charges for it, so it is refused until an admin has turned generated captions on (media.settings.update). The track is `processing` until media.videoRefresh finds it ready. A person only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A media item's id"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$",
+            "description": "The caption's language, a BCP 47 tag: en, pt-BR"
+          }
+        },
+        "required": [
+          "id",
+          "language"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "language": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "generated": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "ready",
+              "failed"
+            ]
+          }
+        },
+        "required": [
+          "language",
+          "label",
+          "generated",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "media.findByHash",
+        "media.get",
+        "media.list",
+        "media.play",
+        "media.serve",
+        "media.settings.get"
+      ]
+    },
+    {
+      "name": "media.captionUpload",
+      "description": "Add or replace one video's caption track in a language, from a WebVTT file a person uploaded (at most 10 MB; an .srt is converted first). The file comes from the upload route, not from this input.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A media item's id"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$",
+            "description": "The caption's language, a BCP 47 tag: en, pt-BR"
+          },
+          "label": {
+            "description": "Shown in the player: English",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "id",
+          "language"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "language": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "generated": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "ready",
+              "failed"
+            ]
+          }
+        },
+        "required": [
+          "language",
+          "label",
+          "generated",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "media.findByHash",
+        "media.get",
+        "media.list",
+        "media.play",
+        "media.serve",
+        "media.settings.get"
+      ]
+    },
+    {
       "name": "media.delete",
       "description": "Move a picture to the Trash. Published content that shows it stops showing it to the public; it can be restored for 30 days, after which the purge deletes the file.",
       "risk": "destructive",
@@ -28863,7 +29054,9 @@
         "media.findByHash",
         "media.get",
         "media.list",
-        "media.serve"
+        "media.play",
+        "media.serve",
+        "media.settings.get"
       ]
     },
     {
@@ -28901,6 +29094,15 @@
               "properties": {
                 "id": {
                   "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "image",
+                    "video",
+                    "file"
+                  ],
+                  "description": "A picture, a video or a downloadable file"
                 },
                 "name": {
                   "type": "string"
@@ -28943,6 +29145,37 @@
                     "null"
                   ]
                 },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "uploading",
+                        "processing",
+                        "ready",
+                        "failed"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A video: uploading, processing (Stream is encoding it), ready to play, or failed"
+                },
+                "stateReason": {
+                  "description": "A failed video: Stream's reason",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "duration": {
+                  "description": "A video's length in seconds",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
                 "createdAt": {
                   "type": "string"
                 },
@@ -28958,12 +29191,16 @@
               },
               "required": [
                 "id",
+                "kind",
                 "name",
                 "type",
                 "bytes",
                 "width",
                 "height",
                 "alt",
+                "state",
+                "stateReason",
+                "duration",
                 "createdAt",
                 "createdBy",
                 "sha256"
@@ -29007,6 +29244,15 @@
           "id": {
             "type": "string"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "file"
+            ],
+            "description": "A picture, a video or a downloadable file"
+          },
           "name": {
             "type": "string"
           },
@@ -29048,6 +29294,37 @@
               "null"
             ]
           },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "uploading",
+                  "processing",
+                  "ready",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A video: uploading, processing (Stream is encoding it), ready to play, or failed"
+          },
+          "stateReason": {
+            "description": "A failed video: Stream's reason",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration": {
+            "description": "A video's length in seconds",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "string"
           },
@@ -29060,12 +29337,16 @@
         },
         "required": [
           "id",
+          "kind",
           "name",
           "type",
           "bytes",
           "width",
           "height",
           "alt",
+          "state",
+          "stateReason",
+          "duration",
           "createdAt",
           "createdBy"
         ],
@@ -29240,6 +29521,131 @@
       "invalidates": []
     },
     {
+      "name": "media.play",
+      "description": "A short-lived token to play one ready video, and where it plays (HLS, DASH, Stream's player), signed by the host: staff may play any; a customer or the public only a video that a published record they may read shows, in a part they may read (a lesson's video only for a holder of access to its course, a trailer for anyone). Anything else, and a made-up id, is not found. The token is for this video only, lives at most an hour, and never allows a download. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A media item's id"
+          },
+          "record": {
+            "description": "The record that shows it, to look only there",
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "maxLength": 81
+              },
+              "id": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ]
+          },
+          "field": {
+            "description": "The field of that record that shows it",
+            "type": "string",
+            "maxLength": 40
+          },
+          "purpose": {
+            "default": "stream",
+            "description": "stream: to watch. (A download for offline viewing is not offered yet.)",
+            "type": "string",
+            "enum": [
+              "stream"
+            ]
+          },
+          "seconds": {
+            "description": "How long the token lives; at most, and by default, an hour",
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 3600
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "hls": {
+            "type": "string"
+          },
+          "dash": {
+            "type": "string"
+          },
+          "iframe": {
+            "type": "string"
+          },
+          "poster": {
+            "type": "string",
+            "description": "The poster frame Stream made, with the token"
+          },
+          "duration": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "captions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "language": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "language",
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "token",
+          "expiresAt",
+          "hls",
+          "dash",
+          "iframe",
+          "poster",
+          "duration",
+          "captions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "media.restore",
       "description": "Bring a picture back from the Trash (within 30 days of its deletion).",
       "risk": "write",
@@ -29266,6 +29672,15 @@
         "properties": {
           "id": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "file"
+            ],
+            "description": "A picture, a video or a downloadable file"
           },
           "name": {
             "type": "string"
@@ -29308,6 +29723,37 @@
               "null"
             ]
           },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "uploading",
+                  "processing",
+                  "ready",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A video: uploading, processing (Stream is encoding it), ready to play, or failed"
+          },
+          "stateReason": {
+            "description": "A failed video: Stream's reason",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration": {
+            "description": "A video's length in seconds",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "string"
           },
@@ -29320,12 +29766,16 @@
         },
         "required": [
           "id",
+          "kind",
           "name",
           "type",
           "bytes",
           "width",
           "height",
           "alt",
+          "state",
+          "stateReason",
+          "duration",
           "createdAt",
           "createdBy"
         ],
@@ -29335,12 +29785,14 @@
         "media.findByHash",
         "media.get",
         "media.list",
-        "media.serve"
+        "media.play",
+        "media.serve",
+        "media.settings.get"
       ]
     },
     {
       "name": "media.serve",
-      "description": "Whether the caller may be served one picture, and at what width: staff any live one; a customer or the public only one that a published record they may read shows. Anything else is not found. The media route (`/api/media/<id>`) streams it. Read-only.",
+      "description": "Whether the caller may be served one picture or downloadable file, and at what width: staff any live one; a customer or the public only one that a published record they may read shows in a part they may read. Anything else is not found, and so is a video (it plays with media.play). The media route (`/api/media/<id>`) streams it. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -29414,6 +29866,89 @@
       "invalidates": []
     },
     {
+      "name": "media.settings.get",
+      "description": "Get the media library's settings: whether generated captions are on. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "generatedCaptions": {
+            "type": "boolean",
+            "description": "Staff may ask Stream to generate captions (Stream charges for them)"
+          }
+        },
+        "required": [
+          "generatedCaptions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "media.settings.update",
+      "description": "Turn generated captions on or off for the media library. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "generatedCaptions": {
+            "type": "boolean",
+            "description": "Staff may ask Stream to generate captions (Stream charges for them)"
+          }
+        },
+        "required": [
+          "generatedCaptions"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "generatedCaptions": {
+            "type": "boolean",
+            "description": "Staff may ask Stream to generate captions (Stream charges for them)"
+          },
+          "previous": {
+            "type": "object",
+            "properties": {
+              "generatedCaptions": {
+                "type": "boolean",
+                "description": "Staff may ask Stream to generate captions (Stream charges for them)"
+              }
+            },
+            "required": [
+              "generatedCaptions"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "generatedCaptions",
+          "previous"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "media.findByHash",
+        "media.get",
+        "media.list",
+        "media.play",
+        "media.serve",
+        "media.settings.get"
+      ]
+    },
+    {
       "name": "media.update",
       "description": "Change a picture's name or alt text. The picture itself never changes.",
       "risk": "write",
@@ -29457,6 +29992,15 @@
           "id": {
             "type": "string"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "file"
+            ],
+            "description": "A picture, a video or a downloadable file"
+          },
           "name": {
             "type": "string"
           },
@@ -29498,6 +30042,37 @@
               "null"
             ]
           },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "uploading",
+                  "processing",
+                  "ready",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A video: uploading, processing (Stream is encoding it), ready to play, or failed"
+          },
+          "stateReason": {
+            "description": "A failed video: Stream's reason",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration": {
+            "description": "A video's length in seconds",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "string"
           },
@@ -29510,12 +30085,16 @@
         },
         "required": [
           "id",
+          "kind",
           "name",
           "type",
           "bytes",
           "width",
           "height",
           "alt",
+          "state",
+          "stateReason",
+          "duration",
           "createdAt",
           "createdBy"
         ],
@@ -29525,12 +30104,14 @@
         "media.findByHash",
         "media.get",
         "media.list",
-        "media.serve"
+        "media.play",
+        "media.serve",
+        "media.settings.get"
       ]
     },
     {
       "name": "media.upload",
-      "description": "Store a picture a person uploaded in the media library (JPEG, PNG, GIF, WebP or AVIF, at most 10 MB; the type is read from the file, never its name). The file comes from the upload route, not from this input. Returns the item, which rich text and image fields name by id.",
+      "description": "Store a picture or a downloadable file a person uploaded in the media library: a picture is JPEG, PNG, GIF, WebP or AVIF, at most 10 MB; a file is a PDF, at most 50 MB; the type is read from the file, never its name. The file comes from the upload route, not from this input. A video is not uploaded here (media.videoUpload). Returns the item, which rich text, image fields and documents name by id.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -29561,6 +30142,15 @@
           "id": {
             "type": "string"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "file"
+            ],
+            "description": "A picture, a video or a downloadable file"
+          },
           "name": {
             "type": "string"
           },
@@ -29602,6 +30192,37 @@
               "null"
             ]
           },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "uploading",
+                  "processing",
+                  "ready",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A video: uploading, processing (Stream is encoding it), ready to play, or failed"
+          },
+          "stateReason": {
+            "description": "A failed video: Stream's reason",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration": {
+            "description": "A video's length in seconds",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "string"
           },
@@ -29618,12 +30239,16 @@
         },
         "required": [
           "id",
+          "kind",
           "name",
           "type",
           "bytes",
           "width",
           "height",
           "alt",
+          "state",
+          "stateReason",
+          "duration",
           "createdAt",
           "createdBy",
           "existing"
@@ -29634,7 +30259,388 @@
         "media.findByHash",
         "media.get",
         "media.list",
-        "media.serve"
+        "media.play",
+        "media.serve",
+        "media.settings.get"
+      ]
+    },
+    {
+      "name": "media.videoRefresh",
+      "description": "Ask Cloudflare Stream how one video is (processing, ready or failed, its length and size) and keep the answer on the item, with its captions' states. If anything had made the video playable without a token, it is made to require one again.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A media item's id"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "file"
+            ],
+            "description": "A picture, a video or a downloadable file"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "alt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "uploading",
+                  "processing",
+                  "ready",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A video: uploading, processing (Stream is encoding it), ready to play, or failed"
+          },
+          "stateReason": {
+            "description": "A failed video: Stream's reason",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration": {
+            "description": "A video's length in seconds",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "captions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "language": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "generated": {
+                  "type": "boolean"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "processing",
+                    "ready",
+                    "failed"
+                  ]
+                }
+              },
+              "required": [
+                "language",
+                "label",
+                "generated",
+                "state"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "type",
+          "bytes",
+          "width",
+          "height",
+          "alt",
+          "state",
+          "stateReason",
+          "duration",
+          "createdAt",
+          "createdBy",
+          "captions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "media.findByHash",
+        "media.get",
+        "media.list",
+        "media.play",
+        "media.serve",
+        "media.settings.get"
+      ]
+    },
+    {
+      "name": "media.videoUpload",
+      "description": "Ask for a one-time address to upload one video to the media library, held in Cloudflare Stream: the admin's browser sends the file there itself (resumable for a large file), never through this operation. The item is `uploading` until Stream has the file, then `processing`, and a record can show it only once it is `ready` (media.videoRefresh asks). Every video needs a token the host signs to play. A person only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The file's name, for the library"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 29999999999,
+            "description": "The file's size in bytes (under 30 GB): Stream takes no more than this"
+          }
+        },
+        "required": [
+          "name",
+          "bytes"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "image",
+                  "video",
+                  "file"
+                ],
+                "description": "A picture, a video or a downloadable file"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "alt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "uploading",
+                      "processing",
+                      "ready",
+                      "failed"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "A video: uploading, processing (Stream is encoding it), ready to play, or failed"
+              },
+              "stateReason": {
+                "description": "A failed video: Stream's reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "duration": {
+                "description": "A video's length in seconds",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "createdBy": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "name",
+              "type",
+              "bytes",
+              "width",
+              "height",
+              "alt",
+              "state",
+              "stateReason",
+              "duration",
+              "createdAt",
+              "createdBy"
+            ],
+            "additionalProperties": false
+          },
+          "upload": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  },
+                  "protocol": {
+                    "type": "string",
+                    "enum": [
+                      "tus",
+                      "post"
+                    ],
+                    "description": "tus: resumable PATCHes; post: one form post"
+                  },
+                  "chunkBytes": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url",
+                  "protocol",
+                  "chunkBytes",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where to send the file; null in a dry run"
+          }
+        },
+        "required": [
+          "item",
+          "upload"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "media.findByHash",
+        "media.get",
+        "media.list",
+        "media.play",
+        "media.serve",
+        "media.settings.get"
       ]
     },
     {

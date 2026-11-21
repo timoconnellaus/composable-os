@@ -162,6 +162,7 @@ export * from "./operations/integration.ts";
 export * from "./operations/judge.ts";
 export * from "./operations/me.ts";
 export * from "./operations/media.ts";
+export * from "./operations/media-video.ts";
 export * from "./operations/memory.ts";
 export * from "./operations/my.ts";
 export * from "./operations/notification.ts";
@@ -245,6 +246,8 @@ export {
 } from "./records/media.ts";
 export { type StageRuleDetails, StageRuleError } from "./records/stages.ts";
 export { type StateRef, type StateRuleDetails, StateRuleError } from "./records/states.ts";
+export * from "./records/stream.ts";
+export * from "./records/stream-fake.ts";
 export * from "./records/tags.ts";
 export {
   type Mover,
@@ -271,6 +274,7 @@ export * from "./sync/signals.ts";
 export * from "./updates.ts";
 export { type PrincipalLike, resolveActingUser, SYSTEM_USER } from "./users.ts";
 export * from "./views/spec.ts";
+export * from "./visibility/access.ts";
 export * from "./visibility/capacity.ts";
 export * from "./visibility/index.ts";
 export { getVisible, listVisible, type VisibleRecord } from "./visibility/records.ts";

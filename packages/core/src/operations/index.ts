@@ -41,6 +41,7 @@ import { inviteOperations } from "./invite.ts";
 import { judgeOperations } from "./judge.ts";
 import { meOperations } from "./me.ts";
 import { mediaOperations } from "./media.ts";
+import { mediaVideoOperations } from "./media-video.ts";
 import { memoryOperations } from "./memory.ts";
 import { myOperations } from "./my.ts";
 import { myWriteOperations } from "./my-write.ts";
@@ -95,6 +96,7 @@ export const coreOperations = [
   ...recordVersionOperations,
   ...contentOperations,
   ...mediaOperations,
+  ...mediaVideoOperations,
   ...recordImportOperations,
   ...extensionOperations,
   ...extensionAuthoringOperations,

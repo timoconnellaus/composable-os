@@ -8,11 +8,13 @@
 // - The blob deletion queue (core_blob_deletion): R2 objects (synced email bodies) whose activity
 //   was deleted or lost its body. Filled by trigger in the deleting batch, drained right after the
 //   commit and by the 10-minute cron, with retries, like the embedding queue.
+
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import type { BlobStore } from "../integrations/runtime.ts";
 import type { HandlerContext } from "../operation.ts";
 import { jsonList } from "./common.ts";
+import { videoHost } from "./stream.ts";
 
 export const ERASE_LOG_PREFIX = "erase-log/";
 
@@ -151,6 +153,8 @@ export const BLOB_DRAIN_BATCH = 100;
 export const BLOB_MAX_ATTEMPTS = 10;
 
 const BODY_PREFIX = "email-bodies/";
+/** A purged video's queued key: `stream/<uid>` (migration 0510's trigger). */
+const STREAM_PREFIX = "stream/";
 
 /**
  * Deletes queued R2 objects. A key an activity references again (the same message synced anew
@@ -162,16 +166,41 @@ export async function drainBlobDeletions(
   blobs: BlobStore,
   limit = BLOB_DRAIN_BATCH,
 ): Promise<{ deleted: number; kept: number; failed: number }> {
-  const rows = await db
+  const stream = videoHost()?.provider;
+  let pending = db
     .selectFrom("core_blob_deletion")
     .select("key")
-    .where("attempts", "<", BLOB_MAX_ATTEMPTS)
-    .orderBy("attempts")
-    .orderBy("queued_at")
-    .limit(limit)
-    .execute();
+    .where("attempts", "<", BLOB_MAX_ATTEMPTS);
+  // Where Stream is not configured, a video's key waits for it and holds up nothing else.
+  if (!stream) pending = pending.where("key", "not like", `${STREAM_PREFIX}%`);
+  const rows = await pending.orderBy("attempts").orderBy("queued_at").limit(limit).execute();
   if (!rows.length) return { deleted: 0, kept: 0, failed: 0 };
-  const keys = rows.map((r) => r.key);
+  // A purged video's Stream copy (`stream/<uid>`, stage 42, ADR 0475): deleted from Stream, and
+  // left queued where Stream is not configured.
+  const streamed = rows.map((r) => r.key).filter((k) => k.startsWith(STREAM_PREFIX));
+  let streamFailed = 0;
+  let streamDeleted = 0;
+  if (stream) {
+    for (const key of streamed) {
+      try {
+        await stream.delete(key.slice(STREAM_PREFIX.length));
+        await db.deleteFrom("core_blob_deletion").where("key", "=", key).execute();
+        streamDeleted += 1;
+      } catch (error) {
+        streamFailed += 1;
+        await db
+          .updateTable("core_blob_deletion")
+          .set({
+            attempts: sql`attempts + 1`,
+            last_error: error instanceof Error ? error.name : "error",
+          })
+          .where("key", "=", key)
+          .execute();
+      }
+    }
+  }
+  const keys = rows.map((r) => r.key).filter((k) => !k.startsWith(STREAM_PREFIX));
+  if (!keys.length) return { deleted: streamDeleted, kept: 0, failed: streamFailed };
   // Email bodies are keyed by their activity's external key: look references up by its index.
   const externals = keys
     .filter((k) => k.startsWith(BODY_PREFIX))
@@ -205,10 +234,18 @@ export async function drainBlobDeletions(
       .set({ attempts: sql`attempts + 1`, last_error: message })
       .where("key", "in", jsonList(doomed))
       .execute();
-    return { deleted: 0, kept: keys.length - doomed.length, failed: doomed.length };
+    return {
+      deleted: streamDeleted,
+      kept: keys.length - doomed.length,
+      failed: doomed.length + streamFailed,
+    };
   }
   await db.deleteFrom("core_blob_deletion").where("key", "in", jsonList(keys)).execute();
-  return { deleted: doomed.length, kept: keys.length - doomed.length, failed: 0 };
+  return {
+    deleted: doomed.length + streamDeleted,
+    kept: keys.length - doomed.length,
+    failed: streamFailed,
+  };
 }
 
 /** Drains until empty (or `rounds`). For the post-commit hook and the cron. */

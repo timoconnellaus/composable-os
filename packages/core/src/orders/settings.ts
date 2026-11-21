@@ -49,6 +49,15 @@ export function toMinorUnits(price: unknown, currency: string): number | null {
   return Math.abs(scaled - minor) < 1e-6 && Number.isSafeInteger(minor) ? minor : null;
 }
 
+/** One setting of core_settings, parsed; null when it is missing or unreadable. */
+export async function loadSetting<T>(
+  db: Kysely<CoreDatabase>,
+  key: string,
+  schema: z.ZodType<T>,
+): Promise<T | null> {
+  return load(db, key, schema);
+}
+
 async function load<T>(
   db: Kysely<CoreDatabase>,
   key: string,

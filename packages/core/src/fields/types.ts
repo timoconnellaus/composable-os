@@ -4,6 +4,7 @@
 // Registry entries are trusted code: `column`, `related.from`, `related.link` and
 // `related.column` are spliced into SQL as identifiers. They never come from user input, and
 // stage-3 extension fields must be generated from validated identifiers.
+import type { AccessDeclaration } from "../visibility/access.ts";
 
 export type FieldType =
   | "text"
@@ -153,6 +154,11 @@ export interface ObjectDefinition {
    * out, a customer reads nothing of the object that way. Enforced only at the visibility seam.
    */
   customerVia?: CustomerViaDeclaration;
+  /**
+   * Who holds access to a record (stage 42, ADR 0477): the sources the seam's one question
+   * (`holdsAccess`) answers from. A document's `holders` parts are read only by a holder.
+   */
+  access?: AccessDeclaration;
 }
 
 /**

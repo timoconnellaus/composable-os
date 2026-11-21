@@ -24,6 +24,7 @@ import {
 } from "../extensions/schema.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
 import { getObject, isCoreObject, listObjects } from "../fields/index.ts";
+import { mediaObject } from "../fields/media.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
 import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
@@ -224,6 +225,7 @@ async function prepareValues(
         "document",
         "richText",
         "image",
+        "video",
         "slug",
         "number",
         "currency",
@@ -434,6 +436,46 @@ async function assertDocumentRefs(ctx: HandlerContext, field: FieldDefinition, v
         field: field.name,
         path: missing.path,
         missing: ids.filter((id) => !have.has(id)),
+      });
+    }
+    if (to === "media") await assertMediaKinds(ctx, field, list);
+  }
+}
+
+/**
+ * A media ref that names a kind takes only that kind (stage 42, ADR 0475): a picture where a
+ * picture goes, a file where a download goes, and a video only once Stream has it ready.
+ */
+async function assertMediaKinds(
+  ctx: HandlerContext,
+  field: FieldDefinition,
+  refs: ReturnType<typeof documentRefs>,
+) {
+  const typed = refs.filter((r) => r.media);
+  if (!typed.length) return;
+  const rows = await ctx.db
+    .selectFrom(visibleSource(ctx, mediaObject))
+    .select(["id", "kind", "state"])
+    .where("id", "in", jsonList([...new Set(typed.map((r) => r.id))]))
+    .execute();
+  const byId = new Map(rows.map((r) => [String(r.id), r]));
+  for (const ref of typed) {
+    const row = byId.get(ref.id);
+    const where = [field.name, ...ref.path.map(String)].join(".");
+    if (!row || row.kind !== ref.media) {
+      throw new ValidationError(`${where}: ${ref.id} is not a ${ref.media}`, {
+        field: field.name,
+        path: ref.path,
+        reason: "media_kind",
+        expected: ref.media,
+      });
+    }
+    if (ref.media === "video" && row.state !== "ready") {
+      throw new ValidationError(`${where}: the video ${ref.id} is not ready yet`, {
+        field: field.name,
+        path: ref.path,
+        reason: "video_not_ready",
+        state: row.state,
       });
     }
   }

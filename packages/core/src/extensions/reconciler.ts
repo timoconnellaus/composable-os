@@ -188,6 +188,7 @@ export function planFromState(
       ...(object.public ? { public: object.public } : {}),
       ...(object.signedIn ? { signedIn: object.signedIn } : {}),
       ...(object.customerVia ? { customerVia: object.customerVia } : {}),
+      ...(object.access ? { access: object.access } : {}),
       ...(object.publishable ? { publishable: object.publishable } : {}),
       ...(object.navigationOrder !== undefined ? { navigationOrder: object.navigationOrder } : {}),
       ...(object.requireOneOf?.length ? { requireOneOf: object.requireOneOf } : {}),
