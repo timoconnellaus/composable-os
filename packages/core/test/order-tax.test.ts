@@ -368,7 +368,10 @@ describe("tax on, for a course (criterion 11)", () => {
     await setTax({ tax: true });
     const placed = await buy([{ object: COURSE, id: course }]);
     const sent = await checkout(placed);
-    const { result } = await providerPays({ ...sent, amount: sent.amount - 1 }, report(sent, [900]));
+    const { result } = await providerPays(
+      { ...sent, amount: sent.amount - 1 },
+      report(sent, [900]),
+    );
     expect(result.outcome).toBe("mismatch");
     expect(await order(placed.id)).toMatchObject({ state: "pending", paid: 0, taxAmount: 0 });
   });
