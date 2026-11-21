@@ -10,6 +10,7 @@ import type { HandlerContext } from "../operation.ts";
 import { openProviderCheckout, paymentsTarget } from "./gateway.ts";
 import { type Charge, chargeFor, type OrderRow } from "./orders.ts";
 import { isAllowedReturnUrl, loadMinPartPayment, loadReturnOrigins } from "./settings.ts";
+import { checkoutTax } from "./tax.ts";
 
 export interface OpenedCheckout {
   url: string;
@@ -68,6 +69,9 @@ export async function openCheckout(
   const description = `${KIND_WORDS[charge.kind]}${items.join(", ")}`.slice(0, 200) || row.id;
   const bucket = Math.floor(Date.parse(ctx.now) / IDEMPOTENCY_WINDOW_MS);
   const idempotencyKey = `${row.id}:${row.version}:${charge.amount}:${bucket}:${await shortHash(input.returnUrl)}`;
+  // Tax at checkout (ADR 0479): null unless an admin turned it on and the lines declare a code,
+  // and then the request is exactly as before.
+  const tax = await checkoutTax(ctx.db, row.id, charge.amount, KIND_WORDS[charge.kind]);
   const opened = await openProviderCheckout(ctx.integrations, target, {
     orderId: row.id,
     amount: charge.amount,
@@ -75,7 +79,8 @@ export async function openCheckout(
     description,
     returnUrl: input.returnUrl,
     ...(row.email ? { customerEmail: row.email } : {}),
-    idempotencyKey,
+    idempotencyKey: tax ? `${idempotencyKey}:tax` : idempotencyKey,
+    ...(tax ? { tax } : {}),
   });
   ctx.write(
     ctx.db
@@ -88,6 +93,7 @@ export async function openCheckout(
         currency: charge.currency,
         kind: charge.kind,
         created_at: ctx.now,
+        tax_lines: tax ? JSON.stringify(tax.lines) : null,
       })
       .onConflict((oc) => oc.columns(["provider", "ref"]).doNothing()),
     // The latest checkout's reference, for staff and the provider's dashboard. Not a record field

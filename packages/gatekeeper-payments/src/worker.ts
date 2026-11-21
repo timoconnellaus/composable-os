@@ -51,7 +51,7 @@ import {
   unavailableReason,
 } from "./provider.js";
 import { deliverFakeEvent, handleRequest } from "./routes.js";
-import { StripeProvider } from "./stripe.js";
+import { StripeProvider, type TaxLocationCache } from "./stripe.js";
 import type {
   PaymentsCheckout,
   PaymentsCheckoutInput,
@@ -127,6 +127,7 @@ function providerFor(
   env: Env,
   name: PaymentsProviderName,
   defer: (work: Promise<unknown>) => void,
+  taxLocations?: TaxLocationCache,
 ): PaymentProvider {
   assertProviderAvailable(env, name);
   if (name === "stripe") {
@@ -135,6 +136,7 @@ function providerFor(
       webhookSecret: stripeWebhookSecret(env),
       apiBase: stripeApiBase(env),
       account: stripeAccount(env),
+      ...(taxLocations ? { taxLocations } : {}),
     });
   }
   return new FakeProvider({
@@ -240,6 +242,15 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
       fields: [
         { label: "Order", kind: "inline", value: parsed.orderId },
         { label: "Amount", kind: "inline", value: `${amount} (${parsed.amount} minor units)` },
+        ...(parsed.tax
+          ? [
+              {
+                label: "Tax",
+                kind: "inline" as const,
+                value: `Calculated by the provider inside the amount, on ${parsed.tax.lines.length} line(s)`,
+              },
+            ]
+          : []),
       ],
     });
     const checkout = await provider.createCheckout(parsed);
@@ -308,7 +319,11 @@ export class PaymentsGatekeeper
   }
 
   #open(name: PaymentsProviderName): PaymentProvider {
-    return providerFor(this.env, name, (work) => this.ctx.waitUntil(work));
+    const kv = this.ctx.storage.kv;
+    return providerFor(this.env, name, (work) => this.ctx.waitUntil(work), {
+      get: (key) => kv.get<string>(key),
+      put: (key, id) => kv.put(key, id),
+    });
   }
 
   async #sendRefund(refund: StoredRefund): Promise<void> {

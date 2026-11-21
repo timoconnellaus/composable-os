@@ -23,6 +23,64 @@ export interface PaymentsCheckoutInput {
   customerEmail?: string;
   /** 1 to 200 characters. The same key opens no second checkout. */
   idempotencyKey: string;
+  /**
+   * Asks the provider to calculate tax inside the amount (Stripe Tax). Left out, the checkout is
+   * one line of `amount` with no tax settings, exactly as without tax. Given, the provider's page
+   * requires the buyer's billing address, because the buyer's location sets the rate.
+   */
+  tax?: PaymentsCheckoutTax;
+}
+
+/** Tax at checkout: the lines the amount is made of, each with its product tax code. */
+export interface PaymentsCheckoutTax {
+  /**
+   * Prices are tax-inclusive: what the buyer pays is the amount, and the provider works out the
+   * tax inside it. The only behaviour offered.
+   */
+  behavior: "inclusive";
+  /** 1 to 50 lines whose amounts sum to the checkout's amount. */
+  lines: PaymentsTaxLine[];
+}
+
+/** One line of a taxed checkout: a share of the amount, at its own product tax code. */
+export interface PaymentsTaxLine {
+  /** The host's id for the line (an order line id): 1 to 64 characters of `[A-Za-z0-9_-]`. */
+  ref: string;
+  /** 1 to 200 characters, shown on the provider's page. */
+  name: string;
+  /** A positive safe integer, minor units, tax included. */
+  amount: number;
+  /** The provider's product tax code: `txcd_` and eight digits (Stripe's list). */
+  taxCode: string;
+  /**
+   * Where the service is supplied, for admission to an in-person event: the provider taxes the
+   * line where the event is, not where the buyer lives (Stripe: a performance location).
+   */
+  place?: PaymentsTaxPlace;
+}
+
+/** An event's address for tax. */
+export interface PaymentsTaxPlace {
+  /** ISO 3166-1 alpha-2, upper case. */
+  country: string;
+  /** A state, province or region, 1 to 100 characters. */
+  region?: string;
+  /** 1 to 20 characters. */
+  postcode?: string;
+  /** 1 to 100 characters. */
+  city?: string;
+  /** The street address, 1 to 200 characters. */
+  line1?: string;
+}
+
+/** The tax the provider calculated on a payment. Never recalculated by the host. */
+export interface PaymentsTaxReport {
+  /** The tax inside the payment's amount, minor units. Zero where the org collects none. */
+  amount: number;
+  /** The country the tax was charged for (ISO 3166-1 alpha-2, upper case), or null. */
+  country: string | null;
+  /** Each line's tax, by the `ref` the checkout sent. */
+  lines: { ref: string; amount: number }[];
 }
 
 /** An open checkout on the provider's hosted page. */
@@ -85,6 +143,8 @@ export type PaymentsEvent =
       currency: string;
       paymentRef: string | null;
       occurredAt: string;
+      /** Present only when the checkout asked for tax: what the provider calculated. */
+      tax?: PaymentsTaxReport;
     }
   | {
       kind: "refund";
@@ -98,6 +158,8 @@ export type PaymentsEvent =
       amount: number;
       currency: string;
       occurredAt: string;
+      /** The tax this refund gave back, when the provider's refund event says. */
+      tax?: { amount: number };
     };
 
 /** The hook a session subscribes. */

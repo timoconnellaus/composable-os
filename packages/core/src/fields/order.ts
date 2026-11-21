@@ -74,6 +74,9 @@ export const orderObject = defineObject({
       "expiresAt",
       "paidAt",
       "createdAt",
+      "taxAmount",
+      "taxRefunded",
+      "taxCountry",
     ],
     write: [],
   },
@@ -146,6 +149,18 @@ export const orderObject = defineObject({
     { ...when, name: "refundedAt", label: "Refunded on", column: "refunded_at" },
     { ...when, name: "createdAt", label: "Created", column: "created_at" },
     { ...when, name: "updatedAt", label: "Updated", column: "updated_at" },
+    // Tax at checkout (ADR 0479): the provider's figures, inside the amounts above.
+    { ...amount, name: "taxAmount", label: "Tax", column: "tax_amount" },
+    { ...amount, name: "taxRefunded", label: "Tax refunded", column: "tax_refunded" },
+    {
+      name: "taxCountry",
+      label: "Tax country",
+      type: "text",
+      column: "tax_country",
+      filterable: true,
+      sortable: false,
+    },
+    { ...amount, name: "net", label: "Net of tax", column: "net" },
   ],
 });
 
@@ -157,7 +172,17 @@ export const orderLineObject = defineObject({
   defaultSort: { field: "position", direction: "asc" },
   customer: {
     field: "personId",
-    read: ["orderId", "position", "object", "recordId", "title", "quantity", "unitPrice", "total"],
+    read: [
+      "orderId",
+      "position",
+      "object",
+      "recordId",
+      "title",
+      "quantity",
+      "unitPrice",
+      "total",
+      "taxAmount",
+    ],
     write: [],
   },
   fields: [
@@ -193,6 +218,15 @@ export const orderLineObject = defineObject({
     { ...amount, name: "unitPrice", label: "Unit price", column: "unit_price" },
     { ...amount, name: "total", label: "Line total", column: "line_total" },
     { ...when, name: "createdAt", label: "Created", column: "created_at" },
+    { ...amount, name: "taxAmount", label: "Tax", column: "tax_amount" },
+    {
+      name: "taxCode",
+      label: "Tax code",
+      type: "text",
+      column: "tax_code",
+      filterable: true,
+      sortable: false,
+    },
   ],
 });
 

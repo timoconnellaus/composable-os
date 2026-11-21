@@ -83,6 +83,30 @@ export async function loadMinPartPayment(db: Kysely<CoreDatabase>): Promise<numb
   return (await load(db, ORDER_MIN_PART_SETTING, minPartPaymentSchema)) ?? DEFAULT_MIN_PART_PAYMENT;
 }
 
+// --- Tax at checkout (ADR 0479) -----------------------------------------------------------------
+
+/**
+ * Whether the payment provider calculates tax at checkout. Off until a human admin turns it on.
+ * A line is taxed only when this is on and its object declares a product tax code.
+ */
+export const ORDER_TAX_SETTING = "order_tax";
+/** A human admin's product tax code per sellable object, over the one its manifest declares. */
+export const ORDER_TAX_CODES_SETTING = "order_tax_codes";
+
+export const taxCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^txcd_\d{8}$/, "A product tax code is txcd_ and eight digits, from Stripe's list");
+export const taxCodesSchema = z.record(z.string().min(1).max(80), taxCodeSchema);
+
+export async function loadOrderTax(db: Kysely<CoreDatabase>): Promise<boolean> {
+  return (await load(db, ORDER_TAX_SETTING, z.boolean())) ?? false;
+}
+
+export async function loadOrderTaxCodes(db: Kysely<CoreDatabase>): Promise<Record<string, string>> {
+  return (await load(db, ORDER_TAX_CODES_SETTING, taxCodesSchema)) ?? {};
+}
+
 // --- Where a buyer comes back to ----------------------------------------------------------------
 
 /**

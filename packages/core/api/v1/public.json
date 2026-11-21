@@ -597,6 +597,18 @@
           "createdAt": {
             "type": "string"
           },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": ["string", "null"]
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -625,6 +637,10 @@
                 },
                 "total": {
                   "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
                 }
               },
               "required": [
@@ -635,7 +651,8 @@
                 "title",
                 "quantity",
                 "unitPrice",
-                "total"
+                "total",
+                "taxAmount"
               ],
               "additionalProperties": false
             }
@@ -669,6 +686,9 @@
           "expiresAt",
           "paidAt",
           "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
           "lines",
           "token"
         ],
@@ -745,6 +765,18 @@
           "createdAt": {
             "type": "string"
           },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": ["string", "null"]
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -773,6 +805,10 @@
                 },
                 "total": {
                   "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
                 }
               },
               "required": [
@@ -783,7 +819,8 @@
                 "title",
                 "quantity",
                 "unitPrice",
-                "total"
+                "total",
+                "taxAmount"
               ],
               "additionalProperties": false
             }
@@ -813,6 +850,9 @@
           "expiresAt",
           "paidAt",
           "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
           "lines"
         ],
         "additionalProperties": false

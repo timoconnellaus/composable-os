@@ -678,6 +678,31 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
           },
         }
       : {}),
+    ...(declared.tax
+      ? {
+          tax: {
+            code: declared.tax.code,
+            ...(declared.tax.place
+              ? {
+                  place: {
+                    ...declared.tax.place,
+                    // Fields of the object itself are named by their registry names; a related
+                    // record's own fields are named by their local names, which are the same.
+                    ...(declared.tax.place.via
+                      ? { via: nameOf(declared.tax.place.via) }
+                      : {
+                          country: nameOf(declared.tax.place.country),
+                          region: opt(declared.tax.place.region),
+                          postcode: opt(declared.tax.place.postcode),
+                          city: opt(declared.tax.place.city),
+                          line1: opt(declared.tax.place.line1),
+                        }),
+                  },
+                }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 

@@ -9,9 +9,56 @@ import { DurableObject } from "cloudflare:workers";
 import { ActionApplyError } from "@composable-os/gatekeeper-kit/actions";
 import type { CheckoutInput, PaymentProvider, RefundInput, VerifiedWebhook } from "./provider.js";
 import { randomId, verifySignatureHeader } from "./signature.js";
-import type { PaymentsEvent, PaymentsPayment } from "./types.js";
+import type {
+  PaymentsCheckoutTax,
+  PaymentsEvent,
+  PaymentsPayment,
+  PaymentsTaxReport,
+} from "./types.js";
 
 const CHECKOUT_LIFETIME_MS = 30 * 60 * 1000;
+
+/**
+ * The fake provider's tax registrations: the countries where it collects tax, and the rate, in
+ * basis points. Everywhere else it collects none, as Stripe Tax collects only where the org has
+ * added a registration. Development and tests only: these are not advice on any rate.
+ */
+export const FAKE_TAX_REGISTRATIONS: Readonly<Record<string, number>> = {
+  AU: 1000,
+  NZ: 1500,
+  GB: 2000,
+};
+/** Stripe's product tax code for something not taxable; the fake collects nothing on it. */
+export const NONTAXABLE_TAX_CODE = "txcd_00000000";
+/** The billing countries the fake page offers. */
+export const FAKE_BILLING_COUNTRIES = ["AU", "NZ", "GB", "US", "DE"] as const;
+
+/** The tax inside a tax-inclusive `amount` at `basisPoints`, rounded to the minor unit. */
+export function inclusiveTax(amount: number, basisPoints: number): number {
+  return amount - Math.round((amount * 10_000) / (10_000 + basisPoints));
+}
+
+/**
+ * What the fake provider calculates for a taxed checkout paid from `country`: each line's tax
+ * inside its own amount, at the rate of the country where it is registered, else nothing.
+ */
+export function fakeTaxReport(tax: PaymentsCheckoutTax, country: string): PaymentsTaxReport {
+  // A line with a place (an in-person event) is taxed where the event is, not where the buyer is.
+  const where = (line: PaymentsCheckoutTax["lines"][number]) => line.place?.country ?? country;
+  const lines = tax.lines.map((line) => ({
+    ref: line.ref,
+    amount:
+      line.taxCode === NONTAXABLE_TAX_CODE
+        ? 0
+        : inclusiveTax(line.amount, FAKE_TAX_REGISTRATIONS[where(line)] ?? 0),
+  }));
+  const places = new Set(tax.lines.map(where));
+  return {
+    amount: lines.reduce((sum, line) => sum + line.amount, 0),
+    country: places.size === 1 ? (places.values().next().value as string) : country,
+    lines,
+  };
+}
 /** Checkouts and refunds the ledger keeps; the oldest go first. */
 const MAX_CHECKOUTS = 1000;
 const MAX_REFUNDS = 1000;
@@ -31,6 +78,11 @@ export type FakeCheckout = {
   expiresAt: string;
   /** What the payment event reported, when a test overrode it. */
   paidAmount: number | null;
+  /** The tax the host asked for, only when it asked (absent: a checkout exactly as before tax). */
+  tax?: PaymentsCheckoutTax;
+  /** Once paid with tax: the billing country given on the page and the tax calculated. */
+  billingCountry?: string;
+  taxReport?: PaymentsTaxReport;
 };
 
 export type FakeRefund = {
@@ -48,7 +100,9 @@ export type FakeLedgerState = { checkouts: FakeCheckout[]; refunds: FakeRefund[]
 /** What `pay()` did. */
 export type FakePayResult =
   | { found: false }
-  | { found: true; checkout: FakeCheckout; newlyPaid: boolean };
+  /** A taxed checkout paid without a billing address: nothing was paid. */
+  | { found: true; needsAddress: true }
+  | { found: true; checkout: FakeCheckout; newlyPaid: boolean; needsAddress?: undefined };
 
 export type FakeRefundResult =
   | { ok: true; refund: FakeRefund; created: boolean }
@@ -84,6 +138,7 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + CHECKOUT_LIFETIME_MS).toISOString(),
       paidAmount: null,
+      ...(input.tax ? { tax: input.tax } : {}),
     };
     kv.put(CHECKOUT + ref, checkout);
     kv.put(IDEMPOTENCY + input.idempotencyKey, ref);
@@ -97,17 +152,29 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     return this.ctx.storage.kv.get<FakeCheckout>(CHECKOUT + ref) ?? null;
   }
 
-  /** Marks a checkout paid, once. A second pay changes nothing. */
-  async pay(ref: string, amountOverride: number | null): Promise<FakePayResult> {
+  /**
+   * Marks a checkout paid, once. A second pay changes nothing. A taxed checkout needs the buyer's
+   * billing country (Stripe requires the billing address when it calculates tax), and the tax is
+   * calculated then, as the provider does it.
+   */
+  async pay(
+    ref: string,
+    amountOverride: number | null,
+    billingCountry: string | null = null,
+  ): Promise<FakePayResult> {
     const kv = this.ctx.storage.kv;
     const checkout = kv.get<FakeCheckout>(CHECKOUT + ref);
     if (!checkout) return { found: false };
     if (checkout.status === "paid") return { found: true, checkout, newlyPaid: false };
+    if (checkout.tax && billingCountry === null) return { found: true, needsAddress: true };
     const paid: FakeCheckout = {
       ...checkout,
       status: "paid",
       paymentRef: randomId("fpi_"),
       paidAmount: amountOverride,
+      ...(checkout.tax && billingCountry !== null
+        ? { billingCountry, taxReport: fakeTaxReport(checkout.tax, billingCountry) }
+        : {}),
     };
     kv.put(CHECKOUT + ref, paid);
     return { found: true, checkout: paid, newlyPaid: true };
@@ -200,6 +267,8 @@ export type FakeWebhookBody =
         amount: number;
         currency: string;
         paymentRef: string | null;
+        /** A taxed checkout's tax, as the provider calculated it. */
+        tax?: PaymentsTaxReport;
       };
     }
   | {
@@ -339,6 +408,28 @@ export async function verifyFakeWebhook(
   return { ok: true, eventId: event.eventId, events: [event] };
 }
 
+const minor = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+/** A tax report as delivered, or null when it is malformed. */
+export function taxReportOf(value: unknown): PaymentsTaxReport | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { amount, country, lines } = value as Record<string, unknown>;
+  if (!minor(amount) || !Array.isArray(lines) || lines.length > 100) return null;
+  if (country !== null && (typeof country !== "string" || !/^[A-Z]{2}$/.test(country))) {
+    return null;
+  }
+  const parsed: PaymentsTaxReport["lines"] = [];
+  for (const line of lines) {
+    if (!line || typeof line !== "object") return null;
+    const { ref, amount: lineAmount } = line as Record<string, unknown>;
+    const id = idOrNull(ref);
+    if (!id || !minor(lineAmount)) return null;
+    parsed.push({ ref: id, amount: lineAmount });
+  }
+  return { amount, country, lines: parsed };
+}
+
 /** The PaymentsEvent a fake delivery stands for, or null when it is malformed. */
 export function mapFakeEvent(value: unknown): PaymentsEvent | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -363,6 +454,9 @@ export function mapFakeEvent(value: unknown): PaymentsEvent | null {
     const orderId = idOrNull(field(fields, "orderId"));
     const checkoutRef = idOrNull(field(fields, "checkoutRef"));
     if (!orderId || !checkoutRef) return null;
+    const tax = field(fields, "tax");
+    const report = tax === undefined ? undefined : taxReportOf(tax);
+    if (report === null) return null;
     return {
       kind: "payment",
       provider: "fake",
@@ -373,6 +467,7 @@ export function mapFakeEvent(value: unknown): PaymentsEvent | null {
       currency: currency.toUpperCase(),
       paymentRef,
       occurredAt,
+      ...(report ? { tax: report } : {}),
     };
   }
   if (body.type === "refund.succeeded") {
@@ -432,9 +527,15 @@ export function fakePayPage(checkout: FakeCheckout, formattedAmount: string): st
   <p>${escapeHtml(checkout.description)}</p>
   <p class="amount">${escapeHtml(formattedAmount)}</p>
   ${paid ? '<p class="note">This checkout is already paid.</p>' : ""}
+  ${checkout.tax ? '<p class="note">Prices include tax, worked out from your billing address.</p>' : ""}
   <div class="actions">
     <form method="post">
       <input type="hidden" name="outcome" value="pay">
+      ${
+        checkout.tax
+          ? `<label>Billing country <select name="country" required><option value="">Choose…</option>${FAKE_BILLING_COUNTRIES.map((c) => `<option value="${c}">${c}</option>`).join("")}</select></label>`
+          : ""
+      }
       <button type="submit" class="pay">Pay</button>
     </form>
     <form method="post">
