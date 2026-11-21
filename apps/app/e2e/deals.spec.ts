@@ -100,7 +100,9 @@ async function createDeal(page: Page, name: string, value: string): Promise<stri
   return page.url().split("/x/deals.deal/")[1]?.split("?")[0] ?? "";
 }
 
-test("board by stage: dragging to Lost asks for the lost reason", async ({ page }) => {
+test("board by stage: dragging to Lost asks for the lost reason", { tag: "@phone" }, async ({
+  page,
+}) => {
   const name = `Board deal ${unique()}`;
   await createDeal(page, name, "5000");
   // Lost is put next to Lead (columnOrder), so a desktop drag stays on screen.

@@ -24,7 +24,9 @@ async function ask(panel: ReturnType<Page["getByTestId"]>, text: string) {
   await panel.getByTestId("assistant-send").click();
 }
 
-test("from a read-back to a delivered message, and back out", async ({ page }) => {
+test("from a read-back to a delivered message, and back out", { tag: "@phone" }, async ({
+  page,
+}) => {
   await open(page, "/people");
   await createPerson(page, { given: unique("Watched") });
   const panel = await openPanel(page);

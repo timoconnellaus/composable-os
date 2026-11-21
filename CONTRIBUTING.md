@@ -35,6 +35,25 @@ pnpm lint && pnpm typecheck && pnpm test
 - Biome formats and lints (`pnpm format`). TypeScript is strict.
 - Never commit secrets, account IDs or `.dev.vars`.
 
+## End-to-end tests
+
+The app's Playwright suite (`apps/app/e2e/`) is slow to run whole, so locally you run only the
+specs for the area you changed; CI runs everything, split across four runners.
+
+```sh
+pnpm --filter @composable-os/app exec playwright test people.spec.ts       # one spec, both sizes
+pnpm --filter @composable-os/app exec playwright test deals --project=desktop
+```
+
+- **Desktop runs every spec; the phone project runs only tests tagged `@phone`**:
+  `test("…", { tag: "@phone" }, async ({ page }) => …)`, on each test (Biome's Playwright rule
+  refuses the option on a `test.describe`). Tag a test when its layout really differs at phone width: the nav drawer, a sheet in place of
+  a panel, a table or grid that reflows, touch in place of drag or hover, or a phone-only
+  assertion. Most tests are not tagged.
+- **One e2e test per user journey, not one per screen.** A new stage adds an e2e test for each
+  journey a person takes through it. Rules, edge cases and anything that waits on time (cron
+  ticks, delivery lags) belong in integration tests (vitest in workerd), which are fast.
+
 ## Pull requests
 
 - Branch from `main`, keep commits focused, and open a pull request against `main`.

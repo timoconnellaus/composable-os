@@ -1,6 +1,6 @@
 // Stage 7a in-app AI: Settings → AI (roles and the Test button), the record Summary card and the
 // Similar records panel. Local dev runs with AI_FAKE_MODEL=true: deterministic fake models for
-// every role and an in-memory vector store filled right after each write. Desktop and phone.
+// every role and an in-memory vector store filled right after each write. Desktop width.
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";

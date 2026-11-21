@@ -3,8 +3,8 @@
 // dashboard widget and approves a pending change inline; /assistant shows the same thread, keeps
 // it across reloads, searches it and jumps to a hit; an unread reply puts a badge on "Ask AI" and
 // the nav until it is seen. Local dev runs with AI_FAKE_MODEL=true, so the assistant role is the
-// scripted stand-in model, driving the real tool loop through our own MCP server. Desktop and
-// phone; the org's approval policy is the default Balanced.
+// scripted stand-in model, driving the real tool loop through our own MCP server. Desktop
+// only (the phone sheet is in assistant-dock.spec.ts); the org's approval policy is the default Balanced.
 import { expect, type Page, test } from "@playwright/test";
 import { createPerson, isPhone, open, unique } from "./helpers.ts";
 

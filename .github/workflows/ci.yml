@@ -58,8 +58,10 @@ jobs:
       - run: node scripts/check-stray-names.mjs
       - run: node scripts/check-skills-version.mjs
 
-  check:
-    name: Lint, typecheck, unit tests
+  # Lint, typecheck and unit tests run as three parallel jobs. The job named "Lint, typecheck, unit
+  # tests" (`check`, below) only gathers their results, so the required check keeps its name.
+  lint:
+    name: Lint
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
@@ -72,14 +74,60 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+
+  typecheck:
+    name: Typecheck
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # The landing page (apps/marketing): its build fails on any tracker or third-party load.
+      - run: pnpm --filter @composable-os/marketing build
+
+  unit:
+    name: Unit tests
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       # Cap parallel packages: the vendored gatekeepers add thousands of CPU-heavy tests, and running
       # every package at once on a 4-vCPU runner makes timing- and startup-sensitive tests flake.
       - run: pnpm test --concurrency=2
       # Wall-clock-sensitive vendored tests, run alone so CPU contention doesn't fail them.
       - run: pnpm --filter @composable-os/gatekeeper-microsoft test:timing
-      # The landing page (apps/marketing): its build fails on any tracker or third-party load.
-      - run: pnpm --filter @composable-os/marketing build
+
+  # The required check. It runs even when a job it needs failed or was skipped (`always()`), and
+  # passes only if all three passed. On a documents-only change it is skipped, as the three are,
+  # which branch protection counts as passing (as before the split).
+  check:
+    name: Lint, typecheck, unit tests
+    needs: [changes, lint, typecheck, unit]
+    if: always() && needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: All three passed
+        env:
+          RESULTS: ${{ needs.lint.result }} ${{ needs.typecheck.result }} ${{ needs.unit.result }}
+        run: |
+          echo "lint, typecheck, unit tests: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = success ] || exit 1
+          done
 
   marketing-e2e:
     name: Landing page (Playwright)
@@ -106,8 +154,42 @@ jobs:
             apps/marketing/test-results
           retention-days: 7
 
-  e2e:
-    name: E2E smoke (Playwright)
+  # The app's Playwright suite, split across four runners (`--shard`). Each shard starts its own
+  # dev server and local D1, so specs never share a database across shards. The job named
+  # "E2E smoke (Playwright)" (`e2e`, below) gathers the shards and the control plane's suite, so
+  # the required check keeps its name.
+  e2e-shard:
+    name: E2E shard ${{ matrix.shard }}/4
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      # Let every shard finish, so one failure shows all the others too.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @composable-os/app exec playwright install --with-deps chromium
+      - run: pnpm --filter @composable-os/app test:e2e --shard=${{ matrix.shard }}/4
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-shard-${{ matrix.shard }}
+          path: |
+            apps/app/playwright-report
+            apps/app/test-results
+          retention-days: 7
+
+  # The SaaS control plane in fake mode (Stage 10): sign-up → trial → provisioned workspace.
+  e2e-control:
+    name: E2E control plane
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
@@ -119,17 +201,30 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @composable-os/app exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
-      # The SaaS control plane in fake mode (Stage 10): sign-up → trial → provisioned workspace.
+      - run: pnpm --filter @composable-os/control exec playwright install --with-deps chromium
       - run: pnpm --filter @composable-os/control test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-control
           path: |
-            apps/app/playwright-report
-            apps/app/test-results
             products/crm/apps/control/playwright-report
             products/crm/apps/control/test-results
           retention-days: 7
+
+  # The required check: passes only if every shard and the control plane passed (a failed,
+  # cancelled or skipped one fails it). Skipped on a documents-only change, as the shards are.
+  e2e:
+    name: E2E smoke (Playwright)
+    needs: [changes, e2e-shard, e2e-control]
+    if: always() && needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every shard passed
+        env:
+          RESULTS: ${{ needs.e2e-shard.result }} ${{ needs.e2e-control.result }}
+        run: |
+          echo "shards, control plane: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = success ] || exit 1
+          done

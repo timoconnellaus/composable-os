@@ -19,7 +19,9 @@ function dayKey(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-test("calendar: dragging a task to another day changes its due date", async ({ page }) => {
+test("calendar: dragging a task to another day changes its due date", { tag: "@phone" }, async ({
+  page,
+}) => {
   const title = `Calendar ${unique()}`;
   // Both days are in this month's grid, and the task ends on today or later, because the agenda
   // lists from today on: today to tomorrow, or on the last day of a month yesterday to today.
@@ -79,7 +81,9 @@ test("people as a gallery", async ({ page }) => {
   await expect(page.getByRole("table", { name: "People" })).toBeVisible();
 });
 
-test("the Overview renders, follows its filters and clicks through", async ({ page }) => {
+test("the Overview renders, follows its filters and clicks through", { tag: "@phone" }, async ({
+  page,
+}) => {
   // With Deals installed, Home is Sales overview (deals.spec.ts); the Overview is a dashboard.
   await open(page, "/dashboards/dsh_overview");
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();

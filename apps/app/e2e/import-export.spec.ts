@@ -5,7 +5,9 @@ import { expect, test } from "@playwright/test";
 import { createPerson, expectNoHorizontalScroll, open, unique } from "./helpers.ts";
 import { commitImport, filterList, importToReview, rowsOf } from "./org-helpers.ts";
 
-test("import people with an organisation column, matching a duplicate email", async ({ page }) => {
+test("import people with an organisation column, matching a duplicate email", {
+  tag: "@phone",
+}, async ({ page }) => {
   const token = unique("imp");
   await open(page, "/people");
   await createPerson(page, {

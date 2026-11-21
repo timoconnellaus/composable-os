@@ -6,14 +6,20 @@ import { expect, test } from "@playwright/test";
 import { expectNoHorizontalScroll, open } from "./helpers.ts";
 import { call, connectApp, mcpClient } from "./mcp.ts";
 
-test("the consent page renders at this width and allows", async ({ page, baseURL }) => {
+test("the consent page renders at this width and allows", { tag: "@phone" }, async ({
+  page,
+  baseURL,
+}) => {
   const app = await connectApp(page, baseURL ?? "");
   const tools = await app.client.listTools();
   expect(tools.tools.map((t) => t.name)).toContain("search_global");
   expect(await call(app.client, "search_global", { query: "anything" })).toHaveProperty("hits");
 });
 
-test("consent fits a phone and offers admin to admins", async ({ page, baseURL }) => {
+test("consent fits a phone and offers admin to admins", { tag: "@phone" }, async ({
+  page,
+  baseURL,
+}) => {
   // Stop on the consent page itself (no Allow) to look at it.
   const registered = await fetch(`${baseURL}/oauth/register`, {
     method: "POST",

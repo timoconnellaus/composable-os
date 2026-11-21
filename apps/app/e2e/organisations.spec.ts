@@ -1,5 +1,6 @@
 // Organisations: create with domains, inline edit, parent and children, the People tab, bulk
-// tags, merge from a list selection, delete and restore. Runs at desktop and phone width.
+// tags, merge from a list selection, delete and restore. Runs at desktop width (the
+// list and record layouts at phone width are people.spec.ts's `@phone` tests).
 import { expect, test } from "@playwright/test";
 import { expectNoHorizontalScroll, open, pressUntil, unique } from "./helpers.ts";
 import {
