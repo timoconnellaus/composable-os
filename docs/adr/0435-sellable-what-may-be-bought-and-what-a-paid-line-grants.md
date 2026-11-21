@@ -142,3 +142,19 @@ the buyer's scope does not show (their own, or a public one) with the same answe
 that does not exist (`not_for_sale`). Staff may still start an order for anything sellable. An
 object sold to people outside the org therefore declares `public`. See
 [ADR 0438](0438-the-public-scope.md).
+
+## Amended 2026-11-21 (the first client: prices come with their currency)
+A client showing a sellable record's price had to state the currency itself: the record holds a
+number, and the deployment's one currency (stage 25, `order.settings`) was readable only by
+staff. Now **wherever the seam returns a sellable object's records, it says the currency their
+prices are in**: `listVisible` and `getVisible` (`ctx.records.list` and `get`, so `public.list`,
+`public.get`, `my.list` and `my.get`) add `currency` (the setting, or null until an admin sets
+one) beside the records of an object that declares `sellable`, and nothing on any other object.
+It is the value every order of the deployment is priced in, and it is not secret: it is on every
+order a buyer sees. No operation was opened for it. Ticketing's `eventsOnSale` passes it on beside
+each ticket type's price, `salesSummary` (staff) reads `order.settings.get`, and the pack's hooks
+and blocks take the currency from the data: the web blocks no longer take a `currency` prop, and
+`formatMoney`, `formatPrice`, `estimate` and `minorFromInput` scale by the currency's own decimal
+places. Tests: `packages/core/test/isolation-suite.ts` ("a sellable object's records come with
+the currency"), `apps/runner/test/ticketing.test.ts` (criterion 9 and the sales summary),
+`packs/ticketing/test/client.test.ts`.

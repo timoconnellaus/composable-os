@@ -54,7 +54,12 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    A tool open to the public that shows records (an event page) reads them with `public.list`
    and `public.get`, which answer with what the object's `public` declaration allows (see
    `write-extension`); it adds no filter of its own on what is public (Ticketing:
-   `eventsOnSale`). A host refusal a tool lets escape (`not_found`, `conflict`, `invalid_input`)
+   `eventsOnSale`). A price comes with its currency from the host: `public.list`, `public.get`,
+   `my.list` and `my.get` return `currency` beside a sellable object's records; pass it on beside
+   each price and never ask the client for it (staff tools read `order.settings.get`). A tool that
+   shows a customer what their own records point to (a ticket's event) reads those with `my.list`
+   and an `id in [...]` filter, which the object's `customerVia` answers (see `write-extension`;
+   Ticketing: `myTickets`). A host refusal a tool lets escape (`not_found`, `conflict`, `invalid_input`)
    is the caller's, not the tool's: it does not count towards quarantine.
    A tool that generates many records of one object (the dated sessions of an assignment) writes
    them with `record.createMany` (up to 50 a call, all or none, `bulk-write`; ADR 0448), in
@@ -69,7 +74,10 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    (`AutomationTrigger` lists every type; the README's "Triggers" table explains each),
    `conditions` on the trigger record when only some records should start a run, `steps` and
    `run`. A `dateRelative` trigger's `offsetDays` is negative before the date and positive
-   after it, in days only (a month before is `-30`). An automation the request itself asks for
+   after it, in days only (a month before is `-30`). When the record's days belong to its own place (an
+   event abroad), add `zoneField: "<a timezone field>"`: days are then counted in each record's
+   zone, and the run starts in the first hour of that local day (ADR 0460; Ticketing:
+   `eventReminder`, `eventEnded`). An automation the request itself asks for
    ships on; one you added as an extra ships off with `enabled: false` (Leads).
 5. **Declare every step and its intents.** A camelCase `name` each. A `do` step lists `reads`
    (objects), `writes` (`WriteIntent`: object, action, count, titles, assignee), `notifies`

@@ -33,6 +33,7 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { loadProduct, PRODUCT_ENV, productFile } from "@composable-os/product/node";
+import { repositoryPackIds } from "@composable-os/product/packs";
 import { DEFAULT_PRODUCT } from "@composable-os/products";
 import {
   assertUnresolved,
@@ -221,8 +222,9 @@ async function main() {
     migrations,
   );
   assertUnresolved(manifest);
-  // The client kit (stage 24): template, skills, blocks and the API contract.
-  const kit = collectClientKit(ROOT, product.packs);
+  // The client kit (stage 24): template, skills, blocks and the API contract. Its packs.json is
+  // every pack the release carries, as the runner's bundle does (ADR 0420 as amended).
+  const kit = collectClientKit(ROOT, repositoryPackIds(ROOT));
   manifest.client = await clientKitEntry(kit);
 
   const manifestText = `${stableStringify(manifest)}\n`;

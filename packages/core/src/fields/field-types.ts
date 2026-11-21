@@ -154,7 +154,26 @@ function numberType(widget: WidgetKind) {
   } satisfies FieldTypeSpec;
 }
 
+/**
+ * Whether `name` is an IANA time zone this runtime knows (ADR 0460): one of
+ * `Intl.supportedValuesOf("timeZone")`, or `UTC`. Aliases the list leaves out are refused, so a
+ * stored zone is always one every reader can format in.
+ */
+export function isTimeZoneName(name: string): boolean {
+  if (name === "UTC") return true;
+  zones ??= new Set(Intl.supportedValuesOf("timeZone"));
+  return zones.has(name);
+}
+let zones: Set<string> | undefined;
+
 export const FIELD_TYPE_REGISTRY: Record<FieldTypeName, FieldTypeSpec> = {
+  // A time zone (ADR 0460): text, but only a name from the runtime's list of zones.
+  timezone: textType(
+    64,
+    "text",
+    "text",
+    z.string().refine(isTimeZoneName, "Not a time zone: use an IANA name such as Asia/Bangkok"),
+  ),
   text: textType(1000, "text", "text"),
   longText: textType(100_000, "textarea", "textarea"),
   email: textType(320, "email", "email", z.email().max(320)),

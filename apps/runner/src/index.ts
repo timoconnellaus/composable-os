@@ -39,6 +39,7 @@ import { pollIntegrationEvents } from "./automations/integration-events.ts";
 import { runAutomationCron } from "./automations/schedule.ts";
 import { Executor, type ExecutorOptions } from "./executor/executor.ts";
 import { embedFromEvents } from "./extensions/embeddings.ts";
+import { packsProblem } from "./extensions/shipped-list.ts";
 import type { HelloOutput } from "./hello-workflow.ts";
 import { fakeProviderFetch } from "./integrations/fake.ts";
 import { runOrdersTick } from "./integrations/payments.ts";
@@ -48,6 +49,13 @@ import type { PingResult, RunnerRpc, WorkflowRunStatus } from "./rpc.ts";
 
 // A client product's label (issue #155), for the notifications and pages the runner sends.
 setProductLabel((workerEnv as unknown as Record<string, string | undefined>)[PRODUCT_LABEL_VAR]);
+
+// A pack the deploy named and this release does not carry is said at boot, in the logs, and by
+// ping (so /api/health is degraded), never dropped in silence (shipped-list.ts).
+const bootPacksProblem = packsProblem(
+  (workerEnv as unknown as Record<string, string | undefined>).COS_PACKS,
+);
+if (bootPacksProblem) console.error(`cos-runner: ${bootPacksProblem}`);
 
 export {
   type AutomationRunParams,
@@ -109,6 +117,11 @@ export function extensionHost(env: Env, options: ExecutorOptions = {}): Extensio
 
 export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
   async ping(): Promise<PingResult> {
+    const problem = packsProblem(this.env.COS_PACKS);
+    if (problem) {
+      console.error(`cos-runner: ${problem}`);
+      throw new Error(problem);
+    }
     return { ok: true, worker: "cos-runner", time: new Date().toISOString() };
   }
 

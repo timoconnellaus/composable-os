@@ -261,7 +261,7 @@ const INPUT_VARS: Record<string, { description: string; options?: string[] }> = 
   APPROVAL_FLOOR: { description: "Approval-policy floor no preset can loosen (JSON, ADR 0011)" },
   COS_PACKS: {
     description:
-      'The packs this deployment installs: "*" every pack in the release, a comma-separated list, or "" for none (set by cos deploy, ADR 0422)',
+      'The packs this deployment installs: "*" the release product\'s own packs, a comma-separated list of packs the release carries, or "" for none (set by cos deploy, ADR 0422)',
   },
   COS_ORG_EXTENSIONS: {
     description:

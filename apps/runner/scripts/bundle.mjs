@@ -2,12 +2,13 @@
 //
 // 1. The SDK as one ES module string (`cos-sdk` inside the sandbox): defineExtension, z,
 //    runExtension, … with zod inlined, since Dynamic Workers cannot resolve packages.
-// 2. The packs the product lists (`packs` in its product.ts, stage 24), each the shipped extension
-//    under packs/<id>/ as source text (its .ts files, minus tests, config, and the pack's
-//    client/ and blocks/, which are client code and never run in the host), so it goes through the
-//    same transpile → check → sandbox path as runtime extensions. There is no static fast path. A
-//    pack the product does not list is not in its build. The product is COS_PRODUCT's, else the
-//    default product.
+// 2. Every pack in the repository (packs/<id>/, stage 24), each the shipped extension as source
+//    text (its .ts files, minus tests, config, and the pack's client/ and blocks/, which are
+//    client code and never run in the host), so it goes through the same transpile → check →
+//    sandbox path as runtime extensions. There is no static fast path. A release carries them all
+//    so a client product can turn any of them on at deploy (COS_PACKS); the packs the build's
+//    product lists (COS_PRODUCT's, else the default product) are PRODUCT_PACKS, what COS_PACKS
+//    "*" installs, so the release product's own deployments install what they always did.
 // 3. The declarations for the in-Worker type check of extension source (sdk-types.ts).
 // 4. The TypeScript compiler as an ES module (typescript.js), and the type checker's Dynamic Worker
 //    (checker.txt: the compiler, the declarations and src/checker/entry.ts in one module). The
@@ -29,7 +30,7 @@ import {
   sdkBundleOptions,
 } from "../../../packages/extension-check/src/sdk-artifacts.ts";
 import { loadProduct } from "../../../packages/product/src/node.ts";
-import { productPacks } from "../../../packages/product/src/packs.ts";
+import { releasePacks } from "../../../packages/product/src/packs.ts";
 import { DEFAULT_PRODUCT } from "../../../products/index.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -40,7 +41,11 @@ const sdk = await build(sdkBundleOptions(join(root, "packages", "sdk", "src", "i
 const sdkSource = sdk.outputFiles[0].text;
 
 const product = await loadProduct(process.env.COS_PRODUCT?.trim() || DEFAULT_PRODUCT);
-const shipped = productPacks(product, root);
+const shipped = releasePacks(root);
+for (const id of product.packs) {
+  if (!shipped.some((p) => p.id === id))
+    throw new Error(`product ${product.id} lists the pack ${id}, which is not in packs/`);
+}
 
 // 3. The declarations the in-Worker type checker needs (src/extensions/typecheck.ts): @composable-os/sdk's
 //    .d.ts (emitted from packages/sdk/src), the zod .d.ts files they reach, and the ES2022 lib
@@ -84,7 +89,7 @@ await writeFile(
 await writeFile(join(out, "sdk-bundle.txt"), sdkSource);
 await writeFile(
   join(out, "shipped.ts"),
-  `${banner}/** The product's packs (packs/<id>/), the shipped extensions, as source. */\nexport const SHIPPED_EXTENSIONS: readonly { id: string; version: string; optional?: boolean; label?: string; description?: string; files: Record<string, string> }[] = ${JSON.stringify(shipped, null, 2)};\n`,
+  `${banner}/** The packs this release carries (every packs/<id>/), the shipped extensions, as source. */\nexport const PRODUCT_PACKS: readonly string[] = ${JSON.stringify([...product.packs].sort())};\nexport const SHIPPED_EXTENSIONS: readonly { id: string; version: string; optional?: boolean; label?: string; description?: string; files: Record<string, string> }[] = ${JSON.stringify(shipped, null, 2)};\n`,
 );
 
 // The checker's Dynamic Worker: one ES module with the compiler, the declarations and the entry.
@@ -152,5 +157,5 @@ export const SDK_TYPES_HASH = ${JSON.stringify(sha(sdkTypesJson))};
 `,
 );
 console.log(
-  `bundled cos-sdk (${(sdkSource.length / 1024).toFixed(0)} KiB), its type declarations (${Object.keys(sdkTypes.files).length} files, ${(sdkTypesJson.length / 1024).toFixed(0)} KiB), the checker worker with typescript ${typescriptVersion} (${(checkerSource.length / 1024).toFixed(0)} KiB) and ${shipped.length} pack(s) of ${product.id}`,
+  `bundled cos-sdk (${(sdkSource.length / 1024).toFixed(0)} KiB), its type declarations (${Object.keys(sdkTypes.files).length} files, ${(sdkTypesJson.length / 1024).toFixed(0)} KiB), the checker worker with typescript ${typescriptVersion} (${(checkerSource.length / 1024).toFixed(0)} KiB) and ${shipped.length} pack(s) (${product.id} installs ${product.packs.length} by default)`,
 );

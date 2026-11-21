@@ -12,6 +12,7 @@ import type { AgentJobHost } from "./assistant/agent-jobs.ts";
 import type { AssistantThreadStore } from "./assistant/threads.ts";
 import { type Audience, audienceProblems, audiencesOf, isOpenOutside } from "./audiences.ts";
 import type { AutomationHost, EventSink } from "./automations/types.ts";
+import type { CustomerSignIn } from "./customers/accounts.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
 import type { FieldDiff } from "./diff.ts";
 import type { ExtensionHost } from "./extensions/host.ts";
@@ -147,6 +148,13 @@ export interface HandlerContext {
    * `recordChange` and `postActivity` throw there unless the operation is `hostInternal`.
    */
   readonly records: RecordAccess;
+  /**
+   * Set only on a customer's call: the caller's own account's sign-in address, read by the host
+   * for the verified principal's account and nothing else (no input names an account). The only
+   * address a client may trust to be the customer's: the one the emailed code verified. `me.get`
+   * returns it.
+   */
+  readonly signIn?: (() => Promise<CustomerSignIn | null>) | undefined;
   /** Queues statements (Kysely insert/update/delete builders) for the commit batch, in order. */
   write(...statements: (Compilable | CompiledQuery)[]): void;
   /**

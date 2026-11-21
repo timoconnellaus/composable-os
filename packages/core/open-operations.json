@@ -106,57 +106,68 @@
     {
       "name": "x.programs.classToday",
       "audiences": ["staff", "customer"],
-      "risk": "read"
+      "risk": "read",
+      "pack": "programs"
     },
     {
       "name": "x.programs.history",
       "audiences": ["staff", "customer"],
-      "risk": "read"
+      "risk": "read",
+      "pack": "programs"
     },
     {
       "name": "x.programs.logAdd",
       "audiences": ["staff", "customer"],
-      "risk": "write"
+      "risk": "write",
+      "pack": "programs"
     },
     {
       "name": "x.programs.logUpdate",
       "audiences": ["staff", "customer"],
-      "risk": "write"
+      "risk": "write",
+      "pack": "programs"
     },
     {
       "name": "x.programs.progress",
       "audiences": ["staff", "customer"],
-      "risk": "read"
+      "risk": "read",
+      "pack": "programs"
     },
     {
       "name": "x.programs.sessionComplete",
       "audiences": ["staff", "customer"],
-      "risk": "write"
+      "risk": "write",
+      "pack": "programs"
     },
     {
       "name": "x.programs.sessionGet",
       "audiences": ["staff", "customer"],
-      "risk": "read"
+      "risk": "read",
+      "pack": "programs"
     },
     {
       "name": "x.programs.today",
       "audiences": ["staff", "customer"],
-      "risk": "read"
+      "risk": "read",
+      "pack": "programs"
     },
     {
       "name": "x.ticketing.eventsOnSale",
       "audiences": ["customer", "public"],
-      "risk": "read"
+      "risk": "read",
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.myTickets",
       "audiences": ["customer"],
-      "risk": "read"
+      "risk": "read",
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.orderStart",
       "audiences": ["customer", "public"],
-      "risk": "write"
+      "risk": "write",
+      "pack": "ticketing"
     }
   ]
 }

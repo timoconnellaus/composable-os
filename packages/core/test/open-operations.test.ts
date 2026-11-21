@@ -4,27 +4,27 @@
 //
 // To update the file after opening an operation on purpose:
 //   pnpm --filter @composable-os/core open-operations
-import deals from "@composable-os/pack-deals";
-import leads from "@composable-os/pack-leads";
-import lifecycle from "@composable-os/pack-lifecycle";
-import programs from "@composable-os/pack-programs";
-import ticketing from "@composable-os/pack-ticketing";
-import { toManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import committed from "../open-operations.json";
-import { toolOperation } from "../src/extensions/tools.ts";
-import { coreRegistry, createRegistry, defineOperation, openOperations } from "../src/index.ts";
+import {
+  coreRegistry,
+  createRegistry,
+  defineOperation,
+  openOperations,
+  withPacks,
+} from "../src/index.ts";
+import { releasePackIds, releasePackTools } from "./release-packs.ts";
 
 // Tools of the shipped extensions are operations too (`x.<extension>.<tool>`): one that a
 // shipped extension opens to customers or the public is listed with the core operations.
-const shippedTools = [deals, leads, lifecycle, ticketing, programs].flatMap((extension) => {
-  const manifest = toManifest(extension);
-  return Object.entries(manifest.tools).map(([name, tool]) =>
-    toolOperation(manifest, name, tool, "shipped"),
-  );
-});
-const fromRegistry = openOperations([...coreRegistry.list(), ...shippedTools]);
+// Every pack the release carries (packs/*), each tool named with its pack in the files.
+const shippedTools = releasePackTools;
+// The union over every pack the release carries, each tool named with its pack.
+const fromRegistry = withPacks(
+  openOperations([...coreRegistry.list(), ...shippedTools]),
+  releasePackIds,
+);
 // scripts/write-open-operations.mjs reads this line.
 console.log(`OPEN_OPERATIONS ${JSON.stringify(fromRegistry)}`);
 

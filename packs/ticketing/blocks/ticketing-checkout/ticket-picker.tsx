@@ -9,6 +9,7 @@ import type {
 } from "@composable-os/pack-ticketing/client";
 import {
   availabilityLabel,
+  eventCurrency,
   formatMoney,
   formatPrice,
   minorFromInput,
@@ -42,19 +43,19 @@ function refusal(error: unknown): string | null {
 export function TicketPicker({
   ticketing,
   event,
-  currency,
   signedIn,
   returnUrl,
   onStarted,
 }: {
   ticketing: TicketingHooks;
   event: EventOnSale;
-  currency: string;
   signedIn: boolean;
   returnUrl: string;
   onStarted: (order: StartedOrder) => void;
 }) {
   const picker = ticketing.useTicketPicker(event);
+  // The currency is the host's, given with the prices; the picker states none of its own.
+  const currency = eventCurrency(event);
   const start = ticketing.useStartOrder();
   const checkout = ticketing.useCheckout();
   const [email, setEmail] = useState("");
@@ -199,8 +200,8 @@ export function BalancePayment({
           onChange={(e) => setPart(e.target.value)}
         />
         <Button
-          onClick={() => open(minorFromInput(part))}
-          disabled={checkout.isPending || minorFromInput(part) === null}
+          onClick={() => open(minorFromInput(part, data.currency))}
+          disabled={checkout.isPending || minorFromInput(part, data.currency) === null}
         >
           Pay this amount
         </Button>

@@ -6,12 +6,13 @@ import type { CoreDatabase } from "@composable-os/db";
 import type { ViewFilter } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import { refreshSchemaRegistry } from "../extensions/schema.ts";
-import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
+import { FIELD_TYPE_REGISTRY, formulaFromStorage, isTimeZoneName } from "../fields/field-types.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { compileFilter, type Filter } from "../filter.ts";
 import { chunk, jsonList } from "../records/common.ts";
 import { resolveRelative } from "../relative.ts";
+import { addDaysToDate, zonedTime } from "./cron.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: rec_* views are not in CoreDatabase; names come from the registry.
 type AnyDb = Kysely<any>;
@@ -109,6 +110,53 @@ export async function idsMatchingConditions(
  * Ids of live records of `object` whose date field `field` falls on `date` (`YYYY-MM-DD`): the
  * field), at most `limit` ids.
  */
+/**
+ * Date-relative matches counted in each record's own time zone (ADR 0460): the records whose
+ * `field`, read as a day in the zone `zoneField` names (or `fallbackZone` when it is empty), is
+ * that zone's today minus `offsetDays`. "Today" is `at` in the record's zone, so a run for an
+ * event in Bangkok is due on Bangkok's day, whatever the deployment's zone. The rows read are the
+ * ones within two days of the target in UTC (every zone is within 14 hours of it); the local day
+ * is then worked out for each. Returns the ids with the local day each was matched for.
+ */
+export async function recordsOnLocalDate(
+  db: Kysely<CoreDatabase>,
+  trigger: { object: string; field: string; zoneField: string; offsetDays: number },
+  at: Date,
+  fallbackZone: string,
+  limit: number,
+): Promise<{ id: string; day: string }[]> {
+  await refreshSchemaRegistry(db);
+  const def = getObject(trigger.object);
+  const date = def?.fields.find((f) => f.name === trigger.field);
+  const zone = def?.fields.find((f) => f.name === trigger.zoneField);
+  if (!def || !date?.column || !zone?.column) return [];
+  const utcDay = at.toISOString().slice(0, 10);
+  // Today is between yesterday and tomorrow in UTC somewhere; the target day a day either side
+  // of that, and a datetime on it within 14 hours of its UTC day.
+  const target = addDaysToDate(utcDay, -trigger.offsetDays);
+  const from = addDaysToDate(target, -2);
+  const until = addDaysToDate(target, 3);
+  const rows = await sql<{ id: string; value: string | null; zone: string | null }>`
+    SELECT id, ${sql.ref(date.column)} AS value, ${sql.ref(zone.column)} AS zone
+    FROM ${sql.table(def.source)}
+    WHERE ${sql.ref(date.column)} >= ${from} AND ${sql.ref(date.column)} < ${until}
+    ORDER BY ${sql.ref(date.column)}
+    LIMIT ${limit * 4}
+  `.execute(db);
+  const out: { id: string; day: string }[] = [];
+  for (const row of rows.rows) {
+    if (!row.value) continue;
+    const tz = row.zone && isTimeZoneName(row.zone) ? row.zone : fallbackZone;
+    const today = zonedTime(at, tz).date;
+    // A date field is already a day; a datetime is the day it falls on in the record's zone.
+    const day =
+      date.fieldType === "date" ? row.value.slice(0, 10) : zonedTime(new Date(row.value), tz).date;
+    if (day === addDaysToDate(today, -trigger.offsetDays)) out.push({ id: row.id, day: today });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export async function recordsOnDate(
   db: Kysely<CoreDatabase>,
   object: string,

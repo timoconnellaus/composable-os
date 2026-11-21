@@ -108,20 +108,150 @@ export interface ClientProductDefinition {
   };
   /** The mobile app, if the repo has one: its folder, and where its generated client is. */
   mobile?: { dir: string; clientDir?: string };
-  /** The host's names, when they are not the ones derived from `id` (`clientNames`). */
+  /**
+   * The host's names, when they are not the ones derived from `id` (`clientNames`). With
+   * environments, these are the live environment's (the one that keeps `<id>-app`).
+   */
+  names?: Partial<ProductDefinition["names"]>;
+  /**
+   * The deployments of this product, by name (ADR 0450): at least one, usually `staging` and
+   * `live`. Each is its own host (its own Workers, database, deployment state and secrets) with
+   * its own addresses, deployed into one Cloudflare account side by side by
+   * `cos deploy --env <name>`. Absent: one deployment, named as without environments.
+   */
+  environments?: Record<string, ClientEnvironment>;
+  /** Gatekeepers every environment installs, and their settings (ADR 0452). */
+  gatekeepers?: GatekeeperSettings;
+}
+
+/**
+ * One environment of a client product (ADR 0450). Its names derive from the product's id and the
+ * environment's name (`<id>-staging-app`, the `<id>-staging` database, `<id>-staging-…`
+ * resources), except `live`, which keeps the names a product without environments has
+ * (`<id>-app`), so nothing already deployed is renamed. Every name can be overridden.
+ */
+export interface ClientEnvironment {
+  /**
+   * Whether real customers and real money use it. Default true; an environment marked false
+   * (staging) may use test settings a live one may not, such as the fake payment provider.
+   * The environment named `live` is always live.
+   */
+  live?: boolean;
+  /** The host's own hostname: the staff admin's address. Absent: workers.dev. */
+  hostname?: string;
+  /** Gatekeepers installed here and their settings, over the product's own (ADR 0452). */
+  gatekeepers?: GatekeeperSettings;
+  /** The web app in this environment: its hostname (else workers.dev) and its Worker's name. */
+  web?: { hostname?: string; worker?: string };
+  /** The host's names here, when they are not the derived ones. */
   names?: Partial<ProductDefinition["names"]>;
 }
 
-/** The names a client product's host is deployed with: derived from its id, or as it says. */
-export function clientNames(product: ClientProductDefinition): ProductDefinition["names"] {
-  return {
-    app: `${product.id}-app`,
-    runner: `${product.id}-runner`,
-    gatekeeperPrefix: `${product.id}-gatekeeper-`,
-    database: product.id,
-    resourcePrefix: `${product.id}-`,
-    ...product.names,
+/**
+ * The gatekeepers a client host installs and their settings (ADR 0452), by the gatekeeper's
+ * short name. Each takes only the settings that gatekeeper declares in its release (`cos deploy`
+ * refuses any other); secrets are never here: a person sets them as Worker secrets, and
+ * `cos deploy` says which are missing. `{}` installs a gatekeeper with its defaults.
+ */
+export interface GatekeeperSettings {
+  /** Outbound email through Cloudflare Email Service (packages/gatekeeper-email-send). */
+  "email-send"?: {
+    /** Domains mail may be sent from, comma separated (`gym.example`). */
+    ALLOWED_SENDER_DOMAINS?: string;
+    /** The org's own domains, comma separated: mail to them is internal. */
+    INTERNAL_DOMAINS?: string;
+    /** The `send_email` binding's limits (Cloudflare Email Service). */
+    sendEmail?: {
+      allowedSenderAddresses?: string[];
+      destinationAddress?: string;
+      allowedDestinationAddresses?: string[];
+    };
   };
+  /** Payments (packages/gatekeeper-payments). Its webhook address, BASE_URL, is derived. */
+  payments?: {
+    /** A Stripe Connect account to act for (`acct_…`), if any. */
+    STRIPE_ACCOUNT?: string;
+    /** The fake provider instead of Stripe: only in an environment marked `live: false`. */
+    PAYMENTS_FAKE_PROVIDER?: boolean;
+  };
+}
+
+/** Whether an environment of `product` (or the product without environments) is live. */
+export function isLiveEnvironment(product: ClientProductDefinition, environment?: string): boolean {
+  if (environment === undefined || environment === LIVE_ENVIRONMENT) return true;
+  return product.environments?.[environment]?.live !== false;
+}
+
+/** The gatekeepers and settings a deploy of `environment` applies: the product's, then its own. */
+export function gatekeeperSettings(
+  product: ClientProductDefinition,
+  environment?: string,
+): GatekeeperSettings {
+  const base = product.gatekeepers ?? {};
+  const own = (environment ? product.environments?.[environment]?.gatekeepers : undefined) ?? {};
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const name of new Set([...Object.keys(base), ...Object.keys(own)])) {
+    out[name] = {
+      ...(base as Record<string, Record<string, unknown>>)[name],
+      ...(own as Record<string, Record<string, unknown>>)[name],
+    };
+  }
+  return out as GatekeeperSettings;
+}
+
+/** The environment that keeps a product's undecorated names (`<id>-app`). */
+export const LIVE_ENVIRONMENT = "live";
+
+/** The names of a product's environments, sorted; empty when it declares none. */
+export function environmentNames(product: ClientProductDefinition): string[] {
+  return Object.keys(product.environments ?? {}).sort();
+}
+
+/**
+ * The names a client product's host is deployed with: derived from its id (and, for an
+ * environment other than `live`, the environment's name), or as it says.
+ */
+export function clientNames(
+  product: ClientProductDefinition,
+  environment?: string,
+): ProductDefinition["names"] {
+  if (environment === undefined || environment === LIVE_ENVIRONMENT) {
+    return {
+      app: `${product.id}-app`,
+      runner: `${product.id}-runner`,
+      gatekeeperPrefix: `${product.id}-gatekeeper-`,
+      database: product.id,
+      resourcePrefix: `${product.id}-`,
+      ...product.names,
+      ...(environment ? product.environments?.[environment]?.names : {}),
+    };
+  }
+  const base = `${product.id}-${environment}`;
+  return {
+    app: `${base}-app`,
+    runner: `${base}-runner`,
+    gatekeeperPrefix: `${base}-gatekeeper-`,
+    database: base,
+    resourcePrefix: `${base}-`,
+    ...product.environments?.[environment]?.names,
+  };
+}
+
+/**
+ * The web app's Worker name and hostname in an environment: as the environment says, else the
+ * product's `web` for `live` (or no environment), else `<web.worker>-<environment>`.
+ */
+export function clientWeb(
+  product: ClientProductDefinition,
+  environment?: string,
+): { worker: string; hostname?: string } | null {
+  if (!product.web) return null;
+  const env = environment ? product.environments?.[environment] : undefined;
+  const live = environment === undefined || environment === LIVE_ENVIRONMENT;
+  const worker =
+    env?.web?.worker ?? (live ? product.web.worker : `${product.web.worker}-${environment}`);
+  const hostname = env?.web?.hostname ?? (live ? product.web.hostname : undefined);
+  return { worker, ...(hostname ? { hostname } : {}) };
 }
 
 /**
@@ -203,6 +333,52 @@ export function defineClientProduct(definition: ClientProductDefinition): Client
   if (names.app === names.runner) fail("names.app and names.runner are the same");
   if (definition.web && [names.app, names.runner].includes(definition.web.worker)) {
     fail("web.worker is one of the host's Workers");
+  }
+  if (definition.environments?.[LIVE_ENVIRONMENT]?.live === false) {
+    fail("the live environment cannot be marked live: false");
+  }
+  const deployments = environmentNames(definition);
+  for (const env of deployments.length ? deployments : [undefined]) {
+    if (
+      gatekeeperSettings(definition, env).payments?.PAYMENTS_FAKE_PROVIDER === true &&
+      isLiveEnvironment(definition, env)
+    ) {
+      fail(
+        `${env ? `environment ${env}` : "the product"} is live and turns on the fake payment provider: only an environment marked live: false may`,
+      );
+    }
+  }
+  if (definition.environments) {
+    const envs = environmentNames(definition);
+    if (!envs.length) fail("environments is empty: leave it out for one deployment");
+    const taken = new Map<string, string>();
+    for (const env of envs) {
+      if (!NAME.test(env)) fail(`environment ${env} must be lowercase letters, digits and hyphens`);
+      const n = clientNames(definition, env);
+      for (const key of ["app", "runner", "database"] as const) {
+        if (!NAME.test(n[key])) fail(`environments.${env}.names.${key} is not a name`);
+      }
+      for (const key of ["gatekeeperPrefix", "resourcePrefix"] as const) {
+        if (!PREFIX.test(n[key])) fail(`environments.${env}.names.${key} must end with a hyphen`);
+      }
+      const web = clientWeb(definition, env);
+      if (web && !NAME.test(web.worker))
+        fail(`environments.${env}.web.worker is not a Worker name`);
+      // Two environments in one account never share a Worker, a database or a prefix.
+      for (const name of [
+        n.app,
+        n.runner,
+        n.database,
+        n.resourcePrefix,
+        n.gatekeeperPrefix,
+        web?.worker,
+      ]) {
+        if (!name) continue;
+        const other = taken.get(name);
+        if (other) fail(`environments ${other} and ${env} both use the name ${name}`);
+        taken.set(name, env);
+      }
+    }
   }
   return definition;
 }

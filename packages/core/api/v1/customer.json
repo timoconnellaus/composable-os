@@ -138,7 +138,7 @@
     },
     {
       "name": "me.get",
-      "description": "Your own Person, as a signed-in customer: your name, primary email and primary phone. Read-only.",
+      "description": "Your own Person, as a signed-in customer: your name, primary email and primary phone, and your account's sign-in address (signInEmail, the one the emailed code verified, with signInEmailVerified). Link records kept elsewhere to a customer by signInEmail only: primaryEmail is a contact address staff can change. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -166,6 +166,14 @@
           },
           "primaryPhone": {
             "type": ["string", "null"]
+          },
+          "signInEmail": {
+            "type": "string",
+            "description": "The address you sign in with: the one the emailed code verified, lower-cased. Not the Person's contact email (primaryEmail), which staff can change. The only address to trust when linking records kept elsewhere to this customer."
+          },
+          "signInEmailVerified": {
+            "type": "boolean",
+            "description": "Whether signInEmail was verified by an emailed code. True for every signed-in customer."
           }
         },
         "required": [
@@ -174,7 +182,9 @@
           "givenName",
           "familyName",
           "primaryEmail",
-          "primaryPhone"
+          "primaryPhone",
+          "signInEmail",
+          "signInEmailVerified"
         ],
         "additionalProperties": false
       },
@@ -381,7 +391,7 @@
     },
     {
       "name": "my.get",
-      "description": "One of your own records, as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.",
+      "description": "One of your own records (or one that a record of yours points to, such as your ticket's event), as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -417,6 +427,10 @@
               "type": "string"
             },
             "additionalProperties": {}
+          },
+          "currency": {
+            "description": "For an object that is for sale: the currency every price of it is in (the deployment's one currency), or null until one is set. Absent for any other object.",
+            "type": ["string", "null"]
           }
         },
         "required": ["object", "id", "values"],
@@ -426,7 +440,7 @@
     },
     {
       "name": "my.list",
-      "description": "A page of your own records of an object, as a signed-in customer (and the records every signed-in customer may read, where the object shares some): only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.",
+      "description": "A page of your own records of an object, as a signed-in customer (and the records every signed-in customer may read, where the object shares some, and the ones a record of yours points to, such as your ticket's event): only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -565,6 +579,10 @@
             }
           },
           "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "currency": {
+            "description": "For an object that is for sale: the currency every price of it is in (the deployment's one currency), or null until one is set. Absent for any other object.",
             "type": ["string", "null"]
           }
         },
@@ -1388,7 +1406,8 @@
         "required": ["date", "sessions"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.history",
@@ -1549,7 +1568,8 @@
         "required": ["exercise", "sets", "best", "capped"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.logAdd",
@@ -1715,7 +1735,8 @@
         "x.programs.progress",
         "x.programs.sessionGet",
         "x.programs.today"
-      ]
+      ],
+      "pack": "programs"
     },
     {
       "name": "x.programs.logUpdate",
@@ -1862,7 +1883,8 @@
         "x.programs.progress",
         "x.programs.sessionGet",
         "x.programs.today"
-      ]
+      ],
+      "pack": "programs"
     },
     {
       "name": "x.programs.progress",
@@ -1969,7 +1991,8 @@
         "required": ["exercises", "assignments", "capped"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.sessionComplete",
@@ -2083,7 +2106,8 @@
         "x.programs.progress",
         "x.programs.sessionGet",
         "x.programs.today"
-      ]
+      ],
+      "pack": "programs"
     },
     {
       "name": "x.programs.sessionGet",
@@ -2320,7 +2344,8 @@
         "required": ["session", "exercises", "logged"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.today",
@@ -2481,11 +2506,12 @@
         "required": ["date", "sessions"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.ticketing.eventsOnSale",
-      "description": "The events on sale now, soonest first, each with its ticket types (name, price, sale window, most per order, deposit) and whether places are left. For an event page or a list of events. Only what the public may read: an event that is not on sale is not here. Read-only. (Extension tool from Ticketing 0.1.0.)",
+      "description": "The events on sale now, soonest first, each with its ticket types (name, price and its currency, sale window, most per order, deposit) and whether places are left. Prices and deposits are in the major unit of `currency` (45.5 is 45.50). For an event page or a list of events. Only what the public may read: an event that is not on sale is not here. Read-only. (Extension tool from Ticketing 0.1.0.)",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -2522,9 +2548,14 @@
                   "type": ["string", "null"]
                 },
                 "startsAt": {
+                  "description": "When it starts (ISO 8601, UTC)",
                   "type": ["string", "null"]
                 },
                 "endsAt": {
+                  "type": ["string", "null"]
+                },
+                "timeZone": {
+                  "description": "The event's IANA time zone, e.g. Asia/Bangkok: show its start and end, and count its days, in this zone. Null only for an event made before events had one.",
                   "type": ["string", "null"]
                 },
                 "venue": {
@@ -2568,6 +2599,10 @@
                       "price": {
                         "type": ["number", "null"]
                       },
+                      "currency": {
+                        "description": "The currency the prices are in (ISO 4217): the deployment's one currency, from the host. Null until an admin sets it, and until then nothing can be bought.",
+                        "type": ["string", "null"]
+                      },
                       "onSaleFrom": {
                         "type": ["string", "null"]
                       },
@@ -2604,6 +2639,7 @@
                       "name",
                       "description",
                       "price",
+                      "currency",
                       "onSaleFrom",
                       "onSaleUntil",
                       "maxPerOrder",
@@ -2620,6 +2656,7 @@
                 "name",
                 "startsAt",
                 "endsAt",
+                "timeZone",
                 "venue",
                 "description",
                 "image",
@@ -2633,11 +2670,12 @@
         "required": ["events"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.myTickets",
-      "description": "The signed-in customer's own tickets: each with its event, ticket type, code and state (valid, used or void). Only the caller's tickets exist here; a code that is not theirs finds nothing. Filter by event or by code. Read-only. (Extension tool from Ticketing 0.1.0.)",
+      "description": "The signed-in customer's own tickets: each with its event (id, name, start, end, venue and state, as they are now, whether or not the event is still on sale), its ticket type (id and name), its code and its state (valid, used or void). Only the caller's tickets exist here; a code that is not theirs finds nothing. Filter by event or by code. Read-only. (Extension tool from Ticketing 0.1.0.)",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -2695,9 +2733,46 @@
                 },
                 "state": {
                   "type": ["string", "null"]
+                },
+                "eventName": {
+                  "type": ["string", "null"]
+                },
+                "startsAt": {
+                  "description": "When the event starts (ISO 8601, UTC)",
+                  "type": ["string", "null"]
+                },
+                "endsAt": {
+                  "type": ["string", "null"]
+                },
+                "timeZone": {
+                  "description": "The event's IANA time zone, e.g. Asia/Bangkok: show its start and end, and count its days, in this zone. Null only for an event made before events had one.",
+                  "type": ["string", "null"]
+                },
+                "venue": {
+                  "type": ["string", "null"]
+                },
+                "eventStatus": {
+                  "description": "The event's state now: draft, on_sale, ended or cancelled",
+                  "type": ["string", "null"]
+                },
+                "ticketTypeName": {
+                  "type": ["string", "null"]
                 }
               },
-              "required": ["id", "event", "ticketType", "code", "state"],
+              "required": [
+                "id",
+                "event",
+                "ticketType",
+                "code",
+                "state",
+                "eventName",
+                "startsAt",
+                "endsAt",
+                "timeZone",
+                "venue",
+                "eventStatus",
+                "ticketTypeName"
+              ],
               "additionalProperties": false
             }
           },
@@ -2708,7 +2783,8 @@
         "required": ["items", "nextCursor"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.orderStart",
@@ -2847,7 +2923,8 @@
         "my.list",
         "x.ticketing.eventsOnSale",
         "x.ticketing.myTickets"
-      ]
+      ],
+      "pack": "ticketing"
     }
   ]
 }

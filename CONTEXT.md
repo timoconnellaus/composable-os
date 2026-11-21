@@ -882,8 +882,9 @@ _Avoid_: hook, trigger (a trigger starts an automation), plugin
 A shipped extension plus its headless client hooks, versioned and released by the platform, turned
 on per product: Deals, Leads, Ticketing, Content (stage 24, ADR 0401). One folder, `packs/<id>/`:
 the extension (`index.ts` and its files), `client/` (headless hooks) and `blocks/` (screens). A
-product lists its packs (`packs` in its `product.ts`); a pack it does not list is not in its
-release.
+release carries every pack; a product lists the packs its deployments install (`packs` in its
+`product.ts`, `COS_PACKS` on the host), and a deployment has none of a pack it does not install
+(ADR 0420 as amended).
 _Avoid_: module, plugin (a plugin is an assistant plugin, ADR 0347), app
 
 **Block**
@@ -908,10 +909,17 @@ host is deployed from, its packs, its apps). Started from the template (`cos cre
 in place (`cos init`), never a fork of the platform; it holds no platform code and no path to the
 database (stage 24, ADR 0422).
 
+**Environment**
+One deployment of a client product, named in its `product.ts` (`staging`, `live`): its own host
+(Workers, database, secrets, addresses) beside the others in one Cloudflare account, deployed with
+`cos deploy --env <name>`. `live` keeps the product's plain names (`<id>-app`); another is
+`<id>-<env>-app`. One marked `live: false` may use test settings (ADR 0450).
+_Avoid_: stage (a stage is a record's place in a pipeline), tenant
+
 **Client kit**
 What a release carries for client repos, verified with the rest of the bundle: the template, the
 skills as a client repo reads them, the blocks, the API contract per audience and the list of its
-packs. `cos create`, `init`, `add`, `diff` and `upgrade` read the kit of the release that matches
+packs (`packs.json`, the only list `cos deploy` trusts). `cos create`, `init`, `add`, `diff` and `upgrade` read the kit of the release that matches
 the repo's platform version (stage 24, ADR 0422).
 
 **`ClientApp` (the client-app binding)**
@@ -1079,8 +1087,8 @@ a person approves it in the Approvals inbox (never an AI); the order shows it on
 confirms (ADR 0429).
 
 **Event** (Ticketing)
-Something tickets are sold for: a camp, a workshop, a night, with its times, venue and status
-(draft, on sale, ended, cancelled). Its places, when set, are shared by all its ticket types (the
+Something tickets are sold for: a camp, a workshop, a night, with its times, its own time zone,
+venue and status (draft, on sale, ended, cancelled). Its places, when set, are shared by all its ticket types (the
 pool). A record of the Ticketing pack (`ticketing.event`, stage 27).
 _Avoid_: class, session (a class is booked, not ticketed)
 
@@ -1092,7 +1100,9 @@ _Avoid_: tier, package (as a word for the object), product
 
 **Ticket** (Ticketing)
 One person's right to attend: granted by the host, one per place, when the order is first paid,
-with a code. It is its holder's (a Person): they see its event, type, code and state. Valid, used
+with a code. It is its holder's (a Person): they see its event, type, code and state, and through
+it their event's name, dates, zone and venue and their ticket type's name, whatever the event's
+state. Valid, used
 or void (`ticketing.ticket`).
 _Avoid_: booking, pass (a pass grants an allowance), seat
 
@@ -1130,6 +1140,25 @@ A named permission a human admin grants one staff account on top of its role (AD
 permission the pack declares grantable. Read from the account on every call; a pack role replaces
 it; it never lets an AI actor do what only a person may.
 _Avoid_: role (a role is admin, member or viewer), scope (an MCP token's)
+
+**Through their own records** (`customerVia`)
+What a customer reads of a record one of their own records points to (ADR 0439): the fields an
+object declares, of the records a record of theirs points to (a ticket's event, whatever its
+state), live. Nothing of a record no record of theirs points to. Read with `my.list` and
+`my.get`. Not a way to buy: a customer buys only what they read as their own or as the public.
+_Avoid_: related, linked (any relation), shared (the signed-in scope's word)
+
+**Sign-in address**
+The address a customer's account signs in with: the one the emailed code was sent to and
+verified on (`me.get`'s `signInEmail`). The only address a company may trust to link its own
+records to a customer. Not the Person's contact email, which staff can change.
+_Avoid_: primary email (the Person's contact address), login
+
+**Time zone** (field)
+A `timezone` field (ADR 0460): an IANA zone name the runtime knows, the deployment's zone when a
+new record leaves it empty. A record's datetimes are shown, and a date trigger with `zoneField`
+counts its days, in it.
+_Avoid_: offset (an offset changes with daylight saving), locale
 
 **Signed-in scope** (`signedIn`)
 What an object declares every signed-in customer may read, whoever's record it is (ADR 0447):

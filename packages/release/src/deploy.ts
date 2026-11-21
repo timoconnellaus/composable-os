@@ -77,6 +77,22 @@ export interface DeploymentState {
   resourceNames?: Record<string, string>;
   /** Plain var overrides per Worker (e.g. IDENTITY_PROVIDER, APPROVAL_FLOOR). */
   vars: Record<string, Record<string, string>>;
+  /**
+   * Settings of a Worker's `send_email` bindings per Worker and binding name (ADR 0452): which
+   * sender and destination addresses Cloudflare Email Service lets it use. Deploy-time
+   * configuration, as `vars` are; the release's binding is otherwise unchanged.
+   */
+  sendEmail?: Record<
+    string,
+    Record<
+      string,
+      {
+        allowed_sender_addresses?: string[];
+        destination_address?: string;
+        allowed_destination_addresses?: string[];
+      }
+    >
+  >;
   /** Resolved resource placeholders, e.g. `D1_ID(demo)` → its uuid. */
   resources: Record<string, string>;
   /** sha256 of the installed bundle. */
@@ -360,6 +376,10 @@ export function workerBindings(
   const bindings = renderBindings(wanted, values).map((binding) => {
     if (binding.type === "plain_text" && overrides[binding.name] !== undefined) {
       return { ...binding, text: overrides[binding.name] };
+    }
+    const email = state.sendEmail?.[worker.name]?.[binding.name];
+    if (binding.type === "send_email" && email) {
+      return { ...binding, ...email } as ManifestBinding;
     }
     // Workflows are named in the binding itself, so a deployed name is written into it.
     const workflow = (binding as { workflow_name?: string }).workflow_name;
