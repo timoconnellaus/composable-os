@@ -182,7 +182,7 @@ describe("invite only (criterion 11)", () => {
           db,
         },
       ),
-    ).toEqual({ signup: "invite_only", eraseDueDays: 30, emailConnectionId: null });
+    ).toMatchObject({ signup: "invite_only", eraseDueDays: 30, emailConnectionId: null });
   });
 
   it("answers an uninvited address exactly as an invited one, and sends it nothing", async () => {

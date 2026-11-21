@@ -13,6 +13,7 @@ import {
   loadCustomerSignup,
   loadEraseDueDays,
 } from "../customers/settings.ts";
+import { signInKindStatement, signInMailState } from "../customers/sign-in-mail.ts";
 import { ValidationError } from "../errors.ts";
 import { resolveChannelTarget } from "../notifications/channels.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
@@ -31,11 +32,18 @@ const emailConnectionId = z
   .max(64)
   .nullable()
   .describe(
-    "The org email-send connection (con_…) customer mail goes out from: sign-in codes and a " +
-      "declined erase request. The host sends it itself, as no staff member. Null: customers " +
-      "cannot sign in, and are told sign-in is not set up.",
+    "The org email-send connection (con_…) the host's mail goes out from: customer and staff " +
+      "sign-in codes, invite notices and a declined erase request. The host sends it itself, as " +
+      "no staff member. Null: nobody can sign in by code, and is told sign-in is not set up.",
   );
 const customerSettings = z.object({ signup, eraseDueDays, emailConnectionId });
+/** Whether sign-in codes go out at once through that connection now (ADR 0456). */
+const signInMail = z.object({
+  kind: z.object({ tag: z.string(), label: z.string() }).nullable(),
+  autoApproved: z.boolean(),
+  ready: z.boolean(),
+  problem: z.string().nullable(),
+});
 
 async function load(ctx: HandlerContext) {
   return {
@@ -49,15 +57,16 @@ export const customerSettingsGet = defineOperation({
   name: "customer.settings.get",
   description:
     "Get the customer account settings: whether customer sign-up is open or invite only, " +
-    "how many days staff have to action a deleted account's erase request, and which email " +
-    "connection customer mail goes out from. Read-only.",
+    "how many days staff have to action a deleted account's erase request, which email " +
+    "connection the host's mail goes out from, and whether sign-in codes go out through it " +
+    "now (signInMail: not until an admin lets its sign-in kind apply without review). Read-only.",
   input: z.object({}),
-  output: customerSettings,
+  output: customerSettings.extend({ signInMail }),
   permission: "records:read",
   risk: "read",
   mcp: { idempotent: true },
   async handler(_input, ctx) {
-    return load(ctx);
+    return { ...(await load(ctx)), signInMail: await signInMailState(ctx.db, ctx.floor) };
   },
 });
 
@@ -126,6 +135,19 @@ export const customerSettingsUpdate = defineOperation({
     if (input.eraseDueDays !== undefined) store(CUSTOMER_ERASE_DUE_SETTING, "eraseDueDays");
     if (input.emailConnectionId !== undefined) {
       store(CUSTOMER_EMAIL_CONNECTION_SETTING, "emailConnectionId");
+      // Its vendor's sign-in kind is made known now (auto-approvable, not auto-approved), so an
+      // admin can turn it on before any code is asked for (ADR 0456).
+      if (input.emailConnectionId) {
+        const connection = await ctx.db
+          .selectFrom("core_integration_connection")
+          .select("vendor")
+          .where("id", "=", input.emailConnectionId)
+          .executeTakeFirst();
+        const statement = connection
+          ? signInKindStatement(ctx.db, connection.vendor, ctx.now)
+          : null;
+        if (statement) ctx.write(statement);
+      }
     }
     return { ...next, previous };
   },

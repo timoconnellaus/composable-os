@@ -54,8 +54,14 @@ decorators, because the CRM app's Vite dev server does not transform them. `list
 | --- | --- | --- | --- |
 | `email.send` | Send email | `false` | Any send with a recipient outside `INTERNAL_DOMAINS` |
 | `email.internal` | Send email to colleagues | `true` | Every recipient's domain is in `INTERNAL_DOMAINS` |
+| `email.signin` | Send sign-in codes | `true` | The host's own sign-in code (ADR 0456): the session's queue says `isHostSignInMail()` and the message is exactly the code template (`src/sign-in.ts`) |
 
-`getAutoApprovableActions()` returns `[email.internal]`. The description is a rendered preview
+`email.signin` is decided from the session's approval queue, which only the CRM's integration host
+answers, for its own `callAsHost` with purpose `sign-in`: nothing in the message can claim it. A
+send from any other session, or any message that differs from the template, is `email.send` or
+`email.internal` as before. cos-runner's fake outbox imports the same `src/sign-in.ts`.
+
+`getAutoApprovableActions()` returns `[email.internal, email.signin]`. The description is a rendered preview
 built with the kit's `buildDescription`:
 
 - title `Send email: <subject>`

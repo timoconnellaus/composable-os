@@ -35,6 +35,7 @@ import {
 import { domainOf, parseDomainList } from "./address";
 import type { SenderConfiguratorRpc } from "./configurator/sender-configurator-types";
 import { assertSenderAllowed, SENDER_URL_PATTERN, senderFromUrl, senderUrl } from "./sender";
+import { isHostSignInMail, isSignInCodeMessage, SIGN_IN_KIND } from "./sign-in";
 import {
   type EmailTransport,
   isRefusedBeforeSending,
@@ -69,7 +70,10 @@ const SENDER_RESOURCE: SupportedResource = {
   grantable: true,
 };
 
-/** Action kinds, by tag. `email.internal` is the only auto-approvable one. */
+/**
+ * Action kinds, by tag. `email.internal` and the host's `email.signin` (sign-in.ts, ADR 0456) are
+ * the auto-approvable ones.
+ */
 const SEND_KIND: ActionKind = { tag: "email.send", label: "Send email" };
 const INTERNAL_KIND: ActionKind = { tag: "email.internal", label: "Send email to colleagues" };
 
@@ -84,7 +88,8 @@ const HISTORY_PREFIX = "history:";
 /** What the journal stores for one send: the sender at submit time and the validated message. */
 type StoredEmail = { from: string; message: EmailSendMessage };
 
-type Actions = { send: StoredEmail; sendInternal: StoredEmail };
+type Actions = { send: StoredEmail; sendInternal: StoredEmail; sendSignIn: StoredEmail };
+type SendKind = keyof Actions;
 
 /** A settled send, as `listSent()` reports it. */
 type HistoryEntry = {
@@ -129,9 +134,9 @@ function describeSend(email: StoredEmail, internal: boolean) {
   };
 }
 
-const sendDefinition = (internal: boolean) => ({
-  kind: internal ? INTERNAL_KIND : SEND_KIND,
-  autoApprovable: internal,
+const sendDefinition = (internal: boolean, kind?: ActionKind) => ({
+  kind: kind ?? (internal ? INTERNAL_KIND : SEND_KIND),
+  autoApprovable: internal || kind !== undefined,
   delivery: "continue-with-simulation" as const,
   // A crash between handing the email to Email Service and recording it must not send it twice.
   claimBeforeApply: true,
@@ -145,7 +150,12 @@ const sendDefinition = (internal: boolean) => ({
 });
 
 const actions = defineActions<EmailHost, Actions>(
-  { send: sendDefinition(false), sendInternal: sendDefinition(true) },
+  {
+    send: sendDefinition(false),
+    sendInternal: sendDefinition(true),
+    // The host's sign-in code (ADR 0456): an independent send, so it never waits behind another.
+    sendSignIn: sendDefinition(false, SIGN_IN_KIND),
+  },
   // Email Service has no per-user authority to pin: the Worker's own binding sends every email,
   // and apply re-checks the sender domain against the current configuration instead.
   { fence: "none", vendorId: "email-send" },
@@ -169,7 +179,7 @@ type SenderProps = { sender: string };
 /** What a session may ask of its facet, as closures so the session holds no facet reference. */
 type SessionBackend = {
   sender: string;
-  submit(queue: RpcStub<ApprovalQueue>, email: StoredEmail, internal: boolean): Promise<number>;
+  submit(queue: RpcStub<ApprovalQueue>, email: StoredEmail, kind: SendKind): Promise<number>;
   wasSent(id: number): boolean;
   listSent(): EmailSendRecord[];
   internalDomains(): string | undefined;
@@ -191,8 +201,14 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     const parsed = parseMessage(message);
     const sender = this.#backend.sender;
     assertSenderAllowed(sender, this.#backend.allowedDomains());
-    const internal = isInternal(parsed, this.#backend.internalDomains());
-    const id = await this.#backend.submit(this.#queue, { from: sender, message: parsed }, internal);
+    // The host's sign-in mail only from the host's own queue, and only the fixed template.
+    const kind: SendKind =
+      isSignInCodeMessage(parsed) && (await isHostSignInMail(this.#queue))
+        ? "sendSignIn"
+        : isInternal(parsed, this.#backend.internalDomains())
+          ? "sendInternal"
+          : "send";
+    const id = await this.#backend.submit(this.#queue, { from: sender, message: parsed }, kind);
     // An auto-approved send may already have been applied while the submission was in flight.
     return { status: this.#backend.wasSent(id) ? "sent" : "pending", id };
   }
@@ -337,7 +353,7 @@ export class EmailSendGatekeeper
     return TYPES_CODE;
   }
 
-  /** `email.internal` only: a send whose every recipient is a colleague. */
+  /** `email.internal` (every recipient a colleague) and `email.signin` (the host's sign-in code). */
   async getAutoApprovableActions(): Promise<ActionKind[]> {
     return this.#actions().autoApprovableKinds();
   }
@@ -346,8 +362,7 @@ export class EmailSendGatekeeper
   async startSession(approvalQueue: RpcStub<ApprovalQueue>): Promise<EmailSendSession> {
     const backend: SessionBackend = {
       sender: this.#sender(),
-      submit: (queue, email, internal) =>
-        this.#actions().submit(queue, internal ? "sendInternal" : "send", email),
+      submit: (queue, email, kind) => this.#actions().submit(queue, kind, email),
       wasSent: (id) => this.#journal.wasApplied(id),
       listSent: () => this.#listSent(),
       internalDomains: () => this.env.INTERNAL_DOMAINS,

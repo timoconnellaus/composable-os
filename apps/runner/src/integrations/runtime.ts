@@ -70,6 +70,7 @@ export function integrationRuntime(env: Env): IntegrationRuntime {
         method: i.method,
         args: i.args,
         purpose: i.purpose,
+        ...(i.origin ? { origin: i.origin } : {}),
       }),
     types: (i) => hostFor(env, i.connectionId).types(i.resource),
     applyOutbound: (i) => hostFor(env, i.connectionId).applyOutbound(i.facetKey, i.action),

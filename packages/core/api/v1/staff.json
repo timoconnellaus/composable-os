@@ -17607,7 +17607,7 @@
     },
     {
       "name": "customer.settings.get",
-      "description": "Get the customer account settings: whether customer sign-up is open or invite only, how many days staff have to action a deleted account's erase request, and which email connection customer mail goes out from. Read-only.",
+      "description": "Get the customer account settings: whether customer sign-up is open or invite only, how many days staff have to action a deleted account's erase request, which email connection the host's mail goes out from, and whether sign-in codes go out through it now (signInMail: not until an admin lets its sign-in kind apply without review). Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -17645,13 +17645,61 @@
                 "type": "null"
               }
             ],
-            "description": "The org email-send connection (con_…) customer mail goes out from: sign-in codes and a declined erase request. The host sends it itself, as no staff member. Null: customers cannot sign in, and are told sign-in is not set up."
+            "description": "The org email-send connection (con_…) the host's mail goes out from: customer and staff sign-in codes, invite notices and a declined erase request. The host sends it itself, as no staff member. Null: nobody can sign in by code, and is told sign-in is not set up."
+          },
+          "signInMail": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "tag": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "autoApproved": {
+                "type": "boolean"
+              },
+              "ready": {
+                "type": "boolean"
+              },
+              "problem": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "autoApproved",
+              "ready",
+              "problem"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
           "signup",
           "eraseDueDays",
-          "emailConnectionId"
+          "emailConnectionId",
+          "signInMail"
         ],
         "additionalProperties": false
       },
@@ -17693,7 +17741,7 @@
                 "type": "null"
               }
             ],
-            "description": "The org email-send connection (con_…) customer mail goes out from: sign-in codes and a declined erase request. The host sends it itself, as no staff member. Null: customers cannot sign in, and are told sign-in is not set up."
+            "description": "The org email-send connection (con_…) the host's mail goes out from: customer and staff sign-in codes, invite notices and a declined erase request. The host sends it itself, as no staff member. Null: nobody can sign in by code, and is told sign-in is not set up."
           }
         }
       },
@@ -17725,7 +17773,7 @@
                 "type": "null"
               }
             ],
-            "description": "The org email-send connection (con_…) customer mail goes out from: sign-in codes and a declined erase request. The host sends it itself, as no staff member. Null: customers cannot sign in, and are told sign-in is not set up."
+            "description": "The org email-send connection (con_…) the host's mail goes out from: customer and staff sign-in codes, invite notices and a declined erase request. The host sends it itself, as no staff member. Null: nobody can sign in by code, and is told sign-in is not set up."
           },
           "previous": {
             "type": "object",
@@ -17755,7 +17803,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "The org email-send connection (con_…) customer mail goes out from: sign-in codes and a declined erase request. The host sends it itself, as no staff member. Null: customers cannot sign in, and are told sign-in is not set up."
+                "description": "The org email-send connection (con_…) the host's mail goes out from: customer and staff sign-in codes, invite notices and a declined erase request. The host sends it itself, as no staff member. Null: nobody can sign in by code, and is told sign-in is not set up."
               }
             },
             "required": [
@@ -51480,6 +51528,7 @@
             "type": "string",
             "enum": [
               "sent",
+              "pending",
               "not_sent",
               "not_needed"
             ]

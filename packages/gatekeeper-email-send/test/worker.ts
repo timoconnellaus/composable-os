@@ -42,10 +42,17 @@ export class FakeEmail extends WorkerEntrypoint {
  */
 class FakeQueue extends RpcTarget {
   readonly #autoApply: ((id: number) => Promise<void>) | undefined;
+  readonly #hostSignIn: boolean;
 
-  constructor(autoApply?: (id: number) => Promise<void>) {
+  constructor(autoApply?: (id: number) => Promise<void>, hostSignIn = false) {
     super();
     this.#autoApply = autoApply;
+    this.#hostSignIn = hostSignIn;
+  }
+
+  /** As the CRM's integration host answers: true only for its own sign-in mail (ADR 0456). */
+  async isHostSignInMail(): Promise<boolean> {
+    return this.#hostSignIn;
   }
 
   async submitAction(action: number, description: ActionDescription): Promise<void> {
@@ -66,7 +73,10 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
   #session: EmailSendSession | undefined;
 
   /** Resolves `url` through a fresh account, creates the facet and opens a session. */
-  async open(url: string, options: { autoApply?: boolean } = {}): Promise<ResourceDescription> {
+  async open(
+    url: string,
+    options: { autoApply?: boolean; hostSignIn?: boolean } = {},
+  ): Promise<ResourceDescription> {
     const account = this.ctx.exports.EmailSendAccount({});
     const { class: gatekeeperClass } = await account.getGatekeeperClassFor(url);
     const facet = this.ctx.facets.get<EmailSendGatekeeper>("gatekeeper", () => ({
@@ -74,7 +84,10 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
       class: gatekeeperClass as unknown as DurableObjectClass<EmailSendGatekeeper>,
     }));
     this.#facet = facet;
-    const queue = new FakeQueue(options.autoApply ? (id) => facet.applyAction(id) : undefined);
+    const queue = new FakeQueue(
+      options.autoApply ? (id) => facet.applyAction(id) : undefined,
+      options.hostSignIn === true,
+    );
     this.#session = (await facet.startSession(queue as never)) as unknown as EmailSendSession;
     return facet.describe();
   }

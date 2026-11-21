@@ -8,6 +8,12 @@
 // Not a template for production gatekeepers: no PKCE, no credentials, a trivially simple journal.
 // See packages/gatekeeper-email-send and packages/gatekeeper-slack-post for real ones.
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+// The email-send gatekeeper's own rule for the host's sign-in mail, so the fake decides it the
+// same way (ADR 0456). The module imports only types.
+import {
+  isHostSignInMail,
+  isSignInCodeMessage,
+} from "../../../../packages/gatekeeper-email-send/src/sign-in.ts";
 import { connectHandoffPageHtml, htmlResponse } from "./pages.ts";
 
 // --- Shapes ------------------------------------------------------------------------------------
@@ -547,6 +553,8 @@ interface Journal {
       to: string[];
       subject: string;
       text: string;
+      /** The host's sign-in mail (ADR 0456): applied whatever waits before it, as email-send does. */
+      independent?: boolean;
     }
   >;
 }
@@ -639,7 +647,10 @@ export class FakeGatekeeper extends DurableObject<
   async getAutoApprovableActions() {
     if (this.#props.kind === "slack") return [{ tag: "fake.slack.dm", label: "DM a member" }];
     return this.#props.kind === "outbox"
-      ? [{ tag: "fake.internal", label: "Send internal mail" }]
+      ? [
+          { tag: "fake.internal", label: "Send internal mail" },
+          { tag: "fake.signin", label: "Send sign-in codes" },
+        ]
       : [];
   }
 
@@ -759,17 +770,30 @@ export class FakeGatekeeper extends DurableObject<
     const subject = String(message?.subject ?? "").slice(0, 500);
     const text = String(message?.text ?? "").slice(0, 20_000);
     if (!to.length || !subject) throw new Error("send needs `to` and a `subject`");
-    // Colleagues, as the email-send gatekeeper decides it from its internal domains: every
-    // recipient at the outbox's own domain (ADR 0455). Such a send is `fake.internal`, which an
-    // admin may let apply without review.
-    const ownDomain = this.#props.address.split("@")[1]?.toLowerCase() ?? "";
-    const internal =
-      message.internal === true ||
-      (ownDomain !== "" && to.every((a) => a.split("@")[1]?.toLowerCase() === ownDomain));
+    const internal = message.internal === true;
+    // The host's sign-in mail, decided exactly as the email-send gatekeeper decides it (ADR 0456):
+    // the host's own queue says so, and the message is the fixed code template.
+    const signIn =
+      message.internal === undefined &&
+      isSignInCodeMessage({
+        to,
+        subject,
+        text,
+        ...(Array.isArray(message.relatedRecords) && message.relatedRecords.length
+          ? { relatedRecords: message.relatedRecords.map(String) }
+          : {}),
+      }) &&
+      (await isHostSignInMail(queue));
     const journal = this.#journal();
     const id = journal.next;
     journal.next += 1;
-    journal.actions[id] = { status: "pending", to, subject, text };
+    journal.actions[id] = {
+      status: "pending",
+      to,
+      subject,
+      text,
+      ...(signIn ? { independent: true } : {}),
+    };
     this.ctx.storage.kv.put("journal", journal);
     const related = Array.isArray(message.relatedRecords) ? message.relatedRecords.map(String) : [];
     await queue.submitAction(id, {
@@ -784,10 +808,12 @@ export class FakeGatekeeper extends DurableObject<
       ],
       descriptionIsComplete: true,
       implementsRevert: false,
-      autoApprovable: internal,
-      actionKind: internal
-        ? { tag: "fake.internal", label: "Send internal mail" }
-        : { tag: "fake.send", label: "Send mail" },
+      autoApprovable: internal || signIn,
+      actionKind: signIn
+        ? { tag: "fake.signin", label: "Send sign-in codes" }
+        : internal
+          ? { tag: "fake.internal", label: "Send internal mail" }
+          : { tag: "fake.send", label: "Send mail" },
     });
     return { id, status: this.#journal().actions[id]?.status === "sent" ? "sent" : "pending" };
   }
@@ -847,10 +873,13 @@ export class FakeGatekeeper extends DurableObject<
     if (!entry) throw new Error(`No action ${action}`);
     if (entry.status === "sent") return;
     if (entry.status === "rejected") throw new Error(`Action ${action} was rejected`);
-    // In order: an earlier action still pending refuses this one.
-    const earlier = Object.entries(journal.actions).find(
-      ([id, a]) => Number(id) < action && a.status === "pending",
-    );
+    // In order: an earlier action still pending refuses this one. The host's sign-in mail is
+    // independent of what waits (as email-send's actions are), and holds back nothing.
+    const earlier = entry.independent
+      ? undefined
+      : Object.entries(journal.actions).find(
+          ([id, a]) => Number(id) < action && a.status === "pending" && !a.independent,
+        );
     if (earlier) throw new Error(`Action ${earlier[0]} must be decided first`);
     await this.#provider().recordSent({
       action,

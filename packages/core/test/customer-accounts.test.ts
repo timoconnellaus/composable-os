@@ -66,6 +66,8 @@ describe("the sign-up setting", () => {
       signup: "invite_only",
       eraseDueDays: 30,
       emailConnectionId: null,
+      // Nothing to send sign-in codes through yet (ADR 0456).
+      signInMail: { kind: null, autoApproved: false, ready: false, problem: expect.any(String) },
     });
     await env.DB.prepare(
       "INSERT INTO core_settings (key, value, updated_at) VALUES ('customer_signup', '\"wide-open\"', ?)",
