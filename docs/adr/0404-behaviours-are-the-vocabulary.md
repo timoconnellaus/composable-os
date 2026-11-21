@@ -54,3 +54,7 @@ set is small and shared, a pack is mostly a manifest.
   full refund, or cancelling after a deposit, voids it in the same batch.
 - "Entitlement" already means a hosted plan's limits (ADR 0211). The pass-and-uses behaviour is
   called `allowance` to keep the two apart.
+- **`publishable` is half built** (2026-11-21, stage 41, ADR 0446): a working copy, published
+  versions, the publish operation for a person with `records:publish`, reading and restoring a
+  version; no public reads, states or slugs, which stage 28 adds on the same table and operations.
+  The first object to declare it is Programs' program.

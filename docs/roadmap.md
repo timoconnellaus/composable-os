@@ -146,7 +146,7 @@ gets its interview and spec when a client needs it, and not before.
 | 38 | Knowledge base | Staff procedures and customer help pages; built on Content | not specced |
 | 39 | Jobs and projects | Work with stages, tasks and time spent; built on `stages` and Tasks | not specced |
 | 40 | Rosters | Shifts, availability and timesheets; built on `recurring` | not specced |
-| 41 | Programs | A bank of exercises and programs built from it in one layout (weeks, sessions, blocks, items with typed sets and levels); assigned to a person or a class type with dates; every set logged against its target ([spec](stages/41-programs.md)) | spec agreed |
+| 41 | Programs | A bank of exercises and programs built from it in one layout (weeks, sessions, blocks, items with typed sets and levels); assigned to a person or a class type with dates; every set logged against its target ([spec](stages/41-programs.md)) | in build: steps 1 to 3 (the document field, `publishable` without its public half, the signed-in scope, the pack's spine) built |
 | 42 | Courses | Video lessons with levels and progress, sold one-off, as a bundle or by subscription; built on Programs, orders and recurring billing | not specced |
 
 ### How a module is built

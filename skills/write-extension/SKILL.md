@@ -48,6 +48,15 @@ Read these before writing. They are the source of truth; this skill only gives t
    reads only the same record's fields. See Deals: `objects.deal.fields`, `weightedValue`.
    `ObjectSpec` has more than the examples use; read it for `owner` (the record's user field),
    `titleDefault` (a title taken from a relation) and `requireOneOf` (Leads uses all three).
+   Something whole and nested that is edited, versioned or copied as one (a program's layout of
+   weeks, sessions and items) is one **`document`** field with a `schema`, not records per level:
+   `{ type: "document", schema: { root, defs? }, maxBytes?, paths? }` (`DocumentSchema` in
+   `packages/sdk/src/document.ts`, ADR 0445). The host refuses a value that breaks it, with the
+   path of the fault, for every actor. Give every list a `max`; use `union` with a tag for "one of
+   these shapes", `ref` for a record id the host checks exists, `private` (or `{ unless:
+   "<boolean key>" }`) on an object customers must not read, and `paths` for values a list,
+   filter or dashboard needs as columns. See Programs: `packs/programs/layout.ts`. What people
+   record (one row per set) stays records.
 5. **Relate records.** `{ type: "relation", to: "organisation" }` for a base record,
    `to: "<id>.<object>"` for your own, `to: "deals.deal"` for another extension's. To add fields
    to an object you do not own, use top-level `fields: { organisation: { ... } }` or
@@ -129,6 +138,25 @@ extension declares it; it never implements it. Each behaviour the platform has i
   calls `public.list` or `public.get` (add them to `permissions.operations`); never filter by state
   in the tool, the seam does. Anything you sell to customers or guests must declare it: they buy
   only what they may read. See Ticketing: `objects.event.public`, `objects.tickettype.public`.
+
+- **`signedIn`** on an object: what every signed-in customer may read, whoever's record it is
+  (ADR 0447), `signedIn: { read: [fields], when?: { field, in } | { via, field, in } }`, the
+  shape of `public` and never read by the public. Beside a `customer` declaration it shares the
+  records meeting `when` (a class type's sessions) next to each customer's own; `read` must then
+  be a subset of `customer.read`, and a customer still changes only their own. Alone, it opens
+  every live record (or those meeting `when`) to read (an exercise bank). An object declares
+  `public` or `signedIn`, not both. Customers read it with `my.list` and `my.get`. A relation a
+  customer's write sets (through your tool) must point at a record they can see: the host
+  refuses another customer's as not found, so never check it in a tool. See Programs:
+  `objects.session`, `objects.exercise`.
+- **`publishable`** on an object: a working copy staff edit and published versions (ADR 0446),
+  `publishable: { content: [fields] }`. `record.publish` (a person with `records:publish`, never
+  an AI actor or your code) snapshots the content fields as the next version; `record.version`
+  reads one (the current by default), `record.versions` lists them, `record.restoreVersion`
+  copies one back. Records get read-only `publishedVersion` and `publishedAt`, so don't declare
+  fields with those names. What follows a version (an assignment) stores its number and reads
+  `record.version`, never the working copy. Public reads of a version are stage 28's. See
+  Programs: `objects.program`.
 
 ### Roles
 
