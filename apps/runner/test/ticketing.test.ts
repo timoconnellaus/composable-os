@@ -32,13 +32,15 @@ import { createAdmin, db, host, unique } from "./helpers.ts";
 
 const files = Object.fromEntries(
   Object.entries(
-    // The pack's extension files, as a release carries them (not its config or tests).
-    import.meta.glob<string>(["../../../packs/ticketing/*.ts", "!**/vitest.config.ts"], {
+    import.meta.glob<string>("../../../packs/ticketing/*.ts", {
       query: "?raw",
       import: "default",
       eager: true,
     }),
-  ).map(([path, text]) => [path.split("/").pop() as string, text]),
+  )
+    .map(([path, text]) => [path.split("/").pop() as string, text] as const)
+    // The pack's extension files, as a release carries them (not its config or tests).
+    .filter(([name]) => name !== "vitest.config.ts"),
 );
 
 /** The extension host of a deployment whose product lists Ticketing. */
@@ -808,7 +810,7 @@ describe("the door role (criterion 6b, ADR 0436)", () => {
     expect(scan.accepted).toBe(true);
   });
 
-  it("is refused every other operation in the registry, before its input is read", async () => {
+  it("is refused every other operation in the registry, whatever its input", async () => {
     const all: AnyOperation[] = [
       ...coreRegistry.list(),
       ...(await loadExtensionOperations(db.query)),

@@ -617,11 +617,16 @@ async function invokeOnce<O extends AnyOperation>(
     throw new OperationError("internal", "Unknown actor");
   }
   if (!allowsAudience(op, staffPrincipal(ctx.user))) throw new UnknownOperationError(op.name);
+  const parsed = op.input.safeParse(rawInput);
   // A staff account with a pack role (ADR 0436) may call only what the role lists. Read from the
-  // account on every call, not from what the adapter resolved, and refused before the input is
-  // looked at: such an account learns nothing about any other operation.
-  const packRole: HeldPackRole | null =
-    ctx.user.id === SYSTEM_USER.id ? null : await loadPackRole(ctx.db.query, ctx.user.id);
+  // account on every call, not from what the adapter resolved (beside the registry's own read,
+  // so it adds no round trip), and refused whatever the input: such an account learns nothing
+  // about any other operation, not even whether its input was valid.
+  const [packRole] = await Promise.all([
+    ctx.user.id === SYSTEM_USER.id ? null : loadPackRole(ctx.db.query, ctx.user.id),
+    // Extension objects and fields join the field registry (ADR 0023); cheap when unchanged.
+    parsed.success ? refreshSchemaRegistry(ctx.db.query) : null,
+  ]);
   if (packRole && !packRoleReaches(packRole, op)) {
     const error = packRoleRefusal(packRole, op);
     const gate = evaluateGate(
@@ -642,14 +647,11 @@ async function invokeOnce<O extends AnyOperation>(
     });
     throw error;
   }
-  const parsed = op.input.safeParse(rawInput);
   if (!parsed.success) {
     throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });
   }
   // Relative filter values ({ $relative: "me" }, "startOfMonth", …) resolve per call (ADR 0103).
   const input: unknown = resolveInputFilter(op.name, parsed.data, ctx.user.id, now);
-  // Extension objects and fields join the field registry (ADR 0023); cheap when unchanged.
-  await refreshSchemaRegistry(ctx.db.query);
   const audited = isAudited(op, ctx.actor);
   const auditId = newId("audit");
   const pendingActionId = ctx.approval?.actionId ?? null;

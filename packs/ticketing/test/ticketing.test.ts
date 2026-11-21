@@ -11,7 +11,10 @@ import { normaliseCode } from "../tools.ts";
 const CODE = "0123456789ABCDEFGHJKMNPQRS";
 const OTHER = "ZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 
-function host(tickets: Record<string, unknown>[] = [], order?: Record<string, unknown>) {
+function host(
+  tickets: (Record<string, unknown> & { id: string })[] = [],
+  order?: Record<string, unknown>,
+) {
   return createTestHost(extension, {
     records: {
       person: [{ id: "per_ann", displayName: "Ann Buyer" }],

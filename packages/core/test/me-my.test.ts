@@ -60,7 +60,12 @@ describe("what this step opens", () => {
       (entry) => !entry.toolOnly && /^(me|my)\./.test(entry.name),
     );
     expect(direct.map((entry) => entry.name)).toEqual(OPENED);
-    expect(committed).toEqual(openOperations(coreRegistry.list()));
+    // Beside the core operations, the committed list names the open tools of the release's
+    // packs (Ticketing's, stage 27).
+    expect({
+      ...committed,
+      operations: committed.operations.filter((op: { name: string }) => !op.name.startsWith("x.")),
+    }).toEqual(openOperations(coreRegistry.list()));
     for (const entry of direct as { name: string; hostInternal?: boolean }[]) {
       expect(entry.hostInternal === true, entry.name).toBe(
         ["me.deleteAccount", "me.sessions.list", "me.sessions.revoke", "me.signOut"].includes(

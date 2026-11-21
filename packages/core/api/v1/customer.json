@@ -1231,7 +1231,7 @@
     },
     {
       "name": "x.ticketing.myTickets",
-      "description": "The signed-in customer's own tickets, newest first: each with its event, ticket type, code and state (valid, used or void). Only the caller's tickets exist here; a code that is not theirs finds nothing. Filter by event or by code. Read-only. (Extension tool from Ticketing 0.1.0.)",
+      "description": "The signed-in customer's own tickets: each with its event, ticket type, code and state (valid, used or void). Only the caller's tickets exist here; a code that is not theirs finds nothing. Filter by event or by code. Read-only. (Extension tool from Ticketing 0.1.0.)",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",

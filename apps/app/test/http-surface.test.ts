@@ -306,7 +306,14 @@ describe("the caller is the session's", () => {
     // directly), so a newly opened one (stage 26's capacity.get) is expected without naming it.
     const listed = (audience: "customer" | "public") =>
       openOperations.operations
-        .filter((op) => (op.audiences as string[]).includes(audience) && !("toolOnly" in op))
+        // A pack's open tools are listed for every pack in the release; this deployment has
+        // installed none that are open (Ticketing's are stage 27's, and the CRM lists no Ticketing).
+        .filter(
+          (op) =>
+            (op.audiences as string[]).includes(audience) &&
+            !("toolOnly" in op) &&
+            !op.name.startsWith("x."),
+        )
         .map((op) => op.name)
         .sort();
     expect([...names].sort()).toEqual(listed("customer"));
