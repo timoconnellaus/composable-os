@@ -1,12 +1,13 @@
 // The core registry and typed entry points adapters call.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
-import { audiencesOf } from "./audiences.ts";
+import { allowsAudience, audiencesOf } from "./audiences.ts";
 import { UnknownOperationError } from "./errors.ts";
 import { loadExtensionOperations, resolveExtensionOperation } from "./extensions/tools.ts";
 import type { AnyOperation, OperationInput, OperationOutput } from "./operation.ts";
 import { coreOperations } from "./operations/index.ts";
 import { type AnyInvocationContext, invokeOperation } from "./pipeline.ts";
+import { staffPrincipal } from "./principals.ts";
 import { createRegistry, type OperationMap, type OperationRegistry } from "./registry.ts";
 
 export const coreRegistry = createRegistry(coreOperations);
@@ -52,8 +53,32 @@ export function createInvoker<Ops extends readonly AnyOperation[]>(
     invokeByName(name, input, ctx) as Promise<
       Map[N] extends AnyOperation ? OperationOutput<Map[N]> : never
     >;
-  return { invoke, invokeByName };
+  /**
+   * The operation `name` as this caller may call it directly, or UnknownOperationError: the same
+   * answer for a name not registered and one not open to the caller (ADR 0411). For adapters
+   * that must know an operation's risk class before invoking it (the HTTP surface's idempotency
+   * keys). `invokeByName` checks again in the pipeline.
+   */
+  const resolveFor = async (name: string, ctx: AnyInvocationContext): Promise<AnyOperation> => {
+    const op = registry.get(name) ?? (await resolveExtensionOperation(ctx.db.query, name));
+    if (!op || !callableBy(op, ctx)) throw new UnknownOperationError(name);
+    return op;
+  };
+  /** Every operation this caller may call directly: the registry and installed extension tools. */
+  const listFor = async (ctx: AnyInvocationContext): Promise<AnyOperation[]> =>
+    [...registry.list(), ...(await loadExtensionOperations(ctx.db.query))].filter((op) =>
+      callableBy(op, ctx),
+    );
+  return { invoke, invokeByName, resolveFor, listFor };
 }
+
+/** Whether the caller's audience may call `op` directly (a `toolOnly` one only from a tool). */
+function callableBy(op: AnyOperation, ctx: AnyInvocationContext): boolean {
+  if (ctx.principal) return allowsAudience(op, ctx.principal) && !(op.toolOnly && !ctx.tool);
+  return allowsAudience(op, staffPrincipal(ctx.user));
+}
+
+export type Invoker = ReturnType<typeof createInvoker>;
 
 const coreInvoker = createInvoker(coreRegistry);
 
@@ -74,6 +99,9 @@ export function invokeByName(
 ): Promise<unknown> {
   return coreInvoker.invokeByName(name, input, ctx);
 }
+
+/** The core registry's invoker, with its caller-aware lookup and listing (the HTTP surface). */
+export { coreInvoker };
 
 /**
  * Every operation a caller can invoke: the core registry plus installed extension tools. MCP
