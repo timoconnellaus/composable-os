@@ -11,7 +11,7 @@ export function TodayScreen({
   date,
   onOpen,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useToday">;
   /** The member's local date (YYYY-MM-DD). */
   date?: string;
   onOpen: (session: PlannedSession) => void;

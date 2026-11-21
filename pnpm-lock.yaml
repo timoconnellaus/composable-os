@@ -1548,6 +1548,9 @@ importers:
 
   packs/programs:
     dependencies:
+      '@composable-os/client':
+        specifier: workspace:*
+        version: link:../../packages/client
       '@composable-os/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
@@ -1591,6 +1594,9 @@ importers:
 
   packs/ticketing:
     dependencies:
+      '@composable-os/client':
+        specifier: workspace:*
+        version: link:../../packages/client
       '@composable-os/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk

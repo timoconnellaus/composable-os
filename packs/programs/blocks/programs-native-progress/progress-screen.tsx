@@ -20,7 +20,7 @@ export function ProgressScreen({
   programs,
   personId,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useHistory" | "useProgress">;
   personId?: string;
 }) {
   const progress = programs.useProgress(personId ? { personId } : {});

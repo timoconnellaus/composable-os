@@ -26,7 +26,7 @@ export function DoorScannerScreen({
   haptics,
   title = "Door",
 }: {
-  ticketing: TicketingHooks;
+  ticketing: Pick<TicketingHooks, "useCheckIn">;
   Scanner: CodeScanner;
   haptics?: Haptics;
   title?: string;

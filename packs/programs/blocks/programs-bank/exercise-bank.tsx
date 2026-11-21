@@ -15,7 +15,11 @@ const MEASURES = [
   { value: "hold", label: "Hold" },
 ];
 
-export function ExerciseBank({ programs }: { programs: ProgramsHooks }) {
+export function ExerciseBank({
+  programs,
+}: {
+  programs: Pick<ProgramsHooks, "useBank" | "useCreateExercise" | "useUpdateExercise">;
+}) {
   const [search, setSearch] = useState("");
   const bank = programs.useBank(search);
   const all = programs.useBank();
@@ -73,7 +77,7 @@ function ExerciseForm({
   bank,
   onDone,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useBank" | "useCreateExercise" | "useUpdateExercise">;
   exercise: RecordOut | null;
   bank: RecordOut[];
   onDone: () => void;

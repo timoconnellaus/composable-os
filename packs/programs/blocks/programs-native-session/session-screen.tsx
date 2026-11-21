@@ -29,7 +29,7 @@ export function SessionScreen({
   personId,
   onRestDone,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useLogSet" | "useMarkSession" | "useSession" | "useUpdateSet">;
   sessionId: string;
   personId?: string;
   onRestDone?: () => void;
@@ -126,7 +126,7 @@ function NativeItem({
   logged,
   onLogged,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useLogSet" | "useMarkSession" | "useSession" | "useUpdateSet">;
   sessionId: string;
   personId: string | undefined;
   item: Item;
@@ -224,7 +224,7 @@ function NativeSet({
   done,
   onLogged,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useLogSet" | "useMarkSession" | "useSession" | "useUpdateSet">;
   sessionId: string;
   personId: string | undefined;
   itemLabel: string;

@@ -16,7 +16,13 @@ const best = (b: { load: number | null; reps: number | null; seconds: number | n
     .filter(Boolean)
     .join(" · ") || "—";
 
-export function Progress({ programs, personId }: { programs: ProgramsHooks; personId?: string }) {
+export function Progress({
+  programs,
+  personId,
+}: {
+  programs: Pick<ProgramsHooks, "useHistory" | "useProgress">;
+  personId?: string;
+}) {
   const progress = programs.useProgress(personId ? { personId } : {});
   const [exercise, setExercise] = useState<string | null>(null);
   if (progress.isPending) return <p aria-busy="true">Loading progress…</p>;
@@ -90,7 +96,7 @@ export function History({
   exerciseId,
   personId,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useHistory" | "useProgress">;
   exerciseId: string;
   personId?: string;
 }) {

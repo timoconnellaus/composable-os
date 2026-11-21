@@ -13,7 +13,7 @@ export function MyTicketsScreen({
   ticketing,
   onOpen,
 }: {
-  ticketing: TicketingHooks;
+  ticketing: Pick<TicketingHooks, "useMyTickets">;
   /** Pushes the ticket's screen (TicketScreen) on the app's native stack. */
   onOpen: (ticket: { id: string; code: string | null; event: string | null }) => void;
 }) {

@@ -47,7 +47,7 @@ export function TicketPicker({
   returnUrl,
   onStarted,
 }: {
-  ticketing: TicketingHooks;
+  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder" | "useStartOrder" | "useTicketPicker">;
   event: EventOnSale;
   signedIn: boolean;
   returnUrl: string;
@@ -161,7 +161,7 @@ export function BalancePayment({
   order,
   returnUrl,
 }: {
-  ticketing: TicketingHooks;
+  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder" | "useStartOrder" | "useTicketPicker">;
   order: { id: string; token?: string | null };
   returnUrl: string;
 }) {

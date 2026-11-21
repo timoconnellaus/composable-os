@@ -7,8 +7,20 @@
 //
 // The blocks are read where they sit (`packs/<id>/blocks/<block>/`), their base-layer imports
 // joined to `blocks/` by pack-blocks-plugin.ts. A production build mounts nothing.
-import { createProgramsHooks, type ProgramsClient } from "@composable-os/pack-programs/client";
-import { createTicketingHooks, type TicketingClient } from "@composable-os/pack-ticketing/client";
+import {
+  createProgramsHooks,
+  PROGRAMS_HOOKS_CALL,
+  type ProgramsClient,
+} from "@composable-os/pack-programs/client";
+import {
+  createTicketingHooks,
+  TICKETING_HOOKS_CALL,
+  type TicketingClient,
+} from "@composable-os/pack-ticketing/client";
+
+/** A pack's client holding every operation (the `operations` is what the hooks read). */
+type FullClient<C> = C & { operations: Record<string, unknown> };
+
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { type ComponentType, useEffect, useState } from "react";
@@ -79,9 +91,18 @@ async function call(name: string, input: unknown, write: boolean): Promise<unkno
   return body.data;
 }
 
-/** A typed client's shape, over the browser's own calls. */
-function browserClient<C>(): C {
+/**
+ * A typed client's shape, over the browser's own calls, holding every operation a pack's hooks
+ * call (`calls`, the pack's `*_HOOKS_CALL`): this page shows every block (ADR 0453).
+ */
+function browserClient<C>(calls: Record<string, readonly string[]>): C {
+  const operations = Object.fromEntries(
+    Object.values(calls)
+      .flat()
+      .map((name) => [name, { kind: "query", invalidates: [] }]),
+  );
   return {
+    operations,
     query: (name: string, input: unknown) => ({
       queryKey: [name, input],
       queryFn: () => call(name, input, false),
@@ -99,8 +120,18 @@ type AnyHooks = any;
 function usePackHooks(pack: string): AnyHooks {
   // The app's own React Query: a query is refetched when the block asks, as a client app's is.
   const react = { useQuery, useMutation, useState, useEffect } as never;
-  if (pack === "programs") return createProgramsHooks(react, browserClient<ProgramsClient>());
-  if (pack === "ticketing") return createTicketingHooks(react, browserClient<TicketingClient>());
+  if (pack === "programs") {
+    return createProgramsHooks(
+      react,
+      browserClient<FullClient<ProgramsClient>>(PROGRAMS_HOOKS_CALL),
+    );
+  }
+  if (pack === "ticketing") {
+    return createTicketingHooks(
+      react,
+      browserClient<FullClient<TicketingClient>>(TICKETING_HOOKS_CALL),
+    );
+  }
   return null;
 }
 

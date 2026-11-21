@@ -40,6 +40,7 @@ function typecheck(dir: string, files: Record<string, string>): string[] {
       module: ts.ModuleKind.ESNext,
       moduleResolution: ts.ModuleResolutionKind.Bundler,
       allowImportingTsExtensions: true,
+      jsx: ts.JsxEmit.ReactJSX,
       skipLibCheck: true,
       lib: ["lib.es2023.d.ts"],
       types: [],
@@ -47,6 +48,9 @@ function typecheck(dir: string, files: Record<string, string>): string[] {
         "@composable-os/client": [runtime],
         "@composable-os/pack-deals/client": [
           join(here, "..", "..", "..", "packs", "deals", "client", "index.ts"),
+        ],
+        "@composable-os/pack-ticketing/client": [
+          join(here, "..", "..", "..", "packs", "ticketing", "client", "index.ts"),
         ],
       },
     },
@@ -270,5 +274,40 @@ describe("a pack role's client (ADR 0451)", () => {
     expect(errors.some((e) => e.startsWith("scan.ts:5"))).toBe(true);
     expect(errors.some((e) => e.startsWith("scan.ts:6"))).toBe(true);
     expect(errors.filter((e) => /scan\.ts:[34]/.test(e))).toEqual([]);
+  });
+
+  it("wires the native door scanner block's hooks with no cast; a hook outside the role does not compile (ADR 0453)", () => {
+    const dir = scratch();
+    const repo = join(here, "..", "..", "..");
+    const host = join(repo, "templates", "client", "apps", "mobile", "src", "host.ts");
+    const block = join(
+      repo,
+      "packs",
+      "ticketing",
+      "blocks",
+      "ticketing-native-scanner",
+      "door-scanner-screen.tsx",
+    );
+    const errors = typecheck(dir, {
+      "door.ts": renderRoleClient(staff, door, { product: "gym" }),
+      "wire.ts": [
+        'import { createTicketingHooks, type UseMutation, type UseQuery, type UseState } from "@composable-os/pack-ticketing/client";',
+        `import type { DoorScannerScreen } from ${JSON.stringify(block)};`,
+        `import { staffSession } from ${JSON.stringify(host)};`,
+        'import { createTicketingDoorClient } from "./door.ts";',
+        "declare const react: { useQuery: UseQuery; useMutation: UseMutation; useState: UseState };",
+        "declare const staff: ReturnType<typeof staffSession>;",
+        "const ticketing = createTicketingHooks(react, staff.client(createTicketingDoorClient));",
+        "type ScannerProps = Parameters<typeof DoorScannerScreen>[0];",
+        'export const props: ScannerProps["ticketing"] = ticketing;',
+        "export const checkIn = ticketing.useCheckIn();",
+        "// @ts-expect-error: the door role cannot back the events on sale.",
+        "export const events = ticketing.useEventsOnSale();",
+        "// @ts-expect-error: nor starting an order.",
+        "export const start = ticketing.useStartOrder();",
+      ].join("\n"),
+    });
+    // No error in the wiring: no cast, and each @ts-expect-error is used (an unused one is an error).
+    expect(errors.filter((e) => e.startsWith("wire.ts"))).toEqual([]);
   });
 });

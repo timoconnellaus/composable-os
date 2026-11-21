@@ -16,7 +16,7 @@ export function EventList({
   ticketing,
   onOpen,
 }: {
-  ticketing: TicketingHooks;
+  ticketing: Pick<TicketingHooks, "useEventsOnSale">;
   onOpen: (event: EventOnSale) => void;
 }) {
   const { data, isPending, error } = ticketing.useEventsOnSale();

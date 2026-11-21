@@ -14,7 +14,7 @@ export function ClassTodayScreen({
   date,
   onOpen,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useClassToday" | "useClassTypes">;
   date?: string;
   onOpen: (session: PlannedSession) => void;
 }) {

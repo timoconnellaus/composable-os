@@ -32,7 +32,7 @@ export function SessionView({
   personId,
   onRestDone,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useLogSet" | "useMarkSession" | "useSession" | "useUpdateSet">;
   sessionId: string;
   /** A coach logging for a client names them on a class session. */
   personId?: string;
@@ -169,7 +169,7 @@ function ItemToDo({
   logged,
   onLogged,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useLogSet" | "useMarkSession" | "useSession" | "useUpdateSet">;
   sessionId: string;
   personId: string | undefined;
   item: Item;
@@ -245,7 +245,7 @@ function ExerciseToDo({
   logged,
   onLogged,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useLogSet" | "useMarkSession" | "useSession" | "useUpdateSet">;
   sessionId: string;
   personId: string | undefined;
   itemLabel: string;
@@ -319,7 +319,7 @@ function SetRow({
   done,
   onLogged,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useLogSet" | "useMarkSession" | "useSession" | "useUpdateSet">;
   sessionId: string;
   personId: string | undefined;
   itemLabel: string;

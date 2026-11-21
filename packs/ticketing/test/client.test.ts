@@ -115,7 +115,19 @@ describe("plain functions", () => {
 
 // React stand-ins, at module level as hooks are.
 const asked: unknown[] = [];
-const api: TicketingClient = {
+const spec = { kind: "query", invalidates: [] } as const;
+/** A client of every Ticketing operation, as the staff client is. */
+const api = {
+  operations: {
+    "x.ticketing.eventsOnSale": spec,
+    "x.ticketing.myTickets": spec,
+    "x.ticketing.orderStart": spec,
+    "x.ticketing.checkIn": spec,
+    "x.ticketing.undoCheckIn": spec,
+    "order.get": spec,
+    "order.view": spec,
+    "order.checkout": spec,
+  },
   query: ((name: string, input: unknown) => {
     asked.push([name, input]);
     return { queryKey: [name, input], queryFn: async () => ({}) as never };
@@ -149,6 +161,27 @@ const useState: UseState = <T>(initial: T) => {
 };
 describe("the hooks", () => {
   const hooks = createTicketingHooks({ useQuery, useMutation, useState }, api);
+
+  it("a client holding only some operations gets only the hooks it can back (ADR 0453)", () => {
+    const { query, mutation } = api;
+    const door = {
+      operations: { "x.ticketing.checkIn": spec, "x.ticketing.undoCheckIn": spec },
+      query,
+      mutation,
+    };
+    const doorHooks = createTicketingHooks({ useQuery, useMutation, useState }, door);
+    expect(Object.keys(doorHooks).sort()).toEqual([
+      "useCheckIn",
+      "useTicketPicker",
+      "useUndoCheckIn",
+    ]);
+    doorHooks.useCheckIn();
+    // @ts-expect-error: the door role's client cannot back the events on sale.
+    expect(doorHooks.useEventsOnSale).toBeUndefined();
+    // @ts-expect-error: nor starting an order.
+    expect(doorHooks.useStartOrder).toBeUndefined();
+    asked.length = 0;
+  });
 
   it("each asks for the operation it names", () => {
     hooks.useEventsOnSale();

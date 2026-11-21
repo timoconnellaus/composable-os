@@ -9,6 +9,7 @@
 // where the builder shows it); who may publish is the host's (`usePublish` is offered from what
 // `user.me` says the account holds, and the host still decides); the dates, targets and last
 // numbers are the tools'. The editing functions below only move parts of a layout around.
+import { type ClientHolding, type PackClient, packHooks } from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import type {
   Block,
@@ -125,10 +126,6 @@ export type ProgramsOperations = {
 };
 
 type Name = keyof ProgramsOperations & string;
-type QueryName = { [N in Name]: ProgramsOperations[N]["kind"] extends "query" ? N : never }[Name];
-type MutationName = {
-  [N in Name]: ProgramsOperations[N]["kind"] extends "mutation" ? N : never;
-}[Name];
 type In<N extends Name> = ProgramsOperations[N]["input"];
 type Out<N extends Name> = ProgramsOperations[N]["output"];
 
@@ -140,16 +137,12 @@ export type SessionExercise = SessionDetail["exercises"][number];
 export type HistoryOut = Out<"x.programs.history">;
 export type ProgressOut = Out<"x.programs.progress">;
 
-/** The part of a generated client this entry needs. A product's client fits it. */
-export interface ProgramsClient {
-  query<N extends QueryName>(
-    name: N,
-    input: In<N>,
-  ): { queryKey: readonly unknown[]; queryFn: () => Promise<Out<N>> };
-  mutation<N extends MutationName>(
-    name: N,
-  ): { mutationKey: readonly unknown[]; mutationFn: (input: In<N>) => Promise<Out<N>> };
-}
+/**
+ * The client of every operation this entry calls. The hooks are written against it; the client an
+ * app passes may hold fewer (a member's customer client holds no staff operation), and then gets
+ * only the hooks it can back (ADR 0453).
+ */
+export type ProgramsClient = PackClient<ProgramsOperations>;
 
 export const PROGRAM = "programs.program";
 export const EXERCISE = "programs.exercise";
@@ -732,18 +725,59 @@ export const SAVE_AFTER_MS = 800;
 export type SaveState = "saved" | "saving" | "unsaved" | "refused";
 
 /**
+ * The operations each hook calls (ADR 0453). A member's customer client gets the training hooks
+ * (today, a session, logging, history, progress, the class view), the staff client all of them.
+ * Who may do what is still the host's: a coach whose grants (ADR 0449) do not cover an operation
+ * is refused it there; `usePublishOffered` asks the host what the account holds.
+ */
+export const PROGRAMS_HOOKS_CALL = {
+  useToday: ["x.programs.today"],
+  useSession: ["x.programs.sessionGet"],
+  useClassToday: ["x.programs.classToday"],
+  useLogSet: ["x.programs.logAdd"],
+  useUpdateSet: ["x.programs.logUpdate"],
+  useMarkSession: ["x.programs.sessionComplete"],
+  useHistory: ["x.programs.history"],
+  useProgress: ["x.programs.progress"],
+  useClientSessions: ["record.list"],
+  usePeople: ["person.list"],
+  useClassTypes: ["record.list"],
+  useBank: ["record.list"],
+  useExercises: ["record.list"],
+  useCreateExercise: ["record.create"],
+  useUpdateExercise: ["record.update"],
+  usePrograms: ["record.list"],
+  useCreateProgram: ["record.create"],
+  useDraft: ["x.programs.draft"],
+  useImportText: ["x.programs.importText"],
+  useAssign: ["x.programs.assign"],
+  useVersions: ["record.versions"],
+  usePublishOffered: ["user.me"],
+  usePublish: ["record.publish"],
+  useRestoreVersion: ["record.restoreVersion"],
+  useWorkingCopy: ["record.get", "record.update"],
+} as const;
+
+type ProgramsReact = {
+  useQuery: UseQuery;
+  useMutation: UseMutation;
+  useState: UseState;
+  useEffect?: UseEffect;
+};
+
+/**
  * Hooks for a React or React Native app:
  * `const programs = createProgramsHooks({ useQuery, useMutation, useState, useEffect }, api)`.
+ * `api` is any generated client; the hooks it cannot back are not there, and calling one does
+ * not compile.
  */
-export function createProgramsHooks(
-  react: {
-    useQuery: UseQuery;
-    useMutation: UseMutation;
-    useState: UseState;
-    useEffect?: UseEffect;
-  },
-  api: ProgramsClient,
-) {
+export function createProgramsHooks<C extends ClientHolding>(react: ProgramsReact, client: C) {
+  return packHooks(client, PROGRAMS_HOOKS_CALL, (api: ProgramsClient) =>
+    allProgramsHooks(react, api),
+  );
+}
+
+function allProgramsHooks(react: ProgramsReact, api: ProgramsClient) {
   const { useQuery, useMutation, useState } = react;
   const useEffect: UseEffect = react.useEffect ?? (() => undefined);
   return {
@@ -963,4 +997,5 @@ export function createProgramsHooks(
   };
 }
 
-export type ProgramsHooks = ReturnType<typeof createProgramsHooks>;
+/** Every hook of this entry, as a client of all its operations gets them. A block takes the ones it calls: `Pick<ProgramsHooks, "useToday">`. */
+export type ProgramsHooks = ReturnType<typeof allProgramsHooks>;
