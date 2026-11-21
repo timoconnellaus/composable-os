@@ -9,8 +9,8 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { currentProductName, PRODUCT_NAME_META } from "../components/product-name.ts";
 import { THEME_INIT_SCRIPT, ThemeProvider, useTheme } from "../components/theme.tsx";
-import { getProductName } from "../server/session.public.ts";
 import appCss from "../styles.css?url";
 
 /** What every route's loader gets: the page's QueryClient (see router.tsx). */
@@ -18,20 +18,12 @@ export interface RouterContext {
   queryClient: QueryClient;
 }
 
-/** The product's name, asked of the server once per page load (it does not change). */
-let productName: string | undefined;
-
 export const Route = createRootRouteWithContext<RouterContext>()({
-  // The deployment's product name (issue #155) for every screen: useProductName() reads it.
-  beforeLoad: async () => {
-    productName ??= await getProductName();
-    return { productName };
-  },
-  head: ({ match }) => ({
+  head: () => ({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: match.context.productName },
+      { title: currentProductName() },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
   }),
@@ -45,6 +37,8 @@ function RootDocument({ children }: { children: ReactNode }) {
       <head>
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: static theme bootstrap script. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* The deployment's product name (issue #155), written by the server, read by the page. */}
+        <meta name={PRODUCT_NAME_META} content={currentProductName()} />
         <HeadContent />
       </head>
       <body className="min-h-svh font-sans antialiased">
