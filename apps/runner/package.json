@@ -20,6 +20,7 @@
     "@composable-os/core": "workspace:*",
     "@composable-os/db": "workspace:*",
     "@composable-os/extension-check": "workspace:*",
+    "@composable-os/product": "workspace:*",
     "@composable-os/products": "workspace:*",
     "@composable-os/sdk": "workspace:*",
     "@platformatic/vfs": "0.5.0",

@@ -3,6 +3,8 @@ import { env } from "cloudflare:workers";
 import { awaitingFirstUser, createIdentityProvider, signInMethods } from "@composable-os/auth";
 import { loadSupportGrant, resolveActingUser, SUPPORT_EMAIL_DOMAIN } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
+import { productName } from "@composable-os/product";
+import { product } from "@composable-os/products/active";
 import { createServerFn } from "@tanstack/react-start";
 
 /**
@@ -63,3 +65,12 @@ export const getSignInMethods = createServerFn({ method: "GET" }).handler(async 
   const methods = signInMethods(env);
   return { ...methods, firstAccount: methods.email && (await awaitingFirstUser(env.DB)) };
 });
+
+/**
+ * The product's name as people read it (issue #155): the deployment's label (COS_PRODUCT_LABEL,
+ * set by `cos deploy` for a client product), else the build's. Anyone may ask: it is on the
+ * sign-in page.
+ */
+export const getProductName = createServerFn({ method: "GET" }).handler(async () =>
+  productName(product),
+);

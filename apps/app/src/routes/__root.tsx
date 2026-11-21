@@ -1,4 +1,3 @@
-import { product } from "@composable-os/products/active";
 import { Toaster } from "@composable-os/ui/components/sonner";
 import { TooltipProvider } from "@composable-os/ui/components/tooltip";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -11,6 +10,7 @@ import {
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { THEME_INIT_SCRIPT, ThemeProvider, useTheme } from "../components/theme.tsx";
+import { getProductName } from "../server/session.public.ts";
 import appCss from "../styles.css?url";
 
 /** What every route's loader gets: the page's QueryClient (see router.tsx). */
@@ -18,12 +18,20 @@ export interface RouterContext {
   queryClient: QueryClient;
 }
 
+/** The product's name, asked of the server once per page load (it does not change). */
+let productName: string | undefined;
+
 export const Route = createRootRouteWithContext<RouterContext>()({
-  head: () => ({
+  // The deployment's product name (issue #155) for every screen: useProductName() reads it.
+  beforeLoad: async () => {
+    productName ??= await getProductName();
+    return { productName };
+  },
+  head: ({ match }) => ({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: product.strings.name },
+      { title: match.context.productName },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
   }),

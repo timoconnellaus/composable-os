@@ -2,6 +2,7 @@
 // gatekeeper, as one `send` on the connection customer.settings names (stage 23), the same
 // path notification emails take (`sendEmail`, ADR 0172). There is no direct outbound.
 import type { CoreDatabase } from "@composable-os/db";
+import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import type { Kysely } from "kysely";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
@@ -16,7 +17,7 @@ import { loadCustomerEmailConnection } from "./settings.ts";
 
 /** The subject and text of a sign-in code email. Plain text; the code is the only variable. */
 export function customerCodeEmail(code: string): { subject: string; text: string } {
-  const name = product.strings.name;
+  const name = productName(product);
   return {
     subject: `Your ${name} sign-in code: ${code}`,
     text:
@@ -96,7 +97,7 @@ export async function sendCustomerCode(
 
 /** The email telling a person that staff declined to erase them, with the reason. Plain text. */
 export function eraseDeclinedEmail(reason: string): { subject: string; text: string } {
-  const name = product.strings.name;
+  const name = productName(product);
   return {
     subject: `Your ${name} erasure request`,
     text:

@@ -192,8 +192,8 @@ function ApprovalPolicyPage() {
             Floor
           </CardTitle>
           <CardDescription>
-            Set when this CRM was deployed (APPROVAL_FLOOR). No preset can loosen these rules, and
-            they can't be changed here.
+            Set when this deployment was installed (APPROVAL_FLOOR). No preset can loosen these
+            rules, and they can't be changed here.
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">

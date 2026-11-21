@@ -3,7 +3,6 @@
 // Roll back. With no stored update token it shows the `cos upgrade` command instead. Admins only.
 
 import type { CoreOutput } from "@composable-os/core";
-import { product } from "@composable-os/products/active";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +38,7 @@ import { toast } from "sonner";
 import { PageLayout } from "#/components/layout/page-layout";
 import { Markdown } from "#/components/markdown";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
+import { useProductName } from "../../../components/product-name.ts";
 
 export const Route = createFileRoute("/_app/settings/updates")({ component: UpdatesPage });
 
@@ -56,6 +56,7 @@ function formatDate(iso: string | null) {
 }
 
 function UpdatesPage() {
+  const productName = useProductName();
   const { isAdmin } = Route.useRouteContext();
   const status = useOp("update.status", {}, { enabled: isAdmin });
   const [refresh, setRefresh] = useState(false);
@@ -77,7 +78,7 @@ function UpdatesPage() {
       title="Updates"
       width="md"
       back={{ to: "/settings", label: "Settings" }}
-      description={`New releases of ${product.strings.name}, read from public GitHub Releases. Nothing about this deployment is sent anywhere.`}
+      description={`New releases of ${productName}, read from public GitHub Releases. Nothing about this deployment is sent anywhere.`}
     >
       <div className="grid gap-4">
         <Card>
