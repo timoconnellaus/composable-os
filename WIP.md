@@ -1,27 +1,24 @@
 # WIP: stage 26, capacity and holds
 
 Branch `claude/stage-26-capacity-holds`. Spec: `docs/stages/26-capacity-and-holds.md`.
-Block U: migrations 0440 to 0449, ADRs 0430 to 0434.
+Block U: migrations 0440 to 0449 (0440, 0441 used), ADRs 0430 to 0434 (0430 to 0433 used).
 
-## Plan (spine first, then stop for review)
-- [x] Step 1: counter + claim rows + refusing constraint (migration 0440); concurrency test first
-      (criterion 1); all-or-nothing (criterion 2). `packages/core/src/capacity/index.ts`,
-      `capacityRefusal` in `errors.ts`, `packages/core/test/capacity.test.ts`, ADR 0430.
-- [x] Step 4: pool claim in the same batch (criterion 1, pool of 60 over two records of 50).
-- [ ] STOP: reported to the coordinator. Steps 2, 3, 5, 6 wait for the go-ahead.
+All build steps are done except the order wiring, which lands with stage 25's second half: it
+calls `queueClaim`, `confirmStatements` and `releaseStatements` (ADR 0432) from the order's create,
+`paid`, `cancelled`, `expired` and refund moves, reading `releaseOnRefund` from the object.
 
-## Next, once the spine is reviewed
-- Step 2: `capacity` declaration in the SDK (`places` field, `pool` relation, `show`, `low`
-  threshold, `releaseOnRefund`), reconciler validation (pool target must not itself declare a
-  pool), counter row created/updated in record.create/update/import batches; read-only values
-  `available`, `held`, `taken`. Keep SDK edits small (stage 25 is in `packages/sdk/src/behaviour.ts`).
-- Step 3: confirm and release statements, idempotent (guard on claim state).
-- Step 5: order wiring lands with stage 25's second half; ship a fixture claimant only.
-- Step 6: `capacity.get` with `show`, `rec_capacity`, `rec_capacity_claim` views, record panel.
-- Open: deleting a record with confirmed claims is refused; the counter's FK from claims is
-  currently NO ACTION, so a counter with any claims cannot be deleted. Decide in step 2/3.
+## Before release
+- Apply migration 0440 once to a real remote D1: check it accepts `RAISE` with an expression as
+  its message, and that the trigger's message reaches the host through D1's error (a refused claim
+  reports `asked` and `available`). If not: drop the triggers and, on a CHECK failure only
+  (`core_capacity_within_places`), read the counter after the refusal to fill in the numbers
+  (ADR 0430).
+- Measure the 500 claims of criterion 1 against remote D1 for the PR (local: about 0.4 s, 1.1 s
+  with every claimant in flight).
 
-## Notes
-- The refusal is a BEFORE trigger (`core_capacity_refused {json}`, carries the numbers) backed
-  by the CHECK `core_capacity_within_places`. Proven both ways (see ADR 0430).
-- `CORE_SCHEMA_VERSION` = 440. Stage 25 uses 0420: on merge keep the larger.
+## Before the PR is final
+- Merge `origin/main` once stage 25's first half (PR #83) is in: keep both sides in
+  `records/`, `operations/record.ts`, `sdk/manifest.ts`, `sdk/contract.ts`, `fields/types.ts`,
+  `extensions/schema.ts`, `objectInfoSchema`; `CORE_SCHEMA_VERSION` the highest migration;
+  regenerate the golden manifest.
+- Delete this file.
