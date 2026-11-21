@@ -1515,6 +1515,8 @@ async function invokeOutside<O extends AnyOperation>(
     user: { id: subjectId ?? "public", email: "", name: actor, role: "viewer" },
     // The host's own reads while it writes (the row before, a relation's target) are org-wide.
     principal: orgReader(ctx.db.query).principal,
+    // Who the write is really for: the lifecycle engine names them as the mover (ADR 0426).
+    onBehalfOf: principal,
     origin,
     now,
     auditId,
@@ -1562,9 +1564,22 @@ async function invokeOutside<O extends AnyOperation>(
   // back through this same path).
   const hostTool = isHostTool(op);
   const hostInternal = (op.hostInternal === true && !op.name.startsWith("x.")) || hostTool;
+  // What a core bookkeeping operation records with `recordHostChange` is the host's own change
+  // (ADR 0428): the seam does not judge it against the caller's scope. What it records with
+  // `recordChange` is still checked in full. Never a tool's: a tool starter gets neither, and
+  // what the tool's code then writes comes back through this path as the caller's.
+  const madeByHost = new Set<RecordChange>();
   const handlerCtx: HandlerContext = hostInternal
     ? {
         ...pick(host),
+        ...(op.hostInternal === true && !op.name.startsWith("x.")
+          ? {
+              recordHostChange: (change: RecordChange) => {
+                madeByHost.add(change);
+                host.recordChange(change);
+              },
+            }
+          : {}),
         ...(hostTool && ctx.extensionHost ? { extensionHost: ctx.extensionHost } : {}),
         get actor() {
           return staffOnly("actor");
@@ -1618,7 +1633,7 @@ async function invokeOutside<O extends AnyOperation>(
       throw new OperationError("internal", `${op.name} is a read but queued writes`);
     }
     // The seam has the last word on every record the call would change.
-    await assertVisibleWrites(reader, changes, checkedBySeam);
+    await assertVisibleWrites(reader, changes, checkedBySeam, madeByHost);
   } catch (error) {
     return fail(error);
   }

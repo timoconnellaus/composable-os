@@ -735,3 +735,42 @@ export async function queueEraseCustomers(ctx: HandlerContext, s: StoreSubject):
   );
   return open.length;
 }
+
+// --- Orders and lifecycle history (stage 25, ADR 0426) -------------------------------------------
+
+/**
+ * A lifecycle's history of the erased records themselves goes: `core_transition_history` rows
+ * whose record is the subject (ADR 0425: the engine's history, for stages and states alike).
+ *
+ * A person's orders stay, as amounts with no one on them (an organisation's books must still add
+ * up): the order loses its person, the address it was placed with and the guest's token, so it
+ * can no longer be found by who bought it or opened by a link. Its lines, payments and history
+ * name the order, never the person. Returns how many orders were stripped.
+ */
+export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Promise<number> {
+  for (const part of chunk([...s.recordIds])) {
+    ctx.write(
+      ctx.db
+        .deleteFrom("core_transition_history")
+        .where("object_type", "=", s.object)
+        .where("record_id", "in", part),
+    );
+  }
+  if (s.object !== "person") return 0;
+  const ids = jsonList(s.recordIds);
+  const addresses = jsonList(s.addresses.length ? s.addresses.map((a) => a.toLowerCase()) : [""]);
+  const orders = await ctx.db
+    .selectFrom("core_order")
+    .select("id")
+    .where((eb) => eb.or([eb("person_id", "in", ids), eb("email", "in", addresses)]))
+    .execute();
+  for (const part of chunk(orders.map((o) => o.id))) {
+    ctx.write(
+      ctx.db
+        .updateTable("core_order")
+        .set({ person_id: null, email: null, access_hash: null, updated_at: ctx.now })
+        .where("id", "in", part),
+    );
+  }
+  return orders.length;
+}
