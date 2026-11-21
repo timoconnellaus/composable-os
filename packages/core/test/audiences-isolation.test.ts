@@ -26,6 +26,7 @@ import {
   createSupplier,
   DECLARATIONS,
   fixtureRegistry,
+  giveOrders,
   installShop,
   ORDER,
   type Outcome,
@@ -52,6 +53,9 @@ beforeAll(async () => {
   a = await createCustomer(admin, "A");
   b = await createCustomer(admin, "B");
   supplier = await createSupplier(admin);
+  // Stage 25, criterion 10: real orders and their lines, for both customers.
+  await giveOrders(admin, a);
+  await giveOrders(admin, b);
 }, 60_000);
 
 /** Every object a caller might name: the ones that declare a customer, and ones that must not exist for them. */
@@ -59,6 +63,9 @@ const OBJECTS = [
   ORDER,
   TICKET,
   SUPPLIER,
+  // The real Order and Order line (stage 25): base records that declare a customer.
+  "order",
+  "orderLine",
   "person",
   "organisation",
   "activity",
@@ -107,10 +114,13 @@ function hostile(
 ): unknown[] {
   const theirs = b.records[object] ?? [];
   const fields = definition?.fields.map((f) => f.name) ?? [];
-  const owner = DECLARATIONS[object]?.field;
+  const owner = DECLARATIONS[object]?.field ?? definition?.customer?.field;
   if (isId(name)) {
     return [
       ...theirs,
+      // Every id of B's, of every object: an operation that takes one id (order.get) is aimed
+      // at B's real orders and lines whatever object the rest of the input names.
+      ...Object.values(b.records).flat(),
       b.principal.personId,
       b.principal.customerId,
       supplier.id,
@@ -229,7 +239,7 @@ function withGuesses(input: unknown): { control: unknown; swapped: boolean } {
  * of B's is caught by `leaks`, with every other value of B's rows.
  */
 function shape(outcome: Outcome): string {
-  return JSON.stringify(outcome).replace(/\b(rec|per|cus)_[A-Za-z0-9]+/g, "<id>");
+  return JSON.stringify(outcome).replace(/\b(rec|per|cus|ord|orl)_[A-Za-z0-9]+/g, "<id>");
 }
 
 /** B's secrets that appear in `text` and were not sent by the caller. */
@@ -253,7 +263,7 @@ describe("isolation: every open operation, as A, aimed at B", () => {
 
   it("is not vacuous: the same operations show A their own records, and B theirs", async () => {
     for (const customer of [a, b]) {
-      for (const object of [ORDER, TICKET, REQUEST]) {
+      for (const object of [ORDER, TICKET, REQUEST, "order", "orderLine"]) {
         const page = await call("fixture.myList", { object }, outside(customer.principal));
         expect(page.ok, JSON.stringify(page)).toBe(true);
         const items = (page as { value: { items: { id: string }[] } }).value.items;

@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 420,
+  "coreSchemaVersion": 421,
   "extensionContract": {
     "supported": [
       1
@@ -408,6 +408,10 @@
     {
       "name": "0420_transition_history.sql",
       "sha256": "aa9df11dd345c7c61b992fc9af5a5a4612f04025a703379be4d8d302f4f86c7e"
+    },
+    {
+      "name": "0421_orders.sql",
+      "sha256": "e020c6b972061341d682952be639bf52796ede8e0d9fed56bf90e2f2ec1ad38b"
     }
   ],
   "product": "crm",

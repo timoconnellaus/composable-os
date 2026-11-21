@@ -22,7 +22,10 @@ async function all(sql: string) {
 
 it("keeps every stage history row and what rec_stage_history returns for it", async () => {
   const before0420 = env.TEST_MIGRATIONS.filter((m) => (migrationNumber(m.name) ?? 0) < 420);
-  expect(before0420.length).toBe(env.TEST_MIGRATIONS.length - 1);
+  // Everything before 0420, which is one of the migrations that follow it.
+  const from0420 = env.TEST_MIGRATIONS.filter((m) => (migrationNumber(m.name) ?? 0) >= 420);
+  expect(from0420.map((m) => migrationNumber(m.name))).toContain(420);
+  expect(before0420.length).toBe(env.TEST_MIGRATIONS.length - from0420.length);
   await applyMigrations(env.DB, before0420);
 
   // 300 rows over 100 records: closed and current, every stage type, with and without a group
@@ -62,9 +65,8 @@ it("keeps every stage history row and what rec_stage_history returns for it", as
   const viewColumns = await all("SELECT name FROM pragma_table_xinfo('rec_stage_history')");
   expect(tableBefore).toHaveLength(300);
 
-  expect(await applyMigrations(env.DB, env.TEST_MIGRATIONS)).toEqual([
-    "0420_transition_history.sql",
-  ]);
+  // 0420 and whatever has landed after it.
+  expect(await applyMigrations(env.DB, env.TEST_MIGRATIONS)).toEqual(from0420.map((m) => m.name));
 
   expect(await all(`SELECT ${RENAMED} FROM core_transition_history ORDER BY id`)).toEqual(
     tableBefore,
