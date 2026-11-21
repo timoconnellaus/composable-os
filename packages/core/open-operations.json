@@ -56,6 +56,29 @@
       "audiences": ["customer"],
       "risk": "write",
       "toolOnly": true
+    },
+    {
+      "name": "order.cancel",
+      "audiences": ["staff", "customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "order.get",
+      "audiences": ["staff", "customer"],
+      "risk": "read"
+    },
+    {
+      "name": "order.start",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "order.view",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true
     }
   ]
 }

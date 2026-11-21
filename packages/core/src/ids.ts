@@ -59,6 +59,9 @@ export const ID_PREFIXES = {
   customer: "cus",
   /** A request to erase a Person, made when a customer deletes their account (stage 22). */
   eraseRequest: "erq",
+  /** An order and one of its lines (stage 25, ADR 0426). */
+  order: "ord",
+  orderLine: "orl",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

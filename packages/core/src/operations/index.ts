@@ -41,6 +41,7 @@ import { myOperations } from "./my.ts";
 import { myWriteOperations } from "./my-write.ts";
 import { notificationOperations } from "./notification.ts";
 import { notificationDeliveryOperations } from "./notification-delivery.ts";
+import { orderOperations } from "./order.ts";
 import { organisationOperations } from "./organisation.ts";
 import { personOperations } from "./person.ts";
 import { planOperations } from "./plan.ts";
@@ -122,5 +123,6 @@ export const coreOperations = [
   ...customerSettingsOperations,
   ...customerOperations,
   ...meOperations,
+  ...orderOperations,
   ...myOperations,
 ] as const;

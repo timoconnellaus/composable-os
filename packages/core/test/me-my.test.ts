@@ -53,8 +53,9 @@ describe("what this step opens", () => {
   it("open-operations.json lists the me.* and my.* operations, the account ones hostInternal", () => {
     // Entries a customer can call directly. `toolOnly` ones are reached only through a pack's
     // tool (ADR 0414) and are listed by the step that adds them.
+    // The me.* and my.* entries: later stages list their own (orders, stage 25).
     const direct = (committed.operations as { name: string; toolOnly?: boolean }[]).filter(
-      (entry) => !entry.toolOnly,
+      (entry) => !entry.toolOnly && /^(me|my)\./.test(entry.name),
     );
     expect(direct.map((entry) => entry.name)).toEqual(OPENED);
     expect(committed).toEqual(openOperations(coreRegistry.list()));

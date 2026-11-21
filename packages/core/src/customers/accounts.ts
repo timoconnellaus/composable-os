@@ -164,7 +164,10 @@ export interface LinkResult {
 }
 
 /** The live people the same-email rule matches for `address` (ADR 0247), by id. */
-async function sameEmailPeople(db: Kysely<CoreDatabase>, address: string): Promise<string[]> {
+export async function sameEmailPeople(
+  db: Kysely<CoreDatabase>,
+  address: string,
+): Promise<string[]> {
   const { conflicts } = await checkPerson(db, { emails: [address] });
   return [...new Set(conflicts.map((c) => c.id))];
 }
@@ -176,7 +179,10 @@ async function sameEmailPeople(db: Kysely<CoreDatabase>, address: string): Promi
  * is made with actor `automation` and origin `customer.link`, as notification delivery acts for a
  * connection's owner.
  */
-async function creatorFor(db: Kysely<CoreDatabase>, address: string): Promise<ActingUser | null> {
+export async function creatorFor(
+  db: Kysely<CoreDatabase>,
+  address: string,
+): Promise<ActingUser | null> {
   const active = db
     .selectFrom("core_user")
     .select(["id", "email", "name", "role"])
