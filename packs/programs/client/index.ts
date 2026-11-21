@@ -165,7 +165,7 @@ export function describeSet(set: SetTarget): string {
     parts.push(set.repsMax ? `${set.reps}–${set.repsMax} reps` : `${set.reps} reps`);
   else if (set.kind === "time") parts.push(`${set.seconds} s`);
   else parts.push(set.holds ? `${set.holds} × ${set.seconds} s hold` : `${set.seconds} s hold`);
-  if (set.load) parts.push(`@ ${set.load} kg`);
+  if (set.load) parts[0] = `${parts[0]} @ ${set.load} kg`;
   if (set.kind === "reps" && set.tempo) parts.push(set.tempo);
   if (set.rest) parts.push(`rest ${set.rest} s`);
   return parts.join(", ");
