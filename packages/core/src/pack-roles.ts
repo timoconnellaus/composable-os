@@ -17,6 +17,7 @@ import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import type { AnyOperation } from "./operation.ts";
+import { holdsPermission, type Role } from "./principals.ts";
 
 /** A pack role as an account holds it. */
 export interface HeldPackRole {
@@ -65,22 +66,54 @@ export async function loadPackRole(
   db: Kysely<CoreDatabase>,
   userId: string,
 ): Promise<HeldPackRole | null> {
+  return (await loadStaffRights(db, userId)).packRole;
+}
+
+/** What an account holds beyond its role: its pack role, and the permissions granted to it. */
+export interface StaffRights {
+  readonly packRole: HeldPackRole | null;
+  /** Permissions a human admin granted the account one by one (ADR 0449). */
+  readonly grants: readonly string[];
+}
+
+/**
+ * The account's pack role (ADR 0436) and its granted permissions (ADR 0449), in one statement:
+ * the account's row and its pack's manifest. The grants are columns of the same row, so reading
+ * them costs nothing beyond the pack role's read.
+ */
+export async function loadStaffRights(
+  db: Kysely<CoreDatabase>,
+  userId: string,
+): Promise<StaffRights> {
   const result = await sql<{
     pack_role: string | null;
+    granted_permissions: string | null;
     manifest: string | null;
     status: string | null;
     source: string | null;
   }>`
-    SELECT u.pack_role, e.manifest, e.status, e.source
+    SELECT u.pack_role, u.granted_permissions, e.manifest, e.status, e.source
     FROM core_user u
     LEFT JOIN core_extensions e
       ON u.pack_role IS NOT NULL AND e.id = substr(u.pack_role, 1, instr(u.pack_role, '.') - 1)
     WHERE u.id = ${userId}
   `.execute(db);
   const row = result.rows[0];
-  if (!row?.pack_role) return null;
+  const grants = parseGrants(row?.granted_permissions ?? null);
+  if (!row?.pack_role) return { packRole: null, grants };
   const local = PACK_ROLE_NAME_RE.exec(row.pack_role)?.[2] ?? "";
-  return held(row.pack_role, rolesOf(row)[local]);
+  return { packRole: held(row.pack_role, rolesOf(row)[local]), grants };
+}
+
+/** The stored grants: a JSON list of permission names; anything else is none (fail closed). */
+export function parseGrants(stored: string | null): string[] {
+  if (!stored) return [];
+  try {
+    const value = JSON.parse(stored) as unknown;
+    return Array.isArray(value) ? value.filter((p): p is string => typeof p === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Every pack role an admin can give now: those of installed, active, shipped packs. */
@@ -110,6 +143,27 @@ export async function availablePackRoles(
 export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
   if (op.packPermission !== undefined) return role.permissions.includes(op.packPermission);
   return role.read.length > 0 && PACK_ROLE_READS.includes(op.name);
+}
+
+/**
+ * Whether a staff account may call `op` (with this parsed input), by what it holds: a pack role
+ * replaces everything (ADR 0436); otherwise its role, or a permission granted to it that is
+ * still grantable (ADR 0449): a core one by `op.permission`, a pack's by the tool's own
+ * permission when its pack declares it grantable. The pipeline asks this on every staff call.
+ * Actors, MCP scopes and the gate are judged beside it, so a grant never lets an AI actor make a
+ * call that is for a person.
+ */
+export function staffMayCall(
+  user: { role: Role },
+  rights: StaffRights,
+  op: AnyOperation,
+  input: unknown,
+): boolean {
+  if (rights.packRole) return packRoleAllows(rights.packRole, op, input);
+  if (holdsPermission(user, rights.grants, op.permission)) return true;
+  return Boolean(
+    op.packPermissionGrantable && op.packPermission && rights.grants.includes(op.packPermission),
+  );
 }
 
 /** Whether the role allows `op` with this (parsed) input. */

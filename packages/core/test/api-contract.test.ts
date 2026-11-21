@@ -10,6 +10,7 @@ import { env } from "cloudflare:workers";
 import deals from "@composable-os/pack-deals";
 import leads from "@composable-os/pack-leads";
 import lifecycle from "@composable-os/pack-lifecycle";
+import programs from "@composable-os/pack-programs";
 import ticketing from "@composable-os/pack-ticketing";
 import { toManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
@@ -28,7 +29,7 @@ import {
   defineOperation,
 } from "../src/index.ts";
 
-const shippedTools = [deals, leads, lifecycle, ticketing].flatMap((extension) => {
+const shippedTools = [deals, leads, lifecycle, ticketing, programs].flatMap((extension) => {
   const manifest = toManifest(extension);
   return Object.entries(manifest.tools).map(([name, tool]) =>
     toolOperation(manifest, name, tool, "shipped"),

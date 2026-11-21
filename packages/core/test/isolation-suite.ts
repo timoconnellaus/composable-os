@@ -23,7 +23,9 @@ import {
   openOperations,
 } from "../src/index.ts";
 import {
+  ASSIGNMENT,
   type Customer,
+  createClass,
   createCustomer,
   createShows,
   createSupplier,
@@ -32,11 +34,13 @@ import {
   giveOrders,
   installShop,
   type call as invokeCall,
+  LOG,
   ORDER,
   type Outcome,
   outside,
   PUBLIC,
   REQUEST,
+  SESSION,
   SHOW,
   SUPPLIER,
   snapshot,
@@ -54,6 +58,7 @@ export function isolationSuite(how: string, call: CallFn): void {
   let b: Customer;
   let supplier: { id: string; secrets: string[] };
   let shows: Awaited<ReturnType<typeof createShows>>;
+  let classes: Awaited<ReturnType<typeof createClass>>;
 
   const GUESS = "rec_01GUESSED00000000000000000";
   const GUESS_PERSON = "per_01GUESSED00000000000000000";
@@ -66,6 +71,8 @@ export function isolationSuite(how: string, call: CallFn): void {
     supplier = await createSupplier(admin);
     // Stage 27 (ADR 0438): what the public may read, and what it may not.
     shows = await createShows(admin);
+    // Stage 41 (ADR 0447): a class every signed-in customer reads, beside each one's own.
+    classes = await createClass(admin);
     // Stage 25, criterion 10: real orders and their lines, for both customers.
     await giveOrders(admin, a);
     await giveOrders(admin, b);
@@ -82,6 +89,10 @@ export function isolationSuite(how: string, call: CallFn): void {
     // Readable by the public (and customers) while on sale, and only their listed fields.
     SHOW,
     TIER,
+    // A program's assignments, sessions and logged sets (stage 41): one's own, and a class's.
+    ASSIGNMENT,
+    SESSION,
+    LOG,
     "person",
     "organisation",
     "activity",
@@ -187,6 +198,13 @@ export function isolationSuite(how: string, call: CallFn): void {
         ...(owner ? [{ [owner]: b.principal.personId }, { [owner]: a.principal.personId }] : []),
         { [writable]: "ok", internalNote: "smuggled" },
         { id: theirs[0] ?? GUESS },
+        // A relation pointed at B's record of its target: a set logged on B's session.
+        ...(definition?.fields ?? [])
+          .filter((f) => f.fieldType === "relation" && f.options?.to && f.options.to !== "person")
+          .flatMap((f) => {
+            const target = b.records[f.options?.to as string]?.[0];
+            return target ? [{ [f.name]: target }, { [writable]: "ok", [f.name]: target }] : [];
+          }),
       ];
     }
     if (name === "limit") return [200];
@@ -295,9 +313,44 @@ export function isolationSuite(how: string, call: CallFn): void {
       }
     });
 
+    it("a class's assignment and session are read by both, with only what is shared (ADR 0447)", async () => {
+      for (const customer of [a, b]) {
+        for (const object of [ASSIGNMENT, SESSION, LOG]) {
+          const page = await call("fixture.myList", { object }, outside(customer.principal));
+          expect(page.ok, JSON.stringify(page)).toBe(true);
+          const ids = (page as { value: { items: { id: string }[] } }).value.items.map((i) => i.id);
+          const shared =
+            object === ASSIGNMENT
+              ? [classes.assignment]
+              : object === SESSION
+                ? [classes.session]
+                : [];
+          // Logged sets grow as the suite's own writes land; each is the caller's.
+          if (object === LOG) {
+            expect(ids).toEqual(expect.arrayContaining(customer.records[object] ?? []));
+            continue;
+          }
+          expect(ids.sort()).toEqual([...(customer.records[object] ?? []), ...shared].sort());
+        }
+        const session = await call(
+          "fixture.myGet",
+          { object: SESSION, id: classes.session },
+          outside(customer.principal),
+        );
+        const text = JSON.stringify(session);
+        expect(text).toContain(classes.memberNote);
+        for (const hidden of classes.hidden) expect(text).not.toContain(hidden);
+      }
+    });
+
     it("no response holds a value from B's rows, and no write changes one", async () => {
       const before = { b: await snapshot(b), supplier: JSON.stringify(supplier) };
-      const secrets = [...b.secrets, ...supplier.secrets, ...shows.hidden.secrets];
+      const secrets = [
+        ...b.secrets,
+        ...supplier.secrets,
+        ...shows.hidden.secrets,
+        ...classes.hidden,
+      ];
       const problems: string[] = [];
       let calls = 0;
       let withTheirIds = 0;

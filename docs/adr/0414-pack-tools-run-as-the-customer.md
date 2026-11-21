@@ -53,3 +53,9 @@ directly: a cancel sets `status`.
 - `customerFields` names objects of the tool's own extension only.
 - The check that an extension is "the org's own, reviewed" is its source being `shipped`. Stage
   24 (client repos) must keep that true.
+
+## Amendment, 2026-11-21 (stage 41, ADR 0447)
+`my.update` takes `from` (ADR 0437), so a tool moves a customer's own record from a current read.
+A relation a tool sets for a customer, through `customerFields` or `customer.write`, must point at
+a record the customer can see; another customer's is not found. A record shared with every
+signed-in customer is read by them and changed by none. See [ADR 0447](0447-the-signed-in-scope.md).

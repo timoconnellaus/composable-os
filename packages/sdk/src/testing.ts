@@ -29,6 +29,7 @@ import {
   notificationInput,
 } from "./automation.ts";
 import { type AiModule, type Extension, GATEKEEPER_MODULES, type StartedBy } from "./contract.ts";
+import { type DocumentSchema, validateDocument } from "./document.ts";
 import type { ExtensionManifest, ManifestIssue, ValidateOptions } from "./manifest.ts";
 import { CORE_OBJECT_NAMES, toManifest, validateManifest } from "./manifest.ts";
 import { checkGrant } from "./permissions.ts";
@@ -155,12 +156,23 @@ export interface TestHost {
    * record, waits skipped (and recorded), steps held to the declarations.
    */
   runAutomation(name: string, options?: AutomationRunOptions): Promise<AutomationRunResult>;
+  /**
+   * Publishes a record of a publishable object as a person would (`record.publish`, which no
+   * tool may call): its content fields become the next version, which `record.version` reads.
+   * Returns the version's number.
+   */
+  publish(object: string, id: string): number;
 }
 
 function riskOf(operation: string): string {
   const verb = operation.split(".").at(-1) ?? "";
-  if (/^(get|list|search|listForRecord|listMine|sql|global|count|unreadCount)$/.test(verb))
+  if (
+    /^(get|list|search|listForRecord|listMine|sql|global|count|unreadCount|version|versions)$/.test(
+      verb,
+    )
+  )
     return "read";
+  if (verb === "createMany") return "bulk-write";
   if (/^(delete|erase|merge|deleteMany)$/.test(verb)) return "destructive";
   return "write";
 }
@@ -193,6 +205,28 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
   const calls: TestHost["calls"] = [];
   const logs: TestHost["logs"] = [];
   const storage = new Map<string, unknown>();
+  const versions = new Map<
+    string,
+    { version: number; publishedAt: string; values: Record<string, unknown> }[]
+  >();
+  /** A person publishing a record (ADR 0446): its `publishable.content` becomes a version. */
+  const publish = (object: string, id: string) => {
+    const local = object.startsWith(`${manifest.id}.`) ? object.slice(manifest.id.length + 1) : "";
+    const content = manifest.objects[local]?.publishable?.content;
+    if (!content) throw new ExtensionToolError("invalid_input", `${object} is not publishable`);
+    const row = table(object).get(id);
+    if (!row) throw new ExtensionToolError("not_found", `No ${object} with id ${id}`);
+    const list = versions.get(`${object}|${id}`) ?? [];
+    const version = list.length + 1;
+    list.push({
+      version,
+      publishedAt: new Date().toISOString(),
+      values: structuredClone(Object.fromEntries(content.map((f) => [f, row[f] ?? null]))),
+    });
+    versions.set(`${object}|${id}`, list);
+    row.publishedVersion = version;
+    return version;
+  };
 
   // Records are stored flat ({ id, ...values }) and returned in the host's record shape.
   const titleOf = (object: string, row: Values): string | null => {
@@ -255,14 +289,72 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
         );
     }
   };
+  // A document field's value is checked against its schema, as the host checks it (ADR 0445).
+  const checkDocuments = (object: string, values: Record<string, unknown>) => {
+    const local = object.startsWith(`${manifest.id}.`) ? object.slice(manifest.id.length + 1) : "";
+    for (const [name, field] of Object.entries(manifest.objects[local]?.fields ?? {})) {
+      if (field.type !== "document" || values[name] === undefined || values[name] === null)
+        continue;
+      const result = validateDocument(
+        field.schema as unknown as DocumentSchema,
+        values[name],
+        field.maxBytes === undefined ? {} : { maxBytes: field.maxBytes },
+      );
+      if (!result.ok) {
+        const first = result.issues[0];
+        throw new ExtensionToolError(
+          "invalid_input",
+          `Invalid value for ${object}.${name}: ${[name, ...(first?.path ?? [])].join(".")}: ${first?.message}`,
+          { field: name, issues: result.issues },
+        );
+      }
+    }
+  };
+  const create = (object: string, values: Record<string, unknown>) => {
+    checkDocuments(object, values);
+    sequence += 1;
+    const id = `rec_test${sequence}`;
+    // A record with a state machine starts in its initial state, as the host makes it.
+    const local = object.startsWith(`${manifest.id}.`) ? object.slice(manifest.id.length + 1) : "";
+    const states = manifest.objects[local]?.states;
+    const initial =
+      states && values[states.field] == null ? { [states.field]: states.initial } : {};
+    const row = { ...initial, ...values, id };
+    table(object).set(id, row);
+    return row;
+  };
   const builtIn: Record<string, OperationFake> = {
     "record.create": (input) => {
-      sequence += 1;
       const object = String(input.object);
-      const id = `rec_test${sequence}`;
-      const row = { ...(input.values as Record<string, unknown>), id };
-      table(object).set(id, row);
-      return shape(object, row);
+      return shape(object, create(object, input.values as Record<string, unknown>));
+    },
+    "record.createMany": (input) => {
+      const object = String(input.object);
+      const rows = (input.records as Record<string, unknown>[]).map((values) => {
+        checkDocuments(object, values);
+        return values;
+      });
+      return { ids: rows.map((values) => create(object, values).id) };
+    },
+    // Versions a person published (`host.publish`), ADR 0446.
+    "record.version": (input) => {
+      const list = versions.get(`${input.object}|${input.id}`) ?? [];
+      const found =
+        input.version === undefined
+          ? list.at(-1)
+          : list.find((v) => v.version === Number(input.version));
+      if (!found) {
+        throw new ExtensionToolError("not_found", `No published version of ${input.id}`);
+      }
+      return {
+        version: found.version,
+        current: found === list.at(-1),
+        publishedAt: found.publishedAt,
+        publishedBy: "usr_admin",
+        note: null,
+        bytes: JSON.stringify(found.values).length,
+        values: structuredClone(found.values),
+      };
     },
     "record.get": (input) => {
       const object = String(input.object);
@@ -298,6 +390,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
           });
         }
       }
+      checkDocuments(object, input.values as Record<string, unknown>);
       const next = { ...row, ...(input.values as Record<string, unknown>), id: row.id };
       rows.set(row.id, next);
       return shape(object, next);
@@ -720,6 +813,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     notifications,
     gatekeeperCalls,
     runAutomation,
+    publish,
     async runTool<T>(
       tool: string,
       input: unknown,

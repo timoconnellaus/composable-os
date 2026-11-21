@@ -10,6 +10,7 @@
 import { ValidationError } from "../errors.ts";
 import type { CustomerDeclaration, FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";
+import { type Condition, resolveCondition, signedInProblems } from "./public.ts";
 
 /** What is wrong with an object's `customer` declaration (empty when nothing is). */
 export function customerProblems(object: ObjectDefinition): string[] {
@@ -68,6 +69,12 @@ export interface CustomerScope {
   /** Names of the fields the customer may set. */
   readonly writable: ReadonlySet<string>;
   readonly declaration: CustomerDeclaration;
+  /**
+   * Records every signed-in customer reads beside their own (the object's `signedIn`, ADR
+   * 0447): the condition they meet (null: every live record) and the view columns shown of
+   * them, a subset of `columns`. Read only: a customer writes their own records alone.
+   */
+  readonly shared?: { readonly condition: Condition | null; readonly columns: ReadonlySet<string> };
 }
 
 /** The customer scope of `object` for `personId`, or null when the object declares none. */
@@ -83,6 +90,7 @@ export function customerScope(object: ObjectDefinition, personId: string): Custo
   const readable = new Set(["id", ...declared.read]);
   const fields = object.fields.filter((f) => readable.has(f.name));
   const columns = [...new Set(fields.map((f) => viewColumnOf(f) as string))];
+  const shared = sharedPart(object);
   return {
     kind: "customer",
     personId,
@@ -91,6 +99,25 @@ export function customerScope(object: ObjectDefinition, personId: string): Custo
     columns,
     writable: new Set(declared.write),
     declaration: declared,
+    ...(shared ? { shared } : {}),
+  };
+}
+
+/** The records of a customer object shared with every signed-in customer, if it declares any. */
+function sharedPart(object: ObjectDefinition): CustomerScope["shared"] {
+  const declared = object.signedIn;
+  if (!declared) return undefined;
+  const problems = signedInProblems(object);
+  if (problems.length) {
+    throw new Error(`${object.name}: invalid signedIn declaration: ${problems.join("; ")}`);
+  }
+  const readable = new Set(["id", ...declared.read]);
+  const columns = new Set(
+    object.fields.filter((f) => readable.has(f.name)).map((f) => viewColumnOf(f) as string),
+  );
+  return {
+    condition: resolveCondition(object, declared, "signedIn") as Condition | null,
+    columns,
   };
 }
 

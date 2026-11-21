@@ -5,13 +5,18 @@
 //
 // Core objects keep their own operations (person.update, …); `record.update` on a core object
 // writes only extension fields (into side tables), and `record.get` returns them.
-import type { FieldManifest } from "@composable-os/sdk";
+import { type DocumentSchema, documentRefs, type FieldManifest } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { assertNoConfirmedClaims, counterWrite } from "../capacity/records.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
-import { CAPACITY_FIELDS, fieldStorage, objectTableOf } from "../extensions/schema.ts";
+import {
+  CAPACITY_FIELDS,
+  fieldStorage,
+  objectTableOf,
+  PUBLISHED_FIELDS,
+} from "../extensions/schema.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
 import { getObject, isCoreObject, listObjects } from "../fields/index.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
@@ -57,7 +62,7 @@ function requireObject(name: string): ObjectDefinition {
   return object;
 }
 
-function requireExtensionObject(name: string): ObjectDefinition & { titleField: string } {
+export function requireExtensionObject(name: string): ObjectDefinition & { titleField: string } {
   const object = requireObject(name);
   if (isCoreObject(name) || !object.extension || !object.titleField) {
     throw new ValidationError(
@@ -80,6 +85,17 @@ function manifestOf(field: FieldDefinition): FieldManifest {
     ...(field.options?.choices ? { options: [...field.options.choices] } : {}),
     ...(field.options?.to ? { to: field.options.to } : {}),
     ...(field.options?.many !== undefined ? { many: field.options.many } : {}),
+    ...(field.options?.min !== undefined ? { min: field.options.min } : {}),
+    ...(field.options?.max !== undefined ? { max: field.options.max } : {}),
+    ...(field.options?.step !== undefined ? { step: field.options.step } : {}),
+    ...(field.options?.document
+      ? {
+          schema: field.options.document.schema,
+          ...(field.options.document.maxBytes !== undefined
+            ? { maxBytes: field.options.document.maxBytes }
+            : {}),
+        }
+      : {}),
   };
 }
 
@@ -101,6 +117,14 @@ function fromRow(object: ObjectDefinition, row: Record<string, unknown>): Record
       values[field.name] = raw === undefined || raw === null ? null : Number(raw);
     }
   }
+  // The publishable behaviour's read-only values (ADR 0446): the version readers are given.
+  if (object.publishable) {
+    for (const field of PUBLISHED_FIELDS) {
+      const raw = field.column ? row[field.column] : null;
+      values[field.name] =
+        raw === undefined || raw === null ? null : field.type === "number" ? Number(raw) : raw;
+    }
+  }
   const titleColumn = object.titleField
     ? object.fields.find((f) => f.name === object.titleField)?.column
     : undefined;
@@ -115,7 +139,7 @@ function fromRow(object: ObjectDefinition, row: Record<string, unknown>): Record
   };
 }
 
-async function loadRecord(
+export async function loadRecord(
   reader: Reader,
   object: ObjectDefinition,
   id: string,
@@ -183,7 +207,14 @@ async function prepareValues(
     const spec = FIELD_TYPE_REGISTRY[storage.type];
     const parsed = spec.schema(manifestOf(field)).safeParse(value);
     if (!parsed.success) {
-      throw new ValidationError(`Invalid value for ${object.name}.${name}`, {
+      // A document's fault is named by its path in the message too (ADR 0445).
+      const first = ["document", "number", "currency", "percent"].includes(storage.type)
+        ? parsed.error.issues[0]
+        : undefined;
+      const where = first
+        ? `: ${[name, ...first.path.map(String)].join(".")}: ${first.message}`
+        : "";
+      throw new ValidationError(`Invalid value for ${object.name}.${name}${where}`, {
         field: name,
         issues: parsed.error.issues,
       });
@@ -293,6 +324,10 @@ export function assertChoiceRequirements(
 async function assertReferences(ctx: HandlerContext, prepared: PreparedValue[]) {
   for (const p of prepared) {
     if (p.value == null) continue;
+    if (p.field.fieldType === "document") {
+      await assertDocumentRefs(ctx, p.field, p.value);
+      continue;
+    }
     const ids = Array.isArray(p.value) ? (p.value as string[]) : [String(p.value)];
     if (!ids.length) continue;
     if (p.field.fieldType === "user") {
@@ -326,6 +361,38 @@ async function assertReferences(ctx: HandlerContext, prepared: PreparedValue[]) 
           },
         );
       }
+    }
+  }
+}
+
+/**
+ * A document's refs must name live records of their objects, as a relation's do (ADR 0445): one
+ * read per object named, through the caller's seam. The first missing one is named by its path.
+ */
+async function assertDocumentRefs(ctx: HandlerContext, field: FieldDefinition, value: unknown) {
+  const schema = field.options?.document?.schema as DocumentSchema | undefined;
+  if (!schema) return;
+  const refs = documentRefs(schema, value);
+  const byObject = new Map<string, typeof refs>();
+  for (const ref of refs) byObject.set(ref.to, [...(byObject.get(ref.to) ?? []), ref]);
+  for (const [to, list] of byObject) {
+    const target = getObject(to);
+    if (!target) throw new ValidationError(`${field.name}: unknown object ${to}`);
+    const ids = [...new Set(list.map((r) => r.id))];
+    const found = await (ctx.db as AnyDb)
+      .selectFrom(visibleSource(ctx, target))
+      .select("id")
+      .where("id", "in", jsonList(ids))
+      .execute();
+    const have = new Set(found.map((r) => String((r as { id: string }).id)));
+    const missing = list.find((r) => !have.has(r.id));
+    if (missing) {
+      const where = [field.name, ...missing.path.map(String)].join(".");
+      throw new ValidationError(`${where}: no live ${to} with id ${missing.id}`, {
+        field: field.name,
+        path: missing.path,
+        missing: ids.filter((id) => !have.has(id)),
+      });
     }
   }
 }

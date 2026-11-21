@@ -56,6 +56,12 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    `write-extension`); it adds no filter of its own on what is public (Ticketing:
    `eventsOnSale`). A host refusal a tool lets escape (`not_found`, `conflict`, `invalid_input`)
    is the caller's, not the tool's: it does not count towards quarantine.
+   A tool that generates many records of one object (the dated sessions of an assignment) writes
+   them with `record.createMany` (up to 50 a call, all or none, `bulk-write`; ADR 0448), in
+   batches, after finding what an earlier run made (a key field), and sets the "done" state last.
+   A tool open to staff and customers branches on `ctx.caller.kind`: `my.*` for a customer (who
+   never names a person), `record.*` for staff (who do). `my.update` takes `from` as
+   `record.update` does (Programs: `sessionComplete`).
 3. **Make it a button** if the request says so: `recordAction` with `object`, `label`,
    `idInput`, and `confirm`, `ask` (one choice first) or `hideWhen` as needed. An output with
    `open: { object, id }` opens that record afterwards. See Leads: `convert`, `disqualify`.
@@ -105,7 +111,10 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    the output (`caller` defaults to the staff user `usr_admin`); pass `operations: {
    "query.sql": ... }` for operations it does not fake. Core objects' `.get` fakes answer with a
    record (`values`), where the host's `person.get` answers with the person's own fields: fake
-   `person.get` yourself when a tool reads `displayName` (Ticketing's test).
+   `person.get` yourself when a tool reads `displayName` (Ticketing's test). The test host checks
+   document fields against their schemas, starts a record with `states` in its initial state, and
+   publishes a version as a person would with `host.publish(object, id)`, which `record.version`
+   then reads (Programs' test).
    `host.runAutomation(name, { record, period, ... })` runs it start to finish: assert
    `run.undeclared` is empty, then `run.steps`, `run.writes` and `run.notifications`. Test the
    case where the conditions do not hold too. A gatekeeper the extension declares is faked in

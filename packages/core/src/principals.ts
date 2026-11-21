@@ -66,6 +66,9 @@ export type Role = (typeof ROLES)[number];
  * - `settings:manage` org settings such as the base currency (stage 4b)
  * - `orders:refund` propose and approve a refund of an order's payment (stage 25, ADR 0429).
  *   Admins only by default. Approving one also needs a person: no AI actor approves a refund.
+ * - `records:publish` publish a version of a publishable record's content (stage 41, ADR 0446).
+ *   Admins only by default, as `orders:refund` is; `record.publish` is for a person, so no AI
+ *   actor publishes, whatever its role or scope.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -78,6 +81,7 @@ export const PERMISSIONS = [
   "integrations:manage",
   "settings:manage",
   "orders:refund",
+  "records:publish",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -89,6 +93,30 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
 
 export function roleHasPermission(role: Role, permission: Permission): boolean {
   return ROLE_PERMISSIONS[role].includes(permission);
+}
+
+/**
+ * Core permissions a human admin may grant to a staff account one by one, on top of its role
+ * (ADR 0449): a coach who is a member publishing programs, a manager refunding. A pack adds the
+ * permissions of its own tools it declares `grantable`. Nothing that changes identity, policy,
+ * users or extensions is grantable.
+ */
+export const GRANTABLE_PERMISSIONS = ["records:publish", "orders:refund"] as const;
+
+/**
+ * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role
+ * replaces both (ADR 0436): the pipeline asks the role then, never this.
+ */
+export function holdsPermission(
+  user: { role: Role },
+  grants: readonly string[] | undefined,
+  permission: Permission,
+): boolean {
+  return (
+    roleHasPermission(user.role, permission) ||
+    ((GRANTABLE_PERMISSIONS as readonly string[]).includes(permission) &&
+      (grants ?? []).includes(permission))
+  );
 }
 
 /**
