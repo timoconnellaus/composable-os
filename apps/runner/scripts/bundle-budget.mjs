@@ -20,8 +20,11 @@ import { fileURLToPath } from "node:url";
 // (2026-11-21): stages 22, 23, 25 and 26 (customers, the HTTP surface, orders and payments,
 // capacity) took it to 6,146 KiB. No React or compiler came with them either. Measured
 // 2026-11-21 when a release began to carry every pack (ADR 0420 as amended): 6,246 KiB with four
-// packs (the shipped sources grew from 69 KiB to 120 KiB); not raised.
-const MAIN_BUDGET_KIB = 6_656;
+// packs (the shipped sources grew from 69 KiB to 120 KiB); not raised. Raised to 7,168 KiB
+// (2026-11-22): stage 42's Courses pack (its shipped source, carried as text) with the video
+// host and the access scope, on top of tax at checkout and publish requests, took it to 6,811 KiB.
+// No React or compiler came with them.
+const MAIN_BUDGET_KIB = 7_168;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
