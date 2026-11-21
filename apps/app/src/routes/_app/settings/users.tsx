@@ -1,8 +1,11 @@
 // Settings → Users and roles (admin): every user (user.list) and their role, changed with
 // user.updateRole. The last admin cannot be demoted; that refusal is shown inline on the row.
+// Under each non-admin, the permissions an admin grants one by one on top of the role
+// (user.setPermissions, ADR 0449): publishing programs, refunds, a pack's grantable tools.
 
 import { Avatar, AvatarFallback, AvatarImage } from "@composable-os/ui/components/avatar";
 import { Badge } from "@composable-os/ui/components/badge";
+import { Checkbox } from "@composable-os/ui/components/checkbox";
 import {
   Select,
   SelectContent,
@@ -47,6 +50,21 @@ function UsersPage() {
   const { isAdmin, user: me } = Route.useRouteContext();
   const users = useOp("user.list", ALL_USERS_INPUT);
   const update = useOpMutation("user.updateRole");
+  const grantable = useOp("user.grantablePermissions", {}, { enabled: isAdmin });
+  const setPermissions = useOpMutation("user.setPermissions");
+
+  async function toggleGrant(id: string, name: string, held: string[], permission: string) {
+    const next = held.includes(permission)
+      ? held.filter((p) => p !== permission)
+      : [...held, permission];
+    try {
+      await setPermissions.mutateAsync({ id, permissions: next });
+      await users.refetch();
+      toast.success(`${name}'s permissions saved`);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   async function changeRole(id: string, name: string, role: Role) {
@@ -113,6 +131,27 @@ function UsersPage() {
                     </span>
                   )}
                 </div>
+                {isAdmin && role !== "admin" && !u.packRole && grantable.data?.items.length ? (
+                  <fieldset
+                    className="order-last flex basis-full flex-wrap gap-x-4 gap-y-1 pl-11 text-xs"
+                    aria-label={`Granted to ${name}`}
+                  >
+                    {grantable.data.items.map((g) => {
+                      const held = u.permissions ?? [];
+                      return (
+                        <label key={g.permission} className="flex items-center gap-1.5">
+                          <Checkbox
+                            checked={held.includes(g.permission)}
+                            disabled={setPermissions.isPending}
+                            onCheckedChange={() => void toggleGrant(u.id, name, held, g.permission)}
+                            aria-label={`${g.label} for ${name}`}
+                          />
+                          {g.label}
+                        </label>
+                      );
+                    })}
+                  </fieldset>
+                ) : null}
                 {isAdmin ? (
                   <Select
                     value={role}

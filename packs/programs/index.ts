@@ -15,6 +15,7 @@
 //     current read (ADR 0437).
 // The tools in tools.ts compose the host's operations and add no rules of their own.
 import { defineExtension } from "@composable-os/sdk";
+import { programsDashboards } from "./dashboards.ts";
 import { LAYOUT_SCHEMA, SESSION_PLAN_SCHEMA } from "./layout.ts";
 import {
   assign,
@@ -469,6 +470,127 @@ export default defineExtension({
         ["exercise", "date"],
         ["person", "date"],
       ],
+    },
+  },
+  views: {
+    bankByTheme: {
+      label: "Bank by theme",
+      object: "programs.exercise",
+      type: "board",
+      groupBy: "theme",
+      cardFields: ["measure", "level", "equipment"],
+    },
+    programsPublished: {
+      label: "Published programs",
+      object: "programs.program",
+      filter: { field: "publishedVersion", op: "is_not_null" },
+      sort: { field: "publishedAt", direction: "desc" },
+      columns: ["title", "kind", "weekCount", "publishedVersion", "publishedAt"],
+    },
+    activeAssignments: {
+      label: "Active assignments",
+      object: "programs.assignment",
+      filter: { field: "state", op: "eq", value: "active" },
+      sort: { field: "startDate", direction: "desc" },
+      columns: ["title", "kind", "person", "classType", "startDate", "endDate", "sessionCount"],
+    },
+    sessionsThisWeek: {
+      label: "Sessions this week",
+      object: "programs.session",
+      filter: {
+        and: [
+          { field: "date", op: "gte", value: { $relative: "startOfWeek" } },
+          { field: "date", op: "lt", value: { $relative: "startOfNextWeek" } },
+        ],
+      },
+      sort: { field: "date", direction: "asc" },
+      columns: ["name", "date", "kind", "person", "classType", "state"],
+    },
+    sessionsCalendar: {
+      label: "Sessions calendar",
+      object: "programs.session",
+      type: "calendar",
+      dateField: "date",
+      mode: "week",
+      cardFields: ["person", "classType", "state"],
+    },
+    setsThisWeek: {
+      label: "Sets logged this week",
+      object: "programs.log",
+      filter: {
+        and: [
+          { field: "date", op: "gte", value: { $relative: "startOfWeek" } },
+          { field: "date", op: "lt", value: { $relative: "startOfNextWeek" } },
+        ],
+      },
+      sort: { field: "date", direction: "desc" },
+      columns: [
+        "person",
+        "exercise",
+        "label",
+        "level",
+        "targetReps",
+        "actualReps",
+        "targetLoad",
+        "actualLoad",
+        "actualSeconds",
+        "rpe",
+        "recordedAs",
+      ],
+    },
+  },
+  dashboards: programsDashboards,
+  // A client's Person page: their sets (the Training tab), their assignments and their sessions.
+  recordTabs: {
+    personTraining: {
+      label: "Training",
+      on: "person",
+      view: {
+        type: "table",
+        object: "programs.log",
+        relation: "person",
+        columns: [
+          "date",
+          "exercise",
+          "label",
+          "level",
+          "targetReps",
+          "actualReps",
+          "targetLoad",
+          "actualLoad",
+          "actualSeconds",
+          "rpe",
+          "recordedAs",
+        ],
+        sort: { field: "date", direction: "desc" },
+      },
+      order: 40,
+    },
+  },
+  recordPanels: {
+    personAssignments: {
+      label: "Programs",
+      on: "person",
+      view: {
+        type: "table",
+        object: "programs.assignment",
+        relation: "person",
+        columns: ["title", "startDate", "endDate", "state"],
+        sort: { field: "startDate", direction: "desc" },
+      },
+      order: 40,
+    },
+    personSessions: {
+      label: "Sessions",
+      on: "person",
+      view: {
+        type: "table",
+        object: "programs.session",
+        relation: "person",
+        columns: ["name", "date", "state"],
+        sort: { field: "date", direction: "desc" },
+      },
+      order: 41,
     },
   },
   tools: {
