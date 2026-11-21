@@ -521,6 +521,26 @@ export function planFromState(
         `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${columns.join(", ")}) WHERE deleted_at IS NULL`,
       );
     }
+    // A slug is unique among the object's live records (stage 28, ADR 0442): the database
+    // refuses a second one, whatever wrote it. A deleted record's slug can be taken again.
+    for (const field of next.fields) {
+      if (
+        field.object !== object.name ||
+        field.extensionId !== ext ||
+        field.status !== "active" ||
+        field.type !== "slug" ||
+        !field.columnName ||
+        field.tableName !== object.tableName
+      ) {
+        continue;
+      }
+      const column = ident(field.columnName);
+      const name = ident(`${object.tableName}__${column}__unique`);
+      wanted.set(
+        name,
+        `CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${column}) WHERE deleted_at IS NULL AND ${column} IS NOT NULL`,
+      );
+    }
     const existing = (current.indexes ?? []).filter(
       (index) => index.table === object.tableName && index.name.startsWith(`${object.tableName}__`),
     );

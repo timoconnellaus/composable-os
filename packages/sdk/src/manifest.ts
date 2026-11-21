@@ -132,7 +132,14 @@ export function onStep(value: number, from: number, step: number): boolean {
 }
 
 /** Field names a publishable object's records get from the host (ADR 0446). */
-export const PUBLISHED_FIELD_NAMES = ["publishedVersion", "publishedAt"] as const;
+export const PUBLISHED_FIELD_NAMES = [
+  "publishedVersion",
+  "publishedAt",
+  // Stage 28 (ADR 0441): where the record is (draft, scheduled, published, unpublished) and
+  // when a scheduled publish goes live.
+  "publishState",
+  "publishAt",
+] as const;
 
 const readDeclarationSchema = z
   .object({
@@ -206,7 +213,11 @@ export const objectManifestSchema = z.object({
     .strict()
     .optional(),
   publishable: z
-    .object({ content: z.array(z.string().max(40)).min(1).max(40) })
+    .object({
+      content: z.array(z.string().max(40)).min(1).max(40),
+      slug: z.string().max(40).optional(),
+      date: z.string().max(40).optional(),
+    })
     .strict()
     .optional(),
   navigationOrder: z.number().int().min(0).max(10_000).optional(),
@@ -406,9 +417,27 @@ function checkDocumentField(
   known: ReadonlySet<string>,
   contract: (path: string, message: string) => void,
 ): void {
+  if (field.type === "richText") {
+    // One fixed schema (ADR 0440): a field declares at most its size.
+    for (const key of ["schema", "paths"] as const) {
+      if (field[key] !== undefined) {
+        contract(`${path}.${key}`, `A richText field has the platform's schema and no ${key}`);
+      }
+    }
+    if (field.track) contract(`${path}.track`, "Rich text is not tracked on the timeline");
+    if (
+      field.maxBytes !== undefined &&
+      (field.maxBytes < 1024 || field.maxBytes > DOCUMENT_MAX_BYTES)
+    ) {
+      contract(`${path}.maxBytes`, `maxBytes is from 1024 to ${DOCUMENT_MAX_BYTES}`);
+    }
+    return;
+  }
   if (field.type !== "document") {
     for (const key of ["schema", "maxBytes", "paths"] as const) {
-      if (field[key] !== undefined) contract(`${path}.${key}`, `Only document fields take ${key}`);
+      if (field[key] !== undefined) {
+        contract(`${path}.${key}`, `Only document and richText fields take ${key}`);
+      }
     }
     return;
   }
@@ -991,7 +1020,11 @@ export function validateManifest(
     if (new Set(p.read).size !== p.read.length)
       contract(`${path}.read`, `${key}.read lists a field twice`);
     for (const fieldName of p.read) {
-      if (!object.fields[fieldName]) {
+      const hostField =
+        key === "public" &&
+        object.publishable !== undefined &&
+        (fieldName === "publishedAt" || fieldName === "publishedVersion");
+      if (!object.fields[fieldName] && !hostField) {
         contract(
           `${path}.read`,
           `${key}.read lists "${fieldName}", which is not a field of ${name}`,
@@ -1061,6 +1094,48 @@ export function validateManifest(
           `"${fieldName}" is ${field.type === "formula" ? "a formula" : "read-only"}: content is what staff edit`,
         );
       }
+    }
+    // The address and the date a reader is shown (stage 28, ADR 0441, ADR 0442).
+    if (p.slug !== undefined) {
+      const slug = object.fields[p.slug];
+      if (slug?.type !== "slug") {
+        contract(`${path}.slug`, `publishable.slug must name a slug field of ${name}`);
+      } else if (p.content.includes(p.slug)) {
+        contract(
+          `${path}.slug`,
+          "The slug is the record's address, not content: leave it out of content",
+        );
+      }
+    }
+    if (p.date !== undefined) {
+      const date = object.fields[p.date];
+      if (!date || (date.type !== "date" && date.type !== "datetime")) {
+        contract(`${path}.date`, `publishable.date must name a date or datetime field of ${name}`);
+      } else if (!p.content.includes(p.date)) {
+        contract(`${path}.date`, "publishable.date is content: list it in content too");
+      }
+    }
+    if (object.public) {
+      if (p.slug === undefined) {
+        contract(`${path}.slug`, "A publishable object the public reads names its slug field");
+      }
+      // The public reads the published version (ADR 0442): its content, its address and when it
+      // went live, and fields the host keeps on the working copy that are not computed from it.
+      for (const fieldName of object.public.read) {
+        const field = object.fields[fieldName];
+        if (field?.type === "formula") {
+          contract(
+            `objects.${name}.public.read`,
+            `public.read lists "${fieldName}", a formula: on a publishable object a formula reads the working copy`,
+          );
+        }
+      }
+    }
+    if (object.customer || object.customerVia) {
+      contract(
+        path,
+        "A publishable object declares no customer or customerVia: what outsiders read of it is its published version",
+      );
     }
     for (const taken of PUBLISHED_FIELD_NAMES) {
       const clash =
@@ -1135,6 +1210,10 @@ export function validateManifest(
     for (const [fieldName, field] of Object.entries(fields)) {
       if (field.default !== undefined || field.defaultSetting !== undefined) {
         contract(`${path}.${fieldName}`, "Only fields of your own objects take a default");
+      }
+      if (field.type === "slug") {
+        // A slug is unique in its object's own table (ADR 0442): an object's address is its own.
+        contract(`${path}.${fieldName}`, "Only fields of your own objects can be a slug");
       }
     }
     const base = options.baseFields?.(target) ?? coreFormulaRefs(target);

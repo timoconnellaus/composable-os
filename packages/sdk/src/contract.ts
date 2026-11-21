@@ -147,6 +147,24 @@ export type FieldSpec =
       maxBytes?: number;
       paths?: Record<string, DocumentPathSpec>;
     })
+  | (Omit<FieldBase, "default" | "defaultSetting" | "track"> & {
+      /**
+       * Structured prose (stage 28, ADR 0440): a document with the platform's one schema,
+       * `RICH_TEXT_SCHEMA` (paragraphs, headings, lists, quotes, pictures, dividers, embeds,
+       * callouts and buttons; bold, italic, code and links). HTML, script and anything the
+       * schema does not name are refused on every write. `maxBytes` defaults to 131,072.
+       */
+      type: "richText";
+      maxBytes?: number;
+    })
+  | (Omit<FieldBase, "default" | "defaultSetting"> & {
+      /**
+       * A record's address (stage 28, ADR 0442): lowercase letters and digits in words joined
+       * by hyphens, at most 120 characters, unique among the object's live records. Left empty
+       * on a new record, the host makes one from the title. Name it as `publishable.slug`.
+       */
+      type: "slug";
+    })
   | (Omit<FieldBase, "required"> & {
       type: "formula";
       /** An expression over fields of the same record. See the SDK README for the grammar. */
@@ -603,6 +621,18 @@ export interface SignedInSpec {
 export interface PublishableSpec {
   /** The fields a version keeps: the content staff edit in the working copy. */
   content: readonly string[];
+  /**
+   * The record's address (stage 28, ADR 0442): a `slug` field of the object's own, not in
+   * `content`. The public reads a record by it (`content.get`); a published record whose slug
+   * changes keeps the old one as a redirect. Needed to declare `public`.
+   */
+  slug?: string;
+  /**
+   * The date a reader is shown (stage 28, ADR 0441): a date or datetime field in `content`. Left
+   * empty, publishing fills it with the time it goes live, in the working copy and the version.
+   * Set, it is kept: an imported post keeps its date.
+   */
+  date?: string;
 }
 
 /** An object's customer: see `ObjectSpec.customer`. */

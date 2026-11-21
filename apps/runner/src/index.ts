@@ -18,10 +18,12 @@ import {
   type ProducerResult,
   type ProducerRun,
   parseFloor,
+  queueEventSink,
   type RunToolInput,
   type RunToolResult,
   retryOutbox,
   runDuplicateCron,
+  runPublishDue,
   type ShippedExtension,
   type ShippedInstallResult,
   type StartRunInput,
@@ -299,6 +301,7 @@ export async function minuteTick(env: Env, at: Date) {
       notifications: null,
       duplicates: null,
       orders: null,
+      publishing: null,
     };
   }
   const schedules = await minuteStep("schedules", () => runAutomationCron(env, at));
@@ -324,7 +327,24 @@ export async function minuteTick(env: Env, at: Date) {
   );
   // Orders (stage 25, ADR 0429): expire unpaid orders, apply verified payments left over.
   const orders = await minuteStep("orders", () => runOrdersTick(env, at));
-  return { paused: false, schedules, outbox, integrationEvents, notifications, duplicates, orders };
+  // Content (stage 28, ADR 0441): scheduled publishes whose time has come go live.
+  const publishing = await minuteStep("publishing", () =>
+    runPublishDue(createCrmDb(env.DB), {
+      clock: () => at,
+      floor: parseFloor(env.APPROVAL_FLOOR),
+      ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
+    }),
+  );
+  return {
+    paused: false,
+    schedules,
+    outbox,
+    integrationEvents,
+    notifications,
+    duplicates,
+    orders,
+    publishing,
+  };
 }
 
 async function minuteStep<T>(name: string, run: () => Promise<T>): Promise<T | null> {

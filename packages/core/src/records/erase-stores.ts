@@ -166,7 +166,16 @@ export async function queueEraseSync(ctx: HandlerContext, s: StoreSubject): Prom
 // --- Extensions --------------------------------------------------------------------------------
 
 // A document (ADR 0445) is scrubbed inside: its strings, never its shape (scrubDocument).
-const TEXT_TYPES = new Set(["text", "longText", "email", "phone", "url", "document"]);
+const TEXT_TYPES = new Set([
+  "text",
+  "longText",
+  "email",
+  "phone",
+  "url",
+  "document",
+  "richText",
+  "slug",
+]);
 const IDENT = /^[a-z][a-z0-9_]*$/;
 const q = (name: string) => {
   if (!IDENT.test(name)) throw new Error(`Unexpected identifier ${JSON.stringify(name)}`);
@@ -391,6 +400,24 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
           .where("version", "=", version.version),
       );
     }
+    // A scheduled publish (stage 28, ADR 0441) holds a snapshot too, until the cron takes it.
+    const scheduled = await ctx.db
+      .selectFrom("core_publish_schedule")
+      .select(["object_type", "record_id", "content"])
+      .where(mentionsSql(termsJson, sql`content`))
+      .execute();
+    for (const row of scheduled) {
+      const content = scrubDocument(row.content, m, termOnly);
+      if (content === row.content) continue;
+      rows += 1;
+      ctx.write(
+        ctx.db
+          .updateTable("core_publish_schedule")
+          .set({ content, bytes: new TextEncoder().encode(content).length })
+          .where("object_type", "=", row.object_type)
+          .where("record_id", "=", row.record_id),
+      );
+    }
     // Extension records' search entries (titles) follow their scrubbed text.
     // Looked up per extension object (the index's leading column), not across core records.
     const docs = objects.length
@@ -468,11 +495,11 @@ function scrubField(
   m: SubjectMatcher,
   pattern: RegExp | null,
 ): string | null {
-  if (type === "document") return scrubDocument(value, m, pattern);
+  if (type === "document" || type === "richText") return scrubDocument(value, m, pattern);
   if (m.identifies(value)) return null;
   if (!mentions(value, pattern)) return value;
   // A typed value (an address, a URL) that mentions them cannot keep a valid partial form.
-  if (type === "email" || type === "phone" || type === "url") return null;
+  if (type === "email" || type === "phone" || type === "url" || type === "slug") return null;
   return pattern ? value.replace(pattern, ERASED) : value;
 }
 

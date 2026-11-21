@@ -5,7 +5,12 @@
 //
 // Core objects keep their own operations (person.update, …); `record.update` on a core object
 // writes only extension fields (into side tables), and `record.get` returns them.
-import { type DocumentSchema, documentRefs, type FieldManifest } from "@composable-os/sdk";
+import {
+  type DocumentSchema,
+  documentRefs,
+  type FieldManifest,
+  isDocumentType,
+} from "@composable-os/sdk";
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
@@ -27,6 +32,7 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
+import { assertSlugsFree, redirectWrites, slugsForCreate } from "../records/slug.ts";
 import type { StageCache } from "../records/stages.ts";
 import { type Mover, type TransitionOutcome, transitionTimeline } from "../records/transitions.ts";
 import { loadGeneralSettings } from "../settings.ts";
@@ -209,7 +215,9 @@ async function prepareValues(
     const parsed = spec.schema(manifestOf(field)).safeParse(value);
     if (!parsed.success) {
       // A document's fault is named by its path in the message too (ADR 0445).
-      const first = ["document", "number", "currency", "percent"].includes(storage.type)
+      const first = ["document", "richText", "slug", "number", "currency", "percent"].includes(
+        storage.type,
+      )
         ? parsed.error.issues[0]
         : undefined;
       const where = first
@@ -325,7 +333,7 @@ export function assertChoiceRequirements(
 async function assertReferences(ctx: HandlerContext, prepared: PreparedValue[]) {
   for (const p of prepared) {
     if (p.value == null) continue;
-    if (p.field.fieldType === "document") {
+    if (isDocumentType(p.field.fieldType)) {
       await assertDocumentRefs(ctx, p.field, p.value);
       continue;
     }
@@ -464,7 +472,8 @@ export async function createRecord(
     by?: Mover;
   } = {},
 ): Promise<string> {
-  const withDefaults = await applyDefaults(ctx, object, values);
+  // A slug left empty is made from the title; one given must be free (ADR 0442).
+  const withDefaults = await slugsForCreate(ctx, object, await applyDefaults(ctx, object, values));
   let prepared = await prepareValues(ctx, object, withDefaults, "create", options);
   assertOneOf(object, valuesOf(prepared));
   // No owner given: assignment rules choose one, in this same insert (ADR 0246).
@@ -502,6 +511,7 @@ export async function createRecord(
   if (counter) ctx.write(counter);
   const title = prepared.find((p) => p.field.name === object.titleField)?.value;
   ctx.write(...searchDoc(object.name, id, title == null ? null : String(title)));
+  ctx.write(...(await redirectWrites(ctx, object, id, null, valuesOf(prepared))));
   const assigned = assignment
     ? recordAssignment(ctx, object, id, assignment, {
         timeline: options.assignmentTimeline !== false,
@@ -707,6 +717,7 @@ export async function updateRecord(
   if (options.from !== undefined) assertMovesFrom(object, before.values, values, options.from);
   let prepared = await prepareValues(ctx, object, values, "update", options);
   if (!prepared.length) return false;
+  await assertSlugsFree(ctx, object, id, valuesOf(prepared));
   assertChoiceRequirements(object, prepared, {
     ...before.values,
     ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
@@ -746,6 +757,8 @@ export async function updateRecord(
     prepared.map((p) => p.field.name),
   );
   if (counter) ctx.write(counter);
+  // A published record's old address keeps pointing to it (ADR 0442).
+  ctx.write(...(await redirectWrites(ctx, object, id, before.values, after)));
   const timeline = await timelineFor(ctx, object, id, before.values, after, outcome);
   if (object.titleField && prepared.some((p) => p.field.name === object.titleField)) {
     const title = after[object.titleField];

@@ -12,6 +12,8 @@ export * from "./field-types.ts";
 export * from "./manifest.ts";
 export * from "./permissions.ts";
 export * from "./renamed.ts";
+export * from "./rich-text.ts";
+export * from "./rich-text-fixture.ts";
 export {
   type AutomationRunValue,
   AutomationStepError,
@@ -26,4 +28,5 @@ export {
   runExtension,
 } from "./runtime.ts";
 export * from "./sellable.ts";
+export * from "./slug.ts";
 export * from "./states.ts";

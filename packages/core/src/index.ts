@@ -52,6 +52,13 @@ export * from "./automations/types.ts";
 export * from "./capacity/holds.ts";
 export * from "./capacity/index.ts";
 export * from "./capacity/records.ts";
+export {
+  CONTENT_CACHE_SECONDS,
+  type ContentCacheStore,
+  contentCacheStore,
+  setContentCacheStore,
+} from "./content/cache.ts";
+export { type PublishDueOptions, runPublishDue } from "./content/schedule.ts";
 export * from "./customers/index.ts";
 export * from "./dashboards/cache.ts";
 export * from "./dashboards/click-through.ts";
@@ -138,6 +145,7 @@ export * from "./operations/audit.ts";
 export * from "./operations/automation.ts";
 export * from "./operations/code.ts";
 export * from "./operations/connected-app.ts";
+export * from "./operations/content.ts";
 export * from "./operations/count.ts";
 export * from "./operations/customer.ts";
 export * from "./operations/dashboard.ts";

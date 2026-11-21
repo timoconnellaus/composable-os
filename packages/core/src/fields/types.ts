@@ -170,6 +170,10 @@ export interface CustomerViaDeclaration {
 export interface PublishableDefinition {
   /** The fields a version keeps. */
   readonly content: readonly string[];
+  /** The record's address: a slug field of the object's own, not content (ADR 0442). */
+  readonly slug?: string;
+  /** The date a reader is shown: a date or datetime content field, filled on publish (ADR 0441). */
+  readonly date?: string;
 }
 
 /**
