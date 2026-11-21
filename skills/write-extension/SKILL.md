@@ -121,6 +121,15 @@ extension declares it; it never implements it. Each behaviour the platform has i
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
   and ADR 0435.
 
+- **`public`** on an object: what the public may read (ADR 0438), `public: { read: [fields],
+  when?: { field, in } | { via, field, in } }`: the fields, of the records whose state (a select
+  field of the record, or of the one its `via` relation points to) is one of `in`. Left without
+  `when`, every live record. Nothing is public by default, and an object declares `customer` or
+  `public`, not both. A customer reads it too. The public reaches it only through your tool, which
+  calls `public.list` or `public.get` (add them to `permissions.operations`); never filter by state
+  in the tool, the seam does. Anything you sell to customers or guests must declare it: they buy
+  only what they may read. See Ticketing: `objects.event.public`, `objects.tickettype.public`.
+
 ### Roles
 
 A pack may declare **fixed staff roles** (`roles`, `RoleSpec` in `contract.ts`, ADR 0436) for

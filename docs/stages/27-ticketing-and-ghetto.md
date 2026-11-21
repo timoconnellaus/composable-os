@@ -70,7 +70,7 @@ The last piece ticketing needs from the host (ADR 0404).
 | Object | What | Behaviours |
 | --- | --- | --- |
 | `ticketing.event` | Name, start and end, venue, description, image, status | `states` (draft, on sale, ended, cancelled); `capacity` (the pool, optional) |
-| `ticketing.ticketType` | Its event, name, price, places, sale window, most per order | `sellable` (grants tickets); `capacity` (pool: its event) |
+| `ticketing.tickettype` | Its event, name, price, places, sale window, most per order | `sellable` (grants tickets); `capacity` (pool: its event) |
 | `ticketing.ticket` | Its ticket type and event, its holder (a Person), its order, a code, its state, when it was used and by whom | `states` (valid, used, void); `customer: holder` |
 
 - A ticket's **code** is long, random and unguessable, made by the host when the ticket is granted.
@@ -81,18 +81,20 @@ The last piece ticketing needs from the host (ADR 0404).
   availability) are readable by the public while the event is on sale.
 
 ### Tools (operations)
-- `ticketing.events.onSale` (public): events on sale with their ticket types and availability.
-- `ticketing.order.start { lines: [{ ticketTypeId, quantity }] }` (customer, public): creates the
+Tools are operations named `x.ticketing.<tool>`.
+
+- `x.ticketing.eventsOnSale` (public): events on sale with their ticket types and availability.
+- `x.ticketing.orderStart { lines: [{ ticketTypeId, quantity }] }` (customer, public): creates the
   order through the host, which prices it, holds the places and returns the order. The buyer then
   calls stage 25's `order.checkout`.
-- `ticketing.myTickets` (customer): the caller's tickets, through the seam.
-- `ticketing.checkIn { code }` (staff, risk `write`, permission `ticketing:checkin`): finds the
+- `x.ticketing.myTickets` (customer): the caller's tickets, through the seam.
+- `x.ticketing.checkIn { code }` (staff, risk `write`, permission `ticketing:checkin`): finds the
   ticket, refuses one that is used or void with who and when, and otherwise moves it to `used`.
   When the ticket's order still has a balance owing, the result says so and how much; it does not
   refuse. Safe to call twice: the second call
   reports the first.
-- `ticketing.undoCheckIn { ticketId }` (staff).
-- `ticketing.salesSummary { eventId }` (staff, read): sold, held, remaining and revenue per ticket
+- `x.ticketing.undoCheckIn { ticketId }` (staff).
+- `x.ticketing.salesSummary { eventId }` (staff, read): sold, held, remaining and revenue per ticket
   type, for the dashboard and for Claude.
 
 ### The door role
@@ -168,7 +170,7 @@ The last piece ticketing needs from the host (ADR 0404).
    marked the order paid. The buyer got one email.
 3. **The host's rules:** a line outside the sale window, over `maxPerOrder`, or for more places
    than remain is refused with details; no order exists afterwards.
-4. **Never oversold:** stage 26's concurrency test, run through `ticketing.order.start` for a
+4. **Never oversold:** stage 26's concurrency test, run through `x.ticketing.orderStart` for a
    ticket type inside an event pool.
 5. **Abandoned:** an unpaid order expires, its places return, and no ticket was granted.
 6. **Refund:** a full refund voids the order's tickets and, by default, returns the places.
@@ -236,23 +238,27 @@ ADR 0435, migration 0450. Where the build read the spec one way, or decided what
   works, with the column `<word>_`.
 
 ## Steps 2 and 3, the pack, check-in and the door role, as built (2026-11-21)
-ADRs 0436 and 0437, migration 0451. Where the build read the spec one way, or decided what it left open:
+ADRs 0436 to 0438, migration 0451, and amendments to ADRs 0025, 0245, 0425, 0433 and 0435.
+Where the build read the spec one way, or decided what it left open:
 
 - **Names.** Object names are lowercase letters and digits in the contract, so the ticket type is
-  `ticketing.tickettype`, not `ticketType`. Tools are operations `x.ticketing.<tool>`:
-  `orderStart` (the spec's `ticketing.order.start`), `myTickets`, `salesSummary`, `checkIn`,
-  `undoCheckIn`.
-- **Not built: `ticketing.events.onSale` and criterion 9.** The host has no public read of an
-  object's declared fields: the seam gives the public nothing, and stage 28 is where "an object
-  declares which fields the public may read" is specced. A tool cannot fill that in. Waiting on a
-  decision: build the public scope now (an object's `public: { read, when }`, a ticket type
-  readable while its event is on sale), or move the event page's reads to stage 28.
-- **A ticket type of an event that is not on sale can still be bought** by anyone holding its id:
-  `sellable` checks the ticket type's own sale window only. No tool checks the event's status
-  (that would be a rule in a tool). Waiting on a decision with the public read above.
+  `ticketing.tickettype`. Tools are operations `x.ticketing.<tool>`. The text above now says so.
+- **Public reads** (decided at review): the public scope on the seam (ADR 0438), brought forward
+  from stage 28. An object declares `public: { read, when? }`; an event is public while on sale, a
+  ticket type while its event is. The public reach records only through a pack's tool, which
+  calls the tool-only `public.list` and `public.get`; a customer reads them too. `capacity.get`
+  answers outsiders only for records they may read. `x.ticketing.eventsOnSale` is built on it
+  (criterion 9).
+- **Buying only what you may read** (decided at review): a customer or a guest cannot start an
+  order for a record their scope does not show them (a ticket type of a draft event), answered as
+  a record that does not exist. Staff can.
+- **Quarantine** (decided at review): a host refusal a tool lets escape (`not_found`, `conflict`,
+  `forbidden`, `invalid_input`, `rate_limited`) no longer counts towards a pack's quarantine
+  (ADR 0025, amended).
 - **The door role** is a pack role (ADR 0436): `roles` in the manifest, `permission` on a tool,
-  `core_user.pack_role`, checked by the pipeline on every staff call before the input is parsed.
-  `user.setPackRole` and `user.packRoles` are human-admin operations.
+  `core_user.pack_role`, checked by the pipeline on every staff call whatever the input.
+  `user.setPackRole` and `user.packRoles` are human-admin operations. The MCP tool list shows a
+  door account only what the role could allow; the admin's navigation does not yet (an issue).
 - **Check-in is a compare-and-set in the host** (ADR 0437): the history close is conditioned on
   the record's position, and `record.update { from: "valid" }` makes the move the point.
 - **Who checked a ticket in** comes from the host (`ctx.caller`, ADR 0436). No extension may read

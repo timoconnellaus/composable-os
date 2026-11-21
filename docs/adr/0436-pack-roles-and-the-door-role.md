@@ -111,8 +111,11 @@ declares, and audited; the role holds nothing while the pack is disabled.
   every staff call (the visibility baseline, `test/fixtures/visibility-staff-baseline.json`, was
   re-recorded for exactly that, and `user.list` now returns `packRole`). A door account's call
   also parses its pack's manifest.
-- The MCP tool list (`apps/app/src/server/mcp/tools.ts`) and the app's navigation still filter by
-  `role` alone: a door account that signs in to the admin sees a viewer's screens and is refused
-  every call they make. Its own screen is the staff app's door scanner (step 5).
+- The MCP surface reads the account's pack role when it authenticates a request
+  (`McpCaller.packRole`): the curated tools, `describe_operations` and the schema resource list
+  only what the role could allow (`apps/app/test/mcp.test.ts`). The admin's navigation still
+  filters by `role` alone: a door account that signs in to the admin sees a viewer's screens and
+  is refused every call they make (an issue is filed). Its own screen is the staff app's door
+  scanner (step 5).
 - A door account reads the ticket's holder relation, so it sees holders' names on the ticket list.
   That is the list the door needs; nothing else about a person is reachable.

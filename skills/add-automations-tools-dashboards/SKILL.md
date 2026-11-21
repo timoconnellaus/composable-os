@@ -51,6 +51,11 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    customer or the public), from the host and never from the input: record who did something
    with it (Ticketing: `checkIn` sets `usedBy`). Extensions cannot read users (`user.*` is never
    granted), so keep a name you need to show later on the record.
+   A tool open to the public that shows records (an event page) reads them with `public.list`
+   and `public.get`, which answer with what the object's `public` declaration allows (see
+   `write-extension`); it adds no filter of its own on what is public (Ticketing:
+   `eventsOnSale`). A host refusal a tool lets escape (`not_found`, `conflict`, `invalid_input`)
+   is the caller's, not the tool's: it does not count towards quarantine.
 3. **Make it a button** if the request says so: `recordAction` with `object`, `label`,
    `idInput`, and `confirm`, `ask` (one choice first) or `hideWhen` as needed. An output with
    `open: { object, id }` opens that record afterwards. See Leads: `convert`, `disqualify`.

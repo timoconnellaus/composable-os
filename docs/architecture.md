@@ -1003,9 +1003,19 @@ and an unguessable code, and moves to its declared void state when the order is 
 or cancelled after a deposit. `core_order_grant` (migration 0450) records each grant and keeps
 codes unique.
 
+**The public scope** ([ADR 0438](adr/0438-the-public-scope.md),
+`packages/core/src/visibility/public.ts`). An object may declare what the public may read:
+`public: { read, when? }`, fields of the records meeting a condition on a state of the record or
+of one record it points to. The seam limits rows and columns in the source itself, as for
+customers; a record that does not meet it is not found. A customer reads it too, on an object
+with no customer of its own. The public reach it only through a pack's tool, which calls the
+tool-only `public.list` and `public.get`. `capacity.get` and `order.start` answer outsiders only
+for records their scope shows them. Stage 28's `publishable` is another kind of condition.
+
 **Ticketing** (`packs/ticketing`, stage 27) is the first pack that is not about a CRM: events,
 ticket types and tickets, built from these behaviours alone, with tools that compose the host's
-operations (`orderStart`, `myTickets`, `salesSummary`, `checkIn`, `undoCheckIn`) and hold no rule.
+operations (`eventsOnSale`, `orderStart`, `myTickets`, `salesSummary`, `checkIn`, `undoCheckIn`)
+and hold no rule.
 A product turns it on by listing it in `packs`; the CRM does not.
 
 **Pack roles** ([ADR 0436](adr/0436-pack-roles-and-the-door-role.md),

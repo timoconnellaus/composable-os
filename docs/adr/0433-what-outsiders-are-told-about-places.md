@@ -29,3 +29,9 @@ told is the seller's choice: some show the exact number left, some say "only 3 l
   else about the record is shown. When stage 28's `publishable` exists, outside callers should be
   limited to published records as well.
 - `test/capacity-behaviour.test.ts` (criterion 8) fails if the filtering is removed.
+
+## Amendment, 2026-11-21 (stage 27, ADR 0438)
+A customer or the public is now told about the places of a record they may read only: their own,
+or one public through its object's `public` declaration (an on-sale event's ticket type). Any
+other record is not found. This is the narrowing this ADR said would follow once such a notion
+existed. See [ADR 0438](0438-the-public-scope.md).

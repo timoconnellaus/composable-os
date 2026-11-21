@@ -1100,6 +1100,15 @@ scanners at the same moment one is let in (ADR 0437). A ticket whose order still
 owing is let in and the balance is shown. Undone by staff.
 _Avoid_: scan (the act at the scanner), redeem
 
+**Public scope**
+What an object declares the public may read (ADR 0438): fields, of the records meeting a
+condition on a state of the record or of the record it points to (an event while on sale; a
+ticket type while its event is). Nothing is public by default, and a record that does not meet
+the condition is not found. A signed-in customer reads it too. The public reaches it only through
+a pack's tool (`public.list`, `public.get`), and buys only what it may read. Stage 28's
+`publishable` adds being published as another condition.
+_Avoid_: published (stage 28's word for a version), visible (the seam's word for any scope)
+
 **Pack role**
 A fixed staff role a pack declares (ADR 0436): the permissions of its own tools and the objects of
 its own an account given it may read. A human admin gives at most one to a staff account; while
