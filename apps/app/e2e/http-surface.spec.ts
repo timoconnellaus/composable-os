@@ -15,9 +15,14 @@ test("the surface answers staff, the public and an old app through the real entr
   expect((await manifest.json()).data.audience).toBe("staff");
 
   // No session: the public. A staff operation does not exist for them.
-  const anonymous = await playwrightRequest.newContext({ baseURL });
+  const anonymous = await playwrightRequest.newContext({
+    baseURL,
+    storageState: { cookies: [], origins: [] },
+  });
+  const who = await (await anonymous.get("/api/v1/manifest")).json();
+  expect(who.data.audience, JSON.stringify(who).slice(0, 200)).toBe("public");
   const closed = await anonymous.post("/api/v1/op/person.create", { data: { givenName: "x" } });
-  expect(closed.status()).toBe(404);
+  expect(closed.status(), await closed.text()).toBe(404);
   expect(await closed.json()).toEqual({
     error: { code: "unknown_operation", message: 'No operation named "person.create"' },
   });
