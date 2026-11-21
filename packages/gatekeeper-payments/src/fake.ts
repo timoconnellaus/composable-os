@@ -9,10 +9,20 @@ import { DurableObject } from "cloudflare:workers";
 import { ActionApplyError } from "@composable-os/gatekeeper-kit/actions";
 import type { CheckoutInput, PaymentProvider, RefundInput, VerifiedWebhook } from "./provider.js";
 import { randomId, verifySignatureHeader } from "./signature.js";
+import { subscriptionEvent } from "./subscription-shape.js";
 import type {
+  PaymentsCancelSubscriptionInput,
   PaymentsCheckoutTax,
   PaymentsEvent,
+  PaymentsInterval,
+  PaymentsInvoice,
   PaymentsPayment,
+  PaymentsPortalInput,
+  PaymentsResumeSubscriptionInput,
+  PaymentsSubscription,
+  PaymentsSubscriptionCheckoutInput,
+  PaymentsSubscriptionStatus,
+  PaymentsSubscriptionTrigger,
   PaymentsTaxReport,
 } from "./types.js";
 
@@ -83,7 +93,83 @@ export type FakeCheckout = {
   /** Once paid with tax: the billing country given on the page and the tax calculated. */
   billingCountry?: string;
   taxReport?: PaymentsTaxReport;
+  /** A subscription checkout (ADR 0485): what the page starts. Absent: one payment. */
+  subscription?: FakeSubscriptionCheckout;
 };
+
+/** What a subscription checkout starts once the page is submitted. */
+export type FakeSubscriptionCheckout = {
+  subscriptionId: string;
+  interval: PaymentsInterval;
+  customerRef: string | null;
+  trialDays: number | null;
+  trialEnd: string | null;
+  taxCode: string | null;
+  /** The subscription it started, once submitted. */
+  ref: string | null;
+};
+
+export type FakeInvoice = {
+  ref: string;
+  status: "paid" | "open";
+  amountPaid: number;
+  amountDue: number;
+  paymentRef: string | null;
+  periodStart: string;
+  periodEnd: string;
+  billingReason: string;
+  attemptCount: number;
+  hostedUrl: string | null;
+  tax: { amount: number; country: string | null } | null;
+};
+
+/** The fake provider's subscription, standing in for Stripe's. */
+export type FakeSubscription = {
+  ref: string;
+  customerRef: string;
+  subscriptionId: string;
+  status: PaymentsSubscriptionStatus;
+  amount: number;
+  currency: string;
+  interval: PaymentsInterval;
+  cancelAtPeriodEnd: boolean;
+  trialEnd: string | null;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  canceledAt: string | null;
+  endedAt: string | null;
+  endReason: string | null;
+  taxCode: string | null;
+  billingCountry: string | null;
+  createdAt: string;
+  invoices: FakeInvoice[];
+};
+
+/**
+ * What a test or a developer makes the fake provider's schedule do next (no public route: through
+ * the ledger's binding only). `renew`: the period ends and the next is charged, or the subscription
+ * ends when it was set to. `fail`: the next charge fails. `retry_fail`: the provider's retry fails
+ * again. `recover`: a retry pays the open invoice. `action_required`: the next charge needs the
+ * payer to confirm it (3D Secure). `give_up`: the retries ran out and the provider cancels.
+ * `trial_will_end`: three days before the trial ends.
+ */
+export type FakeSubscriptionStep =
+  | "renew"
+  | "fail"
+  | "retry_fail"
+  | "recover"
+  | "action_required"
+  | "give_up"
+  | "trial_will_end";
+
+/** The period after `from`, in UTC. */
+export function addInterval(from: string, interval: PaymentsInterval): string {
+  const at = new Date(from);
+  if (interval === "week") at.setUTCDate(at.getUTCDate() + 7);
+  else if (interval === "month") at.setUTCMonth(at.getUTCMonth() + 1);
+  else at.setUTCFullYear(at.getUTCFullYear() + 1);
+  return at.toISOString();
+}
 
 export type FakeRefund = {
   refundRef: string;
@@ -93,16 +179,29 @@ export type FakeRefund = {
   orderId: string;
   refundId: string;
   createdAt: string;
+  /** For a period's refund credited on its invoice: the tax it gave back. */
+  tax?: number;
 };
 
-export type FakeLedgerState = { checkouts: FakeCheckout[]; refunds: FakeRefund[] };
+export type FakeLedgerState = {
+  checkouts: FakeCheckout[];
+  refunds: FakeRefund[];
+  subscriptions: FakeSubscription[];
+};
 
 /** What `pay()` did. */
 export type FakePayResult =
   | { found: false }
   /** A taxed checkout paid without a billing address: nothing was paid. */
   | { found: true; needsAddress: true }
-  | { found: true; checkout: FakeCheckout; newlyPaid: boolean; needsAddress?: undefined };
+  | {
+      found: true;
+      checkout: FakeCheckout;
+      newlyPaid: boolean;
+      needsAddress?: undefined;
+      /** A subscription checkout's events, to deliver in this order. */
+      deliveries?: FakeWebhookBody[];
+    };
 
 export type FakeRefundResult =
   | { ok: true; refund: FakeRefund; created: boolean }
@@ -112,6 +211,55 @@ const CHECKOUT = "checkout:";
 const IDEMPOTENCY = "idem:";
 const REFUND = "refund:";
 const REFUND_BY_ID = "refund-id:";
+const SUBSCRIPTION = "subscription:";
+const EVENT_COUNTER = "event-counter";
+const CLOCK = "clock";
+
+/** A fake subscription as a read of it at `observedAt`. */
+export function fakeSubscriptionRead(
+  sub: FakeSubscription,
+  observedAt: string,
+): PaymentsSubscription {
+  return {
+    provider: "fake",
+    ref: sub.ref,
+    customerRef: sub.customerRef,
+    subscriptionId: sub.subscriptionId,
+    status: sub.status,
+    amount: sub.amount,
+    currency: sub.currency,
+    interval: sub.interval,
+    cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+    trialEnd: sub.trialEnd,
+    currentPeriodStart: sub.currentPeriodStart,
+    currentPeriodEnd: sub.currentPeriodEnd,
+    canceledAt: sub.canceledAt,
+    endedAt: sub.endedAt,
+    endReason: sub.endReason,
+    observedAt,
+  };
+}
+
+export function fakeInvoiceRead(sub: FakeSubscription, invoice: FakeInvoice): PaymentsInvoice {
+  return {
+    ref: invoice.ref,
+    status: invoice.status,
+    amountPaid: invoice.amountPaid,
+    amountDue: invoice.amountDue,
+    currency: sub.currency,
+    paymentRef: invoice.paymentRef,
+    periodStart: invoice.periodStart,
+    periodEnd: invoice.periodEnd,
+    billingReason: invoice.billingReason,
+    attemptCount: invoice.attemptCount,
+    nextAttemptAt:
+      invoice.status === "open"
+        ? new Date(Date.parse(invoice.periodStart) + 3 * 86_400_000).toISOString()
+        : null,
+    hostedUrl: invoice.hostedUrl,
+    ...(invoice.tax ? { tax: invoice.tax } : {}),
+  };
+}
 
 /** The fake provider's books: one instance, `idFromName("fake")`. */
 export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
@@ -166,7 +314,10 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     const checkout = kv.get<FakeCheckout>(CHECKOUT + ref);
     if (!checkout) return { found: false };
     if (checkout.status === "paid") return { found: true, checkout, newlyPaid: false };
-    if (checkout.tax && billingCountry === null) return { found: true, needsAddress: true };
+    if ((checkout.tax || checkout.subscription?.taxCode) && billingCountry === null) {
+      return { found: true, needsAddress: true };
+    }
+    if (checkout.subscription) return this.#startSubscription(checkout, billingCountry);
     const paid: FakeCheckout = {
       ...checkout,
       status: "paid",
@@ -192,14 +343,34 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
       const prior = kv.get<FakeRefund>(REFUND + priorRef);
       if (prior) return { ok: true, refund: prior, created: false };
     }
-    const checkout = [...kv.list<FakeCheckout>({ prefix: CHECKOUT })]
-      .map(([, row]) => row)
-      .find((row) => row.paymentRef === input.paymentRef && row.status === "paid");
-    if (!checkout) return { ok: false, reason: "no paid payment has that reference" };
-    if (checkout.currency !== input.currency) {
-      return { ok: false, reason: `the payment was in ${checkout.currency}` };
+    // A subscription period's payment is on its invoice (ADR 0486); any other is a checkout's.
+    let paid: number;
+    let currency: string;
+    let invoiceTax: { amount: number; paid: number } | null = null;
+    if (input.invoiceRef !== undefined) {
+      const found = this.#subscriptions()
+        .flatMap((sub) => sub.invoices.map((invoice) => ({ sub, invoice })))
+        .find(({ invoice }) => invoice.ref === input.invoiceRef);
+      if (found?.invoice.status !== "paid" || found.invoice.paymentRef !== input.paymentRef) {
+        return { ok: false, reason: "no paid invoice has that reference and payment" };
+      }
+      paid = found.invoice.amountPaid;
+      currency = found.sub.currency;
+      if (found.invoice.tax) invoiceTax = { amount: found.invoice.tax.amount, paid };
+    } else {
+      const checkout = [...kv.list<FakeCheckout>({ prefix: CHECKOUT })]
+        .map(([, row]) => row)
+        .find(
+          (row) =>
+            row.paymentRef === input.paymentRef && row.status === "paid" && !row.subscription,
+        );
+      if (!checkout) return { ok: false, reason: "no paid payment has that reference" };
+      paid = checkout.paidAmount ?? checkout.amount;
+      currency = checkout.currency;
     }
-    const paid = checkout.paidAmount ?? checkout.amount;
+    if (currency !== input.currency) {
+      return { ok: false, reason: `the payment was in ${currency}` };
+    }
     const refunded = [...kv.list<FakeRefund>({ prefix: REFUND })]
       .map(([, row]) => row)
       .filter((row) => row.paymentRef === input.paymentRef)
@@ -218,6 +389,10 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
       orderId: input.orderId,
       refundId: input.refundId,
       createdAt: new Date().toISOString(),
+      // A credit note splits the refund between tax and net in proportion, as Stripe's does.
+      ...(invoiceTax
+        ? { tax: Math.round((invoiceTax.amount * input.amount) / invoiceTax.paid) }
+        : {}),
     };
     kv.put(REFUND + refund.refundRef, refund);
     kv.put(REFUND_BY_ID + input.refundId, refund.refundRef);
@@ -231,7 +406,295 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     return {
       checkouts: [...kv.list<FakeCheckout>({ prefix: CHECKOUT })].map(([, row]) => row),
       refunds: [...kv.list<FakeRefund>({ prefix: REFUND })].map(([, row]) => row),
+      subscriptions: this.#subscriptions(),
     };
+  }
+
+  // --- Subscriptions (stage 32a, ADR 0485) ----------------------------------------------------
+
+  /** Opens a subscription checkout, or returns the one opened before under the same key. */
+  async createSubscriptionCheckout(
+    input: PaymentsSubscriptionCheckoutInput,
+  ): Promise<FakeCheckout> {
+    const kv = this.ctx.storage.kv;
+    const existingRef = kv.get<string>(IDEMPOTENCY + input.idempotencyKey);
+    if (existingRef !== undefined) {
+      const existing = kv.get<FakeCheckout>(CHECKOUT + existingRef);
+      if (existing) return existing;
+    }
+    const now = Date.now();
+    const ref = randomId("fcs_");
+    const checkout: FakeCheckout = {
+      ref,
+      orderId: input.subscriptionId,
+      amount: input.amount,
+      currency: input.currency,
+      description: input.description,
+      returnUrl: input.returnUrl,
+      status: "open",
+      paymentRef: null,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + CHECKOUT_LIFETIME_MS).toISOString(),
+      paidAmount: null,
+      subscription: {
+        subscriptionId: input.subscriptionId,
+        interval: input.interval,
+        customerRef: input.customerRef ?? null,
+        trialDays: input.trialDays ?? null,
+        trialEnd: input.trialEnd ?? null,
+        taxCode: input.tax?.taxCode ?? null,
+        ref: null,
+      },
+    };
+    kv.put(CHECKOUT + ref, checkout);
+    kv.put(IDEMPOTENCY + input.idempotencyKey, ref);
+    return checkout;
+  }
+
+  async getSubscription(ref: string): Promise<FakeSubscription | null> {
+    return this.ctx.storage.kv.get<FakeSubscription>(SUBSCRIPTION + ref) ?? null;
+  }
+
+  /** Sets a subscription to end at its period's end (or now), or undoes that. */
+  async changeSubscription(
+    ref: string,
+    change: "period_end" | "now" | "resume",
+  ): Promise<{ ok: true; deliveries: FakeWebhookBody[] } | { ok: false; reason: string }> {
+    const sub = await this.getSubscription(ref);
+    if (!sub) return { ok: false, reason: "no subscription has that reference" };
+    if (sub.status === "canceled" || sub.status === "incomplete_expired") {
+      return { ok: false, reason: "the subscription has ended" };
+    }
+    const now = this.#tick();
+    if (change === "now") {
+      Object.assign(sub, {
+        status: "canceled",
+        canceledAt: now,
+        endedAt: now,
+        endReason: "cancellation_requested",
+      });
+      this.#putSubscription(sub);
+      return { ok: true, deliveries: [this.#delivery("deleted", sub)] };
+    }
+    const ending = change === "period_end";
+    if (sub.cancelAtPeriodEnd === ending) return { ok: true, deliveries: [] };
+    sub.cancelAtPeriodEnd = ending;
+    sub.canceledAt = ending ? now : null;
+    sub.endReason = ending ? "cancellation_requested" : null;
+    this.#putSubscription(sub);
+    return { ok: true, deliveries: [this.#delivery("updated", sub)] };
+  }
+
+  /** Moves a subscription's schedule on by one step (tests and development only). */
+  async stepSubscription(
+    ref: string,
+    step: FakeSubscriptionStep,
+  ): Promise<{ ok: true; deliveries: FakeWebhookBody[] } | { ok: false; reason: string }> {
+    const sub = await this.getSubscription(ref);
+    if (!sub) return { ok: false, reason: "no subscription has that reference" };
+    if (sub.status === "canceled") return { ok: false, reason: "the subscription has ended" };
+    const open = sub.invoices.find((invoice) => invoice.status === "open");
+    const out: FakeWebhookBody[] = [];
+    if (step === "trial_will_end") {
+      if (sub.status !== "trialing") return { ok: false, reason: "not trialing" };
+      this.#tick();
+      return { ok: true, deliveries: [this.#delivery("trial_will_end", sub)] };
+    }
+    if (step === "give_up") {
+      const now = this.#tick();
+      Object.assign(sub, {
+        status: "canceled",
+        canceledAt: now,
+        endedAt: now,
+        endReason: "payment_failed",
+      });
+      this.#putSubscription(sub);
+      return { ok: true, deliveries: [this.#delivery("deleted", sub)] };
+    }
+    if (step === "retry_fail" || step === "recover") {
+      if (!open) return { ok: false, reason: "no invoice is open" };
+      this.#tick();
+      if (step === "retry_fail") {
+        open.attemptCount += 1;
+        this.#putSubscription(sub);
+        return { ok: true, deliveries: [this.#delivery("invoice_payment_failed", sub, open)] };
+      }
+      this.#settle(sub, open);
+      this.#putSubscription(sub);
+      out.push(this.#delivery("updated", sub), this.#delivery("invoice_paid", sub, open));
+      return { ok: true, deliveries: out };
+    }
+    // renew, fail, action_required: the period ends.
+    if (open) return { ok: false, reason: "an invoice is still open" };
+    const end = sub.currentPeriodEnd;
+    this.#tick();
+    if (sub.cancelAtPeriodEnd) {
+      Object.assign(sub, { status: "canceled", endedAt: end });
+      this.#putSubscription(sub);
+      return { ok: true, deliveries: [this.#delivery("deleted", sub)] };
+    }
+    sub.currentPeriodStart = end;
+    sub.currentPeriodEnd = addInterval(end, sub.interval);
+    const invoice = this.#invoice(sub, "subscription_cycle");
+    sub.invoices.push(invoice);
+    if (step === "renew") {
+      this.#settle(sub, invoice);
+      this.#putSubscription(sub);
+      out.push(this.#delivery("updated", sub), this.#delivery("invoice_paid", sub, invoice));
+      return { ok: true, deliveries: out };
+    }
+    invoice.attemptCount = 1;
+    sub.status = "past_due";
+    if (step === "action_required") {
+      invoice.hostedUrl = `https://fake-provider.invalid/invoice/${invoice.ref}`;
+    }
+    this.#putSubscription(sub);
+    out.push(
+      this.#delivery("updated", sub),
+      this.#delivery(
+        step === "action_required" ? "invoice_action_required" : "invoice_payment_failed",
+        sub,
+        invoice,
+      ),
+    );
+    return { ok: true, deliveries: out };
+  }
+
+  /** The subscription a submitted subscription checkout starts, and the events it sends. */
+  #startSubscription(checkout: FakeCheckout, billingCountry: string | null): FakePayResult {
+    const plan = checkout.subscription as FakeSubscriptionCheckout;
+    const now = this.#tick();
+    const trialEnd = plan.trialEnd
+      ? plan.trialEnd
+      : plan.trialDays
+        ? new Date(Date.parse(now) + plan.trialDays * 86_400_000).toISOString()
+        : null;
+    const sub: FakeSubscription = {
+      ref: randomId("fsub_"),
+      customerRef: plan.customerRef ?? randomId("fcus_"),
+      subscriptionId: plan.subscriptionId,
+      status: trialEnd ? "trialing" : "active",
+      amount: checkout.amount,
+      currency: checkout.currency,
+      interval: plan.interval,
+      cancelAtPeriodEnd: false,
+      trialEnd,
+      currentPeriodStart: now,
+      currentPeriodEnd: trialEnd ?? addInterval(now, plan.interval),
+      canceledAt: null,
+      endedAt: null,
+      endReason: null,
+      taxCode: plan.taxCode,
+      billingCountry,
+      createdAt: now,
+      invoices: [],
+    };
+    // The first invoice: nothing to pay during a trial (Stripe makes one for zero), else the
+    // first period, paid on the page.
+    const first = this.#invoice(sub, "subscription_create");
+    if (trialEnd) {
+      first.amountDue = 0;
+      first.tax = sub.taxCode ? { amount: 0, country: billingCountry } : null;
+      first.status = "paid";
+      first.periodEnd = trialEnd;
+    } else {
+      this.#settle(sub, first);
+    }
+    sub.invoices.push(first);
+    this.#putSubscription(sub);
+    const paid: FakeCheckout = {
+      ...checkout,
+      status: "paid",
+      paymentRef: first.paymentRef,
+      subscription: { ...plan, ref: sub.ref },
+      ...(billingCountry ? { billingCountry } : {}),
+    };
+    this.ctx.storage.kv.put(CHECKOUT + checkout.ref, paid);
+    return {
+      found: true,
+      checkout: paid,
+      newlyPaid: true,
+      deliveries: [
+        this.#delivery("checkout_completed", sub),
+        this.#delivery("invoice_paid", sub, first),
+      ],
+    };
+  }
+
+  /** A new invoice for the subscription's current period, open, asking for its price. */
+  #invoice(sub: FakeSubscription, billingReason: string): FakeInvoice {
+    return {
+      ref: randomId("fin_"),
+      status: "open",
+      amountPaid: 0,
+      amountDue: sub.amount,
+      paymentRef: null,
+      periodStart: sub.currentPeriodStart,
+      periodEnd: sub.currentPeriodEnd,
+      billingReason,
+      attemptCount: 0,
+      hostedUrl: null,
+      tax: null,
+    };
+  }
+
+  /** Pays an invoice in full, with the tax the fake calculates, and makes the subscription active. */
+  #settle(sub: FakeSubscription, invoice: FakeInvoice): void {
+    invoice.status = "paid";
+    invoice.amountPaid = invoice.amountDue;
+    invoice.attemptCount += 1;
+    invoice.paymentRef = randomId("fpi_");
+    invoice.hostedUrl = null;
+    if (sub.taxCode) {
+      const country = sub.billingCountry;
+      const rate =
+        sub.taxCode === NONTAXABLE_TAX_CODE ? 0 : (FAKE_TAX_REGISTRATIONS[country ?? ""] ?? 0);
+      invoice.tax = { amount: inclusiveTax(invoice.amountPaid, rate), country };
+    }
+    sub.status = "active";
+  }
+
+  #delivery(
+    trigger: PaymentsSubscriptionTrigger,
+    sub: FakeSubscription,
+    invoice?: FakeInvoice,
+  ): FakeWebhookBody {
+    const kv = this.ctx.storage.kv;
+    const n = (kv.get<number>(EVENT_COUNTER) ?? 0) + 1;
+    kv.put(EVENT_COUNTER, n);
+    return {
+      id: `fevt_sub_${n}_${sub.ref}`,
+      type: "subscription.event",
+      created: Math.floor(Date.now() / 1000),
+      data: {
+        trigger,
+        subscription: fakeSubscriptionRead(sub, this.#last()),
+        ...(invoice ? { invoice: fakeInvoiceRead(sub, invoice) } : {}),
+      },
+    };
+  }
+
+  #subscriptions(): FakeSubscription[] {
+    return [...this.ctx.storage.kv.list<FakeSubscription>({ prefix: SUBSCRIPTION })].map(
+      ([, row]) => row,
+    );
+  }
+
+  #putSubscription(sub: FakeSubscription): void {
+    this.ctx.storage.kv.put(SUBSCRIPTION + sub.ref, sub);
+  }
+
+  /** The ledger's clock: never goes back, and moves on at every change, so reads are ordered. */
+  #tick(): string {
+    const kv = this.ctx.storage.kv;
+    const at = Math.max(Date.now(), (kv.get<number>(CLOCK) ?? 0) + 1);
+    kv.put(CLOCK, at);
+    return new Date(at).toISOString();
+  }
+
+  #last(): string {
+    return new Date(this.ctx.storage.kv.get<number>(CLOCK) ?? Date.now()).toISOString();
   }
 
   /** Keeps the newest `max` rows under `prefix`, by `createdAt`. */
@@ -282,6 +745,18 @@ export type FakeWebhookBody =
         paymentRef: string | null;
         amount: number;
         currency: string;
+        /** A period's refund credited on its invoice: the tax it gave back. */
+        tax?: number;
+      };
+    }
+  | {
+      id: string;
+      type: "subscription.event";
+      created: number;
+      data: {
+        trigger: PaymentsSubscriptionTrigger;
+        subscription: PaymentsSubscription;
+        invoice?: PaymentsInvoice;
       };
     };
 
@@ -344,6 +819,7 @@ export class FakeProvider implements PaymentProvider {
           paymentRef: refund.paymentRef,
           amount: refund.amount,
           currency: refund.currency,
+          ...(refund.tax !== undefined ? { tax: refund.tax } : {}),
         },
       });
       this.#options.defer(
@@ -351,6 +827,52 @@ export class FakeProvider implements PaymentProvider {
       );
     }
     return { refundRef: refund.refundRef, status: "pending" };
+  }
+
+  async createSubscriptionCheckout(
+    input: PaymentsSubscriptionCheckoutInput,
+  ): Promise<{ ref: string; url: string; expiresAt: string | null }> {
+    const checkout = await this.#options.ledger.createSubscriptionCheckout(input);
+    return {
+      ref: checkout.ref,
+      url: fakePayUrl(this.#options.baseUrl, checkout.ref),
+      expiresAt: checkout.expiresAt,
+    };
+  }
+
+  async getSubscription(ref: string): Promise<PaymentsSubscription> {
+    const sub = await this.#options.ledger.getSubscription(ref);
+    if (!sub) throw new Error("The fake provider has no subscription with that reference.");
+    return fakeSubscriptionRead(sub, new Date().toISOString());
+  }
+
+  async cancelSubscription(input: PaymentsCancelSubscriptionInput): Promise<void> {
+    await this.#change(input.subscriptionRef, input.when);
+  }
+
+  async resumeSubscription(input: PaymentsResumeSubscriptionInput): Promise<void> {
+    await this.#change(input.subscriptionRef, "resume");
+  }
+
+  async openPortal(input: PaymentsPortalInput): Promise<{ url: string }> {
+    return { url: `${this.#options.baseUrl}/fake/portal/${encodeURIComponent(input.customerRef)}` };
+  }
+
+  /** Changes the subscription, then confirms it by webhook once this call has returned. */
+  async #change(ref: string, change: "period_end" | "now" | "resume"): Promise<void> {
+    const result = await this.#options.ledger.changeSubscription(ref, change);
+    if (!result.ok) {
+      throw new ActionApplyError(
+        `The fake provider refused the change, so nothing changed: ${result.reason}.`,
+      );
+    }
+    const deliveries = result.deliveries;
+    const send = async () => {
+      for (const body of deliveries) await this.#options.deliver(body);
+    };
+    this.#options.defer(
+      send().catch(() => console.warn("payments: the fake subscription webhook was not accepted")),
+    );
   }
 
   verifyWebhook(
@@ -438,6 +960,20 @@ export function mapFakeEvent(value: unknown): PaymentsEvent | null {
   const data = body.data;
   if (!eventId || !data || typeof data !== "object" || Array.isArray(data)) return null;
   const fields = data as Record<string, unknown>;
+  if (body.type === "subscription.event") {
+    const created =
+      typeof body.created === "number" && Number.isSafeInteger(body.created) && body.created >= 0
+        ? body.created * 1000
+        : Date.now();
+    return subscriptionEvent(
+      "fake",
+      eventId,
+      fields.trigger,
+      fields.subscription,
+      fields.invoice,
+      new Date(created).toISOString(),
+    );
+  }
   const amount = field(fields, "amount");
   const currency = field(fields, "currency");
   if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0) return null;
@@ -475,7 +1011,10 @@ export function mapFakeEvent(value: unknown): PaymentsEvent | null {
     const refundId = idOrNull(field(fields, "refundId") ?? null);
     const refundRef = idOrNull(field(fields, "refundRef"));
     if (orderId === undefined || refundId === undefined || !refundRef) return null;
+    const tax = field(fields, "tax");
+    if (tax !== undefined && !minor(tax)) return null;
     return {
+      ...(tax !== undefined ? { tax: { amount: tax as number } } : {}),
       kind: "refund",
       provider: "fake",
       eventId,
@@ -525,14 +1064,15 @@ export function fakePayPage(checkout: FakeCheckout, formattedAmount: string): st
 <main>
   <h1>Fake payment page</h1>
   <p>${escapeHtml(checkout.description)}</p>
-  <p class="amount">${escapeHtml(formattedAmount)}</p>
+  <p class="amount">${escapeHtml(formattedAmount)}${checkout.subscription ? ` every ${escapeHtml(checkout.subscription.interval)}` : ""}</p>
+  ${checkout.subscription?.trialEnd || checkout.subscription?.trialDays ? `<p class="note">Nothing is charged until ${escapeHtml(checkout.subscription.trialEnd?.slice(0, 10) ?? `${checkout.subscription.trialDays} days from now`)}.</p>` : ""}
   ${paid ? '<p class="note">This checkout is already paid.</p>' : ""}
-  ${checkout.tax ? '<p class="note">Prices include tax, worked out from your billing address.</p>' : ""}
+  ${checkout.tax || checkout.subscription?.taxCode ? '<p class="note">Prices include tax, worked out from your billing address.</p>' : ""}
   <div class="actions">
     <form method="post">
       <input type="hidden" name="outcome" value="pay">
       ${
-        checkout.tax
+        checkout.tax || checkout.subscription?.taxCode
           ? `<label>Billing country <select name="country" required><option value="">Choose…</option>${FAKE_BILLING_COUNTRIES.map((c) => `<option value="${c}">${c}</option>`).join("")}</select></label>`
           : ""
       }

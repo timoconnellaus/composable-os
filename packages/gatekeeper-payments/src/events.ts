@@ -50,6 +50,17 @@ type Queued = { deliveryId: string; event: PaymentsEvent };
 
 /** The observation recorded before each delivery: ids, amounts and currency, never personal data. */
 export function describeEvent(event: PaymentsEvent): ObservationDescription {
+  if (event.kind === "subscription") {
+    const invoice = event.invoice
+      ? ` Invoice \`${event.invoice.ref}\`: ${formatMinor(event.invoice.amountPaid, event.invoice.currency)} paid.`
+      : "";
+    return {
+      title: `Subscription event ${event.trigger}`,
+      description:
+        `Received a verified ${event.trigger} event for subscription \`${event.subscription.ref}\` ` +
+        `(now ${event.subscription.status}) from ${event.provider} (event \`${event.eventId}\`).${invoice}`,
+    };
+  }
   const amount = formatMinor(event.amount, event.currency);
   const description =
     event.kind === "payment"

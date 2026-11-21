@@ -3,10 +3,15 @@
 // hand and copied into a fresh object holding only the known keys.
 
 import type {
+  PaymentsCancelSubscriptionInput,
   PaymentsCheckoutInput,
   PaymentsCheckoutTax,
+  PaymentsInterval,
+  PaymentsPortalInput,
   PaymentsProviderName,
   PaymentsRefundInput,
+  PaymentsResumeSubscriptionInput,
+  PaymentsSubscriptionCheckoutInput,
   PaymentsTaxLine,
   PaymentsTaxPlace,
 } from "./types.js";
@@ -236,12 +241,23 @@ export function parseCheckoutInput(value: unknown): PaymentsCheckoutInput {
   return parsed;
 }
 
-const REFUND_KEYS = ["orderId", "paymentRef", "amount", "currency", "reason", "refundId"] as const;
+const REFUND_KEYS = [
+  "orderId",
+  "paymentRef",
+  "amount",
+  "currency",
+  "reason",
+  "refundId",
+  "invoiceRef",
+] as const;
 
 export function parseRefundInput(value: unknown): PaymentsRefundInput {
   const input = record(value, "The refund input");
   refuseUnknownKeys(input, REFUND_KEYS);
   return {
+    ...(input.invoiceRef !== undefined
+      ? { invoiceRef: assertProviderRef(input.invoiceRef, "invoiceRef") }
+      : {}),
     orderId: assertOrderId(input.orderId),
     paymentRef: assertProviderRef(input.paymentRef, "paymentRef"),
     amount: assertAmount(input.amount),
@@ -253,5 +269,138 @@ export function parseRefundInput(value: unknown): PaymentsRefundInput {
       REFUND_ID,
       "1 to 64 characters of [A-Za-z0-9_-]",
     ),
+  };
+}
+
+// --- Subscriptions (stage 32a, ADR 0485) ------------------------------------------------------
+
+const SUBSCRIPTION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const INTERVALS: readonly PaymentsInterval[] = ["week", "month", "year"];
+/** The longest trial this gatekeeper asks for: two years (Stripe's own limit, ADR 0485). */
+export const MAX_TRIAL_DAYS = 730;
+/** Stripe Checkout's `subscription_data.trial_end` must be at least 48 hours ahead (ADR 0485). */
+export const MIN_TRIAL_END_MS = 48 * 60 * 60 * 1000;
+
+export function assertSubscriptionId(value: unknown): string {
+  return matching(value, "subscriptionId", SUBSCRIPTION_ID, "1 to 64 characters of [A-Za-z0-9_-]");
+}
+
+const SUBSCRIPTION_CHECKOUT_KEYS = [
+  "subscriptionId",
+  "amount",
+  "currency",
+  "interval",
+  "description",
+  "returnUrl",
+  "customerEmail",
+  "customerRef",
+  "trialDays",
+  "trialEnd",
+  "idempotencyKey",
+  "tax",
+] as const;
+
+export function parseSubscriptionCheckoutInput(
+  value: unknown,
+  nowMs: number = Date.now(),
+): PaymentsSubscriptionCheckoutInput {
+  const input = record(value, "The subscription checkout input");
+  refuseUnknownKeys(input, SUBSCRIPTION_CHECKOUT_KEYS);
+  if (!INTERVALS.includes(input.interval as PaymentsInterval)) {
+    throw new TypeError('interval must be "week", "month" or "year".');
+  }
+  const parsed: PaymentsSubscriptionCheckoutInput = {
+    subscriptionId: assertSubscriptionId(input.subscriptionId),
+    amount: assertAmount(input.amount),
+    currency: assertCurrency(input.currency),
+    interval: input.interval as PaymentsInterval,
+    description: singleLine(boundedString(input.description, "description", 200), "description"),
+    returnUrl: assertReturnUrl(input.returnUrl),
+    idempotencyKey: singleLine(
+      boundedString(input.idempotencyKey, "idempotencyKey", 200),
+      "idempotencyKey",
+    ),
+  };
+  if (input.customerEmail !== undefined) {
+    parsed.customerEmail = matching(
+      input.customerEmail,
+      "customerEmail",
+      EMAIL,
+      "an email address",
+    );
+  }
+  if (input.customerRef !== undefined) {
+    parsed.customerRef = assertProviderRef(input.customerRef, "customerRef");
+  }
+  if (input.trialDays !== undefined && input.trialEnd !== undefined) {
+    throw new TypeError("Give trialDays or trialEnd, not both.");
+  }
+  if (input.trialDays !== undefined) {
+    const days = input.trialDays;
+    if (typeof days !== "number" || !Number.isInteger(days) || days < 1 || days > MAX_TRIAL_DAYS) {
+      throw new TypeError(`trialDays must be a whole number from 1 to ${MAX_TRIAL_DAYS}.`);
+    }
+    parsed.trialDays = days;
+  }
+  if (input.trialEnd !== undefined) {
+    const text = boundedString(input.trialEnd, "trialEnd", 40);
+    const at = Date.parse(text);
+    if (Number.isNaN(at)) throw new TypeError("trialEnd must be an ISO 8601 moment.");
+    if (at < nowMs + MIN_TRIAL_END_MS) {
+      throw new TypeError("trialEnd must be at least 48 hours ahead.");
+    }
+    if (at > nowMs + MAX_TRIAL_DAYS * 86_400_000) {
+      throw new TypeError(`trialEnd must be within ${MAX_TRIAL_DAYS} days.`);
+    }
+    parsed.trialEnd = new Date(at).toISOString();
+  }
+  if (input.tax !== undefined) {
+    const tax = record(input.tax, "tax");
+    refuseUnknownKeys(tax, ["behavior", "taxCode"]);
+    if (tax.behavior !== "inclusive") {
+      throw new TypeError('tax.behavior must be "inclusive": prices include tax.');
+    }
+    parsed.tax = {
+      behavior: "inclusive",
+      taxCode: matching(
+        tax.taxCode,
+        "tax.taxCode",
+        TAX_CODE,
+        "a product tax code: txcd_ and eight digits",
+      ),
+    };
+  }
+  return parsed;
+}
+
+export function parseCancelSubscriptionInput(value: unknown): PaymentsCancelSubscriptionInput {
+  const input = record(value, "The cancel input");
+  refuseUnknownKeys(input, ["subscriptionId", "subscriptionRef", "when", "reason"]);
+  if (input.when !== "period_end" && input.when !== "now") {
+    throw new TypeError('when must be "period_end" or "now".');
+  }
+  return {
+    subscriptionId: assertSubscriptionId(input.subscriptionId),
+    subscriptionRef: assertProviderRef(input.subscriptionRef, "subscriptionRef"),
+    when: input.when,
+    reason: boundedString(input.reason, "reason", 500),
+  };
+}
+
+export function parseResumeSubscriptionInput(value: unknown): PaymentsResumeSubscriptionInput {
+  const input = record(value, "The resume input");
+  refuseUnknownKeys(input, ["subscriptionId", "subscriptionRef"]);
+  return {
+    subscriptionId: assertSubscriptionId(input.subscriptionId),
+    subscriptionRef: assertProviderRef(input.subscriptionRef, "subscriptionRef"),
+  };
+}
+
+export function parsePortalInput(value: unknown): PaymentsPortalInput {
+  const input = record(value, "The portal input");
+  refuseUnknownKeys(input, ["customerRef", "returnUrl"]);
+  return {
+    customerRef: assertProviderRef(input.customerRef, "customerRef"),
+    returnUrl: assertReturnUrl(input.returnUrl),
   };
 }

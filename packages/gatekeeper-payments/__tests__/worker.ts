@@ -101,7 +101,16 @@ type TestExports = {
   TestInitiator(options: object): Fetcher;
 };
 
-export type SessionMethod = "provider" | "createCheckout" | "getPayment" | "refund";
+export type SessionMethod =
+  | "provider"
+  | "createCheckout"
+  | "getPayment"
+  | "refund"
+  | "createSubscriptionCheckout"
+  | "getSubscription"
+  | "cancelSubscription"
+  | "resumeSubscription"
+  | "openPortal";
 
 export class TestHost extends DurableObject<Cloudflare.Env> {
   readonly #queue = new RecordingQueue();

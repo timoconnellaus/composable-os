@@ -87,8 +87,12 @@ function submitPage(checkout: PaymentsCheckout, fields: Record<string, string>):
   );
 }
 
-async function eventsFor(h: Host, orderId: string): Promise<PaymentsEvent[]> {
-  return (await h.recorded()).received.filter((event) => event.orderId === orderId);
+type MoneyEvent = Exclude<PaymentsEvent, { kind: "subscription" }>;
+
+async function eventsFor(h: Host, orderId: string): Promise<MoneyEvent[]> {
+  return (await h.recorded()).received.filter(
+    (event): event is MoneyEvent => event.kind !== "subscription" && event.orderId === orderId,
+  );
 }
 
 async function ledger(): Promise<FakeLedgerState> {

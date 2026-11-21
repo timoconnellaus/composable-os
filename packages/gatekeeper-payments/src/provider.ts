@@ -4,19 +4,37 @@
 
 import { stripTrailingSlashes } from "@composable-os/gatekeeper-interface/gatekeeper";
 import type {
+  PaymentsCancelSubscriptionInput,
   PaymentsCheckoutInput,
   PaymentsEvent,
   PaymentsPayment,
+  PaymentsPortalInput,
   PaymentsProviderName,
   PaymentsRefundInput,
+  PaymentsResumeSubscriptionInput,
+  PaymentsSubscription,
+  PaymentsSubscriptionCheckoutInput,
+  PaymentsSubscriptionTrigger,
 } from "./types.js";
 
 export type CheckoutInput = PaymentsCheckoutInput;
 export type RefundInput = PaymentsRefundInput;
+export type SubscriptionCheckoutInput = PaymentsSubscriptionCheckoutInput;
+
+/**
+ * A verified subscription event whose content the gatekeeper reads from the provider before it is
+ * stored (ADR 0485): the event names what happened; the read says what is true now.
+ */
+export type PendingRead = {
+  trigger: PaymentsSubscriptionTrigger;
+  subscriptionRef: string;
+  invoiceRef: string | null;
+  occurredAt: string;
+};
 
 /** What a verified webhook delivery carries. */
 export type VerifiedWebhook =
-  | { ok: true; events: PaymentsEvent[]; eventId: string }
+  | { ok: true; events: PaymentsEvent[]; eventId: string; reads?: PendingRead[] }
   /** `retry`: verified, but not yet readable in full; answered 500 so the provider sends it again. */
   | { ok: false; reason: string; retry?: boolean };
 
@@ -31,6 +49,21 @@ export interface PaymentProvider {
    * anything, and `ActionOutcomeUnknownError` when it may have gone through.
    */
   refund(input: RefundInput): Promise<{ refundRef: string; status: "pending" | "succeeded" }>;
+  /** Opens the provider's page that takes the card and starts a subscription (ADR 0485). */
+  createSubscriptionCheckout(
+    input: SubscriptionCheckoutInput,
+  ): Promise<{ ref: string; url: string; expiresAt: string | null }>;
+  /** Reads one subscription now. */
+  getSubscription(ref: string): Promise<PaymentsSubscription>;
+  /**
+   * Ends a subscription at its period's end or now. Throws `ActionApplyError` when the provider
+   * refused before changing anything, `ActionOutcomeUnknownError` when it may have changed it.
+   */
+  cancelSubscription(input: PaymentsCancelSubscriptionInput): Promise<void>;
+  /** Undoes a cancellation at the period's end. Throws as `cancelSubscription` does. */
+  resumeSubscription(input: PaymentsResumeSubscriptionInput): Promise<void>;
+  /** Opens the customer portal for one customer: card, billing details and invoices only. */
+  openPortal(input: PaymentsPortalInput): Promise<{ url: string }>;
   /** Verifies a webhook delivery; returns the typed events it carries (possibly none), or a rejection reason. */
   verifyWebhook(
     headers: Record<string, string>,

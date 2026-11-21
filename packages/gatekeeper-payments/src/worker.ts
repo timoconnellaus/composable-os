@@ -53,15 +53,22 @@ import {
 import { deliverFakeEvent, handleRequest } from "./routes.js";
 import { StripeProvider, type TaxLocationCache } from "./stripe.js";
 import type {
+  PaymentsCancelSubscriptionInput,
   PaymentsCheckout,
   PaymentsCheckoutInput,
   PaymentsEvent,
   PaymentsEventHook,
   PaymentsPayment,
+  PaymentsPortal,
+  PaymentsPortalInput,
   PaymentsProviderName,
   PaymentsRefundInput,
   PaymentsRefundReceipt,
+  PaymentsResumeSubscriptionInput,
   PaymentsSession,
+  PaymentsSubscription,
+  PaymentsSubscriptionChangeReceipt,
+  PaymentsSubscriptionCheckoutInput,
 } from "./types.js";
 import TYPES_CODE from "./types.txt";
 import {
@@ -70,8 +77,12 @@ import {
   MERCHANT_URL_PATTERN,
   merchantUrl,
   PROVIDER_NAMES,
+  parseCancelSubscriptionInput,
   parseCheckoutInput,
+  parsePortalInput,
   parseRefundInput,
+  parseResumeSubscriptionInput,
+  parseSubscriptionCheckoutInput,
   providerFromUrl,
 } from "./validate.js";
 
@@ -136,7 +147,7 @@ function providerFor(
       webhookSecret: stripeWebhookSecret(env),
       apiBase: stripeApiBase(env),
       account: stripeAccount(env),
-      ...(taxLocations ? { taxLocations } : {}),
+      ...(taxLocations ? { taxLocations, store: taxLocations } : {}),
     });
   }
   return new FakeProvider({
@@ -153,12 +164,65 @@ function providerFor(
 
 /** What the journal stores for one refund: the provider at submit time and the validated input. */
 type StoredRefund = { provider: PaymentsProviderName; input: PaymentsRefundInput };
-type Actions = { refund: StoredRefund };
+/** A subscription change (ADR 0485): the provider at submit time and the validated input. */
+type StoredCancel = { provider: PaymentsProviderName; input: PaymentsCancelSubscriptionInput };
+type StoredResume = { provider: PaymentsProviderName; input: PaymentsResumeSubscriptionInput };
+type Actions = { refund: StoredRefund; cancel: StoredCancel; resume: StoredResume };
 
 const REFUND_KIND: ActionKind = { tag: "payments.refund", label: "Refund a payment" };
+const CANCEL_KIND: ActionKind = {
+  tag: "payments.subscription.cancel",
+  label: "Cancel a subscription",
+};
+const RESUME_KIND: ActionKind = {
+  tag: "payments.subscription.resume",
+  label: "Keep a subscription going",
+};
 
 /** What the action handlers may do. Not the Durable Object: provider calls live behind approval. */
-type PaymentsHost = { sendRefund(refund: StoredRefund): Promise<void> };
+type PaymentsHost = {
+  sendRefund(refund: StoredRefund): Promise<void>;
+  sendCancel(change: StoredCancel): Promise<void>;
+  sendResume(change: StoredResume): Promise<void>;
+};
+
+function describeCancel(change: StoredCancel) {
+  const { input } = change;
+  const when =
+    input.when === "now"
+      ? "at once, with nothing refunded for the rest of the period"
+      : "when its current paid period ends";
+  const builder = buildDescription(
+    `Ends subscription ${input.subscriptionId} through ${PROVIDER_TITLES[change.provider]} ${when}. ` +
+      "No money moves; the provider stops charging the card.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Subscription", input.subscriptionId)
+    .inline("Provider's reference", input.subscriptionRef)
+    .inline("When", input.when === "now" ? "Now" : "At the period's end")
+    .verbatim("Reason", input.reason);
+  return {
+    title: sanitizeTitle(`Cancel subscription ${input.subscriptionId}`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
+function describeResume(change: StoredResume) {
+  const { input } = change;
+  const builder = buildDescription(
+    `Keeps subscription ${input.subscriptionId} going through ${PROVIDER_TITLES[change.provider]}: ` +
+      "undoes its cancellation at the period's end, so the card is charged for the next period.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Subscription", input.subscriptionId)
+    .inline("Provider's reference", input.subscriptionRef);
+  return {
+    title: sanitizeTitle(`Keep subscription ${input.subscriptionId} going`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
 
 /** The approver's view of one refund: how much, to which payment, on which order, and why. */
 function describeRefund(refund: StoredRefund) {
@@ -197,6 +261,31 @@ const actions = defineActions<PaymentsHost, Actions>(
       // Nothing was sent, so there is nothing to release.
       reject: async () => {},
     },
+    // A subscription change moves no money, but ends or keeps a customer's plan: never
+    // auto-approvable, so an agent's session waits for a person. The host's own call (a customer
+    // changing their own through the host's operation, ADR 0485) is applied at once by the host.
+    cancel: {
+      kind: CANCEL_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeCancel(change),
+      apply: async (change, host) => {
+        await host.sendCancel(change);
+      },
+      reject: async () => {},
+    },
+    resume: {
+      kind: RESUME_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeResume(change),
+      apply: async (change, host) => {
+        await host.sendResume(change);
+      },
+      reject: async () => {},
+    },
   },
   // The provider's keys are this Worker's own, not a user's connection: nothing to fence on.
   { fence: "none", vendorId: "payments" },
@@ -210,6 +299,8 @@ type SessionBackend = {
   provider: PaymentsProviderName;
   open(): PaymentProvider;
   submitRefund(queue: RpcStub<ApprovalQueue>, refund: StoredRefund): Promise<number>;
+  submitCancel(queue: RpcStub<ApprovalQueue>, change: StoredCancel): Promise<number>;
+  submitResume(queue: RpcStub<ApprovalQueue>, change: StoredResume): Promise<number>;
   wasApplied(id: number): boolean;
   subscribe(queue: RpcStub<ApprovalQueue>, hook: RpcStub<PaymentsHookTarget>): Promise<void>;
 };
@@ -283,6 +374,95 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
     return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
   }
 
+  async createSubscriptionCheckout(
+    input: PaymentsSubscriptionCheckoutInput,
+  ): Promise<PaymentsCheckout> {
+    const parsed = parseSubscriptionCheckoutInput(input);
+    const provider = this.#backend.open();
+    const amount = formatMinor(parsed.amount, parsed.currency);
+    await this.#queue.authorizeObservation({
+      title: sanitizeTitle(`Open a subscription checkout of ${amount} a ${parsed.interval}`),
+      description:
+        `Opened ${PROVIDER_TITLES[provider.name]}'s hosted page to start subscription ` +
+        `${parsed.subscriptionId} at ${amount} every ${parsed.interval}. Nothing is charged ` +
+        "until the payer submits that page, and then only on the provider's own schedule." +
+        (parsed.trialDays || parsed.trialEnd
+          ? " The first period is free; the card is taken."
+          : ""),
+      fields: [
+        { label: "Subscription", kind: "inline", value: parsed.subscriptionId },
+        { label: "Price", kind: "inline", value: `${amount} (${parsed.amount} minor units)` },
+        ...(parsed.trialEnd
+          ? [{ label: "Free until", kind: "inline" as const, value: parsed.trialEnd }]
+          : parsed.trialDays
+            ? [{ label: "Trial", kind: "inline" as const, value: `${parsed.trialDays} days` }]
+            : []),
+        ...(parsed.tax
+          ? [
+              {
+                label: "Tax",
+                kind: "inline" as const,
+                value: "Calculated by the provider inside the price",
+              },
+            ]
+          : []),
+      ],
+    });
+    const checkout = await provider.createSubscriptionCheckout(parsed);
+    return {
+      provider: provider.name,
+      ref: checkout.ref,
+      url: checkout.url,
+      expiresAt: checkout.expiresAt,
+    };
+  }
+
+  async getSubscription(ref: string): Promise<PaymentsSubscription> {
+    const checked = assertProviderRef(ref);
+    const provider = this.#backend.open();
+    await this.#queue.authorizeObservation({
+      title: "Read a subscription",
+      description: `Read subscription \`${checked}\` from ${PROVIDER_TITLES[provider.name]}.`,
+    });
+    return provider.getSubscription(checked);
+  }
+
+  async cancelSubscription(
+    input: PaymentsCancelSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt> {
+    const parsed = parseCancelSubscriptionInput(input);
+    this.#backend.open();
+    const id = await this.#backend.submitCancel(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
+  async resumeSubscription(
+    input: PaymentsResumeSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt> {
+    const parsed = parseResumeSubscriptionInput(input);
+    this.#backend.open();
+    const id = await this.#backend.submitResume(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
+  async openPortal(input: PaymentsPortalInput): Promise<PaymentsPortal> {
+    const parsed = parsePortalInput(input);
+    const provider = this.#backend.open();
+    await this.#queue.authorizeObservation({
+      title: "Open the customer portal",
+      description:
+        `Opened ${PROVIDER_TITLES[provider.name]}'s customer portal for customer ` +
+        `\`${parsed.customerRef}\`: the card, billing details and past invoices only.`,
+    });
+    return provider.openPortal(parsed);
+  }
+
   async subscribe(hook: PaymentsEventHook): Promise<void> {
     if (hook === null || (typeof hook !== "object" && typeof hook !== "function")) {
       throw new TypeError("subscribe() takes a stub implementing PaymentsEventHook.");
@@ -308,7 +488,20 @@ export class PaymentsGatekeeper
 
   readonly #host: PaymentsHost = {
     sendRefund: (refund) => this.#sendRefund(refund),
+    sendCancel: async (change) =>
+      (await this.#openForApply(change.provider)).cancelSubscription(change.input),
+    sendResume: async (change) =>
+      (await this.#openForApply(change.provider)).resumeSubscription(change.input),
   };
+
+  /** The provider an approved action is sent through; a provider not set up sends nothing. */
+  async #openForApply(name: PaymentsProviderName): Promise<PaymentProvider> {
+    try {
+      return this.#open(name);
+    } catch (error) {
+      throw new ActionApplyError(error instanceof Error ? error.message : String(error));
+    }
+  }
 
   #actions() {
     return actions.bind(this.#journal, this.#host);
@@ -320,10 +513,11 @@ export class PaymentsGatekeeper
 
   #open(name: PaymentsProviderName): PaymentProvider {
     const kv = this.ctx.storage.kv;
-    return providerFor(this.env, name, (work) => this.ctx.waitUntil(work), {
-      get: (key) => kv.get<string>(key),
-      put: (key, id) => kv.put(key, id),
-    });
+    const store = {
+      get: (key: string) => kv.get<string>(key),
+      put: (key: string, id: string) => kv.put(key, id),
+    };
+    return providerFor(this.env, name, (work) => this.ctx.waitUntil(work), store);
   }
 
   async #sendRefund(refund: StoredRefund): Promise<void> {
@@ -366,6 +560,8 @@ export class PaymentsGatekeeper
       provider,
       open: () => this.#open(provider),
       submitRefund: (queue, refund) => this.#actions().submit(queue, "refund", refund),
+      submitCancel: (queue, change) => this.#actions().submit(queue, "cancel", change),
+      submitResume: (queue, change) => this.#actions().submit(queue, "resume", change),
       wasApplied: (id) => this.#journal.wasApplied(id),
       subscribe: (queue, hook) => this.#subscribe(queue, hook),
     };
