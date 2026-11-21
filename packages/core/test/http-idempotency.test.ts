@@ -268,7 +268,7 @@ describe("a write with a key", () => {
     expect(ran(text)).toBe(1);
 
     const queuedText = unique("queued");
-    // A key of its own: \`key\` with its last character changed was the same key one time in 16.
+    // A key of its own: `key` with its last character changed was the same key one time in 16.
     const queuedKey = crypto.randomUUID();
     const reviewed = context(admin, {
       origin: { surface: "client" },
