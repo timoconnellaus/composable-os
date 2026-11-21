@@ -267,3 +267,35 @@ Where the build read the spec one way, or decided what it left open:
   list it.
 - **What the door sees:** a ticket's holder relation, so holders' names on the list; nothing else
   of a person. The ticket has no email field.
+
+## Steps 4 and 5, as built (2026-11-21)
+- **Automations** (`packs/ticketing/automations.ts`): tickets by email on an order's first
+  payment (an order may now start an extension's automation, ADR 0427 amended); the reminder the
+  day before an event on sale; the event moved to `ended` the day after (with `from: "on_sale"`);
+  balance reminders every morning for part-paid ticket orders due in 7 days or tomorrow (a
+  schedule over `rec_order`; a `dateRelative` trigger on an order's due date was not tried). Every mail goes
+  through the pack's `email-send` connection, which an admin binds; each send is an outbound
+  action the approval policy decides. The links come from two settings, `ticketsUrl` and
+  `payUrl`, with `?order=<id>`: a guest pays a balance by signing in with the order's address
+  (their order is already their Person's), because the host's guest token is not readable by an
+  automation.
+- **Views** "On sale", "This week's events" (relative filters gain `startOfWeek` and
+  `startOfNextWeek`, Monday, UTC) and "Unused tickets"; the **Ticket sales** dashboard (revenue,
+  tickets sold, valid tickets not yet used, sold by event and by day, places left from
+  `rec_capacity`); the **Tickets** tab on a Person. Check-ins post to the holder's timeline through
+  the ticket's tracked state and its `timelineLinks`; orders already do (ADR 0429).
+- **Hooks** (`packs/ticketing/client`): `useEventsOnSale`, `useTicketPicker` (quantities kept
+  within what the picker offers; `estimate` is a preview of the host's price, the host's total is
+  what is paid), `useStartOrder`, `useCheckout`, `useOrder` (asks again every 2 s while
+  pending), `useMyTickets`, `useCheckIn`, `useUndoCheckIn`, and display helpers
+  (`formatMoney`, `availabilityLabel`, `orderStatus`, `minorFromInput`).
+- **Blocks** (`packs/ticketing/blocks`): web `ticketing-events` (event list, event section),
+  `ticketing-checkout` (picker and checkout, full or deposit, and paying a balance in full or in
+  part), `ticketing-order` (confirmation from the real state), `ticketing-my-tickets`; native
+  `ticketing-native-my-tickets`, `ticketing-native-ticket` (QR, brightness up while shown),
+  `ticketing-native-scanner` (camera, haptics, the verdict and its reason, a count on the device).
+  Native blocks take the camera, QR drawing, brightness and haptics as props, so they depend on
+  no device package; the app passes its own. The block lint passes for all of them.
+- **The scanner's count** is of who was let in on that device. An event-wide count needs a read
+  the door role has (it can list the event's tickets); the block does not make it.
+- **Naming a deployment after the client's product (#155)** is not built: see the PR.
