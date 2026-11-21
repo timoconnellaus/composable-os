@@ -85,6 +85,18 @@
       "name": "CUSTOMER_RATE_LIMIT",
       "namespace_id": "4104",
       "simple": { "limit": 60, "period": 60 }
+    },
+    // Customer sign-in code requests, per email address asked for (stage 22).
+    {
+      "name": "CUSTOMER_CODE_RATE_LIMIT",
+      "namespace_id": "4105",
+      "simple": { "limit": 3, "period": 60 }
+    },
+    // Customer sign-in code requests, per client address, keyed by a hash of it (stage 23).
+    {
+      "name": "CUSTOMER_CODE_ADDRESS_RATE_LIMIT",
+      "namespace_id": "4106",
+      "simple": { "limit": 10, "period": 60 }
     }
   ],
   "vars": {

@@ -893,6 +893,21 @@ export interface CoreIdempotencyKeyTable {
 }
 
 /** Migration 0410: a key whose call is running, so a second call with it waits. */
+/** Migration 0411 (stage 23, ADR 0419): a native app's session. Token hashes only. */
+export interface CoreDeviceSessionTable {
+  id: string;
+  audience: "staff" | "customer";
+  user_id: string | null;
+  customer_id: string | null;
+  device_name: string;
+  access_hash: string;
+  access_expires_at: string;
+  refresh_hash: string;
+  used_refresh_hashes: Defaulted<string>;
+  created_at: string;
+  last_used_at: string;
+}
+
 export interface CoreIdempotencyClaimTable {
   scope: string;
   idempotency_key: string;
@@ -1683,6 +1698,7 @@ export interface CoreDatabase {
   core_erase_request: CoreEraseRequestTable;
   core_idempotency_key: CoreIdempotencyKeyTable;
   core_idempotency_claim: CoreIdempotencyClaimTable;
+  core_device_session: CoreDeviceSessionTable;
   rec_stage_history: CrmStageHistoryView;
   rec_user: CrmUsersView;
   rec_person: CrmPeopleView;

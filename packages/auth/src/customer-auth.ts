@@ -26,6 +26,7 @@ import {
   type PublicPrincipal,
   type RateLimitBinding,
   RateLimitedError,
+  rateLimit,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { betterAuth } from "better-auth";
@@ -66,6 +67,25 @@ export interface CustomerAuthOptions {
    * address, never the client's). Unset: not limited here (rateLimit's missing-binding rule).
    */
   codeRateLimit?: RateLimitBinding | undefined;
+  /**
+   * Limits code requests per client address (stage 23): keyed by a keyed hash of the address,
+   * which is never stored. Unset: not limited here.
+   */
+  codeAddressRateLimit?: RateLimitBinding | undefined;
+  /**
+   * Whether codes can be sent at all: null when they can, or why not (no email connection is set
+   * for customer mail). Asked before a code is made; the answer is the same for every address.
+   */
+  ready?: (() => Promise<string | null>) | undefined;
+}
+
+/** A client address as a rate-limit key: hashed with the secret, so no address is passed on. */
+async function addressKey(address: string, secret: string): Promise<string> {
+  const data = new TextEncoder().encode(`${secret}\n${address}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(digest).slice(0, 16)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 const CODE_REQUEST_PATH = "/email-otp/send-verification-otp";
@@ -91,6 +111,26 @@ export function createCustomerAuth(options: CustomerAuthOptions) {
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         if (ctx.path !== CODE_REQUEST_PATH) return;
+        // Not set up (stage 23): said before anything is made or counted, the same for everyone.
+        const problem = options.ready ? await options.ready() : null;
+        if (problem) {
+          throw new APIError("SERVICE_UNAVAILABLE", {
+            message: `Customer sign-in is not set up: ${problem}`,
+            code: "SIGN_IN_NOT_SET_UP",
+          });
+        }
+        const address = ctx.headers?.get("cf-connecting-ip");
+        if (address && options.codeAddressRateLimit) {
+          const limited = await rateLimit(
+            options.codeAddressRateLimit,
+            `code-from:${await addressKey(address, options.secret)}`,
+          );
+          if (!limited.ok) {
+            throw new APIError("TOO_MANY_REQUESTS", {
+              message: `Too many sign-in code requests; retry in ${limited.retryAfterSeconds}s`,
+            });
+          }
+        }
         const email = (ctx.body as { email?: unknown } | undefined)?.email;
         if (typeof email !== "string") return;
         try {
@@ -216,6 +256,13 @@ export interface CustomerIdentity {
    */
   resolve(request: Request): Promise<CustomerRequestPrincipal>;
   /**
+   * As `resolve`, with the session the cookie names (its id), for the HTTP surface: it records
+   * which session a call came from, and exchanges a session for a native app's tokens.
+   */
+  resolveSession(
+    request: Request,
+  ): Promise<{ principal: CustomerRequestPrincipal; sessionId: string | null }>;
+  /**
    * Serves the customer sign-in routes under CUSTOMER_AUTH_BASE_PATH. Returns null when the
    * request is not for one. A route outside the customer list answers 404.
    */
@@ -230,19 +277,25 @@ async function accountState(db: CrmDb, customerId: string): Promise<"ready" | "n
 
 export function customerIdentity(auth: CustomerAuthInstance, d1: D1Database): CustomerIdentity {
   const crm = createCrmDb(d1);
-  return {
+  const identity: CustomerIdentity = {
     async resolve(request) {
+      return (await identity.resolveSession(request)).principal;
+    },
+    async resolveSession(request) {
       const session = await auth.api.getSession({ headers: request.headers });
-      if (!session) return PUBLIC;
+      if (!session) return { principal: PUBLIC, sessionId: null };
       const account = await loadCustomer(crm.query, session.user.id);
       if (account?.status !== "active" || account.linkState !== "linked" || !account.personId) {
-        return PUBLIC;
+        return { principal: PUBLIC, sessionId: null };
       }
-      return Object.freeze({
-        kind: "customer",
-        customerId: account.id,
-        personId: account.personId,
-      });
+      return {
+        principal: Object.freeze({
+          kind: "customer",
+          customerId: account.id,
+          personId: account.personId,
+        }),
+        sessionId: session.session.id,
+      };
     },
     async handle(request) {
       const { pathname } = new URL(request.url);
@@ -270,4 +323,5 @@ export function customerIdentity(auth: CustomerAuthInstance, d1: D1Database): Cu
       });
     },
   };
+  return identity;
 }

@@ -9,6 +9,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { inviteCustomerStatement } from "../customers/accounts.ts";
 import { NotFoundError } from "../errors.ts";
+import { endCustomerDeviceSessions } from "../http/tokens.ts";
 import { decodeCursor, encodeCursor, pageSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 
@@ -148,7 +149,11 @@ export const customerInvite = defineOperation({
 
 /** Ends every session of an account (in the caller's batch). */
 function endSessions(ctx: HandlerContext, id: string): void {
-  ctx.write(ctx.db.deleteFrom("core_customer_session").where("customer_id", "=", id));
+  ctx.write(
+    ctx.db.deleteFrom("core_customer_session").where("customer_id", "=", id),
+    // And its native apps' sessions (stage 23).
+    ...endCustomerDeviceSessions(ctx.db, [id]),
+  );
 }
 
 const statusOutput = customerAccountSchema.extend({ sessionsEnded: z.number() });

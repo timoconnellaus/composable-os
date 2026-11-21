@@ -87,7 +87,7 @@
     },
     {
       "name": "me.sessions.list",
-      "description": "The places you are signed in, as a signed-in customer: each session's id, when it began, when it was last used and when it expires, and which one is this one. Read-only.",
+      "description": "The places you are signed in, as a signed-in customer: each session's id, whether it is a browser or an app on a device (with the device's name), when it began, when it was last used and when it expires, and which one is this one. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -106,6 +106,13 @@
                 "id": {
                   "type": "string"
                 },
+                "kind": {
+                  "type": "string",
+                  "enum": ["browser", "device"]
+                },
+                "deviceName": {
+                  "type": ["string", "null"]
+                },
                 "createdAt": {
                   "type": "string"
                 },
@@ -113,13 +120,21 @@
                   "type": "string"
                 },
                 "expiresAt": {
-                  "type": "string"
+                  "type": ["string", "null"]
                 },
                 "current": {
                   "type": "boolean"
                 }
               },
-              "required": ["id", "createdAt", "lastActiveAt", "expiresAt", "current"],
+              "required": [
+                "id",
+                "kind",
+                "deviceName",
+                "createdAt",
+                "lastActiveAt",
+                "expiresAt",
+                "current"
+              ],
               "additionalProperties": false
             }
           }

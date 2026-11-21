@@ -54,3 +54,30 @@ export async function loadEraseDueDays(db: Kysely<CoreDatabase>): Promise<number
     return DEFAULT_ERASE_DUE_DAYS;
   }
 }
+
+// --- Which connection customer mail goes out from (stage 23) ------------------------------------
+
+/**
+ * The org email-send connection sign-in codes and other customer mail go out from, chosen by a
+ * human admin (customer.settings.update). The host sends through it as itself (the system
+ * user), never as a staff member. Unset: customer sign-in says it is not set up.
+ */
+export const CUSTOMER_EMAIL_CONNECTION_SETTING = "customer_email_connection";
+
+/** The connection id, or null while none is chosen. */
+export async function loadCustomerEmailConnection(
+  db: Kysely<CoreDatabase>,
+): Promise<string | null> {
+  const row = await db
+    .selectFrom("core_settings")
+    .select("value")
+    .where("key", "=", CUSTOMER_EMAIL_CONNECTION_SETTING)
+    .executeTakeFirst();
+  if (!row) return null;
+  try {
+    const value = JSON.parse(row.value) as unknown;
+    return typeof value === "string" && value ? value : null;
+  } catch {
+    return null;
+  }
+}

@@ -6,6 +6,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   ACTORS,
   type ActingUser,
+  customerCodeTarget,
   customerMayGetCode,
   ForbiddenError,
   inviteCustomer,
@@ -40,11 +41,31 @@ beforeEach(async () => {
   await env.DB.prepare("DELETE FROM core_settings WHERE key = 'customer_signup'").run();
 });
 
+describe("the connection customer mail goes out from (stage 23)", () => {
+  it("is unset by default, refuses a connection that cannot send, and is a human admin's", async () => {
+    expect(await customerCodeTarget(db.query)).toEqual({
+      problem:
+        "no email connection is chosen for customer mail (an admin sets it in the customer settings)",
+    });
+    await expect(
+      invoke("customer.settings.update", { emailConnectionId: "con_nope" }, context(admin)),
+    ).rejects.toMatchObject({ code: "invalid_input", details: { field: "emailConnectionId" } });
+    await expect(
+      invoke(
+        "customer.settings.update",
+        { emailConnectionId: null },
+        context(admin, { actor: "assistant" }),
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+  });
+});
+
 describe("the sign-up setting", () => {
   it("is invite only by default, and when the stored value is unreadable", async () => {
     expect(await invoke("customer.settings.get", {}, context(member))).toEqual({
       signup: "invite_only",
       eraseDueDays: 30,
+      emailConnectionId: null,
     });
     await env.DB.prepare(
       "INSERT INTO core_settings (key, value, updated_at) VALUES ('customer_signup', '\"wide-open\"', ?)",
@@ -58,7 +79,8 @@ describe("the sign-up setting", () => {
     expect(await invoke("customer.settings.update", { signup: "open" }, context(admin))).toEqual({
       signup: "open",
       eraseDueDays: 30,
-      previous: { signup: "invite_only", eraseDueDays: 30 },
+      emailConnectionId: null,
+      previous: { signup: "invite_only", eraseDueDays: 30, emailConnectionId: null },
     });
     expect(await loadCustomerSignup(db.query)).toBe("open");
     const changes = await auditChanges("customer_signup");

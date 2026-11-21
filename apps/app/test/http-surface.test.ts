@@ -13,7 +13,7 @@ import { createCustomerAuth, createIdentityProvider, customerIdentity } from "@c
 import { coreInvoker, inviteCustomer, loadCustomer } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type ApiEnv, handleApi } from "../src/server/http/api.ts";
+import { type ApiEnv, handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
 import type { McpEnv } from "../src/server/mcp/handler.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { ORIGIN, signUp, type TestUser, testEnv, unique } from "./mcp-helpers.ts";
@@ -230,8 +230,19 @@ describe("one pipeline: HTTP and the server function leave the same trace", () =
     expect(httpTrace.changes[0]?.diff).toMatchObject({
       phones: { before: [{ number: "+1 555 0101" }], after: [{ number: "+1 555 0102" }] },
     });
-    expect(normalise(httpTrace, { "+1 555 0101": "<before>", "+1 555 0102": "<after>" })).toEqual(
-      normalise(directTrace, { "+1 555 0102": "<before>", "+1 555 0103": "<after>" }),
+    // Over HTTP the origin also names the session the call came with (its cookie's).
+    expect(httpTrace.origin).toEqual({ surface: "client", sessionId: expect.any(String) });
+    expect(directTrace.origin).toEqual({ surface: "client" });
+    expect(
+      normalise(
+        { ...httpTrace, origin: null },
+        { "+1 555 0101": "<before>", "+1 555 0102": "<after>" },
+      ),
+    ).toEqual(
+      normalise(
+        { ...directTrace, origin: null },
+        { "+1 555 0102": "<before>", "+1 555 0103": "<after>" },
+      ),
     );
   });
 });
@@ -295,5 +306,121 @@ describe("the caller is the session's", () => {
     expect((await manifest(admin.cookie)).operations.map((o) => o.name)).toContain(
       "organisation.list",
     );
+  });
+});
+
+describe("native apps: tokens (ADR 0419, criterion 4)", () => {
+  async function auth(path: string, payload: unknown, headers: Record<string, string> = {}) {
+    const response = await handleApi(
+      new Request(`${ORIGIN}/api/v1/auth/${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify(payload),
+      }),
+      apiEnv,
+    );
+    if (!response) throw new Error("not served");
+    // biome-ignore lint/suspicious/noExplicitAny: a test reads whatever the envelope holds
+    return { status: response.status, body: (await response.json()) as Record<string, any> };
+  }
+  const bearer = (token: string) => `Bearer ${token}`;
+
+  async function apiWith(name: string, input: unknown, authorization?: string) {
+    const response = await handleApi(
+      new Request(`${ORIGIN}/api/v1/op/${name}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID(),
+          ...(authorization ? { authorization } : {}),
+        },
+        body: JSON.stringify(input),
+      }),
+      apiEnv,
+    );
+    if (!response) throw new Error("not served");
+    return { status: response.status, body: await response.text() };
+  }
+
+  it("a customer exchanges their sign-in for tokens and calls with them", async () => {
+    const tokens = await auth("token", { deviceName: "Ada's iPhone" }, { cookie: customerCookie });
+    expect(tokens.status, JSON.stringify(tokens.body)).toBe(200);
+    expect(tokens.body.data.accessToken).toMatch(/^cos_at_/);
+    const me = await apiWith("me.get", {}, bearer(tokens.body.data.accessToken));
+    expect(me.status).toBe(200);
+    expect(JSON.parse(me.body).data.id).toBe(personId);
+    const sessions = JSON.parse(
+      (await apiWith("me.sessions.list", {}, bearer(tokens.body.data.accessToken))).body,
+    ).data.items as { deviceName: string | null; current: boolean }[];
+    expect(sessions).toContainEqual(
+      expect.objectContaining({ deviceName: "Ada's iPhone", current: true }),
+    );
+  });
+
+  it("a customer token on a staff operation gets exactly the answer no token gets", async () => {
+    const tokens = await auth("token", { deviceName: "Phone" }, { cookie: customerCookie });
+    const token = bearer(tokens.body.data.accessToken);
+    for (const name of ["organisation.list", "person.create", "deviceSession.list"]) {
+      expect(await apiWith(name, {}, token), name).toEqual(await apiWith(name, {}));
+    }
+  });
+
+  it("staff exchange theirs; a staff token is staff, and only for staff operations", async () => {
+    const tokens = await auth("token", { deviceName: "Admin's tablet" }, { cookie: admin.cookie });
+    expect(tokens.status).toBe(200);
+    const token = bearer(tokens.body.data.accessToken);
+    expect((await apiWith("organisation.list", {}, token)).status).toBe(200);
+    expect((await apiWith("me.get", {}, token)).status).toBe(404);
+    const mine = JSON.parse((await apiWith("deviceSession.list", {}, token)).body).data.items;
+    expect(mine.map((s: { deviceName: string }) => s.deviceName)).toContain("Admin's tablet");
+  });
+
+  it("a refresh rotates the tokens; using the old refresh token again ends the session", async () => {
+    const first = (await auth("token", { deviceName: "Phone" }, { cookie: customerCookie })).body
+      .data;
+    const second = await auth("refresh", { refreshToken: first.refreshToken });
+    expect(second.status).toBe(200);
+    expect((await apiWith("me.get", {}, bearer(second.body.data.accessToken))).status).toBe(200);
+    const replay = await auth("refresh", { refreshToken: first.refreshToken });
+    expect(replay).toMatchObject({
+      status: 401,
+      body: { error: { code: "forbidden", details: { reason: "refresh_reused" } } },
+    });
+    // The whole session is gone: the newest access token stops too.
+    const after = await apiWith("me.get", {}, bearer(second.body.data.accessToken));
+    expect(after.status).toBe(401);
+    expect(JSON.parse(after.body).error.details.reason).toBe("token_invalid");
+  });
+
+  it("there is nothing to exchange without a sign-in", async () => {
+    const none = await auth("token", { deviceName: "Phone" });
+    expect(none).toMatchObject({
+      status: 401,
+      body: { error: { details: { reason: "not_signed_in" } } },
+    });
+  });
+});
+
+describe("customer sign-in, mounted (ADR 0419)", () => {
+  it("says it is not set up until an admin chooses the email connection, for every address", async () => {
+    const ask = async (email: string) => {
+      const response = await handleCustomerAuth(
+        json("/api/customer-auth/email-otp/send-verification-otp", { email, type: "sign-in" }),
+        apiEnv,
+      );
+      return { status: response.status, body: await response.text() };
+    };
+    const known = await ask("someone@example.com");
+    expect(known.status).toBe(503);
+    expect(known.body).toContain("Customer sign-in is not set up");
+    expect(await ask(`${unique("stranger")}@example.com`)).toEqual(known);
+  });
+
+  it("is not served at all without CUSTOMER_AUTH_SECRET", async () => {
+    const response = await handleCustomerAuth(json("/api/customer-auth/sign-in/email-otp", {}), {
+      ...apiEnv,
+      CUSTOMER_AUTH_SECRET: undefined,
+    } as ApiEnv);
+    expect(response.status).toBe(503);
   });
 });

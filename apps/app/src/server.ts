@@ -18,7 +18,12 @@ export { AgentJob } from "./server/assistant/job.ts";
 import { type AssistantHttpEnv, handleSocket, SOCKET_PATH } from "./server/assistant/http.ts";
 import { runAgentJobCron } from "./server/assistant/job-cron.ts";
 import { handleRoutineDeliveries } from "./server/assistant/routines.ts";
-import { type ApiEnv, handleApi } from "./server/http/api.ts";
+import {
+  type ApiEnv,
+  handleApi,
+  handleCustomerAuth,
+  isCustomerAuthPath,
+} from "./server/http/api.ts";
 import { authorize } from "./server/identity.ts";
 import { createAppHandler } from "./server/mcp/handler.ts";
 import { runBlobDeletionCron, runScheduledMaintenance } from "./server/purge.ts";
@@ -54,6 +59,8 @@ export default {
     // caller (staff, customer or public) from the request's session, so it is not behind the
     // staff-only identity middleware that guards TanStack Start's routes.
     if (isApiPath(pathname)) return apiResponse(request, env as unknown as ApiEnv);
+    // Customer sign-in (stage 22's routes, mounted by stage 23): a code by email, then a session.
+    if (isCustomerAuthPath(pathname)) return handleCustomerAuth(request, env as unknown as ApiEnv);
     return app.fetch(request, env, ctx);
   },
   // A routine's message from cos-runner (ADR 0343), into its owner's thread.

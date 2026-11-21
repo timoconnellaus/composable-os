@@ -17473,7 +17473,7 @@
     },
     {
       "name": "customer.settings.get",
-      "description": "Get the customer account settings: whether customer sign-up is open or invite only, and how many days staff have to action a deleted account's erase request. Read-only.",
+      "description": "Get the customer account settings: whether customer sign-up is open or invite only, how many days staff have to action a deleted account's erase request, and which email connection customer mail goes out from. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -17499,11 +17499,25 @@
             "minimum": 1,
             "maximum": 365,
             "description": "Days staff have to erase the person or decline, after a customer deletes their account (default 30). Admins are notified daily about a request past it."
+          },
+          "emailConnectionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The org email-send connection (con_…) customer mail goes out from: sign-in codes and a declined erase request. The host sends it itself, as no staff member. Null: customers cannot sign in, and are told sign-in is not set up."
           }
         },
         "required": [
           "signup",
-          "eraseDueDays"
+          "eraseDueDays",
+          "emailConnectionId"
         ],
         "additionalProperties": false
       },
@@ -17511,7 +17525,7 @@
     },
     {
       "name": "customer.settings.update",
-      "description": "Change whether customer sign-up is open or invite only, or the days staff have to action an erase request. Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Change whether customer sign-up is open or invite only, the days staff have to action an erase request, or the email connection customer mail goes out from. Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -17533,6 +17547,19 @@
             "minimum": 1,
             "maximum": 365,
             "description": "Days staff have to erase the person or decline, after a customer deletes their account (default 30). Admins are notified daily about a request past it."
+          },
+          "emailConnectionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The org email-send connection (con_…) customer mail goes out from: sign-in codes and a declined erase request. The host sends it itself, as no staff member. Null: customers cannot sign in, and are told sign-in is not set up."
           }
         }
       },
@@ -17553,6 +17580,19 @@
             "maximum": 365,
             "description": "Days staff have to erase the person or decline, after a customer deletes their account (default 30). Admins are notified daily about a request past it."
           },
+          "emailConnectionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The org email-send connection (con_…) customer mail goes out from: sign-in codes and a declined erase request. The host sends it itself, as no staff member. Null: customers cannot sign in, and are told sign-in is not set up."
+          },
           "previous": {
             "type": "object",
             "properties": {
@@ -17569,11 +17609,25 @@
                 "minimum": 1,
                 "maximum": 365,
                 "description": "Days staff have to erase the person or decline, after a customer deletes their account (default 30). Admins are notified daily about a request past it."
+              },
+              "emailConnectionId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The org email-send connection (con_…) customer mail goes out from: sign-in codes and a declined erase request. The host sends it itself, as no staff member. Null: customers cannot sign in, and are told sign-in is not set up."
               }
             },
             "required": [
               "signup",
-              "eraseDueDays"
+              "eraseDueDays",
+              "emailConnectionId"
             ],
             "additionalProperties": false
           }
@@ -17581,6 +17635,7 @@
         "required": [
           "signup",
           "eraseDueDays",
+          "emailConnectionId",
           "previous"
         ],
         "additionalProperties": false
@@ -21435,6 +21490,191 @@
         "dashboard.get",
         "dashboard.home",
         "dashboard.list"
+      ]
+    },
+    {
+      "name": "deviceSession.list",
+      "description": "Your own signed-in apps on phones and other devices (the HTTP surface's sessions): each one's device name, when it began and when it was last used, and which is this one. Browser sign-ins are not listed. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "deviceName": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "lastUsedAt": {
+                  "type": "string"
+                },
+                "current": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "deviceName",
+                "createdAt",
+                "lastUsedAt",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "deviceSession.revoke",
+      "description": "Sign out one of your own apps on a device, by its id from deviceSession.list: its tokens stop working at once. Another person's session is not found. Humans only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Session id (dvs_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "id",
+          "revoked"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "deviceSession.list",
+        "deviceSession.settings.get"
+      ]
+    },
+    {
+      "name": "deviceSession.settings.get",
+      "description": "How many days a signed-in app on a phone or other device may go unused before it must sign in again. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "idleDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3650,
+            "description": "Days a phone or other device may stay signed in without being used (default 90). Then it must sign in again. Applies to staff and customer apps alike."
+          }
+        },
+        "required": [
+          "idleDays"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "deviceSession.settings.update",
+      "description": "Change how many days a signed-in app on a phone or other device may go unused before it must sign in again. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "idleDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3650,
+            "description": "Days a phone or other device may stay signed in without being used (default 90). Then it must sign in again. Applies to staff and customer apps alike."
+          }
+        },
+        "required": [
+          "idleDays"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "idleDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3650,
+            "description": "Days a phone or other device may stay signed in without being used (default 90). Then it must sign in again. Applies to staff and customer apps alike."
+          },
+          "previous": {
+            "type": "object",
+            "properties": {
+              "idleDays": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3650,
+                "description": "Days a phone or other device may stay signed in without being used (default 90). Then it must sign in again. Applies to staff and customer apps alike."
+              }
+            },
+            "required": [
+              "idleDays"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "idleDays",
+          "previous"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "deviceSession.list",
+        "deviceSession.settings.get"
       ]
     },
     {

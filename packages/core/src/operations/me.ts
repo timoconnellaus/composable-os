@@ -20,6 +20,7 @@ import {
 import { loadEraseDueDays } from "../customers/settings.ts";
 import { NotFoundError, OperationError } from "../errors.ts";
 import { personObject } from "../fields/person.ts";
+import { endCustomerDeviceSessions } from "../http/tokens.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import type { CustomerPrincipal } from "../principals.ts";
 
@@ -106,12 +107,53 @@ export const meUpdate = defineOperation({
 
 const sessionSchema = z.object({
   id: z.string(),
+  /** `browser` (a sign-in cookie) or `device` (a native app's tokens, stage 23). */
+  kind: z.enum(["browser", "device"]),
+  /** What the app called the device, for a device session. */
+  deviceName: z.string().nullable(),
   createdAt: z.string(),
   lastActiveAt: z.string(),
-  expiresAt: z.string(),
+  /** When a browser session expires; a device session ends after a period without use. */
+  expiresAt: z.string().nullable(),
   /** The session this call was made with, when the adapter says which (origin.sessionId). */
   current: z.boolean(),
 });
+
+/** The caller's own native-app sessions (stage 23). A token hash is never selected. */
+function ownDevices(ctx: HandlerContext, customerId: string) {
+  return ctx.db
+    .selectFrom("core_device_session")
+    .select(["id", "device_name", "created_at", "last_used_at"])
+    .where("customer_id", "=", customerId);
+}
+
+/** Ends one of the caller's sessions of either kind. False when it is not theirs. */
+async function endOwnSession(
+  ctx: HandlerContext,
+  customerId: string,
+  id: string,
+): Promise<boolean> {
+  if (id.startsWith("dvs_")) {
+    const device = await ownDevices(ctx, customerId).where("id", "=", id).executeTakeFirst();
+    if (!device) return false;
+    ctx.write(
+      ctx.db
+        .deleteFrom("core_device_session")
+        .where("id", "=", id)
+        .where("customer_id", "=", customerId),
+    );
+    return true;
+  }
+  const row = await ownSessions(ctx, customerId).where("id", "=", id).executeTakeFirst();
+  if (!row) return false;
+  ctx.write(
+    ctx.db
+      .deleteFrom("core_customer_session")
+      .where("id", "=", id)
+      .where("customer_id", "=", customerId),
+  );
+  return true;
+}
 
 /** The caller's own sessions only. A token is never selected. */
 function ownSessions(ctx: HandlerContext, customerId: string) {
@@ -124,8 +166,9 @@ function ownSessions(ctx: HandlerContext, customerId: string) {
 export const meSessionsList = defineOperation({
   name: "me.sessions.list",
   description:
-    "The places you are signed in, as a signed-in customer: each session's id, when it began, " +
-    "when it was last used and when it expires, and which one is this one. Read-only.",
+    "The places you are signed in, as a signed-in customer: each session's id, whether it is a " +
+    "browser or an app on a device (with the device's name), when it began, when it was last " +
+    "used and when it expires, and which one is this one. Read-only.",
   input: z.object({}),
   output: z.object({ items: z.array(sessionSchema) }),
   permission: "records:read",
@@ -139,14 +182,31 @@ export const meSessionsList = defineOperation({
       .orderBy("created_at", "desc")
       .orderBy("id")
       .execute();
+    const devices = await ownDevices(ctx, customerId)
+      .orderBy("created_at", "desc")
+      .orderBy("id")
+      .execute();
     return {
-      items: rows.map((row) => ({
-        id: row.id,
-        createdAt: String(row.created_at),
-        lastActiveAt: String(row.updated_at),
-        expiresAt: String(row.expires_at),
-        current: row.id === ctx.origin.sessionId,
-      })),
+      items: [
+        ...rows.map((row) => ({
+          id: row.id,
+          kind: "browser" as const,
+          deviceName: null,
+          createdAt: String(row.created_at),
+          lastActiveAt: String(row.updated_at),
+          expiresAt: String(row.expires_at),
+          current: row.id === ctx.origin.sessionId,
+        })),
+        ...devices.map((row) => ({
+          id: row.id,
+          kind: "device" as const,
+          deviceName: row.device_name,
+          createdAt: row.created_at,
+          lastActiveAt: row.last_used_at,
+          expiresAt: null,
+          current: row.id === ctx.origin.sessionId,
+        })),
+      ],
     };
   },
 });
@@ -165,15 +225,10 @@ export const meSessionsRevoke = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     const { customerId } = customerOf(ctx);
-    const row = await ownSessions(ctx, customerId).where("id", "=", input.id).executeTakeFirst();
     // Another customer's session answers exactly as one that does not exist.
-    if (!row) throw new NotFoundError("session", input.id);
-    ctx.write(
-      ctx.db
-        .deleteFrom("core_customer_session")
-        .where("id", "=", input.id)
-        .where("customer_id", "=", customerId),
-    );
+    if (!(await endOwnSession(ctx, customerId, input.id))) {
+      throw new NotFoundError("session", input.id);
+    }
     return { id: input.id, revoked: true as const };
   },
 });
@@ -195,15 +250,7 @@ export const meSignOut = defineOperation({
     // The adapter names the session the call was made with; without one there is nothing to end.
     const sessionId = ctx.origin.sessionId;
     if (!sessionId) return { signedOut: false };
-    const row = await ownSessions(ctx, customerId).where("id", "=", sessionId).executeTakeFirst();
-    if (!row) return { signedOut: false };
-    ctx.write(
-      ctx.db
-        .deleteFrom("core_customer_session")
-        .where("id", "=", sessionId)
-        .where("customer_id", "=", customerId),
-    );
-    return { signedOut: true };
+    return { signedOut: await endOwnSession(ctx, customerId, sessionId) };
   },
 });
 
@@ -249,6 +296,7 @@ export const meDeleteAccount = defineOperation({
         .set({ status: "disabled", updated_at: ctx.now })
         .where("id", "=", customerId),
       ctx.db.deleteFrom("core_customer_session").where("customer_id", "=", customerId),
+      ...endCustomerDeviceSessions(ctx.db, [customerId]),
     );
     let request = await openEraseRequest(ctx.db, personId);
     if (!request) {
