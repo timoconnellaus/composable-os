@@ -186,4 +186,6 @@ approves, by a press in the Approvals inbox. The request shows what would go liv
 is live, and is refused on approval when the post changed since it was asked for. The version
 history keeps who approved and who asked. Proof: `packages/core/test/publish-requests.test.ts`,
 `apps/app/test/mcp-publish-requests.test.ts` (over `/mcp`, under the default policy and the
-autonomous one) and `apps/runner/test/content.test.ts`. Migration 0520, ADR 0480 (block AF).
+autonomous one), `apps/runner/test/content.test.ts`, and the e2e journey in
+`apps/app/e2e/content.spec.ts` (an MCP client asks, a person approves in the Approvals inbox).
+Migration 0520, ADR 0480 (block AF).
