@@ -50,6 +50,11 @@ export interface ObjectDefinitionJson {
   owner?: string;
   /** The object's customer (ADR 0402), as declared. */
   customer?: { field: string; read: string[]; write: string[] };
+  /** What the public may read (ADR 0438), as declared. */
+  public?: {
+    read: string[];
+    when?: { via?: string | undefined; field: string; in: string[] } | undefined;
+  };
   navigationOrder?: number;
   requireOneOf?: string[][];
   titleDefault?: { from: string[]; suffix?: string | undefined };
@@ -584,6 +589,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.states ? { states: object.definition.states } : {}),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
+      ...(object.definition.public ? { public: object.definition.public } : {}),
       ...(object.definition.navigationOrder !== undefined
         ? { navigationOrder: object.definition.navigationOrder }
         : {}),

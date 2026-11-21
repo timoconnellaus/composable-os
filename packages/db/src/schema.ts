@@ -34,6 +34,11 @@ export interface CoreUserTable {
   deactivated_at: ColumnType<string | null, string | null | undefined, string | null>;
   /** Migration 0221 (ADR 0212): set on a support user, the grant it was created for. */
   support_grant_id: ColumnType<string | null, string | null | undefined, string | null>;
+  /**
+   * Migration 0451 (ADR 0436): a pack's fixed staff role (`ticketing.door`). While set, the
+   * account may do only what the role lists.
+   */
+  pack_role: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 export type UserKind = "human" | "extension";
@@ -396,6 +401,7 @@ export interface CrmUsersView {
   name: string;
   email: string;
   role: UserRole;
+  pack_role: string | null;
   image: string | null;
   created_at: string;
 }

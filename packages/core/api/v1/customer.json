@@ -1228,6 +1228,372 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "x.ticketing.eventsOnSale",
+      "description": "The events on sale now, soonest first, each with its ticket types (name, price, sale window, most per order, deposit) and whether places are left. For an event page or a list of events. Only what the public may read: an event that is not on sale is not here. Read-only. (Extension tool from Ticketing 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Only this event"
+          },
+          "limit": {
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": ["string", "null"]
+                },
+                "startsAt": {
+                  "type": ["string", "null"]
+                },
+                "endsAt": {
+                  "type": ["string", "null"]
+                },
+                "venue": {
+                  "type": ["string", "null"]
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "image": {
+                  "type": ["string", "null"]
+                },
+                "availability": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["available", "low", "sold_out"]
+                    },
+                    "available": {
+                      "description": "Places left, when the type says so",
+                      "type": ["number", "null"]
+                    }
+                  },
+                  "required": ["status"],
+                  "additionalProperties": false
+                },
+                "ticketTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": ["string", "null"]
+                      },
+                      "description": {
+                        "type": ["string", "null"]
+                      },
+                      "price": {
+                        "type": ["number", "null"]
+                      },
+                      "onSaleFrom": {
+                        "type": ["string", "null"]
+                      },
+                      "onSaleUntil": {
+                        "type": ["string", "null"]
+                      },
+                      "maxPerOrder": {
+                        "type": ["number", "null"]
+                      },
+                      "deposit": {
+                        "type": ["number", "null"]
+                      },
+                      "balanceDue": {
+                        "type": ["string", "null"]
+                      },
+                      "availability": {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["available", "low", "sold_out"]
+                          },
+                          "available": {
+                            "description": "Places left, when the type says so",
+                            "type": ["number", "null"]
+                          }
+                        },
+                        "required": ["status"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "description",
+                      "price",
+                      "onSaleFrom",
+                      "onSaleUntil",
+                      "maxPerOrder",
+                      "deposit",
+                      "balanceDue",
+                      "availability"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "startsAt",
+                "endsAt",
+                "venue",
+                "description",
+                "image",
+                "availability",
+                "ticketTypes"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["events"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "x.ticketing.myTickets",
+      "description": "The signed-in customer's own tickets: each with its event, ticket type, code and state (valid, used or void). Only the caller's tickets exist here; a code that is not theirs finds nothing. Filter by event or by code. Read-only. (Extension tool from Ticketing 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Only tickets for this event"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Only the ticket with this code"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["valid", "used", "void"]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "event": {
+                  "type": ["string", "null"]
+                },
+                "ticketType": {
+                  "type": ["string", "null"]
+                },
+                "code": {
+                  "type": ["string", "null"]
+                },
+                "state": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "event", "ticketType", "code", "state"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "x.ticketing.orderStart",
+      "description": "Start an order for tickets: one or more ticket types and how many of each, paid in full or by deposit when every ticket type offers one. A signed-in customer buys as themselves; a guest gives their email address. The host prices the order from the ticket types, refuses a ticket type outside its sale window, over its most per order or without enough places left (with details naming the rule), and holds the places while the order is unpaid. Nothing is paid here: the buyer then calls order.checkout with the order's id (and a guest's token) to pay on the provider's page. Amounts are in the minor unit. (Extension tool from Ticketing 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ticketTypeId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The ticket type (its record id)"
+                },
+                "quantity": {
+                  "default": 1,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                }
+              },
+              "required": ["ticketTypeId"],
+              "additionalProperties": {}
+            }
+          },
+          "pay": {
+            "default": "full",
+            "type": "string",
+            "enum": ["full", "deposit"]
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "description": "A guest's email address. A signed-in customer passes none."
+          }
+        },
+        "required": ["lines"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number",
+            "description": "In the currency's minor unit (cents)"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "pay": {
+            "type": "string"
+          },
+          "deposit": {
+            "type": ["number", "null"]
+          },
+          "balanceDueAt": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "ticketTypeId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": ["id", "ticketTypeId", "title", "quantity", "unitPrice", "total"],
+              "additionalProperties": false
+            }
+          },
+          "token": {
+            "description": "A guest's key to this order, shown once (order.checkout and order.view take it)",
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "lines",
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.ticketing.eventsOnSale",
+        "x.ticketing.myTickets"
+      ]
     }
   ]
 }

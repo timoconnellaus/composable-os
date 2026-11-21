@@ -3,16 +3,22 @@
 // host: `exact` the number left, `low` available, "only N left" at or below the threshold, or
 // sold out, `availability` available or sold out. Never held or taken, and never the pool's.
 //
-// Capacity is its own scope. A ticket type is not a customer's record, so the record seam would
-// show them nothing of it; the places left are what a buyer must be able to see. So any live
-// record of an object that declares a capacity can be asked about by id, and the answer is
-// limited to `show`. When stage 28's `publishable` exists, outside callers should be limited to
-// published records as well.
+// A customer or the public may ask about a record they may read (stage 27, ADR 0438, amending
+// ADR 0433): a ticket type the public scope shows them (while its event is on sale), or one of
+// their own. Any other record is not found, as one that does not exist. The answer is limited to
+// `show`.
 import { NotFoundError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { CapacityDefinition, ObjectDefinition } from "../fields/types.ts";
 import { unknownObject } from "./customer.ts";
-import { orgReader, type Reader, visibleTable } from "./index.ts";
+import {
+  type AnyRow,
+  orgReader,
+  type Reader,
+  type VisibleSource,
+  visibleSource,
+  visibleTable,
+} from "./index.ts";
 
 export type CapacityStatus = "available" | "low" | "sold_out";
 
@@ -83,6 +89,24 @@ export function outsideView(
   }
 }
 
+/** Whether an outside caller may read the record through the seam (their own or the public's). */
+async function readableBy(reader: Reader, object: ObjectDefinition, id: string): Promise<boolean> {
+  let source: VisibleSource<AnyRow, string>;
+  try {
+    source = visibleSource(reader, object);
+  } catch {
+    // The object does not exist for this caller.
+    return false;
+  }
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const row = await (reader.db as any)
+    .selectFrom(source)
+    .select("id")
+    .where("id", "=", id)
+    .executeTakeFirst();
+  return Boolean(row);
+}
+
 /**
  * A record's places for `reader`: everything for staff, what `show` allows for a customer or the
  * public. An object without a capacity, or a record not live, is not found.
@@ -103,6 +127,9 @@ export async function readCapacity(
     .where("t.id", "=", id)
     .executeTakeFirst();
   if (!live || live.deleted_at !== null) throw new NotFoundError(name, id);
+  if (reader.principal.kind !== "staff" && !(await readableBy(reader, object, id))) {
+    throw new NotFoundError(name, id);
+  }
   const row = (await reader.db
     .selectFrom("core_capacity as c")
     .leftJoin("core_capacity as p", (join) =>

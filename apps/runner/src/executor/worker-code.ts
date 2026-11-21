@@ -104,7 +104,7 @@ export default class extends WorkerEntrypoint {
     if (!isExtension(extension)) return NOT_AN_EXTENSION;
     return runExtension(
       extension,
-      { kind: "tool", tool: request.tool, input: request.input, version: request.version },
+      { kind: "tool", tool: request.tool, input: request.input, version: request.version, caller: request.caller },
       hostModules(host),
     );
   }

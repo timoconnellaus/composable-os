@@ -120,3 +120,11 @@ uses the move hook (ADR 0426).
 - What may be bought is no longer the host's list: `registerSellable` is gone. An object is for
   sale when its manifest declares `sellable` (ADR 0435), which also gives a sale window, a most per
   order and what a paid line grants. The rest of "The host prices the order" stands.
+
+## Amendment, 2026-11-21 (stage 27, step 4): an extension's automation may be started by an order
+`order.paid` and `order.partPaid` are the order's `updated` events; an extension's automation can
+now name them: `trigger: { type: "fieldChanged", object: "order", field: "state", from, to }`
+passes the check (`BASE_AUTOMATION_FIELDS` in `packages/sdk/src/automation-check.ts`), provided
+the extension lists `order.get` in `permissions.operations`, since the run reads the order. Only
+the trigger: no other part of a manifest may name `order`. Ticketing's "tickets by email" is the
+first (from `pending` or `expired` to `paid` or `part_paid`: the first payment, once).

@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkExtensionDir, locate } from "../src/node/check.ts";
-import { type ExtIo, outsideSummary, runExt } from "../src/node/cli.ts";
+import { type ExtIo, outsideSummary, rolesSummary, runExt } from "../src/node/cli.ts";
 import { untested } from "../src/node/test.ts";
 import expected from "./fixtures/expected.json" with { type: "json" };
 
@@ -111,6 +111,23 @@ describe("locate", () => {
   });
 });
 
+describe("the staff roles an extension declares (stage 27, ADR 0436)", () => {
+  it("is one line per role, with what it holds", () => {
+    expect(rolesSummary({ id: "plain" })).toEqual([]);
+    expect(
+      rolesSummary({
+        id: "ticketing",
+        roles: {
+          door: { label: "Door", permissions: ["ticketing:checkin"], read: ["ticketing.ticket"] },
+        },
+      }),
+    ).toEqual([
+      "This extension declares staff roles. An account given one may do this and nothing else:",
+      "  role ticketing.door (Door): tools with ticketing:checkin; reads ticketing.ticket",
+    ]);
+  });
+});
+
 describe("what an extension opens to people outside the org (stage 22, ADR 0414)", () => {
   it("is nothing for an extension that is for staff only", () => {
     expect(
@@ -125,6 +142,12 @@ describe("what an extension opens to people outside the org (stage 22, ADR 0414)
       objects: {
         order: { customer: { field: "buyer", read: ["status", "total"], write: [] } },
         supplier: {},
+        event: {
+          public: { read: ["name"], when: { field: "status", in: ["on_sale"] } },
+        },
+        tier: {
+          public: { read: ["price"], when: { via: "event", field: "status", in: ["on_sale"] } },
+        },
       },
       tools: {
         cancel: {
@@ -138,6 +161,8 @@ describe("what an extension opens to people outside the org (stage 22, ADR 0414)
     expect(lines).toEqual([
       "This extension opens the host to people outside the org. Review these lines:",
       "  customers see shop.order where buyer is them: read status, total; write nothing",
+      "  the public sees shop.event while status is on_sale: read name",
+      "  the public sees shop.tier while its event's status is on_sale: read price",
       "  tool cancel (write) is open to customer, and may also set shop.order: status",
     ]);
   });

@@ -82,6 +82,7 @@ import {
   type SystemActivityInput,
 } from "./operation.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
+import { type HeldPackRole, loadPackRole, packRoleAllows, packRoleReaches } from "./pack-roles.ts";
 import {
   ACTORS,
   type ActingUser,
@@ -251,6 +252,14 @@ async function loadExtensionCaller(db: CrmDb, userId: string): Promise<Extension
   if (row?.status !== "active") return null;
   const manifest = JSON.parse(row.manifest) as { permissions: ExtensionCaller["permissions"] };
   return { id: row.id, permissions: manifest.permissions };
+}
+
+/** What an account with a pack role is told when the role does not allow a call. */
+function packRoleRefusal(role: HeldPackRole, op: AnyOperation): ForbiddenError {
+  return new ForbiddenError(`The ${role.label} role cannot ${op.name}`, {
+    packRole: role.name,
+    ...(op.packPermission ? { permission: op.packPermission } : {}),
+  });
 }
 
 /** The object an operation reads or writes, for extension permission checks. */
@@ -609,13 +618,40 @@ async function invokeOnce<O extends AnyOperation>(
   }
   if (!allowsAudience(op, staffPrincipal(ctx.user))) throw new UnknownOperationError(op.name);
   const parsed = op.input.safeParse(rawInput);
+  // A staff account with a pack role (ADR 0436) may call only what the role lists. Read from the
+  // account on every call, not from what the adapter resolved (beside the registry's own read,
+  // so it adds no round trip), and refused whatever the input: such an account learns nothing
+  // about any other operation, not even whether its input was valid.
+  const [packRole] = await Promise.all([
+    ctx.user.id === SYSTEM_USER.id ? null : loadPackRole(ctx.db.query, ctx.user.id),
+    // Extension objects and fields join the field registry (ADR 0023); cheap when unchanged.
+    parsed.success ? refreshSchemaRegistry(ctx.db.query) : null,
+  ]);
+  if (packRole && !packRoleReaches(packRole, op)) {
+    const error = packRoleRefusal(packRole, op);
+    const gate = evaluateGate(
+      { actor: ctx.actor, risk: op.risk, bulkSize: 1 },
+      await loadApprovalPolicy(ctx.db.query),
+      ctx.floor,
+    );
+    await auditAlone({
+      id: newId("audit"),
+      op,
+      ctx,
+      input: rawInput,
+      at: now,
+      pendingActionId: ctx.approval?.actionId ?? null,
+      gate: gate.decision,
+      outcome: "forbidden",
+      error,
+    });
+    throw error;
+  }
   if (!parsed.success) {
     throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });
   }
   // Relative filter values ({ $relative: "me" }, "startOfMonth", …) resolve per call (ADR 0103).
   const input: unknown = resolveInputFilter(op.name, parsed.data, ctx.user.id, now);
-  // Extension objects and fields join the field registry (ADR 0023); cheap when unchanged.
-  await refreshSchemaRegistry(ctx.db.query);
   const audited = isAudited(op, ctx.actor);
   const auditId = newId("audit");
   const pendingActionId = ctx.approval?.actionId ?? null;
@@ -682,11 +718,18 @@ async function invokeOnce<O extends AnyOperation>(
       throw error;
     }
   }
-  if (!roleHasPermission(ctx.user.role, op.permission)) {
-    const error = new ForbiddenError(`Your role (${ctx.user.role}) cannot ${op.name}`, {
-      role: ctx.user.role,
-      permission: op.permission,
-    });
+  // A pack role replaces what the account's own role grants (ADR 0436).
+  if (
+    packRole
+      ? !packRoleAllows(packRole, op, input)
+      : !roleHasPermission(ctx.user.role, op.permission)
+  ) {
+    const error = packRole
+      ? packRoleRefusal(packRole, op)
+      : new ForbiddenError(`Your role (${ctx.user.role}) cannot ${op.name}`, {
+          role: ctx.user.role,
+          permission: op.permission,
+        });
     await auditAlone({ ...base, gate: decision, outcome: "forbidden", error });
     throw error;
   }

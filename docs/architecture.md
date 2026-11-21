@@ -979,7 +979,11 @@ engine from its own handler (`updateRecordAsHost`); every caller of an operation
 person, MCP client, extension or import can make one. A stage move is for staff and the host;
 a customer never makes one. Both forms write `core_transition_history`
 (migration 0420), read as `rec_stage_history` and `rec_state_history`. An object has one
-lifecycle.
+lifecycle. A move is made from a current read or not at all
+([ADR 0437](adr/0437-a-move-is-made-from-a-current-read.md)): the history close is conditioned on
+the record still holding the position the write was judged from, so of two writes racing to move
+one record, one commits and the other fails as a conflict. `record.update { from }` makes the
+move the point of the write (checking a ticket in).
 
 A signed-in customer moves a record as `customer`, whether their own handler writes or the host
 writes for them at the seam, and the public move nothing
@@ -998,6 +1002,31 @@ which the order's move hook creates as the host when the order is first paid (`p
 and an unguessable code, and moves to its declared void state when the order is refunded in full
 or cancelled after a deposit. `core_order_grant` (migration 0450) records each grant and keeps
 codes unique.
+
+**The public scope** ([ADR 0438](adr/0438-the-public-scope.md),
+`packages/core/src/visibility/public.ts`). An object may declare what the public may read:
+`public: { read, when? }`, fields of the records meeting a condition on a state of the record or
+of one record it points to. The seam limits rows and columns in the source itself, as for
+customers; a record that does not meet it is not found. A customer reads it too, on an object
+with no customer of its own. The public reach it only through a pack's tool, which calls the
+tool-only `public.list` and `public.get`. `capacity.get` and `order.start` answer outsiders only
+for records their scope shows them. Stage 28's `publishable` is another kind of condition.
+
+**Ticketing** (`packs/ticketing`, stage 27) is the first pack that is not about a CRM: events,
+ticket types and tickets, built from these behaviours alone, with tools that compose the host's
+operations (`eventsOnSale`, `orderStart`, `myTickets`, `salesSummary`, `checkIn`, `undoCheckIn`)
+and hold no rule.
+A product turns it on by listing it in `packs`; the CRM does not.
+
+**Pack roles** ([ADR 0436](adr/0436-pack-roles-and-the-door-role.md),
+`packages/core/src/pack-roles.ts`). A pack may declare fixed staff roles: the permissions its own
+tools declare (`permission: "<pack>:<word>"` on a tool) and the objects of its own a holder may
+read. A human admin gives one to a staff account (`user.setPackRole`, `core_user.pack_role`,
+migration 0451). While it is held it is all the account may do: the pipeline reads the column on
+every staff call and refuses any other operation before its input is parsed, and the account's
+own role grants nothing. Ticketing's door role checks tickets in and reads events, ticket types
+and tickets. Stage 14a's roles and teams extend this check rather than add another. Tools learn
+who started them from the host (`ctx.caller`), to record who checked a ticket in.
 
 ### Orders
 
@@ -1072,7 +1101,7 @@ calculates a price, checks a capacity or checks a permission.
 | --- | --- | --- |
 | Deals | `stages` | exists |
 | Leads, lifecycle | fields, tools | exists |
-| Ticketing | `states`, `capacity`, `sellable`, payments | stage 27 |
+| Ticketing | `states`, `capacity`, `sellable`, `customer`, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
 | Content | `publishable`, rich text, media | stage 28 |
 | Bookings, memberships | `recurring`, `allowance`, recurring billing | later |
 

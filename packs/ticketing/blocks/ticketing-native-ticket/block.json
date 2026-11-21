@@ -1,0 +1,9 @@
+{
+  "name": "ticketing-native-ticket",
+  "pack": "ticketing",
+  "skin": "native",
+  "operations": [],
+  "files": ["ticket-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {}
+}

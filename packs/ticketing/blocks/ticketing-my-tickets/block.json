@@ -1,0 +1,11 @@
+{
+  "name": "ticketing-my-tickets",
+  "pack": "ticketing",
+  "skin": "web",
+  "operations": ["x.ticketing.myTickets"],
+  "files": ["my-tickets.tsx", "LICENSE"],
+  "dependsOn": [],
+  "packages": {
+    "@composable-os/pack-ticketing": "*"
+  }
+}

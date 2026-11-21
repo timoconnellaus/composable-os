@@ -78,6 +78,30 @@ export const CORE_AUTOMATION_FIELDS: Record<string, Record<string, FieldTypeName
   },
 };
 
+/**
+ * Base records with operations of their own (stage 25's orders) that an automation may be
+ * started by (stage 27): a ticket sent when an order is first paid. They are not core objects:
+ * nothing else in a manifest may name them, and the automation reads one only through its
+ * `<object>.get`, which it must list in permissions.operations.
+ */
+export const BASE_AUTOMATION_FIELDS: Record<string, Record<string, FieldTypeName>> = {
+  order: {
+    state: "select",
+    email: "email",
+    personId: "relation",
+    currency: "text",
+    total: "number",
+    paid: "number",
+    balance: "number",
+    pay: "select",
+    deposit: "number",
+    balanceDueAt: "datetime",
+    paidAt: "datetime",
+    createdAt: "datetime",
+    updatedAt: "datetime",
+  },
+};
+
 /** Fields every extension record has besides its declared ones. */
 const RECORD_FIELDS: Record<string, FieldTypeName> = {
   createdAt: "datetime",
@@ -118,7 +142,7 @@ function fieldsOf(
       ...Object.fromEntries(Object.entries(own.fields).map(([name, f]) => [name, f.type])),
     };
   }
-  const core = CORE_AUTOMATION_FIELDS[object];
+  const core = CORE_AUTOMATION_FIELDS[object] ?? BASE_AUTOMATION_FIELDS[object];
   if (core) return { ...core, ...added };
   const host = ctx.objectFields?.(object);
   return host ? { ...RECORD_FIELDS, ...host, ...added } : null;
@@ -228,7 +252,8 @@ export function checkAutomation(
   const canRead = (object: string) => canWrite(object) || perms.read.includes(object);
   const trigger = automation.trigger;
   const object = triggerObject(trigger);
-  const fields = object && ctx.known.has(object) ? fieldsOf(ctx, object) : null;
+  const base = object !== null && Object.hasOwn(BASE_AUTOMATION_FIELDS, object);
+  const fields = object && (ctx.known.has(object) || base) ? fieldsOf(ctx, object) : null;
   const ofType = (types: readonly FieldTypeName[]) =>
     Object.entries(fields ?? {})
       .filter(([, type]) => types.includes(type))
@@ -238,7 +263,13 @@ export function checkAutomation(
     contract(path, `Automation name "${name}" must be camelCase letters and digits, e.g. wonDeal`);
   }
   // 1. The trigger.
-  if (object !== null && !ctx.known.has(object)) {
+  if (base && !perms.operations.includes(`${object}.get`)) {
+    contract(
+      `${path}.trigger.object`,
+      `An automation started by ${object} reads it: add "${object}.get" to permissions.operations`,
+    );
+  }
+  if (object !== null && !ctx.known.has(object) && !base) {
     contract(
       `${path}.trigger.object`,
       `Unknown object "${object}". Use a core object (person, organisation, task, activity) or ` +

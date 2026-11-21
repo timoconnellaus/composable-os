@@ -199,7 +199,13 @@ describe("the declaration reaches the registry and the seam", () => {
 describe("the generic writes are for tools only", () => {
   it("my.create and my.update are listed as toolOnly and refuse a direct call", async () => {
     const listed = openOperations(coreRegistry.list()).operations.filter((op) => op.toolOnly);
-    expect(listed.map((op) => op.name)).toEqual(["my.create", "my.update"]);
+    // And the public reads a pack's tools make (stage 27, ADR 0438).
+    expect(listed.map((op) => op.name)).toEqual([
+      "my.create",
+      "my.update",
+      "public.get",
+      "public.list",
+    ]);
     for (const name of ["my.create", "my.update"]) {
       const direct = await call(
         name,

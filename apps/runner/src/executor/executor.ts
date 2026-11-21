@@ -27,6 +27,7 @@ import {
   type ExtensionManifest,
   GATEKEEPER_MODULES,
   type RunResponse,
+  type StartedBy,
 } from "@composable-os/sdk";
 import { runBuildRole } from "../extensions/ai.ts";
 import {
@@ -53,8 +54,21 @@ import { extensionWorkerCode, manifestWorkerId, moduleSet, toolWorkerId } from "
 export const QUARANTINE_AFTER = 3;
 export const TOOL_TIMEOUT_MS = 30_000;
 export const MANIFEST_TIMEOUT_MS = 10_000;
-/** Failures that are the caller's, not the extension's: they do not count towards quarantine. */
-const CALLER_ERRORS = new Set(["invalid_input", "unknown_tool"]);
+/**
+ * Failures that are the caller's or the data's, not the extension's: they do not count towards
+ * quarantine (ADR 0025, amended 2026-11-21). An operation error a tool lets escape (a record not
+ * found, a conflict, a refusal, bad input, a rate limit) says nothing about the code; otherwise a
+ * caller, the public included, could quarantine a pack by asking for things that are not there.
+ * A crash, a timeout, a bad result and any other error still count.
+ */
+export const CALLER_ERRORS: ReadonlySet<string> = new Set([
+  "invalid_input",
+  "unknown_tool",
+  "not_found",
+  "conflict",
+  "forbidden",
+  "rate_limited",
+]);
 
 export interface ExecutorEnv extends HostEnv, BuildEnv {
   LOADER: WorkerLoader;
@@ -72,7 +86,14 @@ export interface ExecutorOptions {
 interface ExtensionEntrypoint {
   evaluateManifest(): Promise<RunResponse>;
   runTool(
-    request: { runId: string; tool: string; input: unknown; version: string; deadline: number },
+    request: {
+      runId: string;
+      tool: string;
+      input: unknown;
+      version: string;
+      deadline: number;
+      caller: StartedBy;
+    },
     host: RunHost,
   ): Promise<RunResponse>;
   runAutomation(request: AutomationRunRequest, host: RunHost): Promise<RunResponse>;
@@ -326,7 +347,18 @@ export class Executor {
       this.#toolTimeoutMs,
       (ep) =>
         ep.runTool(
-          { runId, tool: input.tool, input: input.input, version: manifest.version, deadline },
+          {
+            runId,
+            tool: input.tool,
+            input: input.input,
+            version: manifest.version,
+            deadline,
+            // Who started the tool, for the tool to record (ctx.caller, ADR 0436). From the
+            // pipeline's verified caller, never from the input.
+            caller: input.caller.principal
+              ? { kind: input.caller.principal.kind }
+              : { kind: "staff", userId: input.caller.userId, name: input.caller.name ?? "" },
+          },
           host,
         ),
       host,

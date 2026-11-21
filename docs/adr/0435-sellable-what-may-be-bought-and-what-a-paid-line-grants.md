@@ -135,3 +135,10 @@ touched every place a column is spliced or read, where the suffix is one functio
   `true`, `false`) keeps its stored column, and its view now names it `<word>_`. Such a field could
   not be read before. The other reserved words never had a column: their DDL failed.
 - Free records given by staff, transfers and per-person limits are not part of this.
+
+## Amendment, 2026-11-21 (stage 27, ADR 0438)
+A customer or the public buys only what they may read: `priceLines` refuses a line whose record
+the buyer's scope does not show (their own, or a public one) with the same answer as a record
+that does not exist (`not_for_sale`). Staff may still start an order for anything sellable. An
+object sold to people outside the org therefore declares `public`. See
+[ADR 0438](0438-the-public-scope.md).

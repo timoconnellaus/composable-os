@@ -44,3 +44,9 @@ constraint, permissions are object-agnostic, there are no teams or invites, and
   mappings are an admin-edited input to them.
 - SCIM tokens and SSO secrets are env-only, like every auth secret.
 - Seat-based plans (ADR 0211) count invited users at invite and at accept.
+
+## Note, 2026-11-21 (stage 27)
+Before this stage was built, stage 27 added one fixed role a pack declares, the door role, with
+its own check in the pipeline ([ADR 0436](0436-pack-roles-and-the-door-role.md)): a staff
+account may hold one pack role (`core_user.pack_role`), and while it does, the pipeline allows
+exactly what the role lists. Stage 14a builds its roles and scopes on that check, not beside it.

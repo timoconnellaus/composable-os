@@ -45,6 +45,17 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    only reads, `write` for ordinary changes, `bulk-write` for many records in one call,
    `destructive` for deletes and anything that cannot be undone. The approval gate decides on
    it (`docs/adr/0018-invocation-pipeline-and-gate.md`), so never understate it.
+   A tool that a pack role should be able to call (a door role checking tickets in, ADR 0436)
+   declares `permission: "<id>:<word>"`; the role lists it. Admins and members call it as they
+   call any tool. `ctx.caller` says who started a tool (`{ kind: "staff", userId, name }`, a
+   customer or the public), from the host and never from the input: record who did something
+   with it (Ticketing: `checkIn` sets `usedBy`). Extensions cannot read users (`user.*` is never
+   granted), so keep a name you need to show later on the record.
+   A tool open to the public that shows records (an event page) reads them with `public.list`
+   and `public.get`, which answer with what the object's `public` declaration allows (see
+   `write-extension`); it adds no filter of its own on what is public (Ticketing:
+   `eventsOnSale`). A host refusal a tool lets escape (`not_found`, `conflict`, `invalid_input`)
+   is the caller's, not the tool's: it does not count towards quarantine.
 3. **Make it a button** if the request says so: `recordAction` with `object`, `label`,
    `idInput`, and `confirm`, `ask` (one choice first) or `hideWhen` as needed. An output with
    `open: { object, id }` opens that record afterwards. See Leads: `convert`, `disqualify`.
@@ -75,17 +86,31 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    parameters (a dateRange `date` binds `:date_from` and `:date_to`; a user filter `owner` binds
    `:owner`); `:now`, `:today` and `:me` are always there. Each data widget is one read-only
    `SELECT` over the `rec_*` views (`rec_x_<id>_<object>`, columns in snake_case: `closedAt` is
-   `closed_at`). `mapping` names the result columns the chart uses (`value` for a kpi, `x` and
+   `closed_at`). An object's places (`capacity`) are not columns of its view: join
+   `rec_capacity` on `object_type` and `record_id` for `places`, `held`, `taken` and
+   `available` (Ticketing: `ticketSales`). `mapping` names the result columns the chart uses (`value` for a kpi, `x` and
    `y` for bar and line, `label` and `value` for donut and leaderboard, `columns` for a table).
    `clickThrough` opens exactly the records the widget counted: `{ object, filter }` with
    `{ $row: "<column>" }` and `{ $param: "<name>" }` placeholders; one that resolves to null drops
    its condition. See Leads: `leadsDashboard` (the smallest), then Deals: `salesOverview`.
+   An automation that mails someone outside the org (a buyer) goes through the `email-send`
+   gatekeeper: declare `connections: [{ id, gatekeeper: "email-send", purpose }]` and the module,
+   and call `ctx.gatekeeper("email-send").call(id, resource, "send", message)` in a step; a person
+   binds the connection, and each send is an outbound action the approval policy decides.
+   Besides your own objects and the core ones, an automation may be started by an `order`
+   (`fieldChanged` on `state`, from `{ in: ["pending", "expired"] }` to the first payment),
+   with `order.get` in `permissions.operations` (Ticketing: `ticketsByEmail`).
 9. **Test every tool and automation** in `test/` with `createTestHost(extension, { records,
-   users, operations })` from `@composable-os/sdk/testing`. `host.runTool(name, input)` returns
-   the output; pass `operations: { "query.sql": ... }` for operations it does not fake.
+   users, operations })` from `@composable-os/sdk/testing`. `host.runTool(name, input, { caller })` returns
+   the output (`caller` defaults to the staff user `usr_admin`); pass `operations: {
+   "query.sql": ... }` for operations it does not fake. Core objects' `.get` fakes answer with a
+   record (`values`), where the host's `person.get` answers with the person's own fields: fake
+   `person.get` yourself when a tool reads `displayName` (Ticketing's test).
    `host.runAutomation(name, { record, period, ... })` runs it start to finish: assert
    `run.undeclared` is empty, then `run.steps`, `run.writes` and `run.notifications`. Test the
-   case where the conditions do not hold too. The test host does not evaluate the trigger: assert
+   case where the conditions do not hold too. A gatekeeper the extension declares is faked in
+   memory: pass `gatekeepers: { "email-send": (call) => ... }` for its answers, and assert
+   `host.gatekeeperCalls` (each with its step). The test host does not evaluate the trigger: assert
    its declared shape (the sign of `offsetDays`), and pass `period` for `schedule` and
    `dateRelative` runs and assert the dates taken from it. See Deals: `test/automations.test.ts`.
 10. **A headless entry, for client apps (optional, stage 23, ADR 0418).** A pack whose tools a
@@ -112,7 +137,10 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
   keep working when the host changes.
 - **A tool is not a transaction.** Each `ctx.ops.call` is its own operation, and a run can stop
   between two of them. Write the tool so it is safe to run again: find what an earlier run made
-  before creating it, and set the "done" state last (Leads: `convert`).
+  before creating it, and set the "done" state last (Leads: `convert`). Two calls of one tool
+  can also run at once: a move two people may make together (a check-in) passes `from` to
+  `record.update`, so the host makes it once and refuses the other with a `conflict` the tool
+  reports (Ticketing: `checkIn`). Reading the state first and then writing is the race itself.
 - **An automation takes only the steps it declared.** An undeclared step name fails the run, and
   an undeclared write or notification is flagged; the declarations are what people approve.
 - **Side effects go inside `step.do`.** `run` is replayed from the start on every resume, and

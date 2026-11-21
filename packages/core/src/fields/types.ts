@@ -127,6 +127,26 @@ export interface ObjectDefinition {
    * customers. Enforced only at the visibility seam.
    */
   customer?: CustomerDeclaration;
+  /**
+   * What the public may read (ADR 0438): fields, of the records meeting a condition on a state.
+   * Left out, the object does not exist for the public. Enforced only at the visibility seam.
+   */
+  public?: PublicDeclaration;
+}
+
+/**
+ * What the public may read of an object (ADR 0438). Names are registry field names. `when`
+ * tests a select field of the record or, with `via` (a relation to one record), of the record it
+ * points to. Stage 28's `publishable` adds being published as another condition.
+ */
+export interface PublicDeclaration {
+  readonly read: readonly string[];
+  /** Left out, every live record is public. */
+  readonly when?: {
+    readonly via?: string | undefined;
+    readonly field: string;
+    readonly in: readonly string[];
+  };
 }
 
 /**

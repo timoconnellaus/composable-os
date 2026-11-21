@@ -119,6 +119,18 @@ beforeAll(async () => {
             places: { type: "number", label: "Places" },
           },
           capacity: { places: "places" },
+          public: { read: ["name"] },
+        },
+        // Places of something outsiders may not read: they are not told about it (ADR 0438).
+        vault: {
+          label: "Vault",
+          plural: "Vaults",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name", required: true },
+            places: { type: "number", label: "Places" },
+          },
+          capacity: { places: "places" },
         },
         tickettype: {
           label: "Ticket type",
@@ -130,6 +142,8 @@ beforeAll(async () => {
             event: { type: "relation", label: "Event", to: `${ext}.event` },
           },
           capacity: { places: "places", pool: "event", show: "exact", releaseOnRefund: false },
+          // Outsiders ask about places of records they may read (ADR 0438): every ticket type.
+          public: { read: ["name"] },
         },
         klass: {
           label: "Class",
@@ -140,6 +154,7 @@ beforeAll(async () => {
             seats: { type: "number", label: "Seats" },
           },
           capacity: { places: "seats", show: "low", lowAt: 3 },
+          public: { read: ["name"] },
         },
       },
     }),
@@ -687,6 +702,21 @@ describe("criterion 8: what capacity.get shows", () => {
       lowAt: null,
       pool: { object: EVENT, id: event, places: 20, held: 3, taken: 0, available: 17 },
     });
+  });
+
+  it("outsiders are told nothing of a record they may not read (ADR 0438)", async () => {
+    // The vault declares nothing public: its places are staff's to know.
+    const vault = await create(`${ext}.vault`, { name: unique("Private"), places: 20 });
+    expect(
+      (await invokeByName("capacity.get", { object: `${ext}.vault`, id: vault }, staff())) as {
+        places: number;
+      },
+    ).toMatchObject({ places: 20 });
+    for (const ctx of [customer(), visitor()]) {
+      await expect(
+        invokeByName("capacity.get", { object: `${ext}.vault`, id: vault }, ctx),
+      ).rejects.toMatchObject({ code: "not_found" });
+    }
   });
 
   it("exact: outsiders get the number left and nothing else", async () => {

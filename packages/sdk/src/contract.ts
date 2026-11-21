@@ -189,6 +189,15 @@ export interface ObjectSpec {
    * fails `check`.
    */
   customer?: CustomerSpec;
+  /**
+   * What the public may read of this object (ADR 0438): the fields in `read`, of the records that
+   * meet `when`. Deny by default: left out, the public sees nothing of it, and a record that does
+   * not meet `when` is not found. A signed-in customer reads it too, unless the object declares a
+   * `customer` (an object declares one or the other). The public reaches it only through a pack's
+   * tool open to them (`public.list`, `public.get`). Only shipped extensions and an org's own may
+   * declare it.
+   */
+  public?: PublicSpec;
   /** Position in the sidebar among extension objects (lower first). Default 100. */
   navigationOrder?: number;
   /**
@@ -417,6 +426,8 @@ export interface ExtensionContext {
   ai: AiModule;
   /** A gatekeeper declared in permissions.modules, e.g. `ctx.gatekeeper("email-send")`. */
   gatekeeper(name: GatekeeperModuleName): GatekeeperModule;
+  /** Who started this tool, from the host (ADR 0436). Absent in automations. */
+  caller?: StartedBy;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -449,12 +460,67 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * never `id`. The host allows exactly these, for calls made by this tool (ADR 0414).
    */
   customerFields?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The permission a staff caller needs, named `<extension id>:<word>` (`ticketing:checkin`), for
+   * a role of this extension to hold (`roles`, ADR 0436). Admins and members hold it as they hold
+   * any tool (a viewer only when the tool's risk is `read`); a staff account given one of this
+   * extension's roles holds it only when the role lists it. Only shipped extensions and an org's
+   * own may declare it.
+   */
+  permission?: string;
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
 }
+
+/**
+ * A fixed staff role an extension declares (ADR 0436): a named set of the permissions its tools
+ * declare, and the objects of its own whose records the role may read (`record.get` and
+ * `record.list`). A human admin gives it to a staff account, which then may do exactly this and
+ * nothing else: no other records, no settings, no other operation. The door role of Ticketing:
+ * `{ permissions: ["ticketing:checkin"], read: ["ticketing.event", ...] }`. Only shipped
+ * extensions and an org's own may declare one.
+ */
+export interface RoleSpec {
+  label: string;
+  /** What the role is for, shown to the admin who gives it. */
+  description: string;
+  /** Permissions of this extension's tools (`<id>:<word>`) the role holds. */
+  permissions: readonly string[];
+  /** Objects of this extension (`<id>.<object>`) whose records the role may read. */
+  read: readonly string[];
+}
+
+/**
+ * Who started a tool (ADR 0436), set by the host from the session it verified and never from the
+ * input: a staff user, a signed-in customer or the public. A tool's own operation calls run as
+ * the extension (or as the customer, ADR 0414); this is for recording who asked, such as who
+ * checked a ticket in. Absent in automations and in a manifest evaluation.
+ */
+export type StartedBy =
+  | { readonly kind: "staff"; readonly userId: string; readonly name: string }
+  | { readonly kind: "customer" }
+  | { readonly kind: "public" };
 
 /** Who may call a tool. `staff` when nothing is declared (ADR 0402). */
 export const TOOL_AUDIENCES = ["staff", "customer", "public"] as const;
 export type ToolAudience = (typeof TOOL_AUDIENCES)[number];
+
+/**
+ * What the public may read of an object (ADR 0438). `when` is a condition on a state (a select
+ * field) of the record itself, or, with `via`, of the record one of its relations points to: an
+ * event while it is `on_sale`; a ticket type while its event is.
+ */
+export interface PublicSpec {
+  read: readonly string[];
+  /** Left out, every live record is public (a catalogue item). */
+  when?: {
+    /** A relation of this object, to another object of this extension: test that record. */
+    via?: string;
+    /** A select field (of this record, or of the one `via` points to). */
+    field: string;
+    /** The values for which the record is public. */
+    in: readonly string[];
+  };
+}
 
 /** An object's customer: see `ObjectSpec.customer`. */
 export interface CustomerSpec {
@@ -552,6 +618,8 @@ export interface ExtensionSpec {
   tools?: Record<string, ToolSpec<any, any>>;
   // biome-ignore lint/suspicious/noExplicitAny: automations of any trigger type.
   automations?: Record<string, AutomationSpec<any>>;
+  /** Fixed staff roles an admin can give to a staff account (ADR 0436). */
+  roles?: Record<string, RoleSpec>;
 }
 
 const EXTENSION = Symbol.for("ops.extension");

@@ -152,6 +152,8 @@ beforeAll(async () => {
             price: "price",
             deposit: { amount: "depositAmount", balanceDue: "balanceDue" },
           },
+          // A customer or a guest buys only what they may read (ADR 0438).
+          public: { read: ["name", "price"] },
         },
         keepsake: {
           label: "Keepsake",
@@ -164,6 +166,7 @@ beforeAll(async () => {
           },
           capacity: { places: "places", releaseOnRefund: false },
           sellable: { price: "price" },
+          public: { read: ["name", "price"] },
         },
       },
     }),

@@ -25,6 +25,21 @@ describe("productPacks", () => {
     expect(productPacks(withPacks(["deals"]), root).map((p) => p.id)).toEqual(["deals"]);
   });
 
+  it("carries Ticketing only for a product that lists it (stage 27)", () => {
+    // The CRM does not sell tickets: its release has no ticketing source at all.
+    expect(productPacks(crm, root).some((p) => p.id === "ticketing")).toBe(false);
+    const packs = productPacks(withPacks(["ticketing"]), root);
+    expect(packs.map((p) => p.id)).toEqual(["ticketing"]);
+    const ticketing = packs[0];
+    const files = Object.keys(ticketing?.files ?? {}).sort();
+    // Exactly the extension's sources: what the runner bundles for the host.
+    expect(files).toEqual(["automations.ts", "dashboards.ts", "index.ts", "tools.ts"]);
+    // Never the client code (hooks, blocks) or the tests: they do not run in the host.
+    expect(files.filter((f) => /^(client|blocks|test)\//.test(f))).toEqual([]);
+    // Installed at boot in every deployment of a product that lists it, not opt-in.
+    expect(ticketing?.optional).toBeUndefined();
+  });
+
   it("is empty for a product with no packs: a host with base records only", () => {
     expect(productPacks(withPacks([]), root)).toEqual([]);
   });

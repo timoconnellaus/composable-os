@@ -119,6 +119,15 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
 // extension cannot declare `sellable` (ADR 0435).
 {
   const fixture = join(root, "packages/core/test/fixtures/boxoffice/index.ts");
+  // And the Ticketing pack (stage 27), which the CRM does not list: local dev delivers it as an
+  // org extension too, optional, so the ticketing e2e spec installs it the way a product that
+  // lists the pack would have it. Its extension files only (not client/, blocks/ or tests).
+  const ticketing = Object.fromEntries(
+    ["index.ts", "tools.ts", "automations.ts", "dashboards.ts"].map((file) => [
+      file,
+      readFileSync(join(root, "packs/ticketing", file), "utf8"),
+    ]),
+  );
   const text = JSON.stringify({
     extensions: [
       {
@@ -127,6 +136,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
         optional: true,
         files: { "index.ts": readFileSync(fixture, "utf8") },
       },
+      { id: "ticketing", version: "0.1.0", optional: true, files: ticketing },
     ],
   });
   const hash = createHash("sha256").update(text).digest("hex");

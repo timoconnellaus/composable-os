@@ -5,8 +5,10 @@
 // This is the seam's first door. Staff have the scope `all`: the plain view, no predicate, the
 // same SQL and the same `rows_read` as before the seam (test/visibility-staff-unchanged.test.ts).
 // A customer has the rows whose declared customer field is their own Person, and of those only
-// the fields the object lists (customer.ts). The public, and a customer on an object that
-// declares no customer, have nothing: for them the object does not exist.
+// the fields the object lists (customer.ts). The public has the rows an object's `public`
+// declaration lets them read, and of those only the fields it lists (public.ts, ADR 0438); so
+// does a customer on an object that declares no customer. Anyone else, on any other object, has
+// nothing: for them the object does not exist.
 // Stage 14a adds staff scopes (own, own team), the rewrite of user SQL and search hydration to
 // this module. It must extend this seam and not add a second one.
 //
@@ -20,8 +22,10 @@ import { BASE_TABLES, type CoreObjectName, getObject, isCoreObject } from "../fi
 import type { ObjectDefinition } from "../fields/types.ts";
 import { type Principal, staffPrincipal } from "../principals.ts";
 import { type CustomerScope, customerObject, customerScope, unknownObject } from "./customer.ts";
+import { type PublicScope, publicObject, publicScope } from "./public.ts";
 
 export { type CustomerScope, customerProblems } from "./customer.ts";
+export { type PublicScope, publicProblems } from "./public.ts";
 
 /** Who is reading. A handler's context is one. */
 export interface Viewer {
@@ -39,7 +43,11 @@ export interface Reader extends Viewer {
  * - `customer`: the rows whose customer field is the caller's Person, the listed fields only.
  * - `none`: nothing. The object does not exist for this caller.
  */
-export type Scope = { readonly kind: "all" } | CustomerScope | { readonly kind: "none" };
+export type Scope =
+  | { readonly kind: "all" }
+  | CustomerScope
+  | PublicScope
+  | { readonly kind: "none" };
 
 const NONE: Scope = Object.freeze({ kind: "none" });
 
@@ -51,9 +59,10 @@ export function scopeOf(principal: Principal, given: ObjectDefinition): Scope {
     case "staff":
       return { kind: "all" };
     case "customer":
-      return customerScope(object, principal.personId) ?? NONE;
+      // A customer reads at least what the public may: an object declares one or the other.
+      return customerScope(object, principal.personId) ?? publicScope(object) ?? NONE;
     case "public":
-      return NONE;
+      return publicScope(object) ?? NONE;
     default:
       // A principal this code does not know sees nothing.
       return NONE;
@@ -75,6 +84,8 @@ export function visibleObject(ctx: Viewer, object: string | ObjectDefinition): O
       return definition;
     case "customer":
       return customerObject(definition, scope);
+    case "public":
+      return publicObject(definition, scope);
     case "none":
       throw unknownObject(definition.name);
   }
@@ -147,6 +158,21 @@ export function visibleSource(
       // trusted identifiers (fields/types.ts); the person id is a bound parameter.
       const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
       return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${sql.ref(scope.column)} = ${scope.personId})`.as(
+        name,
+      );
+    }
+    case "public": {
+      // Only the records meeting `when`, and only the listed columns. With `via`, the record it
+      // points to must meet it: a ticket type while its event is on sale (ADR 0438).
+      const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
+      const { condition } = scope;
+      const values = condition ? sql.join(condition.values.map((value) => sql`${value}`)) : null;
+      const where = !condition
+        ? sql`1 = 1`
+        : condition.via
+          ? sql`${sql.ref(condition.column)} IN (SELECT id FROM ${sql.table(condition.via.source)} WHERE ${sql.ref(condition.via.column)} IN (${values}))`
+          : sql`${sql.ref(condition.column)} IN (${values})`;
+      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${where})`.as(
         name,
       );
     }

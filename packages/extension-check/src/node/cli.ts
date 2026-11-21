@@ -38,6 +38,7 @@ async function check(dir: string, json: boolean, io: ExtIo): Promise<number> {
           ok: result.ok,
           issues: result.issues,
           outside: outsideSummary(result.manifest),
+          roles: rolesSummary(result.manifest),
         },
         null,
         2,
@@ -59,7 +60,34 @@ async function check(dir: string, json: boolean, io: ExtIo): Promise<number> {
   );
   // What the extension opens to people outside the org is said out loud (ADR 0402, ADR 0414).
   for (const line of outsideSummary(result.manifest)) io.out(line);
+  // So is what its staff roles let an account do (ADR 0436).
+  for (const line of rolesSummary(result.manifest)) io.out(line);
   return 0;
+}
+
+/**
+ * One line for each staff role the manifest declares (ADR 0436): what an account given it may do,
+ * which is all it may do. Empty when it declares none.
+ */
+export function rolesSummary(
+  manifest:
+    | {
+        id: string;
+        roles?: Record<string, { label: string; permissions: string[]; read: string[] }>;
+      }
+    | null
+    | undefined,
+): string[] {
+  const roles = Object.entries(manifest?.roles ?? {});
+  if (!manifest || !roles.length) return [];
+  return [
+    "This extension declares staff roles. An account given one may do this and nothing else:",
+    ...roles.map(
+      ([name, role]) =>
+        `  role ${manifest.id}.${name} (${role.label}): tools with ${role.permissions.join(", ") || "no permission"}; ` +
+        `reads ${role.read.join(", ") || "nothing"}`,
+    ),
+  ];
 }
 
 /** The parts of a manifest this reads. */
@@ -69,6 +97,7 @@ interface OpensOutside {
     string,
     {
       customer?: { field: string; read: string[]; write: string[] };
+      public?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       sellable?: { price: string; grants?: { object: string } };
     }
   >;
@@ -93,6 +122,14 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
         `  anyone can buy ${manifest.id}.${name} (priced by ${object.sellable.price})` +
           (grants ? `; a paid line grants ${grants.object}` : ""),
       );
+    }
+    const p = object.public;
+    if (p) {
+      const via = p.when?.via ? `its ${p.when.via}'s ` : "";
+      const while_ = p.when
+        ? ` while ${via}${p.when.field} is ${p.when.in.join(" or ")}`
+        : ", every record";
+      lines.push(`  the public sees ${manifest.id}.${name}${while_}: read ${p.read.join(", ")}`);
     }
     const c = object.customer;
     if (!c) continue;

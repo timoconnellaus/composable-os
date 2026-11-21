@@ -19,6 +19,8 @@ export type EvaluateResult =
 export interface ToolCaller {
   actor: string;
   userId: string;
+  /** A staff caller's name, for the tool to record who asked (`ctx.caller`, ADR 0436). */
+  name?: string;
   /**
    * Set when a customer or the public called the tool (ADR 0414): the run then acts as that
    * principal. Its operation calls go through the outside path of the pipeline, never as the

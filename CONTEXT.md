@@ -1075,6 +1075,52 @@ Money sent back to the buyer on one of an order's payments. Staff with the refun
 a person approves it in the Approvals inbox (never an AI); the order shows it once the provider
 confirms (ADR 0429).
 
+**Event** (Ticketing)
+Something tickets are sold for: a camp, a workshop, a night, with its times, venue and status
+(draft, on sale, ended, cancelled). Its places, when set, are shared by all its ticket types (the
+pool). A record of the Ticketing pack (`ticketing.event`, stage 27).
+_Avoid_: class, session (a class is booked, not ticketed)
+
+**Ticket type** (Ticketing)
+One kind of ticket for an event, with its own price, places, sale window, most per order and
+deposit: a package, a room type. It is what is sellable; one ticket is one person
+(`ticketing.tickettype`).
+_Avoid_: tier, package (as a word for the object), product
+
+**Ticket** (Ticketing)
+One person's right to attend: granted by the host, one per place, when the order is first paid,
+with a code. It is its holder's (a Person): they see its event, type, code and state. Valid, used
+or void (`ticketing.ticket`).
+_Avoid_: booking, pass (a pass grants an allowance), seat
+
+**Check-in**
+Marking a ticket used at the door by its code. Accepted once: a second scan says who checked it
+in and when, a void ticket and an unknown code are refused for their own reasons, and of two
+scanners at the same moment one is let in (ADR 0437). A ticket whose order still has a balance
+owing is let in and the balance is shown. Undone by staff.
+_Avoid_: scan (the act at the scanner), redeem
+
+**Public scope**
+What an object declares the public may read (ADR 0438): fields, of the records meeting a
+condition on a state of the record or of the record it points to (an event while on sale; a
+ticket type while its event is). Nothing is public by default, and a record that does not meet
+the condition is not found. A signed-in customer reads it too. The public reaches it only through
+a pack's tool (`public.list`, `public.get`), and buys only what it may read. Stage 28's
+`publishable` adds being published as another condition.
+_Avoid_: published (stage 28's word for a version), visible (the seam's word for any scope)
+
+**Pack role**
+A fixed staff role a pack declares (ADR 0436): the permissions of its own tools and the objects of
+its own an account given it may read. A human admin gives at most one to a staff account; while
+it is held, it is all that account may do, on every operation. The door role is Ticketing's.
+Stage 14a's roles and teams will extend it.
+_Avoid_: role (alone, it means admin, member or viewer), team, scope
+
+**Door role**
+Ticketing's pack role (`ticketing.door`): check tickets in, and read events, ticket types and
+tickets. No people, orders, leads or settings.
+_Avoid_: scanner role, coach role
+
 **Allowance**
 What a pass or membership grants: a number of uses, or unlimited uses over a period. A booking
 spends one (later; ADR 0404).

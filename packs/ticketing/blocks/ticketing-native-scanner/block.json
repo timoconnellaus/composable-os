@@ -1,0 +1,11 @@
+{
+  "name": "ticketing-native-scanner",
+  "pack": "ticketing",
+  "skin": "native",
+  "operations": ["x.ticketing.checkIn"],
+  "files": ["door-scanner-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-ticketing": "*"
+  }
+}

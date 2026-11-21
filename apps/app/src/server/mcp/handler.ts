@@ -19,6 +19,7 @@ import {
   bindConnectionGrant,
   isGrantActive,
   loadConnection,
+  loadPackRole,
   loadSupportGrant,
   parseFloor,
   type RateLimitBinding,
@@ -129,7 +130,10 @@ export async function serveMcp(
   const extensionHost = extensionHostFor(env);
   const integrations = integrationRuntimeFor(env);
   const blobs = blobStoreFor(env);
+  // What the account's pack role (ADR 0436) lets the MCP tool list show.
+  const packRole = await loadPackRole(db.query, user.id);
   const caller: McpCaller = {
+    packRole,
     context: {
       ...(integrations ? { integrations } : {}),
       ...(blobs ? { blobs } : {}),

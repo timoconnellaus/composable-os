@@ -147,6 +147,26 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       });
     }
   }
+  // A role changes what a staff account may do, and a tool's permission is what a role holds
+  // (ADR 0436): identity and access are not something code written in the app may declare.
+  for (const [name, tool] of Object.entries(manifest.tools)) {
+    if (tool.permission) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `tools.${name}.permission`,
+        message: `A runtime extension cannot declare a permission for a staff role. ${why}`,
+      });
+    }
+  }
+  for (const name of Object.keys(manifest.roles ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `roles.${name}`,
+      message: `A runtime extension cannot declare a staff role. ${why}`,
+    });
+  }
   for (const [name, object] of Object.entries(manifest.objects)) {
     if (object.customer) {
       issues.push({
@@ -154,6 +174,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         code: "outside_audience",
         path: `objects.${name}.customer`,
         message: `A runtime extension cannot make ${name} visible to customers. ${why}`,
+      });
+    }
+    // Records the public may read (ADR 0438): a reviewed change, as a customer is.
+    if (object.public) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.public`,
+        message: `A runtime extension cannot make ${name} readable by the public. ${why}`,
       });
     }
     // Selling to the public opens order.start to its records (ADR 0435): a reviewed change too.

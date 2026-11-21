@@ -32,6 +32,8 @@ export function toolOperation(
   // A runtime extension's tool is for staff whatever its manifest says (ADR 0402): `check` and
   // install refuse the declaration, and this holds if one is in the database anyway.
   const audiences = source === "shipped" ? tool.audiences : undefined;
+  // Likewise a tool's permission, which a role of the extension can hold (ADR 0436).
+  const packPermission = source === "shipped" ? tool.permission : undefined;
   const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}`;
   const hit = cache.get(key);
   if (hit) return hit;
@@ -43,6 +45,7 @@ export function toolOperation(
     permission: tool.risk === "read" ? "records:read" : "records:write",
     risk: tool.risk,
     ...(audiences ? { audiences } : {}),
+    ...(packPermission ? { packPermission } : {}),
     async handler(input, ctx) {
       const row = await ctx.db
         .selectFrom("core_extensions")
@@ -62,7 +65,7 @@ export function toolOperation(
         input,
         caller:
           ctx.principal.kind === "staff"
-            ? { actor: ctx.actor, userId: ctx.user.id }
+            ? { actor: ctx.actor, userId: ctx.user.id, name: ctx.user.name }
             : {
                 actor: ctx.principal.kind,
                 userId: ctx.principal.kind === "customer" ? ctx.principal.customerId : "",

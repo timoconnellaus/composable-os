@@ -50,6 +50,8 @@ export default defineExtension({
         balanceDue: { type: "date", label: "Balance due" },
       },
       capacity: { places: "places", pool: "event", show: "exact" },
+      // A customer or a guest buys only what they may read (ADR 0438): every ticket type here.
+      public: { read: ["name", "event", "price", "maxPerOrder", "depositAmount", "balanceDue"] },
       sellable: {
         price: "price",
         saleWindow: { from: "onSaleFrom", until: "onSaleUntil" },

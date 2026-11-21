@@ -1,0 +1,11 @@
+{
+  "name": "ticketing-native-my-tickets",
+  "pack": "ticketing",
+  "skin": "native",
+  "operations": ["x.ticketing.myTickets"],
+  "files": ["my-tickets-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-ticketing": "*"
+  }
+}

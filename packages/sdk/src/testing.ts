@@ -28,7 +28,7 @@ import {
   type NotificationSendInput,
   notificationInput,
 } from "./automation.ts";
-import type { AiModule, Extension } from "./contract.ts";
+import { type AiModule, type Extension, GATEKEEPER_MODULES, type StartedBy } from "./contract.ts";
 import type { ExtensionManifest, ManifestIssue, ValidateOptions } from "./manifest.ts";
 import { CORE_OBJECT_NAMES, toManifest, validateManifest } from "./manifest.ts";
 import { checkGrant } from "./permissions.ts";
@@ -51,6 +51,27 @@ export interface TestHostOptions {
    * `usr_admin`.
    */
   users?: { id: string; role: "admin" | "member" | "viewer" }[];
+  /**
+   * Fakes for the gatekeepers the extension declares in `permissions.modules`, by name: what a
+   * session method returns for `call(connectionId, resource, method, ...args)`. Every call is
+   * recorded in `gatekeeperCalls`. A declared gatekeeper with no fake answers `{ status: "pending" }`
+   * (a person would approve it), with one connection per declared automation connection.
+   */
+  gatekeepers?: Record<
+    string,
+    (call: { connectionId: string; resource: string; method: string; args: unknown[] }) => unknown
+  >;
+}
+
+/** A call a tool or automation made through `ctx.gatekeeper(name).call(...)`. */
+export interface GatekeeperCall {
+  gatekeeper: string;
+  connectionId: string;
+  resource: string;
+  method: string;
+  args: unknown[];
+  /** The step it was made in (null: outside a step, or a tool). */
+  step: string | null;
 }
 
 /** A notification the in-memory `notification.send` delivered. */
@@ -115,8 +136,11 @@ export interface TestHost {
   manifest: ExtensionManifest;
   /** Contract and formula issues (`extension.check` minus typecheck and dry-run reconcile). */
   issues: ManifestIssue[];
-  /** Runs a tool like the host does: input and output validated, ctx from in-memory modules. */
-  runTool<T = unknown>(tool: string, input: unknown): Promise<T>;
+  /**
+   * Runs a tool like the host does: input and output validated, ctx from in-memory modules.
+   * `caller` is who started it (`ctx.caller`, ADR 0436); default the staff user `usr_admin`.
+   */
+  runTool<T = unknown>(tool: string, input: unknown, options?: { caller?: StartedBy }): Promise<T>;
   /** Every codemode:ops call, in order (allowed or refused). */
   calls: { operation: string; input: unknown; allowed: boolean }[];
   logs: { level: string; message: string; data: unknown }[];
@@ -124,6 +148,8 @@ export interface TestHost {
   records: Map<string, Map<string, Values>>;
   /** Every notification sent through the in-memory `notification.send`. */
   notifications: SentNotification[];
+  /** Every call through a gatekeeper module, in order. */
+  gatekeeperCalls: GatekeeperCall[];
   /**
    * Runs automation `name` in memory, start to finish: conditions checked on the trigger
    * record, waits skipped (and recorded), steps held to the declarations.
@@ -140,7 +166,8 @@ function riskOf(operation: string): string {
 }
 
 function objectOf(operation: string, input: Record<string, unknown>): string | null {
-  if (operation.startsWith("record."))
+  // As the host's operationObject: record.* and my.* name their object in the input.
+  if (operation.startsWith("record.") || operation.startsWith("my."))
     return typeof input.object === "string" ? input.object : null;
   const prefix = operation.split(".")[0] ?? "";
   return (CORE_OBJECT_NAMES as readonly string[]).includes(prefix) ? prefix : null;
@@ -248,6 +275,29 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
       const rows = table(object);
       const row = rows.get(String(input.id));
       if (!row) throw new ExtensionToolError("not_found", `No ${object} with id ${input.id}`);
+      if (typeof input.from === "string") {
+        // `from` (ADR 0437): move only out of this state, refused as the host refuses it.
+        const local = object.startsWith(`${manifest.id}.`)
+          ? object.slice(manifest.id.length + 1)
+          : "";
+        const spec = manifest.objects[local];
+        const field = spec?.states?.field ?? spec?.stages?.field;
+        const values = input.values as Record<string, unknown>;
+        if (!field || values[field] === undefined || values[field] === input.from) {
+          throw new ExtensionToolError(
+            "invalid_input",
+            `With "from", the write must move ${field}`,
+          );
+        }
+        if (row[field] !== input.from) {
+          throw new ExtensionToolError("conflict", `${object} is no longer ${input.from}`, {
+            reason: "not_in_position",
+            field,
+            from: input.from,
+            current: row[field] ?? null,
+          });
+        }
+      }
       const next = { ...row, ...(input.values as Record<string, unknown>), id: row.id };
       rows.set(row.id, next);
       return shape(object, next);
@@ -422,6 +472,42 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
       write: async (level, message, data) => {
         logs.push({ level: String(level), message: String(message), data });
       },
+    };
+  }
+  const gatekeeperCalls: GatekeeperCall[] = [];
+  for (const name of manifest.permissions.modules) {
+    if (!(GATEKEEPER_MODULES as readonly string[]).includes(name)) continue;
+    const declared = Object.values(manifest.automations).flatMap((a) =>
+      (a.connections ?? []).filter((c) => c.gatekeeper === name).map((c) => c.id),
+    );
+    (raw as Record<string, unknown>)[name] = {
+      connections: async () =>
+        [...new Set(declared.length ? declared : ["default"])].map((id) => ({
+          id,
+          title: id,
+          resources: [{ key: `${id}-resource`, bindingName: "RESOURCE", tsType: "unknown" }],
+        })),
+      call: async (connectionId: unknown, resource: unknown, method: unknown, args: unknown) => {
+        const call = {
+          connectionId: String(connectionId),
+          resource: String(resource),
+          method: String(method),
+          args: (args as unknown[]) ?? [],
+        };
+        gatekeeperCalls.push({ gatekeeper: name, ...call, step: currentStep });
+        try {
+          const fake = options.gatekeepers?.[name];
+          const value = fake ? await fake(call) : { status: "pending" };
+          return { ok: true, value: { value: structuredClone(value), pending: [], applied: [] } };
+        } catch (error) {
+          const e = error as { code?: string; message?: string };
+          return {
+            ok: false,
+            error: { code: e.code ?? "internal", message: e.message ?? String(error) },
+          };
+        }
+      },
+      types: async () => "",
     };
   }
   if (has("ai")) {
@@ -632,9 +718,15 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     storage,
     records,
     notifications,
+    gatekeeperCalls,
     runAutomation,
-    async runTool<T>(tool: string, input: unknown): Promise<T> {
-      const response = await runExtension(extension, { kind: "tool", tool, input }, raw);
+    async runTool<T>(
+      tool: string,
+      input: unknown,
+      options: { caller?: StartedBy } = {},
+    ): Promise<T> {
+      const caller = options.caller ?? { kind: "staff", userId: "usr_admin", name: "Admin" };
+      const response = await runExtension(extension, { kind: "tool", tool, input, caller }, raw);
       if (!response.ok) {
         throw new ExtensionToolError(
           response.error.code,

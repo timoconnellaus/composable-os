@@ -270,9 +270,11 @@ describe("the manifest", () => {
     };
   };
   const generated = committed as OpenOperationsFile;
+  // The committed files also name the open tools of every pack in the release (Ticketing's,
+  // stage 27); a deployment's manifest has those of the packs it installed, none open here.
   const listed = (file: OpenOperationsFile, audience: "customer" | "public") =>
     file.operations
-      .filter((op) => op.audiences.includes(audience) && !op.toolOnly)
+      .filter((op) => op.audiences.includes(audience) && !op.toolOnly && !op.name.startsWith("x."))
       .map((op) => op.name)
       .sort();
 
@@ -290,11 +292,15 @@ describe("the manifest", () => {
     )) as never as {
       audience: string;
     };
-    expect(forCustomer).toEqual(customerContract);
+    const installed = <C extends { operations: { name: string }[] }>(contract: C): C => ({
+      ...contract,
+      operations: contract.operations.filter((op) => !op.name.startsWith("x.")),
+    });
+    expect(forCustomer).toEqual(installed(customerContract));
     const { audience: _b, ...forPublic } = (await manifestOf(core, null)) as never as {
       audience: string;
     };
-    expect(forPublic).toEqual(publicContract);
+    expect(forPublic).toEqual(installed(publicContract));
   });
 
   it("for the public lists exactly the public ones", async () => {
