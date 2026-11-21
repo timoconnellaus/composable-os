@@ -53,6 +53,8 @@ export function diffLines(entry: PreviewEntry): DiffLine[] {
     lines.push({ kind: entry.action === "restore" ? "add" : "remove", label: "", text: note });
   for (const [field, { before, after }] of Object.entries(entry.diff)) {
     if (field === "id" || field === "updatedAt" || field === "createdAt") continue;
+    // A publish request's working-copy fingerprint (ADR 0480): checked on approval, not read.
+    if (field === "draftFingerprint") continue;
     if (Array.isArray(before) || Array.isArray(after)) {
       const was = asList(before);
       const now = asList(after);

@@ -896,7 +896,8 @@ function allProgramsHooks(react: ProgramsReact, api: ProgramsClient) {
     },
     /**
      * Whether to offer publishing: what `user.me` says the account holds. Only an offer: the host
-     * decides when it is asked (`records:publish`, and a person, never an AI actor).
+     * decides when it is asked (`records:publish`; an AI actor's request waits for a person who
+     * holds it, ADR 0480).
      */
     usePublishOffered() {
       const me = useQuery(api.query("user.me", {}));

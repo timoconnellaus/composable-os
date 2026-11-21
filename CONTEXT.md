@@ -1020,6 +1020,12 @@ Mail the host sends as itself (the system user) through the one email connection
 chose: customer and staff sign-in codes, invite notices, a declined erase request (ADRs 0419,
 0455). No staff member is its sender.
 
+**Customer sign-up mode**
+Who may get a customer sign-in code, a human admin's choice: `invite_only` (the default),
+`buyers` (also the buyer's address of an order a verified payment was applied to) or `open`. The
+answer to a code request is the same for every address whatever the mode (ADRs 0402, 0458).
+_Avoid_: registration, membership
+
 **Sign-in mail**
 The host's sign-in code email, its own outbound kind (`email.signin`): given only when the
 integration host says the send is its own (`callAsHost`, purpose `sign-in`) and the message is the
@@ -1205,7 +1211,9 @@ _Avoid_: revision (the audit log's diffs are history, not versions), draft
 
 **Publish** (a record)
 Make a snapshot of a publishable record's working copy its current version: what readers are
-given (ADR 0446). Only a person with `records:publish` publishes, never an AI actor. Stage 28 adds
+given (ADR 0446). Only a person with `records:publish` publishes. An AI actor may **ask for a
+publish**: its request always waits for a person who holds `records:publish` to approve it, and is
+refused if the record changed since it was asked for (ADR 0480). Stage 28 adds
 **scheduling** (the snapshot is taken when a person schedules, and the minute cron makes it
 current at the set time) and **unpublishing** (no version is current; the versions are kept). A
 record's **publish state** is read from its versions and its schedule: `draft` (never

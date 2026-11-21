@@ -2,14 +2,16 @@
 // (typing, and a paste the editor turns into blocks), schedule it, publish it, and the public reads
 // it with no account through the host's HTTP surface. In local dev Content is the org's own
 // extension (scripts/dev-setup.mjs), installed by an admin here as a product that lists the pack
-// would have it.
+// would have it. A second journey (criterion 12): an MCP client drafts a post and asks for it to be
+// published; a person reads what would go live in the Approvals inbox and approves it.
 import {
   type APIRequestContext,
   expect,
   request as playwrightRequest,
   test,
 } from "@playwright/test";
-import { unique } from "./helpers.ts";
+import { open, unique } from "./helpers.ts";
+import { call, connectApp } from "./mcp.ts";
 
 async function op<T>(request: APIRequestContext, name: string, input: unknown): Promise<T> {
   const response = await request.post(`/api/v1/op/${name}`, {
@@ -99,5 +101,55 @@ test("staff write, schedule and publish a post, and the public reads it", async 
   });
   expect(JSON.stringify(published.body)).toContain("Doors open at seven.");
   expect(JSON.stringify(published.body)).not.toContain('"author"');
+  await anyone.dispose();
+});
+
+test("an MCP client asks to publish a post; a person approves it in the inbox", async ({
+  page,
+  baseURL,
+}) => {
+  test.setTimeout(180_000);
+  await op(page.request, "extension.install", { id: "content", shipped: true }).catch(
+    () => undefined,
+  );
+  const app = await connectApp(page, baseURL ?? "", `E2E writer ${unique()}`);
+  const title = unique("Open day ");
+  const post = await call(app.client, "call_operation", {
+    name: "record.create",
+    input: { object: "content.post", values: { title } },
+    reason: "Drafting the open day post",
+  });
+  const id = String(post.id);
+  const asked = await call(app.client, "call_operation", {
+    name: "record.publish",
+    input: { object: "content.post", id },
+    reason: "The post is ready",
+  });
+  expect(asked.status).toBe("pending_approval");
+
+  const anyone = await playwrightRequest.newContext({ baseURL });
+  const slug = (
+    await op<{ values: { slug: string } }>(page.request, "record.get", {
+      object: "content.post",
+      id,
+    })
+  ).values.slug;
+  const read = async () =>
+    (
+      await anyone.post("/api/v1/op/content.get", { data: { object: "content.post", slug } })
+    ).status();
+  expect(await read()).toBe(404);
+
+  // The inbox shows what would go live; the fingerprint is not shown.
+  await open(page, "/approvals");
+  const set = page.getByRole("region", { name: new RegExp(app.name) });
+  await expect(set).toBeVisible();
+  const preview = set.getByTestId("change-preview");
+  await expect(preview).toContainText(title);
+  await expect(preview).toContainText("Published version");
+  await expect(preview).not.toContainText(/fingerprint/i);
+  await set.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect(set.getByTestId("decision-result")).toHaveText("Applied 1 change.");
+  expect(await read()).toBe(200);
   await anyone.dispose();
 });

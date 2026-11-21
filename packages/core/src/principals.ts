@@ -67,8 +67,9 @@ export type Role = (typeof ROLES)[number];
  * - `orders:refund` propose and approve a refund of an order's payment (stage 25, ADR 0429).
  *   Admins only by default. Approving one also needs a person: no AI actor approves a refund.
  * - `records:publish` publish a version of a publishable record's content (stage 41, ADR 0446).
- *   Admins only by default, as `orders:refund` is; `record.publish` is for a person, so no AI
- *   actor publishes, whatever its role or scope.
+ *   Admins only by default, as `orders:refund` is. An AI actor acting for an account that holds
+ *   it may ask for a publish, never make one: its request always waits for a person who holds
+ *   it too (ADR 0480).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -123,13 +124,15 @@ export function holdsPermission(
  * OAuth scopes an MCP client can be granted (ADR 0021). Each scope implies the ones before it.
  * A token's effective permissions are its user's role ∩ its scopes (`effectivePermissions`).
  * Policy changes stay human-only whatever the scope: `policy.update` is `actors: ["human"]`.
+ * `write` carries `records:publish` (ADR 0480): with it a client may only ask for a publish, for
+ * an account that holds the permission, and a person approves every request.
  */
 export const MCP_SCOPES = ["read", "write", "admin"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 export const SCOPE_PERMISSIONS: Record<McpScope, readonly Permission[]> = {
   read: ["records:read"],
-  write: ["records:read", "records:write"],
+  write: ["records:read", "records:write", "records:publish"],
   admin: PERMISSIONS,
 };
 

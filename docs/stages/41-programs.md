@@ -247,3 +247,12 @@ data lands in.
 - **Changed from the spec:** the tools are `x.programs.draft` and `x.programs.importText`
   (camelCase, as every tool is). The Person tab shows logged sets; assignments and sessions are
   its panels, and bests are the progress block's, not the admin's.
+
+## As built: AI publish requests (2026-11-22)
+Stage 28's criterion 12 applies to programs too (ADR 0480; ADR 0446 amended): the assistant may
+ask for a program to be published (after `x.programs.draft`, for one), and the request always
+waits for a person holding `records:publish`, who may be a coach granted it. The human-only
+refusal is gone; the coaches' grants are unchanged. The pack changes no code: `usePublish` and
+`usePublishOffered` are a person's controls. Proof: `apps/runner/test/programs-authoring.test.ts`
+(the assistant's draft, its request, a person's approval) and `apps/runner/test/programs.test.ts`
+(the assistant acting for a coach without the permission cannot even ask).

@@ -47,7 +47,9 @@ import that can be run again.
 | A lesson that is a training session | **Logged with Programs' own tools, as an assigned program**: assigned when the student first opens the course, from that day, the dates a suggested pace |
 | Unlocking over time or in order | **No.** Every lesson is open from the first day of access |
 | What the import takes | **People, access, completed courses, and lesson-by-lesson progress when the old platform's export has it** (see "Migration") |
-| Tax | **The provider's tax calculation is turned on at checkout** for online sales. It is a setting and behaviour of the payments gatekeeper and orders, scoped in its own section below. The owner asked for it for online sales and **was not asked about tickets** |
+| Tax | **The provider's tax calculation is turned on at checkout** for online sales. It is a setting and behaviour of the payments gatekeeper and orders, scoped in its own section below |
+| Tax on tickets (follow-up, 2026-11-23) | **Yes: tax is calculated on tickets too.** Ticket types declare a tax code like courses; deposits and balances are taxed payment by payment (section 4) |
+| Today's subscribers (follow-up, 2026-11-23) | **They stay on the hosted platform until stage 32 is built; the hosted school takes no new subscribers once the new site opens.** Two places run until stage 32 (see Migration) |
 
 ### Decided for stage 32 (recorded now so they are not asked again)
 These were answered at this interview and are stage 32's to build. The roadmap's stage 32 row
@@ -58,6 +60,7 @@ points here.
 | What a subscription to courses covers | **Every published course, including ones added later** |
 | The free trial | **A card is taken at the start; the first charge is when the trial ends unless cancelled; one trial per Person** |
 | Today's subscribers on the hosted platform | **Each subscribes again on the new site, free until the date they have already paid up to, and the old subscription ends at its period end** |
+| Until stage 32 is built (follow-up, 2026-11-23) | **Today's subscribers stay on the hosted platform; the hosted school takes no new subscribers once the new site opens.** Stage 32's move is of that closed, shrinking group |
 
 ### Defaults not ruled on at the interview, open to override
 - **A bundle's courses are read live (guess).** Access reaches the courses the bundle lists now, so
@@ -71,7 +74,7 @@ points here.
 - **Every staff member sees every student's progress** until stage 14a, as Programs has it.
 - **The course builder is a block in the company's web app**, as Programs' builder is (ADR 0401);
   videos are uploaded in the host's media library and picked from it.
-- **Prices are tax-inclusive** (see "Tax at checkout").
+- **Prices are tax-inclusive** (see "Tax at checkout"), tickets included.
 - **Certificates of completion are left out** (no one asked for them).
 
 ## What exists today (from the code)
@@ -188,45 +191,90 @@ its declaration is called `access`; the name is the build's.
 - **A full refund voids the enrolment** (ADR 0435), so access ends in the same batch. A partial
   refund changes nothing about access.
 
-### 4. Tax at checkout (payments and orders, not Courses alone)
-Asked for by the owner **for online sales**. It is work in `gatekeeper-payments` and in orders
-(stage 25), and Courses only opts in. **The owner was not asked about tickets**: as written, it
-applies to nothing else until a product turns it on for another object.
+### 4. Tax at checkout (payments and orders, for courses and tickets)
+Asked for by the owner for online sales, and then for tickets too (follow-up, 2026-11-23). It is
+work in `gatekeeper-payments` and in orders (stage 25); Courses and Ticketing each opt in by
+declaring a tax code.
 
-- **What turns it on:** a deployment setting (`order.settings.tax`, human admin only, off by
-  default) and, per sellable object, a tax category declared in its manifest (`sellable.tax: {
-  code }`, the provider's product tax code). A line is taxed only when both are on. Courses and
-  bundles declare one; Ticketing's ticket types do not, so **tickets are unchanged** unless the
-  owner later asks for them, which is then one line in the Ticketing pack.
-- **Prices are tax-inclusive (default, open to override).** The price on the record is what the
+- **What turns it on:** a deployment setting (`order.settings.tax`, human admin only, **off until
+  turned on**), and, per sellable object, a tax code declared in its manifest (`sellable.tax: {
+  code }`, the provider's product tax code). A line is taxed only when both are on.
+- **The packs' default codes**, from Stripe's current product tax code list (read 2026-11-23,
+  [tax codes](https://docs.stripe.com/tax/tax-codes)); the company may change either:
+  - Courses (`courses.course`, `courses.bundle`): `txcd_20060158`, "On demand Online Courses -
+    pre-recorded audio or audio visual content (streamed)": "accessed through a SaaS platform,
+    streamed to internet connected devices, and is not available for download". It matches no
+    offline viewing; when offline is built, the list has a "streamed and downloadable" code
+    (`txcd_20060258`) to move to.
+  - Ticketing (`ticketing.tickettype`): `txcd_50010001`, "Admission to Amusement, Entertainment &
+    Recreation Venues – Participant": "charges for admission to amusement, recreation, or
+    entertainment venues where the entrant participates in activities, excluding sports
+    activities". **(guess)**: participant, not spectator, fits most events a studio sells (a camp,
+    a workshop). The list also has spectator, sporting-event, professional-event and fitness
+    codes; a camp that includes a room may need another treatment altogether. Which applies is
+    the company's call with its accountant.
+- **Changing a code** is a human admin's, per object, in Settings → Orders
+  (`order.settings.taxCodes`, overriding the manifest's default), audited. **(guess)**: per
+  object is enough; a code per record (one ticket type a workshop, another a camp with lodging)
+  is a field the build can add if the first client's events need it.
+- **Prices are tax-inclusive.** The price on the record, and a ticket type's deposit, is what the
   buyer pays; the provider works out the tax inside it. So the amount the host asks for is the
-  amount the provider charges, and stage 25's rule that a verified payment must match the order's
-  amount holds as built. Tax-exclusive prices (tax added on top) would make the charged amount
-  differ by the buyer's location, and the match rule would have to take the provider's amount
-  instead: not built here. Stripe also cannot change a price's tax behaviour once set.
-- **At checkout** the gatekeeper creates the provider's page with automatic tax on, the line's tax
-  code and `tax_behavior: inclusive`, and asks for the billing address (`billing_address_collection:
-  required`), because the buyer's location sets the rate. The address is typed on the provider's
-  page and **not stored by the host (guess: nothing in the platform needs it)**.
-- **On the order:** the verified payment event carries the provider's tax amount; the host stores
-  it on the order (`taxAmount`, in the minor unit) and on each line, with the country it was
-  charged for, in the payment's batch. Totals are unchanged. `rec_order` and `rec_order_line`
-  gain the columns; a dashboard can show sales net of tax. Where the company is not registered,
-  the provider charges no tax and the order says zero.
-- **Refunds:** unchanged in the host. A refund of a checkout's payment, full or partial, is
-  recorded by the provider against the tax it reported, in proportion. The host records the
-  refunded amount as now; the order's tax refunded is read from the provider's refund event when
-  it carries it **(guess at the field)**.
+  amount the provider charges, and stage 25's rule that a verified payment must match holds as
+  built. Tax-exclusive prices would make the charge differ by the buyer's location and would need
+  that rule changed: not built. Stripe cannot change a price's tax behaviour once set.
+- **At checkout** the gatekeeper opens the provider's page with automatic tax on, each line's tax
+  code and `tax_behavior: inclusive`, and the billing address required, because the buyer's
+  location sets the rate. The address is typed on the provider's page and not stored by the host.
+- **Where an event happens.** For admission to an in-person event, many tax systems tax it where
+  the event is, not where the buyer lives, which may differ from online courses (where the buyer
+  is). The gatekeeper passes the event's place to the provider when the provider takes one.
+  **(guess, check at build)**: whether Stripe Tax can be given the event's address as the place of
+  the service at Checkout (its reports carry a "performance location", which suggests it can);
+  if it can, a ticketing event gains a structured address for tax (country, region, postcode)
+  beside its free-text `venue`. If it cannot, the build says so and stops for a decision before
+  tickets are taxed. **Which place of supply applies, and where to register, is the company's and
+  its accountant's matter, not something this spec or the platform advises on.**
+- **On the order:** each verified payment event carries the provider's tax amount; the host
+  stores it on that payment (`core_order_checkout`, beside its amount) and the order's running
+  tax (`taxAmount`, minor unit) with the country or place it was charged for, in the payment's
+  batch. Totals are unchanged. `rec_order` and `rec_order_line` gain the columns; dashboards show
+  sales net of tax. Where the company is not registered, the provider charges none and the order
+  says zero.
+- **Deposits and paying the balance in parts** (stage 25): there is no schedule; each payment is
+  its own checkout for its own amount. Tax is worked out on each payment as it is made, inclusive,
+  at the line's code, so a deposit carries its share of the tax and each part of the balance its
+  share. The sum may differ from tax on the whole price by a minor unit per payment; the order
+  keeps what the provider charged, never a recomputed figure. Whether a deposit is taxable when it
+  is paid is the rule of the place of supply, which the provider applies; again the company's
+  accountant's matter. A buyer may give a different billing address at a later payment; for an
+  in-person event, if the event's place is passed, the rate does not move with them.
+- **Refunds.** A refund is of one payment (stage 25), full or partial, and the provider reduces
+  the tax it reported for that payment in proportion; the host records the refunded amount as now
+  and the tax refunded from the provider's refund event when it carries it **(guess at the
+  field)**. A **part-paid order** is cancelled first, as built (its tickets voided and places
+  released), and then each of its payments is refunded as its own action; each refund reverses
+  that payment's own tax. Nothing about who may refund changes.
+- **Unchanged:** holds and capacity (places are claimed and released exactly as before), the door
+  and check-in, tickets and their codes, grants and voids, guest checkout and the order's states.
+  The Ticketing pack's change is its manifest's tax code; its checkout block shows the provider's
+  tax line on the confirmation when there is one, and its prices are shown as before, because
+  they are what the buyer pays.
+- **For the first client's ticket sales already designed:** prices shown stay what the buyer pays
+  (inclusive); turning tax on changes what the company keeps, not what a buyer sees or pays.
+  Turning it on mid-sale changes nothing for orders already paid; a part-paid order's later
+  payments are taxed from then on **(guess: acceptable; the company may prefer to switch between
+  events)**.
 - **The receipt** is the provider's, which itemises tax; the host's confirmation email states the
   tax amount when there is one. Invoices stay stage 35's.
-- **What the company sets up itself, on its own Stripe account** (not the platform's work, and
-  listed in the runbook): turning on Stripe Tax and its origin address; **registering with each
-  tax authority where it must collect** and adding each registration in the Stripe Dashboard
-  (Stripe collects only where a registration is active); the default tax category for its
-  products; who files and pays the returns (Stripe reports; filing is the company's or a partner's).
-  Stripe Tax's own fee is the company's (0.5% a transaction where it is registered, at list price,
-  for Checkout, **check at build**). The platform does not judge which code a product takes or
-  where the company must register; the company's accountant does.
+- **What the company sets up itself, on its own Stripe account** (not the platform's work; listed
+  in the runbook): turning on Stripe Tax and its origin address; **registering with each tax
+  authority where it must collect**, for online courses and for each place it holds events, and
+  adding each registration in the Stripe Dashboard (Stripe collects only where a registration is
+  active); checking or changing the packs' default codes; who files and pays the returns (Stripe
+  reports; filing is the company's or a partner's). Stripe Tax's own fee is the company's (0.5% a
+  transaction where it is registered, at list price, for Checkout, **check at build**). A host
+  that turns the setting on without registrations charges no tax anywhere; the setting's screen
+  says so and links the runbook.
 
 ## Scope: the Courses pack (`packs/courses`)
 
@@ -388,7 +436,7 @@ source changed, a person's edit never overwritten, and publishing as the person'
 - **Access:** `access.csv` (email, course or bundle key, from, until, where it came from) becomes
   `courses.enrolment` records with source `import`, through `record.import` with import keys. They
   are not orders: no order is invented for money taken elsewhere. Only one-off and bundle access
-  moves in this stage (see "Today's subscribers").
+  moves in this stage (see "Today's subscribers", below).
 - **Completed courses:** a `completed` column in `access.csv` marks the enrolment completed, so the
   course shows as done whatever the lesson rows say.
 - **Lesson-by-lesson progress, when the export has it** (decided): `progress.csv` (email, course
@@ -406,31 +454,33 @@ source changed, a person's edit never overwritten, and publishing as the person'
     a conflict, as a person's edit is (ADR 0470).
 - **Purchase history** stays in the provider's export, not imported as orders.
 
-### Today's subscribers: an open point to confirm
-Answer 2 puts subscriptions in stage 32, and stage 32 is decided to move today's subscribers by
-asking each to subscribe again (above). **Between stage 42 going live and stage 32, the new site
-has no subscription**, so today's subscribers cannot move with everyone else. The ways through:
-1. **They stay on the hosted platform until stage 32.** The new site sells single courses and
-   bundles from launch; the hosted school keeps its subscribers (and goes on selling
-   subscriptions, or stops taking new ones) until stage 32 ships; then they move as decided and the
-   hosted school closes. Two places to keep up for that time, and the videos hosted in both.
-2. **The whole move waits for stage 32.** Stage 42 is built and run on staging, and nothing moves
-   until subscriptions exist. One cut-over, later.
-3. **Subscribers are given access on the new site by staff while their old subscription is paid**
-   (staff enrolments with `until` set to their paid-up date, re-imported each period). Possible
-   with what this stage builds, but it is manual bookkeeping against another system every month.
+### Today's subscribers (decided 2026-11-23)
+Subscriptions are stage 32's, so **between stage 42 going live and stage 32 the new site has no
+subscription**. The owner decided: **today's subscribers stay on the hosted platform until stage
+32 is built, and the hosted school takes no new subscribers once the new site opens.** New buyers
+are pointed at single courses and bundles on the new site (**guess** at the wording), so the group
+that moves at stage 32 only shrinks. At stage 32 each subscribes again, free until the date they
+have paid up to, and the hosted school then closes.
 
-**Recommended: 1**, with the hosted school taking no new subscriptions once the new site opens
-(**guess**: new buyers are pointed at single courses and bundles), so the group to move at stage
-32 only shrinks. It is the owner's to confirm; it is written here as a consequence, not a decision.
+What that means for the first client (build step 9):
+- **Two places run until stage 32:** the new site for everyone who bought one course or a bundle
+  (imported or new), and the hosted school for its subscribers. A person who is both sees their
+  one-off courses on the new site and keeps their subscription on the old one.
+- **The videos are in both:** in Stream for the new site, and still on the old host for the
+  subscribers, so storage is paid twice, and a lesson changed on one is changed by hand on the
+  other, until stage 32.
+- **The hosted school's subscription is closed to new sign-ups** on the day the new site opens;
+  existing subscribers keep it and may cancel as usual.
+- The cut-over below happens in two parts: one-off and bundle students at launch, subscribers at
+  stage 32.
 
 ### A period where both run
 - The new catalogue opens to new buyers on a set day; the hosted school keeps serving everyone who
-  is there until a cut-over date (for subscribers, per the open point above).
+  is there until a cut-over date (for subscribers, stage 32: see above).
 - Imported access is in place before the first email to students; the email tells them to sign in
   with the same address.
-- After the cut-over, the hosted school's addresses point to the new catalogue, and its videos are
-  removed from the old host.
+- After the last cut-over (stage 32's), the hosted school's addresses point to the new catalogue,
+  and its videos are removed from the old host.
 
 ### What to ask the current provider (and the storefront's owner)
 - Whose Stripe account takes the school's payments and holds its subscriptions (for stage 32's
@@ -448,13 +498,15 @@ has no subscription**, so today's subscribers cannot move with everyone else. Th
 - The Courses pack and Programs on in the studio's product, Content already on.
 - Its themes and levels, its courses with videos in Stream, two or three fixed bundles, all
   published by a person.
-- Tax turned on for courses and bundles, after the company has turned on Stripe Tax and added its
-  registrations in its own Stripe account; tickets unchanged.
+- Tax turned on, for courses, bundles and ticket types, after the company has turned on Stripe
+  Tax and added its registrations in its own Stripe account (for online sales, and for each place
+  it holds events). Ticket prices shown stay what the buyer pays.
 - The catalogue, course page and my-courses blocks on the studio's web app; the catalogue (no
   prices), course page, my courses and player in its app, signing in through the host as tickets
   already do.
 - Its students, their one-off and bundle access, their completions and, where the export has it,
-  their lesson progress imported. Its subscribers as the open point above is confirmed.
+  their lesson progress imported. Its subscribers stay on the hosted school, closed to new
+  sign-ups, until stage 32.
 
 ## Out of scope
 - **Subscriptions, trials and per-period orders** (stage 32, with the decisions recorded above).
@@ -467,7 +519,8 @@ has no subscription**, so today's subscribers cannot move with everyone else. Th
 - Offline viewing in the app (designed in, not built).
 - Buying inside the app, through a store or a link out.
 - More than one language; DRM.
-- Tax-exclusive prices; tax on tickets unless asked for; invoices (stage 35).
+- Tax-exclusive prices; a tax code per record rather than per object (unless the first client's
+  events need it); invoices (stage 35).
 
 ## Acceptance criteria
 1. **Pack on the contract:** Courses is built only on the public contract and the typed client,
@@ -507,12 +560,25 @@ has no subscription**, so today's subscribers cannot move with everyone else. Th
     checkout asks for automatic tax, inclusive, with the billing address required; the verified
     payment's tax amount is stored on the order and its line, the order's total is the price, and
     the payment matches; a refund records as before.
-12. **Tax, off and elsewhere:** with the setting off, or for an object with no tax code (the box
-    office fixture's ticket type), the checkout is exactly as before stage 42, byte for byte in the
-    fake provider's request; only a human admin can change the setting.
+12. **Tax, off:** with the setting off, or for an object with no tax code (the box office
+    fixture's ticket type), the checkout is exactly as before stage 42, byte for byte in the fake
+    provider's request; only a human admin can change the setting or a code.
+12a. **Tax on tickets:** a Ticketing ticket type declares `txcd_50010001` by default; with tax on,
+    buying two ticket types sends each line's code, inclusive, and the event's place when the
+    provider takes one; the order's tax is stored per payment and in total, its total is the
+    ticket prices, and the payment matches; places are held and confirmed, tickets granted and
+    checked in exactly as without tax (stage 26 and 27 tests pass unchanged).
+12b. **Tax on a deposit order:** a ticket type with a deposit is bought by deposit and the balance
+    paid in two parts; each of the three payments carries the provider's tax on its own amount,
+    and the order's tax is their sum; the order is paid with the same amount owed as without tax.
+12c. **Refund of a part-paid order:** cancelled by staff, its tickets are voided and places
+    released as built; each payment is then refunded as its own action, and each refund records
+    the tax returned for that payment.
 13. **Tax, by hand:** in Stripe's test mode with a test registration, a course bought from an
     address in the registered place is charged tax inside the price and one from elsewhere none;
-    the runbook lists what the company sets up in its own account.
+    a ticket for an event in the registered place is taxed by the event's place if the provider
+    takes it (or the build's stop for a decision is recorded); the runbook lists what the company
+    sets up in its own account.
 14. **AI:** over MCP, the assistant drafts a course from a brief with only library videos and
     published programs; it cannot publish it directly; under whatever publish rule the platform
     then has, the course becomes public only after a person's act.
@@ -520,8 +586,9 @@ has no subscription**, so today's subscribers cannot move with everyone else. Th
     hand.
 16. `pnpm lint typecheck test` and one e2e test per journey (a visitor buys a course and watches a
     lesson; staff build and publish a course) pass in CI. ADRs, `CONTEXT.md` (Course, Lesson,
-    Enrolment, Access, Bundle, Progress, Video, and Order amended for tax) and
-    `docs/architecture.md` are updated.
+    Enrolment, Access, Bundle, Progress, Video; Order and Deposit amended for tax) and
+    `docs/architecture.md` are updated. A list of what this stage changed in the Ticketing pack is
+    in the PR.
 
 ## Dependencies
 - Stages 25, 27 and 28 (merged) and 41 (steps 1 to 6 merged).
@@ -538,30 +605,34 @@ setting; the access scope's tables if it needs any; the pack's tables come from 
 ADRs 0475 to 0479. Claimed in [`parallel-work.md`](../parallel-work.md) as block AE.
 
 ## Suggested build order
-1. Video media in Stream: direct upload, the ready state, the `video` field, captions; the `file`
+1. **Tax at checkout first**, as its own PR: the setting, `sellable.tax` and the code overrides in
+   `gatekeeper-payments` and orders, the Ticketing pack's default code and its confirmation's tax
+   line, deposits and part-paid refunds, against the fake provider; then the event's place in
+   Stripe Tax and Stripe's test mode by hand, with the runbook. It needs nothing else in this
+   stage, it touches the Ticketing pack, and tickets are what the first client sells now, so it
+   goes before the video work rather than after.
+2. Video media in Stream: direct upload, the ready state, the `video` field, captions; the `file`
    kind.
-2. Signed playback (`media.play`) on the existing picture rule.
-3. The access scope at the seam, with enrolments and bundles as its sources and the third-source
+3. Signed playback (`media.play`) on the existing picture rule.
+4. The access scope at the seam, with enrolments and bundles as its sources and the third-source
    test, and the holders' node flag on the document field; the isolation test.
-4. *Precondition:* two of the client's real programs read against the outline. Then the pack's
-   objects, the outline schema, `buy`, `lesson`, `progress`, `myCourses`; the buy, refund and
-   bundle tests.
-5. Tax at checkout in `gatekeeper-payments` and orders, against the fake provider; then Stripe's
-   test mode by hand, with the runbook.
+5. *Precondition:* two of the client's real programs read against the outline. Then the pack's
+   objects (declaring their tax code), the outline schema, `buy`, `lesson`, `progress`,
+   `myCourses`; the buy, refund and bundle tests.
 6. Session lessons on Programs.
 7. The dashboard, views, the Person tab; hooks; web blocks, then native blocks; the course
    builder.
 8. The assistant's draft; `cos courses import` with access, completions and progress.
-9. The first client: its courses imported, its students, access and progress, the period where
-   both run, and its subscribers as the open point is confirmed.
+9. The first client: its courses imported, its students, access and progress; the new site opens
+   and the hosted school stops taking subscribers; two places run until stage 32.
 
-Steps 1 to 3 are the spine: video that only a holder can play, and the one rule that says who is a
-holder.
+Step 1 can run in parallel with steps 2 to 4: it is orders and the gatekeeper, they are media and
+the seam. Steps 2 to 4 are the spine of courses: video that only a holder can play, and the one
+rule that says who is a holder.
 
 ## Still open
-- **Today's subscribers between stage 42 and stage 32** (see Migration): recommended, they stay on
-  the hosted platform until stage 32, and the hosted school takes no new subscriptions once the new
-  site opens. To confirm with the owner.
+- **Whether Stripe Tax can take an event's place at Checkout** is checked in build step 1; if it
+  cannot, the build stops for a decision before tickets are taxed.
 - **Whether an AI may ask for a publish** is the platform's open question, not this stage's; this
   spec fits either answer.
 
@@ -613,6 +684,8 @@ read.
 - Stripe Tax:
   [tax on the Checkout page](https://docs.stripe.com/tax/checkout/page) (registrations, automatic
   tax, the address it uses, `total_details.amount_tax`),
+  [product tax codes](https://docs.stripe.com/tax/tax-codes) (`txcd_20060158`, `txcd_50010001`
+  and the other admission codes, read 2026-11-23),
   [tax codes and tax behaviour](https://docs.stripe.com/tax/products-prices-tax-codes-tax-behavior)
   (inclusive keeps the amount the buyer pays; behaviour cannot change once set),
   [tax reporting](https://docs.stripe.com/tax/reports) (a refund of a Checkout charge reduces the

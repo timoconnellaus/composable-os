@@ -4,7 +4,7 @@ import type {
   ActionField,
 } from "@composable-os/gatekeeper-interface/gatekeeper";
 import { describe, expect, it, vi } from "vitest";
-import type { FakeLedgerState } from "../src/fake.js";
+import { type FakeLedgerState, fakeLedger } from "../src/fake.js";
 import { assertProviderAvailable, unavailableReason } from "../src/provider.js";
 import { signatureHeader } from "../src/signature.js";
 import type {
@@ -92,9 +92,8 @@ async function eventsFor(h: Host, orderId: string): Promise<PaymentsEvent[]> {
 }
 
 async function ledger(): Promise<FakeLedgerState> {
-  const response = await exports.default.fetch(new Request(`${BASE}/fake/state`));
-  expect(response.status).toBe(200);
-  return (await response.json()) as FakeLedgerState;
+  // Through the ledger's own binding: no route serves it (ADR 0458).
+  return (await fakeLedger(env as never).state()) as FakeLedgerState;
 }
 
 function post(path: string, body: string, headers: Record<string, string>): Promise<Response> {
@@ -366,14 +365,65 @@ describe("the fake hosted page", () => {
     expect(await h.call("getPayment", [checkout.ref])).toMatchObject({ status: "open" });
   });
 
-  it("reports an overridden amount, for mismatch tests", async () => {
+  it("pays the checkout's own amount: an amount in the form is ignored (ADR 0458)", async () => {
     const h = await host();
     await h.bindAndEnable();
     const orderId = unique("ord");
     const checkout = await openCheckout(h, orderId);
+    const opened = (await ledger()).checkouts.find((c) => c.ref === checkout.ref);
     expect((await submitPage(checkout, { outcome: "pay", amount: "100" })).status).toBe(303);
     await vi.waitFor(async () => expect(await eventsFor(h, orderId)).toHaveLength(1));
-    expect((await eventsFor(h, orderId))[0]).toMatchObject({ amount: 100 });
+    expect((await eventsFor(h, orderId))[0]).toMatchObject({ amount: opened?.amount });
+    expect(opened?.amount).not.toBe(100);
+  });
+
+  it("refuses a post from another site, and lets its own page's form back to the site", async () => {
+    const h = await host();
+    await h.bindAndEnable();
+    const orderId = unique("ord");
+    const checkout = await openCheckout(h, orderId);
+    const page = await exports.default.fetch(new Request(checkout.url));
+    const csp = page.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain(`form-action 'self' ${new URL(RETURN_URL).origin};`);
+    expect(csp).toContain("frame-ancestors 'none'");
+    for (const headers of [
+      { origin: "https://evil.test" } as Record<string, string>,
+      { origin: "https://evil.test", "sec-fetch-site": "cross-site" },
+      { origin: "null", "sec-fetch-site": "cross-site" },
+      { origin: "null" },
+      { "sec-fetch-site": "same-site" },
+    ]) {
+      const refused = await exports.default.fetch(
+        new Request(checkout.url, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+          body: new URLSearchParams({ outcome: "pay" }),
+          redirect: "manual",
+        }),
+      );
+      expect(refused.status, JSON.stringify(headers)).toBe(403);
+    }
+    expect(await eventsFor(h, orderId)).toHaveLength(0);
+    // Its own page's form, as a browser sends it.
+    const own = await exports.default.fetch(
+      new Request(checkout.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          origin: new URL(checkout.url).origin,
+          "sec-fetch-site": "same-origin",
+        },
+        body: new URLSearchParams({ outcome: "pay" }),
+        redirect: "manual",
+      }),
+    );
+    expect(own.status).toBe(303);
+    expect(own.headers.get("location")).toBe(RETURN_URL);
+  });
+
+  it("serves no route that reads the ledger", async () => {
+    const state = await exports.default.fetch(new Request(`${BASE}/fake/state`));
+    expect(state.status).toBe(404);
   });
 
   it("answers 404 for an unknown ref and 400 for an unknown outcome", async () => {

@@ -37,6 +37,7 @@ import {
 } from "@composable-os/ui/components/dialog";
 import { Input } from "@composable-os/ui/components/input";
 import { Label } from "@composable-os/ui/components/label";
+import { RadioGroup, RadioGroupItem } from "@composable-os/ui/components/radio-group";
 import {
   Select,
   SelectContent,
@@ -106,6 +107,7 @@ function UsersPage() {
         ))}
       </dl>
       {isAdmin && <HostMailCard />}
+      {isAdmin && <CustomerSignupCard />}
     </PageLayout>
   );
 }
@@ -667,5 +669,74 @@ function SignInMailState({ state }: { state: SignInMail }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+type CustomerSignup = "invite_only" | "buyers" | "open";
+
+const SIGNUP_COPY: Record<CustomerSignup, { label: string; description: string }> = {
+  invite_only: {
+    label: "Only people you invite",
+    description: "A customer account for an address you invited, or one that already has one.",
+  },
+  buyers: {
+    label: "People you invite, and anyone who has bought",
+    description:
+      "Also anyone who has paid for an order with their address, so a guest buyer can sign in " +
+      "later to see their tickets and orders. Starting a checkout without paying does not count.",
+  },
+  open: {
+    label: "Anyone",
+    description: "Anyone who confirms their address with the code we email them.",
+  },
+};
+
+/**
+ * Who may sign in as a customer (ADR 0458): a human admin's choice (customer.settings.update),
+ * audited. Whatever it is, the sign-in form answers every address the same.
+ */
+function CustomerSignupCard() {
+  const settings = useOp("customer.settings.get", {});
+  const save = useOpMutation("customer.settings.update", {
+    invalidates: ["customer.settings.get"],
+  });
+  const value = (settings.data?.signup ?? "invite_only") as CustomerSignup;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Who can sign in as a customer</CardTitle>
+        <CardDescription>
+          On your site and app. Everyone is told a code is on its way; only these get one.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <RadioGroup
+          value={value}
+          disabled={settings.isPending || save.isPending}
+          aria-label="Who can sign in as a customer"
+          onValueChange={async (next) => {
+            try {
+              await save.mutateAsync({ signup: next as CustomerSignup });
+              toast.success(`Customer sign-in: ${SIGNUP_COPY[next as CustomerSignup].label}`);
+            } catch (error) {
+              toast.error(errorMessage(error));
+            }
+          }}
+          className="grid gap-3"
+        >
+          {(Object.keys(SIGNUP_COPY) as CustomerSignup[]).map((mode) => (
+            <div key={mode} className="flex items-start gap-2">
+              <RadioGroupItem id={`signup-${mode}`} value={mode} className="mt-1" />
+              <Label htmlFor={`signup-${mode}`} className="grid gap-0.5 font-normal">
+                <span className="font-medium">{SIGNUP_COPY[mode].label}</span>
+                <span className="text-xs text-muted-foreground">
+                  {SIGNUP_COPY[mode].description}
+                </span>
+              </Label>
+            </div>
+          ))}
+        </RadioGroup>
+      </CardContent>
+    </Card>
   );
 }

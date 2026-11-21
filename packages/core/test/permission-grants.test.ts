@@ -80,7 +80,7 @@ describe("granting records:publish to a member", () => {
     expect(await refusal(publish(coach))).toMatchObject({ code: "forbidden" });
   });
 
-  it("an MCP client and the assistant acting as that member still cannot publish", async () => {
+  it("an MCP client and the assistant acting as that member only ask: a person approves", async () => {
     await grant(coach.id, ["records:publish"]);
     const mcp = {
       actor: "mcp",
@@ -92,7 +92,7 @@ describe("granting records:publish to a member", () => {
       origin: { surface: "assistant", sessionId: unique("ath") },
     };
     for (const extra of [mcp, assistant]) {
-      expect(await refusal(publish(coach, extra))).toMatchObject({ code: "forbidden" });
+      expect(await refusal(publish(coach, extra))).toMatchObject({ code: "pending_approval" });
     }
     await grant(coach.id, []);
   });

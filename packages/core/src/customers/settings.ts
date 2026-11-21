@@ -8,9 +8,11 @@ export const CUSTOMER_SIGNUP_SETTING = "customer_signup";
 
 /**
  * - `open`: anyone who verifies an address gets an account.
+ * - `buyers` (ADR 0458): an address staff invited, one that has an account, or the buyer's
+ *   address of an order a verified payment was applied to (`paid > 0`).
  * - `invite_only`: a code goes only to an address staff invited or one that has an account.
  */
-export const CUSTOMER_SIGNUP_MODES = ["open", "invite_only"] as const;
+export const CUSTOMER_SIGNUP_MODES = ["open", "buyers", "invite_only"] as const;
 export type CustomerSignupMode = (typeof CUSTOMER_SIGNUP_MODES)[number];
 export const customerSignupModeSchema = z.enum(CUSTOMER_SIGNUP_MODES);
 

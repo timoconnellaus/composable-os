@@ -55,7 +55,7 @@ to an unknown path, is `404`.
 | `POST {base}/in/fake` | The fake provider's webhook (fake on only, else `404`). |
 | `GET {base}/fake/pay/:ref` | The fake hosted page (fake on only). `404` for an unknown ref. |
 | `POST {base}/fake/pay/:ref` | Pay or cancel on the fake page (fake on only). |
-| `GET {base}/fake/state` | The fake ledger as JSON, for development and tests (fake on only). |
+| (no route) | The fake ledger is read only through its own binding: a route would show every checkout and its return address (a guest's order link) on a public staging host (ADR 0458). |
 
 Webhook answers:
 

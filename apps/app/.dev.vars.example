@@ -37,3 +37,5 @@ COS_UPDATE_TOKEN=
 # Native sign-in through the system browser (ADRs 0455, 0457): cos content import's door on this
 # computer, and a stand-in app scheme the e2e journey uses. cos deploy sets the real list.
 NATIVE_REDIRECT_URIS=http://127.0.0.1/cos-sign-in,cosdev://staff-sign-in
+# Customer sign-in (stage 22): its own secret, never BETTER_AUTH_SECRET. `pnpm dev` fills it in.
+CUSTOMER_AUTH_SECRET=

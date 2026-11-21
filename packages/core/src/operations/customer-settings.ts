@@ -19,8 +19,9 @@ import { resolveChannelTarget } from "../notifications/channels.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 
 const signup = customerSignupModeSchema.describe(
-  "open: anyone who verifies an email address gets a customer account. invite_only (the " +
-    "default): a sign-in code is sent only to an address staff invited or that has an account.",
+  "Who may sign in as a customer. invite_only (the default): an address staff invited or that " +
+    "has an account. buyers: those, and the buyer's address of any order that was paid (in " +
+    "full or in part, even if refunded since). open: anyone who verifies an email address.",
 );
 const eraseDueDays = eraseDueDaysSchema.describe(
   "Days staff have to erase the person or decline, after a customer deletes their account " +

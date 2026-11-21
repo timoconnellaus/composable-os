@@ -1871,8 +1871,13 @@ export interface CorePublishVersionTable {
   /** 1 for the version readers are given; at most one per record. */
   current: number;
   published_at: Timestamp;
+  /** The person who published it: for an approved request (ADR 0480), the approver. */
   published_by: string | null;
   note: string | null;
+  /** Migration 0520: for an approved request, the staff user the AI actor acted for. */
+  requested_by: string | null;
+  /** Migration 0520: for an approved request, the actor that asked (`mcp`, `assistant`, ...). */
+  requested_via: string | null;
 }
 
 /** `core_publish_schedule` (migration 0460): a publish a person scheduled (ADR 0441). */
@@ -1884,8 +1889,13 @@ export interface CorePublishScheduleTable {
   content: string;
   bytes: number;
   note: string | null;
+  /** The person who scheduled it: for an approved request (ADR 0480), the approver. */
   scheduled_by: string;
   scheduled_at: Timestamp;
+  /** Migration 0520: for an approved request, the staff user the AI actor acted for. */
+  requested_by: string | null;
+  /** Migration 0520: for an approved request, the actor that asked. */
+  requested_via: string | null;
 }
 
 /** `core_slug_redirect` (migration 0460): an old slug of a published record (ADR 0442). */
@@ -1994,7 +2004,7 @@ export interface CorePublishedMediaTable {
   reach: Generated<"all" | "holders" | "private">;
 }
 
-/** `rec_publish_version` (migration 0470): every version, without its content. */
+/** `rec_publish_version` (migrations 0470, 0520): every version, without its content. */
 export interface RecPublishVersionView {
   object_type: string;
   record_id: string;
@@ -2004,6 +2014,8 @@ export interface RecPublishVersionView {
   published_at: string;
   published_by: string | null;
   note: string | null;
+  requested_by: string | null;
+  requested_via: string | null;
 }
 
 export interface CoreDatabase {
