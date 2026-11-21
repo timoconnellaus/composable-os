@@ -1,9 +1,10 @@
 ---
-// The sticky header. On the landing page the links are in-page anchors; elsewhere they lead back
-// to it. Below 980px the links move into a menu (site.ts); without JavaScript the bar keeps its
-// call to action instead.
-import { REPO_URL } from "../links.ts";
+// The sticky header: a short menu and the page's one action. On the landing page the links are
+// in-page anchors; elsewhere they lead back to it. Below 980px the links move into a menu
+// (site.ts); the action stays in the bar at every width, with or without JavaScript.
+import { CTA } from "../links.ts";
 import Icon from "./Icon.astro";
+import Logo from "./Logo.astro";
 
 interface Props {
   /** True on the landing page itself. */
@@ -12,28 +13,25 @@ interface Props {
 const { home = false } = Astro.props;
 const at = (hash: string) => (home ? hash : `/${hash}`);
 const links = [
-  { href: at("#platform"), label: "Platform" },
-  { href: at("#crm"), label: "CRM" },
-  { href: at("#install"), label: "Install" },
-  { href: at("#pricing"), label: "Pricing" },
-  { href: at("#enterprise"), label: "Enterprise" },
-  { href: REPO_URL, label: "GitHub" },
+  { href: at("#how"), label: "How it works" },
+  { href: at("#pieces"), label: "What can go in" },
+  { href: at("#care"), label: "Looked after" },
+  { href: at("#developers"), label: "For developers" },
 ];
 ---
 
 <header class="site" id="top">
   <div class="wrap nav">
-    <a class="logo" href={home ? "#top" : "/"}><i aria-hidden="true"></i>Composable OS</a>
+    <a class="logo" href={home ? "#top" : "/"}><Logo />Composable OS</a>
     <nav class="links" aria-label="Main">
       {links.map((link) => <a href={link.href}>{link.label}</a>)}
     </nav>
-    <a class="btn" href={at("#install")}>Install it</a>
+    <a class="btn dark sm" href={at("#call")}>{CTA}</a>
     <button class="menu-btn" type="button" aria-expanded="false" aria-controls="mm" aria-label="Open menu">
       <Icon name="menu" />
     </button>
   </div>
   <nav class="mobile-menu" id="mm" aria-label="Menu">
     {links.map((link) => <a href={link.href}>{link.label}</a>)}
-    <a class="btn" href={at("#install")}>Install it</a>
   </nav>
 </header>

@@ -21,15 +21,20 @@ vocabulary in [`CONTEXT.md`](CONTEXT.md), and respect the decisions in [`docs/ad
 ## Skills
 
 Step-by-step instructions for common work are in [`skills/`](skills/), one folder each with a
-`SKILL.md` (plain Markdown, for any agent; linked into `.claude/skills/`). Read the skill in full
-before starting the work it names.
+`SKILL.md` (plain Markdown, for any agent; linked into `.claude/skills/`). Skills taken from other
+projects are not in `skills/`: they are copied unchanged into `.claude/skills/` (`UPSTREAMS.md`).
+Read the skill in full before starting the work it names.
 
 - Writing a new extension, a new kind of record, or fields on other objects:
   [`skills/write-extension/SKILL.md`](skills/write-extension/SKILL.md).
 - Adding tools, automations or dashboards to an extension:
   [`skills/add-automations-tools-dashboards/SKILL.md`](skills/add-automations-tools-dashboards/SKILL.md).
 
-Both end in `pnpm cos ext check packs/<id>` and `pnpm cos ext test packs/<id>`: the
+- Any work on the site (`apps/marketing`): the `landing-page-generator` skill
+  ([`.claude/skills/landing-page-generator/SKILL.md`](.claude/skills/landing-page-generator/SKILL.md),
+  vendored, see `UPSTREAMS.md`). It ends in its three checks on the built page.
+
+The first two end in `pnpm cos ext check packs/<id>` and `pnpm cos ext test packs/<id>`: the
 checks the host runs on an extension, and its tests. When the platform, the contract or a skill
 lacks what the work needs, changing it properly is part of the work; a shortcut or workaround in
 extension code is never acceptable (ADR 0405).
@@ -60,6 +65,17 @@ extension code is never acceptable (ADR 0405).
 - **A new behaviour is platform work.** A pack composes behaviours and does not hook writes.
 - **Web and native share logic, not screens.**
 - Vendored code (see `UPSTREAMS.md`) is edited deliberately. Note local changes in `UPSTREAMS.md`.
+
+## The site
+
+- **Keep the site current.** [`apps/marketing/SITE.md`](apps/marketing/SITE.md) says what
+  composableos.dev claims, section by section; read it, not the page's source, to see whether
+  your change touches the site. When a change adds or alters something the site describes (a pack
+  or piece it lists, something marked "in design" that is now built, a connection, the commands in
+  the developer section, what the offer covers), update the site and `SITE.md` in the same PR.
+- **Use the skill.** Site work follows `landing-page-generator`: one goal and one call to action,
+  only proof that can be sourced, and its three checks on the built page
+  (`apps/marketing/README.md`). The angle and the look are in ADR 0465.
 
 ## Tooling
 

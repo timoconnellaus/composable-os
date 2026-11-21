@@ -1,0 +1,45 @@
+---
+// How the product changes after launch: by asking, with a person approving. This is the support
+// for the main message, not the message.
+const guarantees = [
+  {
+    title: "Approved",
+    body: "New fields, bulk edits, deletes and outgoing emails wait until someone signs off.",
+  },
+  {
+    title: "Sandboxed",
+    body: "Automations run in isolation, with no internet access except through connections you approve.",
+  },
+  {
+    title: "Audited",
+    body: "Every action by a person or an AI is logged, with who asked for it and why.",
+  },
+];
+---
+
+<section class="flush" aria-labelledby="control-title">
+  <div class="wrap">
+    <div class="band">
+      <div class="reveal">
+        <span class="eyebrow">When the business changes</span>
+        <h2 id="control-title">AI does the work. Your people stay in charge.</h2>
+        <p class="lead">
+          The business will change, and the product changes with it. Ask for a field, a report or a
+          workflow, in the app or from Claude, ChatGPT or Cursor. Your admins decide what needs a
+          person.
+        </p>
+      </div>
+      <div class="grid">
+        {
+          guarantees.map((g, i) => (
+            <div class="reveal">
+              <span aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
+              <h3>{g.title}</h3>
+              <p>{g.body}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</section>

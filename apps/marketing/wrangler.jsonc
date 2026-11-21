@@ -1,6 +1,6 @@
-// cos-site: the landing page for composableos.dev (ADR 0191, Stage 9). Astro builds the
+// cos-site: the landing page for composableos.dev (ADR 0191, Stage 9; ADR 0465). Astro builds the
 // static site into dist/; this Worker serves it as static assets and answers only /api/* itself
-// (the waitlist and contact-sales form, stored in D1). No account or resource IDs are committed:
+// (the call form, stored in D1). No account or resource IDs are committed:
 // wrangler provisions the D1 database by name on the first deploy. Deployed by
 // .github/workflows/marketing.yml when its token secret is set; never from a laptop by default.
 {

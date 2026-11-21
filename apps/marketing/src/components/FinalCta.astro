@@ -1,12 +1,20 @@
 ---
-import WaitlistForm from "./WaitlistForm.astro";
+import CallForm from "./CallForm.astro";
 ---
 
-<section id="waitlist" class="final" aria-labelledby="waitlist-title">
-  <div class="wrap reveal">
-    <h2 id="waitlist-title">Be first on the hosted CRM.</h2>
-    <p class="lead">We'll email you once, when it opens.</p>
-    <WaitlistForm source="waitlist" teamSize />
-    <p class="small">No newsletter, and no trackers on this site.</p>
+<section id="call" class="final tint" aria-labelledby="call-title">
+  <div class="wrap">
+    <div class="reveal">
+      <h2 id="call-title">Tell us how your business runs.</h2>
+      <p class="lead">Zero BS AI will tell you what we'd compose for it, and what it would take.</p>
+      <CallForm />
+      <p class="fine">
+        We reply within one working day. No newsletter, and no trackers on this site.
+        <a href="/privacy/">Privacy</a>
+      </p>
+    </div>
+    <div class="stage" aria-hidden="true">
+      <i class="arch b"></i><i class="arch a"></i><i class="arch c"></i><i class="arch d"></i>
+    </div>
   </div>
 </section>

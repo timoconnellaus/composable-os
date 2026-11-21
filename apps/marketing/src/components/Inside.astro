@@ -1,0 +1,59 @@
+---
+// What every product starts with. Each line is something built and in the repository today.
+import Icon from "./Icon.astro";
+
+const parts = [
+  {
+    icon: "users",
+    title: "Your records",
+    body: "Customers, orders, jobs, bookings: whatever your business keeps track of, with the fields you use.",
+  },
+  {
+    icon: "flow",
+    title: "Your rules",
+    body: "Stages, prices, who may see and do what. Enforced in one place, for people and for AI.",
+  },
+  {
+    icon: "grid",
+    title: "Your screens",
+    body: "A web app, and a mobile app when you need one, for staff and for your customers.",
+  },
+  {
+    icon: "bolt",
+    title: "Automations",
+    body: "Reminders, follow-ups and hand-offs, tested before they go live.",
+  },
+  {
+    icon: "mail",
+    title: "Connections",
+    body: "Email, calendars, Slack and payments, each limited to what you connected and allowed.",
+  },
+  {
+    icon: "chart",
+    title: "Dashboards",
+    body: "Describe a chart and get one. Numbers that update with your data.",
+  },
+];
+---
+
+<section id="inside" class="tint" aria-labelledby="inside-title">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">What's inside</span>
+      <h2 id="inside-title">The hard parts are built once, so yours starts finished.</h2>
+    </div>
+    <div class="grid">
+      {
+        parts.map((part) => (
+          <div class="card reveal">
+            <div class="ic">
+              <Icon name={part.icon} />
+            </div>
+            <h3>{part.title}</h3>
+            <p>{part.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

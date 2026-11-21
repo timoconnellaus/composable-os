@@ -8,23 +8,23 @@ import { CONTACT_EMAIL } from "../links.ts";
   eyebrow="Privacy"
   heading="What this site keeps about you"
   lead="Very little. There are no trackers, analytics, cookies or third-party scripts on composableos.dev."
-  description="What composableos.dev stores when you join the waitlist, and how to have it deleted."
+  description="What composableos.dev stores when you ask for a call, and how to have it deleted."
 >
   <div class="prose">
-    <h2>The waitlist</h2>
+    <h2>The call form</h2>
     <p>
-      When you join the waitlist we store your email address, the team size if you chose one, and
-      when you signed up. We use it to email you once, when the hosted version opens. We don't add
+      When you ask for a call we store what you typed (your email address and, if you gave them,
+      your name, company and message) and when you sent it. We use it to reply to you. We don't add
       you to a newsletter and we don't share it with anyone.
     </p>
     <h2>Requests to the site</h2>
     <p>
       The site runs on Cloudflare, which handles every request to it. To stop form spam we count
-      submissions per IP address for a minute. We don't store your IP address with your signup.
+      submissions per IP address for a minute. We don't store your IP address with your request.
     </p>
     <h2>Deleting your details</h2>
     <p>
-      Email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> from the address you signed up with
+      Email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> from the address you gave
       and we'll delete it.
     </p>
   </div>

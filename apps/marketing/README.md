@@ -1,10 +1,14 @@
 # apps/marketing
 
-The landing page for [composableos.dev](https://composableos.dev) (ADR 0191): a static
-Astro site served by the `cos-site` Worker, which also answers `POST /api/signup` (the
-waitlist and contact-sales form) and stores submissions in its own D1 database. No trackers: the
-build fails if any page loads anything from another origin or mentions a known analytics tool
-(`scripts/check-static.mjs`).
+The site at [composableos.dev](https://composableos.dev) (ADR 0465): Zero BS AI builds a company's
+own software on Composable OS and looks after it on one subscription. A static Astro site served
+by the `cos-site` Worker, which also answers `POST /api/signup` (the call form) and stores
+submissions in its own D1 database. No trackers: the build fails if any page loads anything from
+another origin or mentions a known analytics tool (`scripts/check-static.mjs`).
+
+**[`SITE.md`](SITE.md) says what the site claims, section by section.** Read it to see whether a
+change elsewhere in the repository touches the site, and keep it true when the page changes
+(`AGENTS.md`, "The site").
 
 ```sh
 pnpm --filter @composable-os/marketing dev          # http://localhost:4321 (pages only, no form API)
@@ -12,36 +16,54 @@ pnpm --filter @composable-os/marketing build        # dist/, then the no-tracker
 pnpm --filter @composable-os/marketing test         # the form endpoint in workerd against local D1
 pnpm --filter @composable-os/marketing preview      # build + local D1 migrations + wrangler dev
 pnpm --filter @composable-os/marketing test:e2e     # Playwright against the built site and Worker
-pnpm --filter @composable-os/marketing screenshots  # screenshots/{390,834,1280}-{light,dark}.jpg
+pnpm --filter @composable-os/marketing screenshots  # screenshots/{390,834,1280}.jpg
 pnpm --filter @composable-os/marketing og-image     # re-render public/og.png and the touch icon
 ```
 
 ## Layout
 
-- `src/pages/index.astro` is the landing page; each section is a component in `src/components`
-  (`Hero` with the `Demo`, `HowItWorks`, `WorksWithAI`, `Features`, `Safety`, `SelfHost`,
-  `Pricing`, `Enterprise`, `Faq`, `FinalCta`). `Page.astro` is the shell (metadata, fonts, the icon
-  sprite, header, footer).
-- `src/styles/base.css` holds the design tokens (light and dark) and shared pieces;
-  `landing.css` the sections. The app demo uses the app's own shadcn neutral values.
-- `src/scripts` is the only client code, two small vanilla modules: `site.ts` (header, menu,
-  reveal on scroll, background form posts) and `demo.ts` (the hero demo, driven by one clock).
-- Fonts (Unbounded, Manrope, Inter) are self-hosted from `@fontsource-variable`, latin only.
+- `src/pages/index.astro` is the landing page; each section is a component in `src/components`,
+  in page order: `Hero` (with the facts bar), `Problem`, `HowItWorks`, `Pieces`, `Inside`, `Care`,
+  `Control`, `Developers`, `Faq`, `FinalCta` (with `CallForm`). `Page.astro` is the shell
+  (metadata, fonts, the icon sprite, and the frame holding the header, the page and the footer).
+- `src/styles/base.css` holds the design tokens and shared pieces; `landing.css` the sections.
+- `src/links.ts` holds the links and `CTA`, the label of the page's one action. `src/faq.ts` holds
+  the questions, read by the section and by the page's FAQPage structured data.
+- `src/scripts/site.ts` is the only client code: the header, the menu, reveal on scroll and the
+  form's background post.
+- Poppins is self-hosted from `@fontsource/poppins`, latin only, four weights.
 
 ## Rules
 
-- **The page works without JavaScript.** Content is visible, the demo is a still, and both forms
-  post normally: the Worker redirects back to `/#joined-hero` or `/#joined-waitlist`, which CSS
-  shows as the form's "You're on the list" message.
+- **Follow the `landing-page-generator` skill** (`.claude/skills/landing-page-generator`) for any
+  change to the page, and run its three checks on the built page. All three must exit 0:
+
+  ```sh
+  pnpm --filter @composable-os/marketing build
+  python3 .claude/skills/landing-page-generator/scripts/cta_analyzer.py apps/marketing/dist/index.html
+  python3 .claude/skills/landing-page-generator/scripts/conversion_checklist.py apps/marketing/dist/index.html
+  python3 .claude/skills/landing-page-generator/scripts/page_speed_estimator.py apps/marketing/dist/index.html
+  ```
+
+  The checklist's "minimal navigation" line stays failed on purpose: this is a site page with a
+  short menu, not a campaign page. Its proof lines stay failed until there is real proof.
+- **One action.** Every button that asks for something says `CTA` ("Book a call") and leads to
+  `#call`. A second action gets one other label, as a ghost button or a text link.
+- **No invented proof.** No testimonial, logo, count or rating that can't be sourced. Ghetto's
+  quote and case study go in after `Pieces` when they exist.
+- **Light only.** There is no dark theme.
+- **The page works without JavaScript.** Content is visible and the form posts normally: the
+  Worker redirects to `/thanks/`.
 - **Motion follows `.claude/skills/animate`:** transform and opacity only, strong ease-out curves,
   short UI durations, hover effects only on `(hover: hover) and (pointer: fine)`, and reduced
-  motion keeps gentle fades but no movement (the demo doesn't autoplay and shows end states).
+  motion keeps gentle fades but no movement.
 - **Copy** follows [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing): no em
-  dashes, sentence-case headings.
-- The self-host snippet (`SelfHost.astro`) mirrors the install commands in `docs/deploying.md`.
-- The team-size options live in `src/team-size.ts`, read by both the form and the endpoint; the
-  column's CHECK constraint (`migrations/0002_team_size.sql`) must match.
+  dashes, sentence-case headings. It is written for an owner or operations lead, so it stays
+  non-technical until the developer section.
+- The commands in `Developers.astro` match `docs/deploying.md` ("A company's own product").
+- The endpoint still accepts a `waitlist` submission (the first site's forms, `src/team-size.ts`);
+  the page no longer has one, and the rows already stored stay.
 
 Deploys go through `.github/workflows/marketing.yml` on pushes to `main`, once the
 `MARKETING_CLOUDFLARE_API_TOKEN` and `MARKETING_CLOUDFLARE_ACCOUNT_ID` secrets exist. Read
-submissions with `wrangler d1 execute cos-site --remote --command "SELECT * FROM marketing_signup"`.
+requests with `wrangler d1 execute cos-site --remote --command "SELECT * FROM marketing_signup WHERE kind = 'sales'"`.

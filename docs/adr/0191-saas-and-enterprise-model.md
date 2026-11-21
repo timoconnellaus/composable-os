@@ -17,3 +17,9 @@ Status: accepted, 2026-11-05 (rename & commercial-model interview).
 - **Enterprise.** The customer chooses a **dedicated deployment in our account** (the same as SaaS, plus SSO, a custom domain and SLAs) or a **managed deployment in their own Cloudflare account**, which uses the self-hosted installer and self-updater.
 - **Rollout.** We have no Workers for Platforms subscription yet. Everything is built and tested against a fake Workers for Platforms and Stripe, ready to switch on. It goes live when the **first customer signs up**, following a short runbook.
 - **Landing page.** `relationshiposcrm.com` is a static marketing site in the monorepo (`apps/marketing`), deployed to Workers using the same design system. The domain is already on our Cloudflare account.
+
+## Amended 2026-11-21: what the landing page offers
+The site (`apps/marketing`, now composableos.dev) no longer presents the hosted plans or a
+waitlist. It sells a product built for the business by Zero BS AI and maintained on one
+subscription ([ADR 0465](0465-the-site-sells-a-built-and-maintained-product.md)). The rest of this
+record is left as decided; ADR 0465 does not decide whether the hosted SaaS is still built.

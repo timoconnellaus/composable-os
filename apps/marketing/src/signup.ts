@@ -1,4 +1,5 @@
-// The landing page's forms: join the waitlist, or ask sales to get in touch (ADR 0191).
+// The landing page's form: ask for a call, stored as a "sales" request (ADR 0465). The
+// "waitlist" kind is the first site's (ADR 0191); the page no longer has such a form.
 // Submissions go to D1 only; nothing is sent to a third party and no tracking data is kept.
 import { z } from "zod";
 import { FORM_SOURCES, TEAM_SIZE_VALUES } from "./team-size.ts";
