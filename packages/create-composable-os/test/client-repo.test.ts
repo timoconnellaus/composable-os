@@ -679,6 +679,102 @@ describe("cos upgrade in a client repo (criterion 11)", () => {
   });
 });
 
+/** Publishes `version` again, replacing the release of that tag: a kit rebuilt at one version. */
+async function republish(version: string, change: (files: Record<string, string>) => void) {
+  const at = world.github.releases.findIndex((r) => r.tag === `v${version}`);
+  if (at >= 0) world.github.releases.splice(at, 1);
+  await publish(version, change);
+}
+
+describe("cos upgrade keeps the host modules current (ADR 0451, amended)", () => {
+  const HOST = "apps/web/src/host.ts";
+  const newer = (files: Record<string, string>) => {
+    files["template/apps/web/src/host.ts"] =
+      `${files["template/apps/web/src/host.ts"]}\n// A change in the newer template.\nexport const NEWER = true;\n`;
+  };
+
+  it("replaces a host module the company has not edited, and records it", async () => {
+    await publish("1.0.0");
+    await publish("1.1.0", newer);
+    const dir = await created();
+    const state = JSON.parse(read(dir, "composable-os.lock.json"));
+    expect(Object.keys(state.hostModules)).toEqual([HOST]);
+    const upgraded = await cos("upgrade", "--no-typecheck");
+    expect(upgraded.output).toContain(`Host modules: ${HOST} replaced with 1.1.0's.`);
+    expect(read(dir, HOST)).toContain("export const NEWER = true;");
+    expect(JSON.parse(read(dir, "composable-os.lock.json")).hostModules[HOST].version).toBe(
+      "1.1.0",
+    );
+  });
+
+  it("leaves an edited one, and shows its diff against the new template with what to do", async () => {
+    await publish("1.0.0");
+    await publish("1.1.0", newer);
+    const dir = await created();
+    const edited = `${read(dir, HOST)}\n// The company's own change.\n`;
+    writeFileSync(join(dir, HOST), edited);
+    const upgraded = await cos("upgrade", "--no-typecheck");
+    expect(read(dir, HOST)).toBe(edited);
+    expect(upgraded.output).toContain(`${HOST}: edited here since cos wrote it. Not changed.`);
+    expect(upgraded.output).toContain("+ export const NEWER = true;");
+    expect(upgraded.output).toContain("- // The company's own change.");
+    expect(upgraded.output).toContain(`Host modules left to merge by hand: ${HOST}`);
+  });
+
+  it("treats a module with no recorded hash (adopted before) as edited", async () => {
+    await publish("1.0.0");
+    await publish("1.1.0", newer);
+    const dir = await created();
+    rmSync(join(dir, "composable-os.lock.json"));
+    const before = read(dir, HOST);
+    const upgraded = await cos("upgrade", "--no-typecheck");
+    expect(read(dir, HOST)).toBe(before);
+    expect(upgraded.output).toContain(`${HOST}: no record of what cos wrote`);
+    expect(upgraded.output).toContain("+ export const NEWER = true;");
+  });
+
+  it("adds a module the new template brings, in an adopted repo", async () => {
+    await publish("1.0.0");
+    const dir = join(scratch(), "movement");
+    cpSync(join(here, "fixtures", "adopt"), dir, { recursive: true });
+    cwd = dir;
+    expect((await cos("init", "--web", ".", "--mobile", "mobile", "--yes")).code).toBe(0);
+    const state = JSON.parse(read(dir, "composable-os.lock.json"));
+    expect(Object.keys(state.hostModules).sort()).toEqual([
+      "mobile/src/composable-os/host.ts",
+      "mobile/src/composable-os/secure-random.ts",
+      "mobile/src/composable-os/secure-store.ts",
+      "src/composable-os/host.ts",
+    ]);
+    rmSync(join(dir, "mobile", "src", "composable-os", "secure-random.ts"));
+    await publish("1.1.0");
+    const upgraded = await cos("upgrade", "--no-typecheck");
+    expect(upgraded.output).toContain("mobile/src/composable-os/secure-random.ts (new)");
+    // cos init writes product.ts with quoted keys; the upgrade moves it too (it could not before).
+    expect(read(dir, "product.ts")).toContain('"version": "1.1.0"');
+    expect(existsSync(join(dir, "mobile", "src", "composable-os", "secure-random.ts"))).toBe(true);
+  });
+
+  it("compares by content: a kit rebuilt at the same version still shows what changed", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    const added = await cos("add", "greeting");
+    expect(added.code, added.output).toBe(0);
+    await republish("1.0.0", (files) => {
+      newer(files);
+      files["blocks/greeting/greeting.tsx"] =
+        'export function Greeting({ name }: { name: string }) {\n  return <p className="rebuilt">Hello, {name}</p>;\n}\n';
+    });
+    const upgraded = await cos("upgrade", "--no-typecheck");
+    expect(upgraded.output).toContain("Already on 1.0.0. Checking the host modules");
+    expect(upgraded.output).toContain(`Host modules: ${HOST} replaced with 1.0.0's.`);
+    expect(read(dir, HOST)).toContain("export const NEWER = true;");
+    const diff = await cos("diff", "greeting");
+    expect(diff.output).toContain('+   return <p className="rebuilt">Hello, {name}</p>;');
+    expect(diff.output).toContain("changed since it was copied (the release was rebuilt");
+  });
+});
+
 describe("blocks (criterion 10)", () => {
   it("cos add copies from the matching release; cos diff shows upstream changes and keeps edits", async () => {
     await publish("1.0.0");

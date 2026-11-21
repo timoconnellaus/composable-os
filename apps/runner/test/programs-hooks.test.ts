@@ -14,6 +14,7 @@ import {
   createProgramsHooks,
   emptyLayout,
   faultsOf,
+  PROGRAMS_HOOKS_CALL as HOOKS_CALL,
   layoutEdits,
   type ProgramsClient,
 } from "../../../packs/programs/client/index.ts";
@@ -29,8 +30,16 @@ import {
   staff,
 } from "./programs-fixture.ts";
 
-function hostClient(ctx: InvocationContext | OutsideInvocationContext): ProgramsClient {
+function hostClient(
+  ctx: InvocationContext | OutsideInvocationContext,
+): ProgramsClient & { operations: Record<string, unknown> } {
   return {
+    // Every operation: these tests run every hook (ADR 0453).
+    operations: Object.fromEntries(
+      Object.values(HOOKS_CALL)
+        .flat()
+        .map((n) => [n, true]),
+    ),
     query: ((name: string, input: unknown) => ({
       queryKey: [name, input],
       queryFn: () => run(name, input, ctx),

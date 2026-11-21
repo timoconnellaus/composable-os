@@ -8,7 +8,22 @@ import { Progress } from "../programs-progress/progress.tsx";
 import { SessionView } from "../programs-session/session-view.tsx";
 import { Button } from "../ui-button/button.tsx";
 
-export function CoachClient({ programs, personId }: { programs: ProgramsHooks; personId: string }) {
+export function CoachClient({
+  programs,
+  personId,
+}: {
+  programs: Pick<
+    ProgramsHooks,
+    | "useClientSessions"
+    | "useHistory"
+    | "useLogSet"
+    | "useMarkSession"
+    | "useProgress"
+    | "useSession"
+    | "useUpdateSet"
+  >;
+  personId: string;
+}) {
   const sessions = programs.useClientSessions(personId);
   const [open, setOpen] = useState<string | null>(null);
   return (

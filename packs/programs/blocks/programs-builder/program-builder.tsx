@@ -39,7 +39,23 @@ interface Bank {
   byId: Map<string, RecordOut>;
   list: RecordOut[];
   /** The hooks, for a search of the whole bank on the host. */
-  programs: ProgramsHooks;
+  programs: Pick<
+    ProgramsHooks,
+    | "useAssign"
+    | "useBank"
+    | "useClassTypes"
+    | "useCreateProgram"
+    | "useDraft"
+    | "useExercises"
+    | "useImportText"
+    | "usePeople"
+    | "usePrograms"
+    | "usePublish"
+    | "usePublishOffered"
+    | "useRestoreVersion"
+    | "useVersions"
+    | "useWorkingCopy"
+  >;
 }
 
 type Change = (next: Layout) => void;
@@ -54,7 +70,23 @@ export function ProgramBuilder({
   programs,
   programId,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<
+    ProgramsHooks,
+    | "useAssign"
+    | "useBank"
+    | "useClassTypes"
+    | "useCreateProgram"
+    | "useDraft"
+    | "useExercises"
+    | "useImportText"
+    | "usePeople"
+    | "usePrograms"
+    | "usePublish"
+    | "usePublishOffered"
+    | "useRestoreVersion"
+    | "useVersions"
+    | "useWorkingCopy"
+  >;
   programId: string;
 }) {
   const copy = programs.useWorkingCopy(programId);
@@ -1138,7 +1170,23 @@ function Versions({
   programId,
   onRestored,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<
+    ProgramsHooks,
+    | "useAssign"
+    | "useBank"
+    | "useClassTypes"
+    | "useCreateProgram"
+    | "useDraft"
+    | "useExercises"
+    | "useImportText"
+    | "usePeople"
+    | "usePrograms"
+    | "usePublish"
+    | "usePublishOffered"
+    | "useRestoreVersion"
+    | "useVersions"
+    | "useWorkingCopy"
+  >;
   programId: string;
   onRestored: (layout: Layout, title?: string) => void;
 }) {
@@ -1232,7 +1280,29 @@ function Versions({
   );
 }
 
-function Assign({ programs, programId }: { programs: ProgramsHooks; programId: string }) {
+function Assign({
+  programs,
+  programId,
+}: {
+  programs: Pick<
+    ProgramsHooks,
+    | "useAssign"
+    | "useBank"
+    | "useClassTypes"
+    | "useCreateProgram"
+    | "useDraft"
+    | "useExercises"
+    | "useImportText"
+    | "usePeople"
+    | "usePrograms"
+    | "usePublish"
+    | "usePublishOffered"
+    | "useRestoreVersion"
+    | "useVersions"
+    | "useWorkingCopy"
+  >;
+  programId: string;
+}) {
   const [search, setSearch] = useState("");
   const [person, setPerson] = useState<{ id: string; name: string } | null>(null);
   const [classType, setClassType] = useState("");
@@ -1339,7 +1409,23 @@ export function ProgramList({
   programs,
   onOpen,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<
+    ProgramsHooks,
+    | "useAssign"
+    | "useBank"
+    | "useClassTypes"
+    | "useCreateProgram"
+    | "useDraft"
+    | "useExercises"
+    | "useImportText"
+    | "usePeople"
+    | "usePrograms"
+    | "usePublish"
+    | "usePublishOffered"
+    | "useRestoreVersion"
+    | "useVersions"
+    | "useWorkingCopy"
+  >;
   onOpen: (programId: string) => void;
 }): ReactNode {
   const list = programs.usePrograms();

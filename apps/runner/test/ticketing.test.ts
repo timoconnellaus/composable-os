@@ -33,6 +33,7 @@ import {
   type estimate,
   eventDay,
   eventTime,
+  TICKETING_HOOKS_CALL as HOOKS_CALL,
   orderStatus,
   type TicketingClient,
 } from "../../../packs/ticketing/client/index.ts";
@@ -469,8 +470,16 @@ describe("the sales summary", () => {
 // --- Step 5: the headless hooks against the host ----------------------------------------------
 
 /** A client over the host's own operations, for the caller `ctx`: what a generated client does over HTTP. */
-function hostClient(ctx: InvocationContext | OutsideInvocationContext): TicketingClient {
+function hostClient(
+  ctx: InvocationContext | OutsideInvocationContext,
+): TicketingClient & { operations: Record<string, unknown> } {
   return {
+    // Every operation: these tests run every hook (ADR 0453).
+    operations: Object.fromEntries(
+      Object.values(HOOKS_CALL)
+        .flat()
+        .map((n) => [n, true]),
+    ),
     query: ((name: string, input: unknown) => ({
       queryKey: [name, input],
       queryFn: () => run(name, input, ctx),
@@ -487,34 +496,32 @@ function hooksFor(ctx: InvocationContext | OutsideInvocationContext) {
   const queries: (() => Promise<unknown>)[] = [];
   const state = new Map<number, unknown>();
   let slot = 0;
-  const hooks = createTicketingHooks(
-    {
-      useQuery: (options) => {
-        queries.push(options.queryFn);
-        return { data: undefined, isPending: true, error: null };
-      },
-      useMutation: (options) => ({
-        mutate: (input) => void options.mutationFn(input),
-        mutateAsync: options.mutationFn,
-        data: undefined,
-        isPending: false,
-        error: null,
-      }),
-      useState: <T>(initial: T) => {
-        const at = slot++;
-        if (!state.has(at)) state.set(at, initial);
-        return [
-          state.get(at) as T,
-          (next: T | ((p: T) => T)) =>
-            state.set(
-              at,
-              typeof next === "function" ? (next as (p: T) => T)(state.get(at) as T) : next,
-            ),
-        ];
-      },
+  const react: Parameters<typeof createTicketingHooks>[0] = {
+    useQuery: (options) => {
+      queries.push(options.queryFn);
+      return { data: undefined, isPending: true, error: null };
     },
-    hostClient(ctx),
-  );
+    useMutation: (options) => ({
+      mutate: (input) => void options.mutationFn(input),
+      mutateAsync: options.mutationFn,
+      data: undefined,
+      isPending: false,
+      error: null,
+    }),
+    useState: <T>(initial: T) => {
+      const at = slot++;
+      if (!state.has(at)) state.set(at, initial);
+      return [
+        state.get(at) as T,
+        (next: T | ((p: T) => T)) =>
+          state.set(
+            at,
+            typeof next === "function" ? (next as (p: T) => T)(state.get(at) as T) : next,
+          ),
+      ];
+    },
+  };
+  const hooks = createTicketingHooks(react, hostClient(ctx));
   return { hooks, last: () => (queries.at(-1) as () => Promise<never>)(), reset: () => (slot = 0) };
 }
 

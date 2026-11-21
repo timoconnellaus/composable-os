@@ -10,7 +10,7 @@ export function OrderConfirmation({
   order,
   children,
 }: {
-  ticketing: TicketingHooks;
+  ticketing: Pick<TicketingHooks, "useOrder">;
   /** The order, and a guest's token (from the link, or kept when the order started). */
   order: { id: string; token?: string | null };
   /** Shown below, for a part-paid order: the block's BalancePayment, for one. */

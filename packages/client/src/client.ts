@@ -191,7 +191,9 @@ export function createClient<T extends OperationTypes>(
     return (specs[name]?.invalidates ?? []).map((q) => [q] as const);
   }
 
-  return { call, query, mutation, invalidates };
+  // `operations`: which operations this client holds, so a pack's hooks can offer exactly the
+  // ones it can back (ADR 0453).
+  return { call, query, mutation, invalidates, operations: specs };
 }
 
 export type Client<T extends OperationTypes> = ReturnType<typeof createClient<T>>;

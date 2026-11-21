@@ -7,6 +7,7 @@
 // import), and it holds no rules. Prices, limits, places, what may be bought and whether an order
 // is paid are the host's. The one sum here, `estimate`, is a preview of what the host will
 // charge, shown before the order starts; the order the host returns is what is paid.
+import { type ClientHolding, type PackClient, packHooks } from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import type { checkIn, eventsOnSale, myTickets, orderStart, undoCheckIn } from "../tools.ts";
 
@@ -47,10 +48,6 @@ export type TicketingOperations = {
 };
 
 type Name = keyof TicketingOperations & string;
-type QueryName = { [N in Name]: TicketingOperations[N]["kind"] extends "query" ? N : never }[Name];
-type MutationName = {
-  [N in Name]: TicketingOperations[N]["kind"] extends "mutation" ? N : never;
-}[Name];
 type In<N extends Name> = TicketingOperations[N]["input"];
 type Out<N extends Name> = TicketingOperations[N]["output"];
 
@@ -61,16 +58,12 @@ export type MyTickets = Out<"x.ticketing.myTickets">;
 export type CheckInResult = Out<"x.ticketing.checkIn">;
 export type StartedOrder = Out<"x.ticketing.orderStart">;
 
-/** The part of a generated client this entry needs. A product's client fits it. */
-export interface TicketingClient {
-  query<N extends QueryName>(
-    name: N,
-    input: In<N>,
-  ): { queryKey: readonly unknown[]; queryFn: () => Promise<Out<N>> };
-  mutation<N extends MutationName>(
-    name: N,
-  ): { mutationKey: readonly unknown[]; mutationFn: (input: In<N>) => Promise<Out<N>> };
-}
+/**
+ * The client of every operation this entry calls. The hooks are written against it; the client an
+ * app passes may hold fewer (a customer's, the door role's), and then gets only the hooks it can
+ * back (ADR 0453).
+ */
+export type TicketingClient = PackClient<TicketingOperations>;
 
 // --- Plain functions ------------------------------------------------------------------------------
 
@@ -309,10 +302,37 @@ export type UseState = <T>(initial: T) => [T, (next: T | ((previous: T) => T)) =
 export const WAITING_POLL_MS = 2000;
 
 /**
- * Hooks for a React or React Native app:
- * `const ticketing = createTicketingHooks({ useQuery, useMutation, useState }, api)`.
+ * The operations each hook calls (ADR 0453). A client gets the hooks whose operations it holds:
+ * the door role's client gets `useCheckIn`, `useUndoCheckIn` and `useTicketPicker`, a customer's
+ * client the buying hooks, the staff client all of them.
  */
-export function createTicketingHooks(
+export const TICKETING_HOOKS_CALL = {
+  useEventsOnSale: ["x.ticketing.eventsOnSale"],
+  useTicketPicker: [],
+  useStartOrder: ["x.ticketing.orderStart"],
+  useCheckout: ["order.checkout"],
+  useOrder: ["order.view", "order.get"],
+  useMyTickets: ["x.ticketing.myTickets"],
+  useCheckIn: ["x.ticketing.checkIn"],
+  useUndoCheckIn: ["x.ticketing.undoCheckIn"],
+} as const;
+
+/**
+ * Hooks for a React or React Native app:
+ * `const ticketing = createTicketingHooks({ useQuery, useMutation, useState }, api)`. `api` is any
+ * generated client: the customer's, a pack role's (`roles/ticketing.door.ts`) or the staff one.
+ * The hooks it cannot back are not there, and calling one does not compile.
+ */
+export function createTicketingHooks<C extends ClientHolding>(
+  react: { useQuery: UseQuery; useMutation: UseMutation; useState: UseState },
+  client: C,
+) {
+  return packHooks(client, TICKETING_HOOKS_CALL, (api: TicketingClient) =>
+    allTicketingHooks(react, api),
+  );
+}
+
+function allTicketingHooks(
   react: { useQuery: UseQuery; useMutation: UseMutation; useState: UseState },
   api: TicketingClient,
 ) {
@@ -381,4 +401,5 @@ export function createTicketingHooks(
   };
 }
 
-export type TicketingHooks = ReturnType<typeof createTicketingHooks>;
+/** Every hook of this entry, as a client of all its operations gets them. A block takes the ones it calls: `Pick<TicketingHooks, "useCheckIn">`. */
+export type TicketingHooks = ReturnType<typeof allTicketingHooks>;

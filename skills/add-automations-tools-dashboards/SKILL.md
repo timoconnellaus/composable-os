@@ -137,6 +137,16 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
     argument (a structural interface the generated client fits), and build hooks from the app's
     own `useQuery` rather than importing React or TanStack Query. It holds no rules: those are
     the host's. See Deals: `client/index.ts` and `test/client.test.ts`.
+    **Hooks over a client that holds only some operations (ADR 0453).** A customer's client, a
+    pack role's client and the staff client each hold a different set. Write the hooks once, over
+    `PackClient<YourOperations>` (`@composable-os/client`), list the operations each hook calls in
+    a `<PACK>_HOOKS_CALL` map (an empty list for one that calls none), and return them through
+    `packHooks(client, CALLS, (api: YourClient) => ({ ... }))` from a
+    `create<Pack>Hooks<C extends ClientHolding>(react, client: C)`. A client then gets exactly the
+    hooks it can back, at run time and in its type. Export the full set as
+    `type <Pack>Hooks = ReturnType<typeof all<Pack>Hooks>`. Every block takes only the hooks it
+    calls: `ticketing: Pick<TicketingHooks, "useCheckIn">`, never the whole set. See Ticketing:
+    `client/index.ts` and its door scanner block.
 11. **Check, fix, repeat** (last section), then run `pnpm lint`, `pnpm typecheck` and `pnpm test`
     at the repository root.
 

@@ -95,7 +95,10 @@ a live host side by side in one account, `environments` in `product.ts`): each i
    - **An adopted Expo app** on `expo/tsconfig.base` needs `allowImportingTsExtensions` and
      `noEmit` for the host module's `.ts` imports: `cos init` shows that change as a diff.
 7. **Regenerate the clients** after changing `packs` or `extensions/`: `pnpm cos client generate`.
-   `cos deploy` and `cos upgrade` do it too.
+   `cos deploy` and `cos upgrade` do it too. `cos upgrade` also brings the host modules
+   (`host.ts`, `secure-store.ts`, `secure-random.ts`) to the new template: one nobody edited is
+   replaced; an edited one is left and its diff shown, to merge by hand. Commit
+   `composable-os.lock.json`: it records what cos wrote.
 8. **Deploy:** `CLOUDFLARE_API_TOKEN=... pnpm cos deploy`. Before anything in the account changes
    it runs `cos ext check` on every extension, type-checks every app that has a `tsconfig.json`
    (an app without one is not checked), and builds and checks the web app (a template web app

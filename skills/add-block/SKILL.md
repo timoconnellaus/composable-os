@@ -53,7 +53,13 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `createTicketingHooks({ useQuery, useMutation, useState }, api)` from
    `@composable-os/pack-ticketing/client` (Programs: `createProgramsHooks({ useQuery,
    useMutation, useState, useEffect }, api)` from `@composable-os/pack-programs/client`, whose
-   builder saves itself and so needs `useEffect`) and pass them down. Add that package (the block's
+   builder saves itself and so needs `useEffect`) and pass them down. `api` is the client the
+   screen's user holds: the customer client on a customer's screen, the role client
+   (`staff.client(createTicketingDoorClient)`) on the door scanner. The hooks returned are only
+   those that client can back, and the block's prop names the hooks it calls
+   (`Pick<TicketingHooks, "useCheckIn">`): if it does not type-check, the screen needs an operation
+   its user's client does not hold. Do not cast; use the right client, or say what the platform
+   needs (a role that holds it). Add that package (the block's
    `packages` say so) at the release's version. A native block that needs the device (a camera,
    a QR code, the screen's brightness, haptics) takes what it needs as a prop with a small type
    (`Scanner`, `Qr`, `brightness`, `haptics`, Programs' `onRestDone`), so pass the app's own

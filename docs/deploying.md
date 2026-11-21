@@ -245,6 +245,8 @@ cd shop && pnpm install
 CLOUDFLARE_API_TOKEN=... pnpm cos deploy     # checks extensions/ and the apps first, then deploys
 pnpm cos add web-sign-in                     # copies a block; pnpm cos diff web-sign-in later
 pnpm cos upgrade                             # moves to a newer platform version; deploys nothing
+                                             # (also replaces unedited host modules, and shows the
+                                             # diff of edited ones: composable-os.lock.json)
 ```
 
 `cos deploy` installs (or upgrades, or repairs) the host from the release in `product.ts` with the

@@ -9,7 +9,7 @@ export function MyTickets({
   ticketing,
   onShow,
 }: {
-  ticketing: TicketingHooks;
+  ticketing: Pick<TicketingHooks, "useMyTickets">;
   /** Opens one ticket with its code (a QR the app draws). */
   onShow?: (ticket: { id: string; code: string | null }) => void;
 }) {

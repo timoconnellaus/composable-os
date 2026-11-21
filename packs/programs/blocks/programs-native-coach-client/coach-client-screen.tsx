@@ -13,7 +13,7 @@ export function CoachClientScreen({
   name,
   onOpen,
 }: {
-  programs: ProgramsHooks;
+  programs: Pick<ProgramsHooks, "useClientSessions">;
   personId: string;
   name: string;
   onOpen: (sessionId: string) => void;

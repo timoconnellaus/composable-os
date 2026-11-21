@@ -39,6 +39,7 @@ import {
   toBase64,
 } from "@composable-os/release";
 import { lineDiff } from "./diff.ts";
+import { recordHostModules, STATE_FILE, upgradeHostModules } from "./host-modules.ts";
 import type { Io } from "./io.ts";
 import {
   CliError,
@@ -184,7 +185,12 @@ function mkdtemp(prefix: string): string {
 function setPlatformVersion(root: string, version: string) {
   const file = join(root, "product.ts");
   const text = readFileSync(file, "utf8");
-  const next = text.replace(/(platform:\s*\{[^}]*version:\s*")[^"]*(")/, `$1${version}$2`);
+  // `platform: { version: "…" }` as the template writes it, or `"platform": { "version": "…" }` as
+  // cos init does.
+  const next = text.replace(
+    /(["']?platform["']?\s*:\s*\{[^}]*["']?version["']?\s*:\s*")[^"]*(")/,
+    `$1${version}$2`,
+  );
   if (next === text && !text.includes(`"${version}"`)) {
     throw new CliError("Could not find platform.version in product.ts to change it.");
   }
@@ -446,6 +452,8 @@ export async function create(argv: string[], flags: Flags, deps: Deps): Promise<
   const skills = writeSkills(root, kit);
   const product = await loadClientProduct(root);
   await generateClients(root, product, kit, io);
+  // What cos wrote of the host modules, so cos upgrade can tell an edited one (ADR 0451).
+  recordHostModules(root, product, kit, version);
   // A repository from the start, so copied blocks and generated files can be committed.
   try {
     execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
@@ -675,6 +683,10 @@ export const product = defineClientProduct(${JSON.stringify(product, null, 2)});
       added.push(join(app, clientDir, file));
     }
   }
+  // What cos wrote of them, so cos upgrade can replace an unedited one (ADR 0451). One that was
+  // there already, and differs, is the company's: not recorded.
+  recordHostModules(root, defineClientProduct(product), kit, version);
+  added.push(STATE_FILE);
 
   // Changes to files that exist: each shown, applied only when told.
   const changes: Change[] = [];
@@ -1325,7 +1337,9 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
     str(flags, "version"),
   );
   if (version === product.platform.version) {
-    io.out(`Already on ${version}.`);
+    // Compared by content: a kit rebuilt at the same version can still change the host modules.
+    io.out(`Already on ${version}. Checking the host modules against its template.`);
+    upgradeHostModules(root, product, kit, version, io);
     return 0;
   }
   io.out(`Moving from ${product.platform.version} to ${version}.`);
@@ -1349,6 +1363,8 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
   const moved = await loadClientProduct(root);
   await generateClients(root, moved, kit, io);
   io.out(`Skills: ${writeSkills(root, kit)} replaced.`);
+  // The host modules: unedited ones replaced, edited ones shown as a diff (ADR 0451).
+  upgradeHostModules(root, moved, kit, version, io);
   const errors = await typeErrors(root, moved);
   if (errors.length) {
     io.err(`\nThe apps do not compile against ${version}. Fix these, then cos deploy:`);
