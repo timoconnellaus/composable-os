@@ -5,7 +5,10 @@
 //   template/**             templates/client: the client repo `cos create` writes
 //   skills/<name>/SKILL.md  skills/, as a client repo reads them (clientSkill below)
 //   blocks/<name>/**        every folder with a block.json: packs/*/blocks/* and blocks/*
-//   contract/<audience>.json  packages/core/api/v1: what the host of this release serves
+//   packs.json              the ids of every pack the release carries
+//   contract/<audience>.json  packages/core/api/v1: the union of what a host of this release can
+//                           serve: core operations, and every carried pack's tools, each named
+//                           with its `pack` (a deployment serves those of the packs it installs)
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -62,7 +65,8 @@ export function blockDirs(root: string): { name: string; dir: string }[] {
 
 export function collectClientKit(root: string, packs: readonly string[]): Map<string, Uint8Array> {
   const kit = new Map<string, Uint8Array>();
-  // The packs this release has: a client repo's product may list any of them.
+  // The packs this release carries (every packs/<id>/, which the runner bundles): a client repo's
+  // product may list any of them, and `cos deploy` trusts only this list (ADR 0422 as amended).
   kit.set("packs.json", new TextEncoder().encode(`${JSON.stringify([...packs].sort())}\n`));
   walk(join(root, "templates", "client"), join(root, "templates", "client"), kit, "template/");
   const skills = join(root, "skills");

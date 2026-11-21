@@ -80,15 +80,20 @@ A client repo (stage 24)
   cos create <dir> [--label <name>] [--with-mobile] [--version x.y.z]
                                          a new client repo from the release's template (also
                                          \`npm create composable-os <dir>\`)
-  cos init [--web <dir>] [--mobile <dir>] [--id <id>] [--label <name>] [--yes]
+  cos init [--web <dir>] [--mobile <dir>] [--id <id>] [--label <name>] [--packs <list>]
+           [--envs staging,live] [--yes]
                                          adopt the repo you are in: adds product.ts, skills/, each
                                          app's typed client and host module and the rules in
                                          AGENTS.md; shows a diff of every change to a file that
                                          exists and applies it with --yes. The id and label default
                                          to the folder's name; an adopted web app keeps its Worker
-                                         and deploys itself (web.deploy "own")
-  cos deploy                             the host from the release in product.ts, with its packs and
-                                         the org's own extensions (checked first), then the web app
+                                         and deploys itself (web.deploy "own"); --envs declares
+                                         environments and binds HOST under the site's own ones
+  cos deploy [--env <name>]              the host from the release in product.ts, with its packs and
+                                         the org's own extensions (checked first), then the web app;
+                                         with environments in product.ts, the one --env names
+                                         (--rotate-customer-auth-secret: a new customer secret,
+                                         which signs every customer out)
   cos upgrade [--version X.Y.Z]          in a client repo: move product.ts to a newer platform
                                          version, regenerate the client, replace skills/, report type
                                          errors; deploys nothing
@@ -188,6 +193,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "unverified",
       "skip-build",
       "no-typecheck",
+      "rotate-customer-auth-secret",
       "with-mobile",
     ].includes(key);
     let value: string | boolean = true;
@@ -234,6 +240,8 @@ export class CliError extends Error {}
 
 /** The runner's vars a client repo's deploy sets (apps/runner/src/extensions/shipped-list.ts). */
 export const PACKS_VAR = "COS_PACKS";
+/** The customer sessions' signing secret (ADR 0421): generated once per deployment by cos deploy. */
+export const CUSTOMER_SECRET = "CUSTOMER_AUTH_SECRET";
 export const ORG_EXTENSIONS_VAR = "COS_ORG_EXTENSIONS";
 
 export function str(flags: Flags, key: string): string | undefined {
@@ -613,12 +621,36 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
   secrets[app.name] ??= {};
   const appSecrets = secrets[app.name] as Record<string, string>;
   const scripts = new Set((await s.api.listScripts(s.accountId)).map((sc) => sc.id));
-  const appSet = scripts.has(app.name) ? await s.api.listSecrets(s.accountId, app.name) : [];
+  // Secrets are on the Worker as deployed, which a client product names (issue #155): looking
+  // under the release's name would find none and make a new staff secret on every deploy.
+  const deployedAs = (name: string) => (previous?.workerNames ?? names?.workers)?.[name] ?? name;
+  const appSet = scripts.has(deployedAs(app.name))
+    ? await s.api.listSecrets(s.accountId, deployedAs(app.name))
+    : [];
   if (!appSet.includes("BETTER_AUTH_SECRET") && !appSecrets.BETTER_AUTH_SECRET) {
     appSecrets.BETTER_AUTH_SECRET = randomSecret();
     deps.redactor.add(appSecrets.BETTER_AUTH_SECRET);
   }
   appSecrets.BETTER_AUTH_URL ??= `https://${hostname}`;
+  // Customer sign-in on the company's web app (ADR 0421), set by `cos deploy` for a product with
+  // a web app (ADR 0450): CUSTOMER_AUTH_URL is the web app's origin; CUSTOMER_AUTH_SECRET is
+  // generated once per deployment, never printed or written anywhere but the Worker, and never
+  // changed by a later deploy unless --rotate-customer-auth-secret says so.
+  const customerAuthUrl = str(flags, "customer-auth-url");
+  if (customerAuthUrl !== undefined) {
+    if (!/^https?:\/\/[^/]+$/.test(customerAuthUrl)) {
+      throw new CliError("--customer-auth-url is the web app's origin, https://host");
+    }
+    if (
+      flags["rotate-customer-auth-secret"] ||
+      (!appSet.includes(CUSTOMER_SECRET) && !appSecrets[CUSTOMER_SECRET])
+    ) {
+      let secret = randomSecret();
+      while (secret === appSecrets.BETTER_AUTH_SECRET) secret = randomSecret();
+      appSecrets[CUSTOMER_SECRET] = secret;
+      deps.redactor.add(secret);
+    }
+  }
   const updateToken =
     str(flags, "update-token") ??
     (flags["store-update-token"]
@@ -645,7 +677,9 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
   }
   for (const name of gatekeepers) {
     const worker = manifest.workers.find((w) => w.name === name);
-    const set = scripts.has(name) ? await s.api.listSecrets(s.accountId, name) : [];
+    const set = scripts.has(deployedAs(name))
+      ? await s.api.listSecrets(s.accountId, deployedAs(name))
+      : [];
     for (const secret of worker?.secrets ?? []) {
       if (!secret.required || set.includes(secret.name) || secrets[name]?.[secret.name]) continue;
       if (flags.yes || !io.interactive) {
@@ -680,6 +714,26 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
     for (const worker of varWorkers(manifest, name))
       vars[worker] = { ...vars[worker], [name]: value };
   }
+  if (customerAuthUrl !== undefined) {
+    vars[app.name] = { ...vars[app.name], CUSTOMER_AUTH_URL: customerAuthUrl };
+  }
+  // A client product's gatekeeper settings (ADR 0452): plain vars the gatekeeper declares, by
+  // the release's Worker name, checked by cos deploy against the manifest. Kept by upgrades.
+  const gatekeeperVars = str(flags, "gatekeeper-vars");
+  if (gatekeeperVars !== undefined) {
+    const parsed = JSON.parse(gatekeeperVars) as Record<string, Record<string, string>>;
+    for (const [worker, values] of Object.entries(parsed)) {
+      if (!manifest.workers.some((w) => w.name === worker && w.role === "gatekeeper")) {
+        throw new CliError(`--gatekeeper-vars names ${worker}, not a gatekeeper of this release`);
+      }
+      vars[worker] = { ...vars[worker], ...values };
+    }
+  }
+  const sendEmailFlag = str(flags, "send-email");
+  const sendEmail: DeploymentState["sendEmail"] = {
+    ...(previous?.sendEmail ?? {}),
+    ...(sendEmailFlag ? (JSON.parse(sendEmailFlag) as DeploymentState["sendEmail"]) : {}),
+  };
   // A client product's label (issue #155): every surface that shows the product's name reads it.
   const label = str(flags, "label");
   if (label !== undefined) {
@@ -733,6 +787,7 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
         ? { resourceNames: names.resources }
         : {}),
     vars,
+    ...(sendEmail && Object.keys(sendEmail).length ? { sendEmail } : {}),
     resources,
     bundleDigest: digest,
     installedAt: previous?.installedAt ?? new Date().toISOString(),

@@ -83,6 +83,8 @@ export interface OpenOperation {
   hostInternal?: true;
   /** Present and true when customers reach it only from inside a pack's tool (ADR 0414). */
   toolOnly?: true;
+  /** The pack whose tool it is (`x.<pack>.<tool>`); absent for a core operation. */
+  pack?: string;
 }
 
 /** The shape of packages/core/open-operations.json. */
@@ -110,5 +112,59 @@ export function openOperations(operations: readonly AudienceDeclaration[]): Open
         ...(op.toolOnly ? { toolOnly: true as const } : {}),
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
+// ---- Packs in the release's files -----------------------------------------------------------------
+//
+// A release carries every pack in the repository, and its committed files (open-operations.json,
+// api/v1/<audience>.json) are the union of what a host of that release can serve: the core
+// operations, and each carried pack's tools, each of those named with its `pack`. A deployment
+// serves the core operations and the tools of the packs it installs (COS_PACKS), so what it serves
+// is `forPacks(file, installed)`, exactly (ADR 0420 and ADR 0422, amended 2026-11-21).
+
+/** The pack (or extension) an operation's name says it belongs to: `x.<id>.<tool>`, else none. */
+export function packOf(name: string): string | undefined {
+  const [first, id] = name.split(".");
+  return first === "x" && id ? id : undefined;
+}
+
+/**
+ * `file` with each operation of a carried pack named with its `pack`. Throws for an `x.*`
+ * operation whose extension is not one of `packs`: the release's files name packs only.
+ */
+export function withPacks<T extends { operations: { name: string }[] }>(
+  file: T,
+  packs: readonly string[],
+): T {
+  return {
+    ...file,
+    operations: file.operations.map((op) => {
+      const pack = packOf(op.name);
+      if (!pack) return op;
+      if (!packs.includes(pack)) {
+        throw new Error(`${op.name} is a tool of ${pack}, which is not a pack the release carries`);
+      }
+      return { ...op, pack };
+    }),
+  };
+}
+
+/**
+ * What a deployment that installs `installed` serves of a release's file: the core operations
+ * and the installed packs' tools, without the `pack` names (a deployment's manifest has none).
+ */
+export function forPacks<T extends { operations: { name: string; pack?: string }[] }>(
+  file: T,
+  installed: readonly string[],
+): T {
+  return {
+    ...file,
+    operations: file.operations
+      .filter((op) => {
+        const pack = op.pack ?? packOf(op.name);
+        return pack === undefined || installed.includes(pack);
+      })
+      .map(({ pack: _pack, ...op }) => op),
   };
 }

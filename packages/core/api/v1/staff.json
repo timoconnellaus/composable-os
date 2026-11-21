@@ -58235,7 +58235,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "deals"
     },
     {
       "name": "x.leads.convert",
@@ -58329,7 +58330,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "leads"
     },
     {
       "name": "x.leads.disqualify",
@@ -58386,7 +58388,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "leads"
     },
     {
       "name": "x.programs.assign",
@@ -58461,7 +58464,8 @@
         "x.programs.progress",
         "x.programs.sessionGet",
         "x.programs.today"
-      ]
+      ],
+      "pack": "programs"
     },
     {
       "name": "x.programs.classToday",
@@ -58703,7 +58707,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.history",
@@ -58945,7 +58950,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.logAdd",
@@ -59164,7 +59170,8 @@
         "x.programs.progress",
         "x.programs.sessionGet",
         "x.programs.today"
-      ]
+      ],
+      "pack": "programs"
     },
     {
       "name": "x.programs.logUpdate",
@@ -59361,7 +59368,8 @@
         "x.programs.progress",
         "x.programs.sessionGet",
         "x.programs.today"
-      ]
+      ],
+      "pack": "programs"
     },
     {
       "name": "x.programs.progress",
@@ -59513,7 +59521,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.sessionComplete",
@@ -59664,7 +59673,8 @@
         "x.programs.progress",
         "x.programs.sessionGet",
         "x.programs.today"
-      ]
+      ],
+      "pack": "programs"
     },
     {
       "name": "x.programs.sessionGet",
@@ -60033,7 +60043,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.programs.today",
@@ -60273,7 +60284,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.ticketing.checkIn",
@@ -60469,7 +60481,8 @@
       },
       "invalidates": [
         "x.ticketing.salesSummary"
-      ]
+      ],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.salesSummary",
@@ -60605,7 +60618,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.undoCheckIn",
@@ -60749,7 +60763,8 @@
       },
       "invalidates": [
         "x.ticketing.salesSummary"
-      ]
+      ],
+      "pack": "ticketing"
     }
   ]
 }

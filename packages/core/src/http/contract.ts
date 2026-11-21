@@ -29,6 +29,11 @@ export interface ContractOperation {
   output: JsonSchema;
   /** For a mutation: the operations whose query results it makes stale. */
   invalidates: string[];
+  /**
+   * In a release's committed files only: the pack whose tool it is (`withPacks`). A deployment's
+   * own manifest names none: it serves the packs it installed (`forPacks`).
+   */
+  pack?: string;
 }
 
 export interface ApiContract {

@@ -39,3 +39,30 @@ files, a pack not listed left out, an empty list empty, a missing pack refused.
   Nothing is installed anywhere yet, so no deployment sees it.
 - `skills/` and `AGENTS.md` point at `packs/<id>/` and tell an author to list a new pack in the
   product.
+
+## Amended 2026-11-21 (client releases and environments): a release carries every pack
+"Only the listed packs are built in" is replaced. The only release product is the CRM, and a client
+product that names the CRM release and lists `ticketing` got a host with no Ticketing: the runner
+had only the CRM's packs, and dropped the unknown one without a word.
+- **A release carries every pack in the repository** (`releasePacks`, every `packs/<id>/` with a
+  package.json): the runner bundles all of them (`SHIPPED_EXTENSIONS`), and the client kit's
+  `packs.json` lists the same ids. A pack added to `packs/` is in the next release.
+- **Which packs a deployment installs stays a deploy-time choice** (`COS_PACKS`). `*`, the default,
+  now means the release product's own packs (`PRODUCT_PACKS`, generated from the product the build
+  is for), so a CRM deployment installs exactly the CRM's three packs, as before, and none of
+  Ticketing's until a deploy names it. Checked: the CRM's three packs' sources under `*` are
+  identical before and after (the generated `shipped.ts` compared), and
+  `apps/runner/test/ticketing.test.ts` still finds no Ticketing object or tool on a CRM host before
+  it is installed.
+- **A named pack the release does not carry is never dropped:** `listedPacks` throws
+  `UnknownPackError`, so nothing is installed from that list; the runner logs it when an isolate
+  starts and its `ping` fails with it, so cos-app's `/api/health` is degraded (503) with the reason.
+  `apps/runner/test/shipped-list.test.ts`.
+- **The API contract is the union, with each tool's pack named.** `open-operations.json` and
+  `api/v1/<audience>.json` hold the core operations and every carried pack's tools, each of those
+  with `pack: "<id>"`. A deployment serves `forPacks(file, installed)`: the core operations and the
+  installed packs' tools (`packages/core/src/audiences.ts`). The generator tests read every pack
+  under `packs/` (`packages/core/test/release-packs.ts`) instead of a list, and the tests that
+  skipped `x.*` when comparing a deployment with the files now compare with `forPacks`. The client
+  generator types a client repo's packs with it.
+- The runner's main module with four packs: see `apps/runner/scripts/bundle-budget.mjs`.

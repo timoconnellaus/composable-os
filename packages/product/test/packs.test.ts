@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { product as crm } from "../../../products/crm/product.ts";
 import { defineProduct } from "../src/index.ts";
-import { productPacks } from "../src/packs.ts";
+import { productPacks, releasePacks, repositoryPackIds } from "../src/packs.ts";
 
 const root = join(import.meta.dirname, "..", "..", "..");
 const withPacks = (packs: string[]) => defineProduct({ ...crm, id: "fixture", packs });
@@ -42,6 +42,16 @@ describe("productPacks", () => {
 
   it("is empty for a product with no packs: a host with base records only", () => {
     expect(productPacks(withPacks([]), root)).toEqual([]);
+  });
+
+  it("a release carries every pack in the repository, the product's among them", () => {
+    const carried = releasePacks(root);
+    expect(carried.map((p) => p.id)).toEqual(repositoryPackIds(root));
+    expect(carried.map((p) => p.id)).toEqual(expect.arrayContaining(["ticketing", ...crm.packs]));
+    // The product's packs, read as a release reads them, are the same sources.
+    for (const pack of productPacks(crm, root)) {
+      expect(carried.find((p) => p.id === pack.id)).toEqual(pack);
+    }
   });
 
   it("refuses a pack that does not exist", () => {

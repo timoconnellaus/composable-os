@@ -79,6 +79,11 @@ export interface FixtureOptions {
   aiGateway?: false;
   /** The client kit (stage 24): path inside `client/` → text. */
   client?: Record<string, string>;
+  /**
+   * Also carry gatekeepers shaped like the real email-send and payments ones (ADR 0452): plain
+   * settings, a send_email binding, optional secrets.
+   */
+  clientGatekeepers?: boolean;
 }
 
 /** The AI Gateway set-up fixture releases carry (the shape of apps/app/deploy-inputs.json). */
@@ -260,6 +265,46 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     dependsOn: [],
   });
 
+  const extra: (typeof gatekeeper)[] = [];
+  if (options.clientGatekeepers) {
+    const shaped = async (
+      short: string,
+      bindings: (typeof gatekeeper)["bindings"],
+      secrets: (typeof gatekeeper)["secrets"],
+    ) =>
+      finish({
+        ...gatekeeper,
+        name: `demo-gatekeeper-${short}`,
+        package: `packages/gatekeeper-${short}`,
+        shortName: short,
+        modules: [await add(`${short}.js`, `export default {} // ${short}`)],
+        mainModule: `${short}.js`,
+        bindings,
+        secrets,
+      });
+    extra.push(
+      await shaped(
+        "email-send",
+        [
+          { type: "send_email", name: "EMAIL" },
+          { type: "plain_text", name: "ALLOWED_SENDER_DOMAINS", text: "" },
+          { type: "plain_text", name: "INTERNAL_DOMAINS", text: "" },
+        ],
+        [],
+      ),
+      await shaped(
+        "payments",
+        [
+          { type: "plain_text", name: "BASE_URL", text: "https://$HOSTNAME/gatekeeper/payments" },
+          { type: "plain_text", name: "PAYMENTS_FAKE_PROVIDER", text: "false" },
+          { type: "plain_text", name: "STRIPE_ACCOUNT", text: "" },
+          { type: "secret_text", name: "STRIPE_SECRET_KEY", text: "$SECRET(STRIPE_SECRET_KEY)" },
+        ],
+        [{ name: "STRIPE_SECRET_KEY", required: false, source: "user", description: "Stripe key" }],
+      ),
+    );
+  }
+
   const migrationSql = new Map<string, string>([...BASE_MIGRATIONS, ...(options.migrations ?? [])]);
   const migrations = [];
   for (const [name, sql] of [...migrationSql].sort(([a], [b]) => a.localeCompare(b))) {
@@ -278,7 +323,7 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     extensionContract: contract,
     coreSchemaVersion: Number(migrations.at(-1)?.name.slice(0, 4) ?? 0),
     migrations,
-    workers: [app, runner, gatekeeper],
+    workers: [app, runner, gatekeeper, ...extra],
     resources: [
       {
         type: "d1",
