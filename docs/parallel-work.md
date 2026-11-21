@@ -26,7 +26,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | O | 0380–0389 | 0400–0409 | Stage 20, Move in (migration 0380 used: the view rename; ADRs 0400–0405 used by the design) | in flight |
 | P | — | — | Stage 21, Extension skills (no migrations; ADR 0405 from block O) | specced |
 | Q | 0400–0409 | 0410–0414 | Stage 22, Customers and audiences (ADR 0402 amended as built; ADRs 0410–0414 used; migrations 0400 on) | in flight |
-| R | 0410–0419 | 0415–0419 | Stage 23, HTTP surface and typed client (ADR 0403 amended as built) | in flight |
+| R | 0410–0419 | 0415–0419 | Stage 23, HTTP surface and typed client (migrations 0410–0411 used; ADRs 0415–0419 used, ADR 0403 amended as built) | in flight |
 | S | — | 0420–0424 | Stage 24, Client apps (no migrations; ADR 0401 amended as built) | specced |
 | T | 0420–0439 | 0425–0429 | Stage 25, States, orders and payments | specced |
 | U | 0440–0449 | 0430–0434 | Stage 26, Capacity and holds | specced |
@@ -48,7 +48,7 @@ Avoid these unless your build is the one named, because another build is changin
 | `person.erase`, `organisation.erase`, `records/erase.ts`, `assistant/erase.ts`, sync ingest's suppression check | Erase completeness |
 | `packages/core/src/visibility/`, `audiences` on operations, `invoke()`'s audience check, customer and public principals | Stage 22 |
 | Visibility and permissions anywhere | Stage 14, once it starts |
-| `packages/core/src/http/`, `apps/app/src/server/http/`, `/api/v1/*`, `core_idempotency_*` | Stage 23 |
+| `packages/core/src/http/`, `packages/client*`, `apps/app/src/server/http/`, `/api/v<n>/*`, `core_idempotency_*`, `core_device_session` | Stage 23 |
 | `packages/agent-*`, `apps/app/src/server/assistant/`, the assistant UI (sidebar, `/assistant`, settings pages for memory, routines, agents, plugins and voice) | Stage 17 |
 
 Remove a row when its build merges.

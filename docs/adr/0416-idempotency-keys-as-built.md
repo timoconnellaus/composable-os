@@ -50,8 +50,18 @@ operation computes after its commit, or to a call that fails.
   handlers would run and one batch would fail, which is safe but not what the spec says.
 
 ## Consequences
-- A write over HTTP costs more D1 work than the same write elsewhere: the claim and its release
-  (two writes), the key row in the write's batch, and three small reads by primary key. Reads
-  cost nothing more.
+- **What a key costs** (amended 2026-11-21; asserted by "what a key costs" in
+  `packages/core/test/http-idempotency.test.ts`, which counts D1 statements and round trips): a
+  write over HTTP whose reply is known at commit costs **one more round trip and three more
+  statements** than the same write through `invoke()`. The round trip is the claim: one insert
+  guarded by the key's absence, which also takes over a stale claim. The other two statements,
+  the key row and the claim's release, ride in the write's own batch. A reply computed after the
+  commit adds two round trips (the fill-in and the release); a replay is the claim attempt and one
+  read. Reads cost nothing more.
+- **Stored replies and erasure** (amended 2026-11-21): a stored reply can hold personal data for
+  up to 24 hours, so erasing a person (ADR 0320) deletes, in the erase's batch, every key of
+  their customer account and any stored reply that mentions them (the erase's own mention rule,
+  over the reply text), a staff write about them included. The 24-hour purge alone was not
+  enough: an erase must leave nothing behind at once.
 - Other surfaces are unchanged: server functions, MCP and host modules take no key.
 - The typed client (step 3) creates a key per mutation and keeps it across retries.

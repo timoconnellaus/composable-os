@@ -63,10 +63,23 @@ envelope uses.
   the answer, so the surface cannot be used to map the registry.
 
 ## Consequences
-- The customer sign-in routes (`/api/customer-auth/*`) are not served yet: sending a code needs a
-  decided sender for the email-send gatekeeper call. Until they are, a customer session exists
-  only where something else signed the customer in.
-- Public calls are limited per client address only by Cloudflare rate limiting rules at the
-  edge, which this build does not configure.
-- Native tokens (stage 23 step 5) will be a third credential the adapter reads; the surface does
-  not change.
+- **Public calls are not limited by the host.** A public caller has no account to key on, and
+  the host keeps no client address. A deployment that sells to the public must add a Cloudflare
+  rate limiting rule at the edge (`docs/deploying.md`, "Public calls"):
+  - expression: `(starts_with(http.request.uri.path, "/api/v1/op/") or starts_with(http.request.uri.path, "/api/customer-auth/"))`
+  - counting characteristic: IP (`ip.src`); period 10 seconds; 30 requests; action Block for
+    10 seconds (a JSON client sees 429).
+  Signed-in customers are also limited per account and operation by `CUSTOMER_RATE_LIMIT`.
+- Native tokens (step 5) are a third credential the adapter reads
+  ([ADR 0419](0419-native-sessions-and-customer-sign-in.md)); the surface did not change. The
+  customer sign-in routes are served from step 5 on, as that ADR says.
+
+## Amended 2026-11-21 (review of steps 1 and 2, and steps 3 to 7)
+- The body is read as a stream and abandoned once it passes 1 MB, whatever `content-length`
+  says, so a chunked request cannot make the Worker hold more (`readBounded`).
+- Every `/api/v<n>` path is the surface's: a version not served is answered there
+  ([ADR 0417](0417-the-api-contract-and-versions.md)). The manifest is the caller's audience's
+  contract.
+- The adapter may add routes under the version (`routes`): cos-app's are `/auth/token` and
+  `/auth/refresh`.
+- The origin of a customer's call names the session it came with (`origin.sessionId`).

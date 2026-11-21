@@ -917,8 +917,10 @@ operations over HTTP through one generated package of types and TanStack Query o
 the same package in TanStack Start and in React Native. Calls go through `invoke()` like any other.
 Writes carry idempotency keys.
 
-As built so far (stage 23 steps 1 and 2; ADRs [0415](adr/0415-the-http-surface-as-built.md),
-[0416](adr/0416-idempotency-keys-as-built.md)):
+As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
+[0416](adr/0416-idempotency-keys-as-built.md), [0417](adr/0417-the-api-contract-and-versions.md),
+[0418](adr/0418-the-typed-client-as-built.md),
+[0419](adr/0419-native-sessions-and-customer-sign-in.md)):
 
 - **The surface** is `packages/core/src/http/`: `POST /api/v1/op/<name>` and
   `GET /api/v1/manifest`, over an invoker, framework-free. cos-app serves it from
@@ -932,8 +934,21 @@ As built so far (stage 23 steps 1 and 2; ADRs [0415](adr/0415-the-http-surface-a
 - **Idempotency keys:** every write needs one. The key row commits in the write's own batch
   (the pipeline's `inBatch` hook), a claim makes a second call with the same key wait for the
   first, and the daily cron purges keys after 24 hours.
+  Erasing a person deletes the stored replies that name them. A key costs a write one round trip.
 - Cross-origin calls only from `API_ALLOWED_ORIGINS`; customers are limited per account and
-  operation by `CUSTOMER_RATE_LIMIT`.
+  operation by `CUSTOMER_RATE_LIMIT`. Public calls need a Cloudflare rate limiting rule at the
+  edge (`docs/deploying.md`).
+- **The contract** (`packages/core/src/http/contract.ts`) is the manifest per audience, committed
+  as `packages/core/api/v1/<audience>.json`; a test fails while it and the registry differ. A
+  version below the oldest served answers `upgrade_required`.
+- **The typed client:** `@composable-os/client` is the runtime (no DOM, Node or Workers types).
+  `cos client generate` (`packages/client-gen`) writes a product's `customer.ts` and `staff.ts`
+  from its registry: core operations, its packs' tools and the org's own extensions. A pack may
+  ship a headless entry over it (Deals: `extensions/deals/headless.ts`).
+- **Native apps** exchange a sign-in for tokens at `/api/v1/auth/token` and rotate them at
+  `/api/v1/auth/refresh` (`core_device_session`). Customer sign-in, `/api/customer-auth/*`, is
+  served by cos-app; codes go out through the email connection `customer.settings` names, sent by
+  the host as the system user.
 
 ### Behaviours
 
