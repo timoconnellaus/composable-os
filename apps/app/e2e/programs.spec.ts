@@ -5,7 +5,7 @@
 // Programs is the org's own extension (scripts/dev-setup.mjs), installed by an admin here as a
 // product that lists the pack would have it.
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
-import { unique } from "./helpers.ts";
+import { open, unique } from "./helpers.ts";
 import {
   addFakeResource,
   connectFake,
@@ -168,7 +168,7 @@ test("a client signs in and logs a session", async ({ page, browser, baseURL }) 
     startDate: "2028-02-07",
   });
 
-  // The default policy: an outbound send waits for a person.
+  // The default policy: an ordinary outbound send waits for a person.
   await op(page.request, "policy.update", { preset: "balanced" });
   // The org's outbox sends customers their codes; members of this gym sign up with them.
   const outbox = fakeAddress("codes");
@@ -180,8 +180,25 @@ test("a client signs in and logs a session", async ({ page, browser, baseURL }) 
     emailConnectionId: await connectionId(connection),
   });
   try {
+    // A code that would wait for review is never sent (ADR 0456): the admin lets the host's
+    // sign-in mail go out without review on Settings → Users, as staff-invite.spec.ts does.
+    await open(page, "/settings/users");
+    const signInMail = page.getByTestId("sign-in-mail");
+    await expect(signInMail).toContainText("Send sign-in codes");
+    if ((await signInMail.getAttribute("data-ready")) !== "true") {
+      await signInMail.getByRole("switch").click();
+      await page
+        .getByRole("alertdialog")
+        .getByRole("button", { name: "Send without review" })
+        .click();
+    }
+    await expect(signInMail).toHaveAttribute("data-ready", "true");
     await memberLogsTheirSession(page, browser, baseURL ?? "", email, outbox, person.id);
   } finally {
+    // Leave sign-in mail reviewed again, and sign-up by invite, for the other specs.
+    await op(page.request, "outbound.setAutoApprove", { tag: "fake.signin", enabled: false }).catch(
+      () => undefined,
+    );
     await op(page.request, "customer.settings.update", { signup: "invite_only" }).catch(
       () => undefined,
     );
@@ -205,19 +222,7 @@ async function memberLogsTheirSession(
     timeout: 60_000,
   });
   expect(asked.status(), await asked.text()).toBe(200);
-  // Under the default policy the code's email waits for a person; an admin approves it.
-  await page.goto("/approvals");
-  const action = page
-    .getByTestId("pending-action")
-    .filter({ has: page.getByTestId("outbound-preview").filter({ hasText: outbox }) });
-  await expect(action).toBeVisible({ timeout: 30_000 });
-  await page
-    .getByTestId("change-set")
-    .filter({ has: action })
-    // Codes asked for close together share a change set ("Approve 2"); approving it sends them.
-    .getByRole("button", { name: /^Approve( \d+)?$/ })
-    .click();
-  await expect(action).toHaveAttribute("data-status", "applied", { timeout: 30_000 });
+  // The code goes straight out, as the host's sign-in mail.
   let code: string | undefined;
   await expect
     .poll(
