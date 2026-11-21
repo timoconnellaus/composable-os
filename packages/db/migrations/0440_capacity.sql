@@ -32,7 +32,9 @@ CREATE TABLE core_capacity (
   CONSTRAINT core_capacity_within_places CHECK (places IS NULL OR held + taken <= places),
   CHECK ((pool_object_type IS NULL) = (pool_record_id IS NULL)),
   CHECK (pool_object_type IS NULL OR NOT (pool_object_type = object_type AND pool_record_id = record_id)),
+  -- A pool deleted for good (its object's table dropped) leaves its records without one.
   FOREIGN KEY (pool_object_type, pool_record_id) REFERENCES core_capacity (object_type, record_id)
+    ON DELETE SET NULL
 ) WITHOUT ROWID;
 CREATE INDEX core_capacity_pool_idx ON core_capacity (pool_object_type, pool_record_id);
 
