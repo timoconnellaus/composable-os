@@ -1,0 +1,11 @@
+{
+  "name": "programs-native-progress",
+  "pack": "programs",
+  "skin": "native",
+  "operations": ["x.programs.progress", "x.programs.history"],
+  "files": ["progress-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

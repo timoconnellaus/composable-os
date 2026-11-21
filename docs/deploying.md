@@ -888,7 +888,7 @@ for.
 
 Behind Access: the staff app (every page), `/sign-in`, `/api/auth/*`, the assistant
 (`/api/assistant/*`), support access (`/support/*`), `/oauth/consent` (where a person signs in for
-MCP), `/connect/handoff`, `/native/staff-sign-in` (a native app's staff sign-in in the system
+MCP), `/connect/handoff`, `/blocks` (development only; nothing there when deployed), `/native/staff-sign-in` (a native app's staff sign-in in the system
 browser), and every other `/gatekeeper/*` route: OAuth callbacks and connect pages open in a staff
 member's browser, which carries the Access cookie.
 

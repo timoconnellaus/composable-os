@@ -208,3 +208,42 @@ data lands in.
   so a coach who is a member publishes. Number fields gained `min`, `max` and `step`, and the log
   uses them (RPE 1 to 10 in halves). Erasing a person deletes their logged sets and keeps their
   assignments and sessions with no person, documents and versions scrubbed inside (ADR 0448).
+
+## As built (steps 4 to 6, 2026-11-21)
+- **The Training dashboard** (`packs/programs/dashboards.ts`): sessions planned and done, sets
+  logged and clients quiet for two weeks as numbers; planned against done and sets by week
+  (weeks start on Monday); the most used exercises; the quiet clients as a table. All read the
+  `rec_*` views over a date range. Its numbers are checked against a fixture worked out by hand
+  (`apps/runner/test/programs-dashboard.test.ts`).
+- **Saved views:** the bank by theme, published programs, active assignments, sessions this week
+  and as a calendar, sets this week. **The Person page:** a Training tab (their logged sets) and
+  Assignments and Sessions panels.
+- **Grants on screen:** Settings > Users' permissions dialog (ADR 0455), which came from main
+  while this was built; this stage's own checkboxes were dropped for it.
+- **`user.me`** (staff, read): the caller's id, name, role, grants and resulting permissions, so a
+  block offers Publish only to an account that holds it. The host still decides.
+- **Hooks** (`@composable-os/pack-programs/client`): the screens' reads and writes, the layout's
+  pure edits (`layoutEdits`: weeks, sessions, blocks, items, levels, prescriptions, sets, notes;
+  copy, move, remove), a host fault mapped to its path, and a working copy that saves itself 0.8 s
+  after the last edit and keeps what the host refused on screen with its fault.
+- **Blocks** (twelve, `packs/programs/blocks/`): web: the program builder, the exercise bank,
+  session, today, class today, progress and history, the coach's client view. Native: session,
+  today, class today, progress, the coach's client view. The native rest timer's end is a prop
+  (`onRestDone`), so the app gives it haptics. The block lint passes for all 27 blocks.
+- **Member-facing names without a second lookup:** a logged set carries `exerciseName`, a session
+  `programTitle` and `classTypeName`, set by the tools when written.
+- **`x.programs.draft { brief }`** (staff): a working copy from a brief, never published. It reads
+  the brief with the `extract` model role, or, with no model configured, by its own reading of the
+  number of weeks, sessions a week and the words it names; it uses only bank exercises. **`x.programs.importText { text }`** (staff):
+  coaches' shorthand (the shape of Ghetto Movement's prototype format: title, guidance, weeks,
+  sessions by weekday, focus, warm-up, blocks with rounds, items with levels, `+` together,
+  `|` alternatives, tempo in brackets, `*` notes for coaches, `TV:` notes for members) into a
+  working copy with structured targets; every line it could not read is listed with its number
+  and why. Both are written as any record is, so the schema still has the last word.
+- **`/blocks` in development:** the app mounts any pack's web block where it sits
+  (`/blocks?block=&component=&props=`), over the host's HTTP surface as whoever the cookie says.
+  The e2e specs drive the builder and today blocks there; Ticketing's blocks can be mounted the
+  same way (ADR 0424, amended).
+- **Changed from the spec:** the tools are `x.programs.draft` and `x.programs.importText`
+  (camelCase, as every tool is). The Person tab shows logged sets; assignments and sessions are
+  its panels, and bests are the progress block's, not the admin's.

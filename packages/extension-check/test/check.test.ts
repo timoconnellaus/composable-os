@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkExtensionDir, locate } from "../src/node/check.ts";
 import { type ExtIo, outsideSummary, rolesSummary, runExt } from "../src/node/cli.ts";
+import { readExtensionFiles } from "../src/node/evaluate.ts";
 import { untested } from "../src/node/test.ts";
 import expected from "./fixtures/expected.json" with { type: "json" };
 
@@ -45,6 +46,19 @@ describe("cos ext check on the broken fixtures", () => {
     const parsed = JSON.parse(out.lines.join("\n")) as { ok: boolean; issues: unknown[] };
     expect(parsed.ok).toBe(false);
     expect(parsed.issues).toHaveLength(expected.stagerule.length);
+  });
+});
+
+describe("what cos ext check reads of a pack", () => {
+  it("the extension's files, as the release bundles them: not client/, blocks/ or tests", () => {
+    const files = Object.keys(readExtensionFiles(shipped("programs")));
+    expect(files).toContain("index.ts");
+    expect(files).toContain("authoring.ts");
+    expect(
+      files.some(
+        (f) => f.startsWith("client/") || f.startsWith("blocks/") || f.startsWith("test/"),
+      ),
+    ).toBe(false);
   });
 });
 

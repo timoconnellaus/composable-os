@@ -15,11 +15,14 @@
 //     current read (ADR 0437).
 // The tools in tools.ts compose the host's operations and add no rules of their own.
 import { defineExtension } from "@composable-os/sdk";
+import { programsDashboards } from "./dashboards.ts";
 import { LAYOUT_SCHEMA, SESSION_PLAN_SCHEMA } from "./layout.ts";
 import {
   assign,
   classToday,
+  draft,
   history,
+  importText,
   logAdd,
   logUpdate,
   progress,
@@ -51,7 +54,7 @@ export default defineExtension({
   permissions: {
     // person.get: the name an assignment is titled with.
     read: ["person"],
-    modules: ["ops"],
+    modules: ["ops", "ai"],
   },
   objects: {
     exercise: {
@@ -302,6 +305,14 @@ export default defineExtension({
         kind,
         person: { type: "relation", label: "Person", to: "person" },
         classType: { type: "relation", label: "Class type", to: "programs.classtype" },
+        programTitle: {
+          type: "text",
+          label: "Program",
+          readOnly: true,
+          description:
+            "The program's title in the assigned version, so a member reads it with the session.",
+        },
+        classTypeName: { type: "text", label: "Class type (name)", readOnly: true },
         date: { type: "date", label: "Date", required: true },
         week: { type: "number", label: "Week", readOnly: true, min: 1, max: 52, step: 1 },
         day: { type: "number", label: "Day of the week", readOnly: true, min: 1, max: 7, step: 1 },
@@ -356,6 +367,8 @@ export default defineExtension({
           "programVersion",
           "kind",
           "classType",
+          "programTitle",
+          "classTypeName",
           "date",
           "week",
           "day",
@@ -375,6 +388,8 @@ export default defineExtension({
           "programVersion",
           "kind",
           "classType",
+          "programTitle",
+          "classTypeName",
           "date",
           "week",
           "day",
@@ -408,6 +423,12 @@ export default defineExtension({
         session: { type: "relation", label: "Session", to: "programs.session", required: true },
         assignment: { type: "relation", label: "Assignment", to: "programs.assignment" },
         exercise: { type: "relation", label: "Exercise", to: "programs.exercise", required: true },
+        exerciseName: {
+          type: "text",
+          label: "Exercise (name)",
+          description:
+            "The exercise's name when the set was logged, so a member reads it with the set.",
+        },
         item: { type: "text", label: "Item", description: "The item's label: A1." },
         setNumber: { type: "number", label: "Set number", min: 1, max: 30, step: 1 },
         level: { type: "number", label: "Level taken", min: 1, max: 5, step: 1 },
@@ -445,6 +466,7 @@ export default defineExtension({
           "session",
           "assignment",
           "exercise",
+          "exerciseName",
           "item",
           "setNumber",
           "level",
@@ -471,6 +493,127 @@ export default defineExtension({
       ],
     },
   },
+  views: {
+    bankByTheme: {
+      label: "Bank by theme",
+      object: "programs.exercise",
+      type: "board",
+      groupBy: "theme",
+      cardFields: ["measure", "level", "equipment"],
+    },
+    programsPublished: {
+      label: "Published programs",
+      object: "programs.program",
+      filter: { field: "publishedVersion", op: "is_not_null" },
+      sort: { field: "publishedAt", direction: "desc" },
+      columns: ["title", "kind", "weekCount", "publishedVersion", "publishedAt"],
+    },
+    activeAssignments: {
+      label: "Active assignments",
+      object: "programs.assignment",
+      filter: { field: "state", op: "eq", value: "active" },
+      sort: { field: "startDate", direction: "desc" },
+      columns: ["title", "kind", "person", "classType", "startDate", "endDate", "sessionCount"],
+    },
+    sessionsThisWeek: {
+      label: "Sessions this week",
+      object: "programs.session",
+      filter: {
+        and: [
+          { field: "date", op: "gte", value: { $relative: "startOfWeek" } },
+          { field: "date", op: "lt", value: { $relative: "startOfNextWeek" } },
+        ],
+      },
+      sort: { field: "date", direction: "asc" },
+      columns: ["name", "date", "kind", "person", "classType", "state"],
+    },
+    sessionsCalendar: {
+      label: "Sessions calendar",
+      object: "programs.session",
+      type: "calendar",
+      dateField: "date",
+      mode: "week",
+      cardFields: ["person", "classType", "state"],
+    },
+    setsThisWeek: {
+      label: "Sets logged this week",
+      object: "programs.log",
+      filter: {
+        and: [
+          { field: "date", op: "gte", value: { $relative: "startOfWeek" } },
+          { field: "date", op: "lt", value: { $relative: "startOfNextWeek" } },
+        ],
+      },
+      sort: { field: "date", direction: "desc" },
+      columns: [
+        "person",
+        "exercise",
+        "label",
+        "level",
+        "targetReps",
+        "actualReps",
+        "targetLoad",
+        "actualLoad",
+        "actualSeconds",
+        "rpe",
+        "recordedAs",
+      ],
+    },
+  },
+  dashboards: programsDashboards,
+  // A client's Person page: their sets (the Training tab), their assignments and their sessions.
+  recordTabs: {
+    personTraining: {
+      label: "Training",
+      on: "person",
+      view: {
+        type: "table",
+        object: "programs.log",
+        relation: "person",
+        columns: [
+          "date",
+          "exercise",
+          "label",
+          "level",
+          "targetReps",
+          "actualReps",
+          "targetLoad",
+          "actualLoad",
+          "actualSeconds",
+          "rpe",
+          "recordedAs",
+        ],
+        sort: { field: "date", direction: "desc" },
+      },
+      order: 40,
+    },
+  },
+  recordPanels: {
+    personAssignments: {
+      label: "Programs",
+      on: "person",
+      view: {
+        type: "table",
+        object: "programs.assignment",
+        relation: "person",
+        columns: ["title", "startDate", "endDate", "state"],
+        sort: { field: "startDate", direction: "desc" },
+      },
+      order: 40,
+    },
+    personSessions: {
+      label: "Sessions",
+      on: "person",
+      view: {
+        type: "table",
+        object: "programs.session",
+        relation: "person",
+        columns: ["name", "date", "state"],
+        sort: { field: "date", direction: "desc" },
+      },
+      order: 41,
+    },
+  },
   tools: {
     assign,
     today,
@@ -481,5 +624,7 @@ export default defineExtension({
     sessionComplete,
     history,
     progress,
+    draft,
+    importText,
   },
 });

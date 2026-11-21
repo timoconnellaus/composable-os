@@ -1,0 +1,11 @@
+{
+  "name": "programs-today",
+  "pack": "programs",
+  "skin": "web",
+  "operations": ["x.programs.today"],
+  "files": ["today.tsx", "LICENSE"],
+  "dependsOn": ["programs-session", "ui-button", "ui-input"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

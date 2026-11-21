@@ -9,6 +9,14 @@
 // what the seam shows them. Called by staff, it uses record.* and names the person.
 import { defineTool, type ExtensionContext, OpsCallError, z } from "@composable-os/sdk";
 import {
+  type BankExercise,
+  type DraftPlan,
+  draftLayout,
+  pickExercises,
+  readBrief,
+  readProgramText,
+} from "./authoring.ts";
+import {
   type Layout,
   type Prescription,
   prescriptions,
@@ -169,6 +177,7 @@ export const assign = defineTool({
     const weeks = layout.weeks.length;
     const endDate = addDays(input.startDate, weeks * 7 - 1);
     const kind = input.personId ? "personal" : "class";
+    const programTitle = text(version.values.title) ?? program.title ?? "Program";
     const forWhom = input.personId
       ? text(
           (
@@ -209,7 +218,7 @@ export const assign = defineTool({
         await ctx.ops.call<RecordShape>("record.create", {
           object: ASSIGNMENT,
           values: {
-            title: `${text(version.values.title) ?? program.title ?? "Program"}${forWhom ? ` for ${forWhom}` : ""}`,
+            title: `${programTitle}${forWhom ? ` for ${forWhom}` : ""}`,
             program: input.programId,
             programVersion: version.version,
             kind,
@@ -253,6 +262,8 @@ export const assign = defineTool({
           key,
           ...(session.focus ? { focus: session.focus } : {}),
           plan: session,
+          programTitle,
+          ...(who.field === "classType" && forWhom ? { classTypeName: forWhom } : {}),
         });
       });
     });
@@ -324,6 +335,7 @@ const loggedSet = z.object({
   note: z.string().nullable(),
   recordedAs: z.string().nullable(),
   recordedByName: z.string().nullable(),
+  exerciseName: z.string().nullable().describe("The exercise's name, as it was when logged"),
 });
 const sessionOut = z.object({
   id: z.string(),
@@ -335,6 +347,8 @@ const sessionOut = z.object({
   classType: z.string().nullable(),
   assignment: z.string().nullable(),
   programVersion: z.number().nullable(),
+  programTitle: z.string().nullable(),
+  classTypeName: z.string().nullable(),
   focus: z.string().nullable(),
   state: z.string().nullable(),
   plan: z
@@ -356,6 +370,8 @@ function sessionOf(record: RecordShape): SessionOut {
     classType: text(v.classType),
     assignment: text(v.assignment),
     programVersion: num(v.programVersion),
+    programTitle: text(v.programTitle),
+    classTypeName: text(v.classTypeName),
     focus: text(v.focus),
     state: text(v.state),
     plan: (v.plan as Record<string, unknown> | null) ?? null,
@@ -376,6 +392,7 @@ function loggedOf(record: RecordShape): z.infer<typeof loggedSet> {
     note: text(v.note),
     recordedAs: text(v.recordedAs),
     recordedByName: text(v.recordedByName),
+    exerciseName: text(v.exerciseName),
   };
 }
 
@@ -667,6 +684,7 @@ export const logAdd = defineTool({
   customerFields: {
     [LOG]: [
       "label",
+      "exerciseName",
       "session",
       "assignment",
       "exercise",
@@ -701,6 +719,7 @@ export const logAdd = defineTool({
       session: input.sessionId,
       assignment: session.assignment,
       exercise: prescription.exercise,
+      exerciseName: text((await get(ctx, EXERCISE, prescription.exercise)).values.name),
       item: input.item,
       setNumber: input.setNumber,
       level,
@@ -978,6 +997,140 @@ export const progress = defineTool({
       }),
       assignments: summaries,
       capped: sets.capped,
+    };
+  },
+});
+
+// --- Drafting and importing (step 6) ---------------------------------------------------------------
+
+/** The bank, as the authoring functions read it. */
+async function bankOf(ctx: ExtensionContext): Promise<BankExercise[]> {
+  const rows = await all(ctx, EXERCISE, undefined, { field: "name", direction: "asc" }, 2000);
+  return rows.items.map((e) => ({
+    id: e.id,
+    name: text(e.values.name) ?? "",
+    measure: text(e.values.measure),
+    theme: text(e.values.theme),
+    level: text(e.values.level),
+  }));
+}
+
+const workingCopy = z.object({
+  programId: z.string(),
+  title: z.string(),
+  weeks: z.number(),
+  sessions: z.number(),
+  published: z.literal(false).describe("Always false: a person publishes it"),
+});
+
+export const draft = defineTool({
+  description:
+    'Draft a program from a brief ("12 weeks of handstand strength, 3 sessions a week") as a ' +
+    "working copy for a coach to edit: weeks of sessions of blocks of exercises taken only from " +
+    "the bank, with default sets. The assistant reads the brief with the extract model role when " +
+    "the deployment has AI, and the numbers and words in it otherwise. It never publishes: a " +
+    "person with the publish permission does, after editing. Returns the new program.",
+  input: z.object({
+    brief: z.string().trim().min(3).max(2000),
+    title: z.string().trim().min(1).max(200).optional(),
+    kind: z.enum(["class", "client", "course"]).default("client"),
+  }),
+  output: workingCopy.extend({
+    exercises: z.array(z.object({ id: z.string(), name: z.string() })),
+  }),
+  risk: "write",
+  async handler(input, ctx) {
+    const bank = await bankOf(ctx);
+    if (!bank.length) {
+      throw new OpsCallError("invalid_input", "The exercise bank is empty: add exercises first");
+    }
+    const floor = readBrief(input.brief);
+    let plan: DraftPlan = floor;
+    try {
+      // A model role, never a model id: the deployment decides which model reads it.
+      const read = await ctx.ai.extract(input.brief, {
+        weeks: "How many weeks the program runs, a whole number",
+        sessionsPerWeek: "How many sessions a week, a whole number from 1 to 7",
+        focus: "The themes, body areas or moves it is about, as a comma-separated list",
+      });
+      const weeks = Number(read.weeks);
+      const perWeek = Number(read.sessionsPerWeek);
+      const focus = typeof read.focus === "string" ? read.focus.toLowerCase().split(/[,;]/) : [];
+      plan = {
+        weeks: Number.isInteger(weeks) && weeks >= 1 && weeks <= 52 ? weeks : floor.weeks,
+        sessionsPerWeek:
+          Number.isInteger(perWeek) && perWeek >= 1 && perWeek <= 7
+            ? perWeek
+            : floor.sessionsPerWeek,
+        focus: [...new Set([...focus.map((f) => f.trim()).filter(Boolean), ...floor.focus])],
+      };
+    } catch {
+      // No AI on this deployment, or it failed: the brief's own numbers and words.
+    }
+    const chosen = pickExercises(bank, plan.focus).slice(0, 12);
+    const layout = draftLayout(plan, chosen);
+    const title = input.title ?? `Draft: ${input.brief.slice(0, 60)}`;
+    const created = await ctx.ops.call<RecordShape>("record.create", {
+      object: PROGRAM,
+      values: {
+        title,
+        kind: input.kind,
+        guidance: `Drafted from the brief: ${input.brief}`.slice(0, 5000),
+        layout,
+      },
+    });
+    return {
+      programId: created.id,
+      title,
+      weeks: layout.weeks.length,
+      sessions: layout.weeks.reduce((n, w) => n + w.sessions.length, 0),
+      published: false as const,
+      exercises: chosen.map((e) => ({ id: e.id, name: e.name })),
+    };
+  },
+});
+
+export const importText = defineTool({
+  description:
+    "Turn pasted program shorthand, or a document's text, into a working copy with structured " +
+    "targets: Title:, Guidance:, Week:, Session: (a weekday names its day), Focus:, Warm-up: " +
+    "with - lines, Block A: with its rounds, items A1: with an exercise (for everyone) or with " +
+    'level lines 1: to 5: ("+" done together, "|" alternatives), * notes for coaches and TV: ' +
+    "notes shown to members. Exercises are matched to the bank by name. Every line it could not " +
+    "read is listed with why, for the coach to fix; nothing is guessed. Never publishes. Returns " +
+    "the new program and the unread lines.",
+  input: z.object({
+    text: z.string().min(1).max(200_000),
+    title: z.string().trim().min(1).max(200).optional(),
+    kind: z.enum(["class", "client", "course"]).default("class"),
+  }),
+  output: workingCopy.extend({
+    items: z.number(),
+    unread: z.array(z.object({ line: z.number(), text: z.string(), reason: z.string() })),
+  }),
+  risk: "write",
+  async handler(input, ctx) {
+    const bank = await bankOf(ctx);
+    const read = readProgramText(input.text, bank);
+    const title = input.title ?? read.title ?? "Imported program";
+    const created = await ctx.ops.call<RecordShape>("record.create", {
+      object: PROGRAM,
+      values: {
+        title,
+        kind: input.kind,
+        ...(read.guidance ? { guidance: read.guidance } : {}),
+        layout: read.layout,
+      },
+    });
+    const sessions = read.layout.weeks.flatMap((w) => w.sessions);
+    return {
+      programId: created.id,
+      title,
+      weeks: read.layout.weeks.length,
+      sessions: sessions.length,
+      items: sessions.reduce((n, s) => n + s.blocks.reduce((m, b) => m + b.items.length, 0), 0),
+      published: false as const,
+      unread: read.unread,
     };
   },
 });

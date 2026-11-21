@@ -1,0 +1,11 @@
+{
+  "name": "programs-native-today",
+  "pack": "programs",
+  "skin": "native",
+  "operations": ["x.programs.today"],
+  "files": ["today-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

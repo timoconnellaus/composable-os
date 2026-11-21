@@ -1,0 +1,11 @@
+{
+  "name": "programs-class-today",
+  "pack": "programs",
+  "skin": "web",
+  "operations": ["x.programs.classToday", "record.list"],
+  "files": ["class-today.tsx", "LICENSE"],
+  "dependsOn": ["programs-session", "ui-input"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

@@ -65,3 +65,12 @@ pack's headless entry from `@composable-os/pack-ticketing/client`. In the reposi
 type-checked by the pack (`blocks/tsconfig.{web,native}.json`, with `rootDirs` joining the pack's
 blocks and the platform's into one folder). A native block that needs the device (camera, QR,
 brightness, haptics) takes it as a prop, so no block depends on a device package.
+
+## Amendment, 2026-11-21 (stage 41): mounting a pack's web blocks in development
+`apps/app` serves `/blocks?block=&component=&props=` in development only (a production build
+mounts nothing and the path needs a sign-in there). It loads the block's file where it sits
+(`packs/<id>/blocks/<block>/`), resolves its sibling base-layer imports to `blocks/` (Vite's
+counterpart of the `rootDirs` above, `apps/app/pack-blocks-plugin.ts`), and passes the pack's
+hooks over a client that calls `/api/v1/op` from the browser as whoever the cookie says: staff,
+a customer or the public. The e2e specs drive Programs' builder and today blocks there; any pack's
+web blocks can be mounted the same way. Native blocks are never mounted.
