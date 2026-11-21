@@ -83,7 +83,8 @@ installed.
 - **A product that adds a pack** in a later deploy gets it installed by the next boot; the others
   are left `unchanged`.
 - **A product that drops a pack** stops listing it, so releases no longer update it, and nothing
-  is deleted: it stays installed and active with its records until a human admin uninstalls it.
+  is deleted: it stays installed and active with its records; an admin may disable it
+  (`extension.disable`), which stops its tools and keeps its records.
 - **Local dev:** `COS_DEV_PACKS=<packs> pnpm dev` gives the local runner that `COS_PACKS`, and
   `scripts/dev-setup.mjs` then does not deliver those packs as org extensions (a pack and an org
   extension may not share an id). Without it, local dev stays the CRM's, with Ticketing, Programs

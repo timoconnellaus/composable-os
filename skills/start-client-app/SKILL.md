@@ -52,7 +52,7 @@ a live host side by side in one account, `environments` in `product.ts`): each i
    work around. Every pack listed is installed on the host at its first boot after the deploy,
    with no admin step, whatever the pack's `optional` says (that is only for the CRM's own
    catalogue); one added later is installed by the next deploy. Removing a pack from the list
-   deletes nothing: it stays installed with its records until a human admin uninstalls it.
+   deletes nothing: it stays installed with its records; an admin may disable it (its records stay).
    - **Gatekeepers** (outbound email, payments) and their settings go in `product.ts`
      (`gatekeepers`, or per environment): `"email-send": { ALLOWED_SENDER_DOMAINS: "…" }`,
      `payments: { STRIPE_ACCOUNT: "…" }`. Secrets never go there: `cos deploy` prints each missing

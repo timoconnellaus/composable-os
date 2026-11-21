@@ -288,8 +288,9 @@ deploy, and on a later deploy that adds it; its objects, tools and public reads 
 admin step. A pack's `optional` (in its `package.json`) applies only to the release product's own
 catalogue (`COS_PACKS` `*`), where an admin chooses: the CRM's lifecycle stage. **A product that
 drops a pack** stops installing and updating it, and deletes nothing: the pack stays installed
-with its records and keeps working at the version it last had, until a human admin uninstalls it
-(Settings → Extensions), which is when its data goes.
+with its records and keeps working at the version it last had. An admin who wants it gone
+disables it (Settings → Extensions, `extension.disable`): its tools stop and its records stay.
+No deploy deletes a pack's data.
 
 **Locally,** `pnpm dev` runs the CRM (`COS_PACKS` `*`), with Ticketing, Programs and Content as
 optional org extensions an admin installs (`extension.install { id, shipped: true }`, as their
