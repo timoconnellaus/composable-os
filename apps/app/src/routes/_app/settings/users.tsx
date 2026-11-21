@@ -165,7 +165,9 @@ function InviteCard() {
           ? `${result.email} is invited. Add them to the Cloudflare Access policy to let them in.`
           : result.invitationEmail === "sent"
             ? `${result.email} is invited and has an email saying how to sign in.`
-            : `${result.email} is invited. No email went out: tell them to sign in with “Email me a code”.`,
+            : result.invitationEmail === "pending"
+              ? `${result.email} is invited. The invite email waits in Approvals; they can sign in with “Email me a code” now.`
+              : `${result.email} is invited. No email went out: tell them to sign in with “Email me a code”.`,
       );
       setEmail("");
       setPermissions([]);
