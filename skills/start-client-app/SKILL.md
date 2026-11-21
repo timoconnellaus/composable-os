@@ -122,6 +122,9 @@ a live host side by side in one account, `environments` in `product.ts`): each i
      Settings → Users choose it as the host's mail connection and turn on "Send sign-in codes
      without review". Until then code requests (customers and staff) answer that sign-in is not
      set up. `cos deploy` does not do this, in any environment;
+   - choose who may sign in as a customer (Settings → Users): only invited people (the default),
+     invited people and anyone who has bought (a business that sells to guests who should see their
+     tickets later), or anyone. `cos deploy` never sets it;
    - invite staff (Settings → Users), with a pack role for a coach at the door;
    - for a custom hostname, `web.hostname` in `product.ts` (or `environments.<name>.web.hostname`)
      and its DNS;

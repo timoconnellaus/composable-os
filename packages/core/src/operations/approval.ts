@@ -63,6 +63,7 @@ import {
   roleHasPermission,
 } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
+import { PUBLISH_OPERATIONS } from "../records/publish.ts";
 
 // --- Schemas -----------------------------------------------------------------------------------
 
@@ -938,6 +939,25 @@ async function approveActions(
         actionId: refund.id,
         permission: "orders:refund",
       });
+    }
+  }
+  // An AI actor's publish request (ADR 0480): only a person approves it, and only a person who
+  // may publish (their role or a grant, ADR 0449). The requester's own authority (a member's
+  // grant, an MCP token's scope) never stands in for the approver's, and no AI actor approves,
+  // not even by relaying the person's words.
+  const publish = targets.find((t) => PUBLISH_OPERATIONS.has(t.operation));
+  if (publish) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A publish is approved by a person, never by an AI actor", {
+        actionId: publish.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "records:publish")) {
+      throw new ForbiddenError(
+        "Approving a publish needs the publish permission (records:publish)",
+        { actionId: publish.id, permission: "records:publish" },
+      );
     }
   }
   const targetIds = new Set(targets.map((t) => t.id));

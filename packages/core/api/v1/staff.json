@@ -18138,9 +18138,10 @@
             "type": "string",
             "enum": [
               "open",
+              "buyers",
               "invite_only"
             ],
-            "description": "open: anyone who verifies an email address gets a customer account. invite_only (the default): a sign-in code is sent only to an address staff invited or that has an account."
+            "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18234,9 +18235,10 @@
             "type": "string",
             "enum": [
               "open",
+              "buyers",
               "invite_only"
             ],
-            "description": "open: anyone who verifies an email address gets a customer account. invite_only (the default): a sign-in code is sent only to an address staff invited or that has an account."
+            "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18266,9 +18268,10 @@
             "type": "string",
             "enum": [
               "open",
+              "buyers",
               "invite_only"
             ],
-            "description": "open: anyone who verifies an email address gets a customer account. invite_only (the default): a sign-in code is sent only to an address staff invited or that has an account."
+            "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18296,9 +18299,10 @@
                 "type": "string",
                 "enum": [
                   "open",
+                  "buyers",
                   "invite_only"
                 ],
-                "description": "open: anyone who verifies an email address gets a customer account. invite_only (the default): a sign-in code is sent only to an address staff invited or that has an account."
+                "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
               },
               "eraseDueDays": {
                 "type": "integer",
@@ -41127,7 +41131,7 @@
     },
     {
       "name": "record.cancelSchedule",
-      "description": "Drop the scheduled publish of a record of a publishable object. What is live stays live. Not found when nothing is scheduled.",
+      "description": "Drop the scheduled publish of a record of a publishable object. What is live stays live. Not found when nothing is scheduled. A person with the publish permission does it at once. An AI assistant, MCP client, automation or extension may call it too: then it never happens at once, under any approval policy. It waits for a person with the publish permission to approve it (the result says it is pending), and is refused on approval if the record changed since it was asked for. The account it acts for must hold the publish permission to ask.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -42180,7 +42184,7 @@
     },
     {
       "name": "record.publish",
-      "description": "Publish a record of a publishable object (see schema.objects): its content fields as they are now become its next version, and the version readers are given. Editing the record afterwards changes no version until it is published again; what follows a version (a program's assignments) keeps the one it pinned. Only a person with the publish permission can do this, never an AI assistant: draft the changes and ask a person to publish. Returns the new version.",
+      "description": "Publish a record of a publishable object (see schema.objects): its content fields as they are now become its next version, and the version readers are given. Editing the record afterwards changes no version until it is published again; what follows a version (a program's assignments) keeps the one it pinned. A person with the publish permission does it at once. An AI assistant, MCP client, automation or extension may call it too: then it never happens at once, under any approval policy. It waits for a person with the publish permission to approve it (the result says it is pending), and is refused on approval if the record changed since it was asked for. The account it acts for must hold the publish permission to ask. Returns the new version.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -42230,7 +42234,21 @@
             "type": "string"
           },
           "publishedBy": {
-            "description": "The staff user who published it",
+            "description": "The person who published it: for an approved request, the approver",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestedBy": {
+            "description": "For an approved request: the staff user the AI actor asked for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestedVia": {
+            "description": "For an approved request: the actor that asked (assistant, mcp, ...)",
             "type": [
               "string",
               "null"
@@ -42253,6 +42271,8 @@
           "current",
           "publishedAt",
           "publishedBy",
+          "requestedBy",
+          "requestedVia",
           "note",
           "bytes"
         ],
@@ -42533,7 +42553,7 @@
     },
     {
       "name": "record.schedulePublish",
-      "description": "Schedule a record of a publishable object to be published at a time: its content fields as they are now are what goes live then (a later edit waits for the next publish). Replaces any earlier schedule; publishing now or unpublishing drops it. Only a person with the publish permission can do this, never an AI assistant. Returns the schedule.",
+      "description": "Schedule a record of a publishable object to be published at a time: its content fields as they are now are what goes live then (a later edit waits for the next publish). Replaces any earlier schedule; publishing now or unpublishing drops it. A person with the publish permission does it at once. An AI assistant, MCP client, automation or extension may call it too: then it never happens at once, under any approval policy. It waits for a person with the publish permission to approve it (the result says it is pending), and is refused on approval if the record changed since it was asked for. The account it acts for must hold the publish permission to ask. Returns the schedule.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -42582,7 +42602,22 @@
             "description": "When it goes live (ISO-8601 UTC)"
           },
           "scheduledBy": {
-            "type": "string"
+            "type": "string",
+            "description": "The person: for an approved request, the approver"
+          },
+          "requestedBy": {
+            "description": "For an approved request: who the AI asked for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestedVia": {
+            "description": "For an approved request: the actor that asked",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "note": {
             "type": [
@@ -42599,6 +42634,8 @@
         "required": [
           "publishAt",
           "scheduledBy",
+          "requestedBy",
+          "requestedVia",
           "note",
           "bytes"
         ],
@@ -42783,7 +42820,7 @@
     },
     {
       "name": "record.unpublish",
-      "description": "Unpublish a record of a publishable object: the public no longer reads it (it answers as a record that does not exist) and any scheduled publish is dropped. Its versions are kept and it can be published again. Only a person with the publish permission can do this.",
+      "description": "Unpublish a record of a publishable object: the public no longer reads it (it answers as a record that does not exist) and any scheduled publish is dropped. Its versions are kept and it can be published again. A person with the publish permission does it at once. An AI assistant, MCP client, automation or extension may call it too: then it never happens at once, under any approval policy. It waits for a person with the publish permission to approve it (the result says it is pending), and is refused on approval if the record changed since it was asked for. The account it acts for must hold the publish permission to ask.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -42991,7 +43028,21 @@
             "type": "string"
           },
           "publishedBy": {
-            "description": "The staff user who published it",
+            "description": "The person who published it: for an approved request, the approver",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestedBy": {
+            "description": "For an approved request: the staff user the AI actor asked for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestedVia": {
+            "description": "For an approved request: the actor that asked (assistant, mcp, ...)",
             "type": [
               "string",
               "null"
@@ -43021,6 +43072,8 @@
           "current",
           "publishedAt",
           "publishedBy",
+          "requestedBy",
+          "requestedVia",
           "note",
           "bytes",
           "values"
@@ -43031,7 +43084,7 @@
     },
     {
       "name": "record.versions",
-      "description": "The published versions of a record of a publishable object, newest first: number, when, who, the note, size, and which one is current (what readers are given). Read one with record.version. Read-only.",
+      "description": "The published versions of a record of a publishable object, newest first: number, when, who published it (for an approved request, the approver, and who asked, and how), the note, size, and which one is current (what readers are given). Read one with record.version. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -43086,7 +43139,21 @@
                   "type": "string"
                 },
                 "publishedBy": {
-                  "description": "The staff user who published it",
+                  "description": "The person who published it: for an approved request, the approver",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "requestedBy": {
+                  "description": "For an approved request: the staff user the AI actor asked for",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "requestedVia": {
+                  "description": "For an approved request: the actor that asked (assistant, mcp, ...)",
                   "type": [
                     "string",
                     "null"
@@ -43109,6 +43176,8 @@
                 "current",
                 "publishedAt",
                 "publishedBy",
+                "requestedBy",
+                "requestedVia",
                 "note",
                 "bytes"
               ],

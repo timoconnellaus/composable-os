@@ -1,10 +1,10 @@
 // Versions of a publishable record's content (stage 41, ADR 0446; completed by stage 28, ADR
 // 0441), and creating many records of one object in one batch (stage 41, ADR 0448).
 //
-//   record.publish         a person with records:publish  snapshot the working copy as a version
-//   record.schedulePublish a person with records:publish  snapshot it now, publish it at a time
-//   record.cancelSchedule  a person with records:publish  drop a scheduled publish
-//   record.unpublish       a person with records:publish  no version is read; versions are kept
+//   record.publish         records:publish; an AI asks   snapshot the working copy as a version
+//   record.schedulePublish records:publish; an AI asks   snapshot it now, publish it at a time
+//   record.cancelSchedule  records:publish; an AI asks   drop a scheduled publish
+//   record.unpublish       records:publish; an AI asks   no version is read; versions are kept
 //   record.publishDue      the minute cron (automation)   publish what a person scheduled, when due
 //   record.versions        staff                          the versions, newest first
 //   record.version         staff                          one version's content (default: current)
@@ -19,6 +19,14 @@
 // operations/content.ts). Restoring is an ordinary write to the working copy, through
 // record.update's own code. A record's state (draft, scheduled, published, unpublished) is read
 // from its versions and its schedule, never kept beside them.
+//
+// A person with records:publish publishes at once. An AI actor (the assistant, an MCP client, an
+// automation, an extension) may ask for any of the four publish operations, and its request
+// always waits for a person (`alwaysReview`, ADR 0480): no policy, preset, floor, agent grant or
+// adjudicator lets it through. The account it acts for must hold records:publish to ask; the
+// person who approves must hold it too, and be a person (operations/approval.ts). The request
+// shows what would go live against what is live, and applies only while the working copy is
+// exactly what was asked for.
 import { sql } from "kysely";
 import { z } from "zod";
 import { NotFoundError, ValidationError } from "../errors.ts";
@@ -26,11 +34,18 @@ import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import {
+  ALWAYS_REVIEWED_PUBLISHERS,
+  assertAskedFor,
   clearScheduleWrite,
   currentVersion,
+  DRAFT_KEY,
+  draftFingerprint,
   dueSchedules,
+  liveContent,
   nextVersion,
   type PublishableObject,
+  publishDiff,
+  publisherOf,
   publishWrites,
   scheduleOf,
   scheduleWrite,
@@ -62,10 +77,29 @@ const versionSummary = z.object({
   version: z.number().int(),
   current: z.boolean().describe("The version readers are given"),
   publishedAt: z.string(),
-  publishedBy: z.string().nullable().describe("The staff user who published it"),
+  publishedBy: z
+    .string()
+    .nullable()
+    .describe("The person who published it: for an approved request, the approver"),
+  requestedBy: z
+    .string()
+    .nullable()
+    .describe("For an approved request: the staff user the AI actor asked for"),
+  requestedVia: z
+    .string()
+    .nullable()
+    .describe("For an approved request: the actor that asked (assistant, mcp, ...)"),
   note: z.string().nullable(),
   bytes: z.number().int(),
 });
+
+/** What a publish request's description says, for the model. */
+const ASKS =
+  "A person with the publish permission does it at once. An AI assistant, MCP client, " +
+  "automation or extension may call it too: then it never happens at once, under any approval " +
+  "policy. It waits for a person with the publish permission to approve it (the result says " +
+  "it is pending), and is refused on approval if the record changed since it was asked for. " +
+  "The account it acts for must hold the publish permission to ask.";
 
 function requirePublishable(name: string): PublishableObject {
   const object = requireExtensionObject(name);
@@ -83,6 +117,22 @@ async function requireRecord(ctx: HandlerContext, object: ObjectDefinition, id: 
   return record;
 }
 
+/**
+ * Asking for a publish while the same session's earlier changes to the record still wait for a
+ * person: the request would be judged against a working copy that is not yet there. Refused, so
+ * the request is asked for once those are decided (only reached in the approval queue's dry run).
+ */
+function refuseOverPending(ctx: HandlerContext, object: PublishableObject, id: string): void {
+  const pending = ctx.simulation?.record(object.name, id);
+  if (pending) {
+    throw new ValidationError(
+      `This ${object.label.toLowerCase()} has changes still waiting for a person's approval ` +
+        `(${pending.actionId}). Ask for the publish once they are approved or rejected.`,
+      { reason: "pending_changes", actionId: pending.actionId },
+    );
+  }
+}
+
 interface VersionRow {
   version: number;
   current: number;
@@ -90,6 +140,8 @@ interface VersionRow {
   bytes: number;
   published_at: string;
   published_by: string | null;
+  requested_by: string | null;
+  requested_via: string | null;
   note: string | null;
 }
 
@@ -98,6 +150,8 @@ const summaryOf = (row: VersionRow) => ({
   current: Number(row.current) === 1,
   publishedAt: row.published_at,
   publishedBy: row.published_by,
+  requestedBy: row.requested_by,
+  requestedVia: row.requested_via,
   note: row.note,
   bytes: Number(row.bytes),
 });
@@ -108,9 +162,7 @@ export const recordPublish = defineOperation({
     "Publish a record of a publishable object (see schema.objects): its content fields as they " +
     "are now become its next version, and the version readers are given. Editing the record " +
     "afterwards changes no version until it is published again; what follows a version (a " +
-    "program's assignments) keeps the one it pinned. Only a person with the publish permission " +
-    "can do this, never an AI assistant: draft the changes and ask a person to publish. Returns " +
-    "the new version.",
+    `program's assignments) keeps the one it pinned. ${ASKS} Returns the new version.`,
   input: z.object({
     object: objectName,
     id: recordId,
@@ -119,39 +171,54 @@ export const recordPublish = defineOperation({
   output: versionSummary,
   permission: "records:publish",
   risk: "write",
-  actors: ["human"],
-  mcp: { expose: false },
+  alwaysReview: ALWAYS_REVIEWED_PUBLISHERS,
+  mcp: { title: "Publish a record (a person approves an AI's request)" },
   async handler(input, ctx) {
     const object = requirePublishable(input.object);
+    refuseOverPending(ctx, object, input.id);
     const record = await requireRecord(ctx, object, input.id);
+    const fingerprint = await draftFingerprint(object, record);
+    const live = await liveContent(ctx, object.name, input.id);
+    const before = {
+      publishedVersion: live?.version ?? null,
+      publishAt: record.values.publishAt ?? null,
+    };
+    assertAskedFor(ctx, object.name, input.id, { ...before, [DRAFT_KEY]: fingerprint });
     const snapshot = snapshotOf(object, record, ctx.now);
+    const version = await nextVersion(ctx, object.name, input.id);
     // An empty date is the day it goes live, in the working copy too (ADR 0441).
     if (Object.keys(snapshot.fill).length) await updateRecord(ctx, object, input.id, snapshot.fill);
-    const version = await nextVersion(ctx, object.name, input.id);
-    const note = input.note ?? null;
-    // Racing publishes take the same number: the second batch fails on the key, as a conflict.
-    ctx.write(
-      ...publishWrites(object, input.id, version, snapshot, {
-        at: ctx.now,
-        user: ctx.user.id,
-        note,
-      }),
-    );
     ctx.recordChange({
       object: object.name,
       id: input.id,
       action: "update",
-      before: {
-        publishedVersion: record.values.publishedVersion ?? null,
-        publishAt: record.values.publishAt ?? null,
-      },
-      after: { publishedVersion: version, publishAt: null },
+      before: { ...before, [DRAFT_KEY]: fingerprint },
+      diff: publishDiff(object, live?.content ?? null, record, fingerprint, {
+        publishedVersion: { before: before.publishedVersion, after: version },
+        ...(before.publishAt === null
+          ? {}
+          : { publishAt: { before: before.publishAt, after: null } }),
+      }),
     });
+    const note = input.note ?? null;
+    const by = publisherOf(ctx);
+    // Racing publishes take the same number: the second batch fails on the key, as a conflict.
+    ctx.write(
+      ...publishWrites(object, input.id, version, snapshot, {
+        at: ctx.now,
+        user: by.user,
+        note,
+        requestedBy: by.requestedBy,
+        requestedVia: by.requestedVia,
+      }),
+    );
     return {
       version,
       current: true,
       publishedAt: ctx.now,
-      publishedBy: ctx.user.id,
+      publishedBy: by.user,
+      requestedBy: by.requestedBy,
+      requestedVia: by.requestedVia,
       note,
       bytes: snapshot.bytes,
     };
@@ -165,7 +232,9 @@ export const PUBLISH_DUE_BATCH = 20;
 
 const scheduleSummary = z.object({
   publishAt: z.string().describe("When it goes live (ISO-8601 UTC)"),
-  scheduledBy: z.string(),
+  scheduledBy: z.string().describe("The person: for an approved request, the approver"),
+  requestedBy: z.string().nullable().describe("For an approved request: who the AI asked for"),
+  requestedVia: z.string().nullable().describe("For an approved request: the actor that asked"),
   note: z.string().nullable(),
   bytes: z.number().int(),
 });
@@ -175,8 +244,8 @@ export const recordSchedulePublish = defineOperation({
   description:
     "Schedule a record of a publishable object to be published at a time: its content fields " +
     "as they are now are what goes live then (a later edit waits for the next publish). " +
-    "Replaces any earlier schedule; publishing now or unpublishing drops it. Only a person with " +
-    "the publish permission can do this, never an AI assistant. Returns the schedule.",
+    `Replaces any earlier schedule; publishing now or unpublishing drops it. ${ASKS} Returns ` +
+    "the schedule.",
   input: z.object({
     object: objectName,
     id: recordId,
@@ -186,8 +255,8 @@ export const recordSchedulePublish = defineOperation({
   output: scheduleSummary,
   permission: "records:publish",
   risk: "write",
-  actors: ["human"],
-  mcp: { expose: false },
+  alwaysReview: ALWAYS_REVIEWED_PUBLISHERS,
+  mcp: { title: "Schedule a publish (a person approves an AI's request)" },
   async handler(input, ctx) {
     const object = requirePublishable(input.object);
     const at = new Date(input.at);
@@ -202,26 +271,43 @@ export const recordSchedulePublish = defineOperation({
         field: "at",
       });
     }
+    refuseOverPending(ctx, object, input.id);
     const record = await requireRecord(ctx, object, input.id);
+    const fingerprint = await draftFingerprint(object, record);
+    const live = await liveContent(ctx, object.name, input.id);
+    const before = record.values.publishAt ?? null;
+    assertAskedFor(ctx, object.name, input.id, { publishAt: before, [DRAFT_KEY]: fingerprint });
     const publishAt = at.toISOString();
     const snapshot = snapshotOf(object, record, publishAt);
     if (Object.keys(snapshot.fill).length) await updateRecord(ctx, object, input.id, snapshot.fill);
-    const note = input.note ?? null;
-    ctx.write(
-      scheduleWrite(object.name, input.id, publishAt, snapshot, {
-        now: ctx.now,
-        user: ctx.user.id,
-        note,
-      }),
-    );
     ctx.recordChange({
       object: object.name,
       id: input.id,
       action: "update",
-      before: { publishAt: record.values.publishAt ?? null },
-      after: { publishAt },
+      before: { publishAt: before, [DRAFT_KEY]: fingerprint },
+      diff: publishDiff(object, live?.content ?? null, record, fingerprint, {
+        publishAt: { before, after: publishAt },
+      }),
     });
-    return { publishAt, scheduledBy: ctx.user.id, note, bytes: snapshot.bytes };
+    const note = input.note ?? null;
+    const by = publisherOf(ctx);
+    ctx.write(
+      scheduleWrite(object.name, input.id, publishAt, snapshot, {
+        now: ctx.now,
+        user: by.user,
+        note,
+        requestedBy: by.requestedBy,
+        requestedVia: by.requestedVia,
+      }),
+    );
+    return {
+      publishAt,
+      scheduledBy: by.user,
+      requestedBy: by.requestedBy,
+      requestedVia: by.requestedVia,
+      note,
+      bytes: snapshot.bytes,
+    };
   },
 });
 
@@ -229,19 +315,20 @@ export const recordCancelSchedule = defineOperation({
   name: "record.cancelSchedule",
   description:
     "Drop the scheduled publish of a record of a publishable object. What is live stays live. " +
-    "Not found when nothing is scheduled.",
+    `Not found when nothing is scheduled. ${ASKS}`,
   input: z.object({ object: objectName, id: recordId }),
   output: z.object({ cancelled: z.string().describe("The time it was scheduled for") }),
   permission: "records:publish",
   risk: "write",
-  actors: ["human"],
-  mcp: { expose: false },
+  alwaysReview: ALWAYS_REVIEWED_PUBLISHERS,
+  mcp: { title: "Cancel a scheduled publish (a person approves an AI's request)" },
   async handler(input, ctx) {
     const object = requirePublishable(input.object);
     await requireRecord(ctx, object, input.id);
     const schedule = await scheduleOf(ctx, object.name, input.id);
     if (!schedule) throw new NotFoundError(`${object.name} schedule`, input.id);
     ctx.write(clearScheduleWrite(object.name, input.id));
+    // The schedule's time is compared on approval: one changed since is a conflict.
     ctx.recordChange({
       object: object.name,
       id: input.id,
@@ -258,13 +345,13 @@ export const recordUnpublish = defineOperation({
   description:
     "Unpublish a record of a publishable object: the public no longer reads it (it answers as " +
     "a record that does not exist) and any scheduled publish is dropped. Its versions are kept " +
-    "and it can be published again. Only a person with the publish permission can do this.",
+    `and it can be published again. ${ASKS}`,
   input: z.object({ object: objectName, id: recordId }),
   output: z.object({ unpublished: z.number().int().describe("The version that was live") }),
   permission: "records:publish",
   risk: "write",
-  actors: ["human"],
-  mcp: { expose: false },
+  alwaysReview: ALWAYS_REVIEWED_PUBLISHERS,
+  mcp: { title: "Unpublish a record (a person approves an AI's request)" },
   async handler(input, ctx) {
     const object = requirePublishable(input.object);
     const record = await requireRecord(ctx, object, input.id);
@@ -275,6 +362,7 @@ export const recordUnpublish = defineOperation({
       });
     }
     ctx.write(...unpublishWrites(object.name, input.id));
+    // The live version is compared on approval: one published since is a conflict.
     ctx.recordChange({
       object: object.name,
       id: input.id,
@@ -304,7 +392,8 @@ export const recordPublishDue = defineOperation({
   }),
   permission: "records:write",
   risk: "write",
-  // Only what a person scheduled is published here: no input names a record or its content.
+  // Only what a person scheduled (or approved scheduling) is published here: no input names a
+  // record or its content.
   actors: ["automation"],
   mcp: { expose: false },
   auditSummary: (output) => ({ count: output.published.length, dropped: output.dropped }),
@@ -325,6 +414,8 @@ export const recordPublishDue = defineOperation({
           at: ctx.now,
           user: due.scheduled_by,
           note: due.note,
+          requestedBy: due.requested_by,
+          requestedVia: due.requested_via,
         }),
       );
       ctx.recordChange({
@@ -347,7 +438,8 @@ export const recordVersions = defineOperation({
   name: "record.versions",
   description:
     "The published versions of a record of a publishable object, newest first: number, when, " +
-    "who, the note, size, and which one is current (what readers are given). Read one with " +
+    "who published it (for an approved request, the approver, and who asked, and how), the " +
+    "note, size, and which one is current (what readers are given). Read one with " +
     "record.version. Read-only.",
   input: z.object({
     object: objectName,
@@ -362,7 +454,8 @@ export const recordVersions = defineOperation({
     const object = requirePublishable(input.object);
     await requireRecord(ctx, object, input.id);
     const rows = await sql<VersionRow>`
-      SELECT version, current, bytes, published_at, published_by, note FROM core_publish_version
+      SELECT version, current, bytes, published_at, published_by, requested_by, requested_via, note
+      FROM core_publish_version
       WHERE object_type = ${object.name} AND record_id = ${input.id}
       ORDER BY version DESC LIMIT ${input.limit}
     `.execute(ctx.db);
@@ -404,7 +497,8 @@ async function readVersion(
 ): Promise<VersionRow> {
   const which = version === undefined ? sql`current = 1` : sql`version = ${version}`;
   const rows = await sql<VersionRow>`
-    SELECT version, current, content, bytes, published_at, published_by, note
+    SELECT version, current, content, bytes, published_at, published_by, requested_by,
+      requested_via, note
     FROM core_publish_version WHERE object_type = ${object} AND record_id = ${id} AND ${which}
   `.execute(ctx.db);
   const row = rows.rows[0];

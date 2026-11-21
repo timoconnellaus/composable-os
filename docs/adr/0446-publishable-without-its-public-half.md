@@ -91,3 +91,15 @@ publishing what a person scheduled) and `record.unpublish`. The table, the four 
 and the two fields are unchanged. `record.publish` fills an empty `date` and refuses a record with
 no slug. See [ADR 0441](0441-publishable-states-schedules-and-versions.md),
 [ADR 0442](0442-what-the-public-reads-of-content.md) and [ADR 0443](0443-preview-links.md).
+
+## Amendment, 2026-11-22 (criterion 12, ADR 0480)
+"`record.publish` is for the `human` actor only" is replaced: an AI actor may ask for a publish,
+and its request always waits for a person who holds `records:publish` (the operation's
+`alwaysReview` for every actor but a person; the approver checked in `approveActions`, as for a
+refund). No AI actor publishes, still: it asks. The account it acts for must hold
+`records:publish` to ask, and the MCP `write` scope now carries it. The coaches' grants (ADR 0449)
+are unchanged: a member granted `records:publish` publishes at once in person and may approve a
+request. A version also keeps, for an approved request, who asked and how (`requested_by`,
+`requested_via`, migration 0520), with `published_by` the approver. The pack's assistant draft
+still writes a working copy and stops; the assistant may then ask. See
+[ADR 0480](0480-an-ai-asks-to-publish-a-person-approves.md).

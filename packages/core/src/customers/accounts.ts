@@ -113,7 +113,8 @@ async function isErased(db: Kysely<CoreDatabase>, address: string): Promise<bool
  *
  * - An erased person's address: never (checked as `sync.ingest` does).
  * - An address with an account: while the account is active.
- * - Any other address: when sign-up is `open`, or staff invited it.
+ * - Any other address: when sign-up is `open`, or staff invited it, or, when sign-up is `buyers`
+ *   (ADR 0458), it is the buyer's address of an order a verified payment was applied to.
  */
 export async function customerMayGetCode(
   db: Kysely<CoreDatabase>,
@@ -124,13 +125,34 @@ export async function customerMayGetCode(
   if (await isErased(db, address)) return false;
   const account = await loadCustomerByEmail(db, address);
   if (account) return account.status === "active";
-  if ((await loadCustomerSignup(db)) === "open") return true;
+  const signup = await loadCustomerSignup(db);
+  if (signup === "open") return true;
   const invite = await db
     .selectFrom("core_customer_invite")
     .select("email")
     .where("email", "=", address)
     .executeTakeFirst();
-  return Boolean(invite);
+  if (invite) return true;
+  return signup === "buyers" && (await hasBought(db, address));
+}
+
+/**
+ * Whether `address` is the buyer's address of an order a verified payment was applied to
+ * (`paid > 0`, ADR 0458): paid and part-paid orders, and ones refunded or cancelled after a
+ * payment. Never a checkout that was only started (pending, expired, cancelled unpaid): starting
+ * one costs nothing, so it cannot make an address able to sign in.
+ */
+export async function hasBought(db: Kysely<CoreDatabase>, address: string): Promise<boolean> {
+  // Through the seam as the org (no caller: the address is the one being asked about).
+  const { orgReader, visibleSource } = await import("../visibility/index.ts");
+  const { orderObject } = await import("../fields/order.ts");
+  const row = await db
+    .selectFrom(visibleSource(orgReader(db), orderObject))
+    .select("id")
+    .where("email", "=", address)
+    .where("paid", ">", 0)
+    .executeTakeFirst();
+  return Boolean(row);
 }
 
 /**

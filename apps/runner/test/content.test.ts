@@ -2,7 +2,7 @@
 // the way a product that lists the pack installs it (a shipped extension, run in the sandbox),
 // with real D1. A post is written, published, read by the public through the host's content
 // operations with the pack's hooks, and its categories through the pack's tool; the assistant
-// drafts a post's working copy and cannot publish it (ADR 0446; criterion 12 is undecided).
+// drafts a post and asks for it to be published, and a person approves (criterion 12, ADR 0480).
 import {
   type ActingUser,
   type ExtensionHost,
@@ -141,25 +141,33 @@ describe("the Content pack in the host", () => {
     expect(categories.categories).toContainEqual({ id: category.id, name: "News", slug: "news" });
   });
 
-  it("the assistant drafts a post's working copy; publishing it is a person's", async () => {
+  it("the assistant drafts a post and asks to publish it; a person approves", async () => {
     const assistant = staff(admin, {
       actor: "assistant",
       origin: { surface: "assistant", sessionId: unique("s") },
     });
+    const slug = unique("asked").toLowerCase();
     const draft = await run<{ id: string }>(
       "record.create",
-      { object: POST, values: { title: unique("Drafted"), body: doc("A first go") } },
+      { object: POST, values: { title: unique("Drafted"), slug, body: doc("A first go") } },
       assistant,
-    ).catch((error: { code?: string }) => error);
-    // Under the default policy an assistant's write may wait for a person; either way it is a
-    // working copy, never a published version.
-    if ("id" in draft) {
-      await expect(
-        run("record.publish", { object: POST, id: draft.id }, assistant),
-      ).rejects.toMatchObject({ code: "forbidden" });
-    } else {
-      expect(draft.code).toBe("pending_approval");
-    }
+    );
+    // Asked by the assistant: it waits for a person, under any policy.
+    const asked = (await run("record.publish", { object: POST, id: draft.id }, assistant).then(
+      () => {
+        throw new Error("expected a pending approval");
+      },
+      (error: unknown) => error,
+    )) as { code: string; details: { actionId: string } };
+    expect(asked.code).toBe("pending_approval");
+    await expect(run("content.get", { object: POST, slug }, guest)).rejects.toMatchObject({
+      code: "not_found",
+    });
+    await run("approval.approve", { actionIds: [asked.details.actionId] }, staff(admin));
+    expect(await run("content.get", { object: POST, slug }, guest)).toMatchObject({
+      values: { body: doc("A first go") },
+    });
+    // A person's own controls call the same operation; the host decides who waits.
     expect(CONTENT_HOOKS_CALL.usePublish).toEqual(["record.publish"]);
   });
 });

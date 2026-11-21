@@ -15,11 +15,13 @@ import {
   type AnyOperation,
   type CustomerPrincipal,
   coreRegistry,
+  customerMayGetCode,
   type ExtensionHost,
   extensionDashboardId,
   getObject,
   type InvocationContext,
   invokeByName,
+  linkCustomer,
   loadExtensionOperations,
   memoryWidgetCache,
   type OutsideInvocationContext,
@@ -411,6 +413,65 @@ describe("buying (criterion 2)", () => {
     await vi.waitFor(async () => expect(await emailsTo(email)).toHaveLength(1), {
       timeout: 15_000,
     });
+  });
+});
+
+describe("a guest buyer signs in later (ADR 0458)", () => {
+  it("with sign-up `buyers`, the buyer's code may go out; signed in, they see their tickets", async () => {
+    const { types } = await eventWith([{ price: 30 }]);
+    const email = buyerEmail();
+    const abandonedEmail = buyerEmail();
+    await run("customer.settings.update", { signup: "buyers" }, staff(admin));
+    try {
+      const order = await run<Order>(
+        "x.ticketing.orderStart",
+        { lines: [{ ticketTypeId: types[0], quantity: 2 }], email },
+        guest,
+      );
+      // Started, not paid: the address cannot get a code yet.
+      expect(await customerMayGetCode(db.query, email)).toBe(false);
+      // Another guest only starts a checkout.
+      await run<Order>(
+        "x.ticketing.orderStart",
+        { lines: [{ ticketTypeId: types[0], quantity: 1 }], email: abandonedEmail },
+        guest,
+      );
+      await checkoutAndPay(order, guest);
+      await waitForState(order.id, "paid");
+      expect(await customerMayGetCode(db.query, email)).toBe(true);
+      expect(await customerMayGetCode(db.query, abandonedEmail)).toBe(false);
+
+      // The sign-in makes the account (the customer auth's own write), and links it to the
+      // buyer's Person, as an invited customer's first sign-in does.
+      const customerId = `cus_${unique("buyer").toLowerCase()}`;
+      const now = new Date().toISOString();
+      await env.DB.prepare(
+        "INSERT INTO core_customer (id, email, email_verified, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
+      )
+        .bind(customerId, email, now, now)
+        .run();
+      const linked = await linkCustomer(db, customerId);
+      expect(linked.linkState).toBe("linked");
+      const tickets = await ticketsOf(order.id);
+      expect(new Set(tickets.map((t) => t.values.holder))).toEqual(new Set([linked.personId]));
+      const principal: CustomerPrincipal = {
+        kind: "customer",
+        customerId,
+        personId: linked.personId as string,
+      };
+      const c = hooksFor(as(principal));
+      c.hooks.useMyTickets();
+      const mine = (await c.last()) as { items: { code: string | null }[] };
+      expect(mine.items).toHaveLength(2);
+      const theirs = await run<{ id: string; state: string }>(
+        "order.get",
+        { id: order.id },
+        as(principal),
+      );
+      expect(theirs).toMatchObject({ id: order.id, state: "paid" });
+    } finally {
+      await run("customer.settings.update", { signup: "invite_only" }, staff(admin));
+    }
   });
 });
 

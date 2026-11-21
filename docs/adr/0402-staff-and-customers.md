@@ -90,3 +90,7 @@ Changed from the decision above:
   unless the survivor has its own.
 - Limits: a customer per account and operation; code requests per address asked for. Public calls
   have no account to key on and are limited per client address at the edge only (stage 23).
+
+## Note, 2026-11-23 (ADR 0458)
+The sign-up setting gains a third value, `buyers`: an invited address, one with an account, or the
+buyer's address of an order a verified payment was applied to. `invite_only` stays the default.
