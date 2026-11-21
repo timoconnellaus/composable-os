@@ -468,11 +468,26 @@ each release. It publishes nothing until a person turns it on:
 
 1. Claim the `@composable-os` organisation on npmjs.com, and the unscoped `create-composable-os`
    package name.
-2. For each package, add a trusted publisher on npmjs.com: this repository, workflow
-   `release.yml`. Publishing then uses GitHub's OIDC token and npm provenance; no npm token is
-   created or stored.
-3. Set the repository variable `NPM_PUBLISH` to `true` (Settings, Secrets and variables, Actions,
-   Variables). The next release's `npm` job publishes the tarballs its `build` job made.
+2. Publish each package once by hand. npm cannot attach a trusted publisher to a package that
+   does not exist yet, so the first version comes from a person's own login: download the
+   `npm-packages` artifact of a release run and, in that folder,
+   `for t in *.tgz; do npm publish "$t" --access public --tag beta --provenance=false; done`.
+   The packages ask for provenance (`publishConfig`), which only the workflow can produce, hence
+   `--provenance=false` for this one publish. A new package can take a few minutes to show in the
+   registry's listing; a second run answering "cannot publish over the previously published
+   versions" means the first one worked.
+3. For each package, add the trusted publisher: this repository, workflow `release.yml`, no
+   environment, allowed to publish. On npmjs.com (the package's Settings), or with npm 11.15 or
+   later: `npm trust github <package> --repo <owner>/<repo> --file release.yml --allow-publish`.
+   It asks for two-factor approval in the browser. Publishing then uses GitHub's OIDC token and npm
+   provenance; no npm token is created or stored.
+4. Set the repository variable `NPM_PUBLISH` to `true` (Settings, Secrets and variables, Actions,
+   Variables). The next release's `npm` job publishes the tarballs its `build` job made. Cut a
+   release soon after step 3, so the first publish from the workflow follows it.
+
+This was done for this repository on 2026-11-22; `v0.1.0-beta.8` was the first release the
+workflow published. A package added later (a new pack) needs steps 2 and 3 once, before the
+release that first carries it, or that release's `npm` job fails on it.
 
 ## Option 1 (recommended): `npx @composable-os/cli install`
 
@@ -483,7 +498,8 @@ checkout, no wrangler, no service of ours.
 npx @composable-os/cli install            # the CRM (same as --product crm); or: pnpm dlx @composable-os/cli install
 ```
 
-**The CLI is not published to npm yet.** Run it from a checkout of this repository:
+The CLI is on npm from `0.1.0-beta.7` (dist-tag `beta`). To run it from a checkout of this
+repository instead:
 
 ```sh
 pnpm install && pnpm --filter create-composable-os build
