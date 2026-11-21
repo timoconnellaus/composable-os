@@ -924,8 +924,9 @@ Writes carry idempotency keys.
 Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).
 
 The rules products share, declared in a manifest and enforced by the host in the write's own batch.
-`stages` and `states` exist. `capacity`, `sellable`, `publishable`, `recurring` and `allowance` are
-added as stages need them. Behaviours stack: an event is publishable, sellable and has a capacity.
+`stages`, `states` and `capacity` exist. `sellable`, `publishable`, `recurring` and `allowance`
+are added as stages need them. Behaviours stack: an event is publishable, sellable and has a
+capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
 ([ADR 0425](adr/0425-one-transition-engine-for-stages-and-states.md),
@@ -940,6 +941,18 @@ person, MCP client, extension or import can make one. A stage move is for staff 
 a customer never makes one. Both forms write `core_transition_history`
 (migration 0420), read as `rec_stage_history` and `rec_state_history`. An object has one
 lifecycle. Orders, the first core object with a state machine, are the second half of stage 25.
+
+**`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
+pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record
+in `core_capacity`, created and updated by `record.create`, `record.update` and the import in the
+record's own batch, and backfilled by the reconciler. A claim (`core_capacity_claim`) is three
+statements queued in the owner's batch with no read first: `held + n` on the record's counter and on
+its pool's, and the claim row. A CHECK and a trigger refuse a counter past its places, so the whole
+batch, order included, is not applied; the refusal is `invalid_input` with the numbers, naming the
+counter that refused. Confirm and release are three statements each, idempotent, with no clock: the
+owner (an order, from stage 25) calls them. Records carry read-only `held`, `taken` and `available`;
+`capacity.get` gives staff the numbers and outsiders only what `show` allows;
+`rec_capacity` and `rec_capacity_claim` are queryable.
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be

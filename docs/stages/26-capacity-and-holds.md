@@ -67,7 +67,8 @@ answer to the rest and keep moving. Any row but the first can still be overridde
 - A claim on a record with a pool claims on the pool in the same batch. Either both succeed or
   neither does. One level of pool only.
 - A refused claim is `invalid_input` with details `{ rule: "capacity", object, record, asked,
-  available }`.
+  available }`. `object` and `record` name the counter that refused: the pool's when the pool is
+  full (decided at the spine review, 2026-11-21).
 
 ### Holds
 - A hold belongs to what it was taken for and has no clock of its own. Whatever owns it confirms

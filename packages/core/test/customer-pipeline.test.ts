@@ -62,6 +62,7 @@ describe("default closed (criterion 1)", () => {
     const openTo = (kind: string) =>
       new Set(listed.filter((e) => e.audiences.includes(kind) && !e.toolOnly).map((e) => e.name));
     expect([...openTo("customer")].sort()).toEqual([
+      "capacity.get",
       "me.deleteAccount",
       "me.get",
       "me.sessions.list",
@@ -71,7 +72,8 @@ describe("default closed (criterion 1)", () => {
       "my.get",
       "my.list",
     ]);
-    expect([...openTo("public")]).toEqual([]);
+    // Places left, as the object's `show` allows (stage 26, ADR 0433).
+    expect([...openTo("public")]).toEqual(["capacity.get"]);
     for (const principal of [a.principal, PUBLIC]) {
       const open = openTo(principal.kind);
       for (const op of coreOperations) {

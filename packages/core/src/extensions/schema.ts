@@ -2,6 +2,7 @@
 // built from it, and the rec_* view SQL generated from it (ADR 0023, ADR 0024).
 import type { CoreDatabase } from "@composable-os/db";
 import {
+  type CapacityManifest,
   type FieldManifest,
   type FieldTypeName,
   formulaTypeOf,
@@ -42,6 +43,7 @@ export interface ObjectDefinitionJson {
   indexes?: string[][];
   timelineLinks?: string[];
   stages?: StagesManifest;
+  capacity?: CapacityManifest;
   states?: StatesManifest;
   owner?: string;
   /** The object's customer (ADR 0402), as declared. */
@@ -317,11 +319,96 @@ export function buildViews(state: SchemaState): ViewBuild {
     }
     const foreign = foreignColumns(state, object.name, object.extensionId, "t.id", build);
     columns.push(...foreign.columns);
+    const joins = [...foreign.joins];
+    if (object.definition.capacity) {
+      const capacity = capacityView(object.name);
+      columns.push(...capacity.columns);
+      joins.push(...capacity.joins);
+    }
     build.creates.push(
-      `CREATE VIEW ${view} AS SELECT ${columns.join(", ")} FROM ${ident(object.tableName)} t${foreign.joins.length ? ` ${foreign.joins.join(" ")}` : ""} WHERE t.deleted_at IS NULL`,
+      `CREATE VIEW ${view} AS SELECT ${columns.join(", ")} FROM ${ident(object.tableName)} t${joins.length ? ` ${joins.join(" ")}` : ""} WHERE t.deleted_at IS NULL`,
     );
   }
   return build;
+}
+
+/**
+ * The capacity values of an object's view (stage 26, ADR 0431): its counter and its pool's
+ * counter, joined by primary key. `available` is the fewer of the record's and the pool's places
+ * left, null when both are unlimited.
+ */
+function capacityView(object: string): { joins: string[]; columns: string[] } {
+  const name = `'${object.replaceAll("'", "''")}'`;
+  const left = (alias: string) => `max(${alias}.places - ${alias}.held - ${alias}.taken, 0)`;
+  return {
+    joins: [
+      `LEFT JOIN core_capacity cap ON cap.object_type = ${name} AND cap.record_id = t.id`,
+      "LEFT JOIN core_capacity capp ON capp.object_type = cap.pool_object_type AND capp.record_id = cap.pool_record_id",
+    ],
+    columns: [
+      `coalesce(cap.held, 0) AS ${CAPACITY_COLUMNS.held}`,
+      `coalesce(cap.taken, 0) AS ${CAPACITY_COLUMNS.taken}`,
+      `CASE WHEN cap.places IS NULL AND capp.places IS NULL THEN NULL WHEN capp.places IS NULL THEN ${left("cap")} WHEN cap.places IS NULL THEN ${left("capp")} ELSE min(${left("cap")}, ${left("capp")}) END AS ${CAPACITY_COLUMNS.available}`,
+    ],
+  };
+}
+
+/** View columns of the capacity values: no declared field's column can start with `_`. */
+export const CAPACITY_COLUMNS = {
+  held: "_cap_held",
+  taken: "_cap_taken",
+  available: "_cap_available",
+} as const;
+
+/** The read-only capacity values on every record of an object with a capacity (CAPACITY_VALUES). */
+export const CAPACITY_FIELDS: readonly FieldDefinition[] = [
+  {
+    name: "held",
+    label: "Held",
+    type: "number",
+    column: CAPACITY_COLUMNS.held,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "Places held while someone pays.",
+  },
+  {
+    name: "taken",
+    label: "Taken",
+    type: "number",
+    column: CAPACITY_COLUMNS.taken,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "Places taken by paid orders.",
+  },
+  {
+    name: "available",
+    label: "Available",
+    type: "number",
+    column: CAPACITY_COLUMNS.available,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "Places left (the record's and its pool's, whichever is fewer). Empty: unlimited.",
+  },
+];
+
+/** The capacity declaration with registry field names, or undefined. */
+function capacityDefinition(object: ObjectState, own: FieldState[]): ObjectDefinition["capacity"] {
+  const declared = object.definition.capacity;
+  if (!declared) return undefined;
+  const nameOf = (local: string) => own.find((f) => f.localName === local)?.name ?? local;
+  const poolField = declared.pool ? own.find((f) => f.localName === declared.pool) : undefined;
+  return {
+    places: nameOf(declared.places),
+    ...(poolField?.definition.to
+      ? { pool: { field: poolField.name, object: poolField.definition.to } }
+      : {}),
+    show: declared.show ?? "availability",
+    ...(declared.lowAt !== undefined ? { lowAt: declared.lowAt } : {}),
+    releaseOnRefund: declared.releaseOnRefund ?? true,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -423,10 +510,12 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     const foreign = active.filter(
       (f) => f.object === object.name && f.extensionId !== object.extensionId,
     );
+    const capacity = capacityDefinition(object, own);
     const fields = [
       ...SYSTEM_FIELDS,
       ...own.map((f) => registryField(f, object.name)),
       ...foreign.map((f) => registryField(f, object.name)),
+      ...(capacity ? CAPACITY_FIELDS : []),
     ];
     map.set(object.name, {
       name: object.name,
@@ -444,6 +533,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
         ? { timelineLinks: object.definition.timelineLinks }
         : {}),
       ...(object.definition.stages ? { stages: object.definition.stages } : {}),
+      ...(capacity ? { capacity } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),

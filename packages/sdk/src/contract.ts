@@ -3,6 +3,7 @@
 // can turn it into a JSON manifest, validate it, diff it and reconcile it to tables.
 import type { z } from "zod";
 import type { AutomationSpec } from "./automation.ts";
+import type { CapacitySpec } from "./capacity.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { StatesSpec } from "./states.ts";
 
@@ -167,6 +168,8 @@ export interface ObjectSpec {
   timelineLinks?: readonly string[];
   /** A pipeline-like stage behaviour (see StagesSpec). */
   stages?: StagesSpec;
+  /** A limited number of places, never given out twice (see CapacitySpec, ADR 0430). */
+  capacity?: CapacitySpec;
   /** A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both. */
   states?: StatesSpec;
   /**
