@@ -1,0 +1,8 @@
+# Orca reads this when it creates a worktree for this repository.
+scripts:
+  # Installs dependencies, then closes its terminal. A failed install leaves the terminal open to
+  # show why. Nothing else needs preparing: `pnpm dev` creates apps/*/.dev.vars and the local
+  # database on first run, and the typecheck, test and build scripts generate their own sources.
+  setup: pnpm install --frozen-lockfile && exit
+# An agent that runs lint, typecheck or tests before the install finishes would fail on missing modules.
+setupAgentStartupPolicy: wait-for-setup
