@@ -1302,6 +1302,11 @@ export interface OutsideInvocationContext {
    * account and per operation (customers/limits.ts). Absent: not limited here.
    */
   rateLimit?: RateLimitBinding;
+  /**
+   * The integration host, given only to a `hostInternal` core operation's handler (stage 25,
+   * ADR 0429: `order.checkout` opens the payment provider's page for a buyer).
+   */
+  integrations?: IntegrationRuntime;
   /** Never set: these make a context a staff one. */
   user?: undefined;
   actor?: undefined;
@@ -1581,6 +1586,9 @@ async function invokeOutside<O extends AnyOperation>(
             }
           : {}),
         ...(hostTool && ctx.extensionHost ? { extensionHost: ctx.extensionHost } : {}),
+        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.integrations
+          ? { integrations: ctx.integrations }
+          : {}),
         get actor() {
           return staffOnly("actor");
         },

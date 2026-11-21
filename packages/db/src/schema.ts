@@ -1313,6 +1313,10 @@ export interface CoreOrderTable {
   updated_at: Timestamp;
   /** Counts updates; a write from a stale read fails (trigger core_order_stale). */
   version: Generated<number>;
+  /** Migration 0422: what has gone back to the buyer, the sum of the confirmed refunds. */
+  refunded: Generated<number>;
+  /** Migration 0422: SHA-256 of the confirmation email's token for this one order. */
+  email_link_hash: Defaulted<string | null>;
 }
 
 export interface CoreOrderLineTable {
@@ -1339,6 +1343,53 @@ export interface CoreOrderPaymentTable {
   outcome: "applied" | "mismatch" | "late";
   payment_ref: Defaulted<string | null>;
   received_at: Timestamp;
+  /** Migration 0422: a late payment staff honoured, or that was refunded. */
+  resolved: Defaulted<"honoured" | "refunded" | null>;
+  resolved_at: Defaulted<Timestamp | null>;
+}
+
+/** Migration 0422: a checkout the host opened on the provider's page for an order. */
+export interface CoreOrderCheckoutTable {
+  provider: string;
+  ref: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  kind: "full" | "deposit" | "balance" | "part";
+  created_at: Timestamp;
+}
+
+/** Migration 0422: a verified payment or refund event the gatekeeper delivered. */
+export interface CorePaymentEventTable {
+  provider: string;
+  event_id: string;
+  kind: "payment" | "refund";
+  connection_id: Defaulted<string | null>;
+  /** The event as JSON: ids, amounts and the currency. */
+  payload: string;
+  received_at: Timestamp;
+  applied_at: Defaulted<Timestamp | null>;
+  outcome: Defaulted<string | null>;
+  attempts: Generated<number>;
+}
+
+/** Migration 0422: a refund staff asked for, or the provider confirmed. */
+export interface CoreOrderRefundTable {
+  id: string;
+  order_id: string;
+  provider: string;
+  payment_ref: Defaulted<string | null>;
+  amount: number;
+  currency: string;
+  reason: Defaulted<string | null>;
+  status: "requested" | "confirmed";
+  pending_action_id: Defaulted<string | null>;
+  requested_by: Defaulted<string | null>;
+  requested_at: Defaulted<Timestamp | null>;
+  provider_refund_ref: Defaulted<string | null>;
+  event_id: Defaulted<string | null>;
+  confirmed_at: Defaulted<Timestamp | null>;
+  created_at: Timestamp;
 }
 
 export interface CrmOrderView {
@@ -1349,6 +1400,7 @@ export interface CrmOrderView {
   total: number;
   paid: number;
   balance: number;
+  refunded: number;
   state: OrderState;
   pay: "full" | "deposit";
   deposit: number | null;
@@ -1744,6 +1796,9 @@ export interface CoreDatabase {
   core_order: CoreOrderTable;
   core_order_line: CoreOrderLineTable;
   core_order_payment: CoreOrderPaymentTable;
+  core_order_checkout: CoreOrderCheckoutTable;
+  core_payment_event: CorePaymentEventTable;
+  core_order_refund: CoreOrderRefundTable;
   core_automations: CoreAutomationsTable;
   core_routine: CoreRoutineTable;
   core_automation_runs: CoreAutomationRunsTable;

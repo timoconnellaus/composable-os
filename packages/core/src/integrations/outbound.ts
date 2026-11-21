@@ -68,7 +68,20 @@ export interface OutboundSubmission {
   judge?: Judge | undefined;
   /** The person's own words the message was written for, passed by code (never a model). */
   asked?: string | undefined;
+  /**
+   * The host itself submitted it, from platform code (`callAsHost`, ADR 0429): an order's
+   * confirmation email, composed from a fixed template to the buyer's own address. It applies
+   * unless the floor denies it. Set only by the integration host for its own calls.
+   */
+  hostMessage?: boolean | undefined;
 }
+
+/**
+ * Kinds that are always reviewed, whoever submits them and whatever the policy, the floor, an
+ * admin's auto-approve or the host say (ADR 0429). A refund sends money back: a person with
+ * `orders:refund` approves each one (approval.ts), and no AI actor can.
+ */
+export const ALWAYS_REVIEWED_KINDS: ReadonlySet<string> = new Set(["payments.refund"]);
 
 export type OutboundDecision =
   /**
@@ -235,6 +248,9 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
   // A description that mentions a record still pending creation can never apply before it.
   const provisional = findProvisionalIds([input.title, input.description, input.fields]);
   let decision = gate.decision;
+  // The host's own message (a confirmation) is not a person's or an agent's: only the floor's
+  // deny stops it.
+  if (s.hostMessage && decision !== "deny") decision = "auto";
   if (decision === "auto" && provisional.length) decision = "review";
   // An agent's email or post always waits for the person, whatever the policy (ADR 0344).
   if (decision === "auto" && s.origin.jobId) decision = "review";
@@ -257,6 +273,10 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
       check = { ...checked.check, turnedToReview: hold };
       judgeUsage = checked.usage;
     }
+  }
+  // Whatever said otherwise above, a refund waits for a person.
+  if (decision === "auto" && input.actionKind && ALWAYS_REVIEWED_KINDS.has(input.actionKind.tag)) {
+    decision = "review";
   }
 
   if (decision === "deny") {

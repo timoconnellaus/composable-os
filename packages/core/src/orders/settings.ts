@@ -82,3 +82,57 @@ export async function loadOrderExpiryMinutes(db: Kysely<CoreDatabase>): Promise<
 export async function loadMinPartPayment(db: Kysely<CoreDatabase>): Promise<number> {
   return (await load(db, ORDER_MIN_PART_SETTING, minPartPaymentSchema)) ?? DEFAULT_MIN_PART_PAYMENT;
 }
+
+// --- Where a buyer comes back to ----------------------------------------------------------------
+
+/**
+ * The origins a checkout's `returnUrl` may be on (ADR 0429): the sites and apps that sell for
+ * this deployment. A list of `https://host[:port]` origins (or `http://localhost:port` while
+ * developing), set by a human admin. Empty: no checkout can be opened.
+ */
+export const ORDER_RETURN_ORIGINS_SETTING = "order_return_origins";
+export const ORDER_RETURN_ORIGINS_MAX = 20;
+
+/** An origin a buyer may be sent back to: https, or http on localhost, and nothing after it. */
+export const returnOriginSchema = z
+  .string()
+  .trim()
+  .max(200)
+  .transform((value, ctx) => {
+    const origin = originOf(value);
+    if (!origin || origin !== value.replace(/\/+$/, "")) {
+      ctx.addIssue({
+        code: "custom",
+        message: "An origin is https://host (or http://localhost:port), with no path",
+      });
+      return z.NEVER;
+    }
+    return origin;
+  });
+export const returnOriginsSchema = z.array(returnOriginSchema).max(ORDER_RETURN_ORIGINS_MAX);
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** The origin of `url` when it is one a buyer may be sent to (https, or http on localhost). */
+export function originOf(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.username || parsed.password) return null;
+  if (parsed.protocol === "https:") return parsed.origin;
+  if (parsed.protocol === "http:" && LOCAL_HOSTS.has(parsed.hostname)) return parsed.origin;
+  return null;
+}
+
+export async function loadReturnOrigins(db: Kysely<CoreDatabase>): Promise<string[]> {
+  return (await load(db, ORDER_RETURN_ORIGINS_SETTING, returnOriginsSchema)) ?? [];
+}
+
+/** Whether a buyer may be sent back to `url` after paying: its origin is on the list. */
+export function isAllowedReturnUrl(url: string, origins: readonly string[]): boolean {
+  const origin = originOf(url);
+  return origin !== null && url.length <= 2000 && origins.includes(origin);
+}

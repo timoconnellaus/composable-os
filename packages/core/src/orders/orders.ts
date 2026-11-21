@@ -22,7 +22,12 @@ import { applyTransition } from "../records/lifecycle.ts";
 import type { Mover } from "../records/transitions.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
 import { type Sellable, sellableOf, sellableProblems } from "./sellable.ts";
-import { loadOrderCurrency, loadOrderExpiryMinutes, toMinorUnits } from "./settings.ts";
+import {
+  currencyDecimals,
+  loadOrderCurrency,
+  loadOrderExpiryMinutes,
+  toMinorUnits,
+} from "./settings.ts";
 
 export type OrderRow = Selectable<CoreOrderTable>;
 
@@ -47,6 +52,7 @@ export function orderSnapshot(row: OrderRow): Record<string, unknown> {
     total: row.total,
     paid: row.paid,
     balance: row.total - row.paid,
+    refunded: row.refunded,
     pay: row.pay,
     deposit: row.deposit,
     balanceDueAt: row.balance_due_at,
@@ -277,6 +283,8 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     provider_ref: null,
     access_hash: input.accessHash ?? null,
     access_until: null,
+    email_link_hash: null,
+    refunded: 0,
     paid_at: null,
     cancelled_at: null,
     refunded_at: null,
@@ -319,6 +327,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     ...outcome.history,
   );
   recordHostChange(ctx, { object: "order", id, action: "create", after: orderSnapshot(row) });
+  postOrderMove(ctx, row, null);
   return { row, lines };
 }
 
@@ -330,6 +339,7 @@ export type OrderChange = Partial<
     OrderRow,
     | "person_id"
     | "paid"
+    | "refunded"
     | "balance_due_at"
     | "provider"
     | "provider_ref"
@@ -391,7 +401,51 @@ export async function changeOrder(
     before,
     after: orderSnapshot(next),
   });
+  if (to !== row.state) postOrderMove(ctx, next, row.state);
   return next;
+}
+
+const MOVE_WORDS: Record<OrderState, string> = {
+  pending: "started",
+  part_paid: "part paid",
+  paid: "paid",
+  cancelled: "cancelled",
+  expired: "expired",
+  refunded: "refunded",
+};
+
+/** Whole and minor units, for a timeline line: `120.00 AUD`. */
+export function formatMoney(amount: number, currency: string): string {
+  const digits = currencyDecimals(currency);
+  return `${(amount / 10 ** digits).toFixed(digits)} ${currency}`;
+}
+
+/**
+ * An order's move on its Person's timeline, in the move's own batch (ADR 0429): started, part
+ * paid, paid, cancelled, expired, refunded. An order that belongs to no one yet posts nothing.
+ */
+function postOrderMove(ctx: HandlerContext, row: OrderRow, from: OrderState | null): void {
+  if (!row.person_id) return;
+  const money =
+    row.state === "pending"
+      ? formatMoney(row.total, row.currency)
+      : row.state === "refunded"
+        ? formatMoney(row.refunded, row.currency)
+        : `${formatMoney(row.paid, row.currency)} of ${formatMoney(row.total, row.currency)}`;
+  ctx.postActivity({
+    subject: `Order ${MOVE_WORDS[row.state]}: ${money}`,
+    payload: {
+      kind: "order.moved",
+      orderId: row.id,
+      from,
+      to: row.state,
+      total: row.total,
+      paid: row.paid,
+      refunded: row.refunded,
+      currency: row.currency,
+    },
+    links: [{ object: "person", id: row.person_id }],
+  });
 }
 
 // --- What a checkout may charge ----------------------------------------------------------------

@@ -63,6 +63,8 @@ export type Role = (typeof ROLES)[number];
  * - `extensions:manage` install, check, disable, enable and roll back extensions (stage 3)
  * - `integrations:manage` enable gatekeepers, create and manage org connections (stage 6)
  * - `settings:manage` org settings such as the base currency (stage 4b)
+ * - `orders:refund` propose and approve a refund of an order's payment (stage 25, ADR 0429).
+ *   Admins only by default. Approving one also needs a person: no AI actor approves a refund.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -74,6 +76,7 @@ export const PERMISSIONS = [
   "extensions:manage",
   "integrations:manage",
   "settings:manage",
+  "orders:refund",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

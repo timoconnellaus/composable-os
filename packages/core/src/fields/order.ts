@@ -36,7 +36,8 @@ export const ORDER_MACHINE: StatesDefinition = {
   moves: [
     // Only a verified payment marks an order paid, in part or in full.
     { from: ["pending", "part_paid", "expired"], to: "paid", by: ["host"] },
-    { from: "pending", to: "part_paid", by: ["host"] },
+    // A late deposit staff honour (ADR 0429) makes an expired order part paid.
+    { from: ["pending", "expired"], to: "part_paid", by: ["host"] },
     // A buyer may give up an order they have paid nothing on. Once money is on it, staff cancel.
     { from: "pending", to: "cancelled", by: ["staff", "customer"], final: true },
     { from: "part_paid", to: "cancelled", by: ["staff"], final: true },
@@ -116,6 +117,7 @@ export const orderObject = defineObject({
     { ...amount, name: "total", label: "Total", column: "total" },
     { ...amount, name: "paid", label: "Paid", column: "paid" },
     { ...amount, name: "balance", label: "Balance", column: "balance" },
+    { ...amount, name: "refunded", label: "Refunded", column: "refunded" },
     {
       name: "pay",
       label: "Paying",
