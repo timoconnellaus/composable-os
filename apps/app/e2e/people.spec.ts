@@ -1,5 +1,5 @@
-// People: create, inline edit, filter, URL state, delete and restore. Runs at desktop and phone
-// width (see playwright.config.ts).
+// People: create, inline edit, filter, URL state, delete and restore. Runs at desktop width,
+// and the `@phone` tests at phone width too (see playwright.config.ts).
 import { expect, test } from "@playwright/test";
 import {
   createPerson,
@@ -11,7 +11,7 @@ import {
   unique,
 } from "./helpers.ts";
 
-test("create a person and edit their details inline", async ({ page }) => {
+test("create a person and edit their details inline", { tag: "@phone" }, async ({ page }) => {
   const token = unique();
   await open(page, "/people");
   await createPerson(page, {
@@ -61,7 +61,7 @@ test("create a person and edit their details inline", async ({ page }) => {
   await expect(page.getByTestId("details-card")).toContainText("Europe/London");
 });
 
-test("filter the people list", async ({ page }) => {
+test("filter the people list", { tag: "@phone" }, async ({ page }) => {
   const token = unique("flt");
   await open(page, "/people");
   await createPerson(page, { given: "Grace", family: `Hopper${token}` });
@@ -179,7 +179,7 @@ test("delete and restore a person", async ({ page }) => {
   await expect(page.getByText("No matches")).toBeVisible();
 });
 
-test("navigate with the mobile drawer", async ({ page }) => {
+test("navigate with the mobile drawer", { tag: "@phone" }, async ({ page }) => {
   test.skip(!isPhone(page), "phone only");
   await open(page, "/");
   await page.getByRole("button", { name: "Toggle navigation" }).click();

@@ -1,5 +1,6 @@
 // The organisation, import and merge screens fit a tablet width (834 px) without sideways scroll.
-// Desktop (1280) and phone (390) are covered by the other specs' projects.
+// Desktop (1280) is covered by the other specs, and phone (390) by their `@phone` tests (import
+// and merge; organisations at phone width is not run).
 import { expect, test } from "@playwright/test";
 import { expectNoHorizontalScroll, open, unique } from "./helpers.ts";
 import { createOrganisation } from "./org-helpers.ts";

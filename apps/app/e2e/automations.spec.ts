@@ -85,7 +85,7 @@ test("winning a deal creates the onboarding tasks and a notification", async ({ 
   }).toPass({ timeout: RUN_TIMEOUT, intervals: [2_000, 5_000] });
 });
 
-test("the automation page follows the reference design", async ({ page }) => {
+test("the automation page follows the reference design", { tag: "@phone" }, async ({ page }) => {
   await open(page, `/automations/${AUTOMATION}`);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(/onboarding/i);
   await expect(page.getByTestId("automation-provenance")).toContainText("Deals extension");
@@ -163,7 +163,7 @@ test("pause and resume", async ({ page }) => {
   await expect(status).toHaveText("Active");
 });
 
-test("bell → inbox → mark read", async ({ page }) => {
+test("bell → inbox → mark read", { tag: "@phone" }, async ({ page }) => {
   // Make sure there is a notification: win a deal (the onboarding automation notifies the owner).
   test.setTimeout(180_000);
   await createDeal(page, `Inbox ${unique()}`);
@@ -209,7 +209,7 @@ test.describe("the automations list survives history navigation", () => {
     await expect(rows(page).first()).toBeVisible();
   }
 
-  test("open one, then Back", async ({ page }) => {
+  test("open one, then Back", { tag: "@phone" }, async ({ page }) => {
     await openFromSidebar(page);
     const count = await rows(page).count();
     await rows(page).first().getByRole("link").first().click();
@@ -219,14 +219,14 @@ test.describe("the automations list survives history navigation", () => {
     await expect(rows(page)).toHaveCount(count);
   });
 
-  test("Back, then Forward", async ({ page }) => {
+  test("Back, then Forward", { tag: "@phone" }, async ({ page }) => {
     await openFromSidebar(page);
     await page.goBack();
     await page.goForward();
     await expect(rows(page).first()).toBeVisible();
   });
 
-  test("another page, then Back", async ({ page }) => {
+  test("another page, then Back", { tag: "@phone" }, async ({ page }) => {
     await openFromSidebar(page);
     await navTo(page, "People");
     await expect(page).toHaveURL(/\/people$/);

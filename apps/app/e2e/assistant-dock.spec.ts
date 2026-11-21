@@ -179,7 +179,7 @@ test.describe("docked (tablet and desktop)", () => {
   }
 });
 
-test("on a phone it is a full-screen sheet", async ({ page }) => {
+test("on a phone it is a full-screen sheet", { tag: "@phone" }, async ({ page }) => {
   test.skip(!isPhone(page), "Phones only");
   await open(page, "/people");
   await page.getByTestId("open-assistant").click();

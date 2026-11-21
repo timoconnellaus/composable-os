@@ -67,6 +67,10 @@ extension code is never acceptable (ADR 0405).
   bindings over mocks.
 - TypeScript strict. No `any` without a comment saying why.
 - Generate Worker `Env` types with `wrangler types`. Don't hand-write them.
+- E2E: locally run only the specs for the area you changed
+  (`pnpm --filter @composable-os/app exec playwright test <spec>`); CI runs them all. A new stage
+  adds one e2e test per user journey, not one per screen; tag a test `@phone` only when its phone
+  layout differs (see `CONTRIBUTING.md`, End-to-end tests).
 
 ## Git
 

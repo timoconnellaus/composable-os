@@ -1,4 +1,4 @@
-// Stage 15: Leads through the UI, on desktop and phone.
+// Stage 15: Leads through the UI, at desktop width.
 // - An assignment rule set up under Settings owns a lead created without an owner, and the Test
 //   box shows the match.
 // - A lead left unnamed is named after its organisation, shows in the inbox, and says on its

@@ -1,5 +1,5 @@
 // Record page panels (timeline, tasks, job change, history), saved views, search, Trash and the
-// admin settings pages, wired to their operations. Runs at desktop and phone width.
+// admin settings pages, wired to their operations. Runs at desktop width.
 import { expect, type Page, test } from "@playwright/test";
 import {
   createPerson,
