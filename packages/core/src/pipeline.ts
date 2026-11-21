@@ -1383,8 +1383,16 @@ function outsideError(error: unknown): OperationError {
     console.error("outside call failed", error.message);
     return internal();
   }
-  console.error("outside call failed", errorForLog(error));
   const typed = toOperationError(error);
+  // Sold out (stage 26, a claim the database refused as an order commits): the buyer is told
+  // there are not enough places, and no more than that (ADR 0433 decides what numbers to show).
+  if (
+    typed.code === "invalid_input" &&
+    (typed.details as { rule?: unknown })?.rule === "capacity"
+  ) {
+    return new ValidationError("There are not enough places left", { rule: "capacity" });
+  }
+  console.error("outside call failed", errorForLog(error));
   if (typed.code === "conflict")
     return new ConflictError("A record with that value already exists");
   if (typed.code === "invalid_input") return new ValidationError("A value is not allowed");
