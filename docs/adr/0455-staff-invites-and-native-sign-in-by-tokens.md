@@ -23,6 +23,14 @@ request with an `Authorization` header is refused. They are not served over the 
 | `/api/v1/auth/staff/sign-in` | `{ email, code, deviceName }` | `{ data: { accessToken, refreshToken, accessExpiresAt, sessionId } }` |
 | `/api/v1/auth/staff/exchange` | `{ code, codeVerifier, redirectUri, deviceName }` | the staff tokens, as above |
 | `/api/v1/auth/refresh` (ADR 0419, unchanged) | `{ refreshToken }` | the rotated tokens |
+| `/api/v1/auth/sign-out` | `{ refreshToken }` | `{ data: { ok: true } }`, whether or not the token was a live session's |
+
+`/auth/sign-out` ends that one device session (staff or customer) when the token is its current
+refresh token or one already rotated past; the token is spent and cannot refresh. It is audited
+(`core_audit`, operation `deviceSession.signOut`). It exists because an account with a pack role
+may call no operation but its role's, so it cannot sign out with `deviceSession.revoke` or
+`me.signOut`. Sign-in attempts, exchanges and sign-outs are limited per client address on the
+`CUSTOMER_CODE_ADDRESS_RATE_LIMIT` binding (a hash of the address, key `auth-from:`).
 
 Refusals:
 - A code request answers `{ ok: true }` whoever the address is. Over a limit: `429 rate_limited`
@@ -41,8 +49,9 @@ seconds. `redirect_uri` must be listed, exactly, in `NATIVE_REDIRECT_URIS` (a va
 answers 404).
 
 The runtime client wraps all of this: `tokenSession(...).requestCode(email, audience)`,
-`.signInWithCode(email, code, deviceName, audience)`, `startBrowserSignIn(...)` and
-`.finishBrowserSignIn(...)` (`@composable-os/client`).
+`.signInWithCode(email, code, deviceName, audience)`, `.signOut()` (posts `/auth/sign-out` with
+the stored refresh token and clears the store even when the call fails), `startBrowserSignIn(...)`
+and `.finishBrowserSignIn(...)` (`@composable-os/client`).
 
 ## Context
 - A host on the built-in sign-in (Better Auth) had no way to add a second staff account without
@@ -96,6 +105,9 @@ The runtime client wraps all of this: `tokenSession(...).requestCode(email, audi
   One sender is simpler than two and gives one place to check and audit; the setting is shown as
   the host's mail connection in Settings → Users. Until it is set, a staff code request answers
   `sign_in_not_set_up` and `user.invite` says the invite email was not sent.
+  As for customer codes, the connection's send kind must be set to apply without review
+  (Settings → Integrations, outbound auto-approval): a code that waits in Approvals is not sent
+  when it is asked for, and an admin who approves it sees the code in the preview.
 - **Disabling ends every session.** `user.deactivate` deletes the account's device sessions with
   its cookie sessions, so reactivating does not revive them.
 - **Under Cloudflare Access** Access decides who gets in and the host decides what they hold. An

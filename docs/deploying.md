@@ -28,7 +28,8 @@ there (in your fork) to switch adapter. Everything else is a **secret** on `crm-
 | Name | Kind | Needed when | Purpose |
 | --- | --- | --- | --- |
 | `IDENTITY_PROVIDER` | var | always | `better-auth` (default) or `cloudflare-access` |
-| `AUTH_ALLOW_SIGNUP` | var | Better Auth | `false` (default): only the first user can sign up. `true`: open sign-up |
+| `AUTH_ALLOW_SIGNUP` | var | Better Auth | `false` (default): only the first user can sign up; everyone else is invited (Settings → Users). `true`: open password and Google sign-up to anyone. Keep it `false` |
+| `NATIVE_REDIRECT_URIS` | var | optional | The app addresses (`gymapp://signed-in`) a native app's browser-based staff sign-in may hand its code to, exactly, comma separated (ADR 0455). Empty (default): `/native/staff-sign-in` is not served |
 | `APPROVAL_FLOOR` | var | optional | Approval-policy floor the org's preset can never loosen (ADR 0011/0018). JSON keyed by actor (`human`, `assistant`, `mcp`, `automation`, `extension` or `*`) then risk class (or `*`), with `auto`, `review`, `deny` or `{"autoUpTo": n, "above": "review"}`. Example: `{"*":{"destructive":"review"}}`. Empty: no floor. Malformed: every operation is refused |
 | `APPROVAL_EXPIRY_DAYS` | var | optional | Days before a pending action (an AI change waiting for approval) expires. Default `7` |
 | `API_ALLOWED_ORIGINS` | var | optional | Origins a browser may call the HTTP surface (`/api/v1`) from, comma separated, such as a client app's site. Phones and servers send no origin and are not affected. Empty (default): none but the app's own |
@@ -67,7 +68,14 @@ checks this against Wrangler's own loader. Plain `wrangler dev` on `apps/app` is
 `pnpm dev`. `crm-runner` declares no secrets and loads all of its `.dev.vars`.
 
 The first user of a deployment (Better Auth sign-up, or the first Cloudflare Access user to load
-the app) becomes its admin; everyone after that is a member until an admin changes their role.
+the app) becomes its admin. After that, an admin adds people on Settings → Users with an invite
+(ADR 0455): the address, the role, and optionally a pack role or permissions the account holds from
+the start. With Better Auth the person signs in on the sign-in page with "Email me a code"; the
+code, and the invite email, go out from the host's mail connection (also on Settings → Users, the
+same one customer codes use), and that connection's sends must be set to apply without review on
+Settings → Integrations. Under Cloudflare Access, add the person to the Access policy: their first
+visit makes the account with what the invite says. Without an invite, a first Access visit is a
+member.
 
 `crm-app` also binds a KV namespace, `OAUTH_KV`, for MCP OAuth clients, grants and hashed
 tokens. Like the D1 database, wrangler provisions it by name on the first deploy. Connecting
@@ -642,15 +650,49 @@ which reads `/api/health`, the sign-in page and its static assets and changes no
 2. Set `IDENTITY_PROVIDER` to `cloudflare-access` in `apps/app/wrangler.jsonc`.
 3. Set the `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` secrets, then deploy.
 
-For MCP clients, add a **bypass** policy (or a separate Access application with a bypass rule)
-for the paths that carry their own OAuth: `/mcp`, `/oauth/token`, `/oauth/register` and
-`/.well-known/*`. MCP clients cannot complete an Access login there; `/mcp` checks its own Bearer
-tokens. `/oauth/consent` stays behind Access, which is how the user signs in.
-
 Every request is then admitted only with a valid `Cf-Access-Jwt-Assertion` header (or
 `CF_Authorization` cookie) signed by your team, for your application. Protect every hostname the
 Worker answers on (including `workers.dev`, or turn it off), since requests without the JWT are
 rejected but should never get that far.
+
+### What stays behind Access, and what is bypassed
+
+A host that only staff use needs only the MCP bypass below. A **client host** also serves
+customers, the public, payment providers and other outside callers, who never pass Access. Add a
+second Access application on the same hostname with a **Bypass** policy (Include: Everyone) for
+the paths below; Access applies the most specific application's path, so everything else stays
+behind the first application. The list is `apps/app/src/server/access-layout.ts`, and
+`apps/app/test-node/access-layout.test.ts` fails when a route is added that it does not account
+for.
+
+| Path | When | How it authenticates without Access |
+| --- | --- | --- |
+| `/api/v1/*` | always | The HTTP surface decides the caller itself: a native app's bearer token (looked up by hash), a customer cookie signed with `CUSTOMER_AUTH_SECRET`, or an Access JWT verified against your team's keys, issuer and AUD, never trusted unverified. Anything else is the public. Browsers from other origins are refused unless in `API_ALLOWED_ORIGINS`. Native sign-in routes take a code and store only hashes |
+| `/api/customer-auth/*` | customers | Customer sign-in by emailed code, its own secret and tables |
+| `/api/health` | always | Health and version only (`cos deploy` and monitors read it) |
+| `/gatekeeper/payments/in/*` | payments | The provider's webhook signature (`STRIPE_WEBHOOK_SECRET`) |
+| `/gatekeeper/webhook/in/*` | inbound webhooks | Each endpoint's own signing secret |
+| `/gatekeeper/google/pubsub` | Gmail or Chat push | A Google-signed OIDC token for the configured service account |
+| `/gatekeeper/microsoft/outlook/notifications/*` | Outlook push | The subscription's random `clientState` |
+| `/mcp`, `/oauth/token`, `/oauth/register`, `/.well-known/*` | MCP clients | MCP's own OAuth 2.1 bearer tokens and PKCE codes |
+| `/buy`, `/order/*`, `/_serverFn/*`, `/assets/*` | customers buy on the host's own pages | The guest pages call the surface as the public; an order page needs the order's token; a server function needs a verified staff principal unless it is in a `*.public.ts` file; assets are public |
+| `/gatekeeper/payments/fake/pay/*` | test environments only | The fake provider's checkout page (`PAYMENTS_FAKE_PROVIDER=true`), never live |
+
+Behind Access: the staff app (every page), `/sign-in`, `/api/auth/*`, the assistant
+(`/api/assistant/*`), support access (`/support/*`), `/oauth/consent` (where a person signs in for
+MCP), `/connect/handoff`, `/native/staff-sign-in` (a native app's staff sign-in in the system
+browser), and every other `/gatekeeper/*` route: OAuth callbacks and connect pages open in a staff
+member's browser, which carries the Access cookie.
+
+None of the bypassed paths reads an Access header it would no longer receive: only the identity
+adapter reads `Cf-Access-Jwt-Assertion` or `CF_Authorization`, and only to verify it. On a
+bypassed path a staff member's browser may still send the `CF_Authorization` cookie, which is
+verified as anywhere else; a cross-site page cannot use it, because the surface refuses an origin
+it does not list.
+
+Under Access, staff are added by invite as above (the invite sets the role; Access decides who gets
+in), and a native app's staff sign-in uses the system browser: set `NATIVE_REDIRECT_URIS` to the
+app's address.
 
 ## Upgrades from source
 
