@@ -218,8 +218,8 @@ data lands in.
 - **Saved views:** the bank by theme, published programs, active assignments, sessions this week
   and as a calendar, sets this week. **The Person page:** a Training tab (their logged sets) and
   Assignments and Sessions panels.
-- **Grants on screen:** Settings > Users ticks a staff account's grantable permissions one by one
-  (ADR 0449's missing screen).
+- **Grants on screen:** Settings > Users' permissions dialog (ADR 0455), which came from main
+  while this was built; this stage's own checkboxes were dropped for it.
 - **`user.me`** (staff, read): the caller's id, name, role, grants and resulting permissions, so a
   block offers Publish only to an account that holds it. The host still decides.
 - **Hooks** (`@composable-os/pack-programs/client`): the screens' reads and writes, the layout's
