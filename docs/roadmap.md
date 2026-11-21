@@ -32,7 +32,7 @@ risk for the next.
 | 25 | States, orders and payments | One transition engine under `states` and `stages`; the Order base record, priced by the host, in one currency per deployment; guest checkout; a payments gatekeeper for Stripe on the org's own account, with a hosted page, webhooks and refunds through approval | built, in review |
 | 26 | Capacity and holds | The `capacity` behaviour: places that never go below zero, holds that last as long as their unpaid order, in the write's own batch | built, in review |
 | 27 | Ticketing, and Ghetto as the first client | The Ticketing pack (events, ticket types, tickets, check-in); web checkout, the app's ticket wallet and door scanning for Ghetto Movement; packages and paying by deposit | spec agreed |
-| 28 | Content | The `publishable` behaviour, rich text as structured JSON, media, slugs, preview; the Content pack; Ghetto's blog off EmDash | spec proposed |
+| 28 | Content | The `publishable` behaviour, rich text as structured JSON, media, slugs, preview; the Content pack; Ghetto's blog off EmDash | spec agreed |
 
 The approval pipeline is built up over several stages: the gate in 1, the queue and simulation in 2,
 extension diffs in 3, the adjudicator in 7.

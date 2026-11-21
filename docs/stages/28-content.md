@@ -9,7 +9,8 @@ behaviour), ADRs 0017, 0023, 0024, `packages/sdk/src/field-types.ts`,
 `packages/core/src/fields/`; in `~/repos/ghetto`: `README.md` (EmDash), `src/pages/blog/`,
 `src/staff/doc-list.ts`, `src/pages/staff/slides.astro`.
 
-Status: spec proposed. Builds on stages 22 and 23. Uses `states` from stage 25 if it is there.
+Status: **spec agreed** (interview 2026-11-21). Builds on stages 22, 23 and 41: stage 41 brings
+`publishable` forward without its public half, and this stage adds that half.
 
 ## Goal
 
@@ -18,6 +19,27 @@ announcements. Staff edit a draft without changing what is live, publish it or s
 can go back to an earlier version. The web app and the phone app each show the same content with
 their own components, because it is stored as structured data and not as HTML. Claude can draft a
 post over MCP, and a person publishes it. Ghetto's blog moves off EmDash.
+
+## Decided at the interview (2026-11-21)
+
+| Question | Decision |
+| --- | --- |
+| Order for the first client | **Programs (stage 41) is built first** and brings `publishable` forward: the working copy, versions, the publish move and its permission. This stage adds the public half: public reads of the published version, slugs, scheduling, preview |
+| When the first client's blog moves | **While its site is still Astro.** The site reads posts from the platform through its binding; nothing else about the site changes |
+| What a post or page can contain | Headings, paragraphs, lists, quotes and links; images with captions; embedded video (YouTube, Vimeo); a call-to-action button. Tables and code are left out |
+| Who can publish | Any staff member writes. Publishing needs the publish permission, which an admin grants to a person (stage 41's per-person grants) |
+| The assistant | It can draft and edit working copies. A person publishes |
+
+Decided by the coordinator, open to override:
+
+| Question | Decision |
+| --- | --- |
+| `richText` | One fixed schema of stage 41's document field (ADR 0445), not a second mechanism |
+| Public reads | Through the public scope of ADR 0438: "published" is one more condition a record can meet |
+| The editor library | Chosen at build time, after checking what is current then; its own format is mapped to the `richText` schema at the edge of the editor and never stored |
+| Image sizes | Cloudflare's image transformations at the edge, from one stored original |
+| What staff lists and search show | The working copy. The published version is what the public and customers read |
+| Reading the first client's existing posts | The build reads real posts from the current system before promising a clean import, and lists anything that does not convert |
 
 ## What exists today (from the code)
 
@@ -153,14 +175,3 @@ Migrations 0460 to 0469. ADRs 0440 to 0444.
 5. The editor and the publish controls.
 6. The Content pack, hooks and both renderers.
 7. Ghetto's import and the blog's routes.
-
-## To settle at the interview
-- **Which editor library,** and how its own document format maps to the `richText` schema.
-- **The block list.** Each block is a promise every client must render. Start small.
-- **Where EmDash's content format is documented,** and whether its posts convert cleanly. Read
-  some real posts before promising a clean import.
-- **Does Ghetto's blog move while the site is still Astro,** as proposed, or with the site.
-- **Image resizing:** Cloudflare's image transformations, or sizes made at upload.
-- **Who may publish.** A role question that leans on stage 14a.
-- **Whether a published version is also what staff lists and search show,** or always the working
-  copy.
