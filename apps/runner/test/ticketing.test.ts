@@ -26,6 +26,12 @@ import {
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  createTicketingHooks,
+  type estimate,
+  orderStatus,
+  type TicketingClient,
+} from "../../../packs/ticketing/client/index.ts";
 import { listedPacks } from "../src/extensions/shipped-list.ts";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
@@ -451,6 +457,115 @@ describe("the sales summary", () => {
       revenue: 12000,
     });
     expect(summary.totals).toEqual({ sold: 3, held: 1, remaining: 16, revenue: 21000 });
+  });
+});
+
+// --- Step 5: the headless hooks against the host ----------------------------------------------
+
+/** A client over the host's own operations, for the caller `ctx`: what a generated client does over HTTP. */
+function hostClient(ctx: InvocationContext | OutsideInvocationContext): TicketingClient {
+  return {
+    query: ((name: string, input: unknown) => ({
+      queryKey: [name, input],
+      queryFn: () => run(name, input, ctx),
+    })) as TicketingClient["query"],
+    mutation: ((name: string) => ({
+      mutationKey: [name],
+      mutationFn: (input: unknown) => run(name, input, ctx),
+    })) as TicketingClient["mutation"],
+  };
+}
+
+/** React stand-ins: each hook's query and mutation, run once. */
+function hooksFor(ctx: InvocationContext | OutsideInvocationContext) {
+  const queries: (() => Promise<unknown>)[] = [];
+  const state = new Map<number, unknown>();
+  let slot = 0;
+  const hooks = createTicketingHooks(
+    {
+      useQuery: (options) => {
+        queries.push(options.queryFn);
+        return { data: undefined, isPending: true, error: null };
+      },
+      useMutation: (options) => ({
+        mutate: (input) => void options.mutationFn(input),
+        mutateAsync: options.mutationFn,
+        data: undefined,
+        isPending: false,
+        error: null,
+      }),
+      useState: <T>(initial: T) => {
+        const at = slot++;
+        if (!state.has(at)) state.set(at, initial);
+        return [
+          state.get(at) as T,
+          (next: T | ((p: T) => T)) =>
+            state.set(
+              at,
+              typeof next === "function" ? (next as (p: T) => T)(state.get(at) as T) : next,
+            ),
+        ];
+      },
+    },
+    hostClient(ctx),
+  );
+  return { hooks, last: () => (queries.at(-1) as () => Promise<never>)(), reset: () => (slot = 0) };
+}
+
+describe("the hooks against the host (step 5)", () => {
+  it("a guest finds an event, picks, starts and opens the checkout; the order page waits, then shows it paid", async () => {
+    const { event, types } = await eventWith([{ price: 25 }, { price: 40, maxPerOrder: 2 }]);
+    const g = hooksFor(guest);
+    g.hooks.useEventsOnSale({ event });
+    const onSale = (await g.last()) as { events: Parameters<typeof estimate>[0][] };
+    const found = onSale.events[0] as Parameters<typeof estimate>[0];
+    expect(found.id).toBe(event);
+    g.reset();
+    g.hooks.useTicketPicker(found).set(types[0] as string, 2);
+    g.reset();
+    g.hooks.useTicketPicker(found).set(types[1] as string, 5);
+    g.reset();
+    const picker = g.hooks.useTicketPicker(found);
+    expect(picker.quantities).toEqual({ [types[0] as string]: 2, [types[1] as string]: 2 });
+    expect(picker.estimate).toEqual({ full: 13000, deposit: null });
+    const order = await g.hooks
+      .useStartOrder()
+      .mutateAsync({ lines: picker.lines, email: buyerEmail() });
+    // The host's total is what is paid, and agrees with the preview.
+    expect(order.total).toBe(picker.estimate.full);
+    const page = await g.hooks
+      .useCheckout()
+      .mutateAsync({ id: order.id, token: order.token as string, returnUrl: RETURN });
+    g.hooks.useOrder({ id: order.id, token: order.token });
+    expect(orderStatus((await g.last()) as never).waiting).toBe(true);
+    await runner.gatekeeperFetch(
+      "payments",
+      new Request(page.url, {
+        method: "POST",
+        body: new URLSearchParams({ outcome: "pay" }),
+        redirect: "manual",
+      }),
+    );
+    await waitForState(order.id, "paid");
+    g.hooks.useOrder({ id: order.id, token: order.token });
+    expect(orderStatus((await g.last()) as never)).toMatchObject({ kind: "paid", waiting: false });
+  });
+
+  it("a customer's tickets, and a door account's scan, through the hooks", async () => {
+    const buyer = await createCustomer("hooks");
+    const { types } = await eventWith([{}]);
+    const c = hooksFor(as(buyer.principal));
+    const order = await c.hooks
+      .useStartOrder()
+      .mutateAsync({ lines: [{ ticketTypeId: types[0] as string }] });
+    await checkoutAndPay(order as Order, as(buyer.principal));
+    await waitForState(order.id, "paid");
+    c.hooks.useMyTickets();
+    const mine = (await c.last()) as { items: { code: string | null }[] };
+    expect(mine.items).toHaveLength(1);
+    const d = hooksFor(staff(door));
+    const scan = await d.hooks.useCheckIn().mutateAsync({ code: mine.items[0]?.code as string });
+    expect(scan.accepted).toBe(true);
   });
 });
 

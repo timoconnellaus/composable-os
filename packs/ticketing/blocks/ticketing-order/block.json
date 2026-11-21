@@ -1,0 +1,11 @@
+{
+  "name": "ticketing-order",
+  "pack": "ticketing",
+  "skin": "web",
+  "operations": ["order.get", "order.view"],
+  "files": ["order-confirmation.tsx", "LICENSE"],
+  "dependsOn": [],
+  "packages": {
+    "@composable-os/pack-ticketing": "*"
+  }
+}

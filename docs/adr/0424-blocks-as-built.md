@@ -57,3 +57,11 @@ without touching it.
   template web app has neither yet, so a copied block is unstyled until the app adds them or the
   client restyles it (the `add-block` skill says so).
 - Pack blocks beyond sign-in are later (stage 27 brings ticketing's).
+
+## Amendment, 2026-11-21 (stage 27): pack blocks
+Ticketing's blocks are the first a pack ships (`packs/ticketing/blocks/`, seven: four web, three
+native). They import the base layer as sibling folders, as they sit after `cos add`, and the
+pack's headless entry from `@composable-os/pack-ticketing/client`. In the repository they are
+type-checked by the pack (`blocks/tsconfig.{web,native}.json`, with `rootDirs` joining the pack's
+blocks and the platform's into one folder). A native block that needs the device (camera, QR,
+brightness, haptics) takes it as a prop, so no block depends on a device package.

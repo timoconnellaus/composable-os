@@ -1,0 +1,11 @@
+{
+  "name": "ticketing-events",
+  "pack": "ticketing",
+  "skin": "web",
+  "operations": ["x.ticketing.eventsOnSale"],
+  "files": ["event-list.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card"],
+  "packages": {
+    "@composable-os/pack-ticketing": "*"
+  }
+}

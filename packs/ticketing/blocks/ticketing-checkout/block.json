@@ -1,0 +1,11 @@
+{
+  "name": "ticketing-checkout",
+  "pack": "ticketing",
+  "skin": "web",
+  "operations": ["x.ticketing.orderStart", "order.checkout", "order.get", "order.view"],
+  "files": ["ticket-picker.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/pack-ticketing": "*"
+  }
+}
