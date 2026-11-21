@@ -882,7 +882,7 @@ describe("blocks (criterion 10)", () => {
       files["blocks/greeting/greeting.tsx"] =
         'export function Greeting({ name }: { name: string }) {\n  return <p className="greeting">Hello, {name}!</p>;\n}\n';
     });
-    const dir = await created();
+    await created();
     expect((await cos("add", "greeting")).code).toBe(0);
     expect((await cos("upgrade")).code).toBe(0);
 

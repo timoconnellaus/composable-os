@@ -86,7 +86,8 @@ describe("the interchange format", () => {
       date: "2021-02-28T23:00:00.000Z",
       noindex: true,
     });
-    const blocks = (post?.values.body as { blocks: Record<string, unknown>[] }).blocks;
+    const blocks =
+      (post?.values.body as { blocks: Record<string, unknown>[] } | undefined)?.blocks ?? [];
     expect(blocks[1]).toEqual({ type: "image", alt: "The hall", media: { $picture: "hall.png" } });
     expect([...plan.pictures.keys()]).toEqual(["hall.png"]);
   });
