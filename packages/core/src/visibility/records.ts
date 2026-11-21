@@ -2,6 +2,7 @@
 // object the caller may see, or one of them, with only the fields the caller may see. This is
 // what `my.list` and `my.get` are made of. Nothing here knows who the caller is: the seam does.
 
+import { type DocumentSchema, redactDocument } from "@composable-os/sdk";
 import { sql } from "kysely";
 import { NotFoundError, OperationError } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
@@ -10,7 +11,7 @@ import { compileFilter, type Filter } from "../filter.ts";
 import { type ListInput, runListQuery } from "../list.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type CapacityView, readCapacity } from "./capacity.ts";
-import { type AnyRow, type Reader, visibleObject, visibleSource } from "./index.ts";
+import { type AnyRow, type Reader, type Viewer, visibleObject, visibleSource } from "./index.ts";
 
 /** A record as its caller may see it: only the fields their scope allows. */
 export interface VisibleRecord {
@@ -29,10 +30,23 @@ function fieldValue(field: FieldDefinition, row: AnyRow): unknown {
     : FIELD_TYPE_REGISTRY[type].fromStorage(raw as never);
 }
 
-function toRecord(object: ObjectDefinition, row: AnyRow): VisibleRecord {
+/**
+ * A row as the caller may see it. For a caller outside the org, a document's `private` parts
+ * are removed (ADR 0445): a coach's note is not a member's to read unless it is marked so.
+ */
+function toRecord(object: ObjectDefinition, row: AnyRow, viewer: Viewer): VisibleRecord {
+  const outsider = viewer.principal.kind !== "staff";
   const values: Record<string, unknown> = {};
   for (const field of object.fields) {
-    if (field.name !== "id") values[field.name] = fieldValue(field, row);
+    if (field.name === "id") continue;
+    const value = fieldValue(field, row);
+    const schema = field.options?.document?.schema as DocumentSchema | undefined;
+    values[field.name] =
+      outsider && field.fieldType === "document"
+        ? schema
+          ? redactDocument(schema, value)
+          : null
+        : value;
   }
   return { object: object.name, id: String(row.id), values };
 }
@@ -45,7 +59,10 @@ export async function listVisible(
 ): Promise<{ items: VisibleRecord[]; nextCursor: string | null }> {
   const visible = visibleObject(ctx, object);
   const page = await runListQuery<AnyRow & { id: string }>(ctx, visible, input);
-  return { items: page.rows.map((row) => toRecord(visible, row)), nextCursor: page.nextCursor };
+  return {
+    items: page.rows.map((row) => toRecord(visible, row, ctx)),
+    nextCursor: page.nextCursor,
+  };
 }
 
 /** One of the caller's records. A record they may not see is a record that is not there. */
@@ -62,7 +79,7 @@ export async function getVisible(
     .where("id", "=", id)
     .executeTakeFirst();
   if (!row) throw new NotFoundError(visible.name, id);
-  return toRecord(visible, row as AnyRow);
+  return toRecord(visible, row as AnyRow, ctx);
 }
 
 /** The most rows one count reads (as record.count). */

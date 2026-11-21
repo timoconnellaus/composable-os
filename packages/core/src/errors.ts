@@ -175,6 +175,15 @@ export function toOperationError(error: unknown): OperationError {
       { reason: "moved_meanwhile" },
     );
   }
+  // Two publishes of one record at once (ADR 0446): both took the same next number, and the
+  // second one's batch failed on the version's key. Nothing of it was applied.
+  if (message.includes("UNIQUE constraint failed: core_publish_version")) {
+    return new ConflictError(
+      "Another version of this record was published at the same moment, so this one was not. " +
+        "Read its versions again before publishing.",
+      { reason: "published_meanwhile" },
+    );
+  }
   const unique = /UNIQUE constraint failed: ([\w.]+(?:, [\w.]+)*)/.exec(message);
   if (unique) {
     return new ConflictError("A record with that value already exists", {

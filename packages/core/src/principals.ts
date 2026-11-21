@@ -66,6 +66,9 @@ export type Role = (typeof ROLES)[number];
  * - `settings:manage` org settings such as the base currency (stage 4b)
  * - `orders:refund` propose and approve a refund of an order's payment (stage 25, ADR 0429).
  *   Admins only by default. Approving one also needs a person: no AI actor approves a refund.
+ * - `records:publish` publish a version of a publishable record's content (stage 41, ADR 0446).
+ *   Admins only by default, as `orders:refund` is; `record.publish` is for a person, so no AI
+ *   actor publishes, whatever its role or scope.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -78,6 +81,7 @@ export const PERMISSIONS = [
   "integrations:manage",
   "settings:manage",
   "orders:refund",
+  "records:publish",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

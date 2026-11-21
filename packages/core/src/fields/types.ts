@@ -77,6 +77,10 @@ export interface ExtensionFieldOptions {
   /** Formula source (shown in the UI tooltip) and its result type. */
   expression?: string;
   resultType?: string;
+  /** Document fields (ADR 0445): the schema its value is checked against, and its size limit. */
+  document?: { schema: Record<string, unknown>; maxBytes?: number | undefined };
+  /** A declared path of a document field (ADR 0445): the field and the path it reads. */
+  documentPath?: { field: string; path: string; count?: boolean | undefined };
 }
 
 export interface ObjectDefinition {
@@ -132,6 +136,20 @@ export interface ObjectDefinition {
    * Left out, the object does not exist for the public. Enforced only at the visibility seam.
    */
   public?: PublicDeclaration;
+  /**
+   * What every signed-in customer may read (ADR 0447): fields, of the records meeting a
+   * condition, whoever's they are. Beside `customer` it shares those records; alone it opens
+   * them to read. Enforced only at the visibility seam.
+   */
+  signedIn?: PublicDeclaration;
+  /** Versions of the content fields (ADR 0446), with registry field names. */
+  publishable?: PublishableDefinition;
+}
+
+/** The publishable behaviour as the host enforces it (the SDK's PublishableSpec, validated). */
+export interface PublishableDefinition {
+  /** The fields a version keeps. */
+  readonly content: readonly string[];
 }
 
 /**

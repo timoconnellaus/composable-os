@@ -1,7 +1,12 @@
 // The field-type registry for extension fields (ADR 0023): for every SDK field type, its SQLite
 // storage, zod validation, filter semantics (and so its filter operators), CSV mapping and the UI
 // widgets that display and edit it. Browser-safe: the UI renders widgets from `widget`.
-import type { FieldManifest, FieldTypeName } from "@composable-os/sdk";
+import {
+  type DocumentSchema,
+  type FieldManifest,
+  type FieldTypeName,
+  validateDocument,
+} from "@composable-os/sdk";
 import { z } from "zod";
 import type { FieldType } from "./types.ts";
 
@@ -21,7 +26,8 @@ export type WidgetKind =
   | "email"
   | "phone"
   | "url"
-  | "formula";
+  | "formula"
+  | "document";
 
 /** The storage value of a field: what goes into its column. */
 export type StoredValue = string | number | null;
@@ -81,6 +87,31 @@ const csvList = {
 };
 
 const choices = (field: FieldManifest) => (field.options ?? []).map((o) => o.value);
+
+/**
+ * A document field's value: checked against the field's schema, every fault named by its path
+ * from the document's root (ADR 0445). The same check runs wherever a value is validated: the
+ * record operations, the CSV import, seeds, the host's own writes and the approval dry run.
+ */
+function documentValueSchema(field: FieldManifest): z.ZodType {
+  const schema = field.schema as DocumentSchema | undefined;
+  return z.unknown().superRefine((value, ctx) => {
+    if (value === null) return;
+    if (!schema) {
+      ctx.addIssue({ code: "custom", message: "This document field has no schema" });
+      return;
+    }
+    const result = validateDocument(
+      schema,
+      value,
+      field.maxBytes === undefined ? {} : { maxBytes: field.maxBytes },
+    );
+    if (result.ok) return;
+    for (const issue of result.issues) {
+      ctx.addIssue({ code: "custom", path: issue.path, message: issue.message });
+    }
+  });
+}
 
 function textType(max: number, widget: WidgetKind, edit: WidgetKind, schema?: z.ZodType) {
   return {
@@ -226,6 +257,30 @@ export const FIELD_TYPE_REGISTRY: Record<FieldTypeName, FieldTypeSpec> = {
     fromStorage: identity,
     csv: csvText,
     widget: { display: "user", edit: "user" },
+  },
+  // One JSON document checked against the field's schema (stage 41, ADR 0445). Not filtered or
+  // sorted itself: its declared paths are columns of their own (schema.ts).
+  document: {
+    storage: "TEXT",
+    filterType: () => "json",
+    multi: () => false,
+    sortable: () => false,
+    schema: (field) => nullable(documentValueSchema(field)),
+    toStorage: (value) => (value == null ? null : JSON.stringify(value)),
+    fromStorage: (value) =>
+      typeof value === "string" ? (JSON.parse(value) as unknown) : (value ?? null),
+    csv: {
+      parse: (cell) => {
+        if (cell.trim() === "") return null;
+        try {
+          return JSON.parse(cell) as unknown;
+        } catch {
+          throw new Error("is not a JSON document");
+        }
+      },
+      format: (value) => (value == null ? "" : JSON.stringify(value)),
+    },
+    widget: { display: "document", edit: null },
   },
   formula: {
     storage: null,

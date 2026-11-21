@@ -426,7 +426,7 @@
     },
     {
       "name": "my.list",
-      "description": "A page of your own records of an object, as a signed-in customer: only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.",
+      "description": "A page of your own records of an object, as a signed-in customer (and the records every signed-in customer may read, where the object shares some): only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",

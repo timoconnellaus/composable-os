@@ -4,6 +4,7 @@
 import type { z } from "zod";
 import type { AutomationSpec } from "./automation.ts";
 import type { CapacitySpec } from "./capacity.ts";
+import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StatesSpec } from "./states.ts";
@@ -129,6 +130,19 @@ export type FieldSpec =
       /** Many records (stored as a JSON array of ids). Default one. */
       many?: boolean;
     })
+  | (Omit<FieldBase, "default" | "defaultSetting" | "track"> & {
+      /**
+       * One JSON document checked against `schema` on every write, by every actor (ADR 0445).
+       * A fault is refused with its path. `maxBytes` (default 65,536, at most 524,288) limits
+       * its JSON. `paths` show values inside it as read-only columns of the object's rec_* view,
+       * to list, filter, sort and chart by. A `private` object node is removed from what a
+       * customer or the public reads.
+       */
+      type: "document";
+      schema: DocumentSchema;
+      maxBytes?: number;
+      paths?: Record<string, DocumentPathSpec>;
+    })
   | (Omit<FieldBase, "required"> & {
       type: "formula";
       /** An expression over fields of the same record. See the SDK README for the grammar. */
@@ -198,6 +212,23 @@ export interface ObjectSpec {
    * declare it.
    */
   public?: PublicSpec;
+  /**
+   * What every signed-in customer may read of this object (ADR 0447), whoever's record it is:
+   * the fields in `read`, of the records that meet `when` (the shape of `public.when`), or of
+   * every live record without it. Beside a `customer` declaration it shares those records with
+   * every signed-in customer while each still reads and writes their own as before (a class's
+   * sessions beside a client's own); on its own it opens the records to read only (an exercise
+   * bank). Never read by the public. Only shipped extensions and an org's own may declare it.
+   */
+  signedIn?: SignedInSpec;
+  /**
+   * A working copy staff edit and published versions (ADR 0446): `content` names the fields a
+   * version keeps. `record.publish` snapshots them as the next version (a person with the
+   * publish permission, never an AI actor); `record.versions` and `record.version` read them;
+   * `record.restoreVersion` copies one back into the working copy. Editing the working copy
+   * never changes a version. Records get read-only `publishedVersion` and `publishedAt`.
+   */
+  publishable?: PublishableSpec;
   /** Position in the sidebar among extension objects (lower first). Default 100. */
   navigationOrder?: number;
   /**
@@ -520,6 +551,19 @@ export interface PublicSpec {
     /** The values for which the record is public. */
     in: readonly string[];
   };
+}
+
+/** What every signed-in customer may read: see `ObjectSpec.signedIn` (ADR 0447). */
+export interface SignedInSpec {
+  read: readonly string[];
+  /** Left out, every live record. */
+  when?: PublicSpec["when"];
+}
+
+/** Versions of an object's content: see `ObjectSpec.publishable` (ADR 0446). */
+export interface PublishableSpec {
+  /** The fields a version keeps: the content staff edit in the working copy. */
+  content: readonly string[];
 }
 
 /** An object's customer: see `ObjectSpec.customer`. */

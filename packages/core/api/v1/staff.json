@@ -38950,7 +38950,72 @@
         "record.get",
         "record.groups",
         "record.list",
-        "record.similar"
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
+    },
+    {
+      "name": "record.createMany",
+      "description": "Create up to 50 records of one extension object at once, in one batch: all of them or none (a value one record cannot take refuses the whole call, naming its index). Each is validated and recorded exactly as record.create does it. For generated records (the dated sessions of a program); one at a time is record.create. Returns the ids in the order given.",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "records": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "additionalProperties": {}
+            },
+            "description": "Field values by registry field name, one object per record"
+          }
+        },
+        "required": [
+          "object",
+          "records"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
       ]
     },
     {
@@ -39004,7 +39069,9 @@
         "record.get",
         "record.groups",
         "record.list",
-        "record.similar"
+        "record.similar",
+        "record.version",
+        "record.versions"
       ]
     },
     {
@@ -39454,6 +39521,96 @@
       "invalidates": []
     },
     {
+      "name": "record.publish",
+      "description": "Publish a record of a publishable object (see schema.objects): its content fields as they are now become its next version, and the version readers are given. Editing the record afterwards changes no version until it is published again; what follows a version (a program's assignments) keeps the one it pinned. Only a person with the publish permission can do this, never an AI assistant: draft the changes and ask a person to publish. Returns the new version.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "note": {
+            "description": "What changed, for the history",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "current": {
+            "type": "boolean",
+            "description": "The version readers are given"
+          },
+          "publishedAt": {
+            "type": "string"
+          },
+          "publishedBy": {
+            "description": "The staff user who published it",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "version",
+          "current",
+          "publishedAt",
+          "publishedBy",
+          "note",
+          "bytes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
+    },
+    {
       "name": "record.restore",
       "description": "Restore a record of an extension object from Trash (within 30 days of its deletion). Returns the restored record.",
       "risk": "write",
@@ -39533,7 +39690,116 @@
         "record.get",
         "record.groups",
         "record.list",
-        "record.similar"
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
+    },
+    {
+      "name": "record.restoreVersion",
+      "description": "Copy a published version's content back into the record's working copy, as an ordinary edit (validated, audited, undoable by editing again). No version changes and nothing is published: publish afterwards to make it what readers are given. A content field the object no longer has is left out and listed in `skipped`. Returns the record.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "version"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "record": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "values": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updatedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "object",
+              "id",
+              "title",
+              "values",
+              "createdAt",
+              "updatedAt"
+            ],
+            "additionalProperties": false
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "record",
+          "skipped"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
       ]
     },
     {
@@ -39798,8 +40064,194 @@
         "record.get",
         "record.groups",
         "record.list",
-        "record.similar"
+        "record.similar",
+        "record.version",
+        "record.versions"
       ]
+    },
+    {
+      "name": "record.version",
+      "description": "One published version of a record of a publishable object: its content fields as they were published. Without `version`, the current one (what readers are given). Not found when the record has never been published. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "version": {
+            "description": "Default: the current version",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "current": {
+            "type": "boolean",
+            "description": "The version readers are given"
+          },
+          "publishedAt": {
+            "type": "string"
+          },
+          "publishedBy": {
+            "description": "The staff user who published it",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "version",
+          "current",
+          "publishedAt",
+          "publishedBy",
+          "note",
+          "bytes",
+          "values"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "record.versions",
+      "description": "The published versions of a record of a publishable object, newest first: number, when, who, the note, size, and which one is current (what readers are given). Read one with record.version. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "current": {
+                  "type": "boolean",
+                  "description": "The version readers are given"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "publishedBy": {
+                  "description": "The staff user who published it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "version",
+                "current",
+                "publishedAt",
+                "publishedBy",
+                "note",
+                "bytes"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "routine.backtest",

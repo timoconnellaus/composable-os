@@ -16,6 +16,13 @@ import {
   TOOL_AUDIENCES,
   TOOL_RISKS,
 } from "./contract.ts";
+import {
+  checkDocumentSchema,
+  DOCUMENT_MAX_BYTES,
+  DOCUMENT_MAX_PATHS,
+  type DocumentSchema,
+  documentPathNode,
+} from "./document.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
 import { renamedMessage } from "./renamed.ts";
@@ -95,8 +102,41 @@ export const fieldManifestSchema = z.object({
   to: z.string().max(80).optional(),
   many: z.boolean().optional(),
   expression: z.string().max(2000).optional(),
+  // Document fields (ADR 0445): the schema is checked by checkDocumentSchema, with its paths.
+  schema: z.record(z.string(), z.unknown()).optional(),
+  maxBytes: z.number().int().optional(),
+  paths: z
+    .record(
+      z.string().max(40),
+      z
+        .object({
+          label: z.string().min(1).max(100),
+          path: z.string().min(1).max(200),
+          count: z.boolean().optional(),
+          description: z.string().max(1000).optional(),
+        })
+        .strict(),
+    )
+    .optional(),
 });
 export type FieldManifest = z.infer<typeof fieldManifestSchema>;
+
+/** Field names a publishable object's records get from the host (ADR 0446). */
+export const PUBLISHED_FIELD_NAMES = ["publishedVersion", "publishedAt"] as const;
+
+const readDeclarationSchema = z
+  .object({
+    read: z.array(z.string().max(40)).min(1).max(100),
+    when: z
+      .object({
+        via: z.string().max(40).optional(),
+        field: z.string().max(40),
+        in: z.array(z.string().max(100)).min(1).max(20),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
 
 export const stagesManifestSchema = z.object({
   field: z.string().max(40),
@@ -145,18 +185,10 @@ export const objectManifestSchema = z.object({
     })
     .strict()
     .optional(),
-  public: z
-    .object({
-      read: z.array(z.string().max(40)).min(1).max(100),
-      when: z
-        .object({
-          via: z.string().max(40).optional(),
-          field: z.string().max(40),
-          in: z.array(z.string().max(100)).min(1).max(20),
-        })
-        .strict()
-        .optional(),
-    })
+  public: readDeclarationSchema.optional(),
+  signedIn: readDeclarationSchema.optional(),
+  publishable: z
+    .object({ content: z.array(z.string().max(40)).min(1).max(40) })
     .strict()
     .optional(),
   navigationOrder: z.number().int().min(0).max(10_000).optional(),
@@ -340,6 +372,61 @@ export const manifestSchema = z.object({
   roles: z.record(z.string(), roleManifestSchema).default({}),
 });
 export type ExtensionManifest = z.infer<typeof manifestSchema>;
+
+/**
+ * A document field's schema, size and paths (ADR 0445); and that no other type carries them.
+ * `fields` are the other fields the same extension declares on the object, which a path's name
+ * may not repeat.
+ */
+function checkDocumentField(
+  path: string,
+  name: string,
+  field: FieldManifest,
+  fields: Record<string, FieldManifest>,
+  known: ReadonlySet<string>,
+  contract: (path: string, message: string) => void,
+): void {
+  if (field.type !== "document") {
+    for (const key of ["schema", "maxBytes", "paths"] as const) {
+      if (field[key] !== undefined) contract(`${path}.${key}`, `Only document fields take ${key}`);
+    }
+    return;
+  }
+  if (field.track) contract(`${path}.track`, "A document is not tracked on the timeline");
+  if (!field.schema) {
+    contract(`${path}.schema`, "A document field declares its schema");
+    return;
+  }
+  const problems = checkDocumentSchema(field.schema, known);
+  for (const [at, message] of problems) contract(`${path}.schema${at ? `.${at}` : ""}`, message);
+  if (
+    field.maxBytes !== undefined &&
+    (field.maxBytes < 1024 || field.maxBytes > DOCUMENT_MAX_BYTES)
+  ) {
+    contract(`${path}.maxBytes`, `maxBytes is from 1024 to ${DOCUMENT_MAX_BYTES}`);
+  }
+  const paths = Object.entries(field.paths ?? {});
+  if (paths.length > DOCUMENT_MAX_PATHS) {
+    contract(`${path}.paths`, `A document declares at most ${DOCUMENT_MAX_PATHS} paths`);
+  }
+  for (const [pathName, spec] of paths) {
+    const at = `${path}.paths.${pathName}`;
+    if (!FIELD_NAME_RE.test(pathName) || RESERVED_FIELD_NAMES.has(pathName)) {
+      contract(at, `A path's name is a camelCase field name that is not reserved`);
+    }
+    if (Object.hasOwn(fields, pathName)) {
+      contract(at, `"${pathName}" is already a field: a path's name is a column of its own`);
+    }
+    const others = Object.entries(fields).filter(
+      ([other, f]) => other !== name && f.type === "document" && f.paths && pathName in f.paths,
+    );
+    if (others.length) contract(at, `"${pathName}" is a path of ${others[0]?.[0]} too`);
+    if (!problems.length) {
+      const reached = documentPathNode(field.schema as unknown as DocumentSchema, spec);
+      if (typeof reached === "string") contract(`${at}.path`, reached);
+    }
+  }
+}
 
 /** One problem `check` found. `path` points into the manifest, e.g. `objects.project.fields.x`. */
 export interface ManifestIssue {
@@ -703,6 +790,7 @@ export function validateManifest(
       if (field.readOnly && field.required) {
         contract(`${path}.readOnly`, "A read-only field is set by the host and cannot be required");
       }
+      checkDocumentField(path, name, field, fields, known, contract);
       if (field.type === "formula") {
         if (field.required) contract(`${path}.required`, "Formula fields cannot be required");
         if (field.track)
@@ -840,21 +928,43 @@ export function validateManifest(
 
   // What the public may read (ADR 0438): fields of the object's own, and a condition on a
   // state of the record or of one record of this extension it points to.
-  for (const [name, object] of Object.entries(m.objects)) {
-    const p = object.public;
-    if (!p) continue;
-    const path = `objects.${name}.public`;
-    if (object.customer) {
+  // What every signed-in customer may read (ADR 0447) has the same shape and the same checks.
+  const readDeclarations = Object.entries(m.objects).flatMap(([name, object]) =>
+    (["public", "signedIn"] as const).flatMap((key) => {
+      const declared = object[key];
+      return declared ? [{ name, object, key, p: declared }] : [];
+    }),
+  );
+  for (const { name, object, key, p } of readDeclarations) {
+    const path = `objects.${name}.${key}`;
+    if (key === "public" && object.customer) {
       contract(path, "An object declares customer or public, not both");
     }
+    if (key === "signedIn" && object.public) {
+      contract(
+        path,
+        "An object declares public or signedIn, not both: the public's is read by customers too",
+      );
+    }
     if (new Set(p.read).size !== p.read.length)
-      contract(`${path}.read`, "public.read lists a field twice");
+      contract(`${path}.read`, `${key}.read lists a field twice`);
     for (const fieldName of p.read) {
       if (!object.fields[fieldName]) {
         contract(
           `${path}.read`,
-          `public.read lists "${fieldName}", which is not a field of ${name}`,
+          `${key}.read lists "${fieldName}", which is not a field of ${name}`,
         );
+      }
+    }
+    if (key === "signedIn" && object.customer) {
+      // Shared records are read with the fields a customer reads of their own, and no other.
+      for (const fieldName of p.read) {
+        if (!object.customer.read.includes(fieldName)) {
+          contract(
+            `${path}.read`,
+            `signedIn.read lists "${fieldName}", which customer.read does not: a shared record shows no more than one's own`,
+          );
+        }
       }
     }
     if (!p.when) continue;
@@ -870,7 +980,7 @@ export function validateManifest(
       if (!pointed || !local) {
         contract(
           `${path}.when.via`,
-          `public.when.via must name a relation of ${name} to one record of another of this extension's objects`,
+          `${key}.when.via must name a relation of ${name} to one record of another of this extension's objects`,
         );
         continue;
       }
@@ -879,13 +989,46 @@ export function validateManifest(
     }
     const field = target.fields[p.when.field];
     if (!field || field.type !== "select") {
-      contract(`${path}.when.field`, `public.when.field must name a select field of ${targetName}`);
+      contract(`${path}.when.field`, `${key}.when.field must name a select field of ${targetName}`);
       continue;
     }
     const values = new Set((field.options ?? []).map((o) => (typeof o === "string" ? o : o.value)));
     for (const value of p.when.in) {
       if (!values.has(value)) {
         contract(`${path}.when.in`, `"${value}" is not an option of ${targetName}.${p.when.field}`);
+      }
+    }
+  }
+
+  // Versions (ADR 0446): the content a version keeps is fields of the object's own that a person
+  // edits, and the host's two published fields are not taken.
+  for (const [name, object] of Object.entries(m.objects)) {
+    const p = object.publishable;
+    if (!p) continue;
+    const path = `objects.${name}.publishable`;
+    if (new Set(p.content).size !== p.content.length) {
+      contract(`${path}.content`, "publishable.content lists a field twice");
+    }
+    for (const fieldName of p.content) {
+      const field = object.fields[fieldName];
+      if (!field) {
+        contract(`${path}.content`, `"${fieldName}" is not a field of ${name}`);
+      } else if (field.type === "formula" || field.readOnly) {
+        contract(
+          `${path}.content`,
+          `"${fieldName}" is ${field.type === "formula" ? "a formula" : "read-only"}: content is what staff edit`,
+        );
+      }
+    }
+    for (const taken of PUBLISHED_FIELD_NAMES) {
+      const clash =
+        Object.hasOwn(object.fields, taken) ||
+        Object.values(object.fields).some((f) => f.paths && taken in f.paths);
+      if (clash) {
+        contract(
+          `objects.${name}.fields.${taken}`,
+          `"${taken}" is the host's on a publishable object`,
+        );
       }
     }
   }
