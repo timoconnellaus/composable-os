@@ -82,3 +82,25 @@ mobile host module in a context with no `crypto`: refused at start-up without `r
 with it); `apps/app/test/company-web.test.ts` (the operation route: allowed calls, a write with no
 `Origin`, another site, an operation not allowed, not JSON, an `Authorization` header not
 forwarded).
+
+## Amended 2026-11-21 (`fix/role-hooks-and-host-module-upgrade`): host modules follow upgrades
+`cos init` wrote the host modules (`host.ts`; the mobile app's `secure-store.ts` and
+`secure-random.ts`) as new files only, and `cos upgrade` never touched them, so an adopted repo
+could not take a newer template's.
+- **What cos wrote is recorded:** a sha256 per host module in `composable-os.lock.json` at the
+  repo's root, by `cos create` and `cos init` (a module that was there already and differs is the
+  company's and is not recorded).
+- **`cos upgrade` replaces a module the company has not edited** (its file still has the recorded
+  hash) with the new template's, writes one the new template adds, and for an edited one writes
+  nothing and shows its diff against the new template, with what to do (merge by hand; once the
+  file equals the template it is recorded again). A module with no recorded hash (a repo adopted
+  before this) counts as edited unless it already equals the new template.
+- **By content, not version:** `cos upgrade` on the version the repo is already on still checks
+  the host modules against the kit, and `cos diff <block>` at the copied version compares the
+  kit's files with the hashes recorded at copy time, so a kit rebuilt at the same version (local
+  tarballs) still shows what changed.
+- Found on the way: `cos upgrade` could not move `platform.version` in a `product.ts` written by
+  `cos init`, whose keys are quoted; it can now.
+- Tests in `packages/create-composable-os/test/client-repo.test.ts`: unedited (replaced, recorded),
+  edited (left, diff shown), no recorded hash (left, diff shown), a module new in the template
+  added to an adopted repo, and a same-version rebuilt kit (host module replaced, block diff shown).

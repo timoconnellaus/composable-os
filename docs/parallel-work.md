@@ -33,7 +33,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | V | 0450–0459 | 0435–0439 | Stage 27, Ticketing and the first client (step 1, `sellable`: migration 0450, ADR 0435; steps 2 and 3, the pack, the door role and public reads: migration 0451, ADRs 0436 to 0438; the first client's gaps, `fix/ticketing-client-gaps`: ADR 0439) | in flight |
 | W | 0460–0469 | 0440–0444 | Stage 28, Content | specced |
 | X | 0470–0479 | 0445–0449 | Stage 41, Programs (steps 1 to 3: the document field, `publishable` without its public half, the signed-in scope, the pack's spine) | in flight |
-| Y | — | 0450–0454 | Client releases and environments (every pack in a release, environments, customer auth on deploy, role clients; ADRs 0450 to 0452 used; ADRs 0420 to 0423 amended) | in flight |
+| Y | — | 0450–0454 | Client releases and environments (every pack in a release, environments, customer auth on deploy, role clients, pack hooks over a client's operations, host modules on upgrade; ADRs 0450 to 0453 used; ADRs 0420 to 0423 and 0451 amended) | in flight |
 | Z | 0490–0499 | 0455–0459 | Staff invites, native sign-in by tokens, the host behind Cloudflare Access (`fix/staff-invites-and-native-sign-in`; block Y went to client releases); the host's sign-in mail (`fix/host-sign-in-mail`: migration 0491, ADR 0456) | in flight |
 | AA | — | 0460–0464 | The first client's gaps (`fix/ticketing-client-gaps`): ADR 0460, time zones; no migrations | in flight |
 | AB | — | 0465–0469 | The site redone (`apps/marketing`): the build-and-maintain service angle and the new design language; ADR 0465 used, ADR 0191 amended; no migrations | in flight |

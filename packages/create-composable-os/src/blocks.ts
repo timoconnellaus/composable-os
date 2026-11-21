@@ -190,14 +190,35 @@ export async function diff(argv: string[], flags: Flags, deps: Deps): Promise<nu
     if (!existsSync(path)) io.out(`${file}: removed here`);
     else if (sha(readFileSync(path)) !== hash) io.out(`${file}: edited here since it was copied`);
   }
+  const fetch = (version: string) =>
+    fetchKit(flags, deps, product.platform.release, product.platform.repository, version);
   if (target === entry.version) {
+    // Compared by content, not by version: a kit rebuilt at the same version (local tarballs)
+    // may differ from what was copied. What was copied is known by its hashes, and is the file
+    // here when that is unedited.
+    const { kit } = await fetch(target);
+    const now = blockManifest(kit, name);
+    let changed = false;
+    for (const file of [...new Set([...Object.keys(entry.files), ...now.files])].sort()) {
+      const bytes = kit.get(`blocks/${name}/${file}`);
+      const upstream = bytes ? decode(bytes) : "";
+      if (bytes && sha(bytes) === entry.files[file]) continue;
+      changed = true;
+      const path = join(root, blockDir(entry.app, name), file);
+      const here = existsSync(path) ? readFileSync(path, "utf8") : "";
+      const unedited = existsSync(path) && sha(readFileSync(path)) === entry.files[file];
+      io.out(
+        `\n--- ${file} (${unedited ? `as copied from ${entry.version}` : "here, edited"})\n+++ ${file} (${target} as the release has it now${bytes ? "" : ", absent"})`,
+      );
+      for (const line of lineDiff(here, upstream)) io.out(line);
+    }
     io.out(
-      `No upstream change: ${name} was copied from ${entry.version}, the version product.ts is on.`,
+      changed
+        ? `${name}'s files in ${target} changed since it was copied (the release was rebuilt at the same version). Apply by hand; nothing is changed.`
+        : `No upstream change: ${name} was copied from ${entry.version}, the version product.ts is on.`,
     );
     return 0;
   }
-  const fetch = (version: string) =>
-    fetchKit(flags, deps, product.platform.release, product.platform.repository, version);
   const [from, to] = [await fetch(entry.version), await fetch(target)];
   const before = blockManifest(from.kit, name);
   const after = blockManifest(to.kit, name);
