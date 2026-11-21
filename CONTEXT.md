@@ -1020,6 +1020,12 @@ Mail the host sends as itself (the system user) through the one email connection
 chose: customer and staff sign-in codes, invite notices, a declined erase request (ADRs 0419,
 0455). No staff member is its sender.
 
+**Customer sign-up mode**
+Who may get a customer sign-in code, a human admin's choice: `invite_only` (the default),
+`buyers` (also the buyer's address of an order a verified payment was applied to) or `open`. The
+answer to a code request is the same for every address whatever the mode (ADRs 0402, 0458).
+_Avoid_: registration, membership
+
 **Sign-in mail**
 The host's sign-in code email, its own outbound kind (`email.signin`): given only when the
 integration host says the send is its own (`callAsHost`, purpose `sign-in`) and the message is the
