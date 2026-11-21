@@ -423,7 +423,8 @@ export const querySql = defineOperation({
   description:
     "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, " +
     "rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, " +
-    "rec_task_link, rec_record_tag, rec_user, rec_stage_history (stage entered/left times, " +
+    "rec_task_link, rec_record_tag, rec_user, rec_capacity and rec_capacity_claim (places, " +
+    "held, taken and claims of records with a capacity), rec_stage_history (stage entered/left times, " +
     "days_in_stage) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see " +
     "schema.objects). Only a single SELECT or WITH is allowed; " +
     "core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters " +

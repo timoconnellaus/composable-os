@@ -9,6 +9,7 @@ import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { compileFilter, type Filter } from "../filter.ts";
 import { type ListInput, runListQuery } from "../list.ts";
 import { viewColumnOf } from "../records/columns.ts";
+import { type CapacityView, readCapacity } from "./capacity.ts";
 import { type AnyRow, type Reader, visibleObject, visibleSource } from "./index.ts";
 
 /** A record as its caller may see it: only the fields their scope allows. */
@@ -99,6 +100,8 @@ export interface RecordAccess {
   ): Promise<{ items: VisibleRecord[]; nextCursor: string | null }>;
   get(object: string, id: string): Promise<VisibleRecord>;
   count(object: string, filter?: Filter): Promise<{ count: number; capped: boolean }>;
+  /** A record's places: the real numbers for staff, what the object's `show` allows otherwise. */
+  capacity(object: string, id: string): Promise<CapacityView>;
   /** Creates a record that belongs to the caller. Customers only. */
   create(object: string, values: Record<string, unknown>): Promise<{ id: string }>;
   /** Changes one of the caller's own records. Customers only. */
@@ -121,6 +124,7 @@ export function recordAccess(
       listVisible(reader, object, { ...input, limit: input.limit ?? 50 }),
     get: (object, id) => getVisible(reader, object, id),
     count: (object, filter) => countVisible(reader, object, filter),
+    capacity: (object, id) => readCapacity(reader, object, id),
     create: writes?.create ?? none,
     update: writes?.update ?? none,
   };

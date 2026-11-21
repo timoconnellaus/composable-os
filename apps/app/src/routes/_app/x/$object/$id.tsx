@@ -15,6 +15,7 @@ import {
 import { EmptyState } from "#/components/empty-state";
 import { FieldsCard } from "#/components/fields/fields-card";
 import { useRecordHistory, useTimeline } from "#/components/record/adapters";
+import { CapacityCard } from "#/components/record/capacity-card";
 import { HistoryList } from "#/components/record/history";
 import { RecordActionButtons } from "#/components/record/record-actions";
 import { RecordLayout, RecordLayoutSkeleton } from "#/components/record/record-layout";
@@ -192,6 +193,7 @@ function RecordPage({ info, id }: { info: ObjectInfo; id: string }) {
       side={
         <>
           {info.name === "deals.deal" && <RecordSummaryCard object="deals.deal" id={id} />}
+          {info.capacity && <CapacityCard object={info.name} id={id} />}
           {recordViews.panels}
           <RecordAutomationsCard object={info.name} id={id} />
           <dl className="grid gap-1 rounded-lg border p-4 text-sm">
