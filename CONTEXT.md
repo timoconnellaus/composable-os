@@ -1061,7 +1061,8 @@ it when the order started. Amounts are integers in the currency's minor unit, an
 in the deployment's one currency. Only a payment the provider confirmed and the gatekeeper
 verified makes an order paid or part paid (ADR 0427); no operation does. A paid line grants
 something (a ticket, later a pass). A base record from stage 25, with its own `order.*`
-operations.
+operations. With tax at checkout on, its amounts include tax: it keeps the provider's tax per
+payment, per line and in total, and what is owed does not change (ADR 0479).
 _Avoid_: purchase, sale, booking (a booking is a place in a class), invoice (stage 35)
 
 **Sellable**
@@ -1087,8 +1088,23 @@ _Avoid_: ticket number, PIN
 **Deposit**
 Paying part of an order now and the balance by a date, when what is bought offers it. The amount
 and the date come from the records, never from the buyer. A part-paid order keeps its place and
-does not expire; past the date staff decide (stage 25, ADR 0427).
+does not expire; past the date staff decide (stage 25, ADR 0427). With tax on, each payment (the
+deposit and each part of the balance) is taxed by the provider on its own amount (ADR 0479).
 _Avoid_: payment plan, instalments (nothing is scheduled or charged automatically)
+
+**Tax at checkout**
+The payment provider (Stripe Tax) working out the tax inside a payment, at each line's product
+tax code, from the buyer's billing address or, for an in-person event, where it is held. On only
+when a human admin turns it on and the object bought declares a tax code (`sellable.tax`).
+Prices include it, so what a buyer pays does not change. The host stores the provider's figure
+and never calculates one (stage 42, ADR 0479).
+_Avoid_: VAT, GST, sales tax (names of particular taxes), surcharge (nothing is added)
+
+**Tax code** (of an object for sale)
+The provider's product tax code an object declares (`txcd_…`, from Stripe's list), which a human
+admin may override per object in Settings → Orders. Which code fits is the company's call with
+its accountant.
+_Avoid_: tax rate (the provider sets rates), tax class
 
 **Guest**
 Someone buying without an account. Their order is placed with an email address, belongs to the

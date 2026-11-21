@@ -1202,6 +1202,16 @@ provider confirms. The host's own calls (a checkout, the confirmation email) use
 `IntegrationRuntime.callAsHost`. An order's move hook confirms and releases its places
 (`orders/holds.ts`), and each move posts on its Person's timeline.
 
+**Tax at checkout** ([ADR 0479](adr/0479-tax-at-checkout.md), `orders/tax.ts`). Prices are
+tax-inclusive. When a human admin has turned it on and the lines' objects declare a product tax
+code (`sellable.tax`, overridable per object in Settings → Orders), `openCheckout` splits the
+payment over the lines in proportion and sends each share with its code, and an event's place,
+to the gatekeeper, which asks Stripe for automatic tax (a performance location for an event).
+The verified payment carries the provider's tax; `applyVerifiedPayment` stores it on the payment,
+the lines and the order, after checking it fits what was asked, and never works one out. The
+amount charged is unchanged, so the match rule above holds. Otherwise the checkout is exactly as
+before.
+
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record
 in `core_capacity`, created and updated by `record.create`, `record.update` and the import in the

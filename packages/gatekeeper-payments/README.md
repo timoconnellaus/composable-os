@@ -109,6 +109,28 @@ http on localhost/127.0.0.1, an optional customer email, a 1 to 200 character id
 records an observation (the order and amount, never the email) and opens the provider's page. It
 needs no approval because it moves no money. The same idempotency key opens no second checkout.
 
+### Tax at checkout (ADR 0479)
+An optional `tax: { behavior: "inclusive", lines: [{ ref, name, amount, taxCode, place? }] }`
+asks the provider to calculate tax inside the amount. The lines must sum to the amount; codes are
+`txcd_` and eight digits; `place` is an in-person event's address (`country`, two upper-case
+letters, and optionally `region`, `postcode`, `city`, `line1`). Without `tax` the input, and what
+Stripe is sent, are exactly as before.
+
+- **Stripe:** `automatic_tax[enabled]=true`, `billing_address_collection=required`, one line item
+  per tax line (`tax_behavior=inclusive`, `product_data[tax_details][tax_code]`,
+  `product_data[metadata][cos_line]`), and for a place
+  `product_data[tax_details][performance_location]`: a tax location of type `performance`, made
+  once per address with `POST /v1/tax/locations` and kept in the facet's storage. These calls
+  carry `Stripe-Version: 2026-09-30.endive`. A paid taxed session's event carries
+  `tax: { amount: total_details.amount_tax, country: customer_details.address.country, lines }`,
+  the lines read from the session's line items (`amount_tax` by `cos_line`) before the event is
+  stored; when they cannot be read, or the session has no `amount_tax`, the webhook is answered
+  500 and Stripe sends it again. Stripe's Refund has no tax field: refund events carry none.
+- **Fake:** the page asks for a billing country (a POST without `country` is answered 400), and
+  the provider taxes each line inside its amount at `FAKE_TAX_REGISTRATIONS` (AU 10%, NZ 15%, GB
+  20%; elsewhere 0), where the line's place is when it has one, else where the buyer is. Its
+  refund events carry no tax, as Stripe's do not.
+
 `getPayment(ref)` records an observation and returns `{ provider, ref, status: "open" | "paid" |
 "expired", orderId, amount, currency, paymentRef }`.
 
