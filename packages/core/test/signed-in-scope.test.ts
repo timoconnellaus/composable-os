@@ -265,7 +265,7 @@ describe("writes", () => {
       outside(a),
     );
     expect(own).toMatchObject({ ok: true, value: { values: { note: "A's own" } } });
-    const after = await invoke("record.get", { object: SLOT, id: ids.classSlot }, context(admin));
+    const after = await invoke("record.get", { object: SLOT, id: ids.classSlot as string }, context(admin));
     expect(after.values.note).toBe("N-class");
   });
 

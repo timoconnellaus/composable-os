@@ -85,7 +85,7 @@ let customer: CustomerPrincipal;
 
 const schema = (): DocumentSchema => {
   const copy = structuredClone(LAYOUT);
-  const weeks = copy.root.fields.weeks as {
+  const weeks = copy.root.fields.weeks as unknown as {
     of: { fields: { sessions: { of: { fields: Record<string, unknown> } } } };
   };
   weeks.of.fields.sessions.of.fields.exercise = { type: "ref", to: MOVE };
