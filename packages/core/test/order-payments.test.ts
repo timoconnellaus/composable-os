@@ -12,6 +12,7 @@ import {
   type AutomationQueueMessage,
   applyStoredPaymentEvent,
   confirmationMessage,
+  coreRegistry,
   type IntegrationRuntime,
   loadOrderRow,
   memoryEventSink,
@@ -25,6 +26,7 @@ import {
   type ValidationError,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
+import { opRequest, outcomeOf, surfaceOver } from "./http-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 import { CURRENCY, outside, PUBLIC, refusal, run } from "./order-fixtures.ts";
 
@@ -972,5 +974,37 @@ describe("an order's places (stage 26, criterion 5)", () => {
       .bind(rush)
       .first<{ n: number }>();
     expect(orders?.n).toBe(100);
+  });
+});
+
+// --- Over the HTTP surface (stage 23) --------------------------------------------------------------
+
+describe("a guest's journey over HTTP", () => {
+  it("starts with an email, opens the provider's page, and sees the order paid with the token", async () => {
+    const surface = surfaceOver(coreRegistry, guest());
+    const post = async (name: string, input: unknown) => {
+      const response = await surface.handle(opRequest(name, input, null));
+      if (!response) throw new Error("not an API path");
+      return outcomeOf(response);
+    };
+    const started = await post("order.start", {
+      lines: [{ object: SEAT, id: cheap }],
+      email: `${unique("http")}@buyers.example`,
+    });
+    expect(started.ok, JSON.stringify(started)).toBe(true);
+    const order = (started as { value: OrderOut }).value;
+    expect(order.token).toMatch(/^[0-9a-f]{64}$/);
+    const opened = await post("order.checkout", {
+      id: order.id,
+      token: order.token,
+      returnUrl: RETURN,
+    });
+    expect(opened.ok, JSON.stringify(opened)).toBe(true);
+    await providerPays(order.id);
+    const seen = await post("order.view", { id: order.id, token: order.token });
+    expect((seen as { value: OrderOut }).value.state).toBe("paid");
+    // Without the token, or with another order's, it is not found.
+    const other = await post("order.view", { id: order.id, token: "f".repeat(64) });
+    expect(other.ok).toBe(false);
   });
 });
