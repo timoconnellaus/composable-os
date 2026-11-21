@@ -367,6 +367,8 @@ describe("the closed handler context (ADR 0413)", () => {
   it("the generated list shows which open operations keep the raw database", () => {
     const listed = openOperations(fixtureRegistry.list()).operations;
     expect(listed.filter((op) => op.hostInternal).map((op) => op.name)).toEqual([
+      // Stage 42 (ADR 0478): it reads the sources of access (a student's enrolments).
+      "access.check",
       // Stage 28 (ADR 0442): they read redirects, preview links and the cache's generation.
       "content.get",
       "content.list",

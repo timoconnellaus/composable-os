@@ -201,6 +201,8 @@ describe("the generic writes are for tools only", () => {
     const listed = openOperations(coreRegistry.list()).operations.filter((op) => op.toolOnly);
     // And the public reads a pack's tools make (stage 27, ADR 0438).
     expect(listed.map((op) => op.name)).toEqual([
+      // Stage 42 (ADR 0478): which records the caller holds access to, for a pack's tool.
+      "access.check",
       "my.create",
       "my.update",
       "public.get",
