@@ -17245,6 +17245,392 @@
       ]
     },
     {
+      "name": "content.get",
+      "description": "Read one published record of a content object (a blog post) by its slug, as the public reads it: its published version, with only the fields the object lets the public read. An old slug of a record whose slug changed answers `redirect` with the slug it has now. A draft, an unpublished record and an unknown slug are all not found. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object the public reads, e.g. `content.post`"
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The record's address, e.g. `summer-launch`"
+          }
+        },
+        "required": [
+          "object",
+          "slug"
+        ]
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "values": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "kind": {
+                "type": "string",
+                "const": "record"
+              }
+            },
+            "required": [
+              "object",
+              "id",
+              "values",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "redirect"
+              },
+              "object": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string",
+                "description": "Where the record is now: read it by this slug"
+              }
+            },
+            "required": [
+              "kind",
+              "object",
+              "slug"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": []
+    },
+    {
+      "name": "content.list",
+      "description": "A page of the published records of a content object (blog posts), as the public reads them: published versions only, with only the fields the object lets the public read. Newest first by default (the object's date, else when each was published). Filter and sort on those fields; pass nextCursor back as cursor. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object the public reads, e.g. `content.post`"
+          },
+          "filter": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "direction": {
+                "default": "asc",
+                "type": "string",
+                "enum": [
+                  "asc",
+                  "desc"
+                ]
+              }
+            },
+            "required": [
+              "field"
+            ]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "object"
+        ],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "neq",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "between",
+                      "in",
+                      "not_in",
+                      "contains",
+                      "not_contains",
+                      "starts_with",
+                      "ends_with",
+                      "is_null",
+                      "is_not_null"
+                    ]
+                  },
+                  "value": {}
+                },
+                "required": [
+                  "field",
+                  "op"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "and": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": [
+                  "and"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "or": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": [
+                  "or"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "values"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "content.preview",
+      "description": "Read the working copy of one record of a content object with a preview link's token: what staff are editing, before it is published, with only the fields the public would read. The token names one record and works until it expires; for any other record, or after, it is not found. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object the public reads, e.g. `content.post`"
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The record's address, e.g. `summer-launch`"
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "The token of a preview link"
+          }
+        },
+        "required": [
+          "object",
+          "slug",
+          "token"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "kind": {
+            "type": "string",
+            "const": "preview"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "values",
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "content.previewLink",
+      "description": "Make a preview link for one record of a content object: a token that lets anyone holding it read the record's working copy (the fields the public would read) with content.preview, for 24 hours by default and at most 168. Share it only with people who may see the draft. Returns the token and when it stops working.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object the public reads, e.g. `content.post`"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "hours": {
+            "default": 24,
+            "description": "How long it works",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 168
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "content.get",
+        "content.list",
+        "content.preview"
+      ]
+    },
+    {
       "name": "customer.disable",
       "description": "Disable a customer account: it can no longer sign in, and every session it has ends at once. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.",
       "risk": "write",
@@ -38794,6 +39180,153 @@
       "invalidates": []
     },
     {
+      "name": "record.cancelSchedule",
+      "description": "Drop the scheduled publish of a record of a publishable object. What is live stays live. Not found when nothing is scheduled.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "cancelled": {
+            "type": "string",
+            "description": "The time it was scheduled for"
+          }
+        },
+        "required": [
+          "cancelled"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
+    },
+    {
+      "name": "record.compareVersions",
+      "description": "Compare two versions of a record of a publishable object, or a version and the working copy: each content field that differs, with its value in both. `to` left out is the working copy (what would be published now). Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "from": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "A version number"
+          },
+          "to": {
+            "description": "A version number. Default: the working copy",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "from"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null: the working copy"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "before": {},
+                "after": {}
+              },
+              "required": [
+                "field",
+                "before",
+                "after"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "changes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "record.count",
       "description": "Count live records of an object (person, organisation, task, activity, or an extension object `<extension>.<object>`) matching an optional structured filter, the same filter JSON as the object's list operation. Returns { count, capped }: counting stops at 10000, and capped is true when at least that many match. Use it for totals; read the records with the list operation. Read-only.",
       "risk": "read",
@@ -38994,6 +39527,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
         "record.count",
         "record.get",
         "record.groups",
@@ -39057,6 +39591,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
         "record.count",
         "record.get",
         "record.groups",
@@ -39113,6 +39648,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
         "record.count",
         "record.get",
         "record.groups",
@@ -39649,6 +40185,75 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
+    },
+    {
+      "name": "record.publishDue",
+      "description": "Platform use only: publish the scheduled publishes whose time has come (the minute cron), each as the snapshot the person who scheduled it took, in their name. A record deleted meanwhile loses its schedule. Returns the records published.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "published": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "version"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "dropped": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "published",
+          "dropped"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.compareVersions",
         "record.count",
         "record.get",
         "record.groups",
@@ -39734,6 +40339,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
         "record.count",
         "record.get",
         "record.groups",
@@ -39841,6 +40447,91 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
+    },
+    {
+      "name": "record.schedulePublish",
+      "description": "Schedule a record of a publishable object to be published at a time: its content fields as they are now are what goes live then (a later edit waits for the next publish). Replaces any earlier schedule; publishing now or unpublishing drops it. Only a person with the publish permission can do this, never an AI assistant. Returns the schedule.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "description": "When to publish it (ISO-8601, in the future)"
+          },
+          "note": {
+            "description": "What changed, for the history",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "at"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "publishAt": {
+            "type": "string",
+            "description": "When it goes live (ISO-8601 UTC)"
+          },
+          "scheduledBy": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "publishAt",
+          "scheduledBy",
+          "note",
+          "bytes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.compareVersions",
         "record.count",
         "record.get",
         "record.groups",
@@ -40017,6 +40708,62 @@
       "invalidates": []
     },
     {
+      "name": "record.unpublish",
+      "description": "Unpublish a record of a publishable object: the public no longer reads it (it answers as a record that does not exist) and any scheduled publish is dropped. Its versions are kept and it can be published again. Only a person with the publish permission can do this.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "unpublished": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The version that was live"
+          }
+        },
+        "required": [
+          "unpublished"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
+    },
+    {
       "name": "record.update",
       "description": "Update field values of a record. On extension objects any writable field; on core objects only extension fields (named `<extension>.<field>`). Pass null to clear a value. Changes are recorded in the record's history; fields tracked on the timeline post a system activity. Returns the stored record.",
       "risk": "write",
@@ -40108,6 +40855,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
         "record.count",
         "record.get",
         "record.groups",
