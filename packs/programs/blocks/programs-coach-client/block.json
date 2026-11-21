@@ -1,0 +1,11 @@
+{
+  "name": "programs-coach-client",
+  "pack": "programs",
+  "skin": "web",
+  "operations": ["record.list"],
+  "files": ["coach-client.tsx", "LICENSE"],
+  "dependsOn": ["programs-session", "programs-progress", "ui-button"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "types": [],
+    "rootDirs": [".", "../../../blocks"]
+  },
+  "include": [
+    "programs-builder/*.tsx",
+    "programs-bank/*.tsx",
+    "programs-session/*.tsx",
+    "programs-today/*.tsx",
+    "programs-class-today/*.tsx",
+    "programs-progress/*.tsx",
+    "programs-coach-client/*.tsx"
+  ]
+}

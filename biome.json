@@ -52,7 +52,14 @@
         "packs/ticketing/blocks/ticketing-events/**",
         "packs/ticketing/blocks/ticketing-checkout/**",
         "packs/ticketing/blocks/ticketing-order/**",
-        "packs/ticketing/blocks/ticketing-my-tickets/**"
+        "packs/ticketing/blocks/ticketing-my-tickets/**",
+        "packs/programs/blocks/programs-builder/**",
+        "packs/programs/blocks/programs-bank/**",
+        "packs/programs/blocks/programs-session/**",
+        "packs/programs/blocks/programs-today/**",
+        "packs/programs/blocks/programs-class-today/**",
+        "packs/programs/blocks/programs-progress/**",
+        "packs/programs/blocks/programs-coach-client/**"
       ],
       "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
     },

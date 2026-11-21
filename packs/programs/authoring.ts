@@ -176,13 +176,20 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
   let session: Session | null = null;
   let block: Block | null = null;
   let item: Item | null = null;
-  let notesTarget: Note[] | null = null;
   let rounds = 1;
   let continueTo: ((more: string) => void) | null = null;
 
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
-  const skip = (n: number, raw: string, reason: string) =>
+  const skip = (n: number, raw: string, reason: string): void => {
     unread.push({ line: n, text: raw.trim().slice(0, 300), reason });
+  };
+  /** Where a note goes: the item, else the block, else the session. */
+  const notesHere = (): Note[] | null => {
+    const owner: { notes?: Note[] } | null = item ?? block ?? session;
+    if (!owner) return null;
+    owner.notes = owner.notes ?? [];
+    return owner.notes;
+  };
 
   /** The prescriptions a level or item line names, or why it cannot. */
   const prescriptionsOf = (
@@ -218,7 +225,7 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
     return week;
   };
 
-  lines.forEach((rawLine, index) => {
+  const readLine = (rawLine: string, index: number) => {
     const n = index + 1;
     if (!rawLine.trim()) {
       continueTo = null;
@@ -228,21 +235,14 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
     const line = rawLine.trim();
     let m: RegExpExecArray | null;
 
-    if ((m = RE.coachNote.exec(line)) || (m = RE.memberNote.exec(line))) {
+    m = RE.coachNote.exec(line) ?? RE.memberNote.exec(line);
+    if (m) {
       const note: Note = {
         text: (m[1] ?? "").trim().slice(0, 800),
         ...(RE.memberNote.test(line) ? { members: true } : {}),
       };
-      const target =
-        notesTarget ??
-        (item
-          ? (item.notes ??= [])
-          : block
-            ? (block.notes ??= [])
-            : session
-              ? (session.notes ??= [])
-              : null);
       if (!note.text) return;
+      const target = notesHere();
       if (!target) return skip(n, rawLine, "a note before any session");
       if (target.length >= 10) return skip(n, rawLine, "more than ten notes in one place");
       target.push(note);
@@ -253,25 +253,29 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       (continueTo as (more: string) => void)(line);
       return;
     }
-    if ((m = RE.title.exec(line))) {
+    m = RE.title.exec(line);
+    if (m) {
       title = (m[1] ?? "").trim().slice(0, 200) || null;
       continueTo = null;
       return;
     }
-    if ((m = RE.guidance.exec(line))) {
+    m = RE.guidance.exec(line);
+    if (m) {
       guidance = (m[1] ?? "").trim();
       continueTo = (more) => {
         guidance = `${guidance}\n${more}`;
       };
       return;
     }
-    if ((m = RE.week.exec(line))) {
+    m = RE.week.exec(line);
+    if (m) {
       week = { ...(m[2] ? { label: m[2].trim().slice(0, 60) } : {}), sessions: [] };
       weeks.push(week);
       session = block = item = null;
       return;
     }
-    if ((m = RE.session.exec(line))) {
+    m = RE.session.exec(line);
+    if (m) {
       const name = (m[1] ?? "").trim().slice(0, 60) || "Session";
       const w = needWeek();
       if (w.sessions.length >= 14) return skip(n, rawLine, "more than fourteen sessions in a week");
@@ -282,17 +286,18 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       session = { name, day, blocks: [] };
       w.sessions.push(session);
       block = item = null;
-      notesTarget = null;
       continueTo = null;
       return;
     }
     if (!session) return skip(n, rawLine, 'put a "Session: …" line first');
     const s = session as Session;
-    if ((m = RE.focus.exec(line))) {
+    m = RE.focus.exec(line);
+    if (m) {
       s.focus = (m[1] ?? "").trim().slice(0, 200);
       return;
     }
-    if ((m = RE.warmup.exec(line))) {
+    m = RE.warmup.exec(line);
+    if (m) {
       s.warmup = { ...(m[1]?.trim() ? { text: m[1].trim().slice(0, 1200) } : {}) };
       block = item = null;
       continueTo = (more) => {
@@ -302,7 +307,8 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       };
       return;
     }
-    if ((m = RE.dash.exec(line)) && !block && s.warmup) {
+    m = RE.dash.exec(line);
+    if (m && !block && s.warmup) {
       const found = prescriptionsOf(m[1] ?? "");
       const w = s.warmup;
       if (typeof found === "string") {
@@ -313,7 +319,8 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       w.exercises = [...(w.exercises ?? []), ...found.list].slice(0, 15);
       return;
     }
-    if ((m = RE.block.exec(line))) {
+    m = RE.block.exec(line);
+    if (m) {
       const label = (m[1] ?? "").toUpperCase();
       if (s.blocks.some((b) => b.label === label))
         return skip(n, rawLine, `block ${label} is there twice`);
@@ -329,13 +336,14 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       };
       s.blocks.push(block);
       item = null;
-      notesTarget = null;
       continueTo = null;
       return;
     }
-    if ((m = RE.loading.exec(line)) && block) {
+    m = RE.loading.exec(line);
+    if (m && block) {
       // How the rounds load: words for members on the block, continued by indented lines.
-      const notes = (block.notes ??= []);
+      block.notes = block.notes ?? [];
+      const notes = block.notes;
       const note: Note = { text: (m[1] ?? "").trim().slice(0, 800), members: true };
       if (notes.length >= 10) return skip(n, rawLine, "more than ten notes in one place");
       notes.push(note);
@@ -344,7 +352,8 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       };
       return;
     }
-    if ((m = RE.item.exec(line))) {
+    m = RE.item.exec(line);
+    if (m) {
       if (!block) {
         block = { label: (m[1] ?? "A").charAt(0), items: [] };
         s.blocks.push(block);
@@ -353,7 +362,6 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       if (block.items.some((i) => i.label === label))
         return skip(n, rawLine, `item ${label} is there twice`);
       const rest = (m[2] ?? "").trim();
-      notesTarget = null;
       // An exercise on the line: for everyone. A name alone: its levels follow.
       const found = rest ? prescriptionsOf(rest) : "an item with nothing after its label";
       if (typeof found !== "string") {
@@ -375,7 +383,8 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       item = null;
       return skip(n, rawLine, found);
     }
-    if ((m = RE.level.exec(line)) && item?.kind === "levels") {
+    m = RE.level.exec(line);
+    if (m && item?.kind === "levels") {
       const number = Number(m[1]);
       if (number < 1 || number > 5) return skip(n, rawLine, "a level is 1 to 5");
       if (item.levels.some((l) => l.level === number))
@@ -392,7 +401,6 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
             };
       item.levels.push(level);
       item.levels.sort((a, b) => a.level - b.level);
-      notesTarget = null;
       return;
     }
     if (indented && continueTo) {
@@ -400,7 +408,8 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       return;
     }
     skip(n, rawLine, "not a line the import knows");
-  });
+  };
+  for (const [index, rawLine] of lines.entries()) readLine(rawLine, index);
 
   // An item whose levels all failed, or a block left empty, cannot be in the layout: say so.
   for (const w of weeks) {

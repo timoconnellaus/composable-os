@@ -1,0 +1,16 @@
+{
+  "name": "programs-native-session",
+  "pack": "programs",
+  "skin": "native",
+  "operations": [
+    "x.programs.sessionGet",
+    "x.programs.logAdd",
+    "x.programs.logUpdate",
+    "x.programs.sessionComplete"
+  ],
+  "files": ["session-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

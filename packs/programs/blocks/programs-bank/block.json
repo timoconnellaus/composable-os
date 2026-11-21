@@ -1,0 +1,11 @@
+{
+  "name": "programs-bank",
+  "pack": "programs",
+  "skin": "web",
+  "operations": ["record.list", "record.create", "record.update"],
+  "files": ["exercise-bank.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

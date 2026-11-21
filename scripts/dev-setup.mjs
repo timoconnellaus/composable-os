@@ -128,6 +128,12 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       readFileSync(join(root, "packs/ticketing", file), "utf8"),
     ]),
   );
+  const programs = Object.fromEntries(
+    ["index.ts", "tools.ts", "layout.ts", "dashboards.ts", "authoring.ts"].map((file) => [
+      file,
+      readFileSync(join(root, "packs/programs", file), "utf8"),
+    ]),
+  );
   const text = JSON.stringify({
     extensions: [
       {
@@ -137,6 +143,8 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
         files: { "index.ts": readFileSync(fixture, "utf8") },
       },
       { id: "ticketing", version: "0.1.0", optional: true, files: ticketing },
+      // And Programs (stage 41), the same way, for its e2e specs.
+      { id: "programs", version: "0.1.0", optional: true, files: programs },
     ],
   });
   const hash = createHash("sha256").update(text).digest("hex");
