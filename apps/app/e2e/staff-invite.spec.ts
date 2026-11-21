@@ -90,9 +90,13 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
     const guest = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
     const person = await guest.newPage();
     await person.goto("/sign-in");
-    const ask = person.getByRole("form", { name: "Sign in with a code" });
     // Hydrated first: the form is controlled, so text typed before React takes over is lost.
-    await expect(ask.getByRole("button", { name: "Email me a code" })).toBeEnabled();
+    const useCode = person.getByRole("button", { name: /Use a code from email/ });
+    await expect(useCode).toBeEnabled();
+    await useCode.click();
+    const ask = person.getByRole("form", { name: "Sign in with a code" });
+    // The code form replaces the password form: one email field on the page.
+    await expect(person.getByLabel("Email")).toHaveCount(1);
     await ask.getByLabel("Email").fill(invitee);
     await expect(ask.getByLabel("Email")).toHaveValue(invitee);
     await ask.getByRole("button", { name: "Email me a code" }).click();
