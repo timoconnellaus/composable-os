@@ -299,3 +299,19 @@ Where the build read the spec one way, or decided what it left open:
 - **The scanner's count** is of who was let in on that device. An event-wide count needs a read
   the door role has (it can list the event's tickets); the block does not make it.
 - **Naming a deployment after the client's product (#155)** is not built: see the PR.
+
+## After the first client's build (2026-11-21, `fix/ticketing-client-gaps`)
+Gaps the gym's own repository ran into, fixed on the platform:
+- **Linking members by verified email:** `me.get` returns `signInEmail` and `signInEmailVerified`,
+  the account's sign-in address, distinct from the Person's `primaryEmail`. A company's server
+  checks a native app's customer by calling `me.get` on the host's public HTTPS surface with the
+  customer's bearer token; the binding stays cookies-only (ADR 0421, amended).
+- **Prices with their currency:** the seam returns `currency` beside a sellable object's records;
+  `eventsOnSale` gives each ticket type's `currency`, `salesSummary` the deployment's; the blocks
+  take no `currency` prop (ADR 0435, amended).
+- **A holder's tickets name their event:** `customerVia` (ADR 0439) on the event and the ticket
+  type; `myTickets` returns the event's name, dates, zone, venue and state and the type's name,
+  live, whatever the event's state. The blocks no longer take an `eventName` prop. The order page
+  already named its lines (a line keeps its title).
+- **Events have a time zone:** a required `timezone` field (the deployment's zone by default), in
+  `eventsOnSale` and `myTickets`, the emails, and the reminder and "ended" days (ADR 0450).

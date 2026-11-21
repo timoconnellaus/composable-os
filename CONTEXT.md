@@ -1079,8 +1079,8 @@ a person approves it in the Approvals inbox (never an AI); the order shows it on
 confirms (ADR 0429).
 
 **Event** (Ticketing)
-Something tickets are sold for: a camp, a workshop, a night, with its times, venue and status
-(draft, on sale, ended, cancelled). Its places, when set, are shared by all its ticket types (the
+Something tickets are sold for: a camp, a workshop, a night, with its times, its own time zone,
+venue and status (draft, on sale, ended, cancelled). Its places, when set, are shared by all its ticket types (the
 pool). A record of the Ticketing pack (`ticketing.event`, stage 27).
 _Avoid_: class, session (a class is booked, not ticketed)
 
@@ -1092,7 +1092,9 @@ _Avoid_: tier, package (as a word for the object), product
 
 **Ticket** (Ticketing)
 One person's right to attend: granted by the host, one per place, when the order is first paid,
-with a code. It is its holder's (a Person): they see its event, type, code and state. Valid, used
+with a code. It is its holder's (a Person): they see its event, type, code and state, and through
+it their event's name, dates, zone and venue and their ticket type's name, whatever the event's
+state. Valid, used
 or void (`ticketing.ticket`).
 _Avoid_: booking, pass (a pass grants an allowance), seat
 
@@ -1130,6 +1132,25 @@ A named permission a human admin grants one staff account on top of its role (AD
 permission the pack declares grantable. Read from the account on every call; a pack role replaces
 it; it never lets an AI actor do what only a person may.
 _Avoid_: role (a role is admin, member or viewer), scope (an MCP token's)
+
+**Through their own records** (`customerVia`)
+What a customer reads of a record one of their own records points to (ADR 0439): the fields an
+object declares, of the records a record of theirs points to (a ticket's event, whatever its
+state), live. Nothing of a record no record of theirs points to. Read with `my.list` and
+`my.get`. Not a way to buy: a customer buys only what they read as their own or as the public.
+_Avoid_: related, linked (any relation), shared (the signed-in scope's word)
+
+**Sign-in address**
+The address a customer's account signs in with: the one the emailed code was sent to and
+verified on (`me.get`'s `signInEmail`). The only address a company may trust to link its own
+records to a customer. Not the Person's contact email, which staff can change.
+_Avoid_: primary email (the Person's contact address), login
+
+**Time zone** (field)
+A `timezone` field (ADR 0450): an IANA zone name the runtime knows, the deployment's zone when a
+new record leaves it empty. A record's datetimes are shown, and a date trigger with `zoneField`
+counts its days, in it.
+_Avoid_: offset (an offset changes with daylight saving), locale
 
 **Signed-in scope** (`signedIn`)
 What an object declares every signed-in customer may read, whoever's record it is (ADR 0447):
