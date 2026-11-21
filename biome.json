@@ -20,6 +20,8 @@
       "!scripts/release/test/testdata",
       "!packages/client/test/generated",
       "!templates/client/apps/web/src/client",
+      "!templates/client/apps/mobile/src/client",
+      "!blocks/ui-*",
       "!evals/*/recordings",
       "!packages/gatekeeper-interface/src",
       "!packages/gatekeeper-interface/testing",
@@ -44,6 +46,10 @@
     ]
   },
   "overrides": [
+    {
+      "includes": ["blocks/web-*/**"],
+      "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
+    },
     {
       "includes": ["packages/agent-*/**"],
       "linter": {

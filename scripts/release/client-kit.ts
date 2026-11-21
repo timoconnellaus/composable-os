@@ -74,7 +74,14 @@ export function collectClientKit(root: string, packs: readonly string[]): Map<st
       new TextEncoder().encode(clientSkill(readFileSync(file, "utf8"))),
     );
   }
-  for (const { name, dir } of blockDirs(root)) walk(dir, dir, kit, `blocks/${name}/`);
+  // Blocks are MIT (ADR 0401): each carries the licence of the folder it ships from.
+  for (const { name, dir } of blockDirs(root)) {
+    walk(dir, dir, kit, `blocks/${name}/`);
+    const licence = join(dir, "..", "LICENSE");
+    if (!existsSync(licence))
+      throw new Error(`${relative(root, dir)} has no MIT LICENSE beside it`);
+    kit.set(`blocks/${name}/LICENSE`, readFileSync(licence));
+  }
   const api = join(root, "packages", "core", "api", "v1");
   for (const audience of ["customer", "public", "staff"]) {
     kit.set(`contract/${audience}.json`, readFileSync(join(api, `${audience}.json`)));

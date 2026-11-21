@@ -315,6 +315,11 @@ export function templateFiles(kit: ClientKit, values: Values): Map<string, strin
     const app = /^apps\/([^/]+)\/(package\.json|wrangler\.jsonc)$/.exec(rel);
     if (app?.[2] === "package.json")
       text = appPackage(text, `${values.id}-${app[1]}`, values.version);
+    if (rel === "apps/mobile/app.json") {
+      const config = JSON.parse(text) as { expo: Record<string, unknown> };
+      config.expo = { ...config.expo, name: values.label, slug: values.id, scheme: values.id };
+      text = `${JSON.stringify(config, null, 2)}\n`;
+    }
     if (app?.[2] === "wrangler.jsonc") {
       text = text
         .replace(/"name":\s*"client-web"/, `"name": "${values.id}-web"`)
@@ -366,6 +371,18 @@ export async function create(argv: string[], flags: Flags, deps: Deps): Promise<
     appWorker: appWorker(manifest),
   };
   const files = templateFiles(kit, values);
+  // The mobile app is optional (--with-mobile): without it, its folder is left out and product.ts
+  // names only the web app.
+  const mobile = Boolean(flags["with-mobile"]);
+  for (const path of [...files.keys()])
+    if (!mobile && path.startsWith("apps/mobile/")) files.delete(path);
+  if (mobile) {
+    const product = files.get("product.ts") as string;
+    files.set(
+      "product.ts",
+      product.replace(/(\n\s*web: \{[^\n]*\},)/, '$1\n  mobile: { dir: "apps/mobile" },'),
+    );
+  }
   for (const [path, text] of files) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), text);

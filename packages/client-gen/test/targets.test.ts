@@ -162,13 +162,15 @@ describe("the generated client's targets", () => {
     const text = renderClient(productContract([deals, leads, lifecycle]), { product: "crm" })[
       "customer.ts"
     ] as string;
-    const file = join(root, "templates", "client", "apps", "web", "src", "client", "customer.ts");
-    if (process.env.UPDATE_CLIENT_FIXTURE === "1") writeFileSync(file, text);
-    expect(
-      readFileSync(file, "utf8"),
-      `${file} is not the CRM's current customer client: an operation open to customers changed. ` +
-        "Regenerate it on purpose with UPDATE_CLIENT_FIXTURE=1 pnpm --filter @composable-os/client-gen test",
-    ).toBe(text);
+    for (const app of ["web", "mobile"]) {
+      const file = join(root, "templates", "client", "apps", app, "src", "client", "customer.ts");
+      if (process.env.UPDATE_CLIENT_FIXTURE === "1") writeFileSync(file, text);
+      expect(
+        readFileSync(file, "utf8"),
+        `${file} is not the CRM's current customer client: an operation open to customers changed. ` +
+          "Regenerate it on purpose with UPDATE_CLIENT_FIXTURE=1 pnpm --filter @composable-os/client-gen test",
+      ).toBe(text);
+    }
   });
 
   it("React Native: runs as ES2019 with only ECMAScript's globals, fetch and setTimeout", async () => {

@@ -129,6 +129,25 @@ describe("cos create", () => {
     expect(made.output).toContain("rate limiting rule");
   });
 
+  it("adds the Expo app with --with-mobile, on the same typed client (criterion 5's template)", async () => {
+    await publish("1.0.0");
+    const plain = join(scratch(), "plain");
+    expect((await runIn(world, "create", plain)).code).toBe(0);
+    expect(existsSync(join(plain, "apps", "mobile"))).toBe(false);
+    const dir = join(scratch(), "gym");
+    const made = await runIn(world, "create", dir, "--with-mobile", "--label", "Gym");
+    expect(made.code, made.output).toBe(0);
+    expect(read(dir, "product.ts")).toContain('mobile: { dir: "apps/mobile" }');
+    expect(JSON.parse(read(dir, "apps/mobile/package.json")).name).toBe("gym-mobile");
+    expect(JSON.parse(read(dir, "apps/mobile/app.json")).expo).toMatchObject({
+      name: "Gym",
+      slug: "gym",
+    });
+    expect(read(dir, "apps/mobile/src/client/customer.ts")).toBe(
+      read(dir, "apps/web/src/client/customer.ts"),
+    );
+  });
+
   it("refuses a folder that is not empty", async () => {
     await publish("1.0.0");
     const dir = scratch();
@@ -311,6 +330,36 @@ describe("blocks (criterion 10)", () => {
     expect(diff.output).toContain("-   return <p>Hello, {name}</p>;");
     expect(readFileSync(file, "utf8")).toBe(edited);
     expect((await cos("diff", "greeting")).output).toContain("No upstream change");
+  });
+
+  it("copies the sign-in block with the base-layer blocks it depends on, and their MIT licence", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    const added = await cos("add", "web-sign-in");
+    expect(added.code, added.output).toBe(0);
+    const blocks = join(dir, "apps", "web", "src", "blocks");
+    for (const file of [
+      "web-sign-in/sign-in-form.tsx",
+      "ui-button/button.tsx",
+      "ui-input/input.tsx",
+      "ui-label/label.tsx",
+      "ui-utils/utils.ts",
+      "web-sign-in/LICENSE",
+    ]) {
+      expect(existsSync(join(blocks, file)), file).toBe(true);
+    }
+    expect(readFileSync(join(blocks, "web-sign-in", "LICENSE"), "utf8")).toContain("MIT License");
+    expect(readFileSync(join(blocks, "ui-button", "button.tsx"), "utf8")).toContain(
+      'from "../ui-utils/utils.ts"',
+    );
+    expect(added.output).toMatch(/pnpm add .*radix-ui@/);
+    expect(Object.keys(JSON.parse(read(dir, "blocks.lock.json"))).sort()).toEqual([
+      "ui-button",
+      "ui-input",
+      "ui-label",
+      "ui-utils",
+      "web-sign-in",
+    ]);
   });
 
   it("refuses a block of a pack the product does not list", async () => {

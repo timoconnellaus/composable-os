@@ -77,7 +77,7 @@ export const HELP = `cos: the Composable OS command. One command for a company's
 installing a product with no repository.
 
 A client repo (stage 24)
-  cos create <dir>                       a new client repo from the release's template (also
+  cos create <dir> [--with-mobile]       a new client repo from the release's template (also
                                          \`npm create composable-os <dir>\`)
   cos init                               adopt the repo you are in: adds product.ts, skills/, the
                                          typed client and the rules in AGENTS.md; shows a diff of
@@ -181,6 +181,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "unverified",
       "skip-build",
       "no-typecheck",
+      "with-mobile",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {

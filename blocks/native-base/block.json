@@ -1,0 +1,19 @@
+{
+  "name": "native-base",
+  "pack": null,
+  "skin": "native",
+  "operations": [],
+  "files": [
+    "theme.ts",
+    "screen.tsx",
+    "list.tsx",
+    "row.tsx",
+    "sheet.tsx",
+    "tab-bar.tsx",
+    "button.tsx",
+    "field.tsx",
+    "LICENSE"
+  ],
+  "dependsOn": [],
+  "packages": {}
+}

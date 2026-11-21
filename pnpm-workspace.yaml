@@ -3,6 +3,7 @@ packages:
   - packages/*
   - packs/*
   - templates/client/apps/*
+  - blocks
   - products
   - products/*/apps/*
   - evals/*

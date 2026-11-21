@@ -1,0 +1,8 @@
+{
+  "name": "order-summary",
+  "pack": null,
+  "skin": "web",
+  "operations": [],
+  "files": ["order-summary.tsx"],
+  "dependsOn": []
+}

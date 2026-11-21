@@ -1,0 +1,17 @@
+{
+  "name": "ui-button",
+  "pack": null,
+  "skin": "web",
+  "operations": [],
+  "files": [
+    "button.tsx",
+    "LICENSE"
+  ],
+  "dependsOn": [
+    "ui-utils"
+  ],
+  "packages": {
+    "class-variance-authority": "0.7.1",
+    "radix-ui": "1.8.1"
+  }
+}

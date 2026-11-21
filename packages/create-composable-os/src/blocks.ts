@@ -24,6 +24,8 @@ export interface BlockManifest {
   files: string[];
   /** Blocks it imports, copied with it. */
   dependsOn: string[];
+  /** npm packages its files import, with the versions the platform uses. */
+  packages?: Record<string, string>;
 }
 
 interface LockEntry {
@@ -78,6 +80,7 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
   );
   const lock = readLock(root);
   const added: string[] = [];
+  const needs = new Map<string, string>();
   const visit = (block: string, trail: string[]) => {
     if (lock[block] || added.includes(block)) return;
     if (trail.includes(block))
@@ -107,9 +110,15 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
     }
     lock[block] = { version, app, files };
     added.push(block);
+    for (const [pkg, range] of Object.entries(manifest.packages ?? {})) needs.set(pkg, range);
   };
   visit(name, []);
   writeLock(root, lock);
+  if (needs.size) {
+    deps.io.out(
+      `They import ${[...needs.keys()].join(", ")}: pnpm add ${[...needs].map(([p, v]) => `${p}@${v}`).join(" ")} in the app.`,
+    );
+  }
   deps.io.out(
     added.length
       ? `Copied ${added.join(", ")} (${version}) into ${added.map((b) => blockDir(lock[b]?.app ?? "", b)).join(", ")}. The files are yours now; ${LOCK} records where they came from.`

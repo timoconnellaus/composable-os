@@ -1,0 +1,16 @@
+{
+  "name": "ui-label",
+  "pack": null,
+  "skin": "web",
+  "operations": [],
+  "files": [
+    "label.tsx",
+    "LICENSE"
+  ],
+  "dependsOn": [
+    "ui-utils"
+  ],
+  "packages": {
+    "radix-ui": "1.8.1"
+  }
+}

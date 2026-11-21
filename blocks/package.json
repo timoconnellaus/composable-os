@@ -1,0 +1,21 @@
+{
+  "name": "@composable-os/blocks",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "The blocks a client app copies (stage 24, ADR 0424): the web base layer (ui-*, from packages/ui), the native base layer and sign-in in both skins. They ship inside the release; this package only type-checks them.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.native.json"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "radix-ui": "1.8.1",
+    "react": "19.3.1",
+    "react-native": "0.88.1",
+    "tailwind-merge": "3.7.0",
+    "typescript": "6.0.3"
+  }
+}
