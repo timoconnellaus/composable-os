@@ -31,7 +31,7 @@ risk for the next.
 | 24 | Client apps | One `cos` command; a template for new client repos (TanStack Start web, Expo mobile) and an adopt path for existing ones; platform packages on npm; the service binding to the host, with customers signing in on the company's domain; packs as packages with headless hooks; MIT blocks shipped inside the release | spec agreed |
 | 25 | States, orders and payments | One transition engine under `states` and `stages`; the Order base record, priced by the host, in one currency per deployment; guest checkout; a payments gatekeeper for Stripe on the org's own account, with a hosted page, webhooks and refunds through approval | spec agreed |
 | 26 | Capacity and holds | The `capacity` behaviour: places that never go below zero, holds that last as long as their unpaid order, in the write's own batch | spec agreed |
-| 27 | Ticketing, and Ghetto as the first client | The Ticketing pack (events, ticket types, tickets, check-in); web checkout, the app's ticket wallet and door scanning for Ghetto Movement | spec proposed |
+| 27 | Ticketing, and Ghetto as the first client | The Ticketing pack (events, ticket types, tickets, check-in); web checkout, the app's ticket wallet and door scanning for Ghetto Movement; packages and paying by deposit | spec agreed |
 | 28 | Content | The `publishable` behaviour, rich text as structured JSON, media, slugs, preview; the Content pack; Ghetto's blog off EmDash | spec proposed |
 
 The approval pipeline is built up over several stages: the gate in 1, the queue and simulation in 2,
@@ -146,11 +146,14 @@ gets its interview and spec when a client needs it, and not before.
 | 38 | Knowledge base | Staff procedures and customer help pages; built on Content | not specced |
 | 39 | Jobs and projects | Work with stages, tasks and time spent; built on `stages` and Tasks | not specced |
 | 40 | Rosters | Shifts, availability and timesheets; built on `recurring` | not specced |
+| 41 | Programs | A bank of exercises and programs built from it; one base used by an online program, private and semi-private training and classes | not specced |
+| 42 | Courses | Video lessons with levels and progress, sold one-off, as a bundle or by subscription; built on Programs, orders and recurring billing | not specced |
 
 ### How a module is built
 
-- **A client pulls it.** Ghetto Movement sets the first order: 27, 28, then 29, 31, 32 and 33, which
-  together replace Mindbody.
+- **A client pulls it.** Ghetto Movement sets the first order: 27, then 41 and 42 (its online
+  program, agreed 2026-11-21), 28, then 29, 31, 32 and 33, which together replace Mindbody. Courses
+  sold by subscription need 32's recurring billing first.
 - **The manifest is written on paper first.** Whatever it cannot express is the platform work.
 - **Two halves.** A primitive half adds behaviours to the host, one at a time, because it touches
   core. A pack half builds the extension, hooks and blocks, and several packs can be built at once.
