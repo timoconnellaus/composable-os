@@ -44,7 +44,9 @@ const DOOR_PACK = {
       outputSchema: {},
     },
   },
-  roles: { door: { label: "Door", description: "Scans", permissions: ["invitefix:scan"], read: [] } },
+  roles: {
+    door: { label: "Door", description: "Scans", permissions: ["invitefix:scan"], read: [] },
+  },
 };
 
 beforeAll(async () => {
@@ -60,7 +62,7 @@ beforeAll(async () => {
 });
 
 const invite = (input: Record<string, unknown>, by = admin, extra: Record<string, unknown> = {}) =>
-  invoke("user.invite", input, context(by, extra as never));
+  invoke("user.invite", input as never, context(by, extra as never));
 
 describe("invite operations are a human admin's", () => {
   it("are not on MCP, and are human-only by declaration", () => {
@@ -83,12 +85,15 @@ describe("invite operations are a human admin's", () => {
     };
     for (const name of INVITE_OPS) {
       for (const extra of AI_ACTORS) {
-        const refused = await refusal(invoke(name, inputs[name], context(admin, extra as never)));
+        const refused = await refusal(
+          invoke(name as never, inputs[name] as never, context(admin, extra as never)),
+        );
         expect(refused.code, `${name} as ${extra.actor}`).toBe("forbidden");
       }
-      expect((await refusal(invoke(name, inputs[name], context(member)))).code, name).toBe(
-        "forbidden",
-      );
+      expect(
+        (await refusal(invoke(name as never, inputs[name] as never, context(member)))).code,
+        name,
+      ).toBe("forbidden");
     }
     // Nothing those calls asked for happened.
     const listed = await invoke("user.invites", {}, context(admin));
@@ -126,11 +131,19 @@ describe("user.invite", () => {
   it("refuses an address with an account, an admin with a pack role, and what cannot be granted", async () => {
     expect((await refusal(invite({ email: member.email }))).code).toBe("conflict");
     expect(
-      (await refusal(invite({ email: `${unique("a")}@example.com`, role: "admin", packRole: "invitefix.door" })))
-        .code,
+      (
+        await refusal(
+          invite({
+            email: `${unique("a")}@example.com`,
+            role: "admin",
+            packRole: "invitefix.door",
+          }),
+        )
+      ).code,
     ).toBe("conflict");
     expect(
-      (await refusal(invite({ email: `${unique("b")}@example.com`, packRole: "nopack.door" }))).code,
+      (await refusal(invite({ email: `${unique("b")}@example.com`, packRole: "nopack.door" })))
+        .code,
     ).toBe("invalid_input");
     for (const bad of ["users:manage", "policy:manage"]) {
       expect(
