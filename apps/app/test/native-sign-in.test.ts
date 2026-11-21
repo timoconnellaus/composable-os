@@ -26,6 +26,7 @@ import { handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
 import { handleNativeStaffSignIn } from "../src/server/http/native.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv, sentCodes } from "./bound-env.ts";
+import { confirmForm, confirmRequest, signInInBrowser } from "./browser-sign-in.ts";
 import { ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
 
 const hostEnv = boundTestEnv(env);
@@ -373,6 +374,12 @@ describe("browser-based staff sign-in hands the app a code (system browser)", ()
 
   const open = (url: string, cookie?: string) =>
     host(new Request(url, { headers: cookie ? { cookie } : {} }), browserEnv as never);
+  const serve = (request: Request) => host(request, browserEnv as never);
+  /** Opens the link signed in, presses Continue, and returns where the host sent the browser. */
+  const signIn = (url: string, cookie = admin.cookie) => signInInBrowser(serve, url, cookie);
+  const issued = async () =>
+    (await env.DB.prepare("SELECT COUNT(*) AS n FROM core_native_handoff").first<{ n: number }>())
+      ?.n ?? 0;
 
   it("signs in, exchanges the code once, and refuses a wrong verifier or address", async () => {
     const start = await startBrowserSignIn({
@@ -386,9 +393,7 @@ describe("browser-based staff sign-in hands the app a code (system browser)", ()
     expect(signedOut.status).toBe(302);
     expect(signedOut.headers.get("location")).toContain("/sign-in?redirect=");
 
-    const back = await open(start.url, admin.cookie);
-    expect(back.status).toBe(302);
-    const callbackUrl = back.headers.get("location") as string;
+    const callbackUrl = (await signIn(start.url)) as string;
     expect(callbackUrl.startsWith(`${REDIRECT}?code=cos_hc_`)).toBe(true);
 
     const store = memoryStore();
@@ -432,7 +437,7 @@ describe("browser-based staff sign-in hands the app a code (system browser)", ()
         randomKey,
         sha256,
       });
-      const location = (await open(again.url, admin.cookie)).headers.get("location") as string;
+      const location = (await signIn(again.url)) as string;
       const code = new URL(location).searchParams.get("code");
       const refused = await post("/api/v1/auth/staff/exchange", {
         code,
@@ -462,8 +467,123 @@ describe("browser-based staff sign-in hands the app a code (system browser)", ()
     const answer = await open(start.url, admin.cookie);
     expect(answer.status).toBe(400);
     expect(answer.headers.get("location")).toBeNull();
+    // Nor on the confirming POST.
+    const refusedPost = await serve(
+      confirmRequest(start.url, new URL(start.url).searchParams, { cookie: admin.cookie }),
+    );
+    expect(refusedPost.status).toBe(400);
     // Unset, the page is not there at all.
     const unset = await host(new Request(start.url, { headers: { cookie: admin.cookie } }));
     expect(unset.status).toBe(404);
+  });
+
+  describe("asks before it hands a code over (ADR 0457, issue #165)", () => {
+    it("issues nothing on a bare GET: it shows whose sign-in and where it goes", async () => {
+      const start = await startBrowserSignIn({
+        hostUrl: ORIGIN,
+        redirectUri: REDIRECT,
+        randomKey,
+        sha256,
+      });
+      const before = await issued();
+      const page = await open(start.url, admin.cookie);
+      expect(page.status).toBe(200);
+      expect(page.headers.get("location")).toBeNull();
+      expect(page.headers.get("cache-control")).toBe("no-store");
+      expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+      const html = await page.text();
+      expect(html).toContain(admin.email);
+      expect(html).toContain("the app that opens gymapp:// links");
+      expect(await issued()).toBe(before);
+    });
+
+    it("says a loopback sign-in goes to a command-line tool on this computer", async () => {
+      const loopbackEnv = { ...hostEnv, NATIVE_REDIRECT_URIS: "http://127.0.0.1/cos-sign-in" };
+      const start = await startBrowserSignIn({
+        hostUrl: ORIGIN,
+        redirectUri: "http://127.0.0.1:53111/cos-sign-in",
+        randomKey,
+        sha256,
+      });
+      const serveLoopback = (request: Request) => host(request, loopbackEnv as never);
+      const page = await serveLoopback(
+        new Request(start.url, { headers: { cookie: admin.cookie } }),
+      );
+      expect(await page.clone().text()).toContain("a command-line tool on this computer");
+      expect(page.headers.get("content-security-policy")).toContain(
+        "form-action 'self' http://127.0.0.1:53111",
+      );
+      const back = await signInInBrowser(serveLoopback, start.url, admin.cookie);
+      expect(back?.startsWith("http://127.0.0.1:53111/cos-sign-in?code=cos_hc_")).toBe(true);
+    });
+
+    it("issues nothing on a POST from another site, or with no origin at all", async () => {
+      const start = await startBrowserSignIn({
+        hostUrl: ORIGIN,
+        redirectUri: REDIRECT,
+        randomKey,
+        sha256,
+      });
+      const form = confirmForm(await (await open(start.url, admin.cookie)).text());
+      const before = await issued();
+      for (const headers of [
+        { cookie: admin.cookie, origin: "https://evil.test" } as Record<string, string>,
+        { cookie: admin.cookie, origin: "", "sec-fetch-site": "cross-site" },
+      ]) {
+        const request = confirmRequest(start.url, form, headers);
+        if (!headers.origin) request.headers.delete("origin");
+        const answer = await serve(request);
+        expect(answer.status).toBe(403);
+        expect(answer.headers.get("location")).toBeNull();
+      }
+      expect(await issued()).toBe(before);
+    });
+
+    it("issues nothing for a replayed, altered or another account's confirmation", async () => {
+      const start = await startBrowserSignIn({
+        hostUrl: ORIGIN,
+        redirectUri: REDIRECT,
+        randomKey,
+        sha256,
+      });
+      const form = confirmForm(await (await open(start.url, admin.cookie)).text());
+      const before = await issued();
+      const altered = [
+        (f: URLSearchParams) => f.set("state", "another-state"),
+        (f: URLSearchParams) => f.set("code_challenge", "A".repeat(43)),
+        (f: URLSearchParams) => f.set("redirect_uri", "other://x"),
+        (f: URLSearchParams) => f.set("confirm", "made-up"),
+      ];
+      for (const alter of altered) {
+        // Each attempt needs a fresh page: a confirmation is spent when presented.
+        const fresh = confirmForm(await (await open(start.url, admin.cookie)).text());
+        alter(fresh);
+        const answer = await serve(confirmRequest(start.url, fresh, { cookie: admin.cookie }));
+        expect(answer.status).toBe(403);
+      }
+      // Another staff member's session presenting this account's confirmation.
+      const member = await signUp(hostEnv as never, "member");
+      const stolen = await serve(confirmRequest(start.url, form, { cookie: member.cookie }));
+      expect(stolen.status).toBe(403);
+      // Spent by that attempt, so even the right account cannot use it now.
+      const replay = await serve(confirmRequest(start.url, form, { cookie: admin.cookie }));
+      expect(replay.status).toBe(403);
+      expect(await issued()).toBe(before);
+    });
+
+    it("issues the code once confirmed, and the confirmation works once", async () => {
+      const start = await startBrowserSignIn({
+        hostUrl: ORIGIN,
+        redirectUri: REDIRECT,
+        randomKey,
+        sha256,
+      });
+      const form = confirmForm(await (await open(start.url, admin.cookie)).text());
+      const first = await serve(confirmRequest(start.url, form, { cookie: admin.cookie }));
+      expect(first.status).toBe(303);
+      expect(first.headers.get("location")?.startsWith(`${REDIRECT}?code=cos_hc_`)).toBe(true);
+      const again = await serve(confirmRequest(start.url, form, { cookie: admin.cookie }));
+      expect(again.status).toBe(403);
+    });
   });
 });

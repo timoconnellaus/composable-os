@@ -105,12 +105,28 @@ Example:
 - The Content pack installed (`content.post`, `content.category`).
 - You are a staff member. Publishing needs the publish permission (admins have it; an admin grants
   it to a member).
-- For the browser sign-in, the host lists the command's loopback address in
-  `NATIVE_REDIRECT_URIS`: add `http://127.0.0.1/cos-sign-in` (no port: the command picks one each
-  run). A host that signs staff in by code needs nothing for `--email`.
+- For the browser sign-in, the host lists the command's loopback address,
+  `http://127.0.0.1/cos-sign-in`, in `NATIVE_REDIRECT_URIS` (no port: the command picks one each
+  run). `cos deploy` sets it on every host, and the CRM's installer when it is unset. The host's
+  page asks you to confirm before the sign-in goes to the command
+  ([ADR 0457](adr/0457-confirm-your-email-and-confirm-the-native-sign-in.md)).
+- For `--email`, your address is one an admin invited, or one you confirmed (your account menu,
+  "Confirm your email"; an admin who signed up with a password must do this once), and the host's
+  sign-in mail is on (Settings → Users, "Send sign-in codes without review"). The host answers the
+  same whoever asks, so if no code arrives, check these on the host.
 - Behind Cloudflare Access nothing else: the command calls `/api/v1/*` (the HTTP surface, already
   bypassed) and uploads to `POST /api/v1/media`, which takes a staff device token only
   ([docs/deploying.md](deploying.md#what-stays-behind-access-and-what-is-bypassed)).
+
+## In local development
+
+Content and Ticketing are not packs the CRM lists, so local dev delivers them (with Programs and
+the box office fixture) as the org's own extensions, optional ones (`scripts/dev-setup.mjs`), the
+way `cos deploy` delivers a client's. Install Content once as an admin, from Settings → Extensions
+or with `extension.install { id: "content", shipped: true }`, before an import. Do not add them to
+the runner's `COS_PACKS`: an org extension and a pack may not share an id, so the runner refuses
+the whole list ("The org's extension content has a pack's id"). On a client host, the product's
+`packs` list names Content and `cos deploy` sets `COS_PACKS` from it.
 
 ## On a post's page
 

@@ -285,6 +285,24 @@ describe("cos content import against the real host (ADR 0470)", () => {
     // A second --publish publishes nothing again.
     const again = await runImport(blog(), asStaff(), { publish: true, confirm: async () => true });
     expect(again.published.every((p) => p.as === "unchanged")).toBe(true);
+    // A dry run without --publish says nothing of posts already published here and unchanged.
+    const quiet = await runImport(blog(), asStaff(), { dryRun: true });
+    expect(quiet.notes.filter((n) => /imported as a draft/.test(n.message))).toEqual([]);
+    // Changed in the source: saved, not published, and said so.
+    const changedRun = await runImport(
+      blog((posts) => {
+        for (const post of Object.values(posts)) {
+          const p = post as Record<string, unknown>;
+          if (p.status === "published") p.excerpt = "Changed in the source";
+        }
+      }),
+      asStaff(),
+      { dryRun: true },
+    );
+    expect(changedRun.notes.length).toBeGreaterThan(0);
+    for (const note of changedRun.notes) {
+      expect(note.message).toContain("Published here already");
+    }
     // Not confirmed: nothing at all.
     const stopped = await runImport(
       blog((posts) => {

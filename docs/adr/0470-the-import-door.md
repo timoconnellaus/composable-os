@@ -125,3 +125,12 @@ unknown field in a post file let through (1).
   slug index as a whole call; the folder check refuses two posts at one address first.
 - Pictures uploaded before migration 0501 have no hash; uploading such a file again stores it again
   once.
+
+## Amended 2026-11-22 (ADR 0457)
+- `cos deploy` lists `http://127.0.0.1/cos-sign-in` in `NATIVE_REDIRECT_URIS` on every host, with
+  the mobile app's redirect when there is one; the CRM's installer sets it when unset.
+- The browser sign-in asks on the host's page before the code goes to the command.
+- `--email` works for an invited or confirmed address; the command says what to check if no code
+  arrives.
+- Without `--publish`, a post already published (or scheduled) here and unchanged gets no note; a
+  changed one is said to be saved, not published.

@@ -362,7 +362,17 @@ describe("a pack role's client in the mobile app (ADR 0451)", () => {
     const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
     expect(deployed.code, deployed.output).toBe(0);
     expect(world.cf.liveBinding("shop-app", "NATIVE_REDIRECT_URIS")?.text).toBe(
-      "shop://staff-sign-in",
+      "http://127.0.0.1/cos-sign-in,shop://staff-sign-in",
+    );
+  });
+
+  it("lists the command-line door on a host with no mobile app too (ADR 0457)", async () => {
+    await publish("1.0.0");
+    await created();
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    expect(world.cf.liveBinding("shop-app", "NATIVE_REDIRECT_URIS")?.text).toBe(
+      "http://127.0.0.1/cos-sign-in",
     );
   });
 
@@ -382,10 +392,10 @@ describe("a pack role's client in the mobile app (ADR 0451)", () => {
     );
     expect((await cos("deploy", "--env", "live", "--skip-build", "--no-typecheck")).code).toBe(0);
     expect(world.cf.liveBinding("shop-staging-app", "NATIVE_REDIRECT_URIS")?.text).toBe(
-      "shop-staging://staff-sign-in",
+      "http://127.0.0.1/cos-sign-in,shop-staging://staff-sign-in",
     );
     expect(world.cf.liveBinding("shop-app", "NATIVE_REDIRECT_URIS")?.text).toBe(
-      "shop://staff-sign-in",
+      "http://127.0.0.1/cos-sign-in,shop://staff-sign-in",
     );
   });
 

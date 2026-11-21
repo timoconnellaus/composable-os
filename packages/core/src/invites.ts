@@ -135,6 +135,10 @@ export interface HostMail {
     to: string;
     invitedBy: string;
   }): Promise<"sent" | "pending" | "not_sent">;
+  /** Null when a sign-in code would go out at once now, or why not (ADR 0456). */
+  signInMailProblem(): Promise<string | null>;
+  /** Sends one code as the host's sign-in mail to a staff address; throws unless sent (ADR 0457). */
+  sendSignInCode(message: { to: string; code: string }): Promise<void>;
 }
 
 /** The invite notice: who invited them and where to sign in. Plain text, nothing secret. */

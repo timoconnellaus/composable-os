@@ -429,7 +429,11 @@ emails to that address (Better Auth's email OTP plugin, two of its routes served
 made in one insert with what the invite says, and an invite never applies to an account that
 exists. Under Cloudflare Access, Access decides who gets in and the invite is accepted on the
 person's first request. The host sends staff mail itself, on the one connection chosen for the
-host's mail. Deactivating an account ends its cookie and device sessions. Which paths a host
+host's mail. A code goes only to a verified address; a staff member confirms their own (the first
+admin's password sign-up leaves it unconfirmed) with a code sent to it (`user.confirmEmail`,
+ADR 0457). A native app's or a command-line tool's browser sign-in (`/native/staff-sign-in`) shows
+a confirm page and hands its code over only on the confirmed, same-origin POST. Deactivating an
+account ends its cookie and device sessions. Which paths a host
 behind Access keeps behind it and which it bypasses is `apps/app/src/server/access-layout.ts`,
 held to the route table by `apps/app/test-node/access-layout.test.ts` (`docs/deploying.md`,
 "Cloudflare Access").

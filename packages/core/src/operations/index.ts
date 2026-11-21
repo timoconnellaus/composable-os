@@ -68,6 +68,7 @@ import { taskOperations } from "./task.ts";
 import { trashOperations } from "./trash.ts";
 import { updateOperations } from "./update.ts";
 import { userOperations } from "./user.ts";
+import { userEmailOperations } from "./user-email.ts";
 import { viewOperations } from "./view.ts";
 import { voiceOperations } from "./voice.ts";
 
@@ -80,6 +81,7 @@ export const coreOperations = [
   ...trashOperations,
   ...userOperations,
   ...inviteOperations,
+  ...userEmailOperations,
   ...activityOperations,
   ...taskOperations,
   ...viewOperations,

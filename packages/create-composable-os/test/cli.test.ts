@@ -57,6 +57,10 @@ describe("create-composable-os install", () => {
     expect(app?.secrets.get("BETTER_AUTH_URL")).toBe("https://demo-app.acme.workers.dev");
     expect(app?.secrets.get("COS_UPDATE_TOKEN")).toBe("update-token-abcdef123");
     expect(world.cf.liveBinding("demo-app", "COS_ACCOUNT_ID")?.text).toBe(ACCOUNT);
+    // The platform's command-line door (cos content import's browser sign-in, ADR 0457).
+    expect(world.cf.liveBinding("demo-app", "NATIVE_REDIRECT_URIS")?.text).toBe(
+      "http://127.0.0.1/cos-sign-in",
+    );
     const state = JSON.parse(String((await sql("SELECT value FROM core_install"))[0]?.value));
     expect(state).toMatchObject({
       version: "1.0.0",

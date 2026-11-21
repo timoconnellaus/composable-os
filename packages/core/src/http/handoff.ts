@@ -70,6 +70,69 @@ export async function pkceChallenge(verifier: string): Promise<string> {
   return base64url(new Uint8Array(digest));
 }
 
+/** How long the native sign-in page's confirmation stays good (ADR 0457). */
+export const SIGN_IN_CONFIRM_TTL_MS = 5 * 60 * 1000;
+
+/** What a confirmation is bound to: the account and the request's parameters. */
+export interface SignInConfirmBinding {
+  userId: string;
+  redirectUri: string;
+  challenge: string;
+  state: string;
+}
+
+/**
+ * Makes the one-time token of /native/staff-sign-in's confirm page (ADR 0457), bound to the
+ * signed-in account and the request's redirect address, challenge and state. Only its hash is
+ * stored.
+ */
+export async function issueSignInConfirmation(
+  db: CrmDb,
+  binding: SignInConfirmBinding,
+  now: Date,
+): Promise<string> {
+  const token = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  await db.batch([
+    db.query.deleteFrom("core_native_sign_in_confirm").where("expires_at", "<=", now.toISOString()),
+    db.query.insertInto("core_native_sign_in_confirm").values({
+      token_hash: await tokenHash(token),
+      user_id: binding.userId,
+      redirect_uri: binding.redirectUri,
+      challenge: binding.challenge,
+      state: binding.state,
+      created_at: now.toISOString(),
+      expires_at: new Date(now.getTime() + SIGN_IN_CONFIRM_TTL_MS).toISOString(),
+    }),
+  ]);
+  return token;
+}
+
+/**
+ * Spends a confirmation: true only when it was issued for exactly this account and these
+ * parameters, and has not expired. It is deleted when presented, right or wrong, so it works once.
+ */
+export async function redeemSignInConfirmation(
+  db: CrmDb,
+  token: string,
+  binding: SignInConfirmBinding,
+  now: Date,
+): Promise<boolean> {
+  if (!token || token.length > 100) return false;
+  const row = await db.query
+    .deleteFrom("core_native_sign_in_confirm")
+    .where("token_hash", "=", await tokenHash(token))
+    .returningAll()
+    .executeTakeFirst();
+  if (!row) return false;
+  return (
+    Date.parse(row.expires_at) > now.getTime() &&
+    row.user_id === binding.userId &&
+    row.redirect_uri === binding.redirectUri &&
+    row.challenge === binding.challenge &&
+    row.state === binding.state
+  );
+}
+
 /** The refusal every failed exchange gets: one answer, whatever was wrong. */
 export function invalidCode(): ForbiddenError {
   return new ForbiddenError("That code is not valid. Ask for a new one.", {

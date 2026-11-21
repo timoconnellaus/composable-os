@@ -50,6 +50,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { LockIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
+import { UnconfirmedEmailNotice } from "#/components/confirm-email";
 import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { formatDate, initials } from "#/lib/format";
@@ -531,7 +532,7 @@ function HostMailCard() {
   const settings = useOp("customer.settings.get", {});
   const connections = useOp("connection.list", { scope: "org", includeDisconnected: false });
   const save = useOpMutation("customer.settings.update", {
-    invalidates: ["customer.settings.get"],
+    invalidates: ["customer.settings.get", "user.emailStatus"],
   });
   const options = (connections.data?.items ?? []).filter(
     (c) =>
@@ -584,6 +585,7 @@ function HostMailCard() {
           <p className="text-xs text-muted-foreground">No org connection can send email yet.</p>
         )}
         {settings.data && <SignInMailState state={settings.data.signInMail} />}
+        <UnconfirmedEmailNotice />
       </CardContent>
     </Card>
   );
@@ -599,7 +601,7 @@ type SignInMail = CoreOutput<"customer.settings.get">["signInMail"];
 function SignInMailState({ state }: { state: SignInMail }) {
   const [confirming, setConfirming] = useState(false);
   const set = useOpMutation("outbound.setAutoApprove", {
-    invalidates: ["customer.settings.get", "outbound.kinds"],
+    invalidates: ["customer.settings.get", "outbound.kinds", "user.emailStatus"],
   });
   const kind = state.kind;
 

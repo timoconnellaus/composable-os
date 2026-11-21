@@ -228,3 +228,11 @@ or `[::1]`): a code may then be sent to that address on any port (RFC 8252, 7.3)
 that listens on a port of its own (`cos content import`). Only those IP literals over http, the
 listed path, no query, fragment or user; never `localhost`. See
 [ADR 0470](0470-the-import-door.md).
+
+## Amended 2026-11-22 (ADR 0457)
+- A staff member confirms their own address (`user.sendEmailConfirmation`, `user.confirmEmail`):
+  the first admin's password sign-up leaves it unverified, and a code goes only to a verified
+  address, so until then they cannot sign in by code.
+- `/native/staff-sign-in` no longer issues a code on GET: it shows a confirm page, and the code is
+  issued on the confirmed, same-origin POST carrying a one-time token bound to the account and the
+  request (issue #165).

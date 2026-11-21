@@ -14,8 +14,10 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@composable-os/ui/components/dropdown-menu";
-import { LogOut, SunMoon } from "lucide-react";
+import { LogOut, MailCheck, SunMoon } from "lucide-react";
+import { useState } from "react";
 import { authClient } from "../lib/auth-client.ts";
+import { ConfirmEmailDialog, useEmailStatus } from "./confirm-email.tsx";
 import { type Theme, useTheme } from "./theme.tsx";
 
 function initials(name: string) {
@@ -36,6 +38,8 @@ export function UserMenu({
   signOutUrl: string | null;
 }) {
   const { theme, setTheme } = useTheme();
+  const emailStatus = useEmailStatus();
+  const [confirming, setConfirming] = useState(false);
 
   async function signOut() {
     if (signOutUrl) {
@@ -76,11 +80,18 @@ export function UserMenu({
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSeparator />
+        {emailStatus && !emailStatus.verified && (
+          <DropdownMenuItem onSelect={() => setConfirming(true)}>
+            <MailCheck />
+            Confirm your email
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onSelect={signOut}>
           <LogOut />
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
+      <ConfirmEmailDialog open={confirming} onClose={() => setConfirming(false)} />
     </DropdownMenu>
   );
 }
