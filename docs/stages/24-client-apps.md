@@ -7,42 +7,84 @@ and [0405](../adr/0405-skills-ship-with-the-platform.md), stages [20](20-move-in
 [21](21-extension-skills.md) and [23](23-http-surface-and-typed-client.md), and ADRs 0012, 0160 to
 0165, 0350, `packages/release`, `packages/create-composable-os`.
 
-Status: spec proposed. Builds on stage 23.
+Status: **spec agreed** (interview 2026-11-20). Builds on stage 23.
 
 ## Goal
 
-Starting a product for a company is one command. It makes the company's repository, with a web app
-and optionally a mobile app that are signed in to a host and can call it with types, and deploys
-the host and the web app to the company's Cloudflare account. From there an agent adds packs, copies
-in blocks and reshapes them. The company's repository holds no platform code and no path to the
-database.
+A company's own repository can be connected to a host in one command, whether it is new or already
+full of code. Its web app and its mobile app are signed in to the host and call it with types. The
+host and the web app deploy to the company's Cloudflare account. From there an agent adds packs,
+copies in blocks and reshapes them. The company's repository holds no platform code and no path to
+the database.
 
 ## What exists today (from the code)
 
-- `create-composable-os` (renamed in stage 20) installs one product, the CRM, from a verified
-  release bundle:
-  it provisions D1, R2 and KV, uploads the Workers, sets secrets and runs migrations. Its choices
-  are stored in `core_install`.
-- After stage 20, names come from a product definition, and shipped extensions live in
-  `extensions/` in the platform repository.
-- After stage 23, `@composable-os/client` exists and a pack may ship headless hooks.
+- `create-composable-os` installs one product, the CRM, from a verified release bundle: it
+  provisions D1, R2 and KV, uploads the Workers, sets secrets and runs migrations, and
+  `create-composable-os upgrade` updates it. Its choices are stored in `core_install`. The same
+  code is the `cos` command.
+- Names come from a product definition (`products/crm/product.ts`). Shipped extensions live in
+  `extensions/`.
+- After stage 21, `cos ext check` and `cos ext test` exist. After stage 23, `@composable-os/client`
+  and `cos client generate` exist, and a pack may ship headless hooks.
 - The staff UI is TanStack Start with shadcn/ui in `apps/app`, with shared components in
   `packages/ui`.
+- Packages are not on npm.
 - Ghetto's repository is an Astro site with a staff PWA, an Expo app in `mobile/` and an Android
   TV app, each hand-built.
 - There is no template, no block registry, and no way for a second Worker to reach the host.
 
+## Decided at the interview (2026-11-20)
+
+| Question | Decision |
+| --- | --- |
+| New repos and existing ones | **Both**: a template for new repos, and an adopt path for existing ones that moves nothing |
+| How a client repo gets platform code | **npm**, as public packages under `@composable-os` |
+| The blocks' licence | **MIT** |
+| Where customers sign in | On the company's own domain, through its web app |
+| Where the staff admin lives | On the host's own address, which may be a subdomain of the company's |
+| The company's own extensions | Installed by deploy after `cos ext check`, with no approval inside the deployment |
+| A gap found in a client repo | Stop that part, say exactly what the platform needs, build the rest. Never work around it |
+| Where blocks are served from | Inside the release, matching the platform version in `product.ts` |
+| A copied block after upstream changes | Nothing automatic. `cos diff` shows the change |
+| What is under the web blocks | Decided at build time, after checking Radix and Base UI then |
+| The command line | **One**: `cos` |
+| Left out | A TV app in the template; preview deployments; a theme editor; pack blocks beyond sign-in |
+
 ## Scope
+
+### One command, `cos`
+| Command | What it does |
+| --- | --- |
+| `cos create <dir>` | A new client repo from the template |
+| `cos init` | Adopts the repo it is run in |
+| `cos deploy` | Deploys the host and, where there is one, the web app |
+| `cos upgrade` | Moves the repo to a newer platform version |
+| `cos add <block>`, `cos diff <block>` | Copies a block in; shows upstream changes to one |
+| `cos client generate` | Writes the product's typed client (stage 23) |
+| `cos ext check`, `cos ext test` | Checks and tests an extension (stage 21) |
+| `cos install` | Installs a product with no client repo, as the installer does today |
+
+`npm create composable-os` is a thin alias for `cos create`. Installing a product with no client
+repo, which `create-composable-os` does today, becomes `cos install`.
+
+### Published packages
+- The platform's packages a client repo needs are published to npm as public packages under
+  `@composable-os`: the runtime client, the SDK, the `cos` command, and each pack.
+- Publishing is part of the release workflow, from the same commit as the release bundle, with npm
+  provenance.
+- The host is still deployed only from the verified release bundle. What runs in a company's
+  account does not come from npm.
+- A person claims the `@composable-os` organisation on npm before this stage is built.
 
 ### Packs as packages
 - A shipped extension becomes a **pack**: `packs/<id>/` holding the extension (`index.ts` and its
   files, unchanged), `client/` for headless hooks, and `blocks/` for its screens.
 - Deals, Leads and lifecycle move from `extensions/` to `packs/`. Their extension ids, tables and
-  behaviour do not change, so no deployment sees a difference.
+  behaviour do not change.
 - A product definition lists its packs. A pack that is not listed is not in that product's release.
 
-### The client repo template
-`create-composable-os` makes a repository with:
+### The template (`cos create`)
 
 ```
 apps/web/          TanStack Start, its own Worker
@@ -53,89 +95,128 @@ skills/            the platform's skills for this version
 AGENTS.md          the rules for agents in a client repo
 ```
 
-- **`apps/web`** has sign-in and sign-out for customers wired to the host, a signed-in example page
-  that reads `me.get`, and a public example page. Its wrangler config has a service binding to the
-  host's app Worker and no D1, R2 or KV binding of its own.
+- **`apps/web`** has sign-in and sign-out for customers, a signed-in example page that reads
+  `me.get`, and a public example page. Its wrangler config has a service binding to the host's app
+  Worker and no D1, R2 or KV binding of its own.
 - **`apps/mobile`** has the same in Expo: sign-in, token storage, the typed client, one signed-in
   screen, a tab bar.
 - **`product.ts`** is the product definition from stage 20, now in the company's repository.
-- **`AGENTS.md`** states the client-repo rules: call operations through the typed client only;
-  rules live in the host; copy blocks, do not import them; when something needs a platform change,
-  stop and say so.
+
+### Adopting a repo (`cos init`)
+- Run in an existing repository, it adds `product.ts`, the dependency on the platform's packages,
+  the generated typed client, `skills/`, and the client-repo rules in `AGENTS.md` (appended to one
+  that exists, never replacing it). It asks where the web app and the mobile app are, if any.
+- It moves and rewrites nothing. It does not assume TanStack Start: the runtime client works in
+  any Worker and any React Native app, and the service binding is one entry in the existing
+  wrangler config, which it shows as a diff and adds only when told to.
+- It is tested against a fixture shaped like Ghetto's repository: an Astro site on a Worker with
+  its own D1, and an Expo app in a subfolder.
+
+### The rules for agents in a client repo
+`AGENTS.md` in a client repo states them, and the skills repeat them:
+- Call operations through the typed client only. Never open a database.
+- Rules live in the host. A screen never calculates a price, checks a capacity or decides what a
+  customer may see.
+- Copy blocks, do not import them.
+- **When the platform lacks something:** stop that part, say exactly what the platform needs (a
+  behaviour, an operation, a gatekeeper), and build the rest. Never work around it in client code.
 
 ### The service binding
 - The host's app Worker exposes an entrypoint for bound Workers that takes an operation call and
   the caller's session, and runs it through `invoke()` exactly as the HTTP surface does.
 - The web app forwards the signed-in customer's session. It holds no credential of its own that
   grants more than the caller has: a bound Worker cannot call as staff or as another customer.
-- Customer session cookies are set by the host on the web app's hostname through the web app, so a
-  company's site at its own domain signs people in without a redirect to another address.
+
+### Where people sign in
+- **Customers sign in on the company's own domain.** The web app shows the form and passes the
+  address and the code to the host over the binding; the host creates the session and the web app
+  sets the customer cookie on its own hostname. No redirect to another address.
+- **Staff use the admin on the host's own address.** That address may be a subdomain of the
+  company's domain (the deploy engine already attaches a custom hostname). Staff cookies and
+  customer cookies are therefore never on the same hostname.
 
 ### Deploying a client repo
-- `cos deploy` in a client repo: resolves the platform version in `product.ts`, downloads
-  and verifies that release, deploys the host with the product's packs and the org's extensions,
-  then builds and deploys `apps/web` with the binding.
-- The org's own extensions in `extensions/` are installed as shipped extensions of this product:
-  checked with `pnpm ext check`, then reconciled on deploy. They need no approval in the
-  deployment because they arrived by a reviewed deploy, as packs do.
-- `cos upgrade` moves `product.ts` to a newer platform version, runs the updater's
-  preflight against the org's extensions, regenerates the typed client, and reports type errors in
-  the client apps before anything is deployed.
+- `cos deploy` resolves the platform version in `product.ts`, downloads and verifies that release,
+  deploys the host with the product's packs and the org's extensions, then builds and deploys the
+  web app with the binding where the repo has one.
+- **The org's own extensions** in `extensions/` are checked with `cos ext check` and installed as
+  shipped extensions of this product, reconciled on deploy. They need no approval in the
+  deployment: they arrived by a deploy a person ran, as packs do. A failed check stops the deploy
+  before anything changes.
+- `cos upgrade` moves `product.ts` to a newer platform version, runs the updater's preflight
+  against the org's extensions, regenerates the typed client, replaces `skills/`, and reports type
+  errors in the client apps before anything is deployed.
 
 ### The block registry
 - A block is a folder of source files with a small manifest: the pack it belongs to, the skin
   (`web` or `native`), the operations it calls, the files, and the blocks it depends on.
-- `cos add <block>` copies a block's files into the client repo, into `apps/web` or
-  `apps/mobile`, and records its name and version in a lock file. After that the files are the
-  client's.
-- `cos diff <block>` shows what has changed upstream since the copy, for an agent or a
-  person to apply by hand. Nothing updates a copied block automatically.
-- The web base layer is the shadcn-style components of `packages/ui`, copied the same way. The
-  native base layer is a small set written for this stage: screen, list, row, sheet, tab bar,
+- **Blocks ship inside the release.** `cos add <block>` copies from the release that matches the
+  platform version in `product.ts`, into the web app or the mobile app, and records the block's
+  name and version in a lock file. After that the files are the client's.
+- `cos diff <block>` shows what changed upstream between the recorded version and the current
+  one, for an agent or a person to apply by hand. Nothing updates a copied block automatically.
+- **Blocks are MIT.** `blocks/` folders and the native base layer carry an MIT licence file, and
+  `NOTICE` says so.
+- The web base layer is the shadcn-style components of `packages/ui`, copied the same way. Which
+  primitive library sits under them (Radix or Base UI) is chosen at build time from their state
+  then; blocks are written against the styled layer so the choice can change.
+- The native base layer is a small set written for this stage: screen, list, row, sheet, tab bar,
   button, field.
-- Blocks ship in this stage for the base layer and for sign-in only. Pack blocks arrive with their
-  packs.
-- The rule from ADR 0401 is checked: a lint pass over blocks refuses one that contains a price
-  calculation, a capacity check or a permission check instead of calling an operation.
+- Blocks ship in this stage for the base layers and for sign-in only.
+- A lint pass over blocks refuses one that contains a price calculation, a capacity check or a
+  permission check instead of calling an operation.
 
 ### Skills
-- The template installs the platform's skills at the version in `product.ts`; `cos upgrade`
-  replaces them.
-- Two skills are added: **`start-client-app`** (run the template, choose packs, first deploy) and
+- `cos create` and `cos init` install the platform's skills at the version in `product.ts`;
+  `cos upgrade` replaces them.
+- Two skills are added: **`start-client-app`** (create or adopt, choose packs, first deploy) and
   **`add-block`** (find a block, copy it, restyle it to the client's brand, wire it to a route).
+- The extension skills from stage 21 are installed too, with the client-repo gap rule in place of
+  the platform-repo one.
 
 ## Out of scope
 - Any pack block beyond the examples (stage 27 brings ticketing's).
 - A TV app in the template.
-- A page builder, a theme editor, or anything that edits screens without code.
-- Publishing packages to npm, unless the interview chooses it.
 - Preview deployments per branch.
+- A page builder, a theme editor, or anything that edits screens without code.
+- Adopting Ghetto's real repository (stage 27). This stage proves the path on a fixture.
 
 ## Acceptance criteria
-1. **One command:** against a fake Cloudflare API, `create-composable-os` then `cos deploy`
-   yields a host and a web app; a customer signs in on the web app and the example page shows
-   their name from `me.get`.
-2. **No authority of its own:** the web Worker's bundle and config hold no database binding and no
+1. **One command, new repo:** against a fake Cloudflare API, `cos create` then `cos deploy` yields
+   a host and a web app; a customer signs in on the web app's own hostname and the example page
+   shows their name from `me.get`.
+2. **Adopt:** `cos init` in the Ghetto-shaped fixture adds only the files named above, changes no
+   existing file without showing the diff, and afterwards the fixture's Worker calls `me.get` over
+   the binding and its Expo app calls it over HTTPS, both typed.
+3. **No authority of its own:** the web Worker's bundle and config hold no database binding and no
    secret that the host accepts as staff. A test calls the binding with a forged staff principal
    and a forged other-customer principal and both are refused.
-3. **Mobile:** the Expo app signs in against a local host and shows the same record. Its client is
+4. **Cookies apart:** the customer cookie is set only on the web app's hostname and the staff
+   cookie only on the host's.
+5. **Mobile:** the Expo app signs in against a local host and shows the same record. Its client is
    the same package as the web app's.
-4. **Packs moved:** Deals, Leads and lifecycle live under `packs/`; a CRM release
-   built before and after has the same manifest apart from paths.
-5. **Product packs:** a product that lists no packs deploys a host with base records only.
-6. **Blocks:** `cos add` copies files and writes the lock file; editing a copied file and
-   running `cos diff` shows upstream changes without touching the edit.
-7. **Upgrade:** `cos upgrade` to a fixture release that changes an operation reports the
-   type error in the client app and deploys nothing.
-8. **Block lint:** a fixture block with a price calculation fails the lint.
-9. **Skills:** each of the two skills is used once by an agent that has not seen this spec, from
-   an empty folder to a deployed example with one added block, and what went wrong is fixed in the
-   skill.
-10. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Pack, Block, Client app,
-    Client repo) and `docs/architecture.md` are updated.
+6. **Packs moved:** Deals, Leads and lifecycle live under `packs/`; a CRM release built before and
+   after has the same manifest apart from paths.
+7. **Product packs:** a product that lists no packs deploys a host with base records only.
+8. **Own extensions:** an extension in the repo's `extensions/` is installed by `cos deploy` with
+   no pending approval; one that fails `cos ext check` stops the deploy with nothing changed.
+9. **Published:** a dry run of the release workflow produces the npm packages from the release
+   commit, and a fresh folder that installs them builds the template with no access to this
+   repository.
+10. **Blocks:** `cos add` copies from the release matching `product.ts` and writes the lock file;
+    editing a copied file and running `cos diff` shows upstream changes without touching the edit.
+11. **Upgrade:** `cos upgrade` to a fixture release that changes an operation reports the type
+    error in the client app and deploys nothing.
+12. **Block lint:** a fixture block with a price calculation fails the lint.
+13. **Skills:** each of the two new skills is used once by an agent that has not seen this spec,
+    one from an empty folder and one in the adopt fixture, to a deployed example with one added
+    block, and what went wrong is fixed in the skill.
+14. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Pack, Block, Client app,
+    Client repo) and `docs/architecture.md` are updated. `NOTICE` names the MIT parts.
 
 ## Dependencies
 - Stage 23. Stage 21 for the skills' form and the check command.
+- A person claims the `@composable-os` organisation on npm.
 
 ## Migrations and numbers
 No migrations. ADRs 0420 to 0424, and ADR 0401 amended as built.
@@ -143,20 +224,14 @@ No migrations. ADRs 0420 to 0424, and ADR 0401 amended as built.
 ## Suggested build order
 1. Packs as packages; the CRM still builds the same.
 2. The service binding entrypoint and its refusal tests.
-3. The web template, deployed by hand.
-4. `cos deploy` and `upgrade`.
-5. The mobile template.
-6. The block registry, the base layers, the lint.
-7. The two skills, each tried once.
+3. `cos` as one command, with `cos install` taking over from the installer.
+4. Publishing to npm in the release workflow, as a dry run first.
+5. The web template and `cos create`, deployed by hand; sign-in on the web app's hostname.
+6. `cos init` against the fixture.
+7. `cos deploy` and `cos upgrade`, with the org's own extensions.
+8. The mobile template.
+9. The block registry inside the release, the base layers, the lint.
+10. The two skills, each tried once.
 
-## To settle at the interview
-- **How client repos get platform packages:** from npm, from the release bundle, or from a git
-  reference. It decides whether the platform must publish to npm.
-- **The blocks' licence** (ADR 0401). Proposed: MIT for `blocks/` and the native base layer.
-- **Base UI or Radix** under the web base layer. Check the state of both when this is built.
-- **Where the company's site signs people in:** on its own domain through the web app, as
-  proposed, or on the host's address.
-- **Does the staff admin stay on the host's address,** or can a company put it under its own
-  domain.
-- **One CLI or two:** `create-composable-os` (install) and `cos` (deploy, upgrade, add, diff) as
-  they are today, or everything under `cos`.
+Steps 2 and 5's sign-in are the spine: they decide what a company's own Worker can do on a
+customer's behalf.

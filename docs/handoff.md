@@ -5,6 +5,9 @@ if you are building alongside other sessions, then the spec of whatever you pick
 
 Last refreshed: 2026-11-05 (after Stage 7b merged).
 
+For the platform's stages (20 onward) and the coordinating role, read
+[`coordinator-handoff.md`](coordinator-handoff.md) first: it is newer than this file.
+
 ## The product
 **Composable OS** (composableos.dev), a platform for composing products on Cloudflare. Its first
 product is the **CRM**, an AI-native CRM: TanStack Start UI, an MCP server, AI-built custom objects, dashboards, automations and integrations,

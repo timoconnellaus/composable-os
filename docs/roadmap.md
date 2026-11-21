@@ -26,11 +26,11 @@ risk for the next.
 | 17 | One proactive assistant | One thread per user that never resets (Agents SDK Durable Object), cost-based compaction with a learned cache lifetime, inline Jev-checked memory, personal routines, background agents that stage changes, approvals by tap, typing or voice, A2UI cards, plugins with a reviewed marketplace, connected assistants under a contract, voice and dictation; `packages/agent-*` under MIT ([spec](stages/17-assistant.md), ADRs 0340–0351) | spec agreed |
 | 20 | Move in | The repository renamed `composable-os`, scope `@composable-os/*`; the earlier brand retired; the CRM as the first product in `products/crm`, Workers named by product; the contract renamed to `codemode:ops`, `ctx.ops` and `rec_*` views; legacy-install code deleted; the Composable OS site | built (needs a human: the repository rename, the site's deploy and the real-account install) |
 | 21 | Extension skills | Two installable skills (`write-extension`, `add-automations-tools-dashboards`) in a plain `skills/` folder; `cos ext check` and `cos ext test` sharing the host's checks; a version guard; no eval | built |
-| 22 | Customers and audiences | The `staff`, `customer` and `public` audiences on every operation; the visibility seam's first door; customer accounts linked to a Person, signed in by email code; the `customer` key on objects with field-by-field reads; account deletion as an erase request | built (awaiting merge) |
-| 23 | HTTP surface and typed client | Operations over HTTP through `invoke()`; the generated client for TanStack Start and React Native; idempotency keys; native sessions | spec proposed |
-| 24 | Client apps | The client repo template (TanStack Start web, Expo mobile); the service binding to the host; packs as packages with headless hooks; the block registry | spec proposed |
-| 25 | States, orders and payments | The `states` behaviour; the Order base record; a payments gatekeeper with webhooks and refunds | spec proposed |
-| 26 | Capacity and holds | The `capacity` behaviour: places that never go below zero, holds that expire, in the write's own batch | spec proposed |
+| 22 | Customers and audiences | The `staff`, `customer` and `public` audiences on every operation; the visibility seam's first door; customer accounts linked to a Person, signed in by email code; the `customer` key on objects with field-by-field reads; account deletion as an erase request | built |
+| 23 | HTTP surface and typed client | Operations over HTTP through `invoke()`, one route each, for staff, customers and the public together; a typed client generated per product for TanStack Start and React Native, split by audience; idempotency keys required on writes; rotating tokens for phones; current and previous API version served | spec agreed |
+| 24 | Client apps | One `cos` command; a template for new client repos (TanStack Start web, Expo mobile) and an adopt path for existing ones; platform packages on npm; the service binding to the host, with customers signing in on the company's domain; packs as packages with headless hooks; MIT blocks shipped inside the release | spec agreed |
+| 25 | States, orders and payments | One transition engine under `states` and `stages`; the Order base record, priced by the host, in one currency per deployment; guest checkout; a payments gatekeeper for Stripe on the org's own account, with a hosted page, webhooks and refunds through approval | spec agreed |
+| 26 | Capacity and holds | The `capacity` behaviour: places that never go below zero, holds that last as long as their unpaid order, in the write's own batch | spec agreed |
 | 27 | Ticketing, and Ghetto as the first client | The Ticketing pack (events, ticket types, tickets, check-in); web checkout, the app's ticket wallet and door scanning for Ghetto Movement | spec proposed |
 | 28 | Content | The `publishable` behaviour, rich text as structured JSON, media, slugs, preview; the Content pack; Ghetto's blog off EmDash | spec proposed |
 
@@ -110,8 +110,8 @@ in [`parallel-work.md`](parallel-work.md) as usual.
 | 20 | Nothing | Cut-over is `main` as it stands (agreed 2026-11-20) |
 | 21 | 20 | Written against the renamed contract |
 | 22 | 20 | Builds the visibility seam's first door itself; stage 14a extends it later |
-| 23 | 22 | The surface is useful to staff apps with 20 alone; customer calls need 22 |
-| 24 | 23 | |
+| 23 | 22 | Ships for all three audiences together, so it waits for 22 |
+| 24 | 23 | A person claims the `@composable-os` organisation on npm first |
 | 25 | 22 | Payments webhooks need no client app |
 | 26 | 20 | Independent of 22 to 25 |
 | 27 | 24, 25, 26 | |

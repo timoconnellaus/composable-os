@@ -26,7 +26,7 @@ two calls.
 | --- | --- | --- |
 | `stages` | Ordered stages, required fields, history (exists, ADR 0100) | Deals |
 | `states` | A general state machine: allowed moves, who may make them, required fields, history | Orders |
-| `capacity` | A count of places that can never go below zero; holds that expire | Ticketing, bookings |
+| `capacity` | A count of places that can never go below zero; holds that last as long as what they were taken for | Ticketing, bookings |
 | `sellable` | Prices and what a paid order grants | Ticketing |
 | `publishable` | Draft, published, scheduled; revisions; public reads see published only | CMS, event pages |
 | `recurring` | A schedule that generates dated records | Timetables |
@@ -39,7 +39,13 @@ set is small and shared, a pack is mostly a manifest.
 
 ## Consequences
 - The pace of new product kinds is set by the pace of new behaviours. That is deliberate.
-- `stages` stays as it is; `states` is the general form, and whether `stages` is later expressed
-  through it is decided when `states` is built.
+- **`stages` and `states` share one engine** (decided 2026-11-20, stage 25 interview). `states` is
+  declared in code with a fixed set; `stages` stays data an admin edits. Both run on one
+  transition engine with one history table, and `stages` moves onto it in stage 25. Built in
+  stage 25's first half: see ADR 0425. `states` now exists.
+- **`capacity` is settled** (2026-11-21, stage 26 interview). One level of pool. A hold has no
+  clock of its own: it is confirmed or released by what it was taken for, so an order's holds
+  last exactly as long as the order is unpaid. No actor sells beyond the limit; staff raise the
+  capacity first. Each object chooses what the public is told about places left.
 - "Entitlement" already means a hosted plan's limits (ADR 0211). The pass-and-uses behaviour is
   called `allowance` to keep the two apart.

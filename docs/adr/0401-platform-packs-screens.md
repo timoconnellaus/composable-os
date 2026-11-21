@@ -1,6 +1,6 @@
 # ADR 0401: Platform, packs and screens, and where each lives
 
-Status: proposed, 2026-11-20 (design conversation). To be settled at the stage 24 interview.
+Status: accepted, 2026-11-20 (design conversation and stage 24 interview).
 
 ## Context
 A product for a company could be built by forking the whole platform, or by depending on it. A fork
@@ -18,7 +18,21 @@ Code is split by who needs to own change.
 | **Pack** | A shipped extension (objects, behaviours, automations, tools) plus its headless client hooks | Versioned packages, chosen per product | The platform |
 | **Block** | A screen or part of one for a pack, in a web skin and a native skin | Copied into the client repo from a registry | The client, once copied |
 
-- **Each client has their own repository, started from a template, not a fork.** It holds the web
+- **Each client has their own repository, never a fork of the platform.** A new one starts from a
+  template; an existing one is adopted in place, with nothing moved.
+- **A client repo gets the platform's packages from npm,** as public packages. The host itself is
+  still deployed only from the verified release bundle.
+- **Blocks ship inside the release and are MIT.** A block matches the platform version it was
+  copied from, and the company owns its copy outright. Nothing updates a copied block
+  automatically.
+- **Customers sign in on the company's own domain; staff use the admin on the host's address.**
+  The two kinds of cookie are never on one hostname.
+- **A company's own extensions are installed by deploy,** after the checker, with no approval
+  inside the deployment.
+- **A gap found in a client repo is reported, not worked around.** The client's agent stops that
+  part, says what the platform needs, and builds the rest.
+- **One command line, `cos`.**
+- **A client repo holds** the web
   app (TanStack Start), the mobile app (Expo) where there is one, the org's own extensions and a
   product definition naming the packs and platform version.
 - **The host runs as its own Workers, deployed from a release.** The client's web app is a separate
@@ -41,7 +55,9 @@ written per client.
   working, as it does for extensions (ADR 0023).
 - A copied block does not receive fixes. Blocks stay thin: anything that must be right (prices,
   capacity, what a customer may see) is enforced in the host, never in a block.
-- Open: the licence for blocks. The platform is FSL-1.1-ALv2; code copied into a client's repo
-  probably wants a permissive licence, as `packages/agent-*` already carry MIT (ADR 0350).
-- Open: where the block registry is served from, and whether client repos get platform packages
-  from npm or from the release bundle.
+- The platform now publishes to npm on every release, which is a commitment to semver for the
+  packages a client repo depends on.
+- Which primitive library sits under the web blocks (Radix or Base UI) is chosen when stage 24 is
+  built.
+- Left for later: preview deployments per branch, a TV app in the template, any way to change
+  screens without code.

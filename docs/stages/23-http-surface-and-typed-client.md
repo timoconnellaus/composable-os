@@ -7,7 +7,7 @@ surface and the typed client), [`CONTEXT.md`](../../CONTEXT.md), ADRs
 and ADRs 0003, 0016, 0018, 0021, `packages/core/src/invoke.ts`,
 `registry.ts`, `operation.ts`, `client.ts`, `packages/mcp-shared`.
 
-Status: spec proposed. Builds on stages 20 and 22.
+Status: **spec agreed** (interview 2026-11-20). Builds on stages 20 and 22.
 
 ## Goal
 
@@ -21,10 +21,28 @@ compile. A phone that retries a purchase on a bad connection buys once.
   one definition with zod input and output.
 - MCP tools are generated from the registry (ADR 0021). There is no generic HTTP route for
   operations; the app's own UI uses server functions.
-- `@composable-os/core/client` (after stage 20) is a browser-safe subset of core (field registry, filter JSON) for
+- `@composable-os/core/client` is a browser-safe subset of core (field registry, filter JSON) for
   the staff UI. It is not a client for calling operations.
-- Ghetto's Expo app calls hand-written `/api/app/<path>` routes with a token kept in
+- After stage 22, operations declare `audiences`, and customer and public principals exist with
+  the generated list of what they may call.
+- Ghetto's Expo app calls hand-written `/api/app/<path>` routes with a single token kept in
   `expo-secure-store`. Its TV app and its Claude connector have their own paths.
+
+## Decided at the interview (2026-11-20)
+
+| Question | Decision |
+| --- | --- |
+| Who gets the surface first | **All three audiences together.** The stage waits for stage 22; there is no staff-only first step |
+| The route | One per operation: `POST /api/v1/op/<operation name>` |
+| Idempotency | A key is **required on every write**; a write without one is refused |
+| How the client reaches a client repo | **Generated in the client repo** from its product's own registry |
+| Splitting the client by audience | Yes: separate customer and staff entry points, with a test |
+| Sessions on phones | A short-lived access token and a refresh token that rotates on every use |
+| How long a phone stays signed in | 90 days without use, as a product setting's default |
+| An app older than the host | The host serves the current and the previous API version; older apps are told to update |
+| Caching public reads at the edge | Later, with the first public operations (stages 27 and 28) |
+| The staff admin | Stays on server functions |
+| Left out | Realtime, push notifications, uploads from client apps, offline writes queued on the device |
 
 ## Scope
 
@@ -40,6 +58,7 @@ compile. A phone that retries a purchase on a bad connection buys once.
   with JSON Schema for input and output. A customer never learns a staff operation's name from it.
 - Cross-origin calls are allowed only from origins listed in the deployment's settings. Phones
   send no origin and authenticate by token.
+- The staff admin keeps its server functions. It does not move onto this surface.
 
 ### Idempotency
 - Every write call carries an `Idempotency-Key`. The host stores the key with the principal, the
@@ -49,34 +68,41 @@ compile. A phone that retries a purchase on a bad connection buys once.
 - A write without a key is refused on this surface. Other surfaces are unchanged.
 
 ### Sessions for native apps
-- A native app exchanges its sign-in for a short-lived access token and a refresh token. Refresh
-  tokens rotate on use; a reused one revokes the whole session.
+- A native app exchanges its sign-in for an access token that lasts minutes and a refresh token.
+  Refresh tokens rotate on every use; a reused one ends the whole session.
+- A session ends after a period without use. The period is a product setting, 90 days by default,
+  changed by a human admin only.
 - Tokens are for one audience. A customer token is never accepted where a staff session is
   needed, as in stage 22.
-- A staff member or a customer can list and revoke their own sessions, by device name.
+- A staff member or a customer can list and end their own sessions, by device name.
 
-### The typed client, `@composable-os/client`
-- Generated from the registry at build time: for each operation, its input and output types, and a
-  TanStack Query `queryOptions` or `mutationOptions` factory with a stable key.
-- No DOM, Node or Workers dependency. The transport is passed in: `fetch` to a hostname, or a
-  service binding.
-- Two entry points, split by audience, so a customer app's bundle holds no staff operation names:
-  `@composable-os/client/customer` (customer and public operations) and `@composable-os/client/staff`.
+### The typed client
+- **`@composable-os/client`** is the runtime: the transport, the error type, idempotency keys and
+  the TanStack Query helpers. It has no DOM, Node or Workers dependency. The transport is passed
+  in: `fetch` to a hostname, or a service binding.
+- **`cos client generate`** writes the typed operations for one product: for each operation its
+  input and output types and a TanStack Query `queryOptions` or `mutationOptions` factory with a
+  stable key. It reads the product's own registry, so platform operations, pack tools and the
+  org's own extension tools are all typed.
+- A client repo runs the generator; the output is committed there. The platform repository runs
+  the same generator for the CRM product in its tests.
+- The output has two entry points, split by audience: `customer` (customer and public operations)
+  and `staff`. A customer app imports only the first.
 - Mutations create their own idempotency key and keep it across retries.
 - Query keys follow one rule (`[operation, input]`) and each mutation lists the keys it makes
   stale, taken from what the operation declares it writes.
-- A client app that includes extensions generates its own client the same way from its product's
-  registry, so pack tools and the org's own tools are typed too.
 
 ### Pack hooks
-- A pack may ship a headless entry (`@composable-os/pack-deals/client`): functions and hooks over the
-  typed client, no markup. This stage adds the convention and one example for Deals; packs with
-  customer-facing hooks arrive with stage 27.
+- A pack may ship a headless entry: functions and hooks over the typed client, no markup. This
+  stage adds the convention and one example for Deals; packs with customer-facing hooks arrive
+  with stage 27.
 
 ### Versioning
 - `/api/v1` is a contract. A change that would break a client compiled against it is a new
-  version; the host serves the current and the previous version, as it does for the extension
-  contract.
+  version; the host serves the current and the previous version.
+- A call to a version the host no longer serves gets an `upgrade_required` error with a message
+  the app can show. The runtime client surfaces it as its own error type so an app can put up an
+  "update the app" screen.
 - A golden file of the manifest for each audience is committed. CI fails when it changes without
   the file changing, so a breaking change is seen.
 
@@ -85,6 +111,7 @@ compile. A phone that retries a purchase on a bad connection buys once.
 - Push notifications.
 - File upload from client apps (it arrives with media in stage 28).
 - Offline writes that queue on the device. Retries with the same key are covered; a queue is not.
+- Caching public reads at the edge (stages 27 and 28).
 - Replacing the staff UI's server functions with this surface.
 
 ## Acceptance criteria
@@ -92,42 +119,42 @@ compile. A phone that retries a purchase on a bad connection buys once.
    audit row, field diffs and timeline posts. A test compares them for a write of each risk class
    allowed on the surface.
 2. **Audiences:** the stage 22 isolation test runs again over HTTP and passes. The manifest for a
-   customer lists exactly the generated list's customer operations.
+   customer lists exactly the generated list's customer operations, and for the public exactly
+   the public ones.
 3. **Idempotency:** the same key and input sent twice, and sent twice at once, runs the handler
    once and returns the same response; a different input with the same key is refused; a write
    with no key is refused.
-4. **Tokens:** a reused refresh token revokes the session; a customer token is refused on a staff
-   operation with the same answer as no token.
+4. **Tokens:** a reused refresh token ends the session; a session unused past the setting is
+   ended; a customer token is refused on a staff operation with the same answer as no token.
 5. **Types:** changing an operation's input in a fixture makes a fixture client app fail
-   `tsc`. The client builds and its tests run under both a Workers and a React Native (Hermes)
-   test target.
-6. **Bundle split:** the customer entry point contains no staff operation name, checked by a test
+   `tsc`. The runtime and a generated client build and their tests run under both a Workers and a
+   React Native (Hermes) test target.
+6. **Generated per product:** generating for a fixture product with one extension tool types that
+   tool; generating for a product without it does not include it.
+7. **Bundle split:** the customer entry point contains no staff operation name, checked by a test
    that reads the built file.
-7. **Contract guard:** a breaking change to the manifest without a golden file change fails CI.
-8. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Surface, Typed client) and
-   `docs/architecture.md` are updated.
+8. **Old apps:** a call to a version no longer served gets `upgrade_required`, and the runtime
+   client raises its update error.
+9. **Contract guard:** a breaking change to the manifest without a golden file change fails CI.
+10. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Surface, Typed client) and
+    `docs/architecture.md` are updated.
 
 ## Dependencies
-- Stage 22 for customer and public callers. With stage 20 alone, the surface could ship for staff
-  callers first; that split is offered at the interview.
+- Stage 22, merged. The stage is built once, for staff, customer and public callers together.
 
 ## Migrations and numbers
 Migrations 0410 to 0419 (idempotency keys, native sessions). ADRs 0415 to 0419, and ADR 0403
 amended as built.
 
 ## Suggested build order
-1. The route, the principal from a staff session, the error envelope; the one-pipeline test.
+1. The route, principals for all three audiences, the error envelope; the one-pipeline test and
+   the isolation test over HTTP.
 2. Idempotency.
-3. The generator and `@composable-os/client/staff`; the type-break test.
-4. Customer and public principals; the customer entry point; the isolation test over HTTP.
-5. Native tokens.
-6. The Deals hooks as the example.
+3. The runtime client and `cos client generate`; the type-break test and the per-product test.
+4. The audience split and its bundle test.
+5. Native tokens and the session setting.
+6. Versioning: the golden manifest, the previous version, `upgrade_required`.
+7. The Deals hooks as the example.
 
-## To settle at the interview
-- **One route per operation, or a single route** taking the operation name in the body. Per
-  operation reads better in logs and rate limits; a single route is simpler to proxy.
-- **Staff surface first?** It would let Ghetto's staff and coach screens move early.
-- **How the client is delivered to a client repo:** generated there from the product's registry,
-  published as a package, or both.
-- **What the client does when the host is a version ahead or behind.**
-- **Whether reads may be cached at the edge** for public operations, and who decides how long.
+Steps 1 and 2 are the spine: they are the door customers and the public come through, and the
+guard against a repeated purchase.

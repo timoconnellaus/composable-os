@@ -1,6 +1,6 @@
 # ADR 0403: An HTTP surface and a typed client
 
-Status: proposed, 2026-11-20 (design conversation). To be settled at the stage 23 interview.
+Status: accepted, 2026-11-20 (design conversation and stage 23 interview).
 
 ## Context
 An operation is exposed three ways from one definition: a TanStack Start server function for the
@@ -9,19 +9,27 @@ client's own web Worker can use none of these well. Ghetto shows what happens wi
 its site, its Expo app, its TV app and its Claude connector each have their own path to the data.
 
 ## Decision
-- **A fourth surface: HTTP.** Every operation whose audience allows the caller is reachable at a
-  versioned HTTP route on the host, with the same validation, gate, role and scope checks, audit
-  and field diffs as any other call. There is one pipeline (`invoke()`, ADR 0018) and no second
-  path to the database.
-- **A typed client generated from the registry.** One package exports each operation's input and
-  output types and TanStack Query option factories. It has no DOM or Node dependency, so the same
-  package serves TanStack Start and React Native.
+- **A fourth surface: HTTP,** one route per operation (`POST /api/v1/op/<name>`). Every operation
+  whose audience allows the caller is reachable there, with the same validation, gate, role and
+  scope checks, audit and field diffs as any other call. There is one pipeline (`invoke()`, ADR
+  0018) and no second path to the database.
+- **It ships for staff, customers and the public together,** after stage 22.
+- **A typed client generated per product.** A small runtime package holds the transport, errors,
+  idempotency and TanStack Query helpers, with no DOM or Node dependency, so it serves TanStack
+  Start and React Native alike. A generator writes each product's typed operations from that
+  product's own registry, in the client repo, so pack tools and the org's own tools are typed.
+- **The generated client is split by audience.** A customer app's bundle holds no staff operation
+  name.
 - **Pack hooks build on it.** A pack's headless part is functions and hooks over the client, with
   no markup.
-- **Writes carry an idempotency key.** A phone on a bad connection retries; a retry must not buy a
-  second ticket.
+- **Every write carries an idempotency key,** and a write without one is refused on this surface.
+  A phone on a bad connection retries; a retry must not buy a second ticket.
+- **Phones hold a short-lived access token and a rotating refresh token.** A reused refresh token
+  ends the session. A session unused for a set time (90 days by default) ends.
+- **The host serves the current and the previous API version.** An older app is told to update.
 - **The client's web Worker calls the host over a service binding;** phones and TVs call it over
   the public hostname.
+- **The staff admin keeps its server functions.**
 
 ## Why
 One definition, every surface, is the rule that keeps a platform from growing a second API. Types
@@ -33,5 +41,7 @@ fails for a user.
   working.
 - Realtime (a coach and a client seeing the same live workout, a door scan updating a count) is not
   covered by request and response. It is a later primitive; this ADR does not decide it.
-- Open: session tokens for native apps (storage, refresh, revocation) and whether staff apps on
-  phones use the same surface with staff sessions. They should.
+- Caching public reads at the edge is decided with the first public operations (stages 27 and
+  28). One route per operation keeps that possible without changing the surface.
+- Push notifications, uploads from client apps and offline writes queued on a device are also
+  left for later.
