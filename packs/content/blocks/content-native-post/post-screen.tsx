@@ -42,6 +42,7 @@ export function PostScreen({
           {v.title}
         </Text>
         {postDate(data) ? <Text style={styles.muted}>{postDate(data)}</Text> : null}
+        {v.byline ? <Text style={styles.muted}>{v.byline}</Text> : null}
       </View>
       {v.cover ? (
         <Image

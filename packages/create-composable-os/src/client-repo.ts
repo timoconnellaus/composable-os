@@ -35,6 +35,7 @@ import {
   locateDeployment,
   type ModulePart,
   type ReleaseManifest,
+  releaseAssetNames,
   sha256Hex,
   toBase64,
 } from "@composable-os/release";
@@ -102,6 +103,7 @@ export async function fetchKit(
   releaseId: string,
   repository: string | undefined,
   version: string | undefined,
+  options: { bundleOnly?: boolean } = {},
 ): Promise<{
   kit: ClientKit;
   version: string;
@@ -111,6 +113,16 @@ export async function fetchKit(
   const release = releaseProduct(deps, releaseId);
   const source = releaseSource(repository ? { ...flags, repo: repository } : flags, deps, release);
   const chosen = version ?? (await latestVersion(source, "stable"));
+  // With --bundle-dir and `bundleOnly` (cos diff), a release is read from the folder or not at
+  // all: never quietly downloaded from GitHub instead.
+  if (options.bundleOnly && source.bundleDir) {
+    const file = releaseAssetNames(release.id, chosen).bundle;
+    if (!existsSync(join(source.bundleDir, file))) {
+      throw new CliError(
+        `${file} is not in --bundle-dir ${source.bundleDir}: put ${chosen}'s bundle and its SHA256SUMS there, or leave out --bundle-dir to download it.`,
+      );
+    }
+  }
   const { bundle } = await verified(source, chosen, deps);
   if (!bundle.clientFiles.size) {
     throw new CliError(`${release.label} ${chosen} has no client kit: it is older than stage 24.`);

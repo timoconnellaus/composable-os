@@ -4,12 +4,18 @@
 // The type is the file's first bytes, never its name or what the client said. Only raster images
 // the host recognises are taken: JPEG, PNG, GIF, WebP and AVIF. SVG is not (it can carry script),
 // nor anything else. The size is checked before anything is read.
-import { documentRefs, documentSchemaOf, RICH_TEXT_MEDIA_OBJECT } from "@composable-os/sdk";
-import type { MediaType } from "../fields/media.ts";
+import {
+  documentRefs,
+  documentSchemaOf,
+  MEDIA_MAX_BYTES,
+  type MediaType,
+  RICH_TEXT_MEDIA_OBJECT,
+  sniffMediaType,
+} from "@composable-os/sdk";
 import type { ObjectDefinition } from "../fields/types.ts";
 
-/** The most an upload may be, in bytes. */
-export const MEDIA_MAX_BYTES = 10 * 1024 * 1024;
+// The rule on what a picture may be is the SDK's, so `cos content import` checks the same one.
+export { MEDIA_MAX_BYTES, sniffMediaType };
 /** The widths a client may ask a picture in; anything else is the nearest one above. */
 export const MEDIA_WIDTHS = [320, 640, 960, 1280, 1920] as const;
 /** Where originals are kept in R2. */
@@ -30,27 +36,13 @@ export interface MediaResizer {
   ): Promise<{ body: ReadableStream; type: string }>;
 }
 
-const starts = (bytes: Uint8Array, at: number, ...values: number[]) =>
-  values.every((v, i) => bytes[at + i] === v);
-const ascii = (bytes: Uint8Array, at: number, text: string) =>
-  [...text].every((c, i) => bytes[at + i] === c.charCodeAt(0));
-
-/** The type the bytes are, or null when they are not an image the host takes. */
-export function sniffMediaType(bytes: Uint8Array): MediaType | null {
-  if (starts(bytes, 0, 0xff, 0xd8, 0xff)) return "image/jpeg";
-  if (starts(bytes, 0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
-  if (ascii(bytes, 0, "GIF87a") || ascii(bytes, 0, "GIF89a")) return "image/gif";
-  if (ascii(bytes, 0, "RIFF") && ascii(bytes, 8, "WEBP")) return "image/webp";
-  if (ascii(bytes, 4, "ftyp") && (ascii(bytes, 8, "avif") || ascii(bytes, 8, "avis"))) {
-    return "image/avif";
-  }
-  return null;
-}
-
 const u16be = (b: Uint8Array, at: number) => ((b[at] ?? 0) << 8) | (b[at + 1] ?? 0);
 const u16le = (b: Uint8Array, at: number) => (b[at] ?? 0) | ((b[at + 1] ?? 0) << 8);
 const u24le = (b: Uint8Array, at: number) => u16le(b, at) | ((b[at + 2] ?? 0) << 16);
 const u32be = (b: Uint8Array, at: number) => u16be(b, at) * 65536 + u16be(b, at + 2);
+
+const ascii = (bytes: Uint8Array, at: number, text: string) =>
+  [...text].every((c, i) => bytes[at + i] === c.charCodeAt(0));
 
 /** Width and height from the file's header, when the host can read them; else nulls. */
 export function mediaDimensions(

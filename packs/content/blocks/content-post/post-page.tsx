@@ -3,7 +3,7 @@
 // `redirect`: the page calls `onRedirect` with the address the post has now, so the site sends a
 // 301 there. A preview link's token shows the working copy instead (`PostPreview`).
 import type { ContentHooks, PublicPost } from "@composable-os/pack-content/client";
-import { mediaPath, postDate } from "@composable-os/pack-content/client";
+import { mediaPath, postDate, postHead } from "@composable-os/pack-content/client";
 import { RichText } from "../content-rich-text/rich-text.tsx";
 
 /** A post's article: shared by the page and the preview. */
@@ -33,6 +33,11 @@ export function PostArticle({
           <time dateTime={v.date ?? v.publishedAt ?? undefined} className="text-muted-foreground">
             {postDate(post)}
           </time>
+        ) : null}
+        {v.byline ? (
+          <p className="text-muted-foreground" data-byline="">
+            {v.byline}
+          </p>
         ) : null}
       </header>
       {v.cover ? (
@@ -107,5 +112,32 @@ export function PostPreview({
       {...(mediaUrl ? { mediaUrl } : {})}
       {...(mediaBase ? { mediaBase } : {})}
     />
+  );
+}
+
+/**
+ * A post page's head (ADR 0470): <title>, the description, the share picture (Open Graph and
+ * Twitter cards), the canonical link and `noindex`, as React 19 elements, which React hoists into
+ * the document's <head> wherever this is rendered. Render it beside `PostArticle` on the server
+ * (TanStack Start) or, in an Astro page, use `postHead()` in the frontmatter instead.
+ */
+export function PostHead({
+  post,
+  ...options
+}: { post: PublicPost } & Parameters<typeof postHead>[1]) {
+  const head = postHead(post, options);
+  return (
+    <>
+      <title>{head.title}</title>
+      {head.description ? <meta name="description" content={head.description} /> : null}
+      <meta property="og:title" content={head.title} />
+      {head.description ? <meta property="og:description" content={head.description} /> : null}
+      {head.image ? <meta property="og:image" content={head.image.url} /> : null}
+      {head.image ? <meta property="og:image:alt" content={head.image.alt} /> : null}
+      <meta name="twitter:card" content={head.image ? "summary_large_image" : "summary"} />
+      {head.canonical ? <link rel="canonical" href={head.canonical} /> : null}
+      {head.canonical ? <meta property="og:url" content={head.canonical} /> : null}
+      {head.robots ? <meta name="robots" content={head.robots} /> : null}
+    </>
   );
 }

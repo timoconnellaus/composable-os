@@ -1590,7 +1590,7 @@
     },
     {
       "name": "x.content.categories",
-      "description": "Every category of posts, by name: its id, name and address (slug), for a site's menu or a post's label. Read-only. (Extension tool from Content 0.1.0.)",
+      "description": "Every category of posts, by name: its id, name and address (slug), for a site's menu or a post's label. Read-only. (Extension tool from Content 0.2.0.)",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",

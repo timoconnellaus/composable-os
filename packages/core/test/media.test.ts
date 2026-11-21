@@ -317,6 +317,45 @@ describe("serving (criterion 9)", () => {
       }),
     );
     expect(huge.status).toBe(413);
+    // The staff-token route (ADR 0470): a bearer token only, and only a person's staff session.
+    const tokenRoute = (ctx: unknown, headers: Record<string, string>) =>
+      handleMedia(
+        new Request("https://host.test/api/v1/media?name=x.png", {
+          method: "POST",
+          body: png(3, 3),
+          headers,
+        }),
+        {
+          invoker: coreInvoker,
+          context: async () => ctx as never,
+          media: store,
+          uploads: true,
+          tokenUploads: true,
+        },
+      );
+    expect((await tokenRoute(staffCtx, {})).status).toBe(401);
+    expect((await tokenRoute(staffCtx, { cookie: "session=x" })).status).toBe(401);
+    // A customer's device token, or the public, is not a person on the staff.
+    expect(
+      (await tokenRoute(outside(PUBLIC), { authorization: "Bearer cos_at_customer" })).status,
+    ).toBe(403);
+    for (const actor of ["mcp", "assistant", "automation"]) {
+      const ai = { ...staffCtx, actor };
+      expect((await tokenRoute(ai, { authorization: "Bearer cos_at_x" })).status, actor).toBe(403);
+    }
+    const byToken = await tokenRoute(staffCtx, { authorization: "Bearer cos_at_person" });
+    expect(byToken.status).toBe(200);
+    // Off unless the host turns it on: the binding never takes one.
+    const off = await handleMedia(
+      new Request("https://host.test/api/v1/media?name=x.png", {
+        method: "POST",
+        body: png(3, 3),
+        headers: { authorization: "Bearer cos_at_person" },
+      }),
+      { invoker: coreInvoker, context: async () => staffCtx, media: store, uploads: false },
+    );
+    expect(off.status).toBe(404);
+
     // The binding's door takes no upload at all.
     const bound = await handleMedia(
       new Request("https://host.test/api/media?name=x.png", { method: "POST", body: png(1, 1) }),

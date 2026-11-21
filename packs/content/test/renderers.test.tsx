@@ -7,6 +7,7 @@ import { RICH_TEXT_BLOCKS, RICH_TEXT_FIXTURE } from "@composable-os/sdk";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { RichTextView } from "../blocks/content-native-rich-text/rich-text-view.tsx";
+import { PostHead } from "../blocks/content-post/post-page.tsx";
 import { RichText } from "../blocks/content-rich-text/rich-text.tsx";
 import { plainText, type RichText as RichTextValue } from "../client/index.ts";
 
@@ -107,5 +108,40 @@ describe("the native renderer", () => {
 
   it("says every word of the document", () => {
     for (const word of words) expect(tree, word).toContain(word);
+  });
+});
+
+describe("a post page's head (ADR 0470)", () => {
+  const post = {
+    object: "content.post",
+    id: "rec_1",
+    values: {
+      title: "Opening night",
+      excerpt: "Doors at seven.",
+      cover: { media: "med_cover", alt: "The stage" },
+      seoTitle: "Opening night at the hall",
+      seoImage: { media: "med_share", alt: "The poster" },
+      noindex: true,
+      byline: "Words by Sam Lee",
+    },
+  };
+
+  it("renders the search title, description, share picture, canonical and noindex", () => {
+    const html = renderToStaticMarkup(
+      <PostHead post={post} url="https://hall.test/blog/opening" origin="https://hall.test" />,
+    );
+    expect(html).toContain("<title>Opening night at the hall</title>");
+    expect(html).toContain('<meta name="description" content="Doors at seven."/>');
+    expect(html).toContain('content="https://hall.test/api/media/med_share?w=1200"');
+    expect(html).toContain('<link rel="canonical" href="https://hall.test/blog/opening"/>');
+    expect(html).toContain('<meta name="robots" content="noindex"/>');
+  });
+
+  it("falls back to the title with the site's name, and the cover", () => {
+    const plain = { ...post, values: { title: "Second week", cover: post.values.cover } };
+    const html = renderToStaticMarkup(<PostHead post={plain} siteName="The Hall" />);
+    expect(html).toContain("<title>Second week · The Hall</title>");
+    expect(html).toContain('content="/api/media/med_cover?w=1200"');
+    expect(html).not.toContain("robots");
   });
 });

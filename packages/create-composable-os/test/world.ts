@@ -19,6 +19,10 @@ export interface World {
   github: FakeGitHub;
   server: Server;
   env: Env;
+  /** Every request to the fake GitHub: its path and the Authorization header it carried. */
+  githubCalls: { path: string; authorization: string | null }[];
+  /** Answers a GitHub request in place of the fake (a rate limit), when it returns a response. */
+  githubHook?: ((path: string) => Response | undefined) | undefined;
 }
 
 export async function startWorld(): Promise<World> {
@@ -30,6 +34,7 @@ export async function startWorld(): Promise<World> {
     zones: [{ id: "zone00000000000000000000000shop", name: "shop.example" }],
   });
   let github!: FakeGitHub;
+  let world!: World;
   const server = createServer(async (req, res) => {
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const chunks: Buffer[] = [];
@@ -49,7 +54,9 @@ export async function startWorld(): Promise<World> {
       const version = cf.liveBinding("demo-app", "COS_RELEASE_VERSION")?.text;
       response = Response.json({ status: "ok", version, migrations: { upToDate: true } });
     } else {
-      response = await github.fetch(url);
+      const authorization = req.headers.authorization ?? null;
+      world.githubCalls.push({ path: req.url ?? "", authorization });
+      response = world.githubHook?.(req.url ?? "") ?? (await github.fetch(url));
     }
     res.writeHead(response.status, Object.fromEntries(response.headers));
     res.end(Buffer.from(await response.arrayBuffer()));
@@ -57,7 +64,8 @@ export async function startWorld(): Promise<World> {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   github = new FakeGitHub("example/demo", origin);
-  return {
+  world = {
+    githubCalls: [],
     cf,
     github,
     server,
@@ -68,6 +76,7 @@ export async function startWorld(): Promise<World> {
       CLOUDFLARE_API_TOKEN: TOKEN,
     },
   };
+  return world;
 }
 
 export async function runIn(world: World, ...argv: string[]) {

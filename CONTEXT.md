@@ -1233,6 +1233,13 @@ slug changes, the old one **redirects**: `content.get` answers with the slug it 
 0442). A deleted record's slug can be taken again.
 _Avoid_: permalink, path, handle
 
+**Import key**
+The name a record has in the system it was imported from (an old post's file name), kept by the
+host with what the import last wrote (`record.import`, ADR 0470). A re-run of the import finds the
+record by it: it updates only what the source changed, and reports a record someone changed since
+as a conflict instead of overwriting it.
+_Avoid_: external id (a synced email's), source id
+
 **Media** (a media item; the **media library**)
 A picture staff uploaded (JPEG, PNG, GIF, WebP or AVIF, at most 10 MB, its type read from its
 bytes), kept as one original in R2 with its size, dimensions and alt text (stage 28, ADR 0444).

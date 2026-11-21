@@ -30,13 +30,13 @@ const files = Object.fromEntries(
 
 const shippedHost: ExtensionHost = {
   ...host,
-  shipped: async () => [...(await host.shipped()), { id: "content", version: "0.1.0" }],
+  shipped: async () => [...(await host.shipped()), { id: "content", version: "0.2.0" }],
   commitShipped: (id) =>
     id === "content"
       ? host.commit({
           id,
           files,
-          message: "Shipped content 0.1.0",
+          message: "Shipped content 0.2.0",
           author: { name: "Composable OS", email: "release@composableos.dev" },
         })
       : host.commitShipped(id),

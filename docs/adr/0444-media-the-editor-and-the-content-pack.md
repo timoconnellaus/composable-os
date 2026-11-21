@@ -156,3 +156,11 @@ over a taken slug (1); a revoked preview link still working (1); markup kept in 
   previous `media.serve` (2 failed). `packages/create-composable-os/test/client-repo.test.ts`: a
   repo made before the route gets it on `cos upgrade`, with a new recorded hash; an adopted site
   gets it from `cos init`.
+
+## Amendment, 2026-11-22 (ADR 0470)
+A picture's SHA-256 is kept (migration 0501): `media.upload` returns the item the library has for
+the same bytes (`existing: true`) rather than storing it twice, and `media.findByHash` says which
+files it has. `POST /api/v1/media` uploads with a person's staff device token only, beside the
+surface, for `cos content import`. The Content pack (0.2.0) gains `byline` and the search fields
+`seoTitle`, `seoDescription`, `seoImage` and `noindex`, all public, and `postHead()` and
+`PostHead` for a page's head. See [ADR 0470](0470-the-import-door.md).

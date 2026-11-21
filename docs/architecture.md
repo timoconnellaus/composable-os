@@ -1110,6 +1110,15 @@ the current version of a record they may read shows in a field they may read
 `IMAGES` is bound. The `image` field type is `{ media, alt, focal? }`. The Trash purge deletes a
 picture's row, and a trigger queues its R2 key on the blob deletion path (ADR 0320).
 
+**The import door** ([ADR 0470](adr/0470-the-import-door.md), `packages/core/src/operations/
+record-import.ts`, `packages/create-composable-os/src/content-import/`). `cos content import
+<folder>` signs a staff member in for the run (native sign-in by code or the system browser, a
+loopback redirect), uploads the folder's pictures over `POST /api/v1/media` (a staff device token
+only; de-duplicated by SHA-256) and writes the posts with `record.import`: each named by an import
+key (`core_import_key`, migration 0501), checked in a dry run first, created once, updated only
+while it holds what the import last wrote, a person's edit reported as a conflict. `--publish`
+publishes or schedules them with their own dates.
+
 **The editor** (`apps/app/src/components/fields/rich-text-editor.tsx`). Rich text fields are
 edited with Tiptap, whose schema is the platform's blocks and marks; `toRichText`
 (`apps/app/src/lib/rich-text-map.ts`) maps its document to `RICH_TEXT_SCHEMA` at its edge and is

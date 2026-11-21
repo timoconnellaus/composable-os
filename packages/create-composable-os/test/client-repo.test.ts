@@ -19,6 +19,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -875,6 +876,72 @@ describe("cos upgrade keeps the host modules current (ADR 0451, amended)", () =>
 });
 
 describe("blocks (criterion 10)", () => {
+  it("cos diff --accept reads releases from --bundle-dir, sends a GitHub token from the environment, and says so on a rate limit", async () => {
+    await publish("1.0.0");
+    await publish("1.1.0", (files) => {
+      files["blocks/greeting/greeting.tsx"] =
+        'export function Greeting({ name }: { name: string }) {\n  return <p className="greeting">Hello, {name}!</p>;\n}\n';
+    });
+    await created();
+    expect((await cos("add", "greeting")).code).toBe(0);
+    expect((await cos("upgrade")).code).toBe(0);
+
+    // Both releases, as a release build leaves them: their bundles and one SHA256SUMS.
+    const bundles = join(scratch(), "bundles");
+    mkdirSync(bundles, { recursive: true });
+    const sums: string[] = [];
+    for (const release of world.github.releases) {
+      for (const [name, bytes] of release.assets) {
+        if (name === "SHA256SUMS") sums.push(new TextDecoder().decode(bytes).trim());
+        else if (name.endsWith(".tar.gz")) writeFileSync(join(bundles, name), bytes);
+      }
+    }
+    writeFileSync(join(bundles, "SHA256SUMS"), `${sums.join("\n")}\n`);
+
+    const token = "ghp_test_token_never_printed_0123456789";
+    world.env.GH_TOKEN = token;
+    world.githubCalls.length = 0;
+    try {
+      const accepted = await cos("diff", "greeting", "--accept", "--bundle-dir", bundles);
+      expect(accepted.code, accepted.output).toBe(0);
+      expect(accepted.output).toContain("Accepted: greeting is recorded as merged up to 1.1.0");
+      expect(accepted.output).not.toContain(token);
+      // Read from the folder: no release listing or download, only the attestation check, with
+      // the token.
+      expect(world.githubCalls.filter((c) => /\/releases(\/|$)/.test(c.path))).toEqual([]);
+      const api = world.githubCalls.filter((c) => c.path.includes("/attestations/"));
+      expect(api.length).toBeGreaterThan(0);
+      for (const call of api) expect(call.authorization).toBe(`Bearer ${token}`);
+    } finally {
+      delete world.env.GH_TOKEN;
+    }
+
+    // A release the folder lacks is said, never quietly downloaded.
+    rmSync(join(bundles, readdirSync(bundles).find((f) => f.includes("1.0.0")) as string));
+    world.githubCalls.length = 0;
+    const lacking = await cos("diff", "greeting", "--bundle-dir", bundles, "--version", "1.1.0");
+    expect(lacking.code).toBe(0);
+    const old = await cos("diff", "greeting", "--bundle-dir", bundles, "--version", "1.0.0");
+    expect(old.code).toBe(1);
+    expect(old.output).toContain("is not in --bundle-dir");
+    expect(world.githubCalls.filter((c) => /\/releases(\/|$)/.test(c.path))).toEqual([]);
+
+    // GitHub's rate limit, without a token: a message to act on.
+    world.githubHook = () =>
+      new Response(JSON.stringify({ message: "API rate limit exceeded" }), {
+        status: 403,
+        headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1893456000" },
+      });
+    try {
+      const limited = await cos("diff", "greeting", "--bundle-dir", bundles);
+      expect(limited.code).toBe(1);
+      expect(limited.output).toContain("rate limit");
+      expect(limited.output).toContain("GH_TOKEN or GITHUB_TOKEN");
+    } finally {
+      world.githubHook = undefined;
+    }
+  });
+
   it("cos diff --accept records changes applied by hand, so the next diff starts there (issue #177)", async () => {
     await publish("1.0.0");
     await publish("1.1.0", (files) => {

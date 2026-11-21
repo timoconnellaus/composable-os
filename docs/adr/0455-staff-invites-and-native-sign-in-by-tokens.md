@@ -221,3 +221,10 @@ decided by the gatekeeper from the host's queue and the fixed template, and turn
 admin. Sign-in by code is not set up until it would go out at once, so a code to an outside address
 is delivered, and the same-domain workaround in the fake outbox and the e2e journey is gone. A
 send waiting for review never held back a code in email-send; the fake outbox now matches it.
+
+## Amendment, 2026-11-22 (ADR 0470)
+`NATIVE_REDIRECT_URIS` may list a loopback address with no port (`http://127.0.0.1/cos-sign-in`,
+or `[::1]`): a code may then be sent to that address on any port (RFC 8252, 7.3), for a command
+that listens on a port of its own (`cos content import`). Only those IP literals over http, the
+listed path, no query, fragment or user; never `localhost`. See
+[ADR 0470](0470-the-import-door.md).

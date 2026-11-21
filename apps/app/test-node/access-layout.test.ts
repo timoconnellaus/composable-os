@@ -92,6 +92,8 @@ describe("every route of cos-app is accounted for behind Access", () => {
       "/api/v1/manifest",
       // A picture for a phone or anyone outside, on the host's own hostname (issue #181).
       "/api/v1/media/med_1",
+      // An upload by a staff device token (cos content import, ADR 0470): the bypassed surface.
+      "/api/v1/media",
       "/api/v1/auth/customer/sign-in",
       "/api/v1/auth/staff/exchange",
       "/api/v1/auth/sign-out",

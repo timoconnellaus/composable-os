@@ -14,7 +14,7 @@ import { categories } from "./tools.ts";
 
 export default defineExtension({
   id: "content",
-  version: "0.1.0",
+  version: "0.2.0",
   contractVersion: 1,
   label: "Content",
   description:
@@ -49,22 +49,66 @@ export default defineExtension({
         body: { type: "richText", label: "Body" },
         cover: { type: "image", label: "Cover picture" },
         author: { type: "user", label: "Author" },
+        // What readers see as who wrote it (ADR 0470): plain text, because a post's author is a
+        // staff account, which the public never reads.
+        byline: {
+          type: "text",
+          label: "Byline",
+          description: 'Who wrote it, as readers see it: "Words by Sam Lee". Left empty, none.',
+        },
         category: { type: "relation", label: "Category", to: "content.category" },
         date: {
           type: "datetime",
           label: "Date",
           description: "The date readers are shown. Left empty, it is when the post goes live.",
         },
+        // What search engines and link previews show (ADR 0470). Each is optional: left empty,
+        // the page uses the title, the excerpt and the cover.
+        seoTitle: { type: "text", label: "Search title" },
+        seoDescription: { type: "text", label: "Search description" },
+        seoImage: { type: "image", label: "Share picture" },
+        noindex: {
+          type: "boolean",
+          label: "Hide from search engines",
+          description: "Asks search engines not to list the post's page.",
+        },
       },
       indexes: [["category"], ["date"]],
       publishable: {
-        content: ["title", "excerpt", "body", "cover", "author", "category", "date"],
+        content: [
+          "title",
+          "excerpt",
+          "body",
+          "cover",
+          "author",
+          "byline",
+          "category",
+          "date",
+          "seoTitle",
+          "seoDescription",
+          "seoImage",
+          "noindex",
+        ],
         slug: "slug",
         date: "date",
       },
       // The author is a staff account, which the public does not read; a post shows its date.
       public: {
-        read: ["title", "slug", "excerpt", "body", "cover", "category", "date", "publishedAt"],
+        read: [
+          "title",
+          "slug",
+          "excerpt",
+          "body",
+          "cover",
+          "byline",
+          "category",
+          "date",
+          "publishedAt",
+          "seoTitle",
+          "seoDescription",
+          "seoImage",
+          "noindex",
+        ],
       },
     },
     category: {

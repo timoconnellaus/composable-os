@@ -63,11 +63,34 @@ function headers(options: RequestOptions): HeadersInit {
   };
 }
 
+/** Thrown when GitHub refuses a call for its rate limit: says what to do, never the token. */
+export class GitHubRateLimitError extends Error {
+  override name = "GitHubRateLimitError";
+}
+
+/** A GitHub answer that is its rate limit (403 or 429 with none left), as words to act on. */
+function rateLimited(response: Response, withToken: boolean): GitHubRateLimitError | null {
+  const remaining = response.headers.get("x-ratelimit-remaining");
+  if (response.status !== 429 && !(response.status === 403 && remaining === "0")) return null;
+  const reset = Number(response.headers.get("x-ratelimit-reset"));
+  const at =
+    Number.isFinite(reset) && reset > 0
+      ? ` It resets at ${new Date(reset * 1000).toISOString()}.`
+      : "";
+  return new GitHubRateLimitError(
+    withToken
+      ? `GitHub's API rate limit for this token was reached.${at}`
+      : `GitHub's API rate limit for calls without a token was reached (60 an hour).${at} Set GH_TOKEN or GITHUB_TOKEN to a GitHub token (no scopes needed) and run again.`,
+  );
+}
+
 export async function githubJson<T>(path: string, options: RequestOptions): Promise<T> {
   const response = await (options.fetch ?? fetch)(`${options.apiBase ?? GITHUB_API}${path}`, {
     headers: headers(options),
   });
   if (!response.ok) {
+    const limit = rateLimited(response, Boolean(options.token));
+    if (limit) throw limit;
     throw new Error(`GitHub ${path}: HTTP ${response.status}`);
   }
   return (await response.json()) as T;
@@ -134,6 +157,10 @@ export async function downloadAsset(
     headers: { "user-agent": USER_AGENT, accept: "application/octet-stream" },
     redirect: "follow",
   });
-  if (!response.ok) throw new Error(`download ${url}: HTTP ${response.status}`);
+  if (!response.ok) {
+    const limit = rateLimited(response, Boolean(options.token));
+    if (limit) throw limit;
+    throw new Error(`download ${url}: HTTP ${response.status}`);
+  }
   return new Uint8Array(await response.arrayBuffer());
 }

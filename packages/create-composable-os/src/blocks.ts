@@ -214,7 +214,9 @@ export async function diff(argv: string[], flags: Flags, deps: Deps): Promise<nu
     else if (sha(readFileSync(path)) !== hash) io.out(`${file}: edited here since it was copied`);
   }
   const fetch = (version: string) =>
-    fetchKit(flags, deps, product.platform.release, product.platform.repository, version);
+    fetchKit(flags, deps, product.platform.release, product.platform.repository, version, {
+      bundleOnly: true,
+    });
   if (target === entry.version) {
     // Compared by content, not by version: a kit rebuilt at the same version (local tarballs)
     // may differ from what was copied. What was copied is known by its hashes, and is the file

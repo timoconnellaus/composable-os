@@ -13,7 +13,7 @@
 // The bytes never pass through an operation's input: the upload route (`/api/media`, cos-app)
 // reads the request's body and hands it to `media.upload` as `ctx.upload`, so no MCP client,
 // import or extension can store a file, and the audit log holds what was stored, not the file.
-import type { Kysely } from "kysely";
+import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
 import { NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
@@ -114,7 +114,9 @@ export const mediaUpload = defineOperation({
     name: mediaName.describe("The file's name, for the library"),
     alt: altText.optional().describe("What the picture shows"),
   }),
-  output: mediaOut,
+  output: mediaOut.extend({
+    existing: z.boolean().describe("The library had this file already: that item, not a new one"),
+  }),
   permission: "records:write",
   risk: "write",
   actors: ["human"],
@@ -140,6 +142,10 @@ export const mediaUpload = defineOperation({
         { reason: "type" },
       );
     }
+    // The same file again (a re-run of an import): the item the library has, nothing stored.
+    const sha256 = await bytesSha256(bytes);
+    const same = await liveByHash(ctx, [sha256]);
+    if (same[0]) return { ...out(same[0]), existing: true };
     if (!ctx.media) throw new OperationError("config", "Media storage is not configured here");
     const { width, height } = mediaDimensions(bytes, type);
     const id = newId("media");
@@ -160,11 +166,54 @@ export const mediaUpload = defineOperation({
       created_by: ctx.user.id,
       updated_at: ctx.now,
       updated_by: ctx.user.id,
+      sha256,
     };
     ctx.write(ctx.db.insertInto("core_media").values(row));
     const result = out(row);
     ctx.recordChange({ object: "media", id, action: "create", after: { ...result } });
-    return result;
+    return { ...result, existing: false };
+  },
+});
+
+/** SHA-256 of a file, hex. */
+async function bytesSha256(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** The live items with these hashes, through the seam's staff table door. */
+async function liveByHash(
+  ctx: HandlerContext,
+  hashes: string[],
+): Promise<(MediaRow & { sha256: string })[]> {
+  if (!hashes.length) return [];
+  return (await ctx.db
+    .selectFrom(visibleTable(ctx, mediaObject))
+    .selectAll()
+    .where(sql<SqlBool>`deleted_at IS NULL`)
+    .where("sha256", "in", hashes)
+    .execute()) as unknown as (MediaRow & { sha256: string })[];
+}
+
+export const mediaFindByHash = defineOperation({
+  name: "media.findByHash",
+  description:
+    "Which of these files the media library has already, by the SHA-256 of their bytes (hex): " +
+    "the item for each one it has. An import asks this before uploading, so a re-run uploads " +
+    "nothing twice. Read-only.",
+  input: z.object({
+    sha256: z
+      .array(z.string().regex(/^[0-9a-f]{64}$/))
+      .min(1)
+      .max(200),
+  }),
+  output: z.object({ items: z.array(mediaOut.extend({ sha256: z.string() })) }),
+  permission: "records:read",
+  risk: "read",
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    const rows = await liveByHash(ctx, [...new Set(input.sha256)]);
+    return { items: rows.map((row) => ({ ...out(row), sha256: row.sha256 })) };
   },
 });
 
@@ -375,6 +424,7 @@ export const mediaServe = defineOperation({
 
 export const mediaOperations = [
   mediaUpload,
+  mediaFindByHash,
   mediaList,
   mediaGet,
   mediaUpdate,

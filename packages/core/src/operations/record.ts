@@ -267,6 +267,28 @@ async function prepareValues(
   return prepared;
 }
 
+/**
+ * Checks `values` for writing exactly as a create or an update would (types, schemas, required
+ * fields, rules of choices, and, unless `checkReferences` is false, that relations, users and
+ * document refs name live records), and returns each value as the record will hold it: what a
+ * read of the record gives back. Writes nothing. The import door (ADR 0470) compares by these.
+ */
+export async function checkRecordValues(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+  mode: "create" | "update",
+  options: { checkReferences?: boolean } = {},
+): Promise<Record<string, unknown>> {
+  const prepared = await prepareValues(ctx, object, values, mode, options);
+  return Object.fromEntries(
+    prepared.map((p) => {
+      const type = fieldStorage(object.name, p.field.name)?.type ?? "text";
+      return [p.field.name, FIELD_TYPE_REGISTRY[type].fromStorage(p.stored)];
+    }),
+  );
+}
+
 /** Values the host sets (a lifecycle's): validated by type; read-only fields allowed. */
 function hostValues(object: ObjectDefinition, values: Record<string, unknown>): PreparedValue[] {
   return Object.entries(values).map(([name, value]) => {

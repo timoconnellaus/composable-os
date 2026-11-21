@@ -71,6 +71,13 @@ export interface PublicPost {
     excerpt?: string | null;
     body?: RichText | null;
     cover?: Picture | null;
+    /** Who wrote it, as readers see it; the author's staff account is never public. */
+    byline?: string | null;
+    /** What search engines and link previews show (ADR 0470); each optional. */
+    seoTitle?: string | null;
+    seoDescription?: string | null;
+    seoImage?: Picture | null;
+    noindex?: boolean | null;
     category?: string | null;
     date?: string | null;
     publishedAt?: string | null;
@@ -224,6 +231,51 @@ export function postDate(post: PublicPost, locale?: string): string {
   } catch {
     return iso.slice(0, 10);
   }
+}
+
+/** What a post's page puts in its <head>: for search engines and link previews. */
+export interface PostHead {
+  title: string;
+  description: string | null;
+  /** The share picture, absolute when `origin` was given. */
+  image: { url: string; alt: string } | null;
+  /** `noindex`: the post asks search engines not to list it. */
+  robots: "noindex" | null;
+  /** The page's own address, when `url` was given. */
+  canonical: string | null;
+}
+
+/**
+ * The head of a post's page, from its published values (ADR 0470): its search title (else its
+ * title, with ` · <siteName>`), its search description (else its excerpt, else the start of its
+ * body), its share picture (else its cover), and whether to ask search engines not to list it.
+ * Plain data, so any page can render it: React 19's hoisted <title>/<meta> (the `PostHead` block),
+ * TanStack Start's route `head()`, or an Astro page's <head>.
+ */
+export function postHead(
+  post: PublicPost,
+  options: {
+    siteName?: string;
+    /** The page's absolute address, for the canonical link and og:url. */
+    url?: string;
+    /** Where the site's media route is, for an absolute share picture (`https://example.com`). */
+    origin?: string;
+    mediaUrl?: (id: string, width: number) => string;
+  } = {},
+): PostHead {
+  const v = post.values;
+  const base = v.seoTitle || v.title || "";
+  const title = options.siteName && !v.seoTitle ? `${base} · ${options.siteName}` : base;
+  const words = v.seoDescription || v.excerpt || plainText(v.body).slice(0, 200).trim();
+  const picture = v.seoImage ?? v.cover ?? null;
+  const toUrl = options.mediaUrl ?? ((id, width) => mediaPath(id, width, options.origin ?? ""));
+  return {
+    title,
+    description: words || null,
+    image: picture ? { url: toUrl(picture.media, 1200), alt: picture.alt } : null,
+    robots: v.noindex ? "noindex" : null,
+    canonical: options.url ?? null,
+  };
 }
 
 // --- Hooks ---------------------------------------------------------------------------------------

@@ -887,7 +887,7 @@ for.
 
 | Path | When | How it authenticates without Access |
 | --- | --- | --- |
-| `/api/v1/*` | always | The HTTP surface decides the caller itself: a native app's bearer token (looked up by hash), a customer cookie signed with `CUSTOMER_AUTH_SECRET`, or an Access JWT verified against your team's keys, issuer and AUD, never trusted unverified. Anything else is the public. Browsers from other origins are refused unless in `API_ALLOWED_ORIGINS`. Native sign-in routes take a code and store only hashes. `/api/v1/media/<id>` is a published post's picture for a phone or any outside caller: served only when content they may read shows it (`media.serve`) |
+| `/api/v1/*` | always | The HTTP surface decides the caller itself: a native app's bearer token (looked up by hash), a customer cookie signed with `CUSTOMER_AUTH_SECRET`, or an Access JWT verified against your team's keys, issuer and AUD, never trusted unverified. Anything else is the public. Browsers from other origins are refused unless in `API_ALLOWED_ORIGINS`. Native sign-in routes take a code and store only hashes. `/api/v1/media/<id>` is a published post's picture for a phone or any outside caller: served only when content they may read shows it (`media.serve`). `POST /api/v1/media` is an upload by a staff device token only (`cos content import`, ADR 0470): no cookie is taken there |
 | `/api/customer-auth/*` | customers | Customer sign-in by emailed code, its own secret and tables |
 | `/api/health` | always | Health and version only (`cos deploy` and monitors read it) |
 | `/gatekeeper/payments/in/*` | payments | The provider's webhook signature (`STRIPE_WEBHOOK_SECRET`) |
@@ -911,6 +911,10 @@ adapter reads `Cf-Access-Jwt-Assertion` or `CF_Authorization`, and only to verif
 bypassed path a staff member's browser may still send the `CF_Authorization` cookie, which is
 verified as anywhere else; a cross-site page cannot use it, because the surface refuses an origin
 it does not list.
+
+`cos content import` ([docs/importing.md](importing.md)) signs staff in through the system browser
+under Access: add `http://127.0.0.1/cos-sign-in` (no port) to `NATIVE_REDIRECT_URIS`, and the
+command's one-time code comes back to whichever port it listens on.
 
 Under Access, staff are added by invite as above (the invite sets the role; Access decides who gets
 in), and a native app's staff sign-in uses the system browser: set `NATIVE_REDIRECT_URIS` to the

@@ -25,13 +25,19 @@ const EXT = `web${Date.now().toString(36)}`;
 const POST = `${EXT}.post`;
 let admin: ActingUser;
 
-/** A PNG header of the given size. */
+/**
+ * A PNG header of the given size. Each call's bytes are its own: the library keeps one item per
+ * file (ADR 0470), and the two pictures here must be two items.
+ */
+let made = 0;
 function png(width: number, height: number): Uint8Array {
+  made += 1;
   const bytes = new Uint8Array(33);
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82]);
   const view = new DataView(bytes.buffer);
   view.setUint32(16, width);
   view.setUint32(20, height);
+  view.setUint32(29, made);
   return bytes;
 }
 
