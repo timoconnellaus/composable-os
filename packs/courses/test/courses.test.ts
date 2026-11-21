@@ -416,12 +416,10 @@ describe("the tools", () => {
       { personId: "per_x", courseId: "rec_course", reason: "test row" },
       { caller: STAFF },
     );
-    host.records
-      .get("courses.enrolment")
-      ?.set(bought.enrolmentId, {
-        ...host.records.get("courses.enrolment")?.get(bought.enrolmentId),
-        source: "purchase",
-      } as never);
+    host.records.get("courses.enrolment")?.set(bought.enrolmentId, {
+      ...host.records.get("courses.enrolment")?.get(bought.enrolmentId),
+      source: "purchase",
+    } as never);
     await expect(
       host.runTool(
         "endEnrolment",
@@ -475,14 +473,12 @@ describe("the tools", () => {
 
   it("assignSessions: assigns a course's session programs once, from today", async () => {
     const host = hostWith();
-    host.records
-      .get("courses.progress")
-      ?.set("rec_p", {
-        id: "rec_p",
-        holder: "per_student",
-        course: "rec_course",
-        lessonKey: "welcome",
-      });
+    host.records.get("courses.progress")?.set("rec_p", {
+      id: "rec_p",
+      holder: "per_student",
+      course: "rec_course",
+      lessonKey: "welcome",
+    });
     host.publish("courses.course", "rec_course");
     const assigned: unknown[] = [];
     const run = await createTestHost(courses, {

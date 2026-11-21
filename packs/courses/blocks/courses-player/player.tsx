@@ -5,7 +5,7 @@
 // the host only while the student holds the course (`useProgress`).
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
 import { mediaPath } from "@composable-os/pack-courses/client";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 
 /** How often the player keeps the position while a video plays, in seconds of video. */
@@ -35,10 +35,13 @@ export function LessonPlayer({
   const kept = useRef(0);
   const [doneNow, setDoneNow] = useState(false);
 
-  useEffect(() => {
-    kept.current = 0;
+  // A new lesson starts with nothing kept yet.
+  const [shown, setShown] = useState(lessonKey);
+  if (shown !== lessonKey) {
+    setShown(lessonKey);
     setDoneNow(false);
-  }, [lessonKey]);
+    kept.current = 0;
+  }
 
   if (isPending) return <p aria-busy="true">Loading the lesson…</p>;
   if (error || !data) return <p role="alert">This lesson is not here.</p>;

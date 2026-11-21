@@ -64,7 +64,12 @@
         "packs/programs/blocks/programs-coach-client/**",
         "packs/content/blocks/content-rich-text/**",
         "packs/content/blocks/content-post/**",
-        "packs/content/blocks/content-post-list/**"
+        "packs/content/blocks/content-post-list/**",
+        "packs/courses/blocks/courses-catalogue/**",
+        "packs/courses/blocks/courses-course/**",
+        "packs/courses/blocks/courses-player/**",
+        "packs/courses/blocks/courses-my-courses/**",
+        "packs/courses/blocks/courses-builder/**"
       ],
       "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
     },
