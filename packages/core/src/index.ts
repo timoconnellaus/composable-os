@@ -49,6 +49,7 @@ export * from "./automations/simulate.ts";
 export * from "./automations/sources.ts";
 export * from "./automations/summary.ts";
 export * from "./automations/types.ts";
+export * from "./capacity/index.ts";
 export * from "./customers/index.ts";
 export * from "./dashboards/cache.ts";
 export * from "./dashboards/click-through.ts";
