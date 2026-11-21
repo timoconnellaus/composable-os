@@ -63,7 +63,7 @@ export default defineExtension({
             event: "item.event",
             holder: "order.person",
             email: "order.email",
-            orderId: "order",
+            order: "order",
             code: "code",
           },
           void: "void",
@@ -87,7 +87,7 @@ export default defineExtension({
         event: { type: "relation", label: "Event", to: "boxoffice.event", required: true },
         holder: { type: "relation", label: "Holder", to: "person" },
         email: { type: "email", label: "Email" },
-        orderId: { type: "text", label: "Order" },
+        order: { type: "text", label: "Order" },
         state: {
           type: "select",
           label: "State",

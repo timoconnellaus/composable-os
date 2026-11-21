@@ -156,6 +156,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot make ${name} visible to customers. ${why}`,
       });
     }
+    // Selling to the public opens order.start to its records (ADR 0435): a reviewed change too.
+    if (object.sellable) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.sellable`,
+        message: `A runtime extension cannot make ${name} something customers and the public can buy. ${why}`,
+      });
+    }
   }
   return issues;
 }

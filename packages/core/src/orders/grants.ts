@@ -186,6 +186,41 @@ async function voidGrants(ctx: HandlerContext, orderId: string) {
   }
 }
 
+/**
+ * An order that belonged to no one has its Person now (`order.setPerson`): what it granted with a
+ * field set from `order.person` (a ticket's holder) is theirs too. Queued as the host, in the
+ * calling operation's batch. A record in the Trash is left alone.
+ */
+export async function grantsFollowPerson(
+  ctx: HandlerContext,
+  orderId: string,
+  personId: string,
+): Promise<void> {
+  const rows = await ctx.db
+    .selectFrom("core_order_grant")
+    .select(["object_type", "record_id"])
+    .where("order_id", "=", orderId)
+    .execute();
+  const byObject = new Map<string, string[]>();
+  for (const row of rows) {
+    byObject.set(row.object_type, [...(byObject.get(row.object_type) ?? []), row.record_id]);
+  }
+  for (const [name, ids] of byObject) {
+    const object = getObject(name);
+    const set = grantFor(name)?.set ?? {};
+    const fields = Object.keys(set).filter((field) => set[field] === "order.person");
+    if (!object || !fields.length) continue;
+    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+    const live = (await (ctx.db as any)
+      .selectFrom(visibleSource(orgReader(ctx.db), object))
+      .select("id")
+      .where("id", "in", ids)
+      .execute()) as { id: string }[];
+    const values = Object.fromEntries(fields.map((field) => [field, personId]));
+    for (const { id } of live) await updateRecord(ctx, object, id, values, { by: "host" });
+  }
+}
+
 const orderGrants: MoveHook = async (ctx, move) => {
   const from = move.from?.id ?? null;
   const to = move.to.id;

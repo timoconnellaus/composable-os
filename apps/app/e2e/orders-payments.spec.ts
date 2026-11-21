@@ -20,7 +20,7 @@ async function ticketsOf(page: Page, object: string, orderId: string) {
   const listed = await staffOp<{ items: { values: Record<string, unknown> }[] }>(
     page,
     "record.list",
-    { object, filter: { field: "orderId", op: "eq", value: orderId } },
+    { object, filter: { field: "order", op: "eq", value: orderId } },
   );
   return listed.items.map((item) => item.values);
 }

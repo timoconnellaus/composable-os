@@ -22,7 +22,13 @@ import { applyTransition } from "../records/lifecycle.ts";
 import type { Mover } from "../records/transitions.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
 import { claimOrderPlaces } from "./holds.ts";
-import { type Sellable, sellableOf, sellableProblems } from "./sellable.ts";
+import {
+  GRANTS_PER_ORDER_CEILING,
+  lineLimit,
+  type Sellable,
+  sellableOf,
+  sellableProblems,
+} from "./sellable.ts";
 import {
   currencyDecimals,
   loadOrderCurrency,
@@ -151,6 +157,8 @@ export async function priceLines(
   const reader = orgReader(db);
   const seen = new Set<string>();
   const priced: PricedLine[] = [];
+  /** Units on the lines so far whose objects grant something. */
+  let granting = 0;
   for (const [index, line] of lines.entries()) {
     const key = `${line.object}\u0000${line.id}`;
     if (seen.has(key)) {
@@ -200,16 +208,29 @@ export async function priceLines(
         );
       }
     }
-    if (sellable.maxPerOrder) {
-      const max = read(sellable.maxPerOrder);
-      if (typeof max === "number" && Number.isFinite(max) && line.quantity > max) {
+    const own = sellable.maxPerOrder ? read(sellable.maxPerOrder) : null;
+    const max = lineLimit(sellable, typeof own === "number" && Number.isFinite(own) ? own : null);
+    if (max !== null && line.quantity > max) {
+      refuseLine("max_per_order", index, `At most ${max} of this on one order`, {
+        max,
+        asked: line.quantity,
+      });
+    }
+    // Everything granted is made in the paid batch, which has a size (GRANTS_PER_ORDER_CEILING).
+    if (sellable.grants) {
+      if (granting + line.quantity > GRANTS_PER_ORDER_CEILING) {
         refuseLine(
           "max_per_order",
           index,
-          `At most ${Math.max(Math.floor(max), 0)} of this on one order`,
-          { max: Math.max(Math.floor(max), 0), asked: line.quantity },
+          `At most ${GRANTS_PER_ORDER_CEILING} tickets or other grants on one order`,
+          {
+            max: GRANTS_PER_ORDER_CEILING - granting,
+            asked: line.quantity,
+            ceiling: GRANTS_PER_ORDER_CEILING,
+          },
         );
       }
+      granting += line.quantity;
     }
     let deposit: PricedLine["deposit"] = null;
     if (sellable.deposit) {

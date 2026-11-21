@@ -218,6 +218,98 @@ describe("sellable: what a paid line grants", () => {
     ]);
   });
 
+  describe("the granted object's own rules cannot refuse the host's insert", () => {
+    const ticket = shop(undefined).objects.ticket;
+    const fields = ticket.fields as Record<string, Record<string, unknown>>;
+
+    it("no owner: assignment rules would run in the paid batch", () => {
+      const owned = {
+        ticket: {
+          ...ticket,
+          fields: { ...fields, owner: { type: "user", label: "Owner" } },
+          owner: "owner",
+        },
+      };
+      expect(issues({ grants: goodGrant }, owned)).toEqual([
+        "objects.ticket.owner: ticket is granted by kind: an owner would run assignment rules in the paid batch, which could refuse it. Remove owner",
+      ]);
+    });
+
+    it("requireOneOf needs a field the grant always fills", () => {
+      const oneOf = (group: string[]) => ({ ticket: { ...ticket, requireOneOf: [group] } });
+      // holder comes from order.person, which may be empty; email from order.email always has one.
+      expect(issues({ grants: goodGrant }, oneOf(["holder", "paid"]))).toEqual([]);
+      const { paid: _paid, ...set } = goodGrant.set;
+      expect(issues({ grants: { ...goodGrant, set } }, oneOf(["holder", "paid"]))).toEqual([
+        "objects.ticket.requireOneOf.0: ticket is granted by kind: set one of holder, paid in grants.set from a source that always has a value",
+      ]);
+      expect(issues({ grants: goodGrant }, oneOf(["holder", "email"]))).toEqual([]);
+    });
+
+    it("a choice the record starts in needs only fields the grant always fills", () => {
+      const withRequires = (requires: string[]) => ({
+        ticket: {
+          ...ticket,
+          fields: {
+            ...fields,
+            state: {
+              type: "select",
+              label: "State",
+              options: [
+                { value: "valid", label: "Valid", requires },
+                { value: "used", label: "Used", requires: ["holder"] },
+                { value: "void", label: "Void" },
+              ],
+            },
+          },
+        },
+      });
+      // The initial state is what a granted record holds; `used` is reached later by staff.
+      expect(issues({ grants: goodGrant }, withRequires(["email"]))).toEqual([]);
+      expect(issues({ grants: goodGrant }, withRequires(["holder"]))).toEqual([
+        'objects.ticket.fields.state.options: ticket is granted by kind: "valid" needs holder, which grants.set does not always fill',
+      ]);
+      // A select set from the item can hold any of its choices.
+      const fromItem = {
+        ticket: {
+          ...ticket,
+          fields: {
+            ...fields,
+            tier: {
+              type: "select",
+              label: "Tier",
+              options: [
+                { value: "a", label: "A" },
+                { value: "b", label: "B", requires: ["holder"] },
+              ],
+            },
+          },
+        },
+        kind: {
+          ...shop(undefined).objects.kind,
+          fields: {
+            ...(shop(undefined).objects.kind.fields as Record<string, unknown>),
+            tier: {
+              type: "select",
+              label: "Tier",
+              options: [
+                { value: "a", label: "A" },
+                { value: "b", label: "B" },
+              ],
+            },
+          },
+          sellable: {
+            price: "price",
+            grants: { ...goodGrant, set: { ...goodGrant.set, tier: "item.tier" } },
+          },
+        },
+      };
+      expect(issues(undefined, fromItem)).toEqual([
+        'objects.ticket.fields.tier.options: ticket is granted by kind: "b" needs holder, which grants.set does not always fill',
+      ]);
+    });
+  });
+
   it("every required field of the granted object is set", () => {
     const { kind: _kind, ...set } = goodGrant.set;
     expect(issues({ grants: { ...goodGrant, set } })).toEqual([

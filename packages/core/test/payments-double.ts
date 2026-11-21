@@ -3,6 +3,7 @@
 // it opens checkouts, sends the confirmation email, submits refunds to the approval queue exactly
 // as the integration host submits one, and plays the provider delivering verified events.
 import { env } from "cloudflare:workers";
+import type { CrmDb } from "@composable-os/db";
 import {
   applyStoredPaymentEvent,
   type IntegrationRuntime,
@@ -48,18 +49,20 @@ async function applyAndReturn(
   events: Events,
   connectionId: string,
   event: PaymentsEvent,
+  crm: CrmDb,
 ) {
   const key = await recordPaymentEvent(db, event, connectionId, new Date().toISOString());
   if (!key) throw new Error("not stored");
   const result = await applyStoredPaymentEvent(
-    { crm: db, integrations: runtime, events, appOrigin: "https://crm.example.com" },
+    { crm, integrations: runtime, events, appOrigin: "https://crm.example.com" },
     key,
   );
   return { event, result };
 }
 
-/** A fresh double. `events` gives the event sink of the test running now. */
-export function paymentsDouble(events: () => Events): PaymentsDouble {
+/** A fresh double. `events` gives the event sink of the test running now; `crm` the database the
+ * host applies events with (a test may count what it writes). */
+export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db): PaymentsDouble {
   const gw: Gateway = { checkouts: [], emails: [], refunds: new Map(), applied: [], action: 0 };
   let connectionId = "";
   const no = () => Promise.reject(new Error("not used in this test"));
@@ -144,7 +147,8 @@ export function paymentsDouble(events: () => Events): PaymentsDouble {
     rejectOutbound: async () => undefined,
   };
 
-  const deliver = (event: PaymentsEvent) => applyAndReturn(runtime, events(), connectionId, event);
+  const deliver = (event: PaymentsEvent) =>
+    applyAndReturn(runtime, events(), connectionId, event, crm());
 
   return {
     gw,

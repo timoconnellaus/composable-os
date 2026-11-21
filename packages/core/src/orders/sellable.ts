@@ -10,6 +10,28 @@ import type { ObjectDefinition, SellableDefinition } from "../fields/types.ts";
 
 export type Sellable = SellableDefinition;
 
+/**
+ * The most records one order may be granted, across its lines. Each grant adds 5 statements to
+ * the paid batch (the record, its history row, its search document's delete and insert, the grant
+ * row; measured in test/sellable.test.ts), on about 15 for the payment itself, so 100 grants is a
+ * batch of about 515 statements: half the 1,000 queries a Worker invocation may make on D1, which
+ * leaves room for several lines' holds, the audit and the confirmation.
+ */
+export const GRANTS_PER_ORDER_CEILING = 100;
+/** The most of one record a line may hold when its object grants and its record sets no limit. */
+export const GRANTS_PER_LINE_DEFAULT = 10;
+
+/**
+ * The most of one record a line may hold, given the record's own `maxPerOrder` (null when unset):
+ * that limit, or the host's when the object grants something, never more than the ceiling.
+ * Null when nothing limits it but ORDER_MAX_QUANTITY.
+ */
+export function lineLimit(sellable: Sellable, recordMax: number | null): number | null {
+  const own = recordMax === null ? null : Math.max(Math.floor(recordMax), 0);
+  if (!sellable.grants) return own;
+  return Math.min(own ?? GRANTS_PER_LINE_DEFAULT, GRANTS_PER_ORDER_CEILING);
+}
+
 /** The object's sellable declaration, or undefined when it cannot be bought. */
 export function sellableOf(object: ObjectDefinition): Sellable | undefined {
   return object.sellable;

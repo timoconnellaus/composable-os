@@ -7,12 +7,16 @@
 // payment; cancelling after the due date voids and returns the place), and the rules every
 // behaviour keeps: they hold for every actor and in the approval queue's dry run.
 import { env } from "cloudflare:workers";
+import type { CrmDb } from "@composable-os/db";
 import { validateManifest } from "@composable-os/sdk";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { fieldStorage, objectTableOf } from "../src/extensions/schema.ts";
 import {
   type ActingUser,
+  checkManifest,
   GRANT_CODE_LENGTH,
+  GRANTS_PER_LINE_DEFAULT,
+  GRANTS_PER_ORDER_CEILING,
   loadOrderRow,
   memoryEventSink,
   PendingApprovalError,
@@ -32,7 +36,19 @@ const DAY = 86_400_000;
 const NEXT_YEAR = `${new Date().getUTCFullYear() + 1}-06-30`;
 
 let events: ReturnType<typeof memoryEventSink>;
-const payments = paymentsDouble(() => events);
+/** The size of every batch the host applies a payment with: what a paid batch costs. */
+const batches: number[] = [];
+const counting: CrmDb = {
+  query: db.query,
+  async batch(statements) {
+    batches.push(statements.length);
+    return db.batch(statements);
+  },
+};
+const payments = paymentsDouble(
+  () => events,
+  () => counting,
+);
 const { gw, runtime, providerPays, providerRefunds } = payments;
 
 let admin: ActingUser;
@@ -63,6 +79,7 @@ interface Ticket {
   id: string;
   values: Record<string, unknown>;
   createdAt: string | null;
+  updatedAt: string | null;
 }
 
 async function create(object: string, values: Record<string, unknown>): Promise<string> {
@@ -202,7 +219,7 @@ describe("buying two kinds (criterion 2)", () => {
         event,
         holder: buyer.principal.personId,
         email: buyer.email,
-        orderId: order.id,
+        order: order.id,
       });
       expect(String(ticket.values.code)).toMatch(new RegExp(`^[0-9A-Z]{${GRANT_CODE_LENGTH}}$`));
       // Written in the paid batch: the same moment as the payment.
@@ -262,7 +279,7 @@ describe("granted in the paid batch (criterion 2, both ways)", () => {
       expect(await state(order.id)).toBe("pending");
       expect(await granted(order.id)).toEqual([]);
       const tickets = await env.DB.prepare(
-        `SELECT count(*) AS n FROM ${objectTableOf(TICKET)} WHERE ${fieldStorage(TICKET, "orderId")?.column} = ?`,
+        `SELECT count(*) AS n FROM ${objectTableOf(TICKET)} WHERE ${fieldStorage(TICKET, "order")?.column} = ?`,
       )
         .bind(order.id)
         .first<{ n: number }>();
@@ -493,6 +510,65 @@ describe("paying by deposit (criterion 6a, the host's half)", () => {
   });
 });
 
+// --- An order that belonged to no one ------------------------------------------------------------
+
+describe("order.setPerson", () => {
+  it("gives what the order granted from order.person to the Person, in the same batch", async () => {
+    const email = `${unique("shared")}@buyers.example`;
+    const first = await run<{ id: string }>(
+      "person.create",
+      { givenName: "First", emails: [{ email }] },
+      context(admin),
+    );
+    // Two live people with one address, the way an old import could have left them (emails are
+    // unique through the operations): the order then belongs to no one yet.
+    const second = await run<{ id: string }>(
+      "person.create",
+      { givenName: "Second", emails: [{ email: `${unique("other")}@buyers.example` }] },
+      context(admin),
+    );
+    await env.DB.prepare("DROP INDEX IF EXISTS core_person_emails_live_email_uq").run();
+    await env.DB.prepare("UPDATE core_person_emails SET email = ? WHERE person_id = ?")
+      .bind(email, second.id)
+      .run();
+    const { id } = await ticketType();
+    const order = await start([{ id, quantity: 2 }], { email });
+    await pay(order);
+    expect((await granted(order.id)).map((t) => t.values.holder)).toEqual([null, null]);
+
+    await run("order.setPerson", { id: order.id, personId: first.id }, staff());
+    const tickets = await granted(order.id);
+    expect(tickets.map((t) => t.values.holder)).toEqual([first.id, first.id]);
+    // The same moment as the order's change: one batch.
+    const row = await loadOrderRow(db.query, order.id);
+    expect(row.person_id).toBe(first.id);
+    for (const ticket of tickets) expect(ticket.updatedAt).toBe(row.updated_at);
+  });
+});
+
+// --- Who may declare it ----------------------------------------------------------------------------
+
+describe("who may declare sellable", () => {
+  it("a runtime extension cannot: selling to the public is a reviewed change", async () => {
+    const id = extId("rt");
+    const m = boxOfficeManifest(id);
+    const now = new Date().toISOString();
+    const runtime = await checkManifest(db.query, id, m, now, { source: "runtime" });
+    expect(runtime.plan).toBeNull();
+    expect(runtime.issues).toContainEqual({
+      stage: "contract",
+      code: "outside_audience",
+      path: "objects.tickettype.sellable",
+      message: expect.stringMatching(
+        /^A runtime extension cannot make tickettype something customers and the public can buy\. Only a shipped extension, or one in the org's own repository/,
+      ),
+    });
+    // A shipped pack, or the org's own deployed extension, can.
+    const shipped = await checkManifest(db.query, id, m, now, { source: "shipped" });
+    expect(shipped.issues).toEqual([]);
+  });
+});
+
 // --- What only the host may do -------------------------------------------------------------------
 
 describe("granted records", () => {
@@ -512,5 +588,82 @@ describe("granted records", () => {
     const event = await create(EVENT, { name: unique("Not for sale"), places: 10 });
     const refused = await refusal(start([{ object: EVENT, id: event }]));
     expect(refused.details).toMatchObject({ rule: "not_for_sale" });
+  });
+});
+
+// --- The size of a paid batch --------------------------------------------------------------------
+
+describe("units per line when a line grants (the paid batch has a size)", () => {
+  /** Pays a one-line order of `quantity`, and returns the paid batch's statement count. */
+  async function paidBatch(quantity: number, maxPerOrder: number) {
+    const { id } = await ticketType({ places: 1000, maxPerOrder }, 2000);
+    const order = await start([{ id, quantity }]);
+    await checkout(order);
+    batches.length = 0;
+    await providerPays(order.id);
+    expect(await state(order.id)).toBe("paid");
+    expect(await granted(order.id)).toHaveLength(quantity);
+    return Math.max(...batches);
+  }
+
+  it("a paid batch of the ceiling's grants commits, at 5 statements a grant", {
+    timeout: 120_000,
+  }, async () => {
+    const one = await paidBatch(1, 1);
+    const most = await paidBatch(GRANTS_PER_ORDER_CEILING, GRANTS_PER_ORDER_CEILING);
+    expect((most - one) / (GRANTS_PER_ORDER_CEILING - 1)).toBe(5);
+    // Half of D1's 1,000 queries per invocation, with room for holds, audit and the email.
+    expect(most).toBeLessThanOrEqual(550);
+  });
+
+  it("a record with no limit gets the host's; no limit goes past the ceiling, on a line or an order", async () => {
+    const { id: open } = await ticketType({ places: 1000 }, 2000);
+    expect(
+      (await refusal(start([{ id: open, quantity: GRANTS_PER_LINE_DEFAULT + 1 }]))).details,
+    ).toEqual({
+      rule: "max_per_order",
+      line: 0,
+      max: GRANTS_PER_LINE_DEFAULT,
+      asked: GRANTS_PER_LINE_DEFAULT + 1,
+    });
+    const { id: generous, event } = await ticketType({ places: 1000, maxPerOrder: 500 }, 2000);
+    const email = `${unique("ceiling")}@buyers.example`;
+    expect(
+      (await refusal(start([{ id: generous, quantity: GRANTS_PER_ORDER_CEILING + 1 }], { email })))
+        .details,
+    ).toEqual({
+      rule: "max_per_order",
+      line: 0,
+      max: GRANTS_PER_ORDER_CEILING,
+      asked: GRANTS_PER_ORDER_CEILING + 1,
+    });
+    // Two lines under their own limits, over the order's.
+    const second = await create(TICKET_TYPE, {
+      name: unique("Second"),
+      price: 50,
+      places: 1000,
+      maxPerOrder: 500,
+      event,
+    });
+    expect(
+      (
+        await refusal(
+          start(
+            [
+              { id: generous, quantity: 60 },
+              { id: second, quantity: 60 },
+            ],
+            { email },
+          ),
+        )
+      ).details,
+    ).toEqual({
+      rule: "max_per_order",
+      line: 1,
+      max: GRANTS_PER_ORDER_CEILING - 60,
+      asked: 60,
+      ceiling: GRANTS_PER_ORDER_CEILING,
+    });
+    expect(await ordersFor(email)).toBe(0);
   });
 });

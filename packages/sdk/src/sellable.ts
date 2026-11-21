@@ -325,6 +325,61 @@ function checkGrants(
     }
   }
   if (codes > 1) contract(`${path}.set`, "A grant has at most one code");
+
+  // The granted object's own rules must not be able to refuse the host's insert, since that
+  // would refuse the payment. What a grant always fills: its set fields whose source always has
+  // a value, and fields with a default.
+  const always = (source: string) =>
+    source === "order.person"
+      ? false
+      : source.startsWith("item.")
+        ? Boolean(itemField(source.slice("item.".length))?.required)
+        : true;
+  const filled = new Set([
+    ...Object.entries(grants.set)
+      .filter(([, source]) => always(source))
+      .map(([field]) => field),
+    ...Object.entries(granted.fields)
+      .filter(([, field]) => field.default !== undefined)
+      .map(([name]) => name),
+  ]);
+  if (granted.owner !== undefined) {
+    contract(
+      `objects.${local}.owner`,
+      `${local} is granted by ${name}: an owner would run assignment rules in the paid batch, which could refuse it. Remove owner`,
+    );
+  }
+  granted.requireOneOf?.forEach((group, i) => {
+    if (!group.some((field) => filled.has(field))) {
+      contract(
+        `objects.${local}.requireOneOf.${i}`,
+        `${local} is granted by ${name}: set one of ${group.join(", ")} in grants.set from a source that always has a value`,
+      );
+    }
+  });
+  for (const [fieldName, field] of Object.entries(granted.fields)) {
+    if (field.type !== "select") continue;
+    const source = grants.set[fieldName];
+    // The choices a granted record can hold when it is created.
+    const values =
+      source?.startsWith("item.") === true
+        ? (field.options ?? []).map((o) => o.value)
+        : states && fieldName === states.field
+          ? [states.initial]
+          : field.default !== undefined
+            ? [String(field.default)]
+            : [];
+    for (const option of field.options ?? []) {
+      if (!values.includes(option.value)) continue;
+      const missing = (option.requires ?? []).filter((required) => !filled.has(required));
+      if (missing.length) {
+        contract(
+          `objects.${local}.fields.${fieldName}.options`,
+          `${local} is granted by ${name}: "${option.value}" needs ${missing.join(", ")}, which grants.set does not always fill`,
+        );
+      }
+    }
+  }
   for (const [fieldName, field] of Object.entries(granted.fields)) {
     if (!field.required || field.type === "formula" || field.default !== undefined) continue;
     if (states && fieldName === states.field) continue;
