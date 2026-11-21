@@ -15,10 +15,10 @@ for (const app of ["apps/app", "apps/runner"]) {
   const target = join(root, app, ".dev.vars");
   if (existsSync(target) || !existsSync(example)) continue;
   copyFileSync(example, target);
-  let vars = readFileSync(target, "utf8").replace(
-    /^BETTER_AUTH_SECRET=$/m,
-    `BETTER_AUTH_SECRET=${randomBytes(32).toString("hex")}`,
-  );
+  let vars = readFileSync(target, "utf8")
+    .replace(/^BETTER_AUTH_SECRET=$/m, `BETTER_AUTH_SECRET=${randomBytes(32).toString("hex")}`)
+    // Customer sign-in locally (its own secret, never the staff one), for the buyer's journey.
+    .replace(/^CUSTOMER_AUTH_SECRET=$/m, `CUSTOMER_AUTH_SECRET=${randomBytes(32).toString("hex")}`);
   if (app === "apps/app") vars += "\n# Local only: anyone can sign up.\nAUTH_ALLOW_SIGNUP=true\n";
   writeFileSync(target, vars);
   console.log(`created ${app}/.dev.vars`);

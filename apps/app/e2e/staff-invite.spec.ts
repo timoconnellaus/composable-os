@@ -52,7 +52,7 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
     // The invite.
     const form = page.getByRole("form", { name: "Invite someone" });
     await form.getByLabel("Email").fill(invitee);
-    await form.getByLabel("Role").click();
+    await form.getByLabel("Role", { exact: true }).click();
     await page.getByRole("option", { name: "Viewer" }).click();
     await form.getByRole("button", { name: "Send invite" }).click();
     const row = page.getByTestId("invite-row").filter({ hasText: invitee });

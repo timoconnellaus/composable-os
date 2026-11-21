@@ -142,6 +142,14 @@ request, customer's or staff member's, answers that sign-in is not set up, and n
 a code that would wait for review is never sent. Only the host's fixed code email goes out this
 way; every other email still follows the approval policy. `cos deploy` does not turn it on.
 
+Who may sign in as a customer is a human admin's choice on Settings → Users ("Who can sign in as a
+customer", `customer.settings.update` `signup`, ADR 0458): **only people you invite** (the
+default), **people you invite and anyone who has bought** (the buyer's address of an order that was
+paid, in full or in part, even if refunded since; a checkout only started does not count), or
+**anyone**. A business that sells to guests and wants them to see their tickets later picks the
+middle one. Every address is answered the same whichever is chosen. `cos deploy` and `product.ts`
+never set it.
+
 #### A company's web app on its own hostname (stage 24)
 
 A client repo (`cos create`, `cos init`) deploys its host and its web app with `cos deploy`, which

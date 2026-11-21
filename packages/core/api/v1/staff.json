@@ -18138,9 +18138,10 @@
             "type": "string",
             "enum": [
               "open",
+              "buyers",
               "invite_only"
             ],
-            "description": "open: anyone who verifies an email address gets a customer account. invite_only (the default): a sign-in code is sent only to an address staff invited or that has an account."
+            "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18234,9 +18235,10 @@
             "type": "string",
             "enum": [
               "open",
+              "buyers",
               "invite_only"
             ],
-            "description": "open: anyone who verifies an email address gets a customer account. invite_only (the default): a sign-in code is sent only to an address staff invited or that has an account."
+            "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18266,9 +18268,10 @@
             "type": "string",
             "enum": [
               "open",
+              "buyers",
               "invite_only"
             ],
-            "description": "open: anyone who verifies an email address gets a customer account. invite_only (the default): a sign-in code is sent only to an address staff invited or that has an account."
+            "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18296,9 +18299,10 @@
                 "type": "string",
                 "enum": [
                   "open",
+                  "buyers",
                   "invite_only"
                 ],
-                "description": "open: anyone who verifies an email address gets a customer account. invite_only (the default): a sign-in code is sent only to an address staff invited or that has an account."
+                "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
               },
               "eraseDueDays": {
                 "type": "integer",
