@@ -8,7 +8,7 @@
 // and the uniqueness read is the table's, which the seam gives staff only.
 import { SLUG_MAX, SLUG_RE, slugify } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely, sql } from "kysely";
-import { ValidationError } from "../errors.ts";
+import { ConflictError, ValidationError } from "../errors.ts";
 import { fieldStorage } from "../extensions/schema.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -138,6 +138,35 @@ async function assertFree(
       `${object.name}.${field.name}: "${value}" is another ${object.label.toLowerCase()}'s address`,
       { field: field.name, reason: "slug_taken", slug: value },
     );
+  }
+}
+
+/**
+ * Before a record comes back from the Trash (ADR 0442, amended by ADR 0444): a slug it held that
+ * another live record has taken since is a conflict naming the slug, so the person can change one
+ * of them. Without this the unique index would refuse the restore as an internal error.
+ */
+export async function assertRestorable(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+): Promise<void> {
+  for (const field of slugFields(object)) {
+    const column = columnOf(object, field);
+    const row = await (ctx.db as AnyDb)
+      .selectFrom(visibleTable(ctx, object, "t"))
+      .select(sql.ref(`t.${column}`).as("slug"))
+      .where("t.id", "=", id)
+      .executeTakeFirst();
+    const slug = row?.slug;
+    if (typeof slug !== "string" || !slug) continue;
+    const taken = await holders(ctx, object, field, slug, id);
+    if (taken.length) {
+      throw new ConflictError(
+        `"${slug}" is now another ${object.label.toLowerCase()}'s address: change the ${field.label.toLowerCase()} of one of them, then restore this one`,
+        { field: field.name, slug, reason: "slug_taken", heldBy: taken[0] },
+      );
+    }
   }
 }
 

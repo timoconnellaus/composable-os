@@ -174,6 +174,7 @@ const TEXT_TYPES = new Set([
   "url",
   "document",
   "richText",
+  "image",
   "slug",
 ]);
 const IDENT = /^[a-z][a-z0-9_]*$/;
@@ -495,7 +496,9 @@ function scrubField(
   m: SubjectMatcher,
   pattern: RegExp | null,
 ): string | null {
-  if (type === "document" || type === "richText") return scrubDocument(value, m, pattern);
+  if (type === "document" || type === "richText" || type === "image") {
+    return scrubDocument(value, m, pattern);
+  }
   if (m.identifies(value)) return null;
   if (!mentions(value, pattern)) return value;
   // A typed value (an address, a URL) that mentions them cannot keep a valid partial form.

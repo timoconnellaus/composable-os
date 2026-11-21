@@ -3,6 +3,7 @@
 // workerd; `call-operation.ts` wraps it in a TanStack Start server function, and `#/lib/operations`
 // is the typed client. The MCP (stage 2) and host-module (stage 3) adapters follow the same shape
 // with a different actor and origin.
+
 import type { Principal } from "@composable-os/auth";
 import {
   type AgentJobHost,
@@ -30,6 +31,7 @@ import { type AgentJob, jobName } from "./assistant/job.ts";
 import { hostMailFor } from "./host-mail.ts";
 import { blobStoreFor, integrationRuntimeFor } from "./integrations.ts";
 import { deleteGrantTokens } from "./mcp/handler.ts";
+import { mediaStoreFor } from "./media.ts";
 import { runner } from "./runner.ts";
 import { updaterRuntimeFor } from "./updater.ts";
 
@@ -245,11 +247,13 @@ export async function staffContext(
   const extensionHost = extensionHostFor(env);
   const integrations = integrationRuntimeFor(env, appOrigin);
   const blobs = blobStoreFor(env);
+  const media = mediaStoreFor(env);
   const assistantThreads = assistantThreadsFor(env);
   const agentJobs = agentJobsFor(env);
   return {
     ...(integrations ? { integrations } : {}),
     ...(blobs ? { blobs } : {}),
+    ...(media ? { media } : {}),
     actor: "human",
     user: await resolveActingUser(db, principal),
     origin,

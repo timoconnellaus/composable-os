@@ -8,6 +8,7 @@
 //
 // Both objects declare a customer: a signed-in customer reads their own orders and those orders'
 // lines through the visibility seam, and nobody else's. Nothing is writable by a customer.
+import { mediaObject } from "./media.ts";
 import { defineObject, type ObjectDefinition, type StatesDefinition } from "./types.ts";
 
 export const ORDER_STATES = [
@@ -204,6 +205,8 @@ export const orderLineObject = defineObject({
 export const BASE_OBJECTS = {
   order: orderObject,
   orderLine: orderLineObject,
+  // Stage 28 (ADR 0444): the media library.
+  media: mediaObject,
 } as const satisfies Record<string, ObjectDefinition>;
 
 export type BaseObjectName = keyof typeof BASE_OBJECTS;
@@ -212,4 +215,5 @@ export type BaseObjectName = keyof typeof BASE_OBJECTS;
 export const BASE_TABLES = {
   order: "core_order",
   orderLine: "core_order_line",
+  media: "core_media",
 } as const satisfies Record<BaseObjectName, string>;

@@ -70,6 +70,8 @@ export const ID_PREFIXES = {
   capacityClaim: "clm",
   /** An invite for a staff account (ADR 0455). */
   userInvite: "uin",
+  // Stage 28 (ADR 0444): a picture of the media library.
+  media: "med",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

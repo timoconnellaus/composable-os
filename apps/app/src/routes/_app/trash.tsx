@@ -16,6 +16,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Building2Icon,
   CheckSquareIcon,
+  ImageIcon,
   type LucideIcon,
   MessageSquareTextIcon,
   RotateCcwIcon,
@@ -35,13 +36,14 @@ import { useUserLabel } from "#/lib/users-adapter";
 
 export const Route = createFileRoute("/_app/trash")({ component: TrashPage });
 
-type TrashObject = "person" | "organisation" | "activity" | "task";
+type TrashObject = "person" | "organisation" | "activity" | "task" | "media";
 
 const OBJECTS: Record<TrashObject, { label: string; icon: LucideIcon }> = {
   person: { label: "Person", icon: UserIcon },
   organisation: { label: "Organisation", icon: Building2Icon },
   activity: { label: "Activity", icon: MessageSquareTextIcon },
   task: { label: "Task", icon: CheckSquareIcon },
+  media: { label: "Picture", icon: ImageIcon },
 };
 
 const ALL = "all";
@@ -57,6 +59,8 @@ function trashAgain(object: TrashObject, id: string) {
       return callOp("activity.delete", { id });
     case "task":
       return callOp("task.delete", { id });
+    case "media":
+      return callOp("media.delete", { id });
   }
 }
 
@@ -71,6 +75,8 @@ function restore(object: TrashObject, id: string) {
       return callOp("activity.restore", { id });
     case "task":
       return callOp("task.restore", { id });
+    case "media":
+      return callOp("media.restore", { id });
   }
 }
 

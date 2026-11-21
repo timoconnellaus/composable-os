@@ -73,6 +73,8 @@ describe("default closed (criterion 1)", () => {
       "me.sessions.revoke",
       "me.signOut",
       "me.update",
+      // Stage 28 (ADR 0444): a picture published content shows.
+      "media.serve",
       "my.get",
       "my.list",
       // Stage 25 (ADR 0428): a customer starts, reads and cancels their own orders.
@@ -89,6 +91,7 @@ describe("default closed (criterion 1)", () => {
       "content.get",
       "content.list",
       "content.preview",
+      "media.serve",
       "order.checkout",
       "order.start",
       "order.view",
@@ -370,6 +373,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.sessions.list",
       "me.sessions.revoke",
       "me.signOut",
+      // Stage 28 (ADR 0444): it reads which records show a picture.
+      "media.serve",
       // Stage 25 (ADR 0428): the host itself starts and changes an order for the caller.
       "order.cancel",
       "order.checkout",

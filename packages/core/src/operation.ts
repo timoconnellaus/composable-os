@@ -1,6 +1,7 @@
 // defineOperation (ADR 0003, ADR 0016): every operation is defined once with zod schemas, a
 // model-facing description, a permission and a risk class. Adapters (server functions now, MCP in
 // stage 2, the `codemode:ops` host module in stage 3) are generated from these definitions.
+
 import type { AuditChangeAction, CoreDatabase, CrmDb } from "@composable-os/db";
 import type { PermissionsManifest } from "@composable-os/sdk";
 import type { Compilable, CompiledQuery, Kysely } from "kysely";
@@ -33,6 +34,7 @@ import {
   RISK_CLASSES,
   type RiskClass,
 } from "./principals.ts";
+import type { MediaStore } from "./records/media.ts";
 import type { UpdaterRuntime } from "./updates.ts";
 import type { RecordAccess } from "./visibility/records.ts";
 
@@ -106,6 +108,11 @@ export function runAfterCommit<T>(value: AfterCommit<T>): Promise<T> {
  * activities, so an operation applies completely or not at all. Queued writes are not visible
  * to reads in the same handler.
  */
+/** A file a person uploaded (stage 28, ADR 0444): its bytes, as the upload route read them. */
+export interface MediaUpload {
+  readonly bytes: Uint8Array;
+}
+
 export interface HandlerContext {
   readonly operation: string;
   /**
@@ -194,6 +201,10 @@ export interface HandlerContext {
   readonly integrations?: IntegrationRuntime;
   /** Blob storage (R2) for email bodies, when the adapter provides it. */
   readonly blobs?: BlobStore;
+  /** Where media originals are kept (stage 28, ADR 0444), when the adapter provides it. */
+  readonly media?: MediaStore;
+  /** The bytes a person uploaded, for `media.upload` only: from the request, never the input. */
+  readonly upload?: MediaUpload;
   /** Model roles (ADR 0009), when the adapter has an AI binding. Absent: AI is not configured. */
   readonly models?: ModelRunner;
   /**

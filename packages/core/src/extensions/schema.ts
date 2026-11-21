@@ -7,11 +7,11 @@ import {
   documentJsonPath,
   documentMaxBytesOf,
   documentPathNode,
+  documentSchemaOf,
   type FieldManifest,
   type FieldTypeName,
   formulaTypeOf,
   isDocumentType,
-  RICH_TEXT_SCHEMA,
   type SellableManifest,
   type StagesManifest,
   type StatesManifest,
@@ -711,10 +711,10 @@ function registryField(field: FieldState, object: string): FieldDefinition {
       ? { document: { schema: def.schema, maxBytes: def.maxBytes } }
       : {}),
     // Rich text is a document with the platform's schema (ADR 0440).
-    ...(field.type === "richText"
+    ...(field.type === "richText" || field.type === "image"
       ? {
           document: {
-            schema: RICH_TEXT_SCHEMA as unknown as Record<string, unknown>,
+            schema: documentSchemaOf(def) as unknown as Record<string, unknown>,
             maxBytes: documentMaxBytesOf(def),
           },
         }

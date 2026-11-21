@@ -165,6 +165,14 @@ export type FieldSpec =
        */
       type: "slug";
     })
+  | (Omit<FieldBase, "default" | "defaultSetting" | "track"> & {
+      /**
+       * A picture from the media library (stage 28, ADR 0444): `{ media, alt, focal? }`, the
+       * media item's id (a live one, checked on write), its alt text and the point to keep in
+       * view when a client crops it. Published content's pictures are served to the public.
+       */
+      type: "image";
+    })
   | (Omit<FieldBase, "required"> & {
       type: "formula";
       /** An expression over fields of the same record. See the SDK README for the grammar. */

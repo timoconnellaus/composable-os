@@ -7,7 +7,13 @@
 
 import { env as workerEnv } from "cloudflare:workers";
 import { provideStaffCodes } from "@composable-os/auth";
-import { isApiPath, type RoutineDeliveryMessage } from "@composable-os/core";
+import {
+  coreInvoker,
+  handleMedia,
+  isApiPath,
+  isMediaPath,
+  type RoutineDeliveryMessage,
+} from "@composable-os/core";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
 import handler from "@tanstack/react-start/server-entry";
 import { runAdjudicatorCron } from "./server/adjudicator.ts";
@@ -34,6 +40,7 @@ import { handleRoutineDeliveries } from "./server/assistant/routines.ts";
 import { staffCodesFor } from "./server/host-mail.ts";
 import {
   type ApiEnv,
+  apiContext,
   handleApi,
   handleCustomerAuth,
   isCustomerAuthPath,
@@ -41,6 +48,7 @@ import {
 import { handleNativeStaffSignIn, NATIVE_STAFF_SIGN_IN_PATH } from "./server/http/native.ts";
 import { authorize } from "./server/identity.ts";
 import { createAppHandler } from "./server/mcp/handler.ts";
+import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "./server/media.ts";
 import { runBlobDeletionCron, runScheduledMaintenance } from "./server/purge.ts";
 import { handleSupportRoute, isSupportRoute } from "./server/support.ts";
 
@@ -76,6 +84,18 @@ export default {
     // caller (staff, customer or public) from the request's session, so it is not behind the
     // staff-only identity middleware that guards TanStack Start's routes.
     if (isApiPath(pathname)) return apiResponse(request, env as unknown as ApiEnv);
+    // The media library's pictures (stage 28, ADR 0444): staff upload, and whoever may see a
+    // picture is served it, as media.serve decides.
+    if (isMediaPath(pathname)) {
+      const api = env as unknown as ApiEnv & MediaEnv;
+      return handleMedia(request, {
+        invoker: coreInvoker,
+        context: (req) => apiContext(req, api),
+        media: mediaStoreFor(api),
+        resizer: mediaResizerFor(api),
+        uploads: true,
+      });
+    }
     // Customer sign-in (stage 22's routes, mounted by stage 23): a code by email, then a session.
     if (isCustomerAuthPath(pathname)) return handleCustomerAuth(request, env as unknown as ApiEnv);
     // A native app's staff sign-in through the system browser (ADR 0455): a staff page.

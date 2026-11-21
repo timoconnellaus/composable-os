@@ -32,7 +32,12 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
-import { assertSlugsFree, redirectWrites, slugsForCreate } from "../records/slug.ts";
+import {
+  assertRestorable,
+  assertSlugsFree,
+  redirectWrites,
+  slugsForCreate,
+} from "../records/slug.ts";
 import type { StageCache } from "../records/stages.ts";
 import { type Mover, type TransitionOutcome, transitionTimeline } from "../records/transitions.ts";
 import { loadGeneralSettings } from "../settings.ts";
@@ -215,9 +220,15 @@ async function prepareValues(
     const parsed = spec.schema(manifestOf(field)).safeParse(value);
     if (!parsed.success) {
       // A document's fault is named by its path in the message too (ADR 0445).
-      const first = ["document", "richText", "slug", "number", "currency", "percent"].includes(
-        storage.type,
-      )
+      const first = [
+        "document",
+        "richText",
+        "image",
+        "slug",
+        "number",
+        "currency",
+        "percent",
+      ].includes(storage.type)
         ? parsed.error.issues[0]
         : undefined;
       const where = first
@@ -919,6 +930,8 @@ export const recordRestore = defineOperation({
     const deletedAt = row.rows[0]?.deleted_at;
     if (deletedAt === undefined) throw new NotFoundError(input.object, input.id);
     if (deletedAt === null) throw new ValidationError(`${input.id} is not in Trash`);
+    // Its slug may have been taken while it was in the Trash (stage 28, ADR 0444).
+    await assertRestorable(ctx, object, input.id);
     ctx.write(
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ?`, [
         input.id,

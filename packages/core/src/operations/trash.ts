@@ -3,6 +3,7 @@
 import { type SqlBool, sql } from "kysely";
 import { z } from "zod";
 import { ValidationError } from "../errors.ts";
+import { mediaObject } from "../fields/media.ts";
 import { decodeCursor, encodeCursor } from "../list.ts";
 import { defineOperation } from "../operation.ts";
 import {
@@ -18,7 +19,7 @@ import { visibleTable } from "../visibility/index.ts";
  * Everything in Trash: what trash.list shows, the UI can restore, and trash.purge hard-deletes
  * after the retention window (people, organisations, activities, tasks).
  */
-const TRASH_LIST_OBJECTS = ["person", "organisation", "activity", "task"] as const;
+const TRASH_LIST_OBJECTS = ["person", "organisation", "activity", "task", "media"] as const;
 type TrashListObject = (typeof TRASH_LIST_OBJECTS)[number];
 
 const trashItemSchema = z.object({
@@ -100,6 +101,19 @@ export const trashList = defineOperation({
             sql<string | null>`null`.as("merged_into_id"),
           ])
           .where("deleted_at", "is not", null),
+      // Stage 28 (ADR 0444): pictures of the media library.
+      media: () =>
+        ctx.db
+          .selectFrom(visibleTable(ctx, mediaObject))
+          .select([
+            sql<TrashListObject>`'media'`.as("object"),
+            sql<string>`id`.as("id"),
+            sql<string>`name`.as("name"),
+            sql<string | null>`deleted_at`.as("deleted_at"),
+            sql<string | null>`deleted_by`.as("deleted_by"),
+            sql<string | null>`null`.as("merged_into_id"),
+          ])
+          .where(sql<SqlBool>`deleted_at IS NOT NULL`),
     };
     const [first, ...rest] = (input.object ? [input.object] : TRASH_LIST_OBJECTS).map((object) =>
       sources[object](),
@@ -154,6 +168,8 @@ const PURGE_TABLES = {
   organisation: "core_organisation",
   task: "core_task",
   activity: "core_activity",
+  // Its R2 object is queued for deletion by trigger as its row goes (migration 0461).
+  media: "core_media",
 } as const satisfies Record<TrashListObject, string>;
 
 export const trashPurge = defineOperation({
@@ -208,7 +224,7 @@ export const trashPurge = defineOperation({
     // a task drops the activity links that point at it.
     const purged: { object: TrashListObject; id: string; deletedAt: string }[] = [];
     let more = false;
-    for (const object of ["person", "organisation", "task", "activity"] as const) {
+    for (const object of ["person", "organisation", "task", "activity", "media"] as const) {
       const rows = await due(object, input.limit + 1 - purged.length);
       const room = input.limit - purged.length;
       if (rows.length > room) more = true;
@@ -219,7 +235,7 @@ export const trashPurge = defineOperation({
     }
 
     // Links, tags and search entries go by cascade and trigger (migrations 0003, 0004, 0006).
-    for (const object of ["person", "organisation", "task", "activity"] as const) {
+    for (const object of ["person", "organisation", "task", "activity", "media"] as const) {
       const ids = purged.filter((r) => r.object === object).map((r) => r.id);
       for (const part of chunk(ids)) {
         ctx.write(
