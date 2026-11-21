@@ -231,6 +231,8 @@ export interface Env {
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   GITHUB_TOKEN?: string;
+  /** The GitHub CLI's name for the same (`gh auth token`). */
+  GH_TOKEN?: string;
   /** "off" installs without Workers AI and Vectorize (same as scripts/deploy.mjs). */
   COS_AI?: string;
   /** Settings → AI's token, stored as demo-app's CLOUDFLARE_API_TOKEN secret. */
@@ -327,6 +329,16 @@ async function session(flags: Flags, deps: Deps): Promise<Session> {
   return { ...source, api, accountId };
 }
 
+/**
+ * A GitHub token from the environment (GITHUB_TOKEN, else GH_TOKEN), only to raise GitHub's rate
+ * limit. Given to the redactor first, so nothing cos prints can show it.
+ */
+function githubToken(deps: Deps): string | undefined {
+  const token = deps.env.GITHUB_TOKEN || deps.env.GH_TOKEN || undefined;
+  if (token) deps.redactor.add(token);
+  return token;
+}
+
 /** Where `product`'s releases come from (`--repo`, `--bundle-dir`, gh), without Cloudflare. */
 export function releaseSource(flags: Flags, deps: Deps, product: ProductDefinition): ReleaseSource {
   const { env } = deps;
@@ -336,7 +348,7 @@ export function releaseSource(flags: Flags, deps: Deps, product: ProductDefiniti
     product: product.id,
     ...(env.COS_GITHUB_API ? { apiBase: env.COS_GITHUB_API } : {}),
     ...(deps.fetch ? { fetch: deps.fetch } : {}),
-    ...(env.GITHUB_TOKEN ? { token: env.GITHUB_TOKEN } : {}),
+    ...(githubToken(deps) ? { token: githubToken(deps) as string } : {}),
   };
   const bundleDir = str(flags, "bundle-dir");
   if (flags.unverified && !bundleDir)
