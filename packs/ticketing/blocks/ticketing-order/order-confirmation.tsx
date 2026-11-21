@@ -40,6 +40,12 @@ export function OrderConfirmation({
         Total {formatMoney(data.total, data.currency)} · paid{" "}
         {formatMoney(data.paid, data.currency)}
       </p>
+      {/* The payment provider's own tax figure (ADR 0479): inside the prices, not added to them. */}
+      {(data.taxAmount ?? 0) > 0 ? (
+        <p data-testid="order-tax">
+          Including tax {formatMoney(data.taxAmount ?? 0, data.currency)}
+        </p>
+      ) : null}
       {status.kind === "part_paid" ? children : null}
     </section>
   );

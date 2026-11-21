@@ -29,7 +29,7 @@ import { SYSTEM_USER } from "../users.ts";
 import { type PaymentsEvent, sendHostEmail } from "./gateway.ts";
 import { hashOrderToken, newOrderToken } from "./guests.ts";
 import { changeOrder, formatMoney, loadOrderRow, type OrderRow } from "./orders.ts";
-import { applyVerifiedPayment } from "./payments.ts";
+import { applyVerifiedPayment, type SentTaxLine } from "./payments.ts";
 
 const id = z.string().min(1).max(200);
 const amount = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -38,6 +38,16 @@ const currency = z
   .regex(/^[A-Za-z]{3}$/)
   .transform((c) => c.toUpperCase());
 const provider = z.enum(["stripe", "fake"]);
+const minor = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+/** The provider's tax on a payment (ADR 0479), as it said it. */
+const taxReport = z.object({
+  amount: minor,
+  country: z
+    .string()
+    .regex(/^[A-Z]{2}$/)
+    .nullable(),
+  lines: z.array(z.object({ ref: id, amount: minor })).max(100),
+});
 
 /** The event as the gatekeeper's hook delivers it, checked before it is stored. */
 export const paymentsEventSchema: z.ZodType<PaymentsEvent> = z.discriminatedUnion("kind", [
@@ -51,6 +61,7 @@ export const paymentsEventSchema: z.ZodType<PaymentsEvent> = z.discriminatedUnio
     currency,
     paymentRef: id.nullable(),
     occurredAt: z.string().max(40),
+    tax: taxReport.optional(),
   }),
   z.object({
     kind: z.literal("refund"),
@@ -63,6 +74,7 @@ export const paymentsEventSchema: z.ZodType<PaymentsEvent> = z.discriminatedUnio
     amount,
     currency,
     occurredAt: z.string().max(40),
+    tax: z.object({ amount: minor }).optional(),
   }),
 ]) as z.ZodType<PaymentsEvent>;
 
@@ -169,7 +181,7 @@ async function applyPayment(
   // The order is the one the host opened this checkout for, not what the event's metadata says.
   const checkout = await ctx.db
     .selectFrom("core_order_checkout")
-    .select(["order_id"])
+    .select(["order_id", "tax_lines"])
     .where("provider", "=", event.provider)
     .where("ref", "=", event.checkoutRef)
     .executeTakeFirst();
@@ -193,6 +205,9 @@ async function applyPayment(
     amount: event.amount,
     currency: event.currency,
     paymentRef: event.paymentRef ?? undefined,
+    // What the host asked the provider to tax, and what the provider said it was (ADR 0479).
+    sentTax: checkout.tax_lines ? (JSON.parse(checkout.tax_lines) as SentTaxLine[]) : null,
+    tax: event.tax,
   });
   done(result.outcome);
   if (result.outcome !== "applied") {
@@ -278,12 +293,14 @@ async function confirmRefund(
     );
     return { outcome: "mismatch", orderId: row.id, state: row.state, confirmation: null };
   }
+  const refundTax = await refundTaxOf(ctx, row.id, event);
   const confirmed = {
     status: "confirmed" as const,
     amount: event.amount,
     provider_refund_ref: event.refundRef,
     event_id: event.eventId,
     confirmed_at: ctx.now,
+    tax_amount: refundTax,
   };
   if (requested && requested.status === "requested") {
     ctx.write(
@@ -308,7 +325,11 @@ async function confirmRefund(
     ctx,
     row,
     whole ? "refunded" : row.state,
-    { refunded, ...(whole ? { refunded_at: ctx.now } : {}) },
+    {
+      refunded,
+      ...(whole ? { refunded_at: ctx.now } : {}),
+      ...(refundTax ? { tax_refunded: row.tax_refunded + refundTax } : {}),
+    },
     // The host's move: the provider confirmed the money went back.
     "host",
   );
@@ -328,6 +349,40 @@ async function confirmRefund(
   if (event.paymentRef) await resolveRefundedLatePayment(ctx, row.id, event);
   done("refunded");
   return { outcome: "refunded", orderId: row.id, state: next.state, confirmation: null };
+}
+
+/**
+ * The tax a confirmed refund gave back (ADR 0479): the provider's own figure, when its refund
+ * event carries one, and only while it fits the payment the refund went back to: no more than the
+ * refund, and no more than that payment's tax less what its earlier refunds gave back. Null when
+ * the provider did not say (Stripe's Refund carries no tax figure) or the figure does not fit, so
+ * the host never stores a tax amount it worked out itself.
+ */
+async function refundTaxOf(
+  ctx: HandlerContext,
+  orderId: string,
+  event: Extract<PaymentsEvent, { kind: "refund" }>,
+): Promise<number | null> {
+  const said = event.tax?.amount;
+  if (said === undefined || !event.paymentRef) return null;
+  if (said > event.amount) return null;
+  const payment = await ctx.db
+    .selectFrom("core_order_payment")
+    .select((eb) => eb.fn.coalesce(eb.fn.sum<number>("tax_amount"), eb.val(0)).as("tax"))
+    .where("order_id", "=", orderId)
+    .where("provider", "=", event.provider)
+    .where("payment_ref", "=", event.paymentRef)
+    .executeTakeFirst();
+  const back = await ctx.db
+    .selectFrom("core_order_refund")
+    .select((eb) => eb.fn.coalesce(eb.fn.sum<number>("tax_amount"), eb.val(0)).as("tax"))
+    .where("order_id", "=", orderId)
+    .where("provider", "=", event.provider)
+    .where("payment_ref", "=", event.paymentRef)
+    .where("status", "=", "confirmed")
+    .executeTakeFirst();
+  const left = Number(payment?.tax ?? 0) - Number(back?.tax ?? 0);
+  return said <= left ? said : null;
 }
 
 /** A late payment whose money has all gone back leaves the paid-late list. */
@@ -508,6 +563,8 @@ export function confirmationMessage(
     `Order ${row.id}`,
     `Paid: ${money(row.paid)} of ${money(row.total)}`,
   ];
+  // The provider's own figure (ADR 0479); prices include it, so what was paid does not change.
+  if (row.tax_amount > 0) lines.push(`Including tax: ${money(row.tax_amount)}`);
   if (row.state === "part_paid" && row.balance_due_at) {
     lines.push(
       `Still to pay: ${money(row.total - row.paid)} by ${row.balance_due_at.slice(0, 10)}`,

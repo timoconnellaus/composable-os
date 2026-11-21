@@ -73,6 +73,8 @@ export interface GrantSpec {
  * - `deposit`: paying by deposit (stage 25): the field holding the deposit for one, and the date
  *   field saying when the balance is due. A record offers a deposit when both have a value.
  * - `grants`: what a paid line grants (see GrantSpec).
+ * - `tax`: tax at checkout (ADR 0479), see TaxSpec. A line is taxed only when this is declared and
+ *   a human admin has turned tax on for the deployment.
  */
 export interface SellableSpec {
   price: string;
@@ -81,7 +83,34 @@ export interface SellableSpec {
   maxPerOrder?: string;
   deposit?: { amount: string; balanceDue: string };
   grants?: GrantSpec;
+  tax?: TaxSpec;
 }
+
+/**
+ * How the payment provider taxes a line of this object (ADR 0479). Prices stay what the buyer
+ * pays: the provider works the tax out inside them.
+ *
+ * - `code`: the provider's product tax code (Stripe's list: `txcd_` and eight digits). A human
+ *   admin may override it per object in Settings → Orders.
+ * - `place`: for admission to an in-person event, where it is held, so the provider taxes it
+ *   there and not where the buyer lives. Text fields of this object, or of the record its
+ *   relation `via` points at (a ticket type's event): `country` (two letters, ISO 3166-1) and,
+ *   when given, `region`, `postcode`, `city` and `line1`.
+ */
+export interface TaxSpec {
+  code: string;
+  place?: {
+    via?: string;
+    country: string;
+    region?: string;
+    postcode?: string;
+    city?: string;
+    line1?: string;
+  };
+}
+
+/** A product tax code as Stripe's list has them. */
+export const TAX_CODE_PATTERN = /^txcd_\d{8}$/;
 
 const fieldName = z.string().max(40);
 
@@ -122,6 +151,23 @@ export const sellableManifestSchema = z
         object: z.string().max(40),
         set: z.record(fieldName, grantSource),
         void: z.string().min(1).max(100),
+      })
+      .strict()
+      .optional(),
+    tax: z
+      .object({
+        code: z.string().regex(TAX_CODE_PATTERN, "A product tax code: txcd_ and eight digits"),
+        place: z
+          .object({
+            via: fieldName.optional(),
+            country: fieldName,
+            region: fieldName.optional(),
+            postcode: fieldName.optional(),
+            city: fieldName.optional(),
+            line1: fieldName.optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
@@ -203,6 +249,41 @@ export function checkObjectSellable(
     }
   }
   if (sellable.grants) checkGrants(m, name, object, sellable.grants, `${path}.grants`, contract);
+  const place = sellable.tax?.place;
+  if (place) {
+    let holder: ObjectManifest | undefined = object;
+    let holderName = name;
+    if (place.via !== undefined) {
+      const via = fieldOf(place.via);
+      const local = via?.to?.startsWith(`${m.id}.`) ? via.to.slice(m.id.length + 1) : undefined;
+      if (
+        !via ||
+        via.type !== "relation" ||
+        via.many ||
+        !local ||
+        !Object.hasOwn(m.objects, local)
+      ) {
+        contract(
+          `${path}.tax.place.via`,
+          `"${place.via}" must be a relation of ${name} to one record of another of this extension's objects`,
+        );
+        holder = undefined;
+      } else {
+        holder = m.objects[local];
+        holderName = local;
+      }
+    }
+    if (holder) {
+      for (const key of ["country", "region", "postcode", "city", "line1"] as const) {
+        const local = place[key];
+        if (local === undefined) continue;
+        const field = Object.hasOwn(holder.fields, local) ? holder.fields[local] : undefined;
+        if (!field || field.type !== "text" || field.many) {
+          contract(`${path}.tax.place.${key}`, `"${local}" must be a text field of ${holderName}`);
+        }
+      }
+    }
+  }
 }
 
 function checkGrants(

@@ -15,3 +15,4 @@ export * from "./payments.ts";
 export * from "./refunds.ts";
 export * from "./sellable.ts";
 export * from "./settings.ts";
+export * from "./tax.ts";

@@ -464,6 +464,10 @@ The design is ADR 0429; the platform's own test-mode run is
    buyer may come back to" the web app's origin.
 6. Then checks 2 to 11 of the platform runbook, on the web app. Repeat 2 to 5 for live with live
    keys, on `<id>-gatekeeper-payments`.
+7. Tax at checkout (ADR 0479) stays off until the company has set up Stripe Tax in its own
+   account (the runbook's "Tax at checkout" part: the head office address and a registration for
+   each place it must collect). Then a human admin turns it on in Settings → Orders. A restricted
+   key then also needs to create tax locations (for events) and read Checkout Session line items.
 
 ### Publishing to npm
 

@@ -26,6 +26,7 @@
 // or the order's token), and answer only with what a customer may read of an order.
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
+import { getObject, listObjects } from "../fields/index.ts";
 import { ORDER_STATES } from "../fields/order.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
@@ -58,15 +59,21 @@ import {
   loadMinPartPayment,
   loadOrderCurrency,
   loadOrderExpiryMinutes,
+  loadOrderTax,
+  loadOrderTaxCodes,
   loadReturnOrigins,
   minPartPaymentSchema,
   ORDER_CURRENCY_SETTING,
   ORDER_EXPIRY_SETTING,
   ORDER_MIN_PART_SETTING,
   ORDER_RETURN_ORIGINS_SETTING,
+  ORDER_TAX_CODES_SETTING,
+  ORDER_TAX_SETTING,
   orderExpiryMinutesSchema,
   returnOriginsSchema,
+  taxCodesSchema,
 } from "../orders/settings.ts";
+import { taxCodeOf } from "../orders/tax.ts";
 import { callerMover } from "../records/lifecycle.ts";
 import type { VisibleRecord } from "../visibility/records.ts";
 
@@ -83,6 +90,9 @@ const lineSchema = z.object({
   quantity: z.number(),
   unitPrice: z.number(),
   total: z.number(),
+  taxAmount: z
+    .number()
+    .describe("The tax inside this line's payments, as the payment provider calculated it"),
 });
 
 /**
@@ -103,6 +113,14 @@ export const orderSchema = z.object({
   expiresAt: when,
   paidAt: when,
   createdAt: z.string(),
+  taxAmount: z
+    .number()
+    .describe(
+      "The tax inside what has been paid, as the payment provider calculated it. Prices include " +
+        "it, so it does not add to the total. Zero when tax is off or none was charged.",
+    ),
+  taxRefunded: z.number().describe("The tax the provider said went back with refunds"),
+  taxCountry: z.string().nullable().describe("The country the latest taxed payment was for"),
   lines: z.array(lineSchema),
   personId: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
@@ -128,6 +146,9 @@ function fromRow(row: OrderRow, lines: readonly Order["lines"][number][], staff:
     expiresAt: row.expires_at,
     paidAt: row.paid_at,
     createdAt: row.created_at,
+    taxAmount: row.tax_amount,
+    taxRefunded: row.tax_refunded,
+    taxCountry: row.tax_country,
     lines: [...lines],
     ...(staff ? { personId: row.person_id, email: row.email, placedAs: row.placed_as } : {}),
   };
@@ -142,6 +163,7 @@ const toLine = (line: PricedLine): Order["lines"][number] => ({
   quantity: line.quantity,
   unitPrice: line.unitPrice,
   total: line.total,
+  taxAmount: 0,
 });
 
 /** The lines of an order the host has already established the caller may see. */
@@ -161,6 +183,7 @@ async function linesOf(ctx: HandlerContext, id: string): Promise<Order["lines"]>
     quantity: row.quantity,
     unitPrice: row.unit_price,
     total: row.line_total,
+    taxAmount: row.tax_amount,
   }));
 }
 
@@ -183,6 +206,9 @@ function fromRecord(record: VisibleRecord, staff: boolean): Omit<Order, "lines">
     expiresAt: text(v.expiresAt),
     paidAt: text(v.paidAt),
     createdAt: String(v.createdAt),
+    taxAmount: v.taxAmount ?? 0,
+    taxRefunded: v.taxRefunded ?? 0,
+    taxCountry: text(v.taxCountry),
     ...(staff ? { personId: text(v.personId), email: text(v.email), placedAs: v.placedAs } : {}),
   });
 }
@@ -211,6 +237,9 @@ async function throughSeam(ctx: HandlerContext, id: string): Promise<Order> {
     expiresAt: text(v.expiresAt),
     paidAt: text(v.paidAt),
     createdAt: String(v.createdAt),
+    taxAmount: v.taxAmount ?? 0,
+    taxRefunded: v.taxRefunded ?? 0,
+    taxCountry: text(v.taxCountry),
     lines: page.items.map((line) => ({
       id: line.id,
       position: line.values.position,
@@ -220,6 +249,7 @@ async function throughSeam(ctx: HandlerContext, id: string): Promise<Order> {
       quantity: line.values.quantity,
       unitPrice: line.values.unitPrice,
       total: line.values.total,
+      taxAmount: line.values.taxAmount ?? 0,
     })),
     ...(staff ? { personId: text(v.personId), email: text(v.email), placedAs: v.placedAs } : {}),
   });
@@ -731,6 +761,7 @@ export const orderPayments = defineOperation({
         amount: z.number(),
         kind: z.string(),
         createdAt: z.string(),
+        taxed: z.boolean().describe("Whether tax was asked of the provider for this payment"),
       }),
     ),
     payments: z.array(
@@ -743,6 +774,8 @@ export const orderPayments = defineOperation({
         paymentRef: z.string().nullable(),
         resolved: z.string().nullable(),
         receivedAt: z.string(),
+        taxAmount: z.number().nullable().describe("The provider's tax on it; null: not taxed"),
+        taxCountry: z.string().nullable(),
       }),
     ),
     refunds: z.array(
@@ -755,6 +788,10 @@ export const orderPayments = defineOperation({
         pendingActionId: z.string().nullable(),
         createdAt: z.string(),
         confirmedAt: z.string().nullable(),
+        taxAmount: z
+          .number()
+          .nullable()
+          .describe("The tax it gave back, when the provider said; null: not said"),
       }),
     ),
     refundable: z.array(
@@ -794,6 +831,7 @@ export const orderPayments = defineOperation({
         amount: c.amount,
         kind: c.kind,
         createdAt: c.created_at,
+        taxed: c.tax_lines !== null,
       })),
       payments: payments.map((p) => ({
         provider: p.provider,
@@ -804,6 +842,8 @@ export const orderPayments = defineOperation({
         paymentRef: p.payment_ref,
         resolved: p.resolved,
         receivedAt: p.received_at,
+        taxAmount: p.tax_amount,
+        taxCountry: p.tax_country,
       })),
       refunds: refunds.map((r) => ({
         id: r.id,
@@ -814,6 +854,7 @@ export const orderPayments = defineOperation({
         pendingActionId: r.pending_action_id,
         createdAt: r.created_at,
         confirmedAt: r.confirmed_at,
+        taxAmount: r.tax_amount,
       })),
       refundable: refundable.map((r) => ({
         paymentRef: r.paymentRef,
@@ -838,6 +879,15 @@ const orderSettings = z.object({
   returnOrigins: z
     .array(z.string())
     .describe("The sites a buyer may be sent back to after paying (https origins)."),
+  tax: z
+    .boolean()
+    .describe(
+      "Whether the payment provider calculates tax at checkout (Stripe Tax). Off until a human " +
+        "admin turns it on. Prices include tax, so what a buyer pays does not change.",
+    ),
+  taxCodes: z
+    .record(z.string(), z.string())
+    .describe("A human admin's product tax code per object, over the one its pack declares."),
 });
 
 async function loadSettings(ctx: HandlerContext) {
@@ -846,21 +896,48 @@ async function loadSettings(ctx: HandlerContext) {
     expiryMinutes: await loadOrderExpiryMinutes(ctx.db),
     minPartPayment: await loadMinPartPayment(ctx.db),
     returnOrigins: await loadReturnOrigins(ctx.db),
+    tax: await loadOrderTax(ctx.db),
+    taxCodes: await loadOrderTaxCodes(ctx.db),
   };
+}
+
+/** Every object for sale that declares a product tax code: what tax at checkout can apply to. */
+function taxObjects(codes: Readonly<Record<string, string>>) {
+  return listObjects()
+    .filter((object) => object.sellable?.tax)
+    .map((object) => ({
+      object: object.name,
+      label: object.label,
+      declared: object.sellable?.tax?.code as string,
+      code: taxCodeOf(object, codes) as string,
+      place: Boolean(object.sellable?.tax?.place),
+    }));
 }
 
 export const orderSettingsGet = defineOperation({
   name: "order.settings.get",
   description:
-    "Get the order settings: the deployment's currency, how long an unpaid order lasts, and the " +
-    "least a buyer may pay towards a balance. Read-only.",
+    "Get the order settings: the deployment's currency, how long an unpaid order lasts, the " +
+    "least a buyer may pay towards a balance, and tax at checkout: whether it is on, and each " +
+    "object for sale that declares a product tax code with the code it is taxed at. Read-only.",
   input: z.object({}),
-  output: orderSettings,
+  output: orderSettings.extend({
+    taxObjects: z.array(
+      z.object({
+        object: z.string(),
+        label: z.string(),
+        declared: z.string().describe("The code its pack declares"),
+        code: z.string().describe("The code it is taxed at: an admin's, else the pack's"),
+        place: z.boolean().describe("Taxed where it takes place (an in-person event)"),
+      }),
+    ),
+  }),
   permission: "records:read",
   risk: "read",
   mcp: { idempotent: true },
   async handler(_input, ctx) {
-    return loadSettings(ctx);
+    const settings = await loadSettings(ctx);
+    return { ...settings, taxObjects: taxObjects(settings.taxCodes) };
   },
 });
 
@@ -868,9 +945,12 @@ export const orderSettingsUpdate = defineOperation({
   name: "order.settings.update",
   description:
     "Change the order settings: the currency every order is in, the minutes an unpaid order " +
-    "lasts, or the least part payment, or the sites a buyer may come back to after paying. Only what you pass changes. Orders already started keep " +
-    "the currency they were started in. Admins only, and only a human can call it: AI " +
-    "assistants, MCP clients, automations and extensions are refused.",
+    "lasts, the least part payment, the sites a buyer may come back to after paying, whether " +
+    "the payment provider calculates tax at checkout, or the product tax code of an object for " +
+    "sale. Only what you pass changes. Orders already started keep the currency they were " +
+    "started in; turning tax on or off changes only payments made from then on. Admins only, " +
+    "and only a human can call it: AI assistants, MCP clients, automations and extensions are " +
+    "refused.",
   input: z.object({
     currency: currencySchema.optional(),
     expiryMinutes: orderExpiryMinutesSchema.optional(),
@@ -880,6 +960,20 @@ export const orderSettingsUpdate = defineOperation({
       .describe(
         "Replaces the list of sites a buyer may come back to, e.g. https://shop.example.com",
       ),
+    tax: z
+      .boolean()
+      .optional()
+      .describe(
+        "Turn tax at checkout on or off. On, the provider taxes each line whose object declares " +
+          "a tax code, inside the price, where the org has a tax registration in its account.",
+      ),
+    taxCodes: taxCodesSchema
+      .optional()
+      .describe(
+        "Replaces the admin's product tax codes, by object (e.g. ticketing.tickettype → " +
+          "txcd_50010001). Only objects that declare a tax code may be given one; an object left " +
+          "out is taxed at its pack's code.",
+      ),
   }),
   output: orderSettings.extend({ previous: orderSettings }),
   permission: "settings:manage",
@@ -888,7 +982,17 @@ export const orderSettingsUpdate = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     if (Object.values(input).every((value) => value === undefined)) {
-      throw new ValidationError("Pass currency, expiryMinutes, minPartPayment or returnOrigins");
+      throw new ValidationError(
+        "Pass currency, expiryMinutes, minPartPayment, returnOrigins, tax or taxCodes",
+      );
+    }
+    for (const object of Object.keys(input.taxCodes ?? {})) {
+      if (!getObject(object)?.sellable?.tax) {
+        throw new ValidationError(
+          `${object} declares no tax code, so it is not taxed and cannot be given one`,
+          { field: "taxCodes", object },
+        );
+      }
     }
     const previous = await loadSettings(ctx);
     const next = {
@@ -898,6 +1002,8 @@ export const orderSettingsUpdate = defineOperation({
       returnOrigins: input.returnOrigins
         ? [...new Set(input.returnOrigins)]
         : previous.returnOrigins,
+      tax: input.tax ?? previous.tax,
+      taxCodes: input.taxCodes ?? previous.taxCodes,
     };
     const store = (key: string, field: keyof typeof next) => {
       const value = JSON.stringify(next[field]);
@@ -921,6 +1027,8 @@ export const orderSettingsUpdate = defineOperation({
     if (input.expiryMinutes !== undefined) store(ORDER_EXPIRY_SETTING, "expiryMinutes");
     if (input.minPartPayment !== undefined) store(ORDER_MIN_PART_SETTING, "minPartPayment");
     if (input.returnOrigins !== undefined) store(ORDER_RETURN_ORIGINS_SETTING, "returnOrigins");
+    if (input.tax !== undefined) store(ORDER_TAX_SETTING, "tax");
+    if (input.taxCodes !== undefined) store(ORDER_TAX_CODES_SETTING, "taxCodes");
     return { ...next, previous };
   },
 });

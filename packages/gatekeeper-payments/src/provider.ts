@@ -17,7 +17,8 @@ export type RefundInput = PaymentsRefundInput;
 /** What a verified webhook delivery carries. */
 export type VerifiedWebhook =
   | { ok: true; events: PaymentsEvent[]; eventId: string }
-  | { ok: false; reason: string };
+  /** `retry`: verified, but not yet readable in full; answered 500 so the provider sends it again. */
+  | { ok: false; reason: string; retry?: boolean };
 
 export interface PaymentProvider {
   readonly name: PaymentsProviderName;
