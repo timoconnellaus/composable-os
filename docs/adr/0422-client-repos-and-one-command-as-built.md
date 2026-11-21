@@ -44,12 +44,17 @@ whose code is fixed by its release, or what a client repo's `product.ts` holds.
   refuses one that does not match the hash, and installs the extensions through the path packs
   take: source `shipped`, no approval (ADR 0414's "the org's own, reviewed"). An org extension
   may not take a pack's id.
-- **`cos deploy`** also type-checks the apps first, then installs, upgrades or repairs the host
+- **`cos deploy`** also type-checks the apps and builds and checks the web app first, then
+  installs, upgrades or repairs the host
   with the product's vars, then uploads the built web app (`apps/web/dist/server`) with its one
   binding, `HOST`, to the host's `ClientApp` entrypoint. It refuses a build with a D1, R2, KV,
-  queue, Vectorize or Hyperdrive binding of its own, or any other service binding.
-- **`cos init`** moves and rewrites nothing. It adds `product.ts`, `skills/` and each app's
-  generated client (`<app>/src/composable-os/customer.ts`), and shows as a diff every change to a
+  queue, Vectorize or Hyperdrive binding of its own, or any other service binding. An adopted web
+  app (`web.deploy: "own"`, which `cos init` sets) keeps its Worker, its name, any data it already
+  has and its own deploy; `cos deploy` deploys the host and leaves it alone. What of its data moves
+  into the host is the company's decision (added after the skill trial, 2026-11-21).
+- **`cos init`** moves and rewrites nothing. It adds `product.ts`, `skills/`, each app's
+  generated client and the template's host module beside it (`<app>/src/composable-os/`), and a
+  `pnpm-workspace.yaml` when the apps are in folders of their own, and shows as a diff every change to a
   file that exists (the root `package.json`, each app's `package.json`, `AGENTS.md` appended, the
   web app's wrangler config with the `HOST` binding, JSONC or TOML), applying them only with
   `--yes` or a yes at the prompt.
