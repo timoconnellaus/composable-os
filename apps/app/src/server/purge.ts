@@ -8,6 +8,7 @@ import {
   errorForLog,
   expirePendingActions,
   measureStorage,
+  notifyOverdueEraseRequests,
   parseFloor,
   purgeAgentJobs,
   purgeCacheReview,
@@ -45,7 +46,7 @@ export async function runScheduledPurge(env: PurgeEnv, clock?: () => Date) {
 /**
  * The daily cron: the Trash purge, expiring pending approvals, then storage retention (ADR 0090):
  * the audit retention purge, run history, compacting old pending actions, and measuring the
- * database for the storage gauge. Each step is chunked and bounded; what is left is picked up
+ * database for the storage gauge; then overdue erase requests (stage 22). Each step is chunked and bounded; what is left is picked up
  * the next day. A failing step is logged and does not stop the others.
  */
 export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date) {
@@ -98,7 +99,22 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
   // Prompt cache review data is kept 180 days (ADR 0341).
   const cacheReview = await step("cache review data", () => purgeCacheReview(db.query, now));
   if (cacheReview?.deleted) console.log(`cache review: ${cacheReview.deleted} row(s) purged`);
-  return { purge, expired, audit, runs, compacted, storage, events, notifications, cacheReview };
+  // Erase requests past their due date: admins are told once a day until staff close them.
+  const eraseRequests = await step("overdue erase requests", () =>
+    notifyOverdueEraseRequests(db, clock?.() ?? new Date()),
+  );
+  return {
+    purge,
+    expired,
+    audit,
+    runs,
+    compacted,
+    storage,
+    events,
+    notifications,
+    cacheReview,
+    eraseRequests,
+  };
 }
 
 /**

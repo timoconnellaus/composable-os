@@ -60,6 +60,8 @@ describe("runScheduledMaintenance", () => {
     expect(result.audit).toMatchObject({ rounds: 0 });
     expect(result.runs).toMatchObject({ deleted: 1 });
     expect(result.compacted).toMatchObject({ compacted: 0 });
+    // No erase request is overdue (stage 22): nobody is told anything.
+    expect(result.eraseRequests).toEqual({ notified: 0 });
     expect(result.storage?.tables.core_extension_runs).toBe(1);
     // D1 reports the database size (meta.size_after), locally too.
     expect(result.storage?.sizeBytes).toBeGreaterThan(0);

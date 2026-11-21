@@ -117,6 +117,23 @@ export interface ObjectDefinition {
   requireOneOf?: readonly (readonly string[])[];
   /** Extension objects: how a record created without a title is named (ADR 0246). */
   titleDefault?: { from: readonly string[]; suffix?: string | undefined };
+  /**
+   * The object's customer (ADR 0402): the field that says whose record it is and, field by
+   * field, what that customer may read and write. Left out, the object does not exist for
+   * customers. Enforced only at the visibility seam.
+   */
+  customer?: CustomerDeclaration;
+}
+
+/**
+ * Whose record it is, and what that customer may read and write (ADR 0402). Names are registry
+ * field names. Fields not listed are invisible to customers.
+ */
+export interface CustomerDeclaration {
+  /** The relation to one person that says whose record it is (`id` on a person). */
+  readonly field: string;
+  readonly read: readonly string[];
+  readonly write: readonly string[];
 }
 
 /** A stage behaviour as the host enforces it (the SDK's StagesSpec, validated). */

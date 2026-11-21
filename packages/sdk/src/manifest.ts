@@ -12,6 +12,7 @@ import {
   type HostModuleName,
   STAGE_TYPES,
   SUPPORTED_CONTRACT_VERSIONS,
+  TOOL_AUDIENCES,
   TOOL_RISKS,
 } from "./contract.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
@@ -132,6 +133,14 @@ export const objectManifestSchema = z.object({
   stages: stagesManifestSchema.optional(),
   states: statesManifestSchema.optional(),
   owner: z.string().max(40).optional(),
+  customer: z
+    .object({
+      field: z.string().max(40),
+      read: z.array(z.string().max(40)).max(100),
+      write: z.array(z.string().max(40)).max(100),
+    })
+    .strict()
+    .optional(),
   navigationOrder: z.number().int().min(0).max(10_000).optional(),
   requireOneOf: z
     .array(z.array(z.string().max(40)).min(2).max(8))
@@ -180,6 +189,8 @@ export const toolManifestSchema = z.object({
   description: z.string().min(20).max(2000),
   risk: z.enum(TOOL_RISKS),
   recordAction: recordActionManifestSchema.optional(),
+  audiences: z.array(z.enum(TOOL_AUDIENCES)).min(1).max(3).optional(),
+  customerFields: z.record(z.string().max(80), z.array(z.string().max(40)).max(50)).optional(),
   inputSchema: jsonSchemaObject,
   outputSchema: jsonSchemaObject,
 });
@@ -382,6 +393,17 @@ export function toManifest(extension: Extension): ExtensionManifest {
           description: tool.description,
           risk: tool.risk ?? "write",
           ...(tool.recordAction ? { recordAction: tool.recordAction } : {}),
+          ...(tool.audiences ? { audiences: [...tool.audiences] } : {}),
+          ...(tool.customerFields
+            ? {
+                customerFields: Object.fromEntries(
+                  Object.entries(tool.customerFields).map(([object, fields]) => [
+                    object,
+                    [...fields],
+                  ]),
+                ),
+              }
+            : {}),
           inputSchema: z.toJSONSchema(tool.input, { io: "input", unrepresentable: "any" }),
           outputSchema: z.toJSONSchema(tool.output, { io: "output", unrepresentable: "any" }),
         },
@@ -734,6 +756,39 @@ export function validateManifest(
       if (!owner) contract(`${path}.owner`, `owner "${object.owner}" is not a field of ${name}`);
       else if (owner.type !== "user") contract(`${path}.owner`, "owner must name a user field");
     }
+    if (object.customer !== undefined) {
+      const c = object.customer;
+      const whose = object.fields[c.field];
+      if (!whose) {
+        contract(`${path}.customer.field`, `customer field "${c.field}" is not a field of ${name}`);
+      } else if (whose.type !== "relation" || whose.to !== "person" || whose.many) {
+        contract(`${path}.customer.field`, "customer.field must be a relation to one person");
+      }
+      for (const key of ["read", "write"] as const) {
+        if (new Set(c[key]).size !== c[key].length) {
+          contract(`${path}.customer.${key}`, `customer.${key} lists a field twice`);
+        }
+        for (const fieldName of c[key]) {
+          if (!object.fields[fieldName]) {
+            contract(
+              `${path}.customer.${key}`,
+              `customer.${key} lists "${fieldName}", which is not a field of ${name}`,
+            );
+          }
+        }
+      }
+      for (const fieldName of c.write) {
+        if (fieldName === c.field) {
+          contract(`${path}.customer.write`, "customer.write may not list the customer field");
+        }
+        if (!c.read.includes(fieldName)) {
+          contract(
+            `${path}.customer.write`,
+            `customer.write lists "${fieldName}", which customer.read does not`,
+          );
+        }
+      }
+    }
   }
 
   for (const [target, fields] of Object.entries(m.fields)) {
@@ -762,6 +817,55 @@ export function validateManifest(
     }
     if (tool.inputSchema.type !== "object") {
       contract(`tools.${name}.input`, "A tool's input must be a z.object(...)");
+    }
+    const open = (tool.audiences ?? []).filter((audience) => audience !== "staff");
+    if (tool.audiences && new Set(tool.audiences).size !== tool.audiences.length) {
+      contract(`tools.${name}.audiences`, "audiences lists one twice");
+    }
+    if (open.length && tool.risk !== "read" && tool.risk !== "write") {
+      contract(
+        `tools.${name}.risk`,
+        `A tool open to ${open.join(" and ")} callers must have risk read or write, not ${tool.risk}`,
+      );
+    }
+    if (tool.customerFields) {
+      if (!tool.audiences?.includes("customer")) {
+        contract(
+          `tools.${name}.customerFields`,
+          "customerFields is only for a tool open to customer",
+        );
+      }
+      for (const [objectName, fieldNames] of Object.entries(tool.customerFields)) {
+        const local = objectName.startsWith(`${m.id}.`) ? objectName.slice(m.id.length + 1) : null;
+        const own = local ? m.objects[local] : undefined;
+        if (!own) {
+          contract(
+            `tools.${name}.customerFields.${objectName}`,
+            `customerFields names "${objectName}", which is not an object of this extension`,
+          );
+          continue;
+        }
+        if (!own.customer) {
+          contract(
+            `tools.${name}.customerFields.${objectName}`,
+            `${objectName} declares no customer, so a customer has no record of it to change`,
+          );
+          continue;
+        }
+        for (const fieldName of fieldNames) {
+          if (fieldName === "id" || fieldName === own.customer.field) {
+            contract(
+              `tools.${name}.customerFields.${objectName}`,
+              `A tool may never set "${fieldName}": whose record it is, and its id, are the host's`,
+            );
+          } else if (!own.fields[fieldName]) {
+            contract(
+              `tools.${name}.customerFields.${objectName}`,
+              `"${fieldName}" is not a field of ${objectName}`,
+            );
+          }
+        }
+      }
     }
     if (tool.recordAction) {
       const action = tool.recordAction;

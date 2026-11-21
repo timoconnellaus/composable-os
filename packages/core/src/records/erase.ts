@@ -13,7 +13,13 @@ import { emailRef } from "../assistant/scrub.ts";
 import type { HandlerContext } from "../operation.ts";
 import { chunk, jsonList } from "./common.ts";
 import { drainAllBlobDeletions, writeEraseLog } from "./erase-log.ts";
-import { queueEraseExtensions, queueEraseRuns, queueEraseSync } from "./erase-stores.ts";
+import {
+  customerAddresses,
+  queueEraseCustomers,
+  queueEraseExtensions,
+  queueEraseRuns,
+  queueEraseSync,
+} from "./erase-stores.ts";
 import {
   ERASED,
   MIN_TERM_LENGTH,
@@ -59,6 +65,8 @@ export interface EraseCounts {
   notifications: number;
   /** Assistant memory lines that named the subject, deleted. */
   memoryLines: number;
+  /** Open erase requests closed (and deleted with the person's customer account). */
+  eraseRequests: number;
 }
 
 /** The counts person.erase and organisation.erase report beyond the audit and conversations. */
@@ -70,6 +78,9 @@ export const eraseCountsOutput = {
   runsRedacted: z.number().describe("Automation runs redacted"),
   notificationsDeleted: z.number(),
   memoryLinesDeleted: z.number().describe("Assistant memory lines that named the subject"),
+  eraseRequestsClosed: z
+    .number()
+    .describe("Open erase requests the erase closed (a person's customer account goes with them)"),
   bodiesDeleted: z
     .number()
     .describe("Synced email bodies deleted from blob storage now (the rest are retried)"),
@@ -89,6 +100,7 @@ export async function afterErase(
   runsRedacted: number;
   notificationsDeleted: number;
   memoryLinesDeleted: number;
+  eraseRequestsClosed: number;
   bodiesDeleted: number;
 }> {
   let bodiesDeleted = 0;
@@ -105,6 +117,7 @@ export async function afterErase(
     runsRedacted: counts.runs,
     notificationsDeleted: counts.notifications,
     memoryLinesDeleted: counts.memoryLines,
+    eraseRequestsClosed: counts.eraseRequests,
     bodiesDeleted,
   };
 }
@@ -116,7 +129,13 @@ export async function afterErase(
  */
 export async function queueErase(ctx: HandlerContext, request: EraseRequest): Promise<EraseCounts> {
   const { object, recordId, recordIds } = request;
-  const terms = [...new Set([...recordIds, ...request.terms].map((t) => t.trim().toLowerCase()))]
+  // A person's customer sign-in addresses are theirs too (stage 22): redacted, and listed as erased.
+  const accountEmails = object === "person" ? await customerAddresses(ctx, recordIds) : [];
+  const terms = [
+    ...new Set(
+      [...recordIds, ...request.terms, ...accountEmails].map((t) => t.trim().toLowerCase()),
+    ),
+  ]
     .filter((t) => t.length >= MIN_TERM_LENGTH)
     .slice(0, 200);
   const marker = {
@@ -295,7 +314,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     recordIds,
     terms,
     names: request.names ?? [],
-    addresses: request.addresses ?? [],
+    addresses: [...new Set([...(request.addresses ?? []), ...accountEmails])],
   };
   const suggestions = await queueEraseSync(ctx, subject);
   const extensionRows = await queueEraseExtensions(ctx, subject);
@@ -310,6 +329,9 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
 
   // Routines that named the subject (ADR 0343): their words and filters, and they pause.
   await queueEraseRoutines(ctx, { terms: [...terms], names: [...subject.names] });
+
+  // Their customer account, its sessions and codes, invites and erase requests (stage 22).
+  const eraseRequests = await queueEraseCustomers(ctx, subject);
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.
@@ -349,6 +371,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     runs,
     notifications,
     memoryLines,
+    eraseRequests,
   };
 }
 

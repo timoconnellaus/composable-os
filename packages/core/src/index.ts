@@ -35,6 +35,7 @@ export * from "./assistant/routines.ts";
 export * from "./assistant/scrub.ts";
 export * from "./assistant/skills.ts";
 export * from "./assistant/threads.ts";
+export * from "./audiences.ts";
 export * from "./automations/bindings.ts";
 export * from "./automations/cron.ts";
 export * from "./automations/events.ts";
@@ -48,6 +49,7 @@ export * from "./automations/simulate.ts";
 export * from "./automations/sources.ts";
 export * from "./automations/summary.ts";
 export * from "./automations/types.ts";
+export * from "./customers/index.ts";
 export * from "./dashboards/cache.ts";
 export * from "./dashboards/click-through.ts";
 export * from "./dashboards/describe.ts";
@@ -132,6 +134,7 @@ export * from "./operations/automation.ts";
 export * from "./operations/code.ts";
 export * from "./operations/connected-app.ts";
 export * from "./operations/count.ts";
+export * from "./operations/customer.ts";
 export * from "./operations/dashboard.ts";
 export * from "./operations/duplicate.ts";
 export * from "./operations/enrichment.ts";
@@ -144,7 +147,9 @@ export * from "./operations/import.ts";
 export { coreOperations } from "./operations/index.ts";
 export * from "./operations/integration.ts";
 export * from "./operations/judge.ts";
+export * from "./operations/me.ts";
 export * from "./operations/memory.ts";
+export * from "./operations/my.ts";
 export * from "./operations/notification.ts";
 export * from "./operations/notification-delivery.ts";
 export * from "./operations/organisation.ts";
@@ -168,9 +173,11 @@ export * from "./operations/user.ts";
 export * from "./operations/view.ts";
 export * from "./operations/voice.ts";
 export {
+  type AnyInvocationContext,
   type CommitEvent,
   type InvocationContext,
   invokeOperation,
+  type OutsideInvocationContext,
   operationObject,
   type QueuedEvent,
   readCountHour,
@@ -227,3 +234,6 @@ export * from "./sync/signals.ts";
 export * from "./updates.ts";
 export { type PrincipalLike, resolveActingUser, SYSTEM_USER } from "./users.ts";
 export * from "./views/spec.ts";
+export * from "./visibility/index.ts";
+export { getVisible, listVisible, type VisibleRecord } from "./visibility/records.ts";
+export { assertVisibleWrites } from "./visibility/writes.ts";

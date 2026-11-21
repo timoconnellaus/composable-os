@@ -869,6 +869,47 @@ Every operation declares its audiences: `staff` (the default), `customer`, `publ
   Code Mode, `query.sql`, dashboards or exports.
 - **Public** callers have no account. Public operations are few, low risk and rate limited.
 
+As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
+[0411](adr/0411-audiences-on-operations-as-built.md),
+[0412](adr/0412-customer-scope-and-principals-as-built.md),
+[0413](adr/0413-outside-handlers-have-no-raw-database.md),
+[0414](adr/0414-pack-tools-run-as-the-customer.md)):
+
+- **The visibility seam** (`packages/core/src/visibility/`). `visibleSource(ctx, object)` is the
+  source every read of a record takes. Staff get the plain view. A customer gets a source holding
+  only their rows and only the columns the object lists, and the public get none.
+- **The audience check** is the pipeline's first step. A caller outside an operation's audiences
+  gets the answer an unknown operation gets. `packages/core/open-operations.json` lists what is
+  open, and a test keeps it equal to the registry.
+- **A call for a customer or the public** carries a principal and no staff user. It takes a
+  short path of its own in the pipeline: no role, no approval queue, a write check at the seam
+  before the batch commits, and an audit row with actor `customer` or `public`.
+- **Its handler has no raw database.** It reads and writes records through `ctx.records`. A core
+  operation marked `hostInternal` keeps the database for account and session bookkeeping.
+- **Customer accounts** are `core_customer` and its sessions, apart from `core_user`. A second
+  Better Auth configuration in `packages/auth` signs customers in by a one-time emailed code,
+  with its own cookie and secret, and resolves a request to a customer or the public, never to
+  staff. Sign-up is open or invite only, a setting a human admin changes.
+- **Open operations:** `me.get`, `me.update`, `me.signOut`, `me.sessions.*`, `me.deleteAccount`,
+  `my.list`, `my.get`, and for tools only `my.create`, `my.update`.
+- **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
+  outside path with the same principal. It may set an object's writable fields and the fields
+  the tool lists in its manifest. A runtime extension can open nothing.
+- **Deleting an account** disables it, ends its sessions and creates an erase request with a due
+  date for staff, who erase the person or decline with a reason.
+  (`core_erase_request`, migration 0402; due after `customer.settings` `eraseDueDays`, default
+  30; `eraseRequest.list` / `eraseRequest.decline`, shown under Settings → Storage; the daily
+  maintenance cron reminds admins once a day about an overdue one.)
+- **Erase and merge:** `person.erase` deletes the person's customer account, its sessions and
+  sign-in codes, invites for their addresses and their erase requests, and lists the account's
+  address as erased. `person.merge` moves the account to the survivor, is refused while both
+  people have an active one, and links a `needs_merge` account the merge resolves.
+- **Limits:** a customer's calls per account and operation, and code requests per address asked
+  for (`customers/limits.ts`, Workers Rate Limiting). Per client address only at the edge, and no
+  address is stored.
+
+The HTTP routes that mount customer sign-in and carry these calls are stage 23's.
+
 ### The HTTP surface and the typed client
 
 Stage 23; [ADR 0403](adr/0403-http-surface-and-typed-client.md).

@@ -13,8 +13,52 @@ permissions:
   contents: read
 
 jobs:
+  # Documents get a fast lane: when everything a change touches is under docs/ or is a Markdown
+  # file at the root (scripts/ci-docs-only.mjs), the build, unit and Playwright jobs are skipped
+  # and only the document checks run. If the diff cannot be worked out, everything runs.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.diff.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -n "$PR_BASE" ]; then
+            files=$(git diff --name-only "$PR_BASE...$PR_HEAD") || files=""
+          else
+            files=$(git diff --name-only "$BEFORE" "$AFTER") || files=""
+          fi
+          docs_only=$(printf '%s\n' "$files" | node scripts/ci-docs-only.mjs) || docs_only=false
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "Documents only: $docs_only"
+
+  docs:
+    name: Documents
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+      # No install: these checks use Node alone.
+      - run: node scripts/check-stray-names.mjs
+      - run: node scripts/check-skills-version.mjs
+
   check:
     name: Lint, typecheck, unit tests
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -36,6 +80,8 @@ jobs:
 
   marketing-e2e:
     name: Landing page (Playwright)
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -59,6 +105,8 @@ jobs:
 
   e2e:
     name: E2E smoke (Playwright)
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

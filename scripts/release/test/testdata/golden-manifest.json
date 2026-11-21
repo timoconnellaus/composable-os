@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 380,
+  "coreSchemaVersion": 402,
   "extensionContract": {
     "supported": [
       1
@@ -392,6 +392,18 @@
     {
       "name": "0380_rec_views.sql",
       "sha256": "3fd57478ed3a984c3c7bf43c4278f545c62fd6b4a3a87f1440a5519aa6f9c711"
+    },
+    {
+      "name": "0400_customer_audit_actor.sql",
+      "sha256": "1ca914a4a26cf1cd68831c8a8f9e778d505983f3e34e3bf7aa8b935c9d961193"
+    },
+    {
+      "name": "0401_customer_accounts.sql",
+      "sha256": "83dabd54c0bac8ba95bb35d154f4f63da9a6e689084cb5d69418e275c3963fbd"
+    },
+    {
+      "name": "0402_erase_requests.sql",
+      "sha256": "d099b7700feedebb3f3ecb130f6543df93f365ed0ef5a16fcd2d06366497ce39"
     }
   ],
   "product": "crm",

@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { visibleSource } from "../visibility/index.ts";
 
 export const VOICE_MODES = ["push_to_talk", "hands_free"] as const;
 export type VoiceMode = (typeof VOICE_MODES)[number];
@@ -244,7 +245,7 @@ async function mentionedNames(ctx: HandlerContext): Promise<string[]> {
   const found = [
     ...(people.length
       ? await ctx.db
-          .selectFrom("rec_person")
+          .selectFrom(visibleSource(ctx, "person"))
           .select(["display_name as name", "updated_at"])
           .where("id", "in", people)
           .orderBy("updated_at", "desc")
@@ -253,7 +254,7 @@ async function mentionedNames(ctx: HandlerContext): Promise<string[]> {
       : []),
     ...(organisations.length
       ? await ctx.db
-          .selectFrom("rec_organisation")
+          .selectFrom(visibleSource(ctx, "organisation"))
           .select(["name", "updated_at"])
           .where("id", "in", organisations)
           .orderBy("updated_at", "desc")

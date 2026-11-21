@@ -658,3 +658,80 @@ export async function queueEraseRuns(
   }
   return { runs: runs.length, notifications: notifications.length };
 }
+
+// --- Customer accounts -------------------------------------------------------------------------
+
+/**
+ * The sign-in addresses of the customer accounts linked to the people being erased. They join the
+ * subject's addresses (and terms), so they go on the erased-address list: the person cannot sign
+ * up again with them unless an admin allows the address back.
+ */
+export async function customerAddresses(
+  ctx: HandlerContext,
+  recordIds: readonly string[],
+): Promise<string[]> {
+  const rows = await ctx.db
+    .selectFrom("core_customer")
+    .select("email")
+    .where("person_id", "in", jsonList(recordIds))
+    .execute();
+  return rows.map((r) => r.email);
+}
+
+/**
+ * A person's customer account (stage 22, ADR 0402): the accounts linked to them or signed up with
+ * one of their addresses (one waiting for a merge included), every session of those accounts,
+ * one-time sign-in codes sent to their addresses, invites for their addresses, and their erase
+ * requests. All deleted, so nothing is left but the audit trail; an open request is closed as
+ * `erased` in the audit first. Returns how many requests were closed.
+ */
+export async function queueEraseCustomers(ctx: HandlerContext, s: StoreSubject): Promise<number> {
+  if (s.object !== "person") return 0;
+  const ids = jsonList(s.recordIds);
+  const addresses = jsonList(s.addresses.length ? s.addresses : [""]);
+  const accounts = await ctx.db
+    .selectFrom("core_customer")
+    .select(["id", "email"])
+    .where((eb) => eb.or([eb("person_id", "in", ids), eb("email", "in", addresses)]))
+    .execute();
+  const accountIds = accounts.map((a) => a.id);
+  const requests = await ctx.db
+    .selectFrom("core_erase_request")
+    .select(["id", "status"])
+    .where((eb) =>
+      eb.or([
+        eb("person_id", "in", ids),
+        ...(accountIds.length ? [eb("customer_id", "in", jsonList(accountIds))] : []),
+      ]),
+    )
+    .execute();
+  const open = requests.filter((r) => r.status === "open");
+  for (const request of open) {
+    ctx.recordChange({
+      object: "erase_request",
+      id: request.id,
+      action: "update",
+      before: { status: "open" },
+      after: { status: "erased" },
+    });
+  }
+  for (const part of chunk(requests.map((r) => r.id))) {
+    ctx.write(ctx.db.deleteFrom("core_erase_request").where("id", "in", part));
+  }
+  for (const part of chunk(accountIds)) {
+    ctx.write(
+      ctx.db.deleteFrom("core_customer_session").where("customer_id", "in", part),
+      ctx.db.deleteFrom("core_customer").where("id", "in", part),
+    );
+  }
+  // Codes are stored as `<type>-otp-<address>` (Better Auth's email OTP plugin).
+  const emails = jsonList([...new Set([...s.addresses, ...accounts.map((a) => a.email)])]);
+  ctx.write(
+    ctx.db.deleteFrom("core_customer_verification").where(
+      sql<SqlBool>`instr(identifier, '-otp-') > 0
+          AND lower(substr(identifier, instr(identifier, '-otp-') + 5)) IN ${emails}`,
+    ),
+    ctx.db.deleteFrom("core_customer_invite").where("email", "in", emails),
+  );
+  return open.length;
+}

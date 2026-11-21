@@ -180,6 +180,7 @@ export function planFromState(
       ...(object.stages ? { stages: object.stages } : {}),
       ...(object.states ? { states: object.states } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
+      ...(object.customer ? { customer: object.customer } : {}),
       ...(object.navigationOrder !== undefined ? { navigationOrder: object.navigationOrder } : {}),
       ...(object.requireOneOf?.length ? { requireOneOf: object.requireOneOf } : {}),
       ...(object.titleDefault ? { titleDefault: object.titleDefault } : {}),

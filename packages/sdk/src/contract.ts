@@ -174,6 +174,15 @@ export interface ObjectSpec {
    * it when a record is created without one, and stage 14's visibility policies read it.
    */
   owner?: string;
+  /**
+   * The object's customer (ADR 0402): whose record it is, and what that customer may read and
+   * write, field by field. `field` is a relation to one person. A signed-in customer sees only
+   * records where it is their own Person, and of those only the fields in `read`. Fields in
+   * `write` (a subset of `read`) are the ones they may set. Left out, the object does not exist
+   * for customers. Only shipped extensions and an org's own may declare it; a runtime extension
+   * fails `check`.
+   */
+  customer?: CustomerSpec;
   /** Position in the sidebar among extension objects (lower first). Default 100. */
   navigationOrder?: number;
   /**
@@ -420,7 +429,32 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * opens that record afterwards.
    */
   recordAction?: RecordActionSpec;
+  /**
+   * Who may call the tool: a non-empty subset of `staff`, `customer`, `public`. Left out, staff
+   * only. A tool open to `customer` or `public` must have risk `read` or `write`. Called by a
+   * customer, the tool runs as that customer: `ctx.ops` reaches only their own records, through
+   * `my.list`, `my.get`, `my.create` and `my.update`. Only shipped extensions and an org's own
+   * may open a tool; a runtime extension fails `check` (ADR 0402, ADR 0414).
+   */
+  audiences?: readonly ToolAudience[];
+  /**
+   * Fields this tool may set on a customer's own records beyond the object's `customer.write`,
+   * by object: a cancel tool lists `{ "shop.order": ["status"] }`. Never the customer field and
+   * never `id`. The host allows exactly these, for calls made by this tool (ADR 0414).
+   */
+  customerFields?: Readonly<Record<string, readonly string[]>>;
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
+}
+
+/** Who may call a tool. `staff` when nothing is declared (ADR 0402). */
+export const TOOL_AUDIENCES = ["staff", "customer", "public"] as const;
+export type ToolAudience = (typeof TOOL_AUDIENCES)[number];
+
+/** An object's customer: see `ObjectSpec.customer`. */
+export interface CustomerSpec {
+  field: string;
+  read: readonly string[];
+  write: readonly string[];
 }
 
 /** A tool shown as a button on a record page. */

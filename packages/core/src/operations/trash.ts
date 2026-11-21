@@ -12,6 +12,7 @@ import {
   restorableUntil,
   TRASH_RETENTION_DAYS,
 } from "../records/common.ts";
+import { visibleTable } from "../visibility/index.ts";
 
 /**
  * Everything in Trash: what trash.list shows, the UI can restore, and trash.purge hard-deletes
@@ -53,7 +54,7 @@ export const trashList = defineOperation({
     const sources = {
       person: () =>
         ctx.db
-          .selectFrom("core_person")
+          .selectFrom(visibleTable(ctx, "person"))
           .select([
             sql<TrashListObject>`'person'`.as("object"),
             "id",
@@ -65,7 +66,7 @@ export const trashList = defineOperation({
           .where("deleted_at", "is not", null),
       organisation: () =>
         ctx.db
-          .selectFrom("core_organisation")
+          .selectFrom(visibleTable(ctx, "organisation"))
           .select([
             sql<TrashListObject>`'organisation'`.as("object"),
             "id",
@@ -77,7 +78,7 @@ export const trashList = defineOperation({
           .where("deleted_at", "is not", null),
       activity: () =>
         ctx.db
-          .selectFrom("core_activity")
+          .selectFrom(visibleTable(ctx, "activity"))
           .select([
             sql<TrashListObject>`'activity'`.as("object"),
             "id",
@@ -89,7 +90,7 @@ export const trashList = defineOperation({
           .where("deleted_at", "is not", null),
       task: () =>
         ctx.db
-          .selectFrom("core_task")
+          .selectFrom(visibleTable(ctx, "task"))
           .select([
             sql<TrashListObject>`'task'`.as("object"),
             "id",

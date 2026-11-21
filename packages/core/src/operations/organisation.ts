@@ -2,7 +2,7 @@
 // variants, merge and erase. Name, domains, parent and owner are timeline-worthy (the field
 // registry flags them), so updates to them post system activities automatically.
 import type { CoreDatabase } from "@composable-os/db";
-import type { Kysely } from "kysely";
+import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { checkOrganisation } from "../duplicates/check.ts";
@@ -39,6 +39,7 @@ import { organisationSubject } from "../records/erase-subject.ts";
 import { countLinks, queueClearTags, queueMoveLinks } from "../records/links.ts";
 import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
+import { type Reader, visibleTable } from "../visibility/index.ts";
 
 // --- Schemas -----------------------------------------------------------------------------------
 
@@ -136,25 +137,26 @@ const ORGANISATION_LIST_FIELDS = Object.keys(organisationListItemSchema.shape);
 // --- Reading -----------------------------------------------------------------------------------
 
 export async function loadOrganisation(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   id: string,
   options: { includeDeleted?: boolean } = {},
 ): Promise<Organisation | null> {
-  return (await loadOrganisations(db, [id], options)).get(id) ?? null;
+  return (await loadOrganisations(reader, [id], options)).get(id) ?? null;
 }
 
 /** Organisations by id, in bulk (one query per child table, any number of ids). */
 export async function loadOrganisations(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   ids: readonly string[],
   { includeDeleted = false } = {},
 ): Promise<Map<string, Organisation>> {
+  const { db } = reader;
   const result = new Map<string, Organisation>();
   if (!ids.length) return result;
   const idList = jsonList([...new Set(ids)]);
   let query = db
-    .selectFrom("core_organisation as o")
-    .leftJoin("core_organisation as parent", (join) =>
+    .selectFrom(visibleTable(reader, "organisation", "o"))
+    .leftJoin(visibleTable(reader, "organisation", "parent"), (join) =>
       join.onRef("parent.id", "=", "o.parent_id").on("parent.deleted_at", "is", null),
     )
     .selectAll("o")
@@ -221,11 +223,11 @@ export async function loadOrganisations(
 }
 
 async function requireOrganisation(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   id: string,
   options?: { includeDeleted?: boolean },
 ): Promise<Organisation> {
-  const organisation = await loadOrganisation(db, id, options);
+  const organisation = await loadOrganisation(reader, id, options);
   if (!organisation) throw new NotFoundError("organisation", id);
   return organisation;
 }
@@ -588,7 +590,7 @@ export const organisationGet = defineOperation({
   risk: "read",
   mcp: { curated: true, idempotent: true },
   async handler(input, ctx) {
-    return requireOrganisation(ctx.db, input.id, { includeDeleted: input.includeDeleted });
+    return requireOrganisation(ctx, input.id, { includeDeleted: input.includeDeleted });
   },
 });
 
@@ -606,7 +608,7 @@ export const organisationUpdate = defineOperation({
   risk: "write",
   mcp: { curated: true },
   async handler(input, ctx) {
-    const before = await requireOrganisation(ctx.db, input.id);
+    const before = await requireOrganisation(ctx, input.id);
     const after: Organisation = { ...before, updatedAt: ctx.now };
     const set: Record<string, unknown> = {};
 
@@ -666,7 +668,7 @@ export const organisationUpdate = defineOperation({
       before: organisationSnapshot(before),
       after: organisationSnapshot(after),
     });
-    return ctx.afterCommit(() => requireOrganisation(ctx.db, input.id));
+    return ctx.afterCommit(() => requireOrganisation(ctx, input.id));
   },
 });
 
@@ -684,8 +686,8 @@ export const organisationList = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const page = await runListQuery(
-      ctx.db.selectFrom("rec_organisation").selectAll(),
+    const page = await runListQuery<Selectable<CoreDatabase["rec_organisation"]>>(
+      ctx,
       getObject("organisation") ?? organisationObject,
       input,
     );
@@ -730,7 +732,7 @@ export const organisationDelete = defineOperation({
   permission: "records:write",
   risk: "destructive",
   async handler(input, ctx) {
-    await requireOrganisation(ctx.db, input.id);
+    await requireOrganisation(ctx, input.id);
     ctx.write(
       ctx.db
         .updateTable("core_organisation")
@@ -758,7 +760,7 @@ export const organisationRestore = defineOperation({
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
-    const org = await requireOrganisation(ctx.db, input.id, { includeDeleted: true });
+    const org = await requireOrganisation(ctx, input.id, { includeDeleted: true });
     if (!org.deletedAt) throw new ValidationError("This organisation is not in Trash");
     await assertRecordCapacity(ctx.db, 1);
     await assertDomainsFree(
@@ -781,7 +783,7 @@ export const organisationRestore = defineOperation({
         ...(org.mergedIntoId ? { mergedIntoId: { before: org.mergedIntoId, after: null } } : {}),
       },
     });
-    return ctx.afterCommit(() => requireOrganisation(ctx.db, input.id));
+    return ctx.afterCommit(() => requireOrganisation(ctx, input.id));
   },
 });
 
@@ -977,8 +979,8 @@ export const organisationMerge = defineOperation({
     if (input.survivorId === input.mergedId) {
       throw new ValidationError("Cannot merge an organisation into itself");
     }
-    const survivor = await requireOrganisation(ctx.db, input.survivorId);
-    const merged = await requireOrganisation(ctx.db, input.mergedId);
+    const survivor = await requireOrganisation(ctx, input.survivorId);
+    const merged = await requireOrganisation(ctx, input.mergedId);
 
     const after: Organisation = { ...survivor, updatedAt: ctx.now };
     for (const field of ORG_MERGE_FIELDS) {
@@ -1116,7 +1118,7 @@ export const organisationMerge = defineOperation({
       children: Number(children?.n ?? 0),
     };
     return ctx.afterCommit(async () => ({
-      ...(await requireOrganisation(ctx.db, survivor.id)),
+      ...(await requireOrganisation(ctx, survivor.id)),
       moved,
     }));
   },
@@ -1152,7 +1154,7 @@ export const organisationErase = defineOperation({
   risk: "destructive",
   mcp: { expose: false },
   async handler(input, ctx) {
-    await requireOrganisation(ctx.db, input.id, { includeDeleted: true });
+    await requireOrganisation(ctx, input.id, { includeDeleted: true });
     const ids = await withMergedRecords(ctx, "organisation", input.id);
     const subject = await organisationSubject(ctx.db, ids);
     const counts = await queueErase(ctx, {

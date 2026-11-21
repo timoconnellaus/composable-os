@@ -80,6 +80,7 @@ export async function checkManifest(
   id: string,
   rawManifest: unknown,
   now: string,
+  options: CheckOptions = {},
 ): Promise<{
   issues: CheckIssue[];
   manifest: ExtensionManifest | null;
@@ -108,6 +109,9 @@ export async function checkManifest(
       }
     }
   }
+  // Who an extension opens the host to is never AI-configurable (ADR 0402): a runtime extension,
+  // written in the workspace, may not open a tool or show an object to anyone but staff.
+  if (manifest && options.source === "runtime") all.push(...outsideDeclarations(manifest));
   if (manifest && manifest.id !== id) {
     all.push({
       stage: "contract",
@@ -119,6 +123,41 @@ export async function checkManifest(
   if (!manifest || all.length) return { issues: all, manifest, plan: null };
   const plan = await planReconcile(db, manifest, { now });
   return { issues: plan.issues.map(fromReconcile), manifest, plan };
+}
+
+/** What kind of extension is being checked. `runtime`: written in the workspace, by AI or by hand. */
+export interface CheckOptions {
+  source?: "shipped" | "runtime";
+}
+
+/** Issues for everything in `manifest` that opens the host to customers or the public. */
+function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
+  const issues: CheckIssue[] = [];
+  const why =
+    "Only a shipped extension, or one in the org's own repository, can do that: it is a " +
+    "reviewed change. Remove it, or move the extension out of the workspace.";
+  for (const [name, tool] of Object.entries(manifest.tools)) {
+    const open = (tool.audiences ?? []).filter((audience) => audience !== "staff");
+    if (open.length || tool.customerFields) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `tools.${name}.audiences`,
+        message: `A runtime extension cannot open a tool to ${open.join(" or ") || "customer"} callers. ${why}`,
+      });
+    }
+  }
+  for (const [name, object] of Object.entries(manifest.objects)) {
+    if (object.customer) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.customer`,
+        message: `A runtime extension cannot make ${name} visible to customers. ${why}`,
+      });
+    }
+  }
+  return issues;
 }
 
 /**
@@ -133,11 +172,12 @@ export async function checkEvaluated(
   id: string,
   evaluated: EvaluateResult,
   now: string,
+  options: CheckOptions = {},
 ): Promise<CheckResult> {
   if (!evaluated.ok) {
     return { ok: false, issues: evaluated.issues.map(fromSource), manifest: null, plan: null };
   }
-  const { issues, manifest, plan } = await checkManifest(db, id, evaluated.manifest, now);
+  const { issues, manifest, plan } = await checkManifest(db, id, evaluated.manifest, now, options);
   return {
     ok: issues.length === 0,
     issues,
@@ -152,7 +192,10 @@ export async function checkExtension(
   input: { id: string; commit: string } | { id: string; files: Record<string, string> },
 ): Promise<CheckResult> {
   const host = requireHost(ctx);
-  return checkEvaluated(ctx.db, input.id, await host.evaluate(input), ctx.now);
+  // What `extension.check` checks is always workspace source: a runtime extension.
+  return checkEvaluated(ctx.db, input.id, await host.evaluate(input), ctx.now, {
+    source: "runtime",
+  });
 }
 
 export interface InstallResult {
@@ -216,6 +259,7 @@ export async function installExtension(
     input.id,
     evaluated.manifest,
     ctx.now,
+    { source: input.source },
   );
   if (issues.length || !manifest || !plan) {
     throw new ValidationError(`${input.id} failed its check${firstIssue(issues)}`, { issues });

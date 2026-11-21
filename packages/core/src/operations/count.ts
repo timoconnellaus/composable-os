@@ -13,6 +13,7 @@ import { getObject } from "../fields/index.ts";
 import { compileFilter, filterSchema } from "../filter.ts";
 import { defineOperation } from "../operation.ts";
 import { isGroupable, isSummable } from "../views/spec.ts";
+import { visibleSource } from "../visibility/index.ts";
 
 /** The most rows one count reads. Above this the total is reported as "at least COUNT_CAP". */
 export const COUNT_CAP = 10_000;
@@ -50,7 +51,9 @@ export const recordCount = defineOperation({
     const object = getObject(input.object);
     if (!object) throw new ValidationError(`Unknown object "${input.object}"`);
     const alias = object.source;
-    let matching = (ctx.db as AnyDb).selectFrom(object.source).select(sql<number>`1`.as("one"));
+    let matching = (ctx.db as AnyDb)
+      .selectFrom(visibleSource(ctx, object))
+      .select(sql<number>`1`.as("one"));
     if (input.filter) matching = matching.where(compileFilter(object, input.filter, alias));
     const row = await (ctx.db as AnyDb)
       .selectFrom(matching.limit(COUNT_CAP + 1).as("matching"))
@@ -114,7 +117,7 @@ export const recordGroups = defineOperation({
     const alias = object.source;
     // Registry columns are trusted identifiers (fields/types.ts).
     let matching = (ctx.db as AnyDb)
-      .selectFrom(object.source)
+      .selectFrom(visibleSource(ctx, object))
       .select([
         sql.ref(`${alias}.${group.column}`).as("g"),
         sum?.column ? sql.ref(`${alias}.${sum.column}`).as("s") : sql<null>`NULL`.as("s"),

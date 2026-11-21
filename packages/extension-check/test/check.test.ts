@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkExtensionDir, locate } from "../src/node/check.ts";
-import { type ExtIo, runExt } from "../src/node/cli.ts";
+import { type ExtIo, outsideSummary, runExt } from "../src/node/cli.ts";
 import { untested } from "../src/node/test.ts";
 import expected from "./fixtures/expected.json" with { type: "json" };
 
@@ -108,5 +108,37 @@ describe("locate", () => {
 
   it("falls back to index.ts", () => {
     expect(locate(files, "nothing.here")).toEqual({ file: "index.ts" });
+  });
+});
+
+describe("what an extension opens to people outside the org (stage 22, ADR 0414)", () => {
+  it("is nothing for an extension that is for staff only", () => {
+    expect(
+      outsideSummary({ id: "plain", objects: { a: {} }, tools: { t: { risk: "write" } } }),
+    ).toEqual([]);
+    expect(outsideSummary(null)).toEqual([]);
+  });
+
+  it("is one line per object a customer sees and per tool they can call", () => {
+    const lines = outsideSummary({
+      id: "shop",
+      objects: {
+        order: { customer: { field: "buyer", read: ["status", "total"], write: [] } },
+        supplier: {},
+      },
+      tools: {
+        cancel: {
+          risk: "write",
+          audiences: ["customer"],
+          customerFields: { "shop.order": ["status"] },
+        },
+        report: { risk: "read", audiences: ["staff"] },
+      },
+    });
+    expect(lines).toEqual([
+      "This extension opens the host to people outside the org. Review these lines:",
+      "  customers see shop.order where buyer is them: read status, total; write nothing",
+      "  tool cancel (write) is open to customer, and may also set shop.order: status",
+    ]);
   });
 });

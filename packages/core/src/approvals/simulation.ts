@@ -13,12 +13,13 @@ import { loadPerson } from "../operations/person.ts";
 import { highlight, searchTerms } from "../operations/search.ts";
 import { loadTask } from "../operations/task.ts";
 import { loadRecordTitles } from "../records/links.ts";
+import type { Reader } from "../visibility/index.ts";
 
 type Rec = Record<string, unknown>;
 
 /** Per-object knowledge the overlay needs: how to load, build, list and search a record. */
 interface ObjectSim {
-  load(db: Kysely<CoreDatabase>, id: string): Promise<Rec | null>;
+  load(reader: Reader, id: string): Promise<Rec | null>;
   /** The `<object>.list` item shape (person and organisation lists flatten some fields). */
   listItem(record: Rec): Rec;
   /** Search hit title and subtitle. */
@@ -34,7 +35,7 @@ const primary = (list: Rec[], key: string): string | null =>
 
 export const SIMULATED_OBJECTS: Record<string, ObjectSim> = {
   person: {
-    load: (db, id) => loadPerson(db, id, { includeDeleted: true }) as Promise<Rec | null>,
+    load: (reader, id) => loadPerson(reader, id, { includeDeleted: true }) as Promise<Rec | null>,
     listItem: (r) => {
       const aff = (r.primaryAffiliation ?? null) as Rec | null;
       return {
@@ -57,7 +58,8 @@ export const SIMULATED_OBJECTS: Record<string, ObjectSim> = {
         .join(" "),
   },
   organisation: {
-    load: (db, id) => loadOrganisation(db, id, { includeDeleted: true }) as Promise<Rec | null>,
+    load: (reader, id) =>
+      loadOrganisation(reader, id, { includeDeleted: true }) as Promise<Rec | null>,
     listItem: (r) => ({
       ...r,
       primaryDomain: primary(arr(r.domains), "domain"),
@@ -71,7 +73,7 @@ export const SIMULATED_OBJECTS: Record<string, ObjectSim> = {
     searchText: (r) => [r.name, ...arr(r.domains).map((d) => d.domain)].filter(Boolean).join(" "),
   },
   task: {
-    load: (db, id) => loadTask(db, id, { includeDeleted: true }) as Promise<Rec | null>,
+    load: (reader, id) => loadTask(reader, id, { includeDeleted: true }) as Promise<Rec | null>,
     listItem: (r) => r,
     display: (r) => ({
       title: String(r.title ?? ""),
@@ -85,7 +87,7 @@ export const SIMULATED_OBJECTS: Record<string, ObjectSim> = {
     searchText: (r) => [r.title, r.notes].filter(Boolean).join(" "),
   },
   activity: {
-    load: (db, id) => loadActivity(db, id, { includeDeleted: true }) as Promise<Rec | null>,
+    load: (reader, id) => loadActivity(reader, id, { includeDeleted: true }) as Promise<Rec | null>,
     listItem: (r) => r,
     display: (r) => {
       const type = String(r.type ?? "activity");
