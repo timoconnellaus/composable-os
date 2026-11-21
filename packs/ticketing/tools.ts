@@ -143,7 +143,7 @@ export const orderStart = defineTool({
 
 export const myTickets = defineTool({
   description:
-    "The signed-in customer's own tickets, newest first: each with its event, ticket type, " +
+    "The signed-in customer's own tickets: each with its event, ticket type, " +
     "code and state (valid, used or void). Only the caller's tickets exist here; a code that " +
     "is not theirs finds nothing. Filter by event or by code. Read-only.",
   input: z.object({
@@ -180,7 +180,6 @@ export const myTickets = defineTool({
       ...(conditions.length === 0
         ? {}
         : { filter: conditions.length === 1 ? conditions[0] : { and: conditions } }),
-      sort: { field: "createdAt", direction: "desc" },
       limit: input.limit,
       ...(input.cursor ? { cursor: input.cursor } : {}),
     });
