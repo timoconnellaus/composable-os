@@ -15,7 +15,7 @@ import { Label } from "@composable-os/ui/components/label";
 import { RadioGroup, RadioGroupItem } from "@composable-os/ui/components/radio-group";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
-import { guestStart } from "../server/orders.public.ts";
+import { guestStart } from "../lib/guest-api.ts";
 
 interface BuySearch {
   object?: string;

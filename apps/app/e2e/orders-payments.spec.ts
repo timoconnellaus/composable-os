@@ -53,7 +53,9 @@ test("a guest buys, pays on the provider's page, and staff refund it through app
   // The guest: a browser with no session.
   const guestContext = await browser.newContext({ storageState: { cookies: [], origins: [] } });
   const guest = await guestContext.newPage();
-  await open(guest, `/buy?object=deals.deal&id=${deal.id}`);
+  // The public pages are outside the signed-in shell: their buttons wait for hydration.
+  await guest.goto(`/buy?object=deals.deal&id=${deal.id}`);
+  await expect(guest.getByTestId("buy-continue")).toBeEnabled({ timeout: 30_000 });
   await guest.getByLabel("Email").fill(`${unique("guest")}@buyers.test`.toLowerCase());
   await guest.getByTestId("buy-continue").click();
   await expect(guest).toHaveURL(/\/order\/ord_[^?]+\?token=[0-9a-f]{64}/);
@@ -62,6 +64,7 @@ test("a guest buys, pays on the provider's page, and staff refund it through app
   await expect(guest.getByTestId("guest-order-state")).toHaveAttribute("data-state", "pending");
 
   // The provider's own page (the fake one): the card is typed there, never in the CRM.
+  await expect(guest.getByTestId("guest-pay")).toBeEnabled({ timeout: 30_000 });
   await guest.getByTestId("guest-pay").click();
   await expect(guest).toHaveURL(/\/gatekeeper\/payments\/fake\/pay\/fcs_/);
   await expect(guest.getByRole("heading", { name: /Fake payment page/i })).toBeVisible();

@@ -25,6 +25,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { guestOrder, guestPay } from "../lib/guest-api.ts";
 import {
   formatMoney,
   fromMajorInput,
@@ -32,7 +33,6 @@ import {
   ORDER_STATE_VARIANTS,
   toMajorInput,
 } from "../lib/money.ts";
-import { guestOrder, guestPay } from "../server/orders.public.ts";
 
 export const Route = createFileRoute("/order/$id")({
   validateSearch: (search: Record<string, unknown>): { token?: string } =>
