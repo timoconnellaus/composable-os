@@ -89,7 +89,7 @@ function hostSendsCodes(env: ApiEnv) {
 }
 
 /** Customer sign-in for this env, or null when CUSTOMER_AUTH_SECRET is not set. */
-function customers(env: ApiEnv): CustomerIdentity | null {
+export function customers(env: ApiEnv): CustomerIdentity | null {
   if (!env.CUSTOMER_AUTH_SECRET) return null;
   return getCustomerIdentity(env, hostSendsCodes(env), async () => {
     const target = await customerCodeTarget(createCrmDb(env.DB).query);
@@ -121,7 +121,8 @@ function bearer(request: Request): string | null {
   return match[1] as string;
 }
 
-async function outsideContext(
+/** The context of a customer's or the public's call. Also the client-app binding's (bound.ts). */
+export async function outsideContext(
   env: ApiEnv,
   db: CrmDb,
   principal: CustomerPrincipal | PublicPrincipal,
