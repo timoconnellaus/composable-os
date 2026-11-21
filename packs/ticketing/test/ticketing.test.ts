@@ -20,7 +20,8 @@ function host(tickets: Record<string, unknown>[] = [], order?: Record<string, un
     },
     operations: {
       // The host's person.get answers with the person's fields (displayName), not a record.
-      "person.get": (input) => (input.id === "per_ann" ? { id: "per_ann", displayName: "Ann Buyer" } : null),
+      "person.get": (input) =>
+        input.id === "per_ann" ? { id: "per_ann", displayName: "Ann Buyer" } : null,
       "order.get": () =>
         order ?? { state: "paid", balance: 0, currency: "AUD", balanceDueAt: null },
     },
@@ -54,7 +55,10 @@ describe("ticketing pack (test host)", () => {
     expect(h.manifest.tools.orderStart?.audiences).toEqual(["customer", "public"]);
     expect(h.manifest.tools.myTickets?.audiences).toEqual(["customer"]);
     expect(h.manifest.tools.salesSummary?.audiences).toBeUndefined();
-    expect(h.manifest.tools.checkIn).toMatchObject({ risk: "write", permission: "ticketing:checkin" });
+    expect(h.manifest.tools.checkIn).toMatchObject({
+      risk: "write",
+      permission: "ticketing:checkin",
+    });
     expect(h.manifest.tools.undoCheckIn?.permission).toBe("ticketing:checkin");
     expect(h.manifest.roles).toEqual({
       door: {
@@ -117,7 +121,14 @@ describe("ticketing pack (test host)", () => {
     expect(out.total).toBe(9000);
     expect(out.token).toBe("tok");
     expect(out.lines).toEqual([
-      { id: "oln_1", ticketTypeId: "tt1", title: "Shared room", quantity: 2, unitPrice: 4500, total: 9000 },
+      {
+        id: "oln_1",
+        ticketTypeId: "tt1",
+        title: "Shared room",
+        quantity: 2,
+        unitPrice: 4500,
+        total: 9000,
+      },
     ]);
   });
 
@@ -140,7 +151,11 @@ describe("ticketing pack (test host)", () => {
         },
       },
     });
-    const out = await h.runTool<{ items: unknown[] }>("myTickets", {}, { caller: { kind: "customer" } });
+    const out = await h.runTool<{ items: unknown[] }>(
+      "myTickets",
+      {},
+      { caller: { kind: "customer" } },
+    );
     expect(out.items).toEqual([
       { id: "tkt1", event: "ev1", ticketType: "tt1", code: CODE, state: "valid" },
     ]);
@@ -163,7 +178,15 @@ describe("ticketing pack (test host)", () => {
         "ticketing.event": [{ id: "ev1", name: "Camp", status: "on_sale", available: 30 }],
         "ticketing.tickettype": [
           { id: "tt1", event: "ev1", name: "Shared", price: 450, taken: 12, held: 2, available: 6 },
-          { id: "tt2", event: "ev1", name: "Single", price: 650, taken: 3, held: 0, available: null },
+          {
+            id: "tt2",
+            event: "ev1",
+            name: "Single",
+            price: 650,
+            taken: 3,
+            held: 0,
+            available: null,
+          },
           { id: "tt3", event: "other", name: "Elsewhere", price: 1, taken: 99 },
         ],
       },
@@ -259,7 +282,9 @@ describe("checkIn (test host)", () => {
 
 describe("undoCheckIn (test host)", () => {
   it("makes a used ticket valid again, and leaves any other alone", async () => {
-    const h = host([ticket({ state: "used", usedAt: "2026-11-21T09:00:00.000Z", usedBy: "usr_coach" })]);
+    const h = host([
+      ticket({ state: "used", usedAt: "2026-11-21T09:00:00.000Z", usedBy: "usr_coach" }),
+    ]);
     const out = await h.runTool<{ undone: boolean; ticket: { state: string; usedBy: unknown } }>(
       "undoCheckIn",
       { ticketId: "tkt1" },
