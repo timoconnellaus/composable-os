@@ -24,6 +24,22 @@ for (const app of ["apps/app", "apps/runner"]) {
   console.log(`created ${app}/.dev.vars`);
 }
 
+// Stage 41: customer sign-in locally (a member signing in to log a session, in the programs e2e
+// spec). Its own secret, never the staff one; added once to a .dev.vars that lacks it.
+{
+  const target = join(root, "apps/app/.dev.vars");
+  if (existsSync(target)) {
+    const vars = readFileSync(target, "utf8");
+    if (!/^CUSTOMER_AUTH_SECRET=./m.test(vars)) {
+      writeFileSync(
+        target,
+        `${vars.replace(/^CUSTOMER_AUTH_SECRET=.*$/m, "").trimEnd()}\n# Local only: customer sign-in.\nCUSTOMER_AUTH_SECRET=${randomBytes(32).toString("hex")}\n`,
+      );
+      console.log("added CUSTOMER_AUTH_SECRET to apps/app/.dev.vars");
+    }
+  }
+}
+
 // In a git worktree, copy provider keys (AI_KEY_*) from the main checkout's apps/app/.dev.vars
 // when this worktree's file lacks them, so keys set once (for example voice: AssemblyAI,
 // ElevenLabs) work in every worktree. Values are never printed.
