@@ -21,7 +21,13 @@ import type { Principal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { applyTransition } from "../records/lifecycle.ts";
 import { callerOf, type Mover } from "../records/transitions.ts";
-import { type AnyRow, orgReader, type VisibleSource, visibleSource } from "../visibility/index.ts";
+import {
+  type AnyRow,
+  buyableSource,
+  orgReader,
+  type VisibleSource,
+  visibleSource,
+} from "../visibility/index.ts";
 import { claimOrderPlaces } from "./holds.ts";
 import {
   GRANTS_PER_ORDER_CEILING,
@@ -148,7 +154,11 @@ function windowMoment(value: unknown, end: "start" | "end"): string | null {
  * quantity over the record's most per order (ADR 0435). A customer or the public buys only what
  * they may read (ADR 0438): a record the seam does not show `buyer` gets the same answer.
  */
-/** Whether `principal` may read the record through the seam (their own, or the public's). */
+/**
+ * Whether `principal` may buy the record: read it through the seam as their own or as the
+ * public. Not what they read only through their own records (ADR 0439): a ticket type of an
+ * event that is no longer on sale stays readable to its holder and cannot be bought.
+ */
 async function readable(
   db: Kysely<CoreDatabase>,
   principal: Principal,
@@ -157,7 +167,7 @@ async function readable(
 ): Promise<boolean> {
   let source: VisibleSource<AnyRow, string>;
   try {
-    source = visibleSource({ principal }, object);
+    source = buyableSource({ principal }, object);
   } catch {
     return false;
   }

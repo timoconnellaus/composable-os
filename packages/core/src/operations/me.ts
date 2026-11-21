@@ -59,19 +59,46 @@ async function myPerson(ctx: HandlerContext): Promise<MePerson> {
 
 const shortText = (max: number) => z.string().trim().max(max);
 
+/**
+ * me.get adds the account's own sign-in address to the Person. `primaryEmail` is the Person's
+ * contact address, which staff can change; `signInEmail` is the address the emailed code was
+ * sent to and verified on, which only signing in sets. Link a client's own records to a customer
+ * by `signInEmail` alone.
+ */
+export const meGetSchema = mePersonSchema.extend({
+  signInEmail: z
+    .string()
+    .describe(
+      "The address you sign in with: the one the emailed code verified, lower-cased. Not the " +
+        "Person's contact email (primaryEmail), which staff can change. The only address to " +
+        "trust when linking records kept elsewhere to this customer.",
+    ),
+  signInEmailVerified: z
+    .boolean()
+    .describe(
+      "Whether signInEmail was verified by an emailed code. True for every signed-in customer.",
+    ),
+});
+
 export const meGet = defineOperation({
   name: "me.get",
   description:
-    "Your own Person, as a signed-in customer: your name, primary email and primary phone. " +
-    "Read-only.",
+    "Your own Person, as a signed-in customer: your name, primary email and primary phone, and " +
+    "your account's sign-in address (signInEmail, the one the emailed code verified, with " +
+    "signInEmailVerified). Link records kept elsewhere to a customer by signInEmail only: " +
+    "primaryEmail is a contact address staff can change. Read-only.",
   input: z.object({}),
-  output: mePersonSchema,
+  output: meGetSchema,
   permission: "records:read",
   risk: "read",
   audiences: ["customer"],
   mcp: { expose: false },
   async handler(_input, ctx) {
-    return myPerson(ctx);
+    const person = await myPerson(ctx);
+    // The host reads the caller's own account only (the verified principal's), never an input.
+    const signIn = await ctx.signIn?.();
+    if (!signIn) throw new NotFoundError("customer account", customerOf(ctx).customerId);
+    return { ...person, signInEmail: signIn.email, signInEmailVerified: signIn.verified };
   },
 });
 

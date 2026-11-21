@@ -40524,6 +40524,11 @@
                         "type": "integer",
                         "minimum": -365,
                         "maximum": 365
+                      },
+                      "zoneField": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
                       }
                     },
                     "required": [
@@ -41250,6 +41255,11 @@
                         "type": "integer",
                         "minimum": -365,
                         "maximum": 365
+                      },
+                      "zoneField": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
                       }
                     },
                     "required": [
@@ -42049,6 +42059,11 @@
                         "type": "integer",
                         "minimum": -365,
                         "maximum": 365
+                      },
+                      "zoneField": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
                       }
                     },
                     "required": [
@@ -43370,6 +43385,11 @@
                         "type": "integer",
                         "minimum": -365,
                         "maximum": 365
+                      },
+                      "zoneField": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
                       }
                     },
                     "required": [
@@ -60882,7 +60902,7 @@
     },
     {
       "name": "x.ticketing.salesSummary",
-      "description": "How one event is selling, per ticket type: places sold (taken), held by orders being paid, remaining (null when unlimited), and revenue (the line totals of orders paid in full or by deposit, in the currency's minor unit), with the event's totals. For the dashboard and for questions such as 'how are sales going'. Read-only. (Extension tool from Ticketing 0.1.0.)",
+      "description": "How one event is selling, per ticket type: places sold (taken), held by orders being paid, remaining (null when unlimited), and revenue (the line totals of orders paid in full or by deposit, in the currency's minor unit), with the event's totals and the currency. Prices are in the major unit. For the dashboard and for questions such as 'how are sales going'. Read-only. (Extension tool from Ticketing 0.1.0.)",
       "risk": "read",
       "audiences": [
         "staff"
@@ -60930,6 +60950,13 @@
               "status"
             ],
             "additionalProperties": false
+          },
+          "currency": {
+            "description": "The currency the prices are in (ISO 4217): the deployment's one currency, from the host. Null until an admin sets it, and until then nothing can be bought.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "ticketTypes": {
             "type": "array",
@@ -61009,6 +61036,7 @@
         },
         "required": [
           "event",
+          "currency",
           "ticketTypes",
           "totals"
         ],

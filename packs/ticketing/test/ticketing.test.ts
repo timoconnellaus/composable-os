@@ -151,6 +151,32 @@ describe("ticketing pack (test host)", () => {
     const h = createTestHost(extension, {
       operations: {
         "my.list": (input) => {
+          // The ticket's event and type, as the seam gives a holder them (ADR 0439).
+          if (input.object === "ticketing.event") {
+            return {
+              items: [
+                {
+                  id: "ev1",
+                  title: null,
+                  values: {
+                    name: "Camp",
+                    startsAt: "2027-02-01T00:00:00Z",
+                    endsAt: null,
+                    timezone: "Asia/Bangkok",
+                    venue: "Phuket",
+                    status: "ended",
+                  },
+                },
+              ],
+              nextCursor: null,
+            };
+          }
+          if (input.object === "ticketing.tickettype") {
+            return {
+              items: [{ id: "tt1", title: null, values: { name: "Shared" } }],
+              nextCursor: null,
+            };
+          }
           asked.push(input);
           return {
             items: [
@@ -171,7 +197,20 @@ describe("ticketing pack (test host)", () => {
       { caller: { kind: "customer" } },
     );
     expect(out.items).toEqual([
-      { id: "tkt1", event: "ev1", ticketType: "tt1", code: CODE, state: "valid" },
+      {
+        id: "tkt1",
+        event: "ev1",
+        ticketType: "tt1",
+        code: CODE,
+        state: "valid",
+        eventName: "Camp",
+        startsAt: "2027-02-01T00:00:00Z",
+        endsAt: null,
+        timeZone: "Asia/Bangkok",
+        venue: "Phuket",
+        eventStatus: "ended",
+        ticketTypeName: "Shared",
+      },
     ]);
     await h.runTool("myTickets", { code: CODE, event: "ev1" }, { caller: { kind: "customer" } });
     expect(asked[0]).toMatchObject({ object: "ticketing.ticket", limit: 50 });
@@ -210,12 +249,16 @@ describe("ticketing pack (test host)", () => {
           expect(input.params).toEqual(["ticketing.tickettype", "tt1", "tt2"]);
           return { rows: [{ id: "tt1", revenue: 540000 }], columns: [], rowCount: 1 };
         },
+        // The currency the amounts are in is the host's setting, not the pack's.
+        "order.settings.get": () => ({ currency: "AUD" }),
       },
     });
     const out = await h.runTool<{
       ticketTypes: { id: string; sold: number; revenue: number; remaining: number | null }[];
       totals: Record<string, unknown>;
+      currency: string | null;
     }>("salesSummary", { eventId: "ev1" });
+    expect(out.currency).toBe("AUD");
     const rows = out.ticketTypes.map((t) => [t.id, t.sold, t.revenue, t.remaining]);
     expect(rows.sort()).toEqual([
       ["tt1", 12, 540000, 6],
@@ -252,6 +295,7 @@ describe("eventsOnSale (test host)", () => {
                   },
                 ],
                 nextCursor: null,
+                currency: "AUD",
               };
         },
         "capacity.get": (input) =>
@@ -274,6 +318,8 @@ describe("eventsOnSale (test host)", () => {
           expect.objectContaining({
             id: "tt1",
             price: 450,
+            // Passed on from the host's answer, beside the price.
+            currency: "AUD",
             deposit: 100,
             availability: { status: "low", available: 3 },
           }),

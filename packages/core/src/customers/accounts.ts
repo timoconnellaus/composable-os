@@ -62,6 +62,32 @@ export async function loadCustomer(
   return row ? toAccount(row) : null;
 }
 
+/**
+ * The address a customer signs in with: the one the emailed code went to and was verified on
+ * (stage 22). Not the Person's contact email, which staff can change: this is the only address
+ * a client may trust to be the customer's own, for linking records it keeps elsewhere.
+ */
+export interface CustomerSignIn {
+  email: string;
+  verified: boolean;
+}
+
+/** The sign-in address of the account `customerId`, while it is active and linked. */
+export async function loadCustomerSignIn(
+  db: Kysely<CoreDatabase>,
+  customerId: string,
+  personId: string,
+): Promise<CustomerSignIn | null> {
+  const row = await db
+    .selectFrom("core_customer")
+    .select(["email", "email_verified"])
+    .where("id", "=", customerId)
+    .where("person_id", "=", personId)
+    .where("status", "=", "active")
+    .executeTakeFirst();
+  return row ? { email: row.email, verified: row.email_verified === 1 } : null;
+}
+
 export async function loadCustomerByEmail(
   db: Kysely<CoreDatabase>,
   email: string,

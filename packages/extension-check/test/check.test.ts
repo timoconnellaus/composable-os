@@ -144,6 +144,7 @@ describe("what an extension opens to people outside the org (stage 22, ADR 0414)
         supplier: {},
         event: {
           public: { read: ["name"], when: { field: "status", in: ["on_sale"] } },
+          customerVia: { from: "shop.order", field: "event", read: ["name", "startsAt"] },
         },
         tier: {
           public: { read: ["price"], when: { via: "event", field: "status", in: ["on_sale"] } },
@@ -162,6 +163,7 @@ describe("what an extension opens to people outside the org (stage 22, ADR 0414)
       "This extension opens the host to people outside the org. Review these lines:",
       "  customers see shop.order where buyer is them: read status, total; write nothing",
       "  the public sees shop.event while status is on_sale: read name",
+      "  customers see shop.event where their own shop.order's event points to it: read name, startsAt",
       "  the public sees shop.tier while its event's status is on_sale: read price",
       "  tool cancel (write) is open to customer, and may also set shop.order: status",
     ]);

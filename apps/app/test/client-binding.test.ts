@@ -13,7 +13,7 @@ import { keepCustomerSignedIn } from "@composable-os/client";
 import { inviteCustomer, issueDeviceSession } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type ApiEnv, handleCustomerAuth } from "../src/server/http/api.ts";
+import { type ApiEnv, handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
 import { handleBound } from "../src/server/http/bound.ts";
 import type { McpEnv } from "../src/server/mcp/handler.ts";
 import { runOperation } from "../src/server/operations.ts";
@@ -239,6 +239,52 @@ describe("a bound Worker can never act as staff (criterion 3)", () => {
     expect(
       (await call("me.get", {}, { authorization: `Bearer ${customer.accessToken}` })).status,
     ).toBe(401);
+  });
+
+  it("a company's own server checks a native app's customer with me.get on the host's public surface", async () => {
+    // ADR 0421, amended 2026-11-21. The app signs in and exchanges its session for tokens
+    // (ADR 0419). Its own server is sent the access token and asks the host who it is: me.get on
+    // the public HTTPS surface with the token as a bearer credential. Not over the binding,
+    // which takes cookies only.
+    const HOST = "https://crm.test";
+    const exchanged = await handleApi(
+      new Request(`${HOST}/api/v1/auth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ada.cookie },
+        body: JSON.stringify({ deviceName: "Ada's phone" }),
+      }),
+      boundEnv,
+    );
+    expect(exchanged?.status, await exchanged?.clone().text()).toBe(200);
+    if (!exchanged) throw new Error("no token route");
+    const { accessToken } = ((await exchanged.json()) as { data: { accessToken: string } }).data;
+    const asTheServer = (token: string) =>
+      handleApi(
+        new Request(`${HOST}/api/v1/op/me.get`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body: "{}",
+        }),
+        boundEnv,
+      );
+    const checked = await asTheServer(accessToken);
+    expect(checked?.status).toBe(200);
+    if (!checked) throw new Error("no surface");
+    const me = ((await checked.json()) as { data: Record<string, unknown> }).data;
+    // The address the emailed code verified: what the company links its own member records by.
+    expect(me).toMatchObject({
+      id: ada.personId,
+      signInEmail: ada.email.toLowerCase(),
+      signInEmailVerified: true,
+    });
+    // A token that is not a session's says nothing about anyone.
+    const forged = await asTheServer(`${accessToken.slice(0, -4)}AAAA`);
+    expect(forged?.status).toBe(401);
+    // The binding still refuses the same token outright.
+    expect(await call("me.get", {}, { authorization: `Bearer ${accessToken}` })).toMatchObject({
+      status: 401,
+      body: { error: { code: "forbidden", details: { reason: "binding_takes_cookies_only" } } },
+    });
   });
 
   it("serves only the surface and customer sign-in: no staff UI, MCP or token routes", async () => {

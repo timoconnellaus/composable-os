@@ -328,6 +328,9 @@ export function checkAutomation(
       break;
     case "dateRelative":
       requireField(`${path}.trigger.field`, trigger.field, ["date", "datetime"]);
+      if (trigger.zoneField !== undefined) {
+        requireField(`${path}.trigger.zoneField`, trigger.zoneField, ["timezone"]);
+      }
       break;
     case "manual":
       break;

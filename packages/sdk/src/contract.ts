@@ -105,7 +105,8 @@ export type FieldSpec =
         | "user"
         | "email"
         | "phone"
-        | "url";
+        | "url"
+        | "timezone";
     })
   | (FieldBase &
       NumberBounds & {
@@ -235,6 +236,17 @@ export interface ObjectSpec {
    * bank). Never read by the public. Only shipped extensions and an org's own may declare it.
    */
   signedIn?: SignedInSpec;
+  /**
+   * What a customer may read of a record that one of their own records points to (ADR 0439):
+   * the fields in `read`, of the records that a record of `from` (an object of this extension
+   * that declares a `customer`) whose customer is the caller points to through its relation
+   * `field`. A ticket's holder reads its event's name, times and venue whatever the event's
+   * state. Deny by default: left out, a customer reads nothing of this object through their own
+   * records. An object that declares a `customer` cannot declare it; one that declares `public`
+   * or `signedIn` can, and a customer then reads both. Only shipped extensions and an org's own
+   * may declare it.
+   */
+  customerVia?: CustomerViaSpec;
   /**
    * A working copy staff edit and published versions (ADR 0446): `content` names the fields a
    * version keeps. `record.publish` snapshots them as the next version (a person with the
@@ -565,6 +577,19 @@ export interface PublicSpec {
     /** The values for which the record is public. */
     in: readonly string[];
   };
+}
+
+/**
+ * What a customer reads of a record their own record points to (ADR 0439): see
+ * `ObjectSpec.customerVia`. `from` is `<extension>.<object>`, as a relation's `to` is.
+ */
+export interface CustomerViaSpec {
+  /** An object of this extension that declares a `customer` (a ticket). */
+  from: string;
+  /** A relation of `from` to one record of this object (the ticket's `event`). */
+  field: string;
+  /** Fields of this object its customer may read. */
+  read: readonly string[];
 }
 
 /** What every signed-in customer may read: see `ObjectSpec.signedIn` (ADR 0447). */

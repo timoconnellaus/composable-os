@@ -153,6 +153,24 @@ extension declares it; it never implements it. Each behaviour the platform has i
   customer's write sets (through your tool) must point at a record they can see: the host
   refuses another customer's as not found, so never check it in a tool. See Programs:
   `objects.session`, `objects.exercise`.
+- **`customerVia`** on an object: what a customer reads of a record one of their own records
+  points to (ADR 0439), `customerVia: { from: "<id>.<object>", field, read: [fields] }`. `from` is
+  another of your objects that declares a `customer` (a ticket), `field` its relation to this one
+  (the ticket's `event`), which its `customer.read` must list, and `read` the fields of this object
+  they may see. A ticket's holder then reads its event's name, dates and venue whatever state the
+  event is in, live, and nothing of an event they hold no ticket for. It can sit beside `public`
+  or `signedIn` (an event is public while on sale): the customer then reads both, each
+  declaration's fields on the records it covers. Read it with `my.list` and `my.get` (an
+  `id in [...]` filter of the ids your customer's records hold); never read the record as the
+  extension to fill in names, and never copy its fields onto the customer's record. Reading is
+  not buying: a customer buys only what they may read as their own or as the public. Only a pack
+  or the org's own extension may declare it. See Ticketing: `objects.event.customerVia`,
+  `objects.tickettype.customerVia`, and the `myTickets` tool.
+- **A `timezone` field** (ADR 0460) for a record whose days belong to a place (an event in
+  another country): an IANA name (`Asia/Bangkok`), refused when it is not one; left empty on a
+  new record it is the deployment's zone. Keep instants in `datetime` fields (UTC) and the zone
+  beside them, return both from your tools, and show times in the record's zone. See Ticketing:
+  `objects.event.fields.timezone`.
 - **`publishable`** on an object: a working copy staff edit and published versions (ADR 0446),
   `publishable: { content: [fields] }`. `record.publish` (a person with `records:publish`, never
   an AI actor or your code) snapshots the content fields as the next version; `record.version`
