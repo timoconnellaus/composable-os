@@ -303,9 +303,10 @@ export type UseMutation = <I, O>(options: {
  * The operations each hook calls (ADR 0453). A customer's client and the public's get the
  * reading hooks; the staff client gets the publish controls too.
  *
- * Criterion 12 (an AI actor's publish queued for a person) is undecided: `usePublish` calls
- * `record.publish`, which is a person's only. Whatever is decided changes this map and that one
- * hook, not the blocks.
+ * The publish controls are a person's: `usePublish` calls `record.publish`, which publishes at
+ * once for a person with the permission. An AI actor's call of the same operation waits for a
+ * person to approve it, whatever the policy (criterion 12, ADR 0480); that is the host's, so
+ * no hook and no block changes for it.
  */
 export const CONTENT_HOOKS_CALL = {
   usePosts: ["content.list"],
