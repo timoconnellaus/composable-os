@@ -667,6 +667,70 @@
       "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
     },
     {
+      "name": "media.serve",
+      "description": "Whether the caller may be served one picture, and at what width: staff any live one; a customer or the public only one that a published record they may read shows. Anything else is not found. The media route (`/api/media/<id>`) streams it. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A media item's id"
+          },
+          "width": {
+            "description": "The width asked for",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The width to serve; null for the original"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Served because published content shows it"
+          }
+        },
+        "required": ["id", "key", "type", "bytes", "width", "public"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "my.get",
       "description": "One of your own records (or one that a record of yours points to, such as your ticket's event), as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.",
       "risk": "read",
@@ -1523,6 +1587,53 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "x.content.categories",
+      "description": "Every category of posts, by name: its id, name and address (slug), for a site's menu or a post's label. Read-only. (Extension tool from Content 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 100,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": ["string", "null"]
+                },
+                "slug": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "name", "slug"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["categories"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "content"
     },
     {
       "name": "x.programs.classToday",

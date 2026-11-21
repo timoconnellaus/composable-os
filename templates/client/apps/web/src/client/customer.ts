@@ -85,6 +85,14 @@ export type Operations = {
     output: { id: string; displayName: string; givenName: (string) | (null); familyName: (string) | (null); primaryEmail: (string) | (null); primaryPhone: (string) | (null) };
   };
   /**
+   * Whether the caller may be served one picture, and at what width: staff any live one; a customer or the public only one that a published record they may read shows. Anything else is not found. The media route (`/api/media/<id>`) streams it. Read-only.
+   */
+  "media.serve": {
+    kind: "query";
+    input: { id: string; width?: number };
+    output: { id: string; key: string; type: string; bytes: number; width: (number) | (null); public: boolean };
+  };
+  /**
    * One of your own records (or one that a record of yours points to, such as your ticket's event), as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.
    */
   "my.get": {
@@ -154,6 +162,7 @@ export const operations = {
   "me.sessions.revoke": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
   "me.signOut": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
   "me.update": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
+  "media.serve": { kind: "query", invalidates: [] },
   "my.get": { kind: "query", invalidates: [] },
   "my.list": { kind: "query", invalidates: [] },
   "order.cancel": { kind: "mutation", invalidates: ["order.get","order.view"] },

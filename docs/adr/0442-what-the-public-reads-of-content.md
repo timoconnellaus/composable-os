@@ -110,3 +110,9 @@ which fields are returned, so that is two layers and the tests catch the one tha
   (left for a later change).
 - Ticketing's event becomes publishable in step 6: its public reads, its buying (`buyableSource`)
   and `capacity.get` then follow the published version with no change here.
+
+## Amendment, 2026-11-22 (stage 28, ADR 0444)
+Restoring a record from the Trash whose slug another live record took meanwhile is now a
+`conflict` naming the slug and the record holding it, checked before the write; the internal
+error this ADR listed under its consequences is gone. A picture in a published version is served
+to the public by `media.serve` (ADR 0444).

@@ -48,3 +48,8 @@ one, 1. Selecting every column in the preview source alone fails no test, for AD
   preview. To show more, the object declares more as public.
 - There is no list or revoke of links yet; they end on their own within a week. The editor (step
   5) can add both over the same table.
+
+## Amendment, 2026-11-22 (stage 28, ADR 0444)
+Preview links are listed (`content.previewLinks`, staff: when, who, until when, and an id that is
+the start of the token's hash, never the token) and stopped (`content.revokePreview`, one or all)
+from the publish controls on the record page.

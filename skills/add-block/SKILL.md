@@ -53,7 +53,12 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `createTicketingHooks({ useQuery, useMutation, useState }, api)` from
    `@composable-os/pack-ticketing/client` (Programs: `createProgramsHooks({ useQuery,
    useMutation, useState, useEffect }, api)` from `@composable-os/pack-programs/client`, whose
-   builder saves itself and so needs `useEffect`) and pass them down. `api` is the client the
+   builder saves itself and so needs `useEffect`; Content: `createContentHooks({ useQuery,
+   useMutation }, api)` from `@composable-os/pack-content/client`) and pass them down. Content's
+   rich text blocks (`content-rich-text`, `content-native-rich-text`) take the document itself
+   and a `mediaUrl` for pictures: on the web a route of the app's own that forwards
+   `GET /api/media/<id>?w=` to the host's binding (which serves it); in the app the host's
+   absolute address, and the native one an `openUrl` (React Native's `Linking.openURL`). `api` is the client the
    screen's user holds: the customer client on a customer's screen, the role client
    (`staff.client(createTicketingDoorClient)`) on the door scanner. The hooks returned are only
    those that client can back, and the block's prop names the hooks it calls
