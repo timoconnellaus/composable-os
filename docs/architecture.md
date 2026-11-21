@@ -1180,6 +1180,17 @@ copy; twelve blocks (the program builder, the exercise bank, today and session, 
 history and progress, the coach's client view; web and native) are built on it. In development
 `apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended).
 
+**Courses** (`packs/courses`, stage 42; [ADR 0478](adr/0478-the-courses-pack.md)): themes,
+courses and bundles (publishable, sellable with a tax code, granting an enrolment), enrolments and
+progress, an outline of sections of lessons (video, text, a Programs session, a download) whose
+material is for holders. It requires Programs (`requires`, checked at install); progress is
+written only with access (`customer.requireAccess`); a session lesson's program is assigned on the
+student's first open by an automation calling `x.programs.assign` (a tool's writes start
+automations, and a tool or an automation may call another extension's tool). Its tools ask the
+host (`access.check`, `public.*`, `my.*`, `order.start`); a lesson names its video and the app asks
+`media.play`, so the signing key stays in cos-app. Hooks, web blocks (catalogue, course page,
+player, my courses, the course builder) and native blocks marked `noPurchase` (no price, no buy).
+
 **Ticketing** (`packs/ticketing`, stage 27) is the first pack that is not about a CRM: events,
 ticket types and tickets, built from these behaviours alone, with tools that compose the host's
 operations (`eventsOnSale`, `orderStart`, `myTickets`, `salesSummary`, `checkIn`, `undoCheckIn`)
@@ -1292,6 +1303,7 @@ calculates a price, checks a capacity or checks a permission.
 | Ticketing | `states`, `capacity`, `sellable`, `customer`, `public`, `customerVia`, a `timezone` field, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
+| Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings, memberships | `recurring`, `allowance`, recurring billing | later |
 
 ### Client repos

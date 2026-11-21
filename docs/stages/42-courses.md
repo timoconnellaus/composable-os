@@ -655,6 +655,46 @@ ADR 0479, migration 0516. Where the build read the spec one way, or decided what
   nothing is charged without registrations.
 - Not run: Stripe in test mode (criterion 13, the runbook's part 8).
 
+## Build steps 1 to 3 (the spine) and 4, 6, 7 and the draft (the pack), as built (2026-11-22)
+ADRs 0475 to 0478, migration 0510. Where the build read the spec one way, or decided what it left
+open (the ADRs have the rest):
+
+- **Stream is reached by the host's own REST calls**, not a gatekeeper and not the Workers
+  binding (no tus upload, no token expiry); the signing key is cos-app's alone. A pack tool never
+  signs: `lesson` names the video and where it is shown, and the app asks `media.play`.
+- **Whole fields for holders only are not built**; holders' parts of a document are. **No Stream
+  webhook** yet: staff ask (`media.videoRefresh`). **The poster frame** is Stream's, with the token.
+- **A bundle's courses are read from its published version**: a course added to a bundle reaches
+  earlier buyers once a person publishes the bundle.
+- **Courses requires Programs** as a declared `requires` the install checks. **Progress needs
+  access** (`customer.requireAccess`): the host refuses a student's progress without it, so no
+  session program is assigned to someone without access.
+- **The app gets no price and no buy button**: every native block is `noPurchase`, held by the
+  block lint.
+- **A course and a bundle declare `txcd_20060158`** (on-demand online courses, no place).
+  The dashboard's revenue is what buyers paid; net of tax reads ADR 0479's columns (not yet done).
+- **Not built here:** `cos courses import` (step 8's import), the first client (step 9).
+
+### Before the first client's import: check the outline against two real programs
+The precondition of step 4 (two of the client's real programs read against the outline) could not
+be met from the build; the outline follows the owner's answer (lessons, each a video and some
+text, sometimes a training session to follow). Before the import is written, read two real
+programs from the hosted platform and check, for each:
+1. Every lesson is one of video, text, session or download, and nothing else the studio needs
+   (a quiz, an assignment, a live class) is in them; anything else is listed and decided.
+2. A lesson's video and its text fit one `video` lesson (a video and notes), or the text needs a
+   lesson of its own.
+3. A training session to follow maps to one Programs program and one session of it (a week and a
+   position); a session that spans several, or a program not yet in Programs, is listed.
+4. Sections are one level deep (the outline has no sub-sections).
+5. The old platform's ids of lessons are stable and unique, to be each lesson's `sourceId` and to
+   match the progress export by.
+6. Which lessons are free previews, and that "every lesson open from the first day" holds (no
+   drip, no order) for these programs.
+7. Each video's source (the studio's file, or a Vimeo or Wistia link Stream can copy from) and
+   its captions (WebVTT, or `.srt` to convert).
+8. Durations are known (minutes), and no lesson's video is over 6 hours (the upload's limit).
+
 ## Still open
 - **Whether Stripe Tax can take an event's place at Checkout**: answered in build step 1, yes
   (above).
