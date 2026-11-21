@@ -917,6 +917,35 @@ export interface CoreDeviceSessionTable {
   last_used_at: string;
 }
 
+/** A staff invite (migration 0490, ADR 0455). */
+export interface CoreUserInviteTable {
+  id: string;
+  /** Lower case. */
+  email: string;
+  role: UserRole;
+  pack_role: string | null;
+  /** JSON list of permission names, or null. */
+  granted_permissions: string | null;
+  invited_by: string;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  accepted_user_id: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
+}
+
+/** A one-time code for native staff sign-in through the system browser (migration 0490). */
+export interface CoreNativeHandoffTable {
+  code_hash: string;
+  user_id: string;
+  challenge: string;
+  redirect_uri: string;
+  created_at: string;
+  expires_at: string;
+}
+
 export interface CoreIdempotencyClaimTable {
   scope: string;
   idempotency_key: string;
@@ -1952,6 +1981,8 @@ export interface CoreDatabase {
   core_idempotency_key: CoreIdempotencyKeyTable;
   core_idempotency_claim: CoreIdempotencyClaimTable;
   core_device_session: CoreDeviceSessionTable;
+  core_user_invite: CoreUserInviteTable;
+  core_native_handoff: CoreNativeHandoffTable;
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
   core_publish_version: CorePublishVersionTable;

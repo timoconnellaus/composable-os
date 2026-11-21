@@ -17,6 +17,7 @@ import type { FieldDiff } from "./diff.ts";
 import type { ExtensionHost } from "./extensions/host.ts";
 import type { GateFloor } from "./gate.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
+import type { HostMail } from "./invites.ts";
 import type { Judge } from "./judge/types.ts";
 import type { ModelRunner } from "./models.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
@@ -223,6 +224,8 @@ export interface HandlerContext {
   readonly voice?: VoiceRuntime;
   /** The agents' Durable Objects (ADR 0344). Absent: jobs wait in the queue for the cron. */
   readonly agentJobs?: AgentJobHost;
+  /** The host's own mail for staff (ADR 0455): the invite notice. Absent: not sent. */
+  readonly hostMail?: HostMail;
 }
 
 /**

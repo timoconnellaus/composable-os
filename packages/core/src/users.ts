@@ -3,6 +3,7 @@ import type { CrmDb } from "@composable-os/db";
 import { assertUserCapacity } from "./entitlements.ts";
 import { ForbiddenError } from "./errors.ts";
 import { newId } from "./ids.ts";
+import { acceptInvite, inviteColumns, recordInviteAccount } from "./invites.ts";
 import type { ActingUser, Role } from "./principals.ts";
 import { isGrantActive, loadSupportGrant } from "./support.ts";
 
@@ -16,7 +17,9 @@ export interface PrincipalLike {
 /**
  * Finds the `core_user` row for a Principal: by id (Better Auth users), then by email
  * (case-insensitive). Cloudflare Access users have no row until their first request; one is
- * created then (`usr_` id, role member, or admin when they are the first user).
+ * created then (`usr_` id, role member, or admin when they are the first user). A pending staff
+ * invite for the address (ADR 0455) is accepted then, and the row gets its role, pack role and
+ * grants instead: under Access, Access decides who gets in and the invite what they hold.
  */
 export async function resolveActingUser(db: CrmDb, principal: PrincipalLike): Promise<ActingUser> {
   const email = principal.email.trim().toLowerCase();
@@ -36,22 +39,39 @@ export async function resolveActingUser(db: CrmDb, principal: PrincipalLike): Pr
   if (!row) {
     // A hosted plan's user limit (ADR 0211) applies to Access users' first request too.
     await assertUserCapacity(db.query, 1);
-    const now = new Date().toISOString();
+    const at = new Date();
+    const now = at.toISOString();
+    const grant = await acceptInvite(db.query, email, at);
+    const id = newId("user");
     await db.batch([
       db.query
         .insertInto("core_user")
         .values({
-          id: newId("user"),
+          id,
           name: principal.name || email,
           email,
           email_verified: 1,
           image: null,
           created_at: now,
           updated_at: now,
+          ...(grant ? inviteColumns(grant) : {}),
         })
         .onConflict((oc) => oc.column("email").doNothing()),
     ]);
     row = await find();
+    if (grant && row) {
+      // A first request racing this one made the row as a member: the invite still decides.
+      if (row.id !== id) {
+        await db.batch([
+          db.query
+            .updateTable("core_user")
+            .set({ ...inviteColumns(grant), updated_at: now })
+            .where("id", "=", row.id),
+        ]);
+        row = await find();
+      }
+      if (row) await recordInviteAccount(db.query, grant.inviteId, row.id);
+    }
   }
   if (!row) throw new Error(`Could not resolve a CRM user for ${email}`);
   // A deactivated person cannot act (user.deactivate, ADR 0170), whichever identity provider let

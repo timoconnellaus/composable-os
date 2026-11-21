@@ -63,6 +63,7 @@ import { supportOperations } from "./support.ts";
 import { taskOperations } from "./task.ts";
 import { trashOperations } from "./trash.ts";
 import { updateOperations } from "./update.ts";
+import { inviteOperations } from "./invite.ts";
 import { userOperations } from "./user.ts";
 import { viewOperations } from "./view.ts";
 import { voiceOperations } from "./voice.ts";
@@ -75,6 +76,7 @@ export const coreOperations = [
   ...affiliationOperations,
   ...trashOperations,
   ...userOperations,
+  ...inviteOperations,
   ...activityOperations,
   ...taskOperations,
   ...viewOperations,

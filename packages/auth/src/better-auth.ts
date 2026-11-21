@@ -1,9 +1,36 @@
-// Better Auth adapter (the default): email + password and Google sign-in, stored in core_* tables.
-import { assertUserCapacity, newId, PlanLimitError } from "@composable-os/core";
+// Better Auth adapter (the default): email + password, Google sign-in, and a code by email for
+// invited staff and verified accounts (ADR 0455), stored in core_* tables.
+//
+// Sign-up stays closed after the first user unless AUTH_ALLOW_SIGNUP=true. An invite opens it for
+// one address, and only through the code sign-in: the account is made with the invite's role,
+// pack role and grants in the insert, after the invite is marked accepted. Password and Google
+// sign-up never accept an invite.
+import {
+  acceptInvite,
+  assertUserCapacity,
+  checkCodeRequestLimit,
+  inviteColumns,
+  newId,
+  PlanLimitError,
+  type RateLimitBinding,
+  RateLimitedError,
+  rateLimit,
+  recordInviteAccount,
+  staffMayGetCode,
+} from "@composable-os/core";
 import { createDb } from "@composable-os/db";
 import { betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
+import { emailOTP } from "better-auth/plugins/email-otp";
 import type { IdentityProvider, Principal } from "./principal.ts";
+
+/** How the host sends staff sign-in codes (ADR 0455), given by cos-app per env. */
+export interface StaffCodes {
+  /** Sends one code, as the host, through its mail connection. */
+  send(message: { to: string; code: string }): Promise<void>;
+  /** Null when codes can be sent, or why not (no mail connection is chosen). */
+  ready(): Promise<string | null>;
+}
 
 export interface BetterAuthOptions {
   db: D1Database;
@@ -14,12 +41,35 @@ export interface BetterAuthOptions {
   google?: { clientId: string; clientSecret: string } | undefined;
   /**
    * When false (the default), only the first user can sign up; everyone after that needs an
-   * existing account. Set AUTH_ALLOW_SIGNUP=true to open sign-up.
+   * existing account or an invite. Set AUTH_ALLOW_SIGNUP=true to open password sign-up.
    */
   allowSignUp?: boolean;
+  /** Staff sign-in codes: looked up when a code is asked for. Null: not set up. */
+  codes?: (() => StaffCodes | null) | undefined;
+  /** Code requests per address asked for (the customer binding: one inbox, one limit). */
+  codeRateLimit?: RateLimitBinding | undefined;
+  /** Code requests per client address, keyed by a keyed hash of it. */
+  codeAddressRateLimit?: RateLimitBinding | undefined;
+  clock?: () => Date;
 }
 
 export const BETTER_AUTH_BASE_PATH = "/api/auth";
+/** A staff code is six digits, lives five minutes and allows three tries, as a customer's. */
+export const STAFF_CODE_LENGTH = 6;
+export const STAFF_CODE_TTL_SECONDS = 300;
+export const STAFF_CODE_ATTEMPTS = 3;
+
+const CODE_REQUEST_PATH = "/email-otp/send-verification-otp";
+export const CODE_SIGN_IN_PATH = "/sign-in/email-otp";
+
+/**
+ * The email OTP plugin's routes that are served: asking for a code and signing in with it.
+ * Password reset, email change and email verification by code are not.
+ */
+function codeRouteServed(route: string): boolean {
+  if (route === CODE_REQUEST_PATH || route === CODE_SIGN_IN_PATH) return true;
+  return !route.startsWith("/email-otp/") && !route.startsWith("/forget-password/email-otp");
+}
 
 const ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -29,10 +79,85 @@ export function randomId(): string {
   return Array.from(bytes, (byte) => ID_ALPHABET[byte % ID_ALPHABET.length]).join("");
 }
 
+/** A client address as a rate-limit key: hashed with a secret, so no address is passed on. */
+export async function addressKey(address: string, secret: string): Promise<string> {
+  const data = new TextEncoder().encode(`${secret}\n${address}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(digest).slice(0, 16)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * The checks before a code is made, for staff and customers alike: set up at all (the same for
+ * everyone), then the per-client-address and per-address-asked-for limits.
+ */
+export async function beforeCodeRequest(
+  ctx: { headers?: Headers | undefined; body?: unknown },
+  options: {
+    ready?: (() => Promise<string | null>) | undefined;
+    secret: string;
+    codeRateLimit?: RateLimitBinding | undefined;
+    codeAddressRateLimit?: RateLimitBinding | undefined;
+    what: string;
+  },
+): Promise<void> {
+  const problem = options.ready ? await options.ready() : null;
+  if (problem) {
+    throw new APIError("SERVICE_UNAVAILABLE", {
+      message: `${options.what} is not set up: ${problem}`,
+      code: "SIGN_IN_NOT_SET_UP",
+    });
+  }
+  const address = ctx.headers?.get("cf-connecting-ip");
+  if (address && options.codeAddressRateLimit) {
+    const limited = await rateLimit(
+      options.codeAddressRateLimit,
+      `code-from:${await addressKey(address, options.secret)}`,
+    );
+    if (!limited.ok) {
+      throw new APIError("TOO_MANY_REQUESTS", {
+        message: `Too many sign-in code requests; retry in ${limited.retryAfterSeconds}s`,
+        code: "RATE_LIMITED",
+        retryAfterSeconds: limited.retryAfterSeconds,
+      });
+    }
+  }
+  const email = (ctx.body as { email?: unknown } | undefined)?.email;
+  if (typeof email !== "string") return;
+  try {
+    await checkCodeRequestLimit(options.codeRateLimit, email);
+  } catch (error) {
+    if (!(error instanceof RateLimitedError)) throw error;
+    throw new APIError("TOO_MANY_REQUESTS", {
+      message: error.message,
+      code: "RATE_LIMITED",
+      retryAfterSeconds: (error.details as { retryAfterSeconds?: number } | undefined)
+        ?.retryAfterSeconds,
+    });
+  }
+}
+
+/**
+ * One answer for every failed code sign-in (ADR 0455): a wrong code, an expired one, one tried
+ * too often, or none at all say the same, so the answer never tells that a code was sent.
+ */
+export async function uniformCodeSignIn(response: Response): Promise<Response> {
+  if (response.ok) return response;
+  return Response.json({ code: "INVALID_OTP", message: "Invalid code" }, { status: 400 });
+}
+
 const timestamps = { createdAt: "created_at", updatedAt: "updated_at" } as const;
 
 export function createBetterAuth(options: BetterAuthOptions) {
   const { db, allowSignUp = false } = options;
+  const clock = options.clock ?? (() => new Date());
+  const kysely = createDb(db);
+  const ready = async () => {
+    const codes = options.codes?.();
+    if (!codes) return "the host cannot send mail here";
+    return codes.ready();
+  };
   return betterAuth({
     database: db,
     secret: options.secret,
@@ -48,6 +173,18 @@ export function createBetterAuth(options: BetterAuthOptions) {
           model === "user" || model === "core_user" ? newId("user") : randomId(),
       },
     },
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== CODE_REQUEST_PATH) return;
+        await beforeCodeRequest(ctx, {
+          ready,
+          secret: options.secret,
+          codeRateLimit: options.codeRateLimit,
+          codeAddressRateLimit: options.codeAddressRateLimit,
+          what: "Sign-in by code",
+        });
+      }),
+    },
     emailAndPassword: { enabled: true },
     socialProviders: options.google
       ? {
@@ -60,6 +197,24 @@ export function createBetterAuth(options: BetterAuthOptions) {
     user: {
       modelName: "core_user",
       fields: { emailVerified: "email_verified", ...timestamps },
+      // Written only from an accepted invite, in the insert (below). No request may set them.
+      additionalFields: {
+        role: { type: "string", required: false, input: false, returned: false },
+        packRole: {
+          type: "string",
+          required: false,
+          input: false,
+          returned: false,
+          fieldName: "pack_role",
+        },
+        grantedPermissions: {
+          type: "string",
+          required: false,
+          input: false,
+          returned: false,
+          fieldName: "granted_permissions",
+        },
+      },
     },
     session: {
       modelName: "core_session",
@@ -89,28 +244,84 @@ export function createBetterAuth(options: BetterAuthOptions) {
       modelName: "core_verification",
       fields: { expiresAt: "expires_at", ...timestamps },
     },
+    plugins: [
+      emailOTP({
+        otpLength: STAFF_CODE_LENGTH,
+        expiresIn: STAFF_CODE_TTL_SECONDS,
+        allowedAttempts: STAFF_CODE_ATTEMPTS,
+        storeOTP: "hashed",
+        async sendVerificationOTP({ email, otp, type }, ctx) {
+          const allowed = type === "sign-in" && (await staffMayGetCode(kysely, email, clock()));
+          const codes = options.codes?.();
+          if (!allowed || !codes) {
+            // The same answer as a sent code, and nothing is kept: the code just stored for this
+            // address is removed, so it can never be guessed into an account.
+            await ctx?.context.internalAdapter.deleteVerificationByIdentifier(
+              `${type}-otp-${email.toLowerCase()}`,
+            );
+            return;
+          }
+          try {
+            await codes.send({ to: email, code: otp });
+          } catch (error) {
+            // A failed send must not answer differently from a refused one.
+            console.error(
+              "staff sign-in code not sent",
+              error instanceof Error ? error.message : error,
+            );
+          }
+        },
+      }),
+    ],
     databaseHooks: {
       user: {
         create: {
-          // Closed sign-up: the first user bootstraps the deployment, later users need an invite
-          // (a later stage) unless AUTH_ALLOW_SIGNUP=true.
-          before: async (user) => {
+          // Closed sign-up: the first user bootstraps the deployment; later users need an invite,
+          // accepted by the code sign-in only, unless AUTH_ALLOW_SIGNUP=true opens password and
+          // Google sign-up.
+          before: async (user, ctx) => {
             const row = await db
               .prepare("SELECT COUNT(*) AS n FROM core_user")
               .first<{ n: number }>();
             // The first user always gets in.
             if ((row?.n ?? 0) === 0) return { data: user };
-            if (!allowSignUp) return false;
+            const byCode = ctx?.path === CODE_SIGN_IN_PATH;
+            if (!byCode && !allowSignUp) return false;
             // A hosted plan's user limit (ADR 0211). No entitlements row: no limit.
             try {
-              await assertUserCapacity(createDb(db), 1);
+              await assertUserCapacity(kysely, 1);
             } catch (error) {
               if (error instanceof PlanLimitError) {
                 throw new APIError("FORBIDDEN", { message: error.message, code: error.code });
               }
               throw error;
             }
-            return { data: user };
+            if (!byCode) return { data: user };
+            // The code sign-in makes an account only from an invite, whatever AUTH_ALLOW_SIGNUP
+            // says, and the invite is accepted once.
+            const grant = await acceptInvite(kysely, user.email, clock());
+            if (!grant) return false;
+            const columns = inviteColumns(grant);
+            return {
+              data: {
+                ...user,
+                role: columns.role,
+                packRole: columns.pack_role,
+                grantedPermissions: columns.granted_permissions,
+              },
+            };
+          },
+          after: async (user, ctx) => {
+            if (ctx?.path !== CODE_SIGN_IN_PATH) return;
+            const invite = await kysely
+              .selectFrom("core_user_invite")
+              .select("id")
+              .where("email", "=", user.email.toLowerCase())
+              .where("accepted_at", "is not", null)
+              .where("accepted_user_id", "is", null)
+              .orderBy("accepted_at", "desc")
+              .executeTakeFirst();
+            if (invite) await recordInviteAccount(kysely, invite.id, user.id);
           },
         },
       },
@@ -153,7 +364,67 @@ export function betterAuthProvider(auth: BetterAuthInstance): IdentityProvider {
       if (pathname !== BETTER_AUTH_BASE_PATH && !pathname.startsWith(`${BETTER_AUTH_BASE_PATH}/`)) {
         return null;
       }
-      return auth.handler(request);
+      const route = pathname.slice(BETTER_AUTH_BASE_PATH.length);
+      if (!codeRouteServed(route)) return new Response("Not found", { status: 404 });
+      const response = await auth.handler(request);
+      return route === CODE_SIGN_IN_PATH ? uniformCodeSignIn(response) : response;
     },
   };
+}
+
+/** Why a code request was refused before any code was made: not set up, or over a limit. */
+export type CodeRequestRefusal =
+  | { refused: "not_set_up"; message: string }
+  | { refused: "rate_limited"; message: string; retryAfterSeconds: number };
+
+/** Reads a code request's refusal from Better Auth's error. Null: not one of ours. */
+export function codeRequestRefusal(error: unknown): CodeRequestRefusal | null {
+  if (!(error instanceof APIError)) return null;
+  const body = (error.body ?? {}) as { code?: string; message?: string; retryAfterSeconds?: number };
+  if (body.code === "SIGN_IN_NOT_SET_UP") {
+    return { refused: "not_set_up", message: body.message ?? "Sign-in is not set up" };
+  }
+  if (error.statusCode === 429) {
+    return {
+      refused: "rate_limited",
+      message: body.message ?? "Too many sign-in code requests",
+      retryAfterSeconds: body.retryAfterSeconds ?? 60,
+    };
+  }
+  return null;
+}
+
+/**
+ * A native app asks for a staff code (ADR 0455): the same checks and the same answer as the
+ * browser route, and no cookie. Throws Better Auth's error for a refusal (`codeRequestRefusal`).
+ */
+export async function requestStaffCode(
+  auth: BetterAuthInstance,
+  email: string,
+  headers: Headers,
+): Promise<void> {
+  await auth.api.sendVerificationOTP({ body: { email, type: "sign-in" }, headers });
+}
+
+/**
+ * A native app signs a staff member in with their code (ADR 0455): Better Auth's code sign-in,
+ * with its hooks (the invite, deactivation), then the cookie session it made is deleted at once,
+ * so all the caller gets is who signed in, for a device session. Null for every refusal.
+ */
+export async function staffSignInWithCode(
+  auth: BetterAuthInstance,
+  db: D1Database,
+  email: string,
+  code: string,
+  headers: Headers,
+): Promise<{ userId: string } | null> {
+  let result: { token: string; user: { id: string } };
+  try {
+    result = await auth.api.signInEmailOTP({ body: { email, otp: code }, headers });
+  } catch (error) {
+    if (error instanceof APIError) return null;
+    throw error;
+  }
+  await db.prepare("DELETE FROM core_session WHERE token = ?").bind(result.token).run();
+  return { userId: result.user.id };
 }
