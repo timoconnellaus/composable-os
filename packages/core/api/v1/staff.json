@@ -53175,6 +53175,51 @@
       "invalidates": []
     },
     {
+      "name": "user.confirmEmail",
+      "description": "Confirm your own email address with the code user.sendEmailConfirmation sent to it. A wrong code counts one of three tries. Your own account only; a person only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{6}$"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "confirmed": {
+            "type": "boolean"
+          },
+          "email": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirmed",
+          "email"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "user.emailStatus",
+        "user.grantablePermissions",
+        "user.invites",
+        "user.list",
+        "user.me",
+        "user.packRoles"
+      ]
+    },
+    {
       "name": "user.deactivate",
       "description": "Deactivate a person who left: they can no longer sign in or act, and every automation bound to one of their connections is paused (its binding revoked) with a notice to the admins. Admins only; people only. You cannot deactivate yourself or the last admin.",
       "risk": "write",
@@ -53223,12 +53268,63 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.emailStatus",
         "user.grantablePermissions",
         "user.invites",
         "user.list",
         "user.me",
         "user.packRoles"
       ]
+    },
+    {
+      "name": "user.emailStatus",
+      "description": "Your own email address, whether it is confirmed, and whether sign-in codes can be sent now. Sign-in by an emailed code (and `cos content import --email`) works only for a confirmed address. Read-only, your own account only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "signInMail": {
+            "type": "object",
+            "properties": {
+              "ready": {
+                "type": "boolean"
+              },
+              "problem": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "ready",
+              "problem"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "email",
+          "verified",
+          "signInMail"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "user.grantablePermissions",
@@ -53410,6 +53506,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.emailStatus",
         "user.grantablePermissions",
         "user.invites",
         "user.list",
@@ -53865,6 +53962,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.emailStatus",
         "user.grantablePermissions",
         "user.invites",
         "user.list",
@@ -53911,6 +54009,44 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.emailStatus",
+        "user.grantablePermissions",
+        "user.invites",
+        "user.list",
+        "user.me",
+        "user.packRoles"
+      ]
+    },
+    {
+      "name": "user.sendEmailConfirmation",
+      "description": "Email a six-digit code to your own address, to confirm it (user.confirmEmail). Sent as the host's sign-in mail, so it needs that to be set up. Your own account only; a person only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "sentTo": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sentTo",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "user.emailStatus",
         "user.grantablePermissions",
         "user.invites",
         "user.list",
@@ -54015,6 +54151,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.emailStatus",
         "user.grantablePermissions",
         "user.invites",
         "user.list",
@@ -54116,6 +54253,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.emailStatus",
         "user.grantablePermissions",
         "user.invites",
         "user.list",
@@ -54239,6 +54377,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.emailStatus",
         "user.grantablePermissions",
         "user.invites",
         "user.list",
@@ -54341,6 +54480,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.emailStatus",
         "user.grantablePermissions",
         "user.invites",
         "user.list",

@@ -484,6 +484,10 @@
       "sha256": "cea152e845c00dd79eccb81fdbe3c84d2e982f756b2312fa010d87c91b15a798"
     },
     {
+      "name": "0492_email_confirmation_and_sign_in_confirm.sql",
+      "sha256": "d49336149d4530d14e8e20564a08bdee14697b9f11b2b9753c911eddc3509e97"
+    },
+    {
       "name": "0500_published_media_field.sql",
       "sha256": "9772cb57eaf11f9ae2071779829fbf23fb21a40b7e1e1cc73123f6d4b67f4853"
     },
