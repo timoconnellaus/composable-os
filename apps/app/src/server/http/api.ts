@@ -312,7 +312,7 @@ async function activeStaff(db: CrmDb, userId: string): Promise<string> {
     .select(["id", "kind", "deactivated_at"])
     .where("id", "=", userId)
     .executeTakeFirst();
-  if (!user || user.kind !== "human" || user.deactivated_at) throw invalidCode();
+  if (user?.kind !== "human" || user.deactivated_at) throw invalidCode();
   return user.id;
 }
 

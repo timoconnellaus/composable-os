@@ -16,7 +16,7 @@ import {
   sentMail,
 } from "./integration-helpers.ts";
 
-const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Approves the host's pending mail whose subject contains `subject`. */
 async function approveMail(page: Page, subject: string): Promise<void> {
@@ -47,7 +47,7 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
   await open(page, "/settings/users");
   await expect(page.getByRole("heading", { level: 1, name: "Users and roles" })).toBeVisible();
   await page.getByLabel("Mail connection").click();
-  await page.getByRole("option", { name: new RegExp(escape(outbox)) }).click();
+  await page.getByRole("option", { name: new RegExp(escapeRe(outbox)) }).click();
   await expect(page.getByText("The host's mail connection is saved")).toBeVisible();
 
   // The invite.
