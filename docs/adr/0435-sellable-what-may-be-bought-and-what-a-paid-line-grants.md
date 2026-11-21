@@ -72,7 +72,44 @@ from every state that is not void or final; each `set` source agreeing with the 
 person, an email, text, a number); a required field set only from a source that always has a
 value (so `order.person` never fills a required field: an order may belong to no one yet); at
 most one code, in a read-only text field; every required field of the granted object set; and the
-state field not set. Each of these is a way the paid batch could otherwise fail.
+state field not set. Each of these is a way the paid batch could otherwise fail. So is the granted
+object's own rules, which the checks also hold to what the grant always fills: it declares no
+`owner` (assignment rules would run in the paid batch), each `requireOneOf` group has a field the
+grant always fills, and a choice a granted record can be created holding (the initial state, a
+default, or any choice of a select set from the item) requires only fields the grant always
+fills. "Always fills" is a field set from a source that always has a value, or a field with a
+default.
+
+**Only a shipped pack or the org's own extension may declare it.** Selling opens `order.start`
+to the object's records for customers and the public, so, as with `customer` and an operation's
+audiences (ADR 0402), a runtime extension (written in the workspace, by AI or by hand, and
+approved in the app) that declares `sellable` is refused by `extension.check` and by
+`extension.install` (`outside_audience`, `objects.<name>.sellable`). `cos ext check` lists what
+can be bought among the lines it asks a reviewer to read.
+
+**The paid batch has a size, so the host caps the units a granting line may hold.** A line of an
+object that grants is limited to the record's `maxPerOrder`, or the host's default of 10 when the
+record sets none, and an order to `GRANTS_PER_ORDER_CEILING` = 100 granted records across its
+lines; more is refused with `{ rule: "max_per_order", line, max, asked }` (and `ceiling` when the
+order's total is what is over). Measured in workerd's D1 (`test/sellable.test.ts`): a paid batch
+is 15 statements for the payment itself plus **5 per grant** (the record, its history row, its
+search document's delete and insert, the grant row), so 100 grants is 515 statements, which commit
+in workerd in well under a second (500 grants, 2,515 statements, also committed, in about 70 ms).
+The ceiling is set by D1's limit of 1,000 queries per Worker invocation, not by workerd: 515 is
+about half, which leaves room for several lines' holds, the audit and the confirmation email.
+
+**`order.setPerson` reaches the grants.** When an order that belonged to no one is given its
+Person, each record it granted with a field set from `order.person` (a ticket's holder) gets that
+Person, as the host, in the same batch.
+
+**Fields named with an SQL keyword work.** The reconciler and the record code splice column names
+bare. A field whose column would be one of the 65 words D1 refuses bare somewhere the platform
+writes a column (`order`, `group`, `select`, `currentDate`, `true`; `RESERVED_COLUMN_WORDS`,
+`extensions/naming.ts`) gets the column `<word>_`, which no field name can produce. The field's
+name is unchanged everywhere a caller sees it; only `query.sql` sees the column. A test probes
+every SQLite keyword against D1 and fails if the list and D1 disagree. Quoting every identifier
+was the alternative: column names are also object keys in rows read back, so quoting would have
+touched every place a column is spliced or read, where the suffix is one function.
 
 ## Why
 - A behaviour, not a tool or an automation: the tickets and the payment are one fact, and only
@@ -85,15 +122,16 @@ state field not set. Each of these is a way the paid batch could otherwise fail.
 - Reading the rules from the record keeps them where staff edit them (a ticket type's window and
   limit), and keeps every price and limit away from callers.
 
+
 ## Consequences
 - Local development and the orders end-to-end spec sell the box office fixture extension
-  (`packages/core/test/fixtures/boxoffice`), installed over MCP or by `extension.install`; Deals
-  is not sellable.
-- A grant creates records through `createRecord`: assignment rules, `requireOneOf` and choice
-  requirements on the granted object still apply and could still fail a paid batch. The checks
-  do not refuse them yet; a pack's granted object should not declare them.
-- `order.setPerson` (an order whose address matched several people) does not update the holder
-  of what the order already granted.
-- A field named with an SQL keyword (`order`) breaks the reconciler's DDL, and `cos ext check`
-  does not catch it (found while building this; the fixture uses `orderId`).
+  (`packages/core/test/fixtures/boxoffice`). `scripts/dev-setup.mjs` delivers it as the org's own
+  extension, the way `cos deploy` does (ADR 0422): its files in local BLOBS, pinned by the
+  runner's `COS_ORG_EXTENSIONS`, marked optional so an admin installs it
+  (`extension.install { id: "boxoffice", shipped: true }`). Deals is not sellable.
+- An org's own extension may now be `optional`, as a pack may.
+- A deployment with a field whose column was one of the words that D1 takes in DDL but not in a
+  bare read (`cast`, `raise`, `constraint`, `current_date`, `current_time`, `current_timestamp`,
+  `true`, `false`) keeps its stored column, and its view now names it `<word>_`. Such a field could
+  not be read before. The other reserved words never had a column: their DDL failed.
 - Free records given by staff, transfers and per-person limits are not part of this.

@@ -56,11 +56,19 @@ export async function orgExtensions(env: ShippedListEnv): Promise<ShippedSource[
     throw new Error("The org's extensions in BLOBS do not match COS_ORG_EXTENSIONS");
   }
   const parsed = JSON.parse(new TextDecoder().decode(bytes)) as {
-    extensions: { id: string; version: string; files: Record<string, string> }[];
+    extensions: {
+      id: string;
+      version: string;
+      optional?: boolean;
+      files: Record<string, string>;
+    }[];
   };
+  // `optional`, as for a pack: installed by an admin, not at boot (ADR 0246). Local dev's box
+  // office fixture is one (scripts/dev-setup.mjs).
   const list: ShippedSource[] = parsed.extensions.map((e) => ({
     id: e.id,
     version: e.version,
+    ...(e.optional === true ? { optional: true } : {}),
     files: e.files,
   }));
   orgCache.set(hash, list);

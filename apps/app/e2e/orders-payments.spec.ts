@@ -3,12 +3,13 @@
 // which shows it paid only once the provider's verified webhook has reached the host; staff then
 // refund it, a person approves the refund, and the order shows refunded once the provider
 // confirms. What is sold is a ticket type of the box office fixture extension
-// (packages/core/test/fixtures/boxoffice), proposed over MCP and approved first: it declares
+// (packages/core/test/fixtures/boxoffice), the org's own extension in local dev, installed first: it declares
 // `sellable` (stage 27, ADR 0435), so the paid order grants a ticket, and the refund voids it.
 import { readFileSync } from "node:fs";
 import { expect, type Page, request as playwrightRequest, test } from "@playwright/test";
-import { connectAdminApp, extensionId, writeCheckPropose } from "./extension-authoring.ts";
+import { connectAdminApp, extensionId } from "./extension-authoring.ts";
 import { open, unique } from "./helpers.ts";
+import { call } from "./mcp.ts";
 
 const BOX_OFFICE = readFileSync(
   new URL("../../../packages/core/test/fixtures/boxoffice/index.ts", import.meta.url),
@@ -43,19 +44,21 @@ test("a guest buys, pays on the provider's page, and staff refund it through app
 }) => {
   test.setTimeout(180_000);
   const origin = new URL(baseURL ?? "").origin;
-  // Something to sell: the box office, written over MCP and approved by a person.
+  // Selling is a reviewed change: an extension written over MCP cannot declare `sellable`.
   const app = await connectAdminApp(page, baseURL ?? "");
-  const ext = extensionId("box");
-  const proposal = await writeCheckPropose(
-    app,
-    ext,
-    { "index.ts": BOX_OFFICE.replaceAll('"boxoffice', `"${ext}`) },
-    "A box office to sell tickets from",
-  );
-  await open(page, "/approvals");
-  const extensionSet = page.locator(`[data-change-set="${proposal.changeSetId}"]`);
-  await extensionSet.getByRole("button", { name: "Approve" }).click();
-  await expect(extensionSet.getByTestId("decision-result")).toHaveText(/Applied 1 change/);
+  const runtimeId = extensionId("box");
+  await call(app.client, "extension_write", {
+    id: runtimeId,
+    files: { "index.ts": BOX_OFFICE.replaceAll('"boxoffice', `"${runtimeId}`) },
+    reason: "A box office to sell tickets from",
+  });
+  const checked = await call(app.client, "extension_check", { id: runtimeId });
+  expect(checked.ok).toBe(false);
+  expect(JSON.stringify(checked.issues)).toContain("objects.tickettype.sellable");
+  // Something to sell: the box office, the org's own extension here (scripts/dev-setup.mjs),
+  // installed by an admin.
+  const ext = "boxoffice";
+  await staffOp(page, "extension.install", { id: ext, shipped: true });
 
   // The deployment sells in one currency, back to its own pages, through a payment account.
   await staffOp(page, "order.settings.update", { currency: "AUD", returnOrigins: [origin] });

@@ -44,11 +44,12 @@ Take a screenshot at each numbered check into `docs/stages/assets/stage-25-strip
    resource **Payment account** → Stripe. **Check 1:** the connection is active with one resource.
 2. Settings → Orders: currency (the one your test prices are in), and under "Sites a buyer may
    come back to" the CRM's own origin (`https://<crm-origin>`) and any shop site.
-3. Make something sellable: an object that declares `sellable` (ADR 0435). For this run, install
-   the box office fixture (`packages/core/test/fixtures/boxoffice/index.ts`) as an extension
-   (Settings → Extensions, or over MCP with `extension_write`, `extension_check` and
-   `extension_propose`, then approve it), and create an Event with places and a Ticket type of it
-   with a price (for example 12.00).
+3. Make something sellable: an object that declares `sellable` (ADR 0435), which only a pack or
+   the org's own extension may do (one written in the workspace is refused). For this run, copy
+   the box office fixture (`packages/core/test/fixtures/boxoffice/index.ts`) into the client
+   repo's `extensions/boxoffice/` and `cos deploy`, then install it as an admin
+   (`extension.install { id: "boxoffice", shipped: true }`), and create an Event with places and a
+   Ticket type of it with a price (for example 12.00).
 
 ## 4. Pay
 1. In a private window (no session) open

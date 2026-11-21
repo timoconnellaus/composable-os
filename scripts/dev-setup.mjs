@@ -3,8 +3,8 @@
 // missing (generating BETTER_AUTH_SECRET and opening sign-up so the e2e test user can be created),
 // then applies core migrations to the local D1 database.
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -110,3 +110,52 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
   stdio: "inherit",
   env: { ...process.env, CI: "true" },
 });
+
+// Stage 27: something to sell locally. The box office fixture extension
+// (packages/core/test/fixtures/boxoffice) is the org's own extension here, delivered the way
+// `cos deploy` delivers one (ADR 0422): its files in BLOBS under their sha256, pinned by the
+// runner's COS_ORG_EXTENSIONS. It is optional, so nothing installs it until an admin does
+// (extension.install { id: "boxoffice", shipped: true }); the orders e2e spec does. A runtime
+// extension cannot declare `sellable` (ADR 0435).
+{
+  const fixture = join(root, "packages/core/test/fixtures/boxoffice/index.ts");
+  const text = JSON.stringify({
+    extensions: [
+      {
+        id: "boxoffice",
+        version: "1.0.0",
+        optional: true,
+        files: { "index.ts": readFileSync(fixture, "utf8") },
+      },
+    ],
+  });
+  const hash = createHash("sha256").update(text).digest("hex");
+  const blob = join(root, "apps/app/.wrangler/org-extensions.json");
+  mkdirSync(dirname(blob), { recursive: true });
+  writeFileSync(blob, text);
+  execFileSync(
+    "pnpm",
+    [
+      "exec",
+      "wrangler",
+      "r2",
+      "object",
+      "put",
+      `cos-blobs/org-extensions/${hash}.json`,
+      "--file",
+      blob,
+      "--local",
+    ],
+    { cwd: join(root, "apps/app"), stdio: "inherit", env: { ...process.env, CI: "true" } },
+  );
+  if (existsSync(runnerVars)) {
+    const vars = readFileSync(runnerVars, "utf8");
+    const line = `COS_ORG_EXTENSIONS=${hash}`;
+    writeFileSync(
+      runnerVars,
+      /^COS_ORG_EXTENSIONS=/m.test(vars)
+        ? vars.replace(/^COS_ORG_EXTENSIONS=.*$/m, line)
+        : `${vars.trimEnd()}\n# Local only: the box office fixture, for the buy page (stage 27).\n${line}\n`,
+    );
+  }
+}

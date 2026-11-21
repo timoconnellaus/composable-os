@@ -3,12 +3,20 @@
 // the provider's verified webhook makes it paid, once; an unverified one is refused; a refund
 // waits for a person, is sent when approved, and the order is refunded only when the provider
 // confirms it (acceptance criteria 4, 7 and 8, ADR 0429). What is sold is the box office fixture
-// (packages/core/test/fixtures/boxoffice), installed as a runtime extension: its ticket type
-// declares `sellable` (stage 27, ADR 0435), so the paid order grants a ticket per place, and the
-// refund voids them.
+// (packages/core/test/fixtures/boxoffice): its ticket type declares `sellable` (stage 27, ADR
+// 0435), so the paid order grants a ticket per place, and the refund voids them. As a runtime
+// extension it is refused; it is reconciled as a shipped one would be.
 import { env, exports } from "cloudflare:workers";
-import { type ActingUser, invokeByName } from "@composable-os/core";
+import {
+  type ActingUser,
+  applyPlan,
+  invokeByName,
+  planReconcile,
+  refreshSchemaRegistry,
+} from "@composable-os/core";
+import { manifestSchema, toManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import boxOfficeExtension from "../../../packages/core/test/fixtures/boxoffice/index.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { createAdmin, db, install, unique } from "./helpers.ts";
 
@@ -77,7 +85,31 @@ async function view(id: string, token: string) {
 beforeAll(async () => {
   admin = await createAdmin();
   expect(boxOffice).toContain('id: "boxoffice"');
-  await install(admin, ext, { "index.ts": boxOffice.replaceAll('"boxoffice', `"${ext}`) });
+  // A runtime extension may not declare `sellable` (ADR 0435): installing the source through the
+  // workspace is refused by the check, and nothing is reconciled.
+  const refused = await install(admin, ext, {
+    "index.ts": boxOffice.replaceAll('"boxoffice', `"${ext}`),
+  }).then(
+    () => null,
+    (error: unknown) => error as { code?: string; details?: unknown },
+  );
+  expect(refused?.code).toBe("invalid_input");
+  expect(JSON.stringify(refused?.details)).toContain("objects.tickettype.sellable");
+  expect(
+    await db.query
+      .selectFrom("core_extensions")
+      .select("id")
+      .where("id", "=", ext)
+      .executeTakeFirst(),
+  ).toBeUndefined();
+  // Installed the way a shipped pack or the org's own extension is: its manifest reconciled.
+  const json = JSON.stringify(toManifest(boxOfficeExtension)).replaceAll('"boxoffice', `"${ext}`);
+  const plan = await planReconcile(db.query, manifestSchema.parse(JSON.parse(json)), {
+    now: new Date().toISOString(),
+  });
+  expect(plan.issues).toEqual([]);
+  await applyPlan((statements) => db.batch(statements), plan);
+  await refreshSchemaRegistry(db.query);
   await invokeByName(
     "order.settings.update",
     { currency: "AUD", returnOrigins: ["https://shop.test"] },

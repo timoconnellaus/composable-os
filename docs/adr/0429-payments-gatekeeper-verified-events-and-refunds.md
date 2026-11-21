@@ -99,4 +99,5 @@ window applies to both).
 ## Amendment, 2026-11-21 (stage 27, ADR 0435)
 - `ORDERS_DEV_SELLABLE` is gone with `registerSellable`. Local development and the orders
   end-to-end spec sell the box office fixture extension (`packages/core/test/fixtures/boxoffice`),
-  whose ticket type declares `sellable`.
+  whose ticket type declares `sellable`, delivered as local dev's own org extension by
+  `scripts/dev-setup.mjs` and installed by an admin.

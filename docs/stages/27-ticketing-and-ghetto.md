@@ -225,8 +225,12 @@ ADR 0435, migration 0450. Where the build read the spec one way, or decided what
   `part_paid`. **Voided** on `refunded` and on `cancelled`, as the host, from any state but void
   and the final ones; the declaration must give the host a move into void from each.
 - **The fixture** is the box office (`packages/core/test/fixtures/boxoffice`: an event, a ticket
-  type, a ticket), used by the host's tests, the runner's payment test (installed as a runtime
-  extension through the sandbox) and the orders e2e (proposed over MCP and approved). Deals is
-  not sellable; `ORDERS_DEV_SELLABLE` and `dev-sellable.ts` are gone.
-- **Found:** a field named `order` breaks the reconciler's SQL (an unquoted keyword) and
-  `cos ext check` passes it. The pack's ticket field is `orderId`.
+  type, a ticket), used by the host's tests, the runner's payment test and the orders e2e, which
+  installs it as local dev's own org extension (`scripts/dev-setup.mjs`). Deals is not sellable;
+  `ORDERS_DEV_SELLABLE` and `dev-sellable.ts` are gone.
+- **After review:** only a pack or the org's own extension may declare `sellable` (a runtime one
+  is refused at check and install); a granted object's `owner`, `requireOneOf` and choice
+  requirements are held to what the grant always fills; `order.setPerson` gives the order's grants
+  their holder; a granting line holds at most its `maxPerOrder` or 10, and an order 100 grants
+  (5 statements each, measured); a field named with an SQL keyword (`order`, `group`, `select`)
+  works, with the column `<word>_`.

@@ -56,6 +56,8 @@ export interface GrantSpec {
 /**
  * Something that can be bought (ADR 0435). An order line may point only at a record of an object
  * that declares it; the host prices the line from the record, so a caller never sends a price.
+ * Only a shipped pack or the org's own extension may declare it: selling to the public is a
+ * reviewed change, so a runtime extension that does is refused at check and install.
  *
  * - `price`: this object's currency (or number) field holding the price of one, in the currency's
  *   major unit. A record with no price cannot be bought.
@@ -66,7 +68,8 @@ export interface GrantSpec {
  *   until `until` (a date: the whole day, in UTC). Empty values leave that end open. A line
  *   outside it is refused with `{ rule: "sale_window" }`.
  * - `maxPerOrder`: a number field holding the most of one record one order may hold. Empty means
- *   no limit beyond the host's own. More is refused with `{ rule: "max_per_order" }`.
+ *   no limit beyond the host's own: 10 when the object grants, and never more than 100 grants
+ *   on one order (the paid batch has a size). More is refused with `{ rule: "max_per_order" }`.
  * - `deposit`: paying by deposit (stage 25): the field holding the deposit for one, and the date
  *   field saying when the balance is due. A record offers a deposit when both have a value.
  * - `grants`: what a paid line grants (see GrantSpec).

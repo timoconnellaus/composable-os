@@ -110,9 +110,13 @@ extension declares it; it never implements it. Each behaviour the platform has i
   "line.unitPrice" | "code" }, void: "<state>" }`: the host creates them when the order is paid,
   in the same batch, and voids them on a full refund. The granted object declares `states` with a
   `host` move into `void` from every state that is not final; a `code` goes in a `readOnly` text
-  field; every required field must be set. Never create tickets or check a sale window in a tool
-  or an automation. Don't name a field `order` (an SQL keyword): use `orderId`. See
-  `SellableSpec` in `packages/sdk/src/sellable.ts` and ADR 0435.
+  field; every required field must be set, and the granted object has no `owner`, and no
+  `requireOneOf` or choice `requires` the grant does not always fill. A line that grants holds at
+  most the record's `maxPerOrder` (10 when unset) and an order at most 100 grants. Only a pack or
+  the org's own extension (its client repo) may declare `sellable`: one written in the workspace
+  is refused, since selling to the public is a reviewed change. Never create tickets or check a
+  sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
+  and ADR 0435.
 
 ## The rules
 
