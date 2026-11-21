@@ -14,7 +14,7 @@ export const product = defineProduct({
     database: "demo",
     resourcePrefix: "demo-",
   },
-  extensions: [],
+  packs: [],
   updateRepository: "example/demo",
   billingUrl: "https://demo.example/billing",
   strings: {

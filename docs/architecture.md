@@ -164,7 +164,8 @@ Typed access to core tables uses Kysely ([ADR 0014](adr/0014-kysely-for-core-sch
 An **extension** is code against one contract (`packages/sdk`): `defineObject`, `defineView` /
 `defineDashboard`, `defineAutomation`, `defineTool` ([ADR 0005](adr/0005-extensions.md)).
 
-- **Shipped extensions** live in `extensions/` and ship with releases. Deals/Pipelines is the first;
+- **Shipped extensions** are packs: they live in `packs/` and ship with the releases of the products
+  that list them (stage 24). Deals/Pipelines is the first;
   Leads is the second business extension and depends on it. `lifecycle` is shipped but opt-in
   (`composableOs.optional` in its `package.json`): an admin installs it from Settings → Extensions.
 - **Runtime extensions** are written by Claude in-app or via MCP. They are stored in an
@@ -203,8 +204,9 @@ How stage 3a built it ([ADR 0040](adr/0040-extension-runtime-build.md)):
     permissions.
   - **Failures.** Runs are recorded. 3 consecutive failures quarantine an extension. Rollback
     reinstalls an earlier commit.
-- **Shipped extensions** (`extensions/<id>/`; Deals is the first) are bundled as source at build time
-  and installed through the same `extension.install` path at boot.
+- **Shipped extensions** (`packs/<id>/`; Deals is the first) are bundled as source at build time,
+  the packs the product lists and only those, and installed through the same `extension.install`
+  path at boot. A pack's `client/` and `blocks/` are client code and are not bundled.
 - **Leads** ([ADR 0246](adr/0246-leads-as-an-extension-and-assignment-rules-in-core.md)) is built on
   the public contract like Deals. A relation to `deals.deal` refuses the install where Deals is
   missing. Conversion is a tool making several CRM calls, written to be run again. The contract
@@ -787,7 +789,8 @@ products/
   crm/                 the CRM: its definition (product.ts) and its apps
     apps/control/      hosted SaaS control plane and dispatch Worker (stage 10)  → "crm-control", "crm-dispatch"
 skills/                agent skills for building on the platform (stage 21, ADR 0405)
-extensions/
+packs/                 shipped extensions with their client parts (stage 24): <id>/index.ts and its
+                       files (the extension), client/ (headless hooks), blocks/ (screens)
   deals/               (stage 4) Deals: pipelines, stages, deals, participants (ADR 0026, 0100)
   leads/               (stage 15) Leads: inbox, conversion to deals (ADR 0246)
   lifecycle/           (stage 15) opt-in lifecycle stage on people (ADR 0246)
@@ -946,7 +949,7 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
 - **The typed client:** `@composable-os/client` is the runtime (no DOM, Node or Workers types).
   `cos client generate` (`packages/client-gen`) writes a product's `customer.ts` and `staff.ts`
   from its registry: core operations, its packs' tools and the org's own extensions. A pack may
-  ship a headless entry over it (Deals: `extensions/deals/headless.ts`).
+  ship a headless entry over it (Deals: `packs/deals/client/index.ts`).
 - **Native apps** exchange a sign-in for tokens at `/api/v1/auth/token` and rotate them at
   `/api/v1/auth/refresh` (`core_device_session`). Customer sign-in, `/api/customer-auth/*`, is
   served by cos-app; codes go out through the email connection `customer.settings` names, sent by

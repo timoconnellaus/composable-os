@@ -1,6 +1,6 @@
 # @composable-os/sdk
 
-The extension contract (ADR 0005, ADR 0023). Shipped extensions (`extensions/<id>/`) and runtime
+The extension contract (ADR 0005, ADR 0023). Shipped extensions (packs, `packs/<id>/`) and runtime
 extensions (written by AI into the extension workspace) are written against it and run the same
 way: in a sandboxed Dynamic Worker with only the host modules they declare (ADR 0025).
 
@@ -247,11 +247,11 @@ anything that must last in `ctx.storage`.
 
 ## Checking an extension in a checkout
 
-A shipped extension (`extensions/<id>/`) is checked without a deployment by the `cos` command
-(ADR 0405): `pnpm cos ext check extensions/<id>` runs the checks `extension.check` runs (imports,
+A shipped extension (a pack, `packs/<id>/`) is checked without a deployment by the `cos` command
+(ADR 0405): `pnpm cos ext check packs/<id>` runs the checks `extension.check` runs (imports,
 types, contract, formulas, automations, a dry-run reconcile on an empty local database) and
 prints each issue with a file, the manifest path, the message and the fix where there is one;
-`pnpm cos ext test extensions/<id>` runs its tests and refuses a tool or automation that no test
+`pnpm cos ext test packs/<id>` runs its tests and refuses a tool or automation that no test
 names. The skills in `skills/` give the order of work.
 
 ## Testing an extension

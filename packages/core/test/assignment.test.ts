@@ -5,8 +5,8 @@
 // already carries it, and nothing writes the owner afterwards.
 import { env } from "cloudflare:workers";
 import { createCrmDb } from "@composable-os/db";
-import deals from "@composable-os/extension-deals";
-import leads from "@composable-os/extension-leads";
+import deals from "@composable-os/pack-deals";
+import leads from "@composable-os/pack-leads";
 import { toManifest } from "@composable-os/sdk";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { type ActingUser, invokeByName, type Role } from "../src/index.ts";

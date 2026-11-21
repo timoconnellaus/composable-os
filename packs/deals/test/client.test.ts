@@ -1,4 +1,4 @@
-// The Deals pack's headless entry (stage 23, ADR 0418): functions and hooks over a typed client.
+// The Deals pack's client entry (headless hooks; stage 23, ADR 0418; under client/ since stage 24): functions and hooks over a typed client.
 import { describe, expect, it } from "vitest";
 import {
   createDealsHooks,
@@ -7,7 +7,7 @@ import {
   type StageMetrics,
   stageMetricsQuery,
   type UseQuery,
-} from "../headless.ts";
+} from "../client/index.ts";
 
 const metrics: StageMetrics = {
   pipelineId: "rec_pipe",

@@ -1,12 +1,12 @@
 {
-  "name": "@composable-os/extension-deals",
+  "name": "@composable-os/pack-deals",
   "version": "1.2.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./index.ts",
-    "./headless": "./headless.ts"
+    "./client": "./client/index.ts"
   },
   "description": "Deals, pipelines and stages: the first shipped extension (stage 4, ADR 0026). Bundled as source into cos-runner.",
   "scripts": {

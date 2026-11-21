@@ -276,9 +276,9 @@ importers:
       '@composable-os/evals-mcp':
         specifier: workspace:*
         version: link:../mcp
-      '@composable-os/extension-deals':
+      '@composable-os/pack-deals':
         specifier: workspace:*
-        version: link:../../extensions/deals
+        version: link:../../packs/deals
       '@composable-os/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
@@ -348,9 +348,9 @@ importers:
       '@composable-os/evals-mcp':
         specifier: workspace:*
         version: link:../mcp
-      '@composable-os/extension-deals':
+      '@composable-os/pack-deals':
         specifier: workspace:*
-        version: link:../../extensions/deals
+        version: link:../../packs/deals
       '@composable-os/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
@@ -386,75 +386,6 @@ importers:
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: 5.1.0
-        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
-
-  extensions/deals:
-    dependencies:
-      '@composable-os/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-    devDependencies:
-      '@cloudflare/vitest-plugin':
-        specifier: 1.5.1
-        version: 1.5.1(@cloudflare/workers-types@5.20261104.1)(@types/node@24.19.2)(vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)))
-      '@cloudflare/workers-types':
-        specifier: 5.20261104.1
-        version: 5.20261104.1
-      '@composable-os/config':
-        specifier: workspace:*
-        version: link:../../packages/config
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: 5.1.0
-        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
-
-  extensions/leads:
-    dependencies:
-      '@composable-os/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-    devDependencies:
-      '@cloudflare/vitest-plugin':
-        specifier: 1.5.1
-        version: 1.5.1(@cloudflare/workers-types@5.20261104.1)(@types/node@24.19.2)(vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)))
-      '@cloudflare/workers-types':
-        specifier: 5.20261104.1
-        version: 5.20261104.1
-      '@composable-os/config':
-        specifier: workspace:*
-        version: link:../../packages/config
-      '@composable-os/extension-deals':
-        specifier: workspace:*
-        version: link:../deals
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: 5.1.0
-        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
-
-  extensions/lifecycle:
-    dependencies:
-      '@composable-os/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-    devDependencies:
-      '@cloudflare/vitest-plugin':
-        specifier: 1.5.1
-        version: 1.5.1(@cloudflare/workers-types@5.20261104.1)(@types/node@24.19.2)(vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)))
-      '@cloudflare/workers-types':
-        specifier: 5.20261104.1
-        version: 5.20261104.1
-      '@composable-os/config':
-        specifier: workspace:*
-        version: link:../../packages/config
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -662,15 +593,15 @@ importers:
       '@composable-os/config':
         specifier: workspace:*
         version: link:../config
-      '@composable-os/extension-deals':
+      '@composable-os/pack-deals':
         specifier: workspace:*
-        version: link:../../extensions/deals
-      '@composable-os/extension-leads':
+        version: link:../../packs/deals
+      '@composable-os/pack-leads':
         specifier: workspace:*
-        version: link:../../extensions/leads
-      '@composable-os/extension-lifecycle':
+        version: link:../../packs/leads
+      '@composable-os/pack-lifecycle':
         specifier: workspace:*
-        version: link:../../extensions/lifecycle
+        version: link:../../packs/lifecycle
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2
@@ -741,15 +672,15 @@ importers:
       '@composable-os/config':
         specifier: workspace:*
         version: link:../config
-      '@composable-os/extension-deals':
+      '@composable-os/pack-deals':
         specifier: workspace:*
-        version: link:../../extensions/deals
-      '@composable-os/extension-leads':
+        version: link:../../packs/deals
+      '@composable-os/pack-leads':
         specifier: workspace:*
-        version: link:../../extensions/leads
-      '@composable-os/extension-lifecycle':
+        version: link:../../packs/leads
+      '@composable-os/pack-lifecycle':
         specifier: workspace:*
-        version: link:../../extensions/lifecycle
+        version: link:../../packs/lifecycle
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -1469,6 +1400,75 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+
+  packs/deals:
+    dependencies:
+      '@composable-os/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      '@cloudflare/vitest-plugin':
+        specifier: 1.5.1
+        version: 1.5.1(@cloudflare/workers-types@5.20261104.1)(@types/node@24.19.2)(vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)))
+      '@cloudflare/workers-types':
+        specifier: 5.20261104.1
+        version: 5.20261104.1
+      '@composable-os/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+
+  packs/leads:
+    dependencies:
+      '@composable-os/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      '@cloudflare/vitest-plugin':
+        specifier: 1.5.1
+        version: 1.5.1(@cloudflare/workers-types@5.20261104.1)(@types/node@24.19.2)(vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)))
+      '@cloudflare/workers-types':
+        specifier: 5.20261104.1
+        version: 5.20261104.1
+      '@composable-os/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@composable-os/pack-deals':
+        specifier: workspace:*
+        version: link:../deals
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+
+  packs/lifecycle:
+    dependencies:
+      '@composable-os/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      '@cloudflare/vitest-plugin':
+        specifier: 1.5.1
+        version: 1.5.1(@cloudflare/workers-types@5.20261104.1)(@types/node@24.19.2)(vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)))
+      '@cloudflare/workers-types':
+        specifier: 5.20261104.1
+        version: 5.20261104.1
+      '@composable-os/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
 
   products:
     dependencies:

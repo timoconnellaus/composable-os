@@ -3,7 +3,7 @@
 // batch that already writes it, the person's own words winning over a client's report, failing
 // open with intent/unchecked for every reason the judge can be unavailable, and nothing at all
 // when the judge is off. A scripted judge stands in for Jev; nothing reaches the network.
-import deals from "@composable-os/extension-deals";
+import deals from "@composable-os/pack-deals";
 import {
   type AutomationManifest,
   type ExtensionManifest,

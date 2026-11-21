@@ -256,7 +256,7 @@ _Avoid_: prompt, rules file
 A unit of customisation written as code against the SDK contract: one `defineExtension` manifest
 and its files (objects, fields, views, automations, tools; `defineObject`, `defineDashboard`,
 `defineAutomation`, `defineTool`). The unit of the contract (ADR 0023). A **shipped extension**
-ships with the platform: today in `extensions/`, and from stage 24 as part of a **pack** (an org's
+ships with the platform as part of a **pack** (`packs/<id>/`, stage 24; an org's
 own extensions in its client repo are shipped extensions of its product). A **runtime extension**
 is written by AI in a deployment, approved there and stored in the extension workspace.
 _Avoid_: package (that means a pnpm workspace package), plugin, app
@@ -879,7 +879,10 @@ _Avoid_: hook, trigger (a trigger starts an automation), plugin
 
 **Pack**
 A shipped extension plus its headless client hooks, versioned and released by the platform, turned
-on per product: Deals, Leads, Ticketing, Content (stage 24, ADR 0401).
+on per product: Deals, Leads, Ticketing, Content (stage 24, ADR 0401). One folder, `packs/<id>/`:
+the extension (`index.ts` and its files), `client/` (headless hooks) and `blocks/` (screens). A
+product lists its packs (`packs` in its `product.ts`); a pack it does not list is not in its
+release.
 _Avoid_: module, plugin (a plugin is an assistant plugin, ADR 0347), app
 
 **Block**
@@ -1020,4 +1023,4 @@ and a dry-run reconcile, here against an empty local database with the core sche
 same code (`@composable-os/extension-check` for source, `checkEvaluated` in core for the
 manifest), so the same source gives the same issues. `cos ext test <dir>` runs the extension's
 tests and first refuses an extension with a tool or automation that no test names. In the
-repository: `pnpm cos ext check extensions/<id>`.
+repository: `pnpm cos ext check packs/<id>`.

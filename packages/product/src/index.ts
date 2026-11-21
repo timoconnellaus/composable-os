@@ -21,8 +21,12 @@ export interface ProductDefinition {
     /** Buckets, queues, KV namespaces, Vectorize indexes and Workflows are this plus their name. */
     resourcePrefix: string;
   };
-  /** The shipped extensions the product includes, by id (`extensions/<id>`). */
-  extensions: string[];
+  /**
+   * The packs the product includes, by id (`packs/<id>`, stage 24). A pack is a shipped extension
+   * plus its client hooks and blocks; only the packs listed here are in the product's release and
+   * installed in its deployments. Empty: a host with base records only.
+   */
+  packs: string[];
   /** GitHub `owner/repo` its releases are published from and updates are read from. */
   updateRepository: string;
   /** Where a hosted plan is changed. Shown when a plan's limit is reached. */

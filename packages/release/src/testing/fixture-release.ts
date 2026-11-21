@@ -26,7 +26,7 @@ export const FIXTURE_PRODUCT_DEFINITION: ProductDefinition = {
     database: "demo",
     resourcePrefix: "demo-",
   },
-  extensions: [],
+  packs: [],
   updateRepository: "example/demo",
   billingUrl: "https://demo.example/billing",
   strings: { name: "Demo" },

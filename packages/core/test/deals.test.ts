@@ -5,7 +5,7 @@
 import { env } from "cloudflare:workers";
 import { createCrmDb } from "@composable-os/db";
 import { seedRecordId as dbSeedRecordId, seedDatabase } from "@composable-os/db/seed";
-import deals from "@composable-os/extension-deals";
+import deals from "@composable-os/pack-deals";
 import { toManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invokeByName, seedRecordId } from "../src/index.ts";

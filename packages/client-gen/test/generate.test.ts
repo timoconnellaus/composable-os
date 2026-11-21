@@ -8,9 +8,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildContract, defineOperation } from "@composable-os/core";
-import deals from "@composable-os/extension-deals";
-import leads from "@composable-os/extension-leads";
-import lifecycle from "@composable-os/extension-lifecycle";
+import deals from "@composable-os/pack-deals";
+import leads from "@composable-os/pack-leads";
+import lifecycle from "@composable-os/pack-lifecycle";
 import { build } from "esbuild";
 import ts from "typescript";
 import { afterAll, describe, expect, it } from "vitest";
@@ -44,8 +44,8 @@ function typecheck(dir: string, files: Record<string, string>): string[] {
       types: [],
       paths: {
         "@composable-os/client": [runtime],
-        "@composable-os/extension-deals/headless": [
-          join(here, "..", "..", "..", "extensions", "deals", "headless.ts"),
+        "@composable-os/pack-deals/client": [
+          join(here, "..", "..", "..", "packs", "deals", "client", "index.ts"),
         ],
       },
     },
@@ -139,7 +139,7 @@ export const b = api.query("fixture.save", { text: "x" });
     const files = renderClient(productContract([deals, leads, lifecycle]), { product: "crm" });
     const app = `import { createCustomerClient } from "./customer.ts";
 import { createStaffClient } from "./staff.ts";
-import { createDealsHooks } from "@composable-os/extension-deals/headless";
+import { createDealsHooks } from "@composable-os/pack-deals/client";
 const customer = createCustomerClient({ baseUrl: "https://h" });
 const staff = createStaffClient({ baseUrl: "https://h" });
 export const me = customer.query("me.get", {});

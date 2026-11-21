@@ -1,5 +1,5 @@
 {
-  "name": "@composable-os/extension-leads",
+  "name": "@composable-os/pack-leads",
   "version": "1.0.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
@@ -23,7 +23,7 @@
     "@cloudflare/vitest-plugin": "1.5.1",
     "@cloudflare/workers-types": "5.20261104.1",
     "@composable-os/config": "workspace:*",
-    "@composable-os/extension-deals": "workspace:*",
+    "@composable-os/pack-deals": "workspace:*",
     "typescript": "6.0.3",
     "vitest": "5.1.0"
   }

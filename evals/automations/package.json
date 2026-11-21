@@ -14,7 +14,7 @@
     "@composable-os/core": "workspace:*",
     "@composable-os/evals-judge": "workspace:*",
     "@composable-os/evals-mcp": "workspace:*",
-    "@composable-os/extension-deals": "workspace:*",
+    "@composable-os/pack-deals": "workspace:*",
     "@composable-os/sdk": "workspace:*"
   },
   "devDependencies": {

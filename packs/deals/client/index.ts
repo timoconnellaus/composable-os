@@ -1,5 +1,5 @@
 // The Deals pack's headless entry (stage 23, ADR 0418): functions and hooks over the typed client,
-// no markup. A client app imports it as `@composable-os/extension-deals/headless` and hands it
+// no markup. A client app imports it as `@composable-os/pack-deals/client` and hands it
 // its generated staff client; a block (stage 24) renders what it returns.
 //
 // The convention for every pack:
@@ -9,7 +9,7 @@
 //   are built from the app's own `useQuery`, so any version of the library fits.
 // - It holds no rules. What a deal may do is the host's; this only reads and shapes.
 import type { z } from "@composable-os/sdk";
-import type { stageMetrics } from "./tools.ts";
+import type { stageMetrics } from "../tools.ts";
 
 /** The operations this entry calls, as the generated client types them. */
 export type DealsOperations = {

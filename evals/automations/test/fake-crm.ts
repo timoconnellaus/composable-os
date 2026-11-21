@@ -39,7 +39,7 @@ export interface FakePipeline {
 }
 
 /**
- * The Deals extension's seeded pipelines (extensions/deals/index.ts). Renewals is listed first and
+ * The Deals extension's seeded pipelines (packs/deals/index.ts). Renewals is listed first and
  * its stages share positions with New business, as on a seeded database where a stage picked by
  * type and position alone lands in Renewals.
  */
@@ -76,7 +76,7 @@ const conditionsOf = (filter: unknown): Condition[] =>
       ? (filter as { and: unknown[] }).and.flatMap(conditionsOf)
       : [filter as Condition];
 
-/** The host's stage rules on creating a deal (extensions/deals/README.md, Behaviour). */
+/** The host's stage rules on creating a deal (packs/deals/README.md, Behaviour). */
 function stageRuleError(pipelines: FakePipeline[], values: Record<string, unknown>) {
   const pipeline = pipelines.find((p) => p.stages.some((s) => s.id === values.stage));
   const stage = pipeline?.stages.find((s) => s.id === values.stage);
