@@ -51317,6 +51317,7 @@
       "invalidates": [
         "user.grantablePermissions",
         "user.list",
+        "user.me",
         "user.packRoles"
       ]
     },
@@ -51569,6 +51570,59 @@
       "invalidates": []
     },
     {
+      "name": "user.me",
+      "description": "The signed-in staff account: id, name, role, the permissions granted to it one by one, and every permission it holds (its role's and its grants). For an app to offer what the account may do (publish a program); the host still decides each call. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "granted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role",
+          "granted",
+          "permissions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "user.packRoles",
       "description": "List the fixed staff roles the installed packs declare that an admin can give to a staff account (for example Ticketing's door role: check tickets in and read events, ticket types and tickets, nothing else), with what each holds. Read-only.",
       "risk": "read",
@@ -51678,6 +51732,7 @@
       "invalidates": [
         "user.grantablePermissions",
         "user.list",
+        "user.me",
         "user.packRoles"
       ]
     },
@@ -51780,6 +51835,7 @@
       "invalidates": [
         "user.grantablePermissions",
         "user.list",
+        "user.me",
         "user.packRoles"
       ]
     },
@@ -51879,6 +51935,7 @@
       "invalidates": [
         "user.grantablePermissions",
         "user.list",
+        "user.me",
         "user.packRoles"
       ]
     },
@@ -51979,6 +52036,7 @@
       "invalidates": [
         "user.grantablePermissions",
         "user.list",
+        "user.me",
         "user.packRoles"
       ]
     },
@@ -58575,6 +58633,18 @@
                     "null"
                   ]
                 },
+                "programTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "classTypeName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "focus": {
                   "type": [
                     "string",
@@ -58712,6 +58782,8 @@
                 "classType",
                 "assignment",
                 "programVersion",
+                "programTitle",
+                "classTypeName",
                 "focus",
                 "state",
                 "plan",
@@ -58728,6 +58800,101 @@
         "additionalProperties": false
       },
       "invalidates": [],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.draft",
+      "description": "Draft a program from a brief (\"12 weeks of handstand strength, 3 sessions a week\") as a working copy for a coach to edit: weeks of sessions of blocks of exercises taken only from the bank, with default sets. The assistant reads the brief with the extract model role when the deployment has AI, and the numbers and words in it otherwise. It never publishes: a person with the publish permission does, after editing. Returns the new program. (Extension tool from Programs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "brief": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "kind": {
+            "default": "client",
+            "type": "string",
+            "enum": [
+              "class",
+              "client",
+              "course"
+            ]
+          }
+        },
+        "required": [
+          "brief"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "programId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "weeks": {
+            "type": "number"
+          },
+          "sessions": {
+            "type": "number"
+          },
+          "published": {
+            "type": "boolean",
+            "const": false,
+            "description": "Always false: a person publishes it"
+          },
+          "exercises": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "programId",
+          "title",
+          "weeks",
+          "sessions",
+          "published",
+          "exercises"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.programs.classToday",
+        "x.programs.history",
+        "x.programs.progress",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ],
       "pack": "programs"
     },
     {
@@ -58902,6 +59069,13 @@
                     "null"
                   ]
                 },
+                "exerciseName": {
+                  "description": "The exercise's name, as it was when logged",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "date": {
                   "type": [
                     "string",
@@ -58921,6 +59095,7 @@
                 "note",
                 "recordedAs",
                 "recordedByName",
+                "exerciseName",
                 "date"
               ],
               "additionalProperties": false
@@ -58971,6 +59146,109 @@
         "additionalProperties": false
       },
       "invalidates": [],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.importText",
+      "description": "Turn pasted program shorthand, or a document's text, into a working copy with structured targets: Title:, Guidance:, Week:, Session: (a weekday names its day), Focus:, Warm-up: with - lines, Block A: with its rounds, items A1: with an exercise (for everyone) or with level lines 1: to 5: (\"+\" done together, \"|\" alternatives), * notes for coaches and TV: notes shown to members. Exercises are matched to the bank by name. Every line it could not read is listed with why, for the coach to fix; nothing is guessed. Never publishes. Returns the new program and the unread lines. (Extension tool from Programs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200000
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "kind": {
+            "default": "class",
+            "type": "string",
+            "enum": [
+              "class",
+              "client",
+              "course"
+            ]
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "programId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "weeks": {
+            "type": "number"
+          },
+          "sessions": {
+            "type": "number"
+          },
+          "published": {
+            "type": "boolean",
+            "const": false,
+            "description": "Always false: a person publishes it"
+          },
+          "items": {
+            "type": "number"
+          },
+          "unread": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "number"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "line",
+                "text",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "programId",
+          "title",
+          "weeks",
+          "sessions",
+          "published",
+          "items",
+          "unread"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.programs.classToday",
+        "x.programs.history",
+        "x.programs.progress",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ],
       "pack": "programs"
     },
     {
@@ -59167,6 +59445,13 @@
               "string",
               "null"
             ]
+          },
+          "exerciseName": {
+            "description": "The exercise's name, as it was when logged",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -59180,7 +59465,8 @@
           "rpe",
           "note",
           "recordedAs",
-          "recordedByName"
+          "recordedByName",
+          "exerciseName"
         ],
         "additionalProperties": false
       },
@@ -59365,6 +59651,13 @@
               "string",
               "null"
             ]
+          },
+          "exerciseName": {
+            "description": "The exercise's name, as it was when logged",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -59378,7 +59671,8 @@
           "rpe",
           "note",
           "recordedAs",
-          "recordedByName"
+          "recordedByName",
+          "exerciseName"
         ],
         "additionalProperties": false
       },
@@ -59635,6 +59929,18 @@
                   "null"
                 ]
               },
+              "programTitle": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "classTypeName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "focus": {
                 "type": [
                   "string",
@@ -59674,6 +59980,8 @@
               "classType",
               "assignment",
               "programVersion",
+              "programTitle",
+              "classTypeName",
               "focus",
               "state",
               "plan"
@@ -59781,6 +60089,18 @@
                   "null"
                 ]
               },
+              "programTitle": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "classTypeName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "focus": {
                 "type": [
                   "string",
@@ -59820,6 +60140,8 @@
               "classType",
               "assignment",
               "programVersion",
+              "programTitle",
+              "classTypeName",
               "focus",
               "state",
               "plan"
@@ -60037,6 +60359,13 @@
                     "string",
                     "null"
                   ]
+                },
+                "exerciseName": {
+                  "description": "The exercise's name, as it was when logged",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -60050,7 +60379,8 @@
                 "rpe",
                 "note",
                 "recordedAs",
-                "recordedByName"
+                "recordedByName",
+                "exerciseName"
               ],
               "additionalProperties": false
             }
@@ -60149,6 +60479,18 @@
                 "programVersion": {
                   "type": [
                     "number",
+                    "null"
+                  ]
+                },
+                "programTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "classTypeName": {
+                  "type": [
+                    "string",
                     "null"
                   ]
                 },
@@ -60289,6 +60631,8 @@
                 "classType",
                 "assignment",
                 "programVersion",
+                "programTitle",
+                "classTypeName",
                 "focus",
                 "state",
                 "plan",

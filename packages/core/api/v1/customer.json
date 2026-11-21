@@ -1307,6 +1307,12 @@
                 "programVersion": {
                   "type": ["number", "null"]
                 },
+                "programTitle": {
+                  "type": ["string", "null"]
+                },
+                "classTypeName": {
+                  "type": ["string", "null"]
+                },
                 "focus": {
                   "type": ["string", "null"]
                 },
@@ -1394,6 +1400,8 @@
                 "classType",
                 "assignment",
                 "programVersion",
+                "programTitle",
+                "classTypeName",
                 "focus",
                 "state",
                 "plan",
@@ -1521,6 +1529,10 @@
                 "recordedByName": {
                   "type": ["string", "null"]
                 },
+                "exerciseName": {
+                  "description": "The exercise's name, as it was when logged",
+                  "type": ["string", "null"]
+                },
                 "date": {
                   "type": ["string", "null"]
                 }
@@ -1537,6 +1549,7 @@
                 "note",
                 "recordedAs",
                 "recordedByName",
+                "exerciseName",
                 "date"
               ],
               "additionalProperties": false
@@ -1708,6 +1721,10 @@
           },
           "recordedByName": {
             "type": ["string", "null"]
+          },
+          "exerciseName": {
+            "description": "The exercise's name, as it was when logged",
+            "type": ["string", "null"]
           }
         },
         "required": [
@@ -1721,7 +1738,8 @@
           "rpe",
           "note",
           "recordedAs",
-          "recordedByName"
+          "recordedByName",
+          "exerciseName"
         ],
         "additionalProperties": false
       },
@@ -1856,6 +1874,10 @@
           },
           "recordedByName": {
             "type": ["string", "null"]
+          },
+          "exerciseName": {
+            "description": "The exercise's name, as it was when logged",
+            "type": ["string", "null"]
           }
         },
         "required": [
@@ -1869,7 +1891,8 @@
           "rpe",
           "note",
           "recordedAs",
-          "recordedByName"
+          "recordedByName",
+          "exerciseName"
         ],
         "additionalProperties": false
       },
@@ -2053,6 +2076,12 @@
               "programVersion": {
                 "type": ["number", "null"]
               },
+              "programTitle": {
+                "type": ["string", "null"]
+              },
+              "classTypeName": {
+                "type": ["string", "null"]
+              },
               "focus": {
                 "type": ["string", "null"]
               },
@@ -2086,6 +2115,8 @@
               "classType",
               "assignment",
               "programVersion",
+              "programTitle",
+              "classTypeName",
               "focus",
               "state",
               "plan"
@@ -2166,6 +2197,12 @@
               "programVersion": {
                 "type": ["number", "null"]
               },
+              "programTitle": {
+                "type": ["string", "null"]
+              },
+              "classTypeName": {
+                "type": ["string", "null"]
+              },
               "focus": {
                 "type": ["string", "null"]
               },
@@ -2199,6 +2236,8 @@
               "classType",
               "assignment",
               "programVersion",
+              "programTitle",
+              "classTypeName",
               "focus",
               "state",
               "plan"
@@ -2322,6 +2361,10 @@
                 },
                 "recordedByName": {
                   "type": ["string", "null"]
+                },
+                "exerciseName": {
+                  "description": "The exercise's name, as it was when logged",
+                  "type": ["string", "null"]
                 }
               },
               "required": [
@@ -2335,7 +2378,8 @@
                 "rpe",
                 "note",
                 "recordedAs",
-                "recordedByName"
+                "recordedByName",
+                "exerciseName"
               ],
               "additionalProperties": false
             }
@@ -2406,6 +2450,12 @@
                 },
                 "programVersion": {
                   "type": ["number", "null"]
+                },
+                "programTitle": {
+                  "type": ["string", "null"]
+                },
+                "classTypeName": {
+                  "type": ["string", "null"]
                 },
                 "focus": {
                   "type": ["string", "null"]
@@ -2494,6 +2544,8 @@
                 "classType",
                 "assignment",
                 "programVersion",
+                "programTitle",
+                "classTypeName",
                 "focus",
                 "state",
                 "plan",
