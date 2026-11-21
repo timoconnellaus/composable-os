@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { blockFolders, lintBlocks, lintSource } from "./check-blocks.mjs";
+import { blockFolders, lintBlocks, lintNoPurchase, lintSource } from "./check-blocks.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -36,4 +36,24 @@ test("every block the platform ships holds no rules", () => {
   const folders = blockFolders(root);
   assert.ok(folders.length >= 7, `found ${folders.length} blocks`);
   assert.deepEqual(lintBlocks(folders, root), []);
+});
+
+test("a noPurchase block that buys or shows a price fails (stage 42: no buying in the app)", () => {
+  const problems = lintBlocks([fixture("native-buy")], root);
+  assert.ok(
+    problems.some((p) => /block\.json: no-purchase: the block lists x\.courses\.buy/.test(p)),
+  );
+  assert.ok(problems.some((p) => /buy-screen\.tsx:\d+: no-purchase/.test(p)));
+  assert.equal(lintNoPurchase("const { start } = courses.useBuy();")[0]?.rule, "no-purchase");
+  assert.equal(lintNoPurchase("<Text>{course.price}</Text>")[0]?.rule, "no-purchase");
+  assert.deepEqual(lintNoPurchase('<Text>{"Find it on the website"}</Text>'), []);
+});
+
+test("every native courses block is marked noPurchase", async () => {
+  const { readFileSync } = await import("node:fs");
+  const natives = blockFolders(root).filter((dir) => /courses-native-/.test(dir));
+  assert.ok(natives.length >= 4);
+  for (const dir of natives) {
+    assert.equal(JSON.parse(readFileSync(join(dir, "block.json"), "utf8")).noPurchase, true, dir);
+  }
 });

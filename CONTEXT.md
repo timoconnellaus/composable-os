@@ -1301,6 +1301,34 @@ everything; the public nothing.
 _Avoid_: entitlement (a hosted plan's limits, ADR 0211), purchase (access can be given or
 imported), licence
 
+**Course** (Courses, stage 42)
+A publishable record a studio sells: a title, theme, level, description, cover, trailer, price
+and its **outline**, one document of sections of **lessons**. Bought one at a time or in a
+**bundle**; read by holders of access to it.
+_Avoid_: class (a class is the timetable's), program (a program is Programs')
+
+**Lesson** (Courses)
+One part of a course's outline: a video and notes, a page of text, a training session from
+Programs to follow, or a download. Its key names it for good (progress is kept by it); its title,
+minutes and whether it is a free preview are for everyone, its material for holders only.
+_Avoid_: unit, module, activity
+
+**Bundle** (Courses)
+A fixed set of courses staff choose, sold at one price. A buyer holds access to each course its
+published version lists, including one added later.
+_Avoid_: package, plan (a plan is a subscription's, stage 32)
+
+**Enrolment** (Courses)
+A student's access to a course or a bundle: granted by a paid order line, given by staff with a
+reason, or imported; active, ended, or void (only a full refund voids one). An `until` ends it.
+_Avoid_: entitlement (a hosted plan's limits), assignment (Programs'), purchase (it may be given)
+
+**Progress** (Courses)
+One student's progress on one lesson: started or done, when, and where its video was left. Written
+by the student only while they hold access to the course. A course is complete when every lesson
+that is not a download is done, or when it was imported as completed.
+_Avoid_: completion (a course's state, read from progress), log (Programs' sets)
+
 **Holders' part** (of a document)
 A part of a document field its schema marks `holders` (ADR 0477): an object, or some keys of one
 (a lesson's video and notes, while its title stays), removed from what an outsider without access

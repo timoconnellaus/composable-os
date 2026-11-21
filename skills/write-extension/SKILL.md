@@ -203,6 +203,11 @@ extension declares it; it never implements it. Each behaviour the platform has i
   on an object node (or `holders: true` for the whole node). Never check access in a tool or a
   block: the host removes those parts for everyone else, and `media.play` refuses them. Only a
   pack or the org's own extension may declare it. A refund's void state gives no access.
+  A customer's own record that must only be written with access (a lesson's progress) lists its
+  relation in `customer.requireAccess`; the host then refuses the write without it. See Courses:
+  `packs/courses/index.ts`.
+- **An extension built on another** declares `requires: ["<id>"]` (Courses requires Programs): the
+  host refuses to install it until that one is installed and on.
 
 ### Roles
 

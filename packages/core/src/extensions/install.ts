@@ -114,6 +114,36 @@ export async function checkManifest(
   // Who an extension opens the host to is never AI-configurable (ADR 0402): a runtime extension,
   // written in the workspace, may not open a tool or show an object to anyone but staff.
   if (manifest && options.source === "runtime") all.push(...outsideDeclarations(manifest));
+  // The extensions it requires must be installed and on (stage 42, ADR 0478): Courses needs
+  // Programs. A missing one is named, never assumed, and named first: without it, what the
+  // extension names of it is unknown too.
+  const raw = (rawManifest as { requires?: unknown } | null)?.requires;
+  const required = Array.isArray(raw)
+    ? raw.filter((r): r is string => typeof r === "string").slice(0, 10)
+    : [];
+  if (required.length) {
+    const present = new Set(
+      (
+        await db
+          .selectFrom("core_extensions")
+          .select("id")
+          .where("id", "in", required)
+          .where("status", "=", "active")
+          .execute()
+      ).map((r) => r.id),
+    );
+    for (const id of options.installed ?? []) present.add(id);
+    required.forEach((id, i) => {
+      if (!present.has(id)) {
+        all.unshift({
+          stage: "contract",
+          code: "contract",
+          path: `requires.${i}`,
+          message: `This extension requires the ${id} extension, which is not installed and on here`,
+        });
+      }
+    });
+  }
   // A source of access of a kind the host does not provide gives no one access (ADR 0477).
   for (const [name, object] of Object.entries(manifest?.objects ?? {})) {
     (object.access?.sources ?? []).forEach((source, i) => {
@@ -143,6 +173,12 @@ export async function checkManifest(
 /** What kind of extension is being checked. `runtime`: written in the workspace, by AI or by hand. */
 export interface CheckOptions {
   source?: "shipped" | "runtime";
+  /**
+   * Extensions to count as installed for `requires` (stage 42): the ones `cos ext check` has
+   * reconciled into its local database before this one. A deployment's check reads
+   * core_extensions.
+   */
+  installed?: readonly string[];
 }
 
 /** Issues for everything in `manifest` that opens the host to customers or the public. */
@@ -151,6 +187,18 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
   const why =
     "Only a shipped extension, or one in the org's own repository, can do that: it is a " +
     "reviewed change. Remove it, or move the extension out of the workspace.";
+  // Another extension's tool runs with that extension's own permissions (ADR 0478): calling one
+  // is a reviewed change, so code written in the app may not list one.
+  manifest.permissions.operations.forEach((operation, i) => {
+    if (operation.startsWith("x.")) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `permissions.operations.${i}`,
+        message: `A runtime extension cannot call another extension's tool (${operation}). ${why}`,
+      });
+    }
+  });
   for (const [name, tool] of Object.entries(manifest.tools)) {
     const open = (tool.audiences ?? []).filter((audience) => audience !== "staff");
     if (open.length || tool.customerFields) {

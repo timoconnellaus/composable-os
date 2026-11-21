@@ -205,6 +205,11 @@ export interface CustomerDeclaration {
   readonly field: string;
   readonly read: readonly string[];
   readonly write: readonly string[];
+  /**
+   * Relations whose record the customer must hold access to for any write of theirs (stage 42,
+   * ADR 0478), asked of the seam's one question (`holdsAccess`).
+   */
+  readonly requireAccess?: readonly string[] | undefined;
 }
 
 /** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */

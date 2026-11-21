@@ -704,6 +704,12 @@ export interface CustomerSpec {
   field: string;
   read: readonly string[];
   write: readonly string[];
+  /**
+   * Relations whose record the customer must hold access to for any write of theirs (stage 42,
+   * ADR 0478): a lesson's progress is written only while its course is theirs. Checked by the host
+   * on create and on every update, against the record the row points to.
+   */
+  requireAccess?: readonly string[];
 }
 
 /** A tool shown as a button on a record page. */
@@ -778,6 +784,12 @@ export interface ExtensionSpec {
   contractVersion: number;
   label?: string;
   description?: string;
+  /**
+   * Extensions this one needs installed first, by id (stage 42, ADR 0478): Courses requires
+   * Programs. The host refuses to install it while one is missing, and installs shipped ones in
+   * that order.
+   */
+  requires?: readonly string[];
   permissions?: PermissionsSpec;
   objects?: Record<string, ObjectSpec>;
   /** Fields added to other objects, keyed by target object (`organisation`, `other.object`). */

@@ -15,12 +15,16 @@ import {
   type CodeCaller,
   coreOperations,
   type EventSink,
+  type ExtensionHost,
   invokeByName,
+  type Origin,
   type OutsidePrincipal,
   PendingApprovalError,
   type Permission,
   parseFloor,
+  queueEventSink,
   type TestSimulation,
+  type ToolCascade,
   toOperationError,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
@@ -36,6 +40,12 @@ export const MAX_LOGS = 200;
 export interface HostEnv {
   DB: D1Database;
   APPROVAL_FLOOR?: string;
+  /**
+   * The automation events queue (ADR 0130): what a tool's own operation calls commit starts
+   * automations, as the same write made from the admin does (stage 42: a student's first
+   * progress row, written by the Courses `progress` tool, assigns their session programs).
+   */
+  AUTOMATION_EVENTS?: Queue;
   AI?: unknown;
   AI_GATEWAY_ID?: string;
 }
@@ -111,6 +121,8 @@ export interface RunState {
    * module but `ops`, `storage` and `log`.
    */
   outside?: { principal: OutsidePrincipal; tool: string };
+  /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
+  cascade?: ToolCascade;
 }
 
 type Envelope =
@@ -185,6 +197,46 @@ export class RunHost extends RpcTarget {
     }
   }
 
+  /** The events queue for a tool's own calls, where this Worker has one. */
+  #events(): { events?: EventSink } {
+    return this.#env.AUTOMATION_EVENTS
+      ? { events: queueEventSink(this.#env.AUTOMATION_EVENTS) }
+      : {};
+  }
+
+  /**
+   * For a call of another extension's tool (`x.<id>.<tool>`, stage 42: Courses' automation asks
+   * Programs to assign a program): this runner's own extension host, which runs it in its own
+   * sandbox under its own extension's permissions. Loaded when needed (index.ts imports this file).
+   */
+  async #tools(operation: string): Promise<{ extensionHost?: ExtensionHost }> {
+    if (!operation.startsWith("x.")) return {};
+    const { extensionHost } = await import("../index.ts");
+    return { extensionHost: extensionHost(this.#env as never) };
+  }
+
+  /**
+   * A tool's own calls are made from the tool's extension; inside an automation cascade they keep
+   * its depth, chain and root event, so the cascade rails hold across the tool (ADR 0478).
+   */
+  #toolOrigin(): Origin {
+    const run = this.#run;
+    const c = run.cascade;
+    return {
+      surface: "extension",
+      extensionId: run.extensionId,
+      ...(c
+        ? {
+            depth: c.depth,
+            chain: c.chain.slice(-10),
+            rootEventId: c.rootEventId,
+            ...(c.automationId ? { automationId: c.automationId } : {}),
+            ...(c.runId ? { runId: c.runId } : {}),
+          }
+        : {}),
+    };
+  }
+
   async #crmCall(args: unknown[]): Promise<unknown> {
     const run = this.#run;
     const [name, input] = args;
@@ -198,17 +250,21 @@ export class RunHost extends RpcTarget {
           await invokeByName(operation, input ?? {}, {
             principal: run.outside.principal,
             tool: { extension: run.extensionId, tool: run.outside.tool },
-            origin: { surface: "extension", extensionId: run.extensionId },
+            origin: this.#toolOrigin(),
             db: createCrmDb(this.#env.DB),
             floor: parseFloor(this.#env.APPROVAL_FLOOR),
+            ...this.#events(),
+            ...(await this.#tools(operation)),
           })
         : await invokeByName(operation, input ?? {}, {
             actor: "extension",
             user: run.user,
-            origin: { surface: "extension", extensionId: run.extensionId },
+            origin: this.#toolOrigin(),
             db: createCrmDb(this.#env.DB),
             floor: parseFloor(this.#env.APPROVAL_FLOOR),
             extension: { id: run.extensionId, permissions: run.permissions },
+            ...this.#events(),
+            ...(await this.#tools(operation)),
           });
       reply = { ok: true, value };
     } catch (error) {
@@ -253,6 +309,7 @@ export class RunHost extends RpcTarget {
         floor: parseFloor(this.#env.APPROVAL_FLOOR),
         extension: { id: run.extensionId, permissions: run.permissions },
         reason: `Automation ${automation.automationId}`,
+        ...(await this.#tools(operation)),
         ...(automation.events ? { events: automation.events } : {}),
         ...(automation.events && embedsFromEvents(this.#env) ? { embedViaEvents: true } : {}),
         ...(automation.simulate ? { simulate: automation.simulate } : {}),

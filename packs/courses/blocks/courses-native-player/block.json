@@ -1,0 +1,12 @@
+{
+  "name": "courses-native-player",
+  "pack": "courses",
+  "skin": "native",
+  "operations": ["x.courses.lesson", "media.play", "x.courses.progress"],
+  "files": ["lesson-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-courses": "*"
+  },
+  "noPurchase": true
+}

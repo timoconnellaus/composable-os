@@ -62114,6 +62114,470 @@
       "pack": "content"
     },
     {
+      "name": "x.courses.draft",
+      "description": "Draft a course from a brief (\"a beginner handstand course in three parts\") as a working copy for staff to edit: sections of lessons built only from videos already in the media library (ready ones) and programs already published, with each lesson's title. It reads the brief with the extract model role when the deployment has AI. It never publishes: a person publishes it, and an assistant's request to publish waits for one (ADR 0480). Returns the new course. (Extension tool from Courses 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "brief": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "brief"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sections": {
+            "type": "number"
+          },
+          "lessons": {
+            "type": "number"
+          },
+          "videos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "programs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "published": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "courseId",
+          "title",
+          "sections",
+          "lessons",
+          "videos",
+          "programs",
+          "published"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.courses.lesson",
+        "x.courses.stats"
+      ],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.endEnrolment",
+      "description": "End an enrolment staff gave or one that was imported, with the reason: the person no longer holds access through it. A bought enrolment ends by a refund of its order, as every grant does, and is refused here. (Extension tool from Courses 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "enrolmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "enrolmentId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "enrolmentId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "enrolmentId",
+          "status",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.courses.lesson",
+        "x.courses.stats"
+      ],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.enrol",
+      "description": "Give a person access to a course or a bundle, recorded as given by staff with the reason, until a date or for as long as it is offered. It is an enrolment like a bought one: the person signs in with their email and finds the course. Returns the enrolment. (Extension tool from Courses 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "courseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "bundleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "until": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "personId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "enrolmentId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "enrolmentId",
+          "status",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.courses.lesson",
+        "x.courses.stats"
+      ],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.lesson",
+      "description": "One lesson of a published course for someone who holds access to it (or any lesson marked a free preview): its kind and its material (a video and notes, a page of text, a training session, a download), where the student left its video, and the next lesson. A video is named with where it is shown: the app asks media.play for a token to play it. Not found without access, as a lesson that does not exist. Read-only. (Extension tool from Courses 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "lessonKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "courseId",
+          "lessonKey"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string"
+          },
+          "lesson": {
+            "propertyNames": {
+              "type": "string"
+            },
+            "description": "The lesson as the outline has it",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": {}
+          },
+          "video": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "media": {
+                    "type": "string"
+                  },
+                  "poster": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "record": {
+                    "type": "object",
+                    "properties": {
+                      "object": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "object",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "field": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "media",
+                  "poster",
+                  "record",
+                  "field"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass to media.play to get a token and the address it plays at"
+          },
+          "position": {
+            "description": "Seconds: where the student left the video",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "started",
+                  "done"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "video",
+                      "text",
+                      "session",
+                      "download"
+                    ]
+                  },
+                  "duration": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "key",
+                  "title",
+                  "kind",
+                  "duration",
+                  "preview"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "courseId",
+          "lesson",
+          "video",
+          "position",
+          "state",
+          "next"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.stats",
+      "description": "For staff: enrolments by course (active, ended, void), how many students completed it (every lesson that counts done), and lessons marked done by week. All courses, or one. Read-only. (Extension tool from Courses 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "courseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "courses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "courseId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "number"
+                },
+                "ended": {
+                  "type": "number"
+                },
+                "void": {
+                  "type": "number"
+                },
+                "lessonsDone": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "courseId",
+                "title",
+                "active",
+                "ended",
+                "void",
+                "lessonsDone"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "byWeek": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "week": {
+                  "type": "string"
+                },
+                "done": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "week",
+                "done"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "courses",
+          "byWeek"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "courses"
+    },
+    {
       "name": "x.deals.stageMetrics",
       "description": "Time in stage and velocity for a deal pipeline, from stage history: for each stage how many deals entered it, how many are in it now, and the average days deals spent in it; and for won deals how many were won, the average days from entering the pipeline to being won, and their total value. Optionally only stage entries since a date. Read-only. (Extension tool from Deals 1.2.0.)",
       "risk": "read",

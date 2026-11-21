@@ -1,0 +1,12 @@
+{
+  "name": "courses-native-my-courses",
+  "pack": "courses",
+  "skin": "native",
+  "operations": ["x.courses.myCourses"],
+  "files": ["my-courses-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-courses": "*"
+  },
+  "noPurchase": true
+}

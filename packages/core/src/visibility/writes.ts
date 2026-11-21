@@ -7,7 +7,9 @@ import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "
 import { getObject, isCoreObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext, RecordChange } from "../operation.ts";
+import { viewColumnOf } from "../records/columns.ts";
 import { jsonList } from "../records/common.ts";
+import { holdsAccess } from "./access.ts";
 import { unknownObject } from "./customer.ts";
 import {
   type AnyRow,
@@ -216,6 +218,31 @@ async function assertRelationsVisible(
   }
 }
 
+/**
+ * A write that needs access to what it points to (stage 42, ADR 0478): for each relation the
+ * object's customer declaration lists in `requireAccess`, the record it points to after the write
+ * (the value set, or the row's own on an update) must be one the caller holds access to, by the
+ * seam's one question. Otherwise the write is refused as a record that is not there.
+ */
+async function assertAccessRequired(
+  reader: Reader,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+  existing: AnyRow | null,
+): Promise<void> {
+  const required = object.customer?.requireAccess ?? [];
+  for (const name of required) {
+    const field = object.fields.find((f) => f.name === name);
+    const to = field?.options?.to;
+    const target = to ? getObject(to) : undefined;
+    const pointed = Object.hasOwn(values, name) ? values[name] : existing?.[name];
+    const id = pointed === null || pointed === undefined ? null : String(pointed);
+    if (!target || !id) throw new NotFoundError(to ?? name, id ?? "");
+    const held = await holdsAccess(reader, target, [id]);
+    if (!held.has(id)) throw new NotFoundError(target.name, id);
+  }
+}
+
 /** Runs `write` and marks every change it recorded as one the seam checked. */
 async function recording<T>(
   writer: SeamWriter,
@@ -249,6 +276,7 @@ export async function createVisible(
     throw new ForbiddenError(`A customer cannot create a ${object.name}`);
   }
   await assertRelationsVisible(writer.reader, object, values);
+  await assertAccessRequired(writer.reader, object, values, null);
   const owned = { ...values, [scope.declaration.field]: scope.personId };
   const create = recordWriter.create;
   return { id: await recording(writer, (host) => create(host, object, owned)) };
@@ -274,6 +302,22 @@ export async function updateVisible(
     .executeTakeFirst();
   if (!row) throw new NotFoundError(object.name, id);
   await assertRelationsVisible(writer.reader, object, values);
+  if (object.customer?.requireAccess?.length) {
+    // What the row points to now, through the caller's own source (its listed columns).
+    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+    const current = (await (writer.reader.db as any)
+      .selectFrom(visibleSource(writer.reader, object))
+      .selectAll()
+      .where("id", "=", id)
+      .executeTakeFirst()) as AnyRow | undefined;
+    const existing: AnyRow = {};
+    for (const name of object.customer.requireAccess) {
+      const field = object.fields.find((f) => f.name === name);
+      const column = field ? viewColumnOf(field) : null;
+      existing[name] = column && current ? current[column] : null;
+    }
+    await assertAccessRequired(writer.reader, object, values, existing);
+  }
   const update =
     coreWriters.get(object.name)?.update ??
     (isCoreObject(object.name) ? null : recordWriter?.update);

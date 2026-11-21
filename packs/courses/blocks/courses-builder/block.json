@@ -1,0 +1,11 @@
+{
+  "name": "courses-builder",
+  "pack": "courses",
+  "skin": "web",
+  "operations": ["record.get", "record.update", "record.publish", "media.list", "record.list"],
+  "files": ["course-builder.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/pack-courses": "*"
+  }
+}

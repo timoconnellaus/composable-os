@@ -1,0 +1,11 @@
+{
+  "name": "courses-my-courses",
+  "pack": "courses",
+  "skin": "web",
+  "operations": ["x.courses.myCourses"],
+  "files": ["my-courses.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card"],
+  "packages": {
+    "@composable-os/pack-courses": "*"
+  }
+}

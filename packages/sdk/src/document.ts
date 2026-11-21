@@ -119,6 +119,12 @@ export interface DocumentArrayNode extends NodeBase {
   min?: number;
   /** A key of the listed objects whose values must differ (labels, level numbers). */
   unique?: string;
+  /**
+   * With `unique`: the key's values must differ across every list this node holds in the
+   * document, not only within one (stage 42: a lesson's key across all sections, since progress
+   * is kept by it).
+   */
+  uniqueAcross?: boolean;
 }
 export interface DocumentTextNode extends NodeBase {
   type: "text";
@@ -303,7 +309,10 @@ export function checkDocumentSchema(
         break;
       }
       case "array": {
-        expect("of", "max", "min", "unique");
+        expect("of", "max", "min", "unique", "uniqueAcross");
+        if (value.uniqueAcross !== undefined && (value.uniqueAcross !== true || !value.unique)) {
+          add(`${path}.uniqueAcross`, "uniqueAcross is true, beside unique");
+        }
         const max = num("max", { int: true, min: 1, max: DOCUMENT_MAX_LIST });
         if (value.max === undefined) add(`${path}.max`, "A list declares its most entries (max)");
         const min = num("min", { int: true, min: 0 });
@@ -605,6 +614,7 @@ export function validateDocument(
     };
   }
   const issues: DocumentIssue[] = [];
+  const acrossLists = new Map<DocumentArrayNode, Map<string, string>>();
   const fault = (path: (string | number)[], message: string) => {
     if (issues.length < DOCUMENT_MAX_ISSUES) issues.push({ path: [...path], message });
   };
@@ -651,17 +661,32 @@ export function validateDocument(
           fault(path, `At least ${node.min} ${node.min === 1 ? "entry" : "entries"}`);
         }
         const seen = new Map<string, number>();
+        // Across every list of this node in the document: the first place each key was used.
+        let across = node.uniqueAcross ? acrossLists.get(node) : undefined;
+        if (node.uniqueAcross && !across) {
+          across = new Map();
+          acrossLists.set(node, across);
+        }
         v.slice(0, node.max).forEach((item, i) => {
           walk(node.of, item, [...path, i], depth + 1);
           if (node.unique && isObject(item) && item[node.unique] !== undefined) {
             const key = JSON.stringify(item[node.unique]);
             const first = seen.get(key);
+            const elsewhere = across?.get(key);
             if (first !== undefined) {
               fault(
                 [...path, i, node.unique],
                 `${JSON.stringify(item[node.unique])} is there twice (also entry ${first})`,
               );
-            } else seen.set(key, i);
+            } else if (elsewhere !== undefined) {
+              fault(
+                [...path, i, node.unique],
+                `${JSON.stringify(item[node.unique])} is used already (at ${elsewhere})`,
+              );
+            } else {
+              seen.set(key, i);
+              across?.set(key, [...path, i].join("."));
+            }
           }
         });
         return;

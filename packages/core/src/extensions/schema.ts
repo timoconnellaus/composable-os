@@ -67,7 +67,12 @@ export interface ObjectDefinitionJson {
   states?: StatesManifest;
   owner?: string;
   /** The object's customer (ADR 0402), as declared. */
-  customer?: { field: string; read: string[]; write: string[] };
+  customer?: {
+    field: string;
+    read: string[];
+    write: string[];
+    requireAccess?: string[] | undefined;
+  };
   /** What the public may read (ADR 0438), as declared. */
   public?: {
     read: string[];

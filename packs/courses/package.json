@@ -1,0 +1,39 @@
+{
+  "name": "@composable-os/pack-courses",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./client": "./client/index.ts"
+  },
+  "description": "Courses: video courses sold one at a time or in fixed bundles, an outline of lessons (video, text, a Programs session, a download), enrolments granted by a paid order and the access they give, progress, and the Courses dashboard (stage 42). Requires Programs. Installed in every deployment of a product that lists it. Bundled as source into cos-runner.",
+  "composableOs": {
+    "optional": true,
+    "label": "Courses",
+    "description": "Video courses sold one at a time or in bundles, watched lesson by lesson on the web and in the app, with progress. Requires Programs."
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc --noEmit -p blocks/tsconfig.web.json && tsc --noEmit -p blocks/tsconfig.native.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/client": "workspace:*",
+    "@composable-os/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@composable-os/config": "workspace:*",
+    "@types/react": "19.3.0",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "radix-ui": "1.8.1",
+    "react": "19.3.1",
+    "react-native": "0.88.1",
+    "tailwind-merge": "3.7.0",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

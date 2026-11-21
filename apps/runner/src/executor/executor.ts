@@ -340,6 +340,7 @@ export class Executor {
       ...(input.caller.principal
         ? { outside: { principal: input.caller.principal, tool: input.tool } }
         : {}),
+      ...(input.cascade ? { cascade: input.cascade } : {}),
     };
     const host = new RunHost(this.#env, run);
     const outcome = await invoke<ExtensionEntrypoint, RunResponse>(
@@ -355,9 +356,13 @@ export class Executor {
             deadline,
             // Who started the tool, for the tool to record (ctx.caller, ADR 0436). From the
             // pipeline's verified caller, never from the input.
+            // An automation's or another extension's call has no person who started it (stage
+            // 42: Courses' automation assigning a program): no caller, as in an automation.
             caller: input.caller.principal
               ? { kind: input.caller.principal.kind }
-              : { kind: "staff", userId: input.caller.userId, name: input.caller.name ?? "" },
+              : input.caller.actor === "automation" || input.caller.actor === "extension"
+                ? (undefined as unknown as StartedBy)
+                : { kind: "staff", userId: input.caller.userId, name: input.caller.name ?? "" },
           },
           host,
         ),

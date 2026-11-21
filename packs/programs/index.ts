@@ -364,6 +364,8 @@ export default defineExtension({
         read: [
           "name",
           "assignment",
+          // Stage 42: which program it is, so a course's session lesson finds the student's own.
+          "program",
           "programVersion",
           "kind",
           "classType",
