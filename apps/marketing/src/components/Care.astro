@@ -1,0 +1,38 @@
+---
+// The business model: once the product is built, Zero BS AI maintains it on one subscription. The
+// list is exactly what the subscription covers; change it only when the offer changes.
+import { CTA } from "../links.ts";
+import Icon from "./Icon.astro";
+
+const covers = [
+  "Hosting, and keeping it running",
+  "Updates to the platform underneath",
+  "Fixes when something breaks",
+  "Changes and new features as your business changes",
+  "Support for the team using it",
+];
+---
+
+<section id="care" class="care" aria-labelledby="care-title">
+  <div class="wrap split">
+    <div class="reveal">
+      <span class="eyebrow">Looked after</span>
+      <h2 id="care-title">One subscription, and nothing extra to buy.</h2>
+      <p class="lead">
+        Once your product is built, Zero BS AI looks after it. No seats, tiers or add-ons, and the
+        code is yours if you ever want it.
+      </p>
+      <a class="btn" href="#call">{CTA}</a>
+    </div>
+    <ul class="checks card reveal">
+      {
+        covers.map((item) => (
+          <li>
+            <Icon name="check" />
+            {item}
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>

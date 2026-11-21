@@ -1,0 +1,37 @@
+---
+// The reader's pain, in their words: lots of subscriptions, none quite right, concessions to make
+// them work, and a bill that grows.
+const pains = [
+  {
+    title: "Nothing quite fits",
+    body: "Each tool was built for a business a bit like yours. The real process ends up in a spreadsheet beside it.",
+  },
+  {
+    title: "You make the concessions",
+    body: "The team changes how it works to suit the software, when it should be the other way round.",
+  },
+  {
+    title: "Nickel-and-dimed everywhere",
+    body: "Another seat, another tier, another add-on. The bill grows and the fit doesn't.",
+  },
+];
+---
+
+<section id="problem" aria-labelledby="problem-title">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">The problem</span>
+      <h2 id="problem-title">A dozen subscriptions, and none of them is quite right.</h2>
+    </div>
+    <div class="pains">
+      {
+        pains.map((pain) => (
+          <div class="reveal">
+            <h3>{pain.title}</h3>
+            <p>{pain.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

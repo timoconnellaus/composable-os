@@ -1,0 +1,43 @@
+---
+// The toolkit, for developers and agencies: the second part of the offer, kept to one section.
+// The commands match docs/deploying.md ("A company's own product") and the start-client-app and
+// add-block skills. Update them together.
+import { REPO_URL } from "../links.ts";
+import Icon from "./Icon.astro";
+
+const checks = [
+  "Source available, free to self-host",
+  "Skills that teach your coding agent to write extensions",
+  "Workers, D1 and R2 on Cloudflare, with no servers to manage",
+];
+---
+
+<section id="developers" class="tint dev" aria-labelledby="developers-title">
+  <div class="wrap split">
+    <div class="reveal">
+      <span class="eyebrow">For developers and agencies</span>
+      <h2 id="developers-title">Or build on it yourself.</h2>
+      <p class="lead">
+        Composable OS is the same toolkit we use. Start a client product from the template, choose
+        its packs, and deploy it to a Cloudflare account.
+      </p>
+      <ul class="checks">
+        {
+          checks.map((check) => (
+            <li>
+              <Icon name="check" />
+              {check}
+            </li>
+          ))
+        }
+      </ul>
+      <a class="textlink" href={REPO_URL}>Read the docs on GitHub</a>
+    </div>
+    <pre class="term reveal" tabindex="0" aria-label="Commands to start a product"><code><span class="c"># start a company's own product</span>
+<span class="p">$ </span>npm create composable-os harbour -- --label "Harbour Roasters"
+<span class="p">$ </span>cd harbour
+<span class="p">$ </span>pnpm cos add web-sign-in
+<span class="p">$ </span>pnpm cos deploy
+<span class="c"># the host and the web app, in a Cloudflare account</span></code></pre>
+  </div>
+</section>

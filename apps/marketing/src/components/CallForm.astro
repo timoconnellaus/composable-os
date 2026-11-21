@@ -1,0 +1,56 @@
+---
+// The page's one form: ask for a call. It posts to the cos-site Worker as a "sales" request and
+// works without JavaScript: the Worker redirects to /thanks/. With JavaScript (site.ts) it posts in
+// the background and shows the same message in place. Only the email is required.
+import { CTA } from "../links.ts";
+import Icon from "./Icon.astro";
+---
+
+<form class="call" method="post" action="/api/signup" data-form aria-describedby="call-error">
+  <input type="hidden" name="kind" value="sales" />
+  <div>
+    <label class="sr" for="call-name">Your name</label>
+    <input id="call-name" name="name" type="text" autocomplete="name" placeholder="Your name" maxlength="200" />
+  </div>
+  <div>
+    <label class="sr" for="call-email">Work email</label>
+    <input
+      id="call-email"
+      name="email"
+      type="email"
+      autocomplete="email"
+      placeholder="you@company.com"
+      maxlength="254"
+      required
+    />
+  </div>
+  <div class="full">
+    <label class="sr" for="call-company">Company</label>
+    <input
+      id="call-company"
+      name="company"
+      type="text"
+      autocomplete="organization"
+      placeholder="Company"
+      maxlength="200"
+    />
+  </div>
+  <div class="full">
+    <label class="sr" for="call-message">What you need</label>
+    <textarea
+      id="call-message"
+      name="message"
+      rows="3"
+      maxlength="2000"
+      placeholder="What do you need? A few lines is plenty."></textarea>
+  </div>
+  <!-- Honeypot: not rendered for people; naive bots fill it in and are ignored. -->
+  <div hidden>
+    <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off" /></label>
+  </div>
+  <button class="btn full" type="submit">{CTA}</button>
+  <span class="done" role="status" tabindex="-1">
+    <Icon name="check" />Thanks. We have your details and will be in touch.
+  </span>
+</form>
+<p class="form-error" id="call-error" role="alert"></p>

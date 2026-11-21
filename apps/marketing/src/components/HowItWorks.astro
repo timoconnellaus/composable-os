@@ -1,34 +1,37 @@
 ---
+import { CTA } from "../links.ts";
+
 const steps = [
   {
-    title: "Ask in plain language",
-    body: "In a product's own app, or from the AI you already use. Ask for a record, a report, a new field or a whole workflow.",
+    title: "Tell us how you work",
+    body: "What you sell, who does what, and where the spreadsheets are.",
   },
   {
-    title: "Review the change set",
-    body: "See every field, record and automation the AI wants to add or change, with a test run showing what it would do.",
+    title: "We compose your product",
+    body: "Your records, your rules and your screens, on parts that already work.",
   },
   {
-    title: "Approve, and it's live",
-    body: "Approve the whole set or one change at a time. Rejecting a change also drops anything that depended on it.",
+    title: "We look after it",
+    body: "One subscription covers hosting, fixes, support, and changes as your business changes.",
   },
 ];
 ---
 
-<section id="how" aria-labelledby="how-title">
+<section id="how" class="tint" aria-labelledby="how-title">
   <div class="wrap split">
     <div class="reveal">
       <span class="eyebrow">How it works</span>
-      <h2 id="how-title">Describe what you need, then approve what the AI drafts.</h2>
+      <h2 id="how-title">We start from how your business runs, not from a blank page.</h2>
       <p class="lead">
-        Changes arrive as a change set you can read before anything happens. Until you approve, the
-        AI works against a preview, so it can keep going without touching real data.
+        The parts every business product needs are already built. The work is choosing them and
+        shaping them around you.
       </p>
+      <a class="btn" href="#call">{CTA}</a>
     </div>
-    <ol class="how">
+    <ol class="steps">
       {
         steps.map((step, i) => (
-          <li class="glass reveal">
+          <li class="card reveal">
             <span class="n" aria-hidden="true">
               {i + 1}
             </span>
