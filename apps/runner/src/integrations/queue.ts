@@ -26,7 +26,13 @@ import { runnerJudge } from "../extensions/ai.ts";
 
 export type QueueCaller =
   | { kind: "actor"; caller: IntegrationCaller; user: ActingUser }
-  | { kind: "system"; purpose: "sync" | "webhook" | "probe"; user: ActingUser };
+  | {
+      kind: "system";
+      // `payments`: verified payment events (stage 25). `orders`: the host's own calls for an
+      // order, a checkout and its confirmation email (`callAsHost`, ADR 0429).
+      purpose: "sync" | "webhook" | "payments" | "orders" | "probe";
+      user: ActingUser;
+    };
 
 export interface ObservationRecord {
   title: string;
@@ -58,7 +64,7 @@ export interface QueueHost {
   enableHook(
     id: string,
     facetKey: string,
-    purpose: "sync" | "webhook",
+    purpose: "sync" | "webhook" | "payments",
     description: { title: string; description: string },
   ): Promise<void>;
   recordAgentHook(
@@ -157,6 +163,10 @@ export class HostQueue extends RpcTarget {
       floor: parseFloor(host.env.APPROVAL_FLOOR),
       // outbound.message (ADR 0238): a message an AI actor wrote is checked before it leaves.
       judge: runnerJudge(host.env),
+      // The host's own message (ADR 0429): only `callAsHost` opens a queue with this purpose.
+      ...(this.#caller.kind === "system" && this.#caller.purpose === "orders"
+        ? { hostMessage: true }
+        : {}),
       ...(this.#caller.kind === "actor" && this.#caller.caller.request
         ? { asked: this.#caller.caller.request }
         : {}),
@@ -206,7 +216,12 @@ export class HostQueue extends RpcTarget {
     };
     // The controller is a persistent stub: store it now, while it is still ours.
     const id = await host.stashController(controller);
-    if (this.#caller.kind === "system" && this.#caller.purpose !== "probe") {
+    if (
+      this.#caller.kind === "system" &&
+      (this.#caller.purpose === "sync" ||
+        this.#caller.purpose === "webhook" ||
+        this.#caller.purpose === "payments")
+    ) {
       const purpose = this.#caller.purpose;
       // Enable it once bindHook has returned to the gatekeeper.
       this.deferred.push(

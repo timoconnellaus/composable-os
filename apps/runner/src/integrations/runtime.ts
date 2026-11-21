@@ -64,6 +64,13 @@ export function integrationRuntime(env: Env): IntegrationRuntime {
         args: i.args,
         caller: i.caller,
       }),
+    callAsHost: (i) =>
+      hostFor(env, i.connectionId).callAsHost({
+        resource: i.resource,
+        method: i.method,
+        args: i.args,
+        purpose: i.purpose,
+      }),
     types: (i) => hostFor(env, i.connectionId).types(i.resource),
     applyOutbound: (i) => hostFor(env, i.connectionId).applyOutbound(i.facetKey, i.action),
     rejectOutbound: (i) => hostFor(env, i.connectionId).rejectOutbound(i.facetKey, i.action),

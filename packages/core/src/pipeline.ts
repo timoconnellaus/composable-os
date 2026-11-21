@@ -97,6 +97,7 @@ import type { RateLimitBinding } from "./rate-limit.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { loadApprovalPolicy } from "./settings.ts";
 import type { UpdaterRuntime } from "./updates.ts";
+import { SYSTEM_USER } from "./users.ts";
 import { orgReader } from "./visibility/index.ts";
 import { recordAccess } from "./visibility/records.ts";
 import {
@@ -714,7 +715,15 @@ async function invokeOnce<O extends AnyOperation>(
     postActivity: (activity) => {
       const id = newId("activity");
       activities.push(
-        ...activityStatements(ctx.db, { userId: ctx.user.id, actor: ctx.actor }, now, id, activity),
+        // The system user is not a core_user row (users.ts): its posts have no author (stage 25:
+        // an order paid or expired by the host posts on the buyer's timeline).
+        ...activityStatements(
+          ctx.db,
+          { userId: ctx.user.id === SYSTEM_USER.id ? null : ctx.user.id, actor: ctx.actor },
+          now,
+          id,
+          activity,
+        ),
       );
       return id;
     },

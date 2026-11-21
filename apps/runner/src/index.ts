@@ -40,6 +40,7 @@ import { Executor, type ExecutorOptions } from "./executor/executor.ts";
 import { embedFromEvents } from "./extensions/embeddings.ts";
 import type { HelloOutput } from "./hello-workflow.ts";
 import { fakeProviderFetch } from "./integrations/fake.ts";
+import { runOrdersTick } from "./integrations/payments.ts";
 import { availableVendors, integrationRuntime } from "./integrations/runtime.ts";
 import { runNotificationCron } from "./notifications/deliver.ts";
 import type { PingResult, RunnerRpc, WorkflowRunStatus } from "./rpc.ts";
@@ -66,7 +67,7 @@ export {
   FakeUser,
   FakeVerifier,
 } from "./integrations/fake.ts";
-export { IntegrationHost } from "./integrations/host.ts";
+export { IntegrationHost, PaymentSink } from "./integrations/host.ts";
 export type { PingResult, RunnerRpc, WorkflowRunStatus } from "./rpc.ts";
 
 /** The deployment's one extension workspace: git, working copies, the build cache. */
@@ -182,11 +183,13 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
   // Integrations (ADR 0050, ADR 0110): the IntegrationRuntime port for cos-app, one method.
   integration<K extends keyof IntegrationRuntime>(
     method: K,
-    input: Parameters<IntegrationRuntime[K]>[0],
-  ): ReturnType<IntegrationRuntime[K]> {
+    input: Parameters<NonNullable<IntegrationRuntime[K]>>[0],
+  ): ReturnType<NonNullable<IntegrationRuntime[K]>> {
     const runtime = integrationRuntime(this.env);
     if (!Object.hasOwn(runtime, method)) throw new Error(`No integration method ${String(method)}`);
-    return (runtime[method] as (i: typeof input) => ReturnType<IntegrationRuntime[K]>)(input);
+    return (runtime[method] as (i: typeof input) => ReturnType<NonNullable<IntegrationRuntime[K]>>)(
+      input,
+    );
   }
 
   /** cos-app proxies /gatekeeper/<vendor>/* here: OAuth redirects, connect pages, pushes. */
@@ -278,6 +281,7 @@ export async function minuteTick(env: Env, at: Date) {
       integrationEvents: null,
       notifications: null,
       duplicates: null,
+      orders: null,
     };
   }
   const schedules = await minuteStep("schedules", () => runAutomationCron(env, at));
@@ -301,7 +305,9 @@ export async function minuteTick(env: Env, at: Date) {
   const duplicates = await minuteStep("duplicates", () =>
     runDuplicateCron(createCrmDb(env.DB), at),
   );
-  return { paused: false, schedules, outbox, integrationEvents, notifications, duplicates };
+  // Orders (stage 25, ADR 0429): expire unpaid orders, apply verified payments left over.
+  const orders = await minuteStep("orders", () => runOrdersTick(env, at));
+  return { paused: false, schedules, outbox, integrationEvents, notifications, duplicates, orders };
 }
 
 async function minuteStep<T>(name: string, run: () => Promise<T>): Promise<T | null> {

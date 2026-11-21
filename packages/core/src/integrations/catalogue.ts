@@ -110,6 +110,15 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: ["org"],
   },
   {
+    vendor: "payments",
+    title: "Payments",
+    description:
+      "Take payment for orders on the provider's own page (Stripe), into your own account. Keys " +
+      "stay in the gatekeeper; card details never reach the CRM.",
+    connect: "auto",
+    scopes: ["org"],
+  },
+  {
     vendor: "fake",
     title: "Fake provider (development)",
     description: "A fake OAuth provider with a mailbox and calendar, for development and tests.",
