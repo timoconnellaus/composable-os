@@ -55,7 +55,7 @@ export const SHARING_LEVELS: { value: SharingLevel; label: string; help: string 
     label: "Metadata only",
     help: "Subject, participants and time. No message or event text.",
   },
-  { value: "none", label: "Don't sync", help: "Nothing from this connection reaches the CRM." },
+  { value: "none", label: "Don't sync", help: "Nothing from this connection comes in." },
 ];
 
 const STATUS: Record<Connection["status"], { label: string; className: string }> = {
@@ -254,8 +254,8 @@ function SharingLevelField({ connection }: { connection: Connection }) {
         </SelectContent>
       </Select>
       <p id={`${id}-help`} className="text-xs text-muted-foreground">
-        {current?.help} Writing into the shared CRM is the point of disclosure: colleagues see what
-        syncs at this level. A new level applies to what syncs from now on.
+        {current?.help} Writing into the shared records is the point of disclosure: colleagues see
+        what syncs at this level. A new level applies to what syncs from now on.
       </p>
     </div>
   );
@@ -431,7 +431,7 @@ function SyncControls({
       <div className="grid gap-0.5">
         <h4 className="text-sm font-medium">Sync</h4>
         <p className="text-xs text-muted-foreground">
-          Email and meetings with people in the CRM land on their timelines, at this connection's
+          Email and meetings with people you have here land on their timelines, at this connection's
           sharing level.
         </p>
       </div>

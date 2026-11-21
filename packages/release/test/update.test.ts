@@ -112,6 +112,73 @@ describe("deploy engine", () => {
     expect(await rows(api, databaseId, "SELECT name FROM core_person")).toEqual([{ name: "Ada" }]);
   });
 
+  it("updates a host installed with a client product's names, under those names (issue #155)", async () => {
+    const cf = new FakeCloudflare({ token: "t", accountId: ACCOUNT, sql: nodeSqliteEngine });
+    const api = new CloudflareClient({
+      token: "t",
+      apiBase: "https://cf.test/client/v4",
+      fetch: cf.fetch,
+    });
+    const bundle = await openBundle((await buildFixtureRelease({ version: "1.0.0" })).bundle);
+    // What `cos deploy` stores for a gym's product at its first install: the release's names
+    // mapped onto the client's, for Workers and resources (the deployment state's maps).
+    const workerNames = { "demo-app": "gym-app", "demo-runner": "gym-runner" };
+    const resourceNames = Object.fromEntries(
+      bundle.manifest.resources.map((r) => [
+        r.name,
+        r.name === "demo" ? "gym" : r.name.replace(/^demo-/, "gym-"),
+      ]),
+    );
+    const resources = await provisionResources(
+      api,
+      ACCOUNT,
+      neededResources(bundle.manifest, []),
+      () => {},
+      resourceNames,
+    );
+    const databaseId = resources["D1_ID(demo)"] as string;
+    await applyBundleMigrations(bundle, d1ApiMigrations(api, ACCOUNT, databaseId));
+    const state: DeploymentState = {
+      version: "1.0.0",
+      accountId: ACCOUNT,
+      hostname: "gym-app.example.workers.dev",
+      hostnameMode: "workers.dev",
+      identityProvider: "better-auth",
+      channel: "stable",
+      gatekeepers: [],
+      workerNames,
+      resourceNames,
+      vars: { "demo-app": { COS_PRODUCT_LABEL: "Gym" } },
+      resources,
+    };
+    await writeDeploymentState(api, databaseId, state);
+    await deployWorkers({
+      api,
+      bundle,
+      state,
+      secrets: { "demo-app": { BETTER_AUTH_SECRET: "x".repeat(64) } },
+    });
+    const target = await openBundle((await buildFixtureRelease({ version: "1.1.0" })).bundle);
+    const outcome = await runUpdate({
+      api,
+      state: (await readDeploymentState(api, ACCOUNT, databaseId)) as DeploymentState,
+      databaseId,
+      target,
+      previous: async () => bundle,
+      migrations: d1ApiMigrations(api, ACCOUNT, databaseId),
+      smoke: async () => {},
+    });
+    expect(outcome.status).toBe("succeeded");
+    // The new version is on the client's Workers; nothing was created under the release's names.
+    expect([...cf.scripts.keys()].sort()).toEqual(["gym-app", "gym-runner"]);
+    expect(cf.liveBinding("gym-app", "COS_RELEASE_VERSION")?.text).toBe("1.1.0");
+    expect(cf.liveBinding("gym-app", "COS_PRODUCT_LABEL")?.text).toBe("Gym");
+    expect([...cf.d1.values()].map((d) => d.name)).toEqual(["gym"]);
+    const kept = await readDeploymentState(api, ACCOUNT, databaseId);
+    expect(kept?.workerNames).toEqual(workerNames);
+    expect(kept?.resourceNames).toEqual(resourceNames);
+  });
+
   it("a failing migration restores the bookmark and leaves the Workers alone", async () => {
     const { cf, api, state, databaseId, bundle } = await setup();
     await api.queryD1(

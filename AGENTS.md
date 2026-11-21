@@ -46,7 +46,9 @@ extension code is never acceptable (ADR 0405).
 - **Identity and policy are not AI-configurable.** Auth secrets are env-only. Loosening approval
   policy is human-admin-only.
 - **Code asks for a model role, never a model id.**
-- **A name that depends on the product is written once,** in `products/<id>/product.ts`. Packages
+- **A name that depends on the product is written once,** in `products/<id>/product.ts` (for a
+  client product, its repository's `product.ts`: `cos deploy` names its host from it at the first
+  install and sets its label, issue #155). Packages
   name Workers and resources `cos-*`; a release, the installer and the UI read the product's names
   from its definition. `pnpm lint` fails on a retired name (`scripts/check-stray-names.mjs`).
 - **Every operation declares its audiences.** `staff` is the default. Opening an operation to

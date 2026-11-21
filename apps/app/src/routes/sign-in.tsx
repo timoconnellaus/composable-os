@@ -1,4 +1,3 @@
-import { product } from "@composable-os/products/active";
 import { Button } from "@composable-os/ui/components/button";
 import {
   Card,
@@ -11,6 +10,7 @@ import { Input } from "@composable-os/ui/components/input";
 import { Label } from "@composable-os/ui/components/label";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
+import { useProductName } from "../components/product-name.ts";
 import { authClient } from "../lib/auth-client.ts";
 import { getSession, getSignInMethods } from "../server/session.public.ts";
 
@@ -34,6 +34,7 @@ export const Route = createFileRoute("/sign-in")({
 });
 
 function SignInPage() {
+  const productName = useProductName();
   const methods = Route.useLoaderData();
   const { redirect: target } = Route.useSearch();
   const [error, setError] = useState<string | null>(null);
@@ -67,9 +68,7 @@ function SignInPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>
-            {methods.firstAccount
-              ? "Create the first account"
-              : `Sign in to ${product.strings.name}`}
+            {methods.firstAccount ? "Create the first account" : `Sign in to ${productName}`}
           </CardTitle>
           <CardDescription>
             {methods.firstAccount

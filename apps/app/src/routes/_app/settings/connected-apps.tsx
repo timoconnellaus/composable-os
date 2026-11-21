@@ -44,7 +44,7 @@ function ConnectedAppsPage() {
       title="Connected apps"
       width="lg"
       back={{ to: "/settings", label: "Settings" }}
-      description="AI apps you have let use the CRM for you over MCP. They act as you, within the scopes you granted, and risky changes still wait in Approvals."
+      description="AI apps you have let work here for you over MCP. They act as you, within the scopes you granted, and risky changes still wait in Approvals."
     >
       <McpAddress />
       <section className="grid gap-3" aria-labelledby="my-apps">
@@ -222,7 +222,7 @@ function AppRow({ app, showUser }: { app: App; showUser: boolean }) {
             <AlertDialogTitle>Disconnect {app.clientName}?</AlertDialogTitle>
             <AlertDialogDescription>
               It stops working immediately: its access and refresh tokens are revoked and it must be
-              connected again to use the CRM. Changes it queued stay in Approvals.
+              connected again before it can be used. Changes it queued stay in Approvals.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

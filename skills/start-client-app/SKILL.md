@@ -18,7 +18,9 @@ The host (records, rules, sign-in, the staff admin) is deployed from a verified 
 The client repo holds only the company's apps, its own extensions (`extensions/`), copied blocks
 and `product.ts`. It never holds platform code and never opens a database. One host serves one
 company: every client repo deployed to one Cloudflare account shares that account's host, which
-is named for the platform release (`crm-app`), not for the company.
+is named for the company's product at its first install (`<id>-app`, `<id>-runner`, the `<id>`
+database; `names` in `product.ts` overrides them) and shows the product's `label`. A host that
+exists keeps its names: nothing deployed is renamed.
 
 ## The steps
 

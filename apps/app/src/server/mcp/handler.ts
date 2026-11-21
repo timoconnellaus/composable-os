@@ -31,6 +31,7 @@ import {
   touchConnection,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { createMcpHandler } from "agents/mcp/server";
 import { aiContextFor } from "../ai.ts";
@@ -200,7 +201,7 @@ export function oauthOptions(
     refreshTokenTTL: REFRESH_TOKEN_TTL,
     resourceMetadata: {
       resource: env.MCP_RESOURCE || `${origin}${MCP_PATH}`,
-      resource_name: `${product.strings.name}`,
+      resource_name: `${productName(product)}`,
     },
     // Code exchange binds the provider's grant to the connected app; every refresh checks the
     // connection is still live, so revoking it also kills its refresh token.

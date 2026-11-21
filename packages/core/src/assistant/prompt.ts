@@ -6,6 +6,7 @@
 // the tail: `assistantTail`.
 
 import type { TailBlock } from "@composable-os/agent-core";
+import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import type { AssistantContext } from "./context.ts";
 import type { Grant } from "./grants.ts";
@@ -150,7 +151,7 @@ export interface AgentPromptInput {
  */
 export function agentInstructions(input: AgentPromptInput): string {
   const sections = [
-    `You are an agent of ${input.name}, the assistant built into the ${product.strings.name}${
+    `You are an agent of ${input.name}, the assistant built into the ${productName(product)}${
       input.orgName ? ` of ${quote(input.orgName, 80)}` : ""
     }, working on one job: ${quote(input.title, 120)}, for ${quote(input.user.name, 80)} (role: ${input.user.role}).`,
     [
@@ -197,7 +198,7 @@ export function firstChatTail(): TailBlock {
 /** The system instructions: the same on every turn, so the prompt cache keeps hitting. */
 export function assistantInstructions(input: AssistantPromptInput): string {
   const sections = [
-    `Your name is ${input.name}. You are the assistant built into the ${product.strings.name}${
+    `Your name is ${input.name}. You are the assistant built into the ${productName(product)}${
       input.orgName ? ` of ${quote(input.orgName, 80)}` : ""
     }. Refer to yourself only as ${input.name}.`,
     `You work for ${quote(input.user.name, 80)} (role: ${input.user.role}) and act with their ` +

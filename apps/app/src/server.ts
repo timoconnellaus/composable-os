@@ -5,10 +5,16 @@
 // Trash purge and expires pending approvals; a 10-minute one catches up embeddings and the policy
 // adjudicator.
 
+import { env as workerEnv } from "cloudflare:workers";
 import { isApiPath, type RoutineDeliveryMessage } from "@composable-os/core";
+import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
 import handler from "@tanstack/react-start/server-entry";
 import { runAdjudicatorCron } from "./server/adjudicator.ts";
 import { runEmbeddingCron } from "./server/ai.ts";
+
+// A client product's label (issue #155): a deploy-time var, read once per isolate, which every
+// surface that shows the product's name uses. Unset: the build's own name.
+setProductLabel((workerEnv as unknown as Record<string, string | undefined>)[PRODUCT_LABEL_VAR]);
 
 // Each person's assistant thread (ADR 0340), bound as ASSISTANT in wrangler.jsonc.
 export { AssistantAgent } from "./server/assistant/agent.ts";

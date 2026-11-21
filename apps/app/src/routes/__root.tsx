@@ -1,4 +1,3 @@
-import { product } from "@composable-os/products/active";
 import { Toaster } from "@composable-os/ui/components/sonner";
 import { TooltipProvider } from "@composable-os/ui/components/tooltip";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -10,6 +9,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { currentProductName, PRODUCT_NAME_META } from "../components/product-name.ts";
 import { THEME_INIT_SCRIPT, ThemeProvider, useTheme } from "../components/theme.tsx";
 import appCss from "../styles.css?url";
 
@@ -23,7 +23,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: product.strings.name },
+      { title: currentProductName() },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
   }),
@@ -37,6 +37,8 @@ function RootDocument({ children }: { children: ReactNode }) {
       <head>
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: static theme bootstrap script. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* The deployment's product name (issue #155), written by the server, read by the page. */}
+        <meta name={PRODUCT_NAME_META} content={currentProductName()} />
         <HeadContent />
       </head>
       <body className="min-h-svh font-sans antialiased">

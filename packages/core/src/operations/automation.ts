@@ -8,6 +8,7 @@
 // never reachable over MCP. Runs execute in cos-runner, reached through `ctx.automationHost`.
 
 import type { CoreDatabase } from "@composable-os/db";
+import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import type { AutomationManifest, ExtensionManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
@@ -317,7 +318,7 @@ export const automationGet = defineOperation({
       version: row.version ?? null,
       commit: row.commit_oid,
       provenance: {
-        author: row.source === "shipped" ? `Shipped with ${product.strings.name}` : null,
+        author: row.source === "shipped" ? `Shipped with ${productName(product)}` : null,
         approvedBy: approver?.name ?? null,
         approvedAt: row.installed_by ? (row.installed_at ?? null) : null,
         shipped: row.source === "shipped",
