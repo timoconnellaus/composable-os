@@ -1034,6 +1034,27 @@ export function chooseEnvironment(
 }
 
 /**
+ * The platform's own command-line door, `cos content import` (ADR 0470): a browser sign-in handed
+ * back to a port on this computer, any port (ADR 0457). Listed on every host `cos deploy` makes.
+ */
+export const IMPORT_LOOPBACK_REDIRECT = "http://127.0.0.1/cos-sign-in";
+
+/**
+ * Where the host may send a staff member's browser sign-in back to, in an environment: the
+ * command-line door always, and the mobile app's `<scheme>://staff-sign-in` when the product has
+ * one. Comma separated, as NATIVE_REDIRECT_URIS takes it.
+ */
+export function nativeRedirectUris(
+  product: ClientProductDefinition,
+  environment: string | undefined,
+): string {
+  return [
+    IMPORT_LOOPBACK_REDIRECT,
+    ...(product.mobile ? [nativeRedirectUri(product, environment)] : []),
+  ].join(",");
+}
+
+/**
  * Where the host sends a staff member's browser sign-in back to the mobile app in an environment:
  * `<scheme>://staff-sign-in`, the scheme as product.ts declares it for that environment.
  */
@@ -1277,11 +1298,10 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     hostFlags["customer-auth-url"] = webOrigin;
   }
 
-  // Staff sign in to the mobile app through the system browser (ADR 0451, ADR 0455): the host
-  // sends a sign-in back only to this environment's app redirect.
-  if (product.mobile) {
-    hostFlags["native-redirect-uris"] = nativeRedirectUri(product, environment);
-  }
+  // Staff sign in through the system browser (ADRs 0451, 0455, 0457): the host sends a sign-in
+  // back only to the platform's command-line door on this computer and, with a mobile app, to
+  // this environment's app redirect. Set on every deploy, so the list is always the product's.
+  hostFlags["native-redirect-uris"] = nativeRedirectUris(product, environment);
 
   // The host: install, upgrade to the product's version, or repair; vars set for the product.
   const found = ownHost?.state ? ownHost : legacyHost;

@@ -120,6 +120,46 @@ async function importRecords(
   return out;
 }
 
+/**
+ * What to say, without --publish, of a post the source has published or scheduled: nothing when
+ * the host already has it so and it is unchanged; that a change is saved unpublished when the
+ * host has it published or scheduled; otherwise that it is imported as a draft.
+ */
+async function unpublishedNote(
+  host: ImportHost,
+  post: PlannedPost,
+  result: ImportResult | undefined,
+): Promise<string | null> {
+  if (result?.id && (result.outcome === "unchanged" || result.outcome === "updated")) {
+    const record = await host.call<{ values: Record<string, unknown> }>("record.get", {
+      object: POST_OBJECT,
+      id: result.id,
+    });
+    const state = record.values.publishState;
+    const same =
+      post.status === "published"
+        ? state === "published"
+        : state === "scheduled" && record.values.publishAt === post.date;
+    if (same) {
+      return result.outcome === "unchanged"
+        ? null
+        : post.status === "published"
+          ? "Published here already: the change is saved, not published (pass --publish to publish it)"
+          : "Scheduled here already: the change is saved, not published (pass --publish to schedule it)";
+    }
+    if (state === "published" || state === "scheduled") {
+      return (
+        "Already " +
+        state +
+        " here; left as it is (pass --publish to publish or schedule it as the source has it)"
+      );
+    }
+  }
+  return post.status === "scheduled"
+    ? `Scheduled for ${post.date} in the source: imported as a draft (pass --publish to schedule it)`
+    : "Published in the source: imported as a draft (pass --publish to publish it)";
+}
+
 /** Runs the import. Throws only for what the host refused outright (a session that ended). */
 export async function runImport(
   plan: ImportPlan,
@@ -186,15 +226,13 @@ export async function runImport(
     }
   }
   for (const post of plan.posts) {
-    if (post.status !== "draft" && !options.publish) {
-      report.notes.push({
-        file: post.file,
-        message:
-          post.status === "scheduled"
-            ? `Scheduled for ${post.date} in the source: imported as a draft (pass --publish to schedule it)`
-            : "Published in the source: imported as a draft (pass --publish to publish it)",
-      });
-    }
+    if (post.status === "draft" || options.publish) continue;
+    const note = await unpublishedNote(
+      host,
+      post,
+      dryPosts.find((r) => r.key === post.key),
+    );
+    if (note) report.notes.push({ file: post.file, message: note });
   }
   if (report.problems.length || options.dryRun) {
     report.records = [...dryCategories, ...dryPosts];

@@ -128,7 +128,9 @@ export const ACCESS_STAFF: readonly StaffPath[] = [
   { path: "/oauth/consent", why: "MCP consent: the person signs in through Access here." },
   {
     path: "/native/staff-sign-in",
-    why: "A native app's staff sign-in in the system browser: Access signs the person in.",
+    why:
+      "A native app's or a command-line tool's staff sign-in in the system browser: Access signs " +
+      "the person in, and they confirm on the page where the sign-in goes (ADR 0457).",
   },
   { path: "/connect/handoff", why: "The end of an integration's connect popup, staff only." },
   {

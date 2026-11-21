@@ -50,6 +50,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { LockIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
+import { UnconfirmedEmailNotice } from "#/components/confirm-email";
 import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { formatDate, initials } from "#/lib/format";
@@ -584,6 +585,7 @@ function HostMailCard() {
           <p className="text-xs text-muted-foreground">No org connection can send email yet.</p>
         )}
         {settings.data && <SignInMailState state={settings.data.signInMail} />}
+        <UnconfirmedEmailNotice />
       </CardContent>
     </Card>
   );

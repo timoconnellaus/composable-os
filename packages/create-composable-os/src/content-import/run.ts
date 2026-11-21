@@ -147,6 +147,14 @@ export async function contentImport(
   try {
     if (flags.email) {
       await session.requestCode(flags.email, "staff");
+      // The host answers the same whoever the address is, so it cannot say why no code came:
+      // these are what to check, on the host, by someone signed in (ADR 0457).
+      io.out(
+        `If ${flags.email} may sign in by code, a code is on its way. If none arrives in a minute or two, check on the host: ` +
+          "the address is one an admin invited, or one you confirmed (your account menu, Confirm your email), " +
+          "and Settings → Users shows sign-in codes going out (Send sign-in codes without review). " +
+          "Or run without --email to sign in with the browser.",
+      );
       const code = await io.ask(`The sign-in code sent to ${flags.email}`, { secret: true });
       await session.signInWithCode(flags.email, code.trim(), deviceName, "staff");
     } else {

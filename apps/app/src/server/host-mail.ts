@@ -75,6 +75,8 @@ export function hostMailFor(env: MailEnv, appOrigin: string | undefined): HostMa
   const staffSignIn = identityProviderKind(env) === "cloudflare-access" ? "access" : "code";
   return {
     staffSignIn,
+    signInMailProblem: () => signInMailProblem(env),
+    sendSignInCode: (message) => sendSignInCode(env, "staff", message),
     async sendStaffInvite({ to, invitedBy }) {
       try {
         const target = await customerCodeTarget(createCrmDb(env.DB).query);

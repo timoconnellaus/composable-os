@@ -936,6 +936,27 @@ export interface CoreUserInviteTable {
   revoked_by: string | null;
 }
 
+/** A pending confirmation of a staff account's own address (migration 0492, ADR 0457). */
+export interface CoreEmailConfirmationTable {
+  user_id: string;
+  email: string;
+  code_hash: string;
+  attempts: ColumnType<number, number | undefined, number>;
+  created_at: string;
+  expires_at: string;
+}
+
+/** The one-time token of /native/staff-sign-in's confirm page (migration 0492, ADR 0457). */
+export interface CoreNativeSignInConfirmTable {
+  token_hash: string;
+  user_id: string;
+  redirect_uri: string;
+  challenge: string;
+  state: string;
+  created_at: string;
+  expires_at: string;
+}
+
 /** A one-time code for native staff sign-in through the system browser (migration 0490). */
 export interface CoreNativeHandoffTable {
   code_hash: string;
@@ -2066,6 +2087,8 @@ export interface CoreDatabase {
   core_device_session: CoreDeviceSessionTable;
   core_user_invite: CoreUserInviteTable;
   core_native_handoff: CoreNativeHandoffTable;
+  core_email_confirmation: CoreEmailConfirmationTable;
+  core_native_sign_in_confirm: CoreNativeSignInConfirmTable;
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
   core_publish_version: CorePublishVersionTable;

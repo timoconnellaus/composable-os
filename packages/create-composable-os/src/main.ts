@@ -746,6 +746,10 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
   const nativeRedirects = str(flags, "native-redirect-uris");
   if (nativeRedirects !== undefined) {
     vars[app.name] = { ...vars[app.name], NATIVE_REDIRECT_URIS: nativeRedirects };
+  } else if (vars[app.name]?.NATIVE_REDIRECT_URIS === undefined) {
+    // A plain install (the CRM's own installer): the platform's command-line door, `cos content
+    // import`'s browser sign-in on this computer (ADR 0457). One set by hand is kept.
+    vars[app.name] = { ...vars[app.name], NATIVE_REDIRECT_URIS: "http://127.0.0.1/cos-sign-in" };
   }
   // A client product's gatekeeper settings (ADR 0452): plain vars the gatekeeper declares, by
   // the release's Worker name, checked by cos deploy against the manifest. Kept by upgrades.
