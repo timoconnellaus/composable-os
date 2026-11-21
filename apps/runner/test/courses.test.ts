@@ -660,13 +660,21 @@ describe("progress and session lessons (criteria 8 and 9)", () => {
     const [call] = await audit("x.programs.assign", userOf.courses);
     expect(call).toMatchObject({
       actor: "automation",
-      origin: { surface: "automation", automationId: "courses.assignSessions", extensionId: "courses" },
+      origin: {
+        surface: "automation",
+        automationId: "courses.assignSessions",
+        extensionId: "courses",
+      },
     });
     expect(Number(call?.origin.depth)).toBeGreaterThanOrEqual(1);
     const [made] = await audit("record.create", userOf.programs);
     expect(made).toMatchObject({
       actor: "extension",
-      origin: { surface: "extension", extensionId: "programs", rootEventId: call?.origin.rootEventId },
+      origin: {
+        surface: "extension",
+        extensionId: "programs",
+        rootEventId: call?.origin.rootEventId,
+      },
     });
     expect(made?.origin.depth).toBe(call?.origin.depth);
 
@@ -728,7 +736,9 @@ describe("progress and session lessons (criteria 8 and 9)", () => {
 
 describe("one extension calling another's tool (ADR 0478)", () => {
   it("is refused unless the caller declares it, and runs under the called extension's own permissions", async () => {
-    const row = await env.DB.prepare("SELECT user_id FROM core_extensions WHERE id = 'courses'").first<{
+    const row = await env.DB.prepare(
+      "SELECT user_id FROM core_extensions WHERE id = 'courses'",
+    ).first<{
       user_id: string;
     }>();
     const user = await env.DB.prepare("SELECT id, email, name FROM core_user WHERE id = ?")
@@ -742,7 +752,10 @@ describe("one extension calling another's tool (ADR 0478)", () => {
         origin: { surface: "extension", extensionId: "courses" },
         db,
         extensionHost: shippedHost,
-        extension: { id: "courses", permissions: { read: [], write: [], operations, modules: ["ops"] } },
+        extension: {
+          id: "courses",
+          permissions: { read: [], write: [], operations, modules: ["ops"] },
+        },
       }) as unknown as InvocationContext;
     const input = { programId, personId: person.principal.personId, startDate: "2027-01-04" };
     // Not declared: refused before anything runs.
@@ -750,7 +763,11 @@ describe("one extension calling another's tool (ADR 0478)", () => {
     expect(refused).toMatchObject({ code: "forbidden" });
     expect(refused.message).toContain("x.programs.assign is not in permissions.operations");
     // Declared: it runs, and Programs' tool writes Programs' records as Programs.
-    const done = await run<{ assignmentId: string }>("x.programs.assign", input, asCourses(["x.programs.assign"]));
+    const done = await run<{ assignmentId: string }>(
+      "x.programs.assign",
+      input,
+      asCourses(["x.programs.assign"]),
+    );
     expect(done.assignmentId).toBeTruthy();
   });
 });

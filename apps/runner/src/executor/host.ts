@@ -18,13 +18,13 @@ import {
   type ExtensionHost,
   invokeByName,
   type Origin,
-  type ToolCascade,
   type OutsidePrincipal,
   PendingApprovalError,
   type Permission,
   parseFloor,
   queueEventSink,
   type TestSimulation,
+  type ToolCascade,
   toOperationError,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";

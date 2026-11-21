@@ -19,7 +19,8 @@ describe("requires (ADR 0478)", () => {
     const missing = await checkManifest(db.query, "needy", m, new Date().toISOString());
     expect(missing.issues[0]).toMatchObject({
       path: "requires.0",
-      message: "This extension requires the absentpack extension, which is not installed and on here",
+      message:
+        "This extension requires the absentpack extension, which is not installed and on here",
     });
     const present = await checkManifest(db.query, "needy", m, new Date().toISOString(), {
       installed: ["absentpack"],
