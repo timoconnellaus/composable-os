@@ -66,6 +66,7 @@ export const orderObject = defineObject({
       "total",
       "paid",
       "balance",
+      "refunded",
       "pay",
       "deposit",
       "balanceDueAt",

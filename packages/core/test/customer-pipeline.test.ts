@@ -73,12 +73,18 @@ describe("default closed (criterion 1)", () => {
       "my.list",
       // Stage 25 (ADR 0428): a customer starts, reads and cancels their own orders.
       "order.cancel",
+      "order.checkout",
       "order.get",
       "order.start",
       "order.view",
     ]);
     // Stage 25: a guest starts, opens and pays an order. Stage 26: places left (ADR 0433).
-    expect([...openTo("public")].sort()).toEqual(["capacity.get", "order.start", "order.view"]);
+    expect([...openTo("public")].sort()).toEqual([
+      "capacity.get",
+      "order.checkout",
+      "order.start",
+      "order.view",
+    ]);
     for (const principal of [a.principal, PUBLIC]) {
       const open = openTo(principal.kind);
       for (const op of coreOperations) {
@@ -354,6 +360,7 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.signOut",
       // Stage 25 (ADR 0428): the host itself starts and changes an order for the caller.
       "order.cancel",
+      "order.checkout",
       "order.start",
       "order.view",
     ]);

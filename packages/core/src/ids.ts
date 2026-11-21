@@ -62,6 +62,8 @@ export const ID_PREFIXES = {
   /** An order and one of its lines (stage 25, ADR 0426). */
   order: "ord",
   orderLine: "orl",
+  /** A refund of an order's payment (stage 25, ADR 0429). */
+  refund: "rfd",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */
   capacityClaim: "clm",
 } as const;

@@ -21,6 +21,7 @@ import { viewColumnOf } from "../records/columns.ts";
 import { applyTransition } from "../records/lifecycle.ts";
 import type { Mover } from "../records/transitions.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
+import { claimOrderPlaces } from "./holds.ts";
 import { type Sellable, sellableOf, sellableProblems } from "./sellable.ts";
 import {
   currencyDecimals,
@@ -302,11 +303,10 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     { by: "host" },
   );
 
-  // STAGE 26, HOLDS (the one place an order takes places): for each line whose record has a
-  // capacity, queue `claimStatements(ctx.db, { object: line.object, record: line.recordId,
-  // quantity: line.quantity, for: { type: "order", id } }, ctx.now)` here, before the inserts
-  // below. A refused claim fails this batch, so no order exists. Confirming and releasing are
-  // in orders/holds.ts.
+  // The one place an order takes places (stage 26, ADR 0432): a line whose record has a capacity
+  // holds its quantity, in this batch. A refused claim fails the batch, so no order exists.
+  // Confirming and releasing are the move hook's (orders/holds.ts).
+  await claimOrderPlaces(ctx, id, lines);
 
   ctx.write(
     ctx.db.insertInto("core_order").values(row),

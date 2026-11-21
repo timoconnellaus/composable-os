@@ -768,8 +768,16 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
     ctx.write(
       ctx.db
         .updateTable("core_order")
-        .set({ person_id: null, email: null, access_hash: null, updated_at: ctx.now })
+        .set({
+          person_id: null,
+          email: null,
+          access_hash: null,
+          email_link_hash: null,
+          updated_at: ctx.now,
+        })
         .where("id", "in", part),
+      // Staff's words about a refund may name the person (migration 0422).
+      ctx.db.updateTable("core_order_refund").set({ reason: null }).where("order_id", "in", part),
     );
   }
   return orders.length;

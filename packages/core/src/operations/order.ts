@@ -9,12 +9,18 @@
 //   order.extendBalanceDue staff                             a part-paid order's due date
 //   order.setPerson        staff                             after merging people with one address
 //   order.overdue          staff                             balances past their due date
+//   order.checkout         staff, customers and the public   the provider's page to pay on
+//   order.paidLate         staff                             late payments awaiting a decision
+//   order.honourLate       staff (a person, orders:refund)   keep a late payment
+//   order.refund           staff (orders:refund)             ask for a refund; a person approves
+//   order.payments         staff                             checkouts, payments and refunds
+//   order.applyPaymentEvent, order.expireDue                  the host's own (actor automation)
 //   order.settings.*       staff; changed by a human admin only
 //
 // No operation here takes a price, a total or an amount paid, and none makes an order paid: that
 // is `applyVerifiedPayment` (orders/payments.ts), which is not an operation.
 //
-// order.start, order.view and order.cancel are `hostInternal` (ADR 0428): the host itself starts
+// order.start, order.view, order.cancel and order.checkout are `hostInternal` (ADR 0428): the host itself starts
 // and changes the order for a caller outside the org, so they keep the database. They touch only
 // the order they made or the one the caller proved is theirs (their own Person through the seam,
 // or the order's token), and answer only with what a customer may read of an order.
@@ -24,6 +30,8 @@ import { ORDER_STATES } from "../fields/order.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { openCheckout } from "../orders/checkout.ts";
+import { applyPaymentEvent } from "../orders/events.ts";
 import {
   hashOrderToken,
   newOrderToken,
@@ -31,6 +39,7 @@ import {
   orderForToken,
   resolveBuyer,
 } from "../orders/guests.ts";
+import { EXPIRE_BATCH, expireDueOrders, honourLatePayment, paidLate } from "../orders/late.ts";
 import {
   changeOrder,
   createOrder,
@@ -42,16 +51,20 @@ import {
   type PricedLine,
   requireState,
 } from "../orders/orders.ts";
+import { refundablePayments, requestRefund } from "../orders/refunds.ts";
 import {
   currencySchema,
   loadMinPartPayment,
   loadOrderCurrency,
   loadOrderExpiryMinutes,
+  loadReturnOrigins,
   minPartPaymentSchema,
   ORDER_CURRENCY_SETTING,
   ORDER_EXPIRY_SETTING,
   ORDER_MIN_PART_SETTING,
+  ORDER_RETURN_ORIGINS_SETTING,
   orderExpiryMinutesSchema,
+  returnOriginsSchema,
 } from "../orders/settings.ts";
 import { callerMover } from "../records/lifecycle.ts";
 import type { VisibleRecord } from "../visibility/records.ts";
@@ -82,6 +95,7 @@ export const orderSchema = z.object({
   total: z.number(),
   paid: z.number(),
   balance: z.number(),
+  refunded: z.number().describe("What has gone back to the buyer, confirmed by the provider"),
   pay: z.enum(["full", "deposit"]),
   deposit: z.number().nullable(),
   balanceDueAt: when,
@@ -106,6 +120,7 @@ function fromRow(row: OrderRow, lines: readonly Order["lines"][number][], staff:
     total: row.total,
     paid: row.paid,
     balance: row.total - row.paid,
+    refunded: row.refunded,
     pay: row.pay,
     deposit: row.deposit,
     balanceDueAt: row.balance_due_at,
@@ -160,6 +175,7 @@ function fromRecord(record: VisibleRecord, staff: boolean): Omit<Order, "lines">
     total: v.total,
     paid: v.paid,
     balance: v.balance,
+    refunded: v.refunded ?? 0,
     pay: v.pay,
     deposit: v.deposit ?? null,
     balanceDueAt: text(v.balanceDueAt),
@@ -187,6 +203,7 @@ async function throughSeam(ctx: HandlerContext, id: string): Promise<Order> {
     total: v.total,
     paid: v.paid,
     balance: v.balance,
+    refunded: v.refunded ?? 0,
     pay: v.pay,
     deposit: v.deposit ?? null,
     balanceDueAt: text(v.balanceDueAt),
@@ -489,6 +506,321 @@ export const orderOverdue = defineOperation({
   },
 });
 
+// --- Paying ------------------------------------------------------------------------------------
+
+/** The order a checkout is for: the caller's own (customer), any (staff), or the token's. */
+async function orderForPaying(
+  ctx: HandlerContext,
+  id: string,
+  token: string | undefined,
+): Promise<OrderRow> {
+  if (token !== undefined) {
+    const row = ORDER_TOKEN.test(token) ? await orderForToken(ctx.db, id, token, ctx.now) : null;
+    if (!row) throw new NotFoundError("order", id);
+    return row;
+  }
+  if (ctx.principal.kind === "public") throw new NotFoundError("order", id);
+  // A customer's own order only: another's is not found, as through the seam.
+  if (!isStaff(ctx)) await ctx.records.get("order", id);
+  return loadOrderRow(ctx.db, id);
+}
+
+export const orderCheckout = defineOperation({
+  name: "order.checkout",
+  description:
+    "Open the payment provider's own page to pay for an order, and get its address to send the " +
+    "buyer to. The host says what is charged: the whole price or the deposit for an order with " +
+    "nothing paid (no amount may be given), or, for a part-paid order, the balance or a part of " +
+    "it of at least the set minimum (`amount`, in the currency's minor unit). The buyer comes " +
+    "back to `returnUrl`, which must be on one of the deployment's listed sites; coming back " +
+    "does not mark anything paid. Only the provider's confirmation does. A guest passes the " +
+    "order's token; a signed-in customer pays their own orders.",
+  input: z.object({
+    id: orderId,
+    token: z.string().min(1).max(128).optional().describe("A guest's token for the order"),
+    returnUrl: z.string().min(1).max(2000).describe("Where the buyer comes back to"),
+    amount: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Part-paid orders only: how much to pay towards the balance, in minor units"),
+  }),
+  output: z.object({
+    url: z.string().describe("The provider's payment page"),
+    amount: z.number(),
+    currency: z.string(),
+    kind: z.enum(["full", "deposit", "balance", "part"]),
+    expiresAt: z.string().nullable(),
+  }),
+  permission: "records:write",
+  risk: "write",
+  audiences: ["staff", "customer", "public"],
+  hostInternal: true,
+  mcp: { expose: false },
+  redact: ["token"],
+  auditSummary: (output, input) => ({ id: input.id, amount: output.amount, kind: output.kind }),
+  async handler(input, ctx) {
+    const row = await orderForPaying(ctx, input.id, input.token);
+    const opened = await openCheckout(ctx, row, {
+      returnUrl: input.returnUrl,
+      amount: input.amount,
+    });
+    return {
+      url: opened.url,
+      amount: opened.amount,
+      currency: opened.currency,
+      kind: opened.kind,
+      expiresAt: opened.expiresAt,
+    };
+  },
+});
+
+export const orderApplyPaymentEvent = defineOperation({
+  name: "order.applyPaymentEvent",
+  description:
+    "Platform use only: apply a payment or refund event the payments gatekeeper verified and the " +
+    "host stored. Takes only the event's key: the event itself is read from what the host " +
+    "stored, so nothing passed here can describe a payment. Applying an event twice changes " +
+    "nothing. Run by the host's payments adapter and the minute cron.",
+  input: z.object({
+    provider: z.string().min(1).max(40),
+    eventId: z.string().min(1).max(200),
+  }),
+  output: z.object({
+    outcome: z.string(),
+    orderId: z.string().nullable(),
+    state: z.enum(ORDER_STATES).nullable(),
+    confirmation: z.object({ orderId: z.string(), token: z.string() }).nullable(),
+  }),
+  permission: "records:write",
+  risk: "write",
+  actors: ["automation"],
+  mcp: { expose: false },
+  // Never the confirmation's token.
+  auditSummary: (output) => ({ outcome: output.outcome, orderId: output.orderId }),
+  async handler(input, ctx) {
+    return applyPaymentEvent(ctx, input);
+  },
+});
+
+export const orderExpireDue = defineOperation({
+  name: "order.expireDue",
+  description:
+    "Platform use only: expire pending orders whose time to pay has run out (the minute cron). " +
+    "Their held places go back. Part-paid orders never expire. Returns the orders expired.",
+  input: z.object({ limit: z.number().int().min(1).max(EXPIRE_BATCH).default(EXPIRE_BATCH) }),
+  output: z.object({ expired: z.array(z.string()) }),
+  permission: "records:write",
+  risk: "write",
+  actors: ["automation"],
+  mcp: { expose: false },
+  auditSummary: (output) => ({ count: output.expired.length }),
+  async handler(input, ctx) {
+    return { expired: await expireDueOrders(ctx, input.limit) };
+  },
+});
+
+const latePaymentSchema = z.object({
+  orderId: z.string(),
+  provider: z.string(),
+  eventId: z.string(),
+  amount: z.number(),
+  currency: z.string(),
+  receivedAt: z.string(),
+  orderState: z.enum(ORDER_STATES),
+  orderTotal: z.number(),
+});
+
+export const orderPaidLate = defineOperation({
+  name: "order.paidLate",
+  description:
+    "List payments that arrived after their order had closed (expired or cancelled), oldest " +
+    "first, that staff have not decided on: honour one (order.honourLate) or refund it " +
+    "(order.refund). Amounts are in the currency's minor unit. Read-only.",
+  input: z.object({ limit: z.number().int().min(1).max(200).default(50) }),
+  output: z.object({ items: z.array(latePaymentSchema) }),
+  permission: "records:read",
+  risk: "read",
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    return { items: await paidLate(ctx.db, input.limit) };
+  },
+});
+
+export const orderHonourLate = defineOperation({
+  name: "order.honourLate",
+  description:
+    "Keep a payment that arrived after the order expired: the order becomes paid (part paid for " +
+    "a late deposit). When what it bought has limited places they are taken again, and this is " +
+    "refused when they have gone: refund the payment instead. A person with the refund " +
+    "permission decides, not an AI assistant. Returns the order.",
+  input: z.object({ id: orderId }),
+  output: orderSchema,
+  permission: "orders:refund",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const row = await loadOrderRow(ctx.db, input.id);
+    const next = await honourLatePayment(ctx, row);
+    return fromRow(next, await linesOf(ctx, row.id), true);
+  },
+});
+
+export const orderRefund = defineOperation({
+  name: "order.refund",
+  description:
+    "Ask for a refund of an order's payments: all that can be refunded, or `amount` (in the " +
+    "currency's minor unit). Nothing is sent yet: each refund goes to the Approvals inbox, with " +
+    "what will be sent back and to which payment, and a person with the refund permission " +
+    "approves it (an AI assistant can ask, never approve). The order is marked refunded only " +
+    "when the payment provider confirms everything paid has gone back; a part refund is " +
+    "recorded as an amount. A part-paid order is cancelled first. Returns the refunds asked for " +
+    "and the pending approvals.",
+  input: z.object({
+    id: orderId,
+    amount: z.number().int().positive().optional().describe("Minor units; default all"),
+    reason: z.string().trim().min(1).max(500).describe("Why, in staff's words"),
+  }),
+  output: z.object({
+    refunds: z.array(
+      z.object({
+        id: z.string(),
+        paymentRef: z.string(),
+        amount: z.number(),
+        pendingActionId: z.string().nullable(),
+      }),
+    ),
+    pending: z.array(z.record(z.string(), z.unknown())),
+  }),
+  permission: "orders:refund",
+  // The refund itself is the gatekeeper's outbound action, reviewed on its own, always: asking
+  // is never queued, so a refund is not reviewed twice.
+  risk: "outbound",
+  bookkeeping: true,
+  auditSummary: (output, input) => ({
+    id: input.id,
+    refunds: output.refunds.map((r) => ({ id: r.id, amount: r.amount })),
+  }),
+  async handler(input, ctx) {
+    const row = await loadOrderRow(ctx.db, input.id);
+    const asked = await requestRefund(ctx, row, { amount: input.amount, reason: input.reason });
+    return {
+      refunds: asked.refunds,
+      pending: asked.pending as unknown as Record<string, unknown>[],
+    };
+  },
+});
+
+export const orderPayments = defineOperation({
+  name: "order.payments",
+  description:
+    "An order's money in detail, for staff: each checkout opened, each verified payment (applied, " +
+    "late or not matching) and each refund (asked for or confirmed), with what can still be " +
+    "refunded per payment. Amounts are in the currency's minor unit. Read-only.",
+  input: z.object({ id: orderId }),
+  output: z.object({
+    checkouts: z.array(
+      z.object({
+        provider: z.string(),
+        ref: z.string(),
+        amount: z.number(),
+        kind: z.string(),
+        createdAt: z.string(),
+      }),
+    ),
+    payments: z.array(
+      z.object({
+        provider: z.string(),
+        eventId: z.string(),
+        amount: z.number(),
+        currency: z.string(),
+        outcome: z.string(),
+        paymentRef: z.string().nullable(),
+        resolved: z.string().nullable(),
+        receivedAt: z.string(),
+      }),
+    ),
+    refunds: z.array(
+      z.object({
+        id: z.string(),
+        amount: z.number(),
+        status: z.string(),
+        paymentRef: z.string().nullable(),
+        reason: z.string().nullable(),
+        pendingActionId: z.string().nullable(),
+        createdAt: z.string(),
+        confirmedAt: z.string().nullable(),
+      }),
+    ),
+    refundable: z.array(
+      z.object({ paymentRef: z.string(), paid: z.number(), refundable: z.number() }),
+    ),
+  }),
+  permission: "records:read",
+  risk: "read",
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    const row = await loadOrderRow(ctx.db, input.id);
+    const [checkouts, payments, refunds, refundable] = await Promise.all([
+      ctx.db
+        .selectFrom("core_order_checkout")
+        .selectAll()
+        .where("order_id", "=", row.id)
+        .orderBy("created_at")
+        .execute(),
+      ctx.db
+        .selectFrom("core_order_payment")
+        .selectAll()
+        .where("order_id", "=", row.id)
+        .orderBy("received_at")
+        .execute(),
+      ctx.db
+        .selectFrom("core_order_refund")
+        .selectAll()
+        .where("order_id", "=", row.id)
+        .orderBy("created_at")
+        .execute(),
+      refundablePayments(ctx, row.id),
+    ]);
+    return {
+      checkouts: checkouts.map((c) => ({
+        provider: c.provider,
+        ref: c.ref,
+        amount: c.amount,
+        kind: c.kind,
+        createdAt: c.created_at,
+      })),
+      payments: payments.map((p) => ({
+        provider: p.provider,
+        eventId: p.event_id,
+        amount: p.amount,
+        currency: p.currency,
+        outcome: p.outcome,
+        paymentRef: p.payment_ref,
+        resolved: p.resolved,
+        receivedAt: p.received_at,
+      })),
+      refunds: refunds.map((r) => ({
+        id: r.id,
+        amount: r.amount,
+        status: r.status,
+        paymentRef: r.payment_ref,
+        reason: r.reason,
+        pendingActionId: r.pending_action_id,
+        createdAt: r.created_at,
+        confirmedAt: r.confirmed_at,
+      })),
+      refundable: refundable.map((r) => ({
+        paymentRef: r.paymentRef,
+        paid: r.paid,
+        refundable: r.refundable,
+      })),
+    };
+  },
+});
+
 // --- Settings ----------------------------------------------------------------------------------
 
 const orderSettings = z.object({
@@ -500,6 +832,9 @@ const orderSettings = z.object({
   minPartPayment: z
     .number()
     .describe("The least a buyer may pay towards a balance, in the currency's minor unit."),
+  returnOrigins: z
+    .array(z.string())
+    .describe("The sites a buyer may be sent back to after paying (https origins)."),
 });
 
 async function loadSettings(ctx: HandlerContext) {
@@ -507,6 +842,7 @@ async function loadSettings(ctx: HandlerContext) {
     currency: await loadOrderCurrency(ctx.db),
     expiryMinutes: await loadOrderExpiryMinutes(ctx.db),
     minPartPayment: await loadMinPartPayment(ctx.db),
+    returnOrigins: await loadReturnOrigins(ctx.db),
   };
 }
 
@@ -529,13 +865,18 @@ export const orderSettingsUpdate = defineOperation({
   name: "order.settings.update",
   description:
     "Change the order settings: the currency every order is in, the minutes an unpaid order " +
-    "lasts, or the least part payment. Only what you pass changes. Orders already started keep " +
+    "lasts, or the least part payment, or the sites a buyer may come back to after paying. Only what you pass changes. Orders already started keep " +
     "the currency they were started in. Admins only, and only a human can call it: AI " +
     "assistants, MCP clients, automations and extensions are refused.",
   input: z.object({
     currency: currencySchema.optional(),
     expiryMinutes: orderExpiryMinutesSchema.optional(),
     minPartPayment: minPartPaymentSchema.optional(),
+    returnOrigins: returnOriginsSchema
+      .optional()
+      .describe(
+        "Replaces the list of sites a buyer may come back to, e.g. https://shop.example.com",
+      ),
   }),
   output: orderSettings.extend({ previous: orderSettings }),
   permission: "settings:manage",
@@ -544,13 +885,16 @@ export const orderSettingsUpdate = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     if (Object.values(input).every((value) => value === undefined)) {
-      throw new ValidationError("Pass currency, expiryMinutes or minPartPayment");
+      throw new ValidationError("Pass currency, expiryMinutes, minPartPayment or returnOrigins");
     }
     const previous = await loadSettings(ctx);
     const next = {
       currency: input.currency ?? previous.currency,
       expiryMinutes: input.expiryMinutes ?? previous.expiryMinutes,
       minPartPayment: input.minPartPayment ?? previous.minPartPayment,
+      returnOrigins: input.returnOrigins
+        ? [...new Set(input.returnOrigins)]
+        : previous.returnOrigins,
     };
     const store = (key: string, field: keyof typeof next) => {
       const value = JSON.stringify(next[field]);
@@ -573,6 +917,7 @@ export const orderSettingsUpdate = defineOperation({
     if (input.currency !== undefined) store(ORDER_CURRENCY_SETTING, "currency");
     if (input.expiryMinutes !== undefined) store(ORDER_EXPIRY_SETTING, "expiryMinutes");
     if (input.minPartPayment !== undefined) store(ORDER_MIN_PART_SETTING, "minPartPayment");
+    if (input.returnOrigins !== undefined) store(ORDER_RETURN_ORIGINS_SETTING, "returnOrigins");
     return { ...next, previous };
   },
 });
@@ -586,6 +931,13 @@ export const orderOperations = [
   orderExtendBalanceDue,
   orderSetPerson,
   orderOverdue,
+  orderCheckout,
+  orderApplyPaymentEvent,
+  orderExpireDue,
+  orderPaidLate,
+  orderHonourLate,
+  orderRefund,
+  orderPayments,
   orderSettingsGet,
   orderSettingsUpdate,
 ] as const;

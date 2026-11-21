@@ -48,7 +48,8 @@ export async function orderForToken(
   const row = await db
     .selectFrom("core_order")
     .selectAll()
-    .where("access_hash", "=", hash)
+    // A guest's token from the start, or the confirmation email's (migration 0422).
+    .where((eb) => eb.or([eb("access_hash", "=", hash), eb("email_link_hash", "=", hash)]))
     .executeTakeFirst();
   if (!row || row.id !== id) return null;
   if (row.access_until !== null && row.access_until <= now) return null;
