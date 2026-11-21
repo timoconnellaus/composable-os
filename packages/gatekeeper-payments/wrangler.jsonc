@@ -1,0 +1,53 @@
+// cos-gatekeeper-payments: payments through a provider's own hosted page. The org takes money on
+// the provider's checkout page; card details never reach this Worker or the CRM. It opens
+// checkouts, submits refunds as approval-queue actions, and delivers verified payment and refund
+// events to the hook the CRM's integration host bound. Account-agnostic: no account or resource
+// IDs are committed (ADR 0012).
+//
+// Secrets (not committed; set with `wrangler secret put`, both optional, see deploy-inputs.json):
+// STRIPE_SECRET_KEY (the Stripe API key) and STRIPE_WEBHOOK_SECRET (the `whsec_…` signing secret of
+// the Stripe webhook endpoint that posts to <BASE_URL>/in/stripe). Without STRIPE_SECRET_KEY the
+// Stripe resource is refused. See README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cos-gatekeeper-payments",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-04",
+  "compatibility_flags": ["allow_irrevocable_stub_storage"],
+  // Internal only: reached through service bindings and the CRM's /gatekeeper/payments/* proxy.
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "invocation_logs": false }
+  },
+  "vars": {
+    // The public base the CRM serves this Worker under, e.g. https://crm.example.com/gatekeeper/payments.
+    // Empty means the local dev server's (http://localhost:5173/gatekeeper/payments).
+    "BASE_URL": "",
+    // The Stripe API base; empty means https://api.stripe.com. Overridden by tests.
+    "STRIPE_API_BASE": "",
+    // A Stripe connected account id (acct_…), sent as Stripe-Account so money goes to the org's own
+    // account. Empty means the account the secret key belongs to.
+    "STRIPE_ACCOUNT": "",
+    // "true" turns on the fake provider (its hosted page, its webhook route and its resource). For
+    // development and tests only.
+    "PAYMENTS_FAKE_PROVIDER": "false",
+    // The fake provider's webhook signing secret. Empty means "fake-payments-dev-secret".
+    "FAKE_WEBHOOK_SECRET": ""
+  },
+  "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": false }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "PAYMENTS_EVENTS", "class_name": "PaymentsEvents" },
+      { "name": "FAKE_PAYMENTS", "class_name": "FakePaymentsLedger" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["PaymentsEvents", "FakePaymentsLedger", "PaymentsGatekeeper"]
+    }
+  ]
+}
