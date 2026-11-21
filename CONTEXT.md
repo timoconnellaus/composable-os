@@ -1018,6 +1018,21 @@ Person that address matches or creates, and is reached again with the order's to
 never reads a Person (ADR 0428).
 _Avoid_: anonymous buyer (the order always has an address)
 
+**Checkout**
+The provider's own page a buyer pays one payment on, opened by the host for what the order may
+be charged now. Card details are typed there and never reach the platform. Coming back from it
+tells the host nothing: only the provider's verified event does (stage 25, ADR 0429).
+_Avoid_: payment form, cart (there is no cart: an order is what is bought)
+
+**Paid late**
+A payment the provider confirmed for an order that had already expired or been cancelled. It
+never makes the order paid by itself: staff honour it or refund it (ADR 0429).
+
+**Refund**
+Money sent back to the buyer on one of an order's payments. Staff with the refund permission ask;
+a person approves it in the Approvals inbox (never an AI); the order shows it once the provider
+confirms (ADR 0429).
+
 **Allowance**
 What a pass or membership grants: a number of uses, or unlimited uses over a period. A booking
 spends one (later; ADR 0404).

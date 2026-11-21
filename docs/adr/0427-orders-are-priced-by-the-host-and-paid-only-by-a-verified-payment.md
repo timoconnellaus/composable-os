@@ -106,3 +106,12 @@ uses the move hook (ADR 0426).
 - The expiry sweep, late payments honoured by staff, refunds, the confirmation email and the
   admin screens are the rest of stage 25.
 - An order has no timeline post of its own yet; its history is `core_transition_history`.
+
+## Amendment, 2026-11-21 (the gatekeeper half, ADR 0429)
+- `applyVerifiedPayment` is called by `order.applyPaymentEvent`, an operation open to the
+  `automation` actor only whose input is the key of an event the host's adapter stored after the
+  gatekeeper verified it. Its input cannot describe a payment, so the rule above stands.
+- The machine gains `expired → part_paid` (`host`): a late deposit staff honour.
+- An order carries `refunded` (what has gone back); refunds are in `core_order_refund`.
+- Order moves post on the Person's timeline; "no timeline post of its own yet" no longer holds.
+- Holds are wired (stage 26): see ADR 0429.

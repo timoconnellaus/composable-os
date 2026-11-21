@@ -28,7 +28,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | Q | 0400–0409 | 0410–0414 | Stage 22, Customers and audiences (ADR 0402 amended as built; ADRs 0410–0414 used; migrations 0400 on) | in flight |
 | R | 0410–0419 | 0415–0419 | Stage 23, HTTP surface and typed client (migrations 0410–0411 used; ADRs 0415–0419 used, ADR 0403 amended as built) | in flight |
 | S | — | 0420–0424 | Stage 24, Client apps (no migrations; ADR 0401 amended as built) | specced |
-| T | 0420–0439 | 0425–0429 | Stage 25, States, orders and payments (first half: the transition engine, `states`, `stages` on the engine; migration 0420 and ADR 0425, merged. Second half, spine: orders, the verified-payment rule, deposits, guest checkout; migration 0421 and ADRs 0426 to 0428 used. Left for the gatekeeper half: migrations 0422 to 0439 and ADR 0429) | in flight |
+| T | 0420–0439 | 0425–0429 | Stage 25, States, orders and payments (migrations 0420 to 0422 and ADRs 0425 to 0429 used) | in flight |
 | U | 0440–0449 | 0430–0434 | Stage 26, Capacity and holds | in flight |
 | V | 0450–0459 | 0435–0439 | Stage 27, Ticketing and the first client | specced |
 | W | 0460–0469 | 0440–0444 | Stage 28, Content | specced |

@@ -996,8 +996,23 @@ a deposit and a balance due by a date; nothing is scheduled or charged automatic
 
 Buying needs no account ([ADR 0428](adr/0428-buying-without-an-account.md)): a guest gives an
 email address, the order belongs to the Person it matches or creates, and the guest reaches that
-one order again with a token of which only the hash is stored. `order.start` and `order.view` are
-the only operations open to the public.
+one order again with a token of which only the hash is stored. `order.start`, `order.view` and
+`order.checkout` are the only operations open to the public.
+
+Payments ([ADR 0429](adr/0429-payments-gatekeeper-verified-events-and-refunds.md)) go through
+`gatekeeper-payments`, one gatekeeper with Stripe and a fake provider behind a provider-neutral
+interface, on the org's own account; its keys are its own Worker secrets. `order.checkout` opens
+the provider's hosted page for what `chargeFor` says and sends the buyer back to a listed origin;
+coming back changes nothing. The gatekeeper verifies the provider's webhook and delivers a typed
+event to the integration host's `PaymentSink`, which stores it in `core_payment_event` and applies
+it with `order.applyPaymentEvent { provider, eventId }`: the operation reads the event the host
+stored, so no input can describe a payment, and retries on `order_stale`. The minute cron expires
+unpaid orders and applies anything left; the daily maintenance tells admins about late payments
+and overdue balances. A refund is the gatekeeper's outbound action `payments.refund`, always
+reviewed and approved only by a person with `orders:refund`; the order is `refunded` when the
+provider confirms. The host's own calls (a checkout, the confirmation email) use
+`IntegrationRuntime.callAsHost`. An order's move hook confirms and releases its places
+(`orders/holds.ts`), and each move posts on its Person's timeline.
 
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record
