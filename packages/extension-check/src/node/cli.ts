@@ -101,6 +101,7 @@ interface OpensOutside {
       signedIn?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       customerVia?: { from: string; field: string; read: string[] };
       sellable?: { price: string; grants?: { object: string } };
+      publishable?: { content: string[]; slug?: string };
     }
   >;
   tools: Record<
