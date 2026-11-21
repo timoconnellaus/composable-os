@@ -105,7 +105,8 @@ export type FieldSpec =
         | "user"
         | "email"
         | "phone"
-        | "url";
+        | "url"
+        | "timezone";
     })
   | (FieldBase &
       NumberBounds & {

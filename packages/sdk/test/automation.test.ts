@@ -161,6 +161,22 @@ describe("automation contract checks", () => {
     ]);
   });
 
+  it("dateRelative's zoneField must be a timezone field of the object (ADR 0450)", () => {
+    expect(
+      issues({
+        trigger: {
+          type: "dateRelative",
+          object: "acme.deal",
+          field: "closeOn",
+          offsetDays: 1,
+          zoneField: "name",
+        },
+      }),
+    ).toEqual([
+      "automations.thing.trigger.zoneField: acme.deal.name is a text field; it must be timezone (timezone fields: none)",
+    ]);
+  });
+
   it("{ stageType } only on the object's stage field", () => {
     expect(
       issues({

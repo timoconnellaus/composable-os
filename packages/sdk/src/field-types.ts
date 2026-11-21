@@ -23,6 +23,9 @@ export const FIELD_TYPES = [
   "formula",
   // A JSON document checked against a schema the field declares (stage 41, ADR 0445).
   "document",
+  // An IANA time zone name (`Asia/Bangkok`), checked against the runtime's list of zones. Left
+  // empty on a new record, the host fills in the deployment's zone (ADR 0450).
+  "timezone",
 ] as const;
 export type FieldTypeName = (typeof FIELD_TYPES)[number];
 
@@ -39,6 +42,7 @@ export function formulaTypeOf(
     case "email":
     case "phone":
     case "url":
+    case "timezone":
       return "text";
     case "relation":
       return many ? null : "text";
@@ -81,6 +85,7 @@ export const LOSSLESS_TYPE_CHANGES: Readonly<Record<FieldTypeName, readonly Fiel
   url: ["text", "longText"],
   formula: [],
   document: [],
+  timezone: ["text", "longText"],
 };
 
 export function isLosslessChange(from: FieldTypeName, to: FieldTypeName): boolean {

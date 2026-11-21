@@ -1110,7 +1110,10 @@ export function validateManifest(
     }
     const pointer = from.fields[v.field];
     if (pointer?.type !== "relation" || pointer.many || pointer.to !== `${m.id}.${name}`) {
-      contract(`${path}.field`, `customerVia.field must name a relation of ${local} to one ${name}`);
+      contract(
+        `${path}.field`,
+        `customerVia.field must name a relation of ${local} to one ${name}`,
+      );
     } else if (!from.customer.read.includes(v.field)) {
       contract(
         `${path}.field`,
