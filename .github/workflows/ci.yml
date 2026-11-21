@@ -123,20 +123,53 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
 
+  # The npm packages a client repo installs (ADR 0423), as the release's build job makes them:
+  # the release bundle, every package's tarball from this commit (`npm-packages.ts`: a pack's
+  # declarations are emitted here and nowhere else, so a type that only fails declaration emit
+  # shows here), a fresh client repo made, type-checked and built from them
+  # (`check-npm-packages.ts`), and `npm publish --dry-run` on every tarball. The release would
+  # fail on any of these; this finds it on the pull request instead.
+  npm:
+    name: npm packages
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: The release bundle (for the client repo the check makes)
+        run: node scripts/release/build-release.ts --version 0.0.0-beta.0 --out release-out
+      - name: The npm packages, and a fresh client repo built from them
+        run: |
+          node scripts/release/npm-packages.ts --version 0.0.0-beta.0 --out npm-out
+          node scripts/release/check-npm-packages.ts --npm npm-out --bundle-dir release-out --version 0.0.0-beta.0
+      - name: npm publish --dry-run on every tarball
+        run: |
+          for t in $(node -p "require('./npm-out/tarballs.json').join(' ')"); do
+            npm publish "./npm-out/$t" --dry-run --access public --tag ci --provenance=false
+          done
+
   # The required check. It runs even when a job it needs failed or was skipped (`always()`), and
-  # passes only if all three passed. On a documents-only change it is skipped, as the three are,
+  # passes only if all of them passed (lint, typecheck, the unit shards and the npm packages). On a documents-only change it is skipped, as the three are,
   # which branch protection counts as passing (as before the split).
   check:
     name: Lint, typecheck, unit tests
-    needs: [changes, lint, typecheck, unit]
+    needs: [changes, lint, typecheck, unit, npm]
     if: always() && needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: All three passed
+      - name: All of them passed
         env:
-          RESULTS: ${{ needs.lint.result }} ${{ needs.typecheck.result }} ${{ needs.unit.result }}
+          RESULTS: ${{ needs.lint.result }} ${{ needs.typecheck.result }} ${{ needs.unit.result }} ${{ needs.npm.result }}
         run: |
-          echo "lint, typecheck, unit tests: $RESULTS"
+          echo "lint, typecheck, unit tests, npm packages: $RESULTS"
           for result in $RESULTS; do
             [ "$result" = success ] || exit 1
           done
