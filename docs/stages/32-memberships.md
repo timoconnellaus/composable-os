@@ -491,6 +491,38 @@ columns; 32b: `core_allowance_use` and its counters). ADRs 0485 to 0494. Claimed
 
 Steps 1 to 3 are the spine of 32a; step 5 is the spine of 32b.
 
+## Built: 32a steps 1 and 2 (2026-11-22)
+ADRs [0485](../adr/0485-recurring-billing-the-provider-runs-the-schedule.md) (recurring billing,
+the record, events as current reads, what was checked in Stripe's documentation),
+[0486](../adr/0486-an-order-per-paid-period-and-its-refund.md) (an order per paid period, a
+period's refund) and [0487](../adr/0487-the-payer-and-the-holder.md) (payer and holder), migration
+0530. Where the build read the spec one way, or decided what it left open:
+
+- **Events are current reads.** The gatekeeper stores a read of the subscription (and invoice)
+  made with a pinned API version when the event arrives, not the event's payload: payloads are
+  shaped by the webhook endpoint's own version, and Stripe does not deliver in order. The host
+  moves from the latest read only.
+- **The record exists once the provider says so.** `subscription.start` records a checkout
+  (`core_subscription_checkout`); the first verified event makes `core_subscription` from it. The
+  spec's "its history" is the transition engine's history rows, not a table of its own.
+- **Cancel and resume are the gatekeeper's actions** (`payments.subscription.cancel`, `.resume`,
+  never auto-approvable): the host's own call applies them at once, an agent's session waits for a
+  person. `subscription.cancel` and `.resume` are `actors: ["human"]`. Ending one at once is in
+  the gatekeeper, and its staff operation (`subscriptions:manage`) is step 3.
+- **The portal** disables pausing too (`features[subscription_pause]`, new in Stripe's
+  2026-10-28 version), as well as cancelling and plan changes.
+- **A period's refund**: the spec's premise that only a credit note gives the tax back is wrong
+  (Stripe Tax reduces it for a refund on an invoice's payment too); its guess that the credit
+  note's tax reaches the host on its event is right. The build makes the refund, then a credit note
+  linked to it, for the figure and the record (ADR 0486).
+- **A paid period whose amount is not the agreed price** writes no order and tells staff.
+- **Payer and holder** (question 13's answer): two columns from the start, the same Person in 32a
+  (ADR 0487). The spec's "its Person" is the payer for billing and the holder for what it grants.
+- **Not built in these steps:** the one-trial rule, the `subscription` access kind, `courses.plan`,
+  the staff side and blocks (step 3); continuation offers (step 4, though the gatekeeper's
+  `trialEnd` is in); updating live subscriptions when tax is turned on (the spec's guess; the
+  provider's page on it was not read; step 4 with the test-mode runbook).
+
 ## Questions for the interview
 Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:
 1 to 7 as recommended; 8 with every option (time-of-day limits are stage 31's to carry).

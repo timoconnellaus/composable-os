@@ -1257,6 +1257,25 @@ the lines and the order, after checking it fits what was asked, and never works 
 amount charged is unchanged, so the match rule above holds. Otherwise the checkout is exactly as
 before.
 
+**Subscriptions** (stage 32a, ADRs [0485](adr/0485-recurring-billing-the-provider-runs-the-schedule.md)
+to [0487](adr/0487-the-payer-and-the-holder.md), `packages/core/src/subscriptions/`). The provider
+runs the schedule: it keeps the card, charges each period, retries and ends the subscription; the
+host stores no card and schedules no charge. A plan is a sellable object that declares
+`recurring`. `subscription.start` records a `core_subscription_checkout` and opens the provider's
+page through the gatekeeper (`createSubscriptionCheckout`). For each subscription webhook the
+gatekeeper verifies the signature, then reads the subscription (and the invoice) from Stripe now,
+with a pinned API version, and delivers that read (`kind: "subscription"`). The host applies it in
+`order.applyPaymentEvent`: the first read makes `core_subscription` from the checkout it names;
+later ones move it, as the host, unless the record moved from a later read already or has ended
+(events arrive in any order). A paid invoice with money on it is an order born paid, one per
+invoice, with the period's dates and the provider's tax (`subscriptions/periods.ts`); its refund is
+`order.refund`, and the gatekeeper credits the invoice with a credit note linked to the refund, so
+the tax given back is known. Cancel at the period's end and resume are the gatekeeper's actions
+`payments.subscription.cancel` and `.resume`, which the host's own call applies at once and an
+agent's waits on a person; the record changes only when the provider's event says so. The portal
+(`subscription.portal`) is the provider's, for the card and invoices only. A subscription keeps its
+payer and its holder apart: billing follows the payer, what it grants the holder.
+
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record
 in `core_capacity`, created and updated by `record.create`, `record.update` and the import in the

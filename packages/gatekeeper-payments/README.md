@@ -85,7 +85,11 @@ keys are ignored. The comparison is constant time (`crypto.subtle.verify`).
 | --- | --- |
 | `checkout.session.completed` with `payment_status: "paid"`, and `checkout.session.async_payment_succeeded` | a `payment` event: `orderId` from `client_reference_id`, else `metadata.order_id` (skipped when neither), `checkoutRef` the session id, `amount` `amount_total`, `paymentRef` the `payment_intent` id |
 | `refund.created` and `refund.updated` with `status: "succeeded"` | a `refund` event: `orderId` from `metadata.order_id`, `refundId` from `metadata.cos_refund_id`, `refundRef` the refund id, `paymentRef` the `payment_intent` id |
-| anything else | ignored |
+| `checkout.session.completed` with `mode: "subscription"`; `customer.subscription.created`, `.updated`, `.deleted`, `.paused`, `.resumed`, `.trial_will_end`; `invoice.paid`, `.payment_failed`, `.payment_action_required`, `.finalization_failed` of a subscription's invoice | a `subscription` event built from a read made now (above); only the ids are taken from the payload |
+| `credit_note.created` with one refund | a `refund` event with `creditNote: true` and the credit note's `total_taxes` as `tax`: it reports a period refund's tax and confirms nothing |
+| anything else (`invoice.payment_succeeded` too: `invoice.paid` says it) | ignored |
+
+The Stripe webhook endpoint must be sent every event in this table.
 
 The event id is Stripe's `event.id`; `occurredAt` is from `event.created`. A paid checkout can be
 reported by both `completed` and `async_payment_succeeded` under different event ids; the host
@@ -138,12 +142,35 @@ Stripe is sent, are exactly as before.
 approves and the host calls `controller.enable(initiator, target)`, the provider's `PaymentsEvents`
 DO stores the initiator; `controller.disable()` forgets it and cancels pending deliveries.
 
+### Subscriptions (stage 32a, ADRs 0485 and 0486)
+
+The provider runs the schedule; nothing here charges a card on its own.
+
+| Method | What it does |
+| --- | --- |
+| `createSubscriptionCheckout(input)` | An observation, then the provider's page in subscription mode: the period's price (tax-inclusive, with the plan's tax code and automatic tax when `tax` is given), a trial of `trialDays` or free until `trialEnd` (at least 48 hours ahead), the card always taken, the host's id as `metadata.cos_subscription`. |
+| `getSubscription(ref)` | An observation, then a read now. |
+| `cancelSubscription({ when })` | Submits `payments.subscription.cancel` (never auto-approvable). Applied: Stripe `cancel_at_period_end=true`, or `DELETE` for `now`. |
+| `resumeSubscription(input)` | Submits `payments.subscription.resume`. Applied: `cancel_at_period_end=false`. |
+| `openPortal({ customerRef, returnUrl })` | An observation, then a customer portal session, on a configuration made once and kept in the facet (card, billing details, invoices; no cancel, update or pause). |
+| `refund({ …, invoiceRef })` | As a refund, and once sent the invoice is credited with a credit note linked to it, so its tax is known. |
+
+Every subscription call to Stripe sends `Stripe-Version: 2026-11-18.endive` (`STRIPE_BILLING_VERSION`).
+A subscription webhook is verified, then the subscription (and invoice, `expand[]=payments`) is
+read now with that version and delivered as the event: the payload's own shape depends on the
+endpoint's version, and Stripe does not deliver events in order. A failed read answers 500, so
+Stripe sends it again. The fake provider's ledger keeps subscriptions too; tests move its schedule
+on with `advanceFakeSubscription(env, ref, step)` (`renew`, `fail`, `retry_fail`, `recover`,
+`action_required`, `give_up`, `trial_will_end`), which has no route. `GET {base}/fake/portal/:ref`
+is an inert stand-in for the portal.
+
 ## Events
 
 ```ts
 type PaymentsEvent =
   | { kind: "payment"; provider; eventId; orderId; checkoutRef; amount; currency; paymentRef; occurredAt }
-  | { kind: "refund"; provider; eventId; orderId | null; refundId | null; refundRef; paymentRef; amount; currency; occurredAt };
+  | { kind: "refund"; provider; eventId; orderId | null; refundId | null; refundRef; paymentRef; amount; currency; occurredAt; tax?; creditNote? }
+  | { kind: "subscription"; provider; eventId; trigger; subscription; invoice?; occurredAt };
 ```
 
 Currencies are upper case, amounts minor units, `occurredAt` ISO 8601. For each new event the DO
