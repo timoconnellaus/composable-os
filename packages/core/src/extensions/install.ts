@@ -147,6 +147,26 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       });
     }
   }
+  // A role changes what a staff account may do, and a tool's permission is what a role holds
+  // (ADR 0436): identity and access are not something code written in the app may declare.
+  for (const [name, tool] of Object.entries(manifest.tools)) {
+    if (tool.permission) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `tools.${name}.permission`,
+        message: `A runtime extension cannot declare a permission for a staff role. ${why}`,
+      });
+    }
+  }
+  for (const name of Object.keys(manifest.roles ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `roles.${name}`,
+      message: `A runtime extension cannot declare a staff role. ${why}`,
+    });
+  }
   for (const [name, object] of Object.entries(manifest.objects)) {
     if (object.customer) {
       issues.push({

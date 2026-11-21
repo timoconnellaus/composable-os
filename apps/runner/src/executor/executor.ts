@@ -27,6 +27,7 @@ import {
   type ExtensionManifest,
   GATEKEEPER_MODULES,
   type RunResponse,
+  type StartedBy,
 } from "@composable-os/sdk";
 import { runBuildRole } from "../extensions/ai.ts";
 import {
@@ -72,7 +73,14 @@ export interface ExecutorOptions {
 interface ExtensionEntrypoint {
   evaluateManifest(): Promise<RunResponse>;
   runTool(
-    request: { runId: string; tool: string; input: unknown; version: string; deadline: number },
+    request: {
+      runId: string;
+      tool: string;
+      input: unknown;
+      version: string;
+      deadline: number;
+      caller: StartedBy;
+    },
     host: RunHost,
   ): Promise<RunResponse>;
   runAutomation(request: AutomationRunRequest, host: RunHost): Promise<RunResponse>;
@@ -326,7 +334,18 @@ export class Executor {
       this.#toolTimeoutMs,
       (ep) =>
         ep.runTool(
-          { runId, tool: input.tool, input: input.input, version: manifest.version, deadline },
+          {
+            runId,
+            tool: input.tool,
+            input: input.input,
+            version: manifest.version,
+            deadline,
+            // Who started the tool, for the tool to record (ctx.caller, ADR 0436). From the
+            // pipeline's verified caller, never from the input.
+            caller: input.caller.principal
+              ? { kind: input.caller.principal.kind }
+              : { kind: "staff", userId: input.caller.userId, name: input.caller.name ?? "" },
+          },
           host,
         ),
       host,

@@ -28,7 +28,7 @@ import {
   type NotificationSendInput,
   notificationInput,
 } from "./automation.ts";
-import type { AiModule, Extension } from "./contract.ts";
+import type { AiModule, Extension, StartedBy } from "./contract.ts";
 import type { ExtensionManifest, ManifestIssue, ValidateOptions } from "./manifest.ts";
 import { CORE_OBJECT_NAMES, toManifest, validateManifest } from "./manifest.ts";
 import { checkGrant } from "./permissions.ts";
@@ -115,8 +115,11 @@ export interface TestHost {
   manifest: ExtensionManifest;
   /** Contract and formula issues (`extension.check` minus typecheck and dry-run reconcile). */
   issues: ManifestIssue[];
-  /** Runs a tool like the host does: input and output validated, ctx from in-memory modules. */
-  runTool<T = unknown>(tool: string, input: unknown): Promise<T>;
+  /**
+   * Runs a tool like the host does: input and output validated, ctx from in-memory modules.
+   * `caller` is who started it (`ctx.caller`, ADR 0436); default the staff user `usr_admin`.
+   */
+  runTool<T = unknown>(tool: string, input: unknown, options?: { caller?: StartedBy }): Promise<T>;
   /** Every codemode:ops call, in order (allowed or refused). */
   calls: { operation: string; input: unknown; allowed: boolean }[];
   logs: { level: string; message: string; data: unknown }[];
@@ -140,7 +143,8 @@ function riskOf(operation: string): string {
 }
 
 function objectOf(operation: string, input: Record<string, unknown>): string | null {
-  if (operation.startsWith("record."))
+  // As the host's operationObject: record.* and my.* name their object in the input.
+  if (operation.startsWith("record.") || operation.startsWith("my."))
     return typeof input.object === "string" ? input.object : null;
   const prefix = operation.split(".")[0] ?? "";
   return (CORE_OBJECT_NAMES as readonly string[]).includes(prefix) ? prefix : null;
@@ -248,6 +252,29 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
       const rows = table(object);
       const row = rows.get(String(input.id));
       if (!row) throw new ExtensionToolError("not_found", `No ${object} with id ${input.id}`);
+      if (typeof input.from === "string") {
+        // `from` (ADR 0437): move only out of this state, refused as the host refuses it.
+        const local = object.startsWith(`${manifest.id}.`)
+          ? object.slice(manifest.id.length + 1)
+          : "";
+        const spec = manifest.objects[local];
+        const field = spec?.states?.field ?? spec?.stages?.field;
+        const values = input.values as Record<string, unknown>;
+        if (!field || values[field] === undefined || values[field] === input.from) {
+          throw new ExtensionToolError(
+            "invalid_input",
+            `With "from", the write must move ${field}`,
+          );
+        }
+        if (row[field] !== input.from) {
+          throw new ExtensionToolError("conflict", `${object} is no longer ${input.from}`, {
+            reason: "not_in_position",
+            field,
+            from: input.from,
+            current: row[field] ?? null,
+          });
+        }
+      }
       const next = { ...row, ...(input.values as Record<string, unknown>), id: row.id };
       rows.set(row.id, next);
       return shape(object, next);
@@ -633,8 +660,13 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     records,
     notifications,
     runAutomation,
-    async runTool<T>(tool: string, input: unknown): Promise<T> {
-      const response = await runExtension(extension, { kind: "tool", tool, input }, raw);
+    async runTool<T>(
+      tool: string,
+      input: unknown,
+      options: { caller?: StartedBy } = {},
+    ): Promise<T> {
+      const caller = options.caller ?? { kind: "staff", userId: "usr_admin", name: "Admin" };
+      const response = await runExtension(extension, { kind: "tool", tool, input, caller }, raw);
       if (!response.ok) {
         throw new ExtensionToolError(
           response.error.code,

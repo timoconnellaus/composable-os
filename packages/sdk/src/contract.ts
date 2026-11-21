@@ -417,6 +417,8 @@ export interface ExtensionContext {
   ai: AiModule;
   /** A gatekeeper declared in permissions.modules, e.g. `ctx.gatekeeper("email-send")`. */
   gatekeeper(name: GatekeeperModuleName): GatekeeperModule;
+  /** Who started this tool, from the host (ADR 0436). Absent in automations. */
+  caller?: StartedBy;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -449,8 +451,45 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * never `id`. The host allows exactly these, for calls made by this tool (ADR 0414).
    */
   customerFields?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The permission a staff caller needs, named `<extension id>:<word>` (`ticketing:checkin`), for
+   * a role of this extension to hold (`roles`, ADR 0436). Admins and members hold it as they hold
+   * any tool (a viewer only when the tool's risk is `read`); a staff account given one of this
+   * extension's roles holds it only when the role lists it. Only shipped extensions and an org's
+   * own may declare it.
+   */
+  permission?: string;
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
 }
+
+/**
+ * A fixed staff role an extension declares (ADR 0436): a named set of the permissions its tools
+ * declare, and the objects of its own whose records the role may read (`record.get` and
+ * `record.list`). A human admin gives it to a staff account, which then may do exactly this and
+ * nothing else: no other records, no settings, no other operation. The door role of Ticketing:
+ * `{ permissions: ["ticketing:checkin"], read: ["ticketing.event", ...] }`. Only shipped
+ * extensions and an org's own may declare one.
+ */
+export interface RoleSpec {
+  label: string;
+  /** What the role is for, shown to the admin who gives it. */
+  description: string;
+  /** Permissions of this extension's tools (`<id>:<word>`) the role holds. */
+  permissions: readonly string[];
+  /** Objects of this extension (`<id>.<object>`) whose records the role may read. */
+  read: readonly string[];
+}
+
+/**
+ * Who started a tool (ADR 0436), set by the host from the session it verified and never from the
+ * input: a staff user, a signed-in customer or the public. A tool's own operation calls run as
+ * the extension (or as the customer, ADR 0414); this is for recording who asked, such as who
+ * checked a ticket in. Absent in automations and in a manifest evaluation.
+ */
+export type StartedBy =
+  | { readonly kind: "staff"; readonly userId: string; readonly name: string }
+  | { readonly kind: "customer" }
+  | { readonly kind: "public" };
 
 /** Who may call a tool. `staff` when nothing is declared (ADR 0402). */
 export const TOOL_AUDIENCES = ["staff", "customer", "public"] as const;
@@ -552,6 +591,8 @@ export interface ExtensionSpec {
   tools?: Record<string, ToolSpec<any, any>>;
   // biome-ignore lint/suspicious/noExplicitAny: automations of any trigger type.
   automations?: Record<string, AutomationSpec<any>>;
+  /** Fixed staff roles an admin can give to a staff account (ADR 0436). */
+  roles?: Record<string, RoleSpec>;
 }
 
 const EXTENSION = Symbol.for("ops.extension");

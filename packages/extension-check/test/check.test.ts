@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkExtensionDir, locate } from "../src/node/check.ts";
-import { type ExtIo, outsideSummary, runExt } from "../src/node/cli.ts";
+import { type ExtIo, outsideSummary, rolesSummary, runExt } from "../src/node/cli.ts";
 import { untested } from "../src/node/test.ts";
 import expected from "./fixtures/expected.json" with { type: "json" };
 
@@ -108,6 +108,23 @@ describe("locate", () => {
 
   it("falls back to index.ts", () => {
     expect(locate(files, "nothing.here")).toEqual({ file: "index.ts" });
+  });
+});
+
+describe("the staff roles an extension declares (stage 27, ADR 0436)", () => {
+  it("is one line per role, with what it holds", () => {
+    expect(rolesSummary({ id: "plain" })).toEqual([]);
+    expect(
+      rolesSummary({
+        id: "ticketing",
+        roles: {
+          door: { label: "Door", permissions: ["ticketing:checkin"], read: ["ticketing.ticket"] },
+        },
+      }),
+    ).toEqual([
+      "This extension declares staff roles. An account given one may do this and nothing else:",
+      "  role ticketing.door (Door): tools with ticketing:checkin; reads ticketing.ticket",
+    ]);
   });
 });
 

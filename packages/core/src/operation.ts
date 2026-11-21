@@ -334,6 +334,12 @@ export interface OperationDefinition<
   input: In;
   output: Out;
   permission: Permission;
+  /**
+   * Extension tools only (ADR 0436): the permission the tool declares, `<extension>:<word>`. A
+   * staff account given one of that extension's roles may call the tool only when the role lists
+   * it. Everyone else is held to `permission`, as for any tool.
+   */
+  packPermission?: string;
   risk: RiskClass;
   /**
    * Core operations only, and only ones open to customers or the public: the handler keeps the
@@ -438,6 +444,13 @@ export function operationProblems(op: AnyOperation): string[] {
     problems.push("output schema missing");
   }
   if (!PERMISSIONS.includes(op.permission)) problems.push("permission missing or unknown");
+  if (op.packPermission !== undefined) {
+    const extension = /^x\.([a-z][a-z0-9]{1,29})\./.exec(op.name ?? "")?.[1];
+    if (!extension) problems.push("packPermission is for extension tools only");
+    else if (!op.packPermission.startsWith(`${extension}:`)) {
+      problems.push(`packPermission is named ${extension}:<word>`);
+    }
+  }
   if (!RISK_CLASSES.includes(op.risk)) problems.push("risk class missing or unknown");
   if (op.actors && (op.actors.length === 0 || op.actors.some((a) => !ACTORS.includes(a)))) {
     problems.push("actors must list known actor types");

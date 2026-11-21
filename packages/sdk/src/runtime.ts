@@ -23,6 +23,7 @@ import type {
   GatekeeperModule,
   LogModule,
   OpsModule,
+  StartedBy,
   StorageModule,
 } from "./contract.ts";
 import { toManifest } from "./manifest.ts";
@@ -41,7 +42,14 @@ export interface RawHostModules {
 
 export type RunRequest =
   | { kind: "manifest" }
-  | { kind: "tool"; tool: string; input: unknown; version?: string };
+  | {
+      kind: "tool";
+      tool: string;
+      input: unknown;
+      version?: string;
+      /** Who started the tool, from the host (ADR 0436). */
+      caller?: StartedBy;
+    };
 
 export type RunResponse =
   | { ok: true; value: unknown }
@@ -84,6 +92,7 @@ export function buildContext(
   extension: { id: string; version: string },
   raw: RawHostModules,
   pending: Promise<unknown>[] = [],
+  caller?: StartedBy,
 ): ExtensionContext {
   const ops: OpsModule = raw.ops
     ? {
@@ -141,6 +150,7 @@ export function buildContext(
     log,
     ai,
     gatekeeper: gatekeeper as ExtensionContext["gatekeeper"],
+    ...(caller ? { caller: Object.freeze({ ...caller }) as StartedBy } : {}),
   };
 }
 
@@ -188,7 +198,7 @@ export async function runExtension(
         },
       };
     }
-    const ctx = buildContext(extension, raw, pending);
+    const ctx = buildContext(extension, raw, pending, request.caller);
     const result = await tool.handler(parsed.data, ctx);
     const checked = tool.output.safeParse(result);
     await Promise.all(pending);

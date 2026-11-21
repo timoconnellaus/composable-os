@@ -295,7 +295,8 @@ export async function runTransition<P extends Placement>(
 /** A position value as its column stores it (a select's value, a stage relation's id). */
 function storedPosition(value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  if (typeof value === "object" && value && "id" in value) return String((value as { id: unknown }).id);
+  if (typeof value === "object" && value && "id" in value)
+    return String((value as { id: unknown }).id);
   return String(value);
 }
 

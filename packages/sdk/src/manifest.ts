@@ -195,10 +195,24 @@ export const toolManifestSchema = z.object({
   recordAction: recordActionManifestSchema.optional(),
   audiences: z.array(z.enum(TOOL_AUDIENCES)).min(1).max(3).optional(),
   customerFields: z.record(z.string().max(80), z.array(z.string().max(40)).max(50)).optional(),
+  /** The permission a staff caller needs (`<id>:<word>`), for the extension's roles (ADR 0436). */
+  permission: z.string().max(80).optional(),
   inputSchema: jsonSchemaObject,
   outputSchema: jsonSchemaObject,
 });
 export type ToolManifest = z.infer<typeof toolManifestSchema>;
+
+/** A fixed staff role (ADR 0436): see `RoleSpec`. */
+export const roleManifestSchema = z.object({
+  label: z.string().min(1).max(60),
+  description: z.string().min(10).max(500),
+  permissions: z.array(z.string().max(80)).max(20).default([]),
+  read: z.array(z.string().max(80)).max(20).default([]),
+});
+export type RoleManifest = z.infer<typeof roleManifestSchema>;
+
+/** A role's or a tool's permission: `<extension id>:<word>`. */
+export const EXTENSION_PERMISSION_RE = /^([a-z][a-z0-9]{1,29}):([a-z][a-zA-Z0-9]{0,39})$/;
 
 export const viewManifestSchema = z.object({
   label: z.string().min(1).max(100),
@@ -309,6 +323,7 @@ export const manifestSchema = z.object({
   dashboards: z.record(z.string(), dashboardManifestSchema).default({}),
   tools: z.record(z.string(), toolManifestSchema).default({}),
   automations: z.record(z.string(), automationManifestSchema).default({}),
+  roles: z.record(z.string(), roleManifestSchema).default({}),
 });
 export type ExtensionManifest = z.infer<typeof manifestSchema>;
 
@@ -398,6 +413,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
           risk: tool.risk ?? "write",
           ...(tool.recordAction ? { recordAction: tool.recordAction } : {}),
           ...(tool.audiences ? { audiences: [...tool.audiences] } : {}),
+          ...(tool.permission ? { permission: tool.permission } : {}),
           ...(tool.customerFields
             ? {
                 customerFields: Object.fromEntries(
@@ -426,6 +442,17 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ...(automation.rails ? { rails: automation.rails } : {}),
           ...(automation.connections?.length ? { connections: automation.connections } : {}),
           ...(automation.enabled === false ? { enabled: false } : {}),
+        },
+      ]),
+    ),
+    roles: Object.fromEntries(
+      Object.entries(extension.roles ?? {}).map(([name, role]) => [
+        name,
+        {
+          label: role.label,
+          description: role.description,
+          permissions: [...role.permissions],
+          read: [...role.read],
         },
       ]),
     ),
@@ -873,6 +900,21 @@ export function validateManifest(
         }
       }
     }
+    if (tool.permission !== undefined) {
+      const match = EXTENSION_PERMISSION_RE.exec(tool.permission);
+      if (!match || match[1] !== m.id) {
+        contract(
+          `tools.${name}.permission`,
+          `A tool's permission is named ${m.id}:<word> (camelCase), not "${tool.permission}"`,
+        );
+      }
+      if (tool.audiences && !tool.audiences.includes("staff")) {
+        contract(
+          `tools.${name}.permission`,
+          "A permission is for staff callers; this tool is not open to staff",
+        );
+      }
+    }
     if (tool.recordAction) {
       const action = tool.recordAction;
       if (!known.has(action.object)) {
@@ -889,6 +931,36 @@ export function validateManifest(
         contract(
           `tools.${name}.recordAction.ask`,
           `"${action.ask.input}" is not a field of the tool's input`,
+        );
+      }
+    }
+  }
+
+  // Roles (ADR 0436): each holds permissions this extension's tools declare and reads objects
+  // of its own, and nothing else, so a role can never reach past the extension that declares it.
+  const declaredPermissions = new Set(
+    Object.values(m.tools).flatMap((tool) => (tool.permission ? [tool.permission] : [])),
+  );
+  for (const [name, role] of Object.entries(m.roles)) {
+    const path = `roles.${name}`;
+    if (!FIELD_NAME_RE.test(name)) contract(path, `Role name "${name}" must be camelCase`);
+    if (!role.permissions.length && !role.read.length) {
+      contract(path, "A role holds at least one permission or reads at least one object");
+    }
+    for (const permission of role.permissions) {
+      if (!declaredPermissions.has(permission)) {
+        contract(
+          `${path}.permissions`,
+          `"${permission}" is not the permission of any of this extension's tools (tools.<name>.permission)`,
+        );
+      }
+    }
+    for (const object of role.read) {
+      const local = object.startsWith(`${m.id}.`) ? object.slice(m.id.length + 1) : null;
+      if (!local || !m.objects[local]) {
+        contract(
+          `${path}.read`,
+          `"${object}" is not an object of this extension: a role reads ${m.id}.<object> only`,
         );
       }
     }
