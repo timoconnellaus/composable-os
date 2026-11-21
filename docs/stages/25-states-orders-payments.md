@@ -49,6 +49,8 @@ through approval like any other outside action.
 | Who can refund | Staff with a refund permission. An AI may propose one; a person approves |
 | Currency | One per deployment |
 | `stages` and `states` | **One engine, two declarations.** `stages` moves onto the engine in this stage |
+| Paying by deposit (added 2026-11-21, stage 27 interview) | **A deposit now and the balance by a date.** The buyer pays the rest from a link, in one go or in parts. No card is stored and nothing is charged automatically. Past the date, staff are told and decide |
+| A fee line at checkout | **None.** The price is the price |
 | Left out | Recurring payments and stored cards; tax and invoices beyond the provider's receipt; discounts, promo codes and gift cards; payments taken in person; a second provider |
 
 ## Scope
@@ -94,6 +96,33 @@ through approval like any other outside action.
   behaviour stage 27 adds. This stage ships the event and a fixture that consumes it.
 - A pending order with no payment expires after a set time, 15 minutes by default, by the minute
   cron. The time is a product setting.
+
+### Paying by deposit
+Added after the stage 27 interview: the first thing sold (a training camp) is paid by a deposit
+and a balance due by a date. The decisions on how it works are the coordinator's and can be
+overridden.
+
+- A sellable record may offer a deposit: an amount, and the date the balance is due. Stage 27's
+  `sellable` declares the fields; this stage's orders carry them. `order.start` takes
+  `pay: "full" | "deposit"`, and the host works out what is due now. A caller never sends an
+  amount for the first payment.
+- An order records what has been paid. The state machine gains **`part_paid`**: `pending` →
+  `part_paid` → `paid`, both `host` moves made only by a verified payment, and `part_paid` →
+  `cancelled` by staff.
+- **The place is theirs from the first payment.** The move to `part_paid` raises `order.paid`'s
+  sibling event `order.partPaid` and, from stage 26, confirms the order's holds, exactly as `paid`
+  does for an order paid in full. What was granted (stage 27's tickets) is granted then.
+- A `part_paid` order does not expire by the 15-minute clock. It has a **balance due date**.
+- **Paying the rest:** `order.checkout` on a `part_paid` order takes an amount, at least a set
+  minimum and at most the balance, and returns the provider's page as before. Each verified
+  payment adds to what is paid; when nothing is owed the order is `paid`. The buyer reaches it
+  from their account or from the order's signed link, which for a `part_paid` order lasts until
+  it is paid or cancelled.
+- **Past the due date** nothing moves by itself. The order shows as overdue on a list in the
+  admin and staff are notified, daily, until they extend the date (`order.extendBalanceDue`),
+  cancel it (which releases its places and leaves any refund of what was paid to the refund
+  flow) or it is paid.
+- No card is stored, and no instalment is scheduled or charged automatically.
 
 ### Buying without an account
 - `order.start` is open to customers and the public. A public caller gives an email address.
@@ -184,6 +213,12 @@ through approval like any other outside action.
 11. **No card data:** no table, log line or audit row holds a card number, checked by a test that
     scans what a full checkout wrote.
 12. **Event:** `order.paid` reaches a fixture automation once per order.
+12a. **Deposit:** an order started with `pay: "deposit"` is due the record's deposit, priced by
+    the host; a verified payment of it makes the order `part_paid` and does not expire it; a
+    second payment for part of the balance leaves it `part_paid` with the right amount owing; a
+    payment of the rest makes it `paid`; a checkout for more than the balance is refused; past
+    the due date it is listed as overdue and staff are notified, and nothing else changes;
+    extending the date and cancelling both work, and cancelling releases the fixture's hold.
 13. `pnpm lint typecheck test` and e2e (start an order as a guest, pay it against the fake
     provider, refund it) pass in CI. ADRs, `CONTEXT.md` (Order, and Behaviour amended) and
     `docs/architecture.md` are updated.
