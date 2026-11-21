@@ -9,6 +9,7 @@
   "devDependencies": {
     "@composable-os/cli": "{{version}}",
     "@composable-os/product": "{{version}}",
+    "@composable-os/sdk": "{{version}}",
     "typescript": "6.0.3"
   },
   "packageManager": "pnpm@10.23.0"

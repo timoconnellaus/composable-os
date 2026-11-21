@@ -6,14 +6,14 @@ It downloads a release from GitHub Releases, verifies its sha256 and its GitHub 
 of ours, no telemetry.
 
 Not published to npm yet: build it from a checkout (`pnpm --filter create-composable-os build`) and run
-`node packages/create-composable-os/dist/cli.js` wherever this says `npx create-composable-os`.
+`node packages/create-composable-os/dist/cli.js` wherever this says `npx @composable-os/cli install`.
 
 ```sh
-npx create-composable-os                  # install (or repair an install)
-npx create-composable-os upgrade          # update to the newest release on your channel
-npx create-composable-os rollback         # undo the last update (redeploy + restore the database bookmark)
-npx create-composable-os status
-npx create-composable-os --help           # every option, and the API token permissions
+npx @composable-os/cli install                  # install (or repair an install)
+npx @composable-os/cli upgrade          # update to the newest release on your channel
+npx @composable-os/cli rollback         # undo the last update (redeploy + restore the database bookmark)
+npx @composable-os/cli status
+npx @composable-os/cli install --help           # every option, and the API token permissions
 ```
 
 The token needs, on the account: Workers Scripts Edit, D1 Edit, Workers R2 Storage Edit, Workers KV

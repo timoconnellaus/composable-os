@@ -134,7 +134,7 @@ describe("update.status and channels", () => {
       channel: "stable",
       canUpdateInApp: true,
       installedFromRelease: true,
-      cliCommand: "npx create-composable-os upgrade",
+      cliCommand: "npx @composable-os/cli upgrade",
     });
   });
 
@@ -301,7 +301,7 @@ describe("preflight and apply", () => {
     const ctx = context(admin, { updater: runtime({ canUpdate: false }) });
     await expect(invokeByName("update.apply", { version: "1.1.0" }, ctx)).rejects.toMatchObject({
       code: "invalid_input",
-      message: expect.stringContaining("npx create-composable-os upgrade --version 1.1.0"),
+      message: expect.stringContaining("npx @composable-os/cli upgrade --version 1.1.0"),
     });
     const status = await invokeByName("update.status", {}, ctx);
     expect(status).toMatchObject({ canUpdateInApp: false });

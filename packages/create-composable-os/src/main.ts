@@ -2,8 +2,8 @@
 // Cloudflare account, from a verified release bundle, with the Cloudflare REST API only
 // (ADR 0163). Every command is safe to re-run.
 //
-//   npx create-composable-os                      install (interactive)
-//   npx create-composable-os --yes --token … …    install (non-interactive, e.g. CI)
+//   npx @composable-os/cli install                      install (interactive)
+//   npx @composable-os/cli install --yes --token … …    install (non-interactive, e.g. CI)
 //   cos upgrade [--version X.Y.Z]       same steps as Settings → Updates
 //   cos rollback                        undo the last update (redeploy + restore the bookmark)
 //   cos status                          what is installed and what is available
@@ -747,7 +747,7 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
   io.out(`Open ${result.url}/setup to create the first admin and finish setting up.`);
   if (!updateToken) {
     io.out(
-      "Updates: run `npx create-composable-os upgrade` (or store a token with --update-token for Settings → Updates).",
+      "Updates: run `npx @composable-os/cli upgrade` (or store a token with --update-token for Settings → Updates).",
     );
   }
   return 0;
@@ -759,7 +759,7 @@ async function locate(s: Session) {
   const located = await locateDeployment(s.api, s.accountId, s.product.names.database);
   if (!located?.state) {
     throw new CliError(
-      `No ${s.product.label} installed from a release was found in this account. Run \`npx create-composable-os\` first.`,
+      `No ${s.product.label} installed from a release was found in this account. Run \`npx @composable-os/cli install\` first.`,
     );
   }
   return { databaseId: located.databaseId, state: located.state };

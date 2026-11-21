@@ -114,7 +114,7 @@ function requireUpdater(ctx: HandlerContext): UpdaterRuntime {
 }
 
 function cliCommand(version?: string) {
-  return `npx create-composable-os upgrade${version ? ` --version ${version}` : ""}`;
+  return `npx @composable-os/cli upgrade${version ? ` --version ${version}` : ""}`;
 }
 
 const statusOutput = z.object({

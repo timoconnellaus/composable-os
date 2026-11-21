@@ -22,7 +22,7 @@ The CLI asks for a scoped Cloudflare API token, your account and hostname (`work
 domain) and the sign-in method, downloads a release, **verifies its sha256 and its GitHub build
 attestation**, then provisions D1, R2 and KV, uploads the Workers, sets secrets, runs migrations and
 prints the URL. Re-running it repairs an install. Update from **Settings → Updates** (with an optional
-stored token) or with `npx create-composable-os upgrade`; roll back from either. Requires Workers Paid.
+stored token) or with `npx @composable-os/cli upgrade`; roll back from either. Requires Workers Paid.
 
 The Deploy button above is the developer path: it forks the repository and deploys from source.
 Deploying from a checkout for the first time: [`docs/first-deploy.md`](docs/first-deploy.md). Details,

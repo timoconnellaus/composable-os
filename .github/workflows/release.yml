@@ -5,6 +5,9 @@
 #   draft      a draft GitHub Release with the assets, SHA256SUMS and the changelog
 #   smoke      install-test.yml against the built bundle (skips cleanly without the test account)
 #   publish    the draft goes public; stable releases become "latest", betas are pre-releases
+#   npm        the npm packages a client repo installs (stage 24, ADR 0423), built from this commit
+#              in `build` and checked there with `npm publish --dry-run`; published only when
+#              the NPM_PUBLISH repository variable is "true" (trusted publishing, no token)
 #
 # Everything a deployment downloads comes from the published release, and is verified against
 # SHA256SUMS and the attestation made here (create-composable-os and Settings → Updates refuse anything else).
@@ -68,6 +71,22 @@ jobs:
           diff release-out/SHA256SUMS release-check/SHA256SUMS
           echo "Reproducible:"; cat release-out/SHA256SUMS
 
+      - name: npm packages from this commit, and a fresh client repo built from them (dry run)
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          node scripts/release/npm-packages.ts --version "$v" --out npm-out
+          node scripts/release/check-npm-packages.ts --npm npm-out --bundle-dir release-out --version "$v"
+          tag=latest; if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then tag=beta; fi
+          for t in $(node -p "require('./npm-out/tarballs.json').join(' ')"); do
+            npm publish "./npm-out/$t" --dry-run --access public --tag "$tag"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-packages
+          path: npm-out/*.tgz
+          retention-days: 30
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v4
         with:
@@ -121,41 +140,28 @@ jobs:
           fi
 
   npm:
-    # `npx create-composable-os` runs the CLI published to npm. Needs the NPM_TOKEN secret (and the package
-    # name; see docs/deploying.md). Skipped cleanly without it.
-    name: Publish the CLI to npm
+    # The npm packages built and dry-run published in `build` (ADR 0423). A real publish happens
+    # only when the repository variable NPM_PUBLISH is "true", with npm's trusted publishing
+    # (OIDC, provenance): no token is stored anywhere. Before turning it on, a person claims the
+    # @composable-os organisation and the create-composable-os name on npm and adds this workflow
+    # as each package's trusted publisher (docs/deploying.md, "Publishing to npm").
+    name: Publish the npm packages
     needs: [build, publish]
-    if: ${{ always() && needs.publish.result == 'success' }}
+    if: ${{ always() && needs.publish.result == 'success' && vars.NPM_PUBLISH == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-    env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
-      - name: Token configured?
-        id: check
-        run: |
-          if [[ -n "$NPM_TOKEN" ]]; then echo "enabled=true" >> "$GITHUB_OUTPUT"; else echo "::notice::NPM_TOKEN is not set; not publishing the CLI."; fi
-      - uses: actions/checkout@v5
-        if: steps.check.outputs.enabled == 'true'
-      - uses: pnpm/action-setup@v4
-        if: steps.check.outputs.enabled == 'true'
       - uses: actions/setup-node@v5
-        if: steps.check.outputs.enabled == 'true'
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
+          node-version: 24
           registry-url: https://registry.npmjs.org
-      - if: steps.check.outputs.enabled == 'true'
-        run: pnpm install --frozen-lockfile
-      - name: Build and publish
-        if: steps.check.outputs.enabled == 'true'
-        working-directory: packages/create-composable-os
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-packages
+          path: npm-out
+      - name: Publish (trusted publishing, with provenance)
         run: |
-          npm version "${{ needs.build.outputs.version }}" --no-git-tag-version
-          pnpm run build
           tag=latest; if [[ "${{ needs.build.outputs.prerelease }}" == "true" ]]; then tag=beta; fi
-          npm publish --provenance --access public --tag "$tag"
+          for t in ./npm-out/*.tgz; do npm publish "$t" --provenance --access public --tag "$tag"; done

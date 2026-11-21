@@ -178,7 +178,7 @@ from nothing, delete in the dashboard: both Workers, the `crm` database, `crm-bl
 - **The first minute logs errors.** crm-runner's minute cron can fire before migrations finish on a
   first deploy. It fails harmlessly and works from the next tick.
 - **Rate limit ids.** `namespace_id` 4101 to 4103 and 4201 must be unused in your account.
-- **`npx create-composable-os` needs a published release.** None exists yet, so this checkout
+- **`npx @composable-os/cli install` needs a published release.** None exists yet, so this checkout
   path is the only one that works today.
 
 ## What only a real account can prove

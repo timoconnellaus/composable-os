@@ -61,7 +61,7 @@ gatekeepers.
  GitHub Release: composable-os-crm-X.Y.Z.tar.gz · composable-os-crm-X.Y.Z.manifest.json · SHA256SUMS · build attestation
                     │ downloaded + verified (sha256, attestation, every file vs manifest)
         ┌───────────┴─────────────┐
- npx create-composable-os / cos upgrade    Settings → Updates (self-updater, optional COS_UPDATE_TOKEN)
+ npx @composable-os/cli install / cos upgrade    Settings → Updates (self-updater, optional COS_UPDATE_TOKEN)
         └───────────┬─────────────┘
           packages/release: Cloudflare REST API (no wrangler) — provision, migrate, stage versions,
           switch all Workers, smoke-check; bookmark + restore for rollback
@@ -776,7 +776,7 @@ packages/
                        real since stage 17 W1, the others are placeholders for later waves)
   release/             release bundles, manifest types, verification, the Cloudflare API deploy
                        engine, preflight and the update procedure (Node and Workers)
-  create-composable-os/ the installer CLI: npx create-composable-os, cos upgrade / rollback / status,
+  create-composable-os/ the installer CLI: npx @composable-os/cli install, cos upgrade / rollback / status,
                        and cos ext check / test in a checkout
   gatekeeper-interface/ the gatekeeper RPC interface (vendored from cloudflare-os, see UPSTREAMS.md)
   gatekeeper-kit/      gatekeeper building blocks (vendored)
