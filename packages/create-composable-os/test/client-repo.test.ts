@@ -24,6 +24,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { repositoryPackIds } from "@composable-os/product/packs";
 import { buildFixtureRelease } from "@composable-os/release/testing";
 import ts from "typescript";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -40,10 +41,10 @@ const scratch = () => mkdtempSync(join(scratchRoot, "repo-"));
 
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-/** The real client kit, as text, with `change` applied. */
+/** The real client kit, as a release builds it (every pack carried), with `change` applied. */
 function kit(change: (files: Record<string, string>) => void = () => {}) {
   const files = Object.fromEntries(
-    [...collectClientKit(root, ["deals", "leads", "lifecycle"])].map(([p, b]) => [p, decode(b)]),
+    [...collectClientKit(root, repositoryPackIds(root))].map(([p, b]) => [p, decode(b)]),
   );
   // A block, so cos add and cos diff have one to work on in every fixture release.
   files["blocks/greeting/block.json"] = JSON.stringify({
@@ -268,19 +269,186 @@ describe("cos deploy", () => {
     expect(world.cf.calls).toEqual([]);
   });
 
-  it("refuses a pack the release does not have", async () => {
+  it("refuses a pack the release does not have, with no call to Cloudflare", async () => {
     await publish("1.0.0", (files) => {
       files["packs.json"] = '["deals"]\n';
     });
     const dir = await created();
-    writeFileSync(
-      join(dir, "product.ts"),
-      read(dir, "product.ts").replace("packs: [],", 'packs: ["tickets"],'),
-    );
+    setPacks(dir, ["tickets"]);
+    world.cf.calls.length = 0;
     const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
     expect(deployed.code).toBe(1);
-    expect(deployed.output).toContain("has no pack tickets");
-    expect(mutating()).toEqual([]);
+    expect(deployed.output).toContain("Demo 1.0.0 does not carry the pack tickets");
+    expect(world.cf.calls).toEqual([]);
+  });
+
+  it("deploys a host told to install a pack the release carries (Ticketing)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    setPacks(dir, ["ticketing"]);
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    // The release carries it (its runner bundles every pack: apps/runner/test/shipped-list.test.ts,
+    // where COS_PACKS=ticketing installs exactly Ticketing), and the runner is told to install it.
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("ticketing");
+  });
+
+  it("trusts only packs.json: a tool in the contract does not make a pack carried", async () => {
+    // A release built before every pack was carried: its runner had the CRM's three packs, while
+    // its contract (the union over the repository) already named Ticketing's tools.
+    await publish("1.0.0", (files) => {
+      files["packs.json"] = '["deals","leads","lifecycle"]\n';
+      expect(files["contract/customer.json"]).toContain('"x.ticketing.');
+    });
+    const dir = await created();
+    setPacks(dir, ["ticketing"]);
+    world.cf.calls.length = 0;
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(1);
+    expect(deployed.output).toContain("does not carry the pack ticketing");
+    expect(world.cf.calls).toEqual([]);
+  });
+});
+
+/** product.ts with these packs on. */
+function setPacks(dir: string, packs: string[]) {
+  writeFileSync(
+    join(dir, "product.ts"),
+    read(dir, "product.ts").replace(/packs: \[[^\]]*\],/, `packs: ${JSON.stringify(packs)},`),
+  );
+}
+
+/** product.ts with these environments. */
+function setEnvironments(dir: string, environments: Record<string, unknown>) {
+  writeFileSync(
+    join(dir, "product.ts"),
+    read(dir, "product.ts").replace(
+      /(packs: \[[^\]]*\],)/,
+      `$1\n  environments: ${JSON.stringify(environments)},`,
+    ),
+  );
+}
+
+const secretOf = (worker: string, name: string) => world.cf.scripts.get(worker)?.secrets.get(name);
+
+describe("environments (ADR 0450)", () => {
+  it("staging and live deploy side by side, each its own host, and one never touches the other", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    setEnvironments(dir, { staging: {}, live: {} });
+    world.cf.calls.length = 0;
+    const refused = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("say which with --env (live, staging)");
+    const unknown = await cos("deploy", "--env", "prod", "--skip-build", "--no-typecheck");
+    expect(unknown.output).toContain("no environment prod. Its environments: live, staging");
+    expect(world.cf.calls).toEqual([]);
+
+    const staging = await cos("deploy", "--env", "staging", "--skip-build", "--no-typecheck");
+    expect(staging.code, staging.output).toBe(0);
+    const live = await cos("deploy", "--env", "live", "--skip-build", "--no-typecheck");
+    expect(live.code, live.output).toBe(0);
+    // Distinct Workers: live keeps the names a product without environments has.
+    for (const worker of [
+      "shop-staging-app",
+      "shop-staging-runner",
+      "shop-web-staging",
+      "shop-app",
+      "shop-runner",
+      "shop-web",
+    ]) {
+      expect(world.cf.scripts.has(worker), worker).toBe(true);
+    }
+    // Distinct databases, each with its own deployment state, and distinct buckets.
+    expect([...world.cf.d1.values()].map((d) => d.name).sort()).toEqual(["shop", "shop-staging"]);
+    // Each web app is bound to its own environment's host, and named to it for customer sign-in.
+    expect(world.cf.liveBinding("shop-web-staging", "HOST")?.service).toBe("shop-staging-app");
+    expect(world.cf.liveBinding("shop-web", "HOST")?.service).toBe("shop-app");
+    expect(world.cf.liveBinding("shop-staging-app", "CUSTOMER_AUTH_URL")?.text).toBe(
+      "https://shop-web-staging.acme.workers.dev",
+    );
+    expect(world.cf.liveBinding("shop-app", "CUSTOMER_AUTH_URL")?.text).toBe(
+      "https://shop-web.acme.workers.dev",
+    );
+    // Its own secrets.
+    for (const name of ["BETTER_AUTH_SECRET", "CUSTOMER_AUTH_SECRET"]) {
+      expect(secretOf("shop-staging-app", name), name).toBeTruthy();
+      expect(secretOf("shop-staging-app", name), name).not.toBe(secretOf("shop-app", name));
+    }
+    // Redeploying staging changes nothing of live's.
+    const liveSecrets = new Map(world.cf.scripts.get("shop-app")?.secrets);
+    const liveDb = [...world.cf.d1.entries()].find(([, d]) => d.name === "shop")?.[0] as string;
+    world.cf.calls.length = 0;
+    const again = await cos("deploy", "--env", "staging", "--skip-build", "--no-typecheck");
+    expect(again.code, again.output).toBe(0);
+    expect(mutating().length).toBeGreaterThan(0);
+    const touched = mutating().filter(
+      (c) =>
+        /\/(shop-app|shop-runner|shop-web|shop-gatekeeper-[^/]+)(\/|$)/.test(c.path) ||
+        c.path.includes(liveDb),
+    );
+    expect(touched).toEqual([]);
+    expect(new Map(world.cf.scripts.get("shop-app")?.secrets)).toEqual(liveSecrets);
+  });
+
+  it("with none declared, deploys as before, and --env is refused", async () => {
+    await publish("1.0.0");
+    await created();
+    const refused = await cos("deploy", "--env", "staging", "--skip-build", "--no-typecheck");
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("declares no environments");
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    expect(world.cf.scripts.has("shop-app")).toBe(true);
+  });
+});
+
+describe("customer sign-in on the web app's hostname (ADR 0421, ADR 0450)", () => {
+  it("sets CUSTOMER_AUTH_URL to the web app's origin and makes its secret once", async () => {
+    await publish("1.0.0");
+    await created();
+    const first = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(first.code, first.output).toBe(0);
+    expect(world.cf.liveBinding("shop-app", "CUSTOMER_AUTH_URL")?.text).toBe(
+      "https://shop-web.acme.workers.dev",
+    );
+    const secret = secretOf("shop-app", "CUSTOMER_AUTH_SECRET") as string;
+    const staff = secretOf("shop-app", "BETTER_AUTH_SECRET") as string;
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(secret).not.toBe(staff);
+    expect(first.output).not.toContain(secret);
+    // A redeploy changes neither secret (the staff one was made anew on every client deploy
+    // before: it was looked for under the release's Worker name).
+    const again = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(again.code, again.output).toBe(0);
+    expect(secretOf("shop-app", "CUSTOMER_AUTH_SECRET")).toBe(secret);
+    expect(secretOf("shop-app", "BETTER_AUTH_SECRET")).toBe(staff);
+    expect(world.cf.liveBinding("shop-app", "CUSTOMER_AUTH_URL")?.text).toBe(
+      "https://shop-web.acme.workers.dev",
+    );
+    // Rotating is asked for by name, and changes only the customer secret.
+    const rotated = await cos(
+      "deploy",
+      "--skip-build",
+      "--no-typecheck",
+      "--rotate-customer-auth-secret",
+    );
+    expect(rotated.code, rotated.output).toBe(0);
+    expect(secretOf("shop-app", "CUSTOMER_AUTH_SECRET")).not.toBe(secret);
+    expect(secretOf("shop-app", "BETTER_AUTH_SECRET")).toBe(staff);
+  });
+
+  it("a product with no web app gets neither", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(/\n\s*web: \{[^\n]*\},/, ""),
+    );
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    expect(world.cf.liveBinding("shop-app", "CUSTOMER_AUTH_URL")).toBeUndefined();
+    expect(secretOf("shop-app", "CUSTOMER_AUTH_SECRET")).toBeUndefined();
   });
 });
 
@@ -497,11 +665,15 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
     expect(first.code, first.output).toBe(0);
     // Nothing that existed changed: every change is shown instead.
     expect(snapshot(dir, existing)).toEqual(before);
-    for (const path of ["package.json", "AGENTS.md", "wrangler.jsonc", "mobile/package.json"]) {
+    for (const path of ["package.json", "AGENTS.md", "mobile/package.json"]) {
       expect(first.output).toContain(`--- ${path}`);
     }
+    // The site deploys itself: its top-level config gets no binding to a host that does not
+    // exist yet. What to add, and when, is printed instead.
+    expect(first.output).not.toContain("--- wrangler.jsonc");
+    expect(first.output).toContain("Add it only after cos deploy has made that host");
     expect(first.output).toContain(
-      '+   "services": [{ "binding": "HOST", "service": "movement-app", "entrypoint": "ClientApp" }]',
+      '"services": [{ "binding": "HOST", "service": "movement-app", "entrypoint": "ClientApp" }]',
     );
     expect(first.output).toContain("Not changed.");
     // It keeps the site's own Worker and its own deploy, and says the site has data of its own.
@@ -528,8 +700,7 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
     rmSync(join(dir, "product.ts"));
     const second = await cos("init", "--web", ".", "--mobile", "mobile", "--yes");
     expect(second.code, second.output).toBe(0);
-    expect(read(dir, "wrangler.jsonc")).toContain('"database_name": "movement"');
-    expect(read(dir, "wrangler.jsonc")).toContain('"entrypoint": "ClientApp"');
+    expect(read(dir, "wrangler.jsonc")).toBe(before["wrangler.jsonc"]);
     expect(read(dir, "AGENTS.md").startsWith(before["AGENTS.md"] as string)).toBe(true);
     expect(read(dir, "AGENTS.md")).toContain("Never open a database");
     // The site is the root package: it gains the client, and keeps everything it had.
@@ -556,6 +727,65 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
     expect(world.cf.scripts.has("movement-app")).toBe(true);
     expect(world.cf.scripts.has("movement-site")).toBe(false);
     expect(deployed.output).toContain('deploys itself (web.deploy "own")');
+    expect(deployed.output).toContain("HOST's target is movement-app, entrypoint ClientApp");
+  });
+
+  it("--packs turns on packs the release carries and refuses one it does not", async () => {
+    await publish("1.0.0");
+    const dir = fixture();
+    cwd = dir;
+    const refused = await cos("init", "--web", ".", "--packs", "ticketing,tickets", "--yes");
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("does not carry the pack tickets");
+    expect(existsSync(join(dir, "product.ts"))).toBe(false);
+    const done = await cos("init", "--web", ".", "--packs", "ticketing", "--yes");
+    expect(done.code, done.output).toBe(0);
+    expect(read(dir, "product.ts")).toContain('"packs": [\n    "ticketing"\n  ]');
+  });
+
+  it("with environments: the binding goes under the site's matching environment; the rest is printed, and each host deploys on its own", async () => {
+    await publish("1.0.0");
+    const dir = fixture();
+    // The site has a staging environment of its own; its live deploy is the top level.
+    writeFileSync(
+      join(dir, "wrangler.jsonc"),
+      read(dir, "wrangler.jsonc").replace(
+        '"d1_databases"',
+        '"env": {\n    "staging": {\n      "name": "movement-site-staging",\n      "d1_databases": [{ "binding": "DB", "database_name": "movement-staging" }]\n    }\n  },\n  "d1_databases"',
+      ),
+    );
+    cwd = dir;
+    const init = await cos("init", "--web", ".", "--envs", "staging,live", "--yes");
+    expect(init.code, init.output).toBe(0);
+    const config = read(dir, "wrangler.jsonc");
+    // Under env.staging, to the staging host, shown as a diff and applied with --yes.
+    expect(init.output).toContain("--- wrangler.jsonc");
+    expect(config).toMatch(
+      /"staging": \{\n\s+"services": \[\{ "binding": "HOST", "service": "movement-staging-app", "entrypoint": "ClientApp" \}\],\n\s+"name": "movement-site-staging"/,
+    );
+    // Nothing at the top level: live's binding is printed, to add once the live host exists.
+    expect(config.match(/"services"/g)).toHaveLength(1);
+    expect(init.output).toContain(
+      'live: "services": [{ "binding": "HOST", "service": "movement-app", "entrypoint": "ClientApp" }]',
+    );
+    expect(read(dir, "product.ts")).toContain('"environments"');
+
+    const staging = await cos("deploy", "--env", "staging", "--no-typecheck");
+    expect(staging.code, staging.output).toBe(0);
+    expect(world.cf.scripts.has("movement-staging-app")).toBe(true);
+    expect(world.cf.scripts.has("movement-app")).toBe(false);
+    expect(staging.output).toContain(
+      '"env": { "staging": { "services": [{ "binding": "HOST", "service": "movement-staging-app", "entrypoint": "ClientApp" }] } }',
+    );
+    expect(world.cf.liveBinding("movement-staging-app", "CUSTOMER_AUTH_URL")?.text).toBe(
+      "https://movement-site-staging.acme.workers.dev",
+    );
+    const live = await cos("deploy", "--env", "live", "--no-typecheck");
+    expect(live.code, live.output).toBe(0);
+    expect(world.cf.scripts.has("movement-app")).toBe(true);
+    expect(live.output).toContain(
+      '"services": [{ "binding": "HOST", "service": "movement-app", "entrypoint": "ClientApp" }]',
+    );
   });
 
   it("the adopted apps call me.get, typed: the Worker over its binding, the Expo app over HTTPS", async () => {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  type ClientProductDefinition,
+  clientNames,
+  clientWeb,
+  defineClientProduct,
   defineProduct,
+  environmentNames,
   deployedName,
   deployedNameList,
   LOCAL_PREFIX,
@@ -81,5 +86,59 @@ describe("choosing a product for a build", () => {
     const file = productFile("crm");
     expect(Object.values(productAlias({ COS_PRODUCT: "crm" }))).toEqual([file]);
     expect(Object.values(productAlias({ COS_PRODUCT: file }))).toEqual([file]);
+  });
+});
+
+describe("a client product's environments (ADR 0450)", () => {
+  const gym: ClientProductDefinition = {
+    id: "gym",
+    label: "Gym",
+    platform: { version: "1.0.0", release: "crm", repository: "example/platform" },
+    packs: ["ticketing"],
+    web: { dir: ".", worker: "gym-site", deploy: "own" },
+    environments: {
+      staging: { hostname: "admin.staging.gym.example", web: { hostname: "staging.gym.example" } },
+      live: { hostname: "admin.gym.example", web: { hostname: "gym.example" } },
+    },
+  };
+
+  it("names each one from the id and its name; live keeps the undecorated names", () => {
+    expect(defineClientProduct(gym)).toBe(gym);
+    expect(environmentNames(gym)).toEqual(["live", "staging"]);
+    expect(clientNames(gym, "staging")).toEqual({
+      app: "gym-staging-app",
+      runner: "gym-staging-runner",
+      gatekeeperPrefix: "gym-staging-gatekeeper-",
+      database: "gym-staging",
+      resourcePrefix: "gym-staging-",
+    });
+    expect(clientNames(gym, "live")).toEqual(clientNames({ ...gym, environments: undefined }));
+    expect(clientWeb(gym, "staging")).toEqual({
+      worker: "gym-site-staging",
+      hostname: "staging.gym.example",
+    });
+    expect(clientWeb(gym, "live")).toEqual({ worker: "gym-site", hostname: "gym.example" });
+  });
+
+  it("takes overrides, and refuses two environments that share a name", () => {
+    const named = {
+      ...gym,
+      environments: {
+        ...gym.environments,
+        staging: { names: { app: "gym-preview-app" }, web: { worker: "gym-site-preview" } },
+      },
+    };
+    expect(clientNames(named, "staging").app).toBe("gym-preview-app");
+    expect(clientWeb(named, "staging")?.worker).toBe("gym-site-preview");
+    expect(() =>
+      defineClientProduct({
+        ...gym,
+        environments: { staging: { names: { database: "gym" } }, live: {} },
+      }),
+    ).toThrow(/both use the name gym/);
+    expect(() => defineClientProduct({ ...gym, environments: {} })).toThrow(/is empty/);
+    expect(() => defineClientProduct({ ...gym, environments: { Staging: {} } })).toThrow(
+      /environment Staging/,
+    );
   });
 });

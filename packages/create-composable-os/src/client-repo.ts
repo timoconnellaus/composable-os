@@ -17,7 +17,10 @@ import {
   type ClientProductDefinition,
   clientNameMaps,
   clientNames,
+  clientWeb,
   defineClientProduct,
+  environmentNames,
+  LIVE_ENVIRONMENT,
   type ProductDefinition,
 } from "@composable-os/product";
 import { DEFAULT_PRODUCT, products } from "@composable-os/products";
@@ -434,21 +437,60 @@ function withDependencies(text: string, key: string, entries: Record<string, str
   return `${JSON.stringify(pkg, null, indent)}\n`;
 }
 
-/** A wrangler config with the HOST service binding added (JSONC or TOML). */
-function withBinding(path: string, text: string, service: string): string {
-  if (/["']?HOST["']?\s*[,=:]/.test(text) && text.includes("ClientApp")) return text;
-  if (path.endsWith(".toml")) {
-    return `${text.trimEnd()}\n\n# The host (Composable OS): customers and the public, over the ClientApp entrypoint.\n[[services]]\nbinding = "HOST"\nservice = "${service}"\nentrypoint = "ClientApp"\n`;
+/** The index of the `}` that closes the `{` at `open`, skipping strings and comments. */
+function closingBrace(text: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      for (i++; i < text.length && text[i] !== '"'; i++) if (text[i] === "\\") i++;
+    } else if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+    } else if (c === "/" && text[i + 1] === "*") {
+      i = text.indexOf("*/", i + 2) + 1;
+      if (i <= 0) return -1;
+    } else if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) return i;
   }
+  return -1;
+}
+
+/**
+ * A wrangler config with the HOST service binding added under its environment `env` (JSONC
+ * `"env": { "<env>": { … } }` or TOML `[env.<env>]`), or null when the config has no such
+ * environment. Wrangler does not inherit `services` into an environment, so it goes there.
+ */
+export function withEnvBinding(
+  path: string,
+  text: string,
+  env: string,
+  service: string,
+): string | null {
   const entry = `{ "binding": "HOST", "service": "${service}", "entrypoint": "ClientApp" }`;
-  if (/"services"\s*:\s*\[/.test(text)) {
-    return text.replace(/"services"\s*:\s*\[/, (m) => `${m}${entry}, `);
+  if (path.endsWith(".toml")) {
+    if (!new RegExp(`^\\[env\\.${env}\\]`, "m").test(text)) return null;
+    if (new RegExp(`\\[\\[env\\.${env}\\.services\\]\\][^[]*binding\\s*=\\s*"HOST"`).test(text))
+      return text;
+    return `${text.trimEnd()}\n\n# The ${env} host (Composable OS): customers and the public, over the ClientApp entrypoint.\n[[env.${env}.services]]\nbinding = "HOST"\nservice = "${service}"\nentrypoint = "ClientApp"\n`;
   }
-  const close = text.lastIndexOf("}");
-  if (close < 0) throw new CliError(`${path} is not a JSON object`);
-  const head = text.slice(0, close).trimEnd();
-  const comma = head.endsWith("{") || head.endsWith(",") ? "" : ",";
-  return `${head}${comma}\n  // The host (Composable OS): customers and the public, over the ClientApp entrypoint.\n  "services": [${entry}]\n${text.slice(close)}`;
+  const envKey = /"env"\s*:\s*\{/.exec(text);
+  if (!envKey) return null;
+  const envOpen = envKey.index + envKey[0].length - 1;
+  const envClose = closingBrace(text, envOpen);
+  const named = new RegExp(`"${env}"\\s*:\\s*\\{`).exec(text.slice(envOpen, envClose));
+  if (!named) return null;
+  const open = envOpen + named.index + named[0].length - 1;
+  const close = closingBrace(text, open);
+  const block = text.slice(open, close);
+  if (/"HOST"/.test(block) && block.includes("ClientApp")) return text;
+  const services = /"services"\s*:\s*\[/.exec(block);
+  if (services) {
+    const at = open + services.index + services[0].length;
+    return `${text.slice(0, at)}${entry}, ${text.slice(at)}`;
+  }
+  const body = text.slice(open + 1, close).trim();
+  const indent = /\n([ \t]*)\S/.exec(text.slice(open, close))?.[1] ?? "      ";
+  return `${text.slice(0, open + 1)}\n${indent}"services": [${entry}]${body ? "," : ""}${text.slice(open + 1)}`;
 }
 
 function wranglerConfig(dir: string): string | null {
@@ -491,12 +533,30 @@ export async function init(flags: Flags, deps: Deps): Promise<number> {
     ? /"?name"?\s*[:=]\s*"([a-z0-9-]+)"/.exec(readFileSync(webConfig, "utf8"))?.[1]
     : undefined;
 
+  // The packs to turn on (--packs), each one the release carries.
+  const list = (flag: string) =>
+    (str(flags, flag) ?? "")
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+  const packs = list("packs");
+  const carried = kitPacks(kit);
+  const unknown = packs.filter((p) => !carried.has(p));
+  if (unknown.length) {
+    throw new CliError(
+      `${release.label} ${version} does not carry the pack${unknown.length > 1 ? "s" : ""} ${unknown.join(", ")} (it carries ${[...carried].sort().join(", ") || "none"}). Nothing was written.`,
+    );
+  }
+  // The environments to declare (--envs staging,live, ADR 0450); none is one deployment.
+  const envs = list("envs");
+
   // New files: never over one that exists.
   const product: ClientProductDefinition = {
     id,
     label: str(flags, "label") ?? id,
     platform: { version, release: release.id, repository },
-    packs: [],
+    packs,
+    ...(envs.length ? { environments: Object.fromEntries(envs.map((e) => [e, {}])) } : {}),
     ...(webDir
       ? {
           web: {
@@ -609,12 +669,35 @@ export const product = defineClientProduct(${JSON.stringify(product, null, 2)});
         `Note: the web app has data of its own (${own.join(", ")}). It keeps them and keeps deploying itself (web.deploy "own"). Customers' records live in the host: what moves there, and when, is the company's decision, not an agent's.`,
       );
     }
-    if (config) {
-      consider(relative(root, config), (before) =>
-        // The host as `cos deploy` will name it for this product (issue #155).
-        withBinding(config, before as string, `${id}-app`),
+    // The adopted site deploys itself, perhaps on every push to its main branch: a HOST binding
+    // to a host that does not exist yet would fail that deploy. So nothing is added to its
+    // top-level config. Under an environment of its own config that matches one of product.ts's,
+    // the binding is shown as a diff (that environment is deployed only when someone says so);
+    // everything else is printed, to add once that environment's host exists (cos deploy).
+    const defined = defineClientProduct(product);
+    const later: string[] = [];
+    for (const env of envs.length ? envs : [undefined]) {
+      const host = clientNames(defined, env).app;
+      const text = config ? readFileSync(config, "utf8") : null;
+      const under = config && text && env ? withEnvBinding(config, text, env, host) : null;
+      if (config && under !== null) {
+        const path = relative(root, config);
+        const pending = changes.find((c) => c.path === path);
+        if (pending)
+          pending.after =
+            withEnvBinding(config, pending.after, env as string, host) ?? pending.after;
+        else if (under !== text) changes.push({ path, before: text as string, after: under });
+      } else {
+        later.push(
+          `  ${env ? `${env}: ` : ""}${hostBindingText(host, env)}${config ? "" : ` (no wrangler config in ${webDir})`}`,
+        );
+      }
+    }
+    if (later.length) {
+      io.out(
+        `\nThe site's Worker config needs the HOST binding${envs.length > 1 ? " in each environment" : ""}. Add it only after cos deploy${envs.length ? " --env <name>" : ""} has made that host, before the site's next deploy:\n${later.join("\n")}`,
       );
-    } else io.out(`No wrangler config in ${webDir}: add the HOST service binding by hand.`);
+    }
   }
   if (!existsSync(join(root, "package.json"))) added.push("package.json");
 
@@ -735,11 +818,10 @@ function buildWeb(root: string, product: ClientProductDefinition, flags: Flags, 
 async function deployWeb(
   api: CloudflareClient,
   accountId: string,
-  product: ClientProductDefinition,
+  web: { worker: string; hostname?: string },
   host: string,
   { out, config }: BuiltWeb,
 ): Promise<string> {
-  const web = product.web as NonNullable<ClientProductDefinition["web"]>;
   const modules: ModulePart[] = walkFiles(out)
     .filter((f) => f !== "wrangler.json" && !f.endsWith(".map") && !f.startsWith("."))
     .map((name) => ({
@@ -805,10 +887,53 @@ function blobsBucket(manifest: ReleaseManifest, state: DeploymentState): string 
   return state.resourceNames?.[bucket.name] ?? bucket.name;
 }
 
+/**
+ * The environment a deploy is for (ADR 0450): none when product.ts declares none (and --env is
+ * not given); the one --env names; the only one; else a refusal that lists them.
+ */
+export function chooseEnvironment(
+  product: ClientProductDefinition,
+  flag: string | undefined,
+): string | undefined {
+  const envs = environmentNames(product);
+  if (!envs.length) {
+    if (flag) {
+      throw new CliError(
+        `product.ts declares no environments, so there is no ${flag}: leave out --env, or add environments to product.ts.`,
+      );
+    }
+    return undefined;
+  }
+  if (flag) {
+    if (!envs.includes(flag)) {
+      throw new CliError(
+        `product.ts has no environment ${flag}. Its environments: ${envs.join(", ")}.`,
+      );
+    }
+    return flag;
+  }
+  if (envs.length === 1) return envs[0];
+  throw new CliError(
+    `product.ts has ${envs.length} environments: say which with --env (${envs.join(", ")}). Nothing was deployed.`,
+  );
+}
+
+/** The HOST binding an adopted site's own Worker config needs in an environment, as text. */
+export function hostBindingText(host: string, environment: string | undefined): string {
+  const entry = `{ "binding": "HOST", "service": "${host}", "entrypoint": "ClientApp" }`;
+  return environment && environment !== LIVE_ENVIRONMENT
+    ? `"env": { "${environment}": { "services": [${entry}] } }   (TOML: [[env.${environment}.services]] binding = "HOST", service = "${host}", entrypoint = "ClientApp")`
+    : `"services": [${entry}]   (TOML: [[services]] binding = "HOST", service = "${host}", entrypoint = "ClientApp")`;
+}
+
 export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const root = resolve(str(flags, "dir") ?? process.cwd());
   const product = await loadClientProduct(root);
+  // Which deployment: refused before anything else when product.ts has several and none is named.
+  const environment = chooseEnvironment(product, str(flags, "env"));
+  const envLabel = environment ? ` (${environment})` : "";
+  const web = clientWeb(product, environment);
   // Checked first: a failure stops the deploy before anything in the account changes.
   if (!(await checkOrgExtensions(root, io))) {
     io.err("An extension in extensions/ failed cos ext check: nothing was deployed.");
@@ -835,6 +960,7 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   }
   const ownBytes = new TextEncoder().encode(JSON.stringify({ extensions: own }));
   const ownHash = own.length ? await sha256Hex(ownBytes) : "";
+  const envSettings = environment ? product.environments?.[environment] : undefined;
   const hostFlags: Flags = {
     ...flags,
     product: release.id,
@@ -843,12 +969,14 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     yes: flags.yes ?? true,
     packs: product.packs.join(","),
     "org-extensions": ownHash,
+    ...(envSettings?.hostname && !str(flags, "hostname") ? { hostname: envSettings.hostname } : {}),
   };
   const scoped: Deps = {
     ...deps,
     products: { all: { [release.id]: release }, default: release.id },
   };
-  // Checks the release's packs against the product's before anything changes.
+  // Checks the release's packs against the product's before anything changes: the packs the
+  // release carries are its client kit's packs.json, and nothing else (ADR 0422 as amended).
   const source = releaseSource(hostFlags, scoped, release);
   const { bundle } = await verified(source, product.platform.version, scoped);
   const manifest = bundle.manifest;
@@ -856,7 +984,7 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   const missing = product.packs.filter((pack) => !inRelease.has(pack));
   if (missing.length) {
     io.err(
-      `${release.label} ${product.platform.version} has no pack ${missing.join(", ")}: the platform needs it in a release first. Nothing was deployed.`,
+      `${release.label} ${product.platform.version} does not carry the pack${missing.length > 1 ? "s" : ""} ${missing.join(", ")} that product.ts lists (it carries ${[...inRelease].sort().join(", ") || "none"}): the platform needs it in a release first. Nothing was deployed.`,
     );
     return 1;
   }
@@ -879,14 +1007,18 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   hostFlags.account = accountId;
 
   // The host's names (issue #155): a first install takes the client product's (derived from its
-  // id, or as product.ts says), through the deployment state's name maps, so the verified release
-  // is deployed unchanged. A host that exists keeps the names it has: one deployed before client
-  // names (under the release's) is found under those and never renamed.
-  const names = clientNames(product);
+  // id and, for an environment other than live, the environment's name; or as product.ts says),
+  // through the deployment state's name maps, so the verified release is deployed unchanged. A
+  // host that exists keeps the names it has: one deployed before client names (under the
+  // release's) is found under those and never renamed. Only the live environment (or a product
+  // without environments) can be such a host.
+  const names = clientNames(product, environment);
   const ownHost = await locateDeployment(api, accountId, names.database);
-  const legacyHost = ownHost?.state
-    ? null
-    : await locateDeployment(api, accountId, release.names.database);
+  const mayBeLegacy = environment === undefined || environment === LIVE_ENVIRONMENT;
+  const legacyHost =
+    ownHost?.state || !mayBeLegacy
+      ? null
+      : await locateDeployment(api, accountId, release.names.database);
   const database = legacyHost?.state ? release.names.database : names.database;
   hostFlags.database = database;
   hostFlags.label = product.label;
@@ -896,11 +1028,24 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   const deployedWorker = (name: string) =>
     (ownHost?.state ?? legacyHost?.state)?.workerNames[name] ??
     (legacyHost?.state ? name : (clientNameMaps(release, names, manifest).workers[name] ?? name));
+  const hostWorker = deployedWorker(appWorker(manifest));
+
+  // Customer sign-in on the web app's hostname (ADR 0421): the host is told the web app's
+  // origin, and makes its own customer secret once. A product with no web app gets neither.
+  let webOrigin: string | undefined;
+  if (web) {
+    webOrigin = web.hostname
+      ? `https://${web.hostname}`
+      : `https://${web.worker}.${(await api.workersSubdomain(accountId)) ?? "<subdomain>"}.workers.dev`;
+    hostFlags["customer-auth-url"] = webOrigin;
+  }
 
   // The host: install, upgrade to the product's version, or repair; vars set for the product.
   const found = ownHost?.state ? ownHost : legacyHost;
   if (found?.state && found.state.version !== product.platform.version) {
-    io.out(`The host is on ${found.state.version}; moving it to ${product.platform.version}.`);
+    io.out(
+      `The host${envLabel} is on ${found.state.version}; moving it to ${product.platform.version}.`,
+    );
     const code = await upgradeHost({ ...hostFlags }, scoped);
     if (code !== 0) return code;
   }
@@ -916,22 +1061,19 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     io.out(`Org extensions: ${own.map((e) => e.id).join(", ")} (${ownHash.slice(0, 12)}…)`);
   }
 
-  if (built) {
-    const url = await deployWeb(
-      api,
-      accountId,
-      product,
-      deployedWorker(appWorker(manifest)),
-      built,
-    );
-    io.out(`Web app: ${url}, bound to ${deployedWorker(appWorker(manifest))} (ClientApp).`);
-  } else if (product.web?.deploy === "own") {
+  if (built && web) {
+    const url = await deployWeb(api, accountId, web, hostWorker, built);
+    io.out(`Web app${envLabel}: ${url}, bound to ${hostWorker} (ClientApp).`);
+  } else if (product.web?.deploy === "own" && web) {
     io.out(
-      `Web app: ${product.web.dir} deploys itself (web.deploy "own"): deploy it as you do today. Its wrangler config binds HOST to ${deployedWorker(appWorker(manifest))} (ClientApp).`,
+      `Web app${envLabel}: ${product.web.dir} deploys itself (web.deploy "own"): deploy it as you do today.\n` +
+        `  Its Worker (${web.worker})${environment ? ` in its ${environment} environment` : ""} needs this service binding, now that the host exists:\n` +
+        `    ${hostBindingText(hostWorker, environment)}\n` +
+        `  HOST's target is ${hostWorker}, entrypoint ClientApp. Customer sign-in expects the site at ${webOrigin}.`,
     );
   }
   io.out(
-    `\nThe host's staff admin: ${deployedWorker(appWorker(manifest))}'s address (printed above); open /setup there to create the first admin, and, as a human admin, choose the email connection customer codes go out from (customer.settings.update, emailConnectionId).`,
+    `\nThe host's staff admin${envLabel}: ${hostWorker}'s address (printed above); open /setup there to create the first admin, and, as a human admin, choose the email connection customer codes go out from (customer.settings.update, emailConnectionId).`,
   );
   io.out(`\n${EDGE_RULE_STEP}`);
   return 0;
@@ -986,20 +1128,16 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
   return 0;
 }
 
-/** The packs a release has, from its contract's tool names and its blocks' manifests. */
-function kitPacks(kit: ClientKit): Set<string> {
-  const packs = new Set<string>();
-  for (const audience of ["customer", "public", "staff"]) {
-    const bytes = kit.get(`${KIT.contract}${audience}.json`);
-    if (!bytes) continue;
-    for (const op of (JSON.parse(decode(bytes)) as { operations: { name: string }[] }).operations) {
-      const [first, id] = op.name.split(".");
-      if (first === "x" && id) packs.add(id);
-    }
-  }
+/**
+ * The packs a release carries: its client kit's `packs.json`, and nothing else. The release's API
+ * contract is the union over every pack in the repository it was built from, so a tool named in it
+ * says nothing about what the release's runner bundles; packs.json is written from the same list
+ * the runner's bundle is (ADR 0422 as amended). A kit without it carries none.
+ */
+export function kitPacks(kit: ClientKit): Set<string> {
   const listed = kit.get("packs.json");
-  if (listed) for (const id of JSON.parse(decode(listed)) as string[]) packs.add(id);
-  return packs;
+  if (!listed) return new Set();
+  return new Set(JSON.parse(decode(listed)) as string[]);
 }
 
 /** `cos client generate` in a client repo: each app's typed client from its release, again. */
