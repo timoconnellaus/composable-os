@@ -998,7 +998,8 @@ describe("an order's places (stage 26, criterion 5)", () => {
       .bind(rush)
       .first<{ n: number }>();
     expect(orders?.n).toBe(100);
-  });
+    // 500 orders through the whole pipeline: seconds locally, more than the default on a CI runner.
+  }, 120_000);
 });
 
 // --- Over the HTTP surface (stage 23) --------------------------------------------------------------
