@@ -162,6 +162,19 @@ export function toOperationError(error: unknown): OperationError {
       reason: "order_stale",
     });
   }
+  // A move judged from a position the record has since left (ADR 0437): another write moved it
+  // first, and this one's history row would be a second current one. Nothing was applied.
+  if (
+    message.includes(
+      "UNIQUE constraint failed: core_transition_history.object_type, core_transition_history.record_id",
+    )
+  ) {
+    return new ConflictError(
+      "The record was moved by another change while this one was being made, so nothing was " +
+        "changed. Read it again: it may already be where you wanted it.",
+      { reason: "moved_meanwhile" },
+    );
+  }
   const unique = /UNIQUE constraint failed: ([\w.]+(?:, [\w.]+)*)/.exec(message);
   if (unique) {
     return new ConflictError("A record with that value already exists", {

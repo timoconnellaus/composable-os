@@ -10,7 +10,7 @@ import { CompiledQuery, type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { assertNoConfirmedClaims, counterWrite } from "../capacity/records.ts";
-import { NotFoundError, ValidationError } from "../errors.ts";
+import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { CAPACITY_FIELDS, fieldStorage, objectTableOf } from "../extensions/schema.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
 import { getObject, isCoreObject, listObjects } from "../fields/index.ts";
@@ -610,10 +610,11 @@ export async function updateRecord(
   object: ObjectDefinition,
   id: string,
   values: Record<string, unknown>,
-  options: { by?: Mover } = {},
+  options: { by?: Mover; from?: string | undefined } = {},
 ): Promise<boolean> {
   const before = await loadRecord(ctx, object, id);
   if (!before) throw new NotFoundError(object.name, id);
+  if (options.from !== undefined) assertMovesFrom(object, before.values, values, options.from);
   let prepared = await prepareValues(ctx, object, values, "update", options);
   if (!prepared.length) return false;
   assertChoiceRequirements(object, prepared, {
@@ -671,6 +672,41 @@ export async function updateRecord(
   return true;
 }
 
+/**
+ * `record.update { from }` (ADR 0437): the write must move the record out of `from`, and the
+ * record must still be there when it is read. Refused as a conflict when it has left it. The
+ * move itself is then made from this read or not at all (records/transitions.ts), so of two
+ * writes that both expect `from`, exactly one moves the record and the other is refused, however
+ * close together they are: what checking a ticket in needs.
+ */
+function assertMovesFrom(
+  object: ObjectDefinition,
+  stored: Record<string, unknown>,
+  values: Record<string, unknown>,
+  from: string,
+): void {
+  const field = object.states?.field ?? object.stages?.field;
+  if (!field) {
+    throw new ValidationError(`${object.label} has no states or stages, so "from" means nothing`, {
+      field: "from",
+    });
+  }
+  const label = object.fields.find((f) => f.name === field)?.label ?? field;
+  const to = values[field];
+  if (to === undefined || to === null || String(to) === from) {
+    throw new ValidationError(`With "from", the write must move ${label} to another value`, {
+      field,
+    });
+  }
+  const current = stored[field] ?? null;
+  if (current === null || String(current) !== from) {
+    throw new ConflictError(
+      `${object.label} is no longer ${from}: its ${label.toLowerCase()} is ${String(current ?? "empty")}. Nothing was changed.`,
+      { reason: "not_in_position", field, from, current },
+    );
+  }
+}
+
 // The seam's write helper (visibility/writes.ts) changes extension records with this code.
 setRecordWriter({ create: createRecord, update: updateRecord });
 
@@ -681,13 +717,27 @@ export const recordUpdate = defineOperation({
     "only extension fields (named `<extension>.<field>`). Pass null to clear a value. Changes " +
     "are recorded in the record's history; fields tracked on the timeline post a system " +
     "activity. Returns the stored record.",
-  input: z.object({ object: objectName, id: recordId, values: valuesSchema }),
+  input: z.object({
+    object: objectName,
+    id: recordId,
+    values: valuesSchema,
+    from: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe(
+        "Only move the record if it is still in this state (or stage id), and move it out of " +
+          "it: for a write two people may make at once, such as checking a ticket in. Refused " +
+          "as a conflict (reason not_in_position or moved_meanwhile) when the record has left it.",
+      ),
+  }),
   output: recordSchema,
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    await updateRecord(ctx, object, input.id, input.values);
+    await updateRecord(ctx, object, input.id, input.values, { from: input.from });
     return ctx.afterCommit(async () => (await loadRecord(ctx, object, input.id)) as RecordOutput);
   },
 });

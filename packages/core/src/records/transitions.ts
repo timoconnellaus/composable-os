@@ -244,13 +244,24 @@ export async function runTransition<P extends Placement>(
   }
 
   // History: close the current row and open one for the position entered, in the write's batch.
+  //
+  // A move is made from a current read or not at all (ADR 0437). The close is queued now, before
+  // the caller queues the record's own write, and closes the open row only while the record still
+  // holds the position this write was judged from. Opening the next row then fails the batch
+  // (one open row per record: core_transition_history_current_idx, migration 0420; errors.ts
+  // answers it as a conflict, `moved_meanwhile`) when another write moved the record in between:
+  // two scanners checking in one ticket, two people moving one deal. Nothing is read for it.
   const history: CompiledQuery[] = [];
   if (moved) {
     if (before !== null) {
-      history.push(
+      const column = object.fields.find((f) => f.name === lifecycle.field)?.column;
+      if (!column) {
+        throw new ValidationError(`${object.label} has no column for ${lifecycle.field}`);
+      }
+      ctx.write(
         CompiledQuery.raw(
-          "UPDATE core_transition_history SET left_at = ? WHERE object_type = ? AND record_id = ? AND left_at IS NULL",
-          [ctx.now, object.name, id],
+          `UPDATE core_transition_history SET left_at = ? WHERE object_type = ? AND record_id = ? AND left_at IS NULL AND EXISTS (SELECT 1 FROM ${object.source} WHERE id = ? AND ${column} IS ?)`,
+          [ctx.now, object.name, id, id, storedPosition(before[lifecycle.field])],
         ),
       );
     }
@@ -279,6 +290,13 @@ export async function runTransition<P extends Placement>(
     left: moved ? placement.from : null,
     field: lifecycle.field,
   };
+}
+
+/** A position value as its column stores it (a select's value, a stage relation's id). */
+function storedPosition(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object" && value && "id" in value) return String((value as { id: unknown }).id);
+  return String(value);
 }
 
 function notPermittedMessage(object: ObjectDefinition, to: Position, by: readonly Mover[]) {
