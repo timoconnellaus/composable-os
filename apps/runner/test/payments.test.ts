@@ -169,7 +169,7 @@ describe("paid only by the provider's verified webhook (criterion 4)", () => {
     expect(tickets).toHaveLength(2);
     expect(tickets.map((t) => t.state)).toEqual(["valid", "valid"]);
     expect(new Set(tickets.map((t) => t.code)).size).toBe(2);
-    expect(tickets.every((t) => t.ticketType === ticket && t.order === order.id)).toBe(true);
+    expect(tickets.every((t) => t.ticketType === ticket && t.orderId === order.id)).toBe(true);
   });
 
   it("refuses an unverified webhook at the gatekeeper", async () => {
