@@ -15,6 +15,7 @@ import { createTypechecker } from "../typecheck.ts";
 import type { Platform } from "./platform.ts";
 
 const SKIPPED_DIRS = ["node_modules", "test", "tests", "dist", ".turbo"];
+const PACK_CLIENT_FOLDERS = ["client", "blocks"];
 
 /**
  * The files of an extension as the release bundles them (apps/runner/scripts/bundle.mjs): its
@@ -25,7 +26,11 @@ export function readExtensionFiles(dir: string, base = dir): Record<string, stri
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!SKIPPED_DIRS.includes(entry.name)) Object.assign(files, readExtensionFiles(path, base));
+      if (SKIPPED_DIRS.includes(entry.name)) continue;
+      // A pack's client/ and blocks/ are client code, never bundled for the host
+      // (PACK_CLIENT_FOLDERS in packages/product/src/packs.ts), so they are not checked as it.
+      if (dir === base && PACK_CLIENT_FOLDERS.includes(entry.name)) continue;
+      Object.assign(files, readExtensionFiles(path, base));
     } else if (/\.(ts|js)$/.test(entry.name) && !/\.(test|config)\.(ts|js)$/.test(entry.name)) {
       files[relative(base, path).split("\\").join("/")] = readFileSync(path, "utf8");
     }
