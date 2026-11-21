@@ -500,6 +500,10 @@
       "sha256": "e7f6a8c1afaec765c414e5ca0012c08781dc4753e65b8761e16b854ab38763e7"
     },
     {
+      "name": "0516_order_tax.sql",
+      "sha256": "adc6007fe320c5d9113b44d0e7c93251a3c7f6464ebd331f23c946807553c6b0"
+    },
+    {
       "name": "0520_publish_requests.sql",
       "sha256": "623bc0c2a2a2f679b2bd3481c7180c294d515365c397a2aec4d3f2ac3c0ad1fc"
     }

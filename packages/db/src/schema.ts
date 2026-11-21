@@ -1447,6 +1447,12 @@ export interface CoreOrderTable {
   refunded: Generated<number>;
   /** Migration 0422: SHA-256 of the confirmation email's token for this one order. */
   email_link_hash: Defaulted<string | null>;
+  /** Migration 0516: the provider's tax on the applied payments (ADR 0479). */
+  tax_amount: Generated<number>;
+  /** Migration 0516: the tax the provider said went back with refunds. */
+  tax_refunded: Generated<number>;
+  /** Migration 0516: the country the latest taxed payment was charged for. */
+  tax_country: Defaulted<string | null>;
 }
 
 export interface CoreOrderLineTable {
@@ -1461,6 +1467,10 @@ export interface CoreOrderLineTable {
   unit_price: number;
   line_total: number;
   created_at: Timestamp;
+  /** Migration 0516: the provider's tax on this line's share of each payment. */
+  tax_amount: Generated<number>;
+  /** Migration 0516: the product tax code it was last charged at. */
+  tax_code: Defaulted<string | null>;
 }
 
 /** A record a paid order line granted (stage 27, ADR 0435, migration 0450). */
@@ -1488,6 +1498,9 @@ export interface CoreOrderPaymentTable {
   /** Migration 0422: a late payment staff honoured, or that was refunded. */
   resolved: Defaulted<"honoured" | "refunded" | null>;
   resolved_at: Defaulted<Timestamp | null>;
+  /** Migration 0516: the provider's tax on this payment, and its country. Null: not taxed. */
+  tax_amount: Defaulted<number | null>;
+  tax_country: Defaulted<string | null>;
 }
 
 /** Migration 0422: a checkout the host opened on the provider's page for an order. */
@@ -1499,6 +1512,8 @@ export interface CoreOrderCheckoutTable {
   currency: string;
   kind: "full" | "deposit" | "balance" | "part";
   created_at: Timestamp;
+  /** Migration 0516: the taxed lines sent to the provider (JSON). Null: not taxed. */
+  tax_lines: Defaulted<string | null>;
 }
 
 /** Migration 0422: a verified payment or refund event the gatekeeper delivered. */
@@ -1532,6 +1547,8 @@ export interface CoreOrderRefundTable {
   event_id: Defaulted<string | null>;
   confirmed_at: Defaulted<Timestamp | null>;
   created_at: Timestamp;
+  /** Migration 0516: the tax this refund gave back, when the provider said. */
+  tax_amount: Defaulted<number | null>;
 }
 
 export interface CrmOrderView {
@@ -1554,6 +1571,11 @@ export interface CrmOrderView {
   refunded_at: Timestamp | null;
   created_at: Timestamp;
   updated_at: Timestamp;
+  tax_amount: number;
+  tax_refunded: number;
+  tax_country: string | null;
+  /** Paid less refunded, less the tax still held. */
+  net: number;
 }
 
 export interface CrmOrderLineView {
@@ -1568,6 +1590,8 @@ export interface CrmOrderLineView {
   unit_price: number;
   line_total: number;
   created_at: Timestamp;
+  tax_amount: number;
+  tax_code: string | null;
 }
 
 export interface CrmStageHistoryView {

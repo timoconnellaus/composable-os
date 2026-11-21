@@ -28,6 +28,11 @@ export interface BuyerOrder {
   deposit: number | null;
   balanceDueAt: string | null;
   expiresAt: string | null;
+  /**
+   * The tax inside what has been paid, as the payment provider calculated it (ADR 0479). Prices
+   * include it. Optional: a host from before tax at checkout does not send it.
+   */
+  taxAmount?: number;
   lines: { id: string; title: string; quantity: number; unitPrice: number; total: number }[];
 }
 

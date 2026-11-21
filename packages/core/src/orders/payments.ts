@@ -13,6 +13,7 @@
 import { ConflictError, ValidationError } from "../errors.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
+import type { PaymentsTaxReport } from "./gateway.ts";
 import { type Charge, changeOrder, chargeFor, loadOrderRow, type OrderRow } from "./orders.ts";
 import { loadMinPartPayment } from "./settings.ts";
 
@@ -30,6 +31,41 @@ export interface VerifiedPayment {
   currency: string;
   /** The provider's reference for the payment itself, kept for a refund. */
   paymentRef?: string | undefined;
+  /** The lines the checkout asked the provider to tax (ADR 0479); null when it asked for none. */
+  sentTax?: SentTaxLine[] | null | undefined;
+  /** The provider's tax on this payment, as it said it. Stored, never recalculated. */
+  tax?: PaymentsTaxReport | undefined;
+}
+
+/** A taxed checkout's line as it was sent (orders/tax.ts CheckoutTaxLine). */
+export interface SentTaxLine {
+  ref: string;
+  amount: number;
+  taxCode: string;
+}
+
+/**
+ * Whether the provider's tax report fits the payment and the checkout it was for: none on a
+ * checkout that asked for none (or zero), one on every taxed checkout, never more than the amount,
+ * and line by line on the lines sent, each at most its share and all summing to the total.
+ */
+export function taxReportFits(
+  amount: number,
+  sent: readonly SentTaxLine[] | null | undefined,
+  tax: PaymentsTaxReport | undefined,
+): boolean {
+  if (!sent) return tax === undefined || tax.amount === 0;
+  if (!tax || tax.amount > amount) return false;
+  const byRef = new Map(sent.map((line) => [line.ref, line]));
+  const seen = new Set<string>();
+  let sum = 0;
+  for (const line of tax.lines) {
+    const asked = byRef.get(line.ref);
+    if (!asked || seen.has(line.ref) || line.amount > asked.amount) return false;
+    seen.add(line.ref);
+    sum += line.amount;
+  }
+  return sum === tax.amount;
 }
 
 export type PaymentResult =
@@ -77,6 +113,8 @@ export async function applyVerifiedPayment(
 
   const row = await loadOrderRow(ctx.db, payment.orderId);
   const currency = payment.currency.toUpperCase();
+  // Only a taxed checkout's figure is kept: one the host asked for, as the provider said it.
+  const taxed = payment.sentTax && payment.tax ? payment.tax : null;
   const record = (outcome: "applied" | "mismatch" | "late") =>
     ctx.write(
       ctx.db.insertInto("core_order_payment").values({
@@ -88,6 +126,7 @@ export async function applyVerifiedPayment(
         outcome,
         payment_ref: payment.paymentRef ?? null,
         received_at: ctx.now,
+        ...(taxed ? { tax_amount: taxed.amount, tax_country: taxed.country } : {}),
       }),
     );
   const tellStaff = async (title: string, body: string, kind: string) => {
@@ -119,7 +158,9 @@ export async function applyVerifiedPayment(
   }
 
   let charge: Charge | null = null;
-  if (currency === row.currency) {
+  // The provider's tax must fit what this checkout asked for (ADR 0479); a figure that does not
+  // is not stored and moves nothing, as an amount that does not match.
+  if (currency === row.currency && taxReportFits(payment.amount, payment.sentTax, payment.tax)) {
     try {
       charge = chargeFor(row, await loadMinPartPayment(ctx.db), payment.amount);
     } catch (error) {
@@ -130,7 +171,7 @@ export async function applyVerifiedPayment(
     record("mismatch");
     await tellStaff(
       "A payment does not match its order",
-      `Order ${row.id} could not be charged ${money(payment.amount, currency)}: it is ` +
+      `Order ${row.id} could not be charged (or the provider's tax did not fit what was asked) ${money(payment.amount, currency)}: it is ` +
         `${row.state}, for ${money(row.total, row.currency)} with ${row.paid} paid. ` +
         "Nothing was changed. Check it with the provider.",
       "payment_mismatch",
@@ -145,11 +186,36 @@ export async function applyVerifiedPayment(
   }
   record("applied");
   const settled = paid === row.total;
+  if (taxed && payment.sentTax) {
+    // Each line's share of the provider's tax, by the line the checkout sent it as.
+    const codes = new Map(payment.sentTax.map((line) => [line.ref, line.taxCode]));
+    for (const line of taxed.lines) {
+      ctx.write(
+        ctx.db
+          .updateTable("core_order_line")
+          .set((eb) => ({
+            tax_amount: eb("tax_amount", "+", line.amount),
+            tax_code: codes.get(line.ref) ?? null,
+          }))
+          .where("id", "=", line.ref)
+          .where("order_id", "=", row.id),
+      );
+    }
+  }
   const next = await changeOrder(
     ctx,
     row,
     settled ? "paid" : "part_paid",
-    { paid, ...(settled ? { paid_at: ctx.now } : {}) },
+    {
+      paid,
+      ...(settled ? { paid_at: ctx.now } : {}),
+      ...(taxed
+        ? {
+            tax_amount: row.tax_amount + taxed.amount,
+            tax_country: taxed.country ?? row.tax_country,
+          }
+        : {}),
+    },
     // The host's move: this function is the only code that says a payment was verified.
     "host",
   );

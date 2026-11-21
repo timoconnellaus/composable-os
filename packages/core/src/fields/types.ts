@@ -241,6 +241,24 @@ export interface SellableDefinition {
   deposit?: { amount: string; balanceDue: string } | undefined;
   /** What a paid line grants: one record of `object` per unit, made by the host. */
   grants?: GrantDefinition | undefined;
+  /** Tax at checkout (ADR 0479): the provider's product tax code, and an event's place. */
+  tax?: TaxDefinition | undefined;
+}
+
+/** The SDK's TaxSpec with registry field names. */
+export interface TaxDefinition {
+  code: string;
+  place?:
+    | {
+        /** A relation of the sellable object; the address fields are on the record it names. */
+        via?: string | undefined;
+        country: string;
+        region?: string | undefined;
+        postcode?: string | undefined;
+        city?: string | undefined;
+        line1?: string | undefined;
+      }
+    | undefined;
 }
 
 /** Where a granted record's field gets its value (the SDK's GrantSource). */

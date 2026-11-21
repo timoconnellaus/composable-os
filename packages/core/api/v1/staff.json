@@ -33407,6 +33407,21 @@
           "createdAt": {
             "type": "string"
           },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -33435,6 +33450,10 @@
                 },
                 "total": {
                   "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
                 }
               },
               "required": [
@@ -33445,7 +33464,8 @@
                 "title",
                 "quantity",
                 "unitPrice",
-                "total"
+                "total",
+                "taxAmount"
               ],
               "additionalProperties": false
             }
@@ -33485,6 +33505,9 @@
           "expiresAt",
           "paidAt",
           "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
           "lines"
         ],
         "additionalProperties": false
@@ -33728,6 +33751,21 @@
           "createdAt": {
             "type": "string"
           },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -33756,6 +33794,10 @@
                 },
                 "total": {
                   "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
                 }
               },
               "required": [
@@ -33766,7 +33808,8 @@
                 "title",
                 "quantity",
                 "unitPrice",
-                "total"
+                "total",
+                "taxAmount"
               ],
               "additionalProperties": false
             }
@@ -33806,6 +33849,9 @@
           "expiresAt",
           "paidAt",
           "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
           "lines"
         ],
         "additionalProperties": false
@@ -33909,6 +33955,21 @@
           "createdAt": {
             "type": "string"
           },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -33937,6 +33998,10 @@
                 },
                 "total": {
                   "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
                 }
               },
               "required": [
@@ -33947,7 +34012,8 @@
                 "title",
                 "quantity",
                 "unitPrice",
-                "total"
+                "total",
+                "taxAmount"
               ],
               "additionalProperties": false
             }
@@ -33987,6 +34053,9 @@
           "expiresAt",
           "paidAt",
           "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
           "lines"
         ],
         "additionalProperties": false
@@ -34082,6 +34151,21 @@
           "createdAt": {
             "type": "string"
           },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -34110,6 +34194,10 @@
                 },
                 "total": {
                   "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
                 }
               },
               "required": [
@@ -34120,7 +34208,8 @@
                 "title",
                 "quantity",
                 "unitPrice",
-                "total"
+                "total",
+                "taxAmount"
               ],
               "additionalProperties": false
             }
@@ -34160,6 +34249,9 @@
           "expiresAt",
           "paidAt",
           "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
           "lines"
         ],
         "additionalProperties": false
@@ -34367,6 +34459,21 @@
                 "createdAt": {
                   "type": "string"
                 },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+                },
+                "taxRefunded": {
+                  "type": "number",
+                  "description": "The tax the provider said went back with refunds"
+                },
+                "taxCountry": {
+                  "description": "The country the latest taxed payment was for",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "personId": {
                   "type": [
                     "string",
@@ -34401,7 +34508,10 @@
                 "balanceDueAt",
                 "expiresAt",
                 "paidAt",
-                "createdAt"
+                "createdAt",
+                "taxAmount",
+                "taxRefunded",
+                "taxCountry"
               ],
               "additionalProperties": false
             }
@@ -34512,6 +34622,21 @@
                 "createdAt": {
                   "type": "string"
                 },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+                },
+                "taxRefunded": {
+                  "type": "number",
+                  "description": "The tax the provider said went back with refunds"
+                },
+                "taxCountry": {
+                  "description": "The country the latest taxed payment was for",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "personId": {
                   "type": [
                     "string",
@@ -34546,7 +34671,10 @@
                 "balanceDueAt",
                 "expiresAt",
                 "paidAt",
-                "createdAt"
+                "createdAt",
+                "taxAmount",
+                "taxRefunded",
+                "taxCountry"
               ],
               "additionalProperties": false
             }
@@ -34684,6 +34812,10 @@
                 },
                 "createdAt": {
                   "type": "string"
+                },
+                "taxed": {
+                  "type": "boolean",
+                  "description": "Whether tax was asked of the provider for this payment"
                 }
               },
               "required": [
@@ -34691,7 +34823,8 @@
                 "ref",
                 "amount",
                 "kind",
-                "createdAt"
+                "createdAt",
+                "taxed"
               ],
               "additionalProperties": false
             }
@@ -34730,6 +34863,19 @@
                 },
                 "receivedAt": {
                   "type": "string"
+                },
+                "taxAmount": {
+                  "description": "The provider's tax on it; null: not taxed",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "taxCountry": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -34740,7 +34886,9 @@
                 "outcome",
                 "paymentRef",
                 "resolved",
-                "receivedAt"
+                "receivedAt",
+                "taxAmount",
+                "taxCountry"
               ],
               "additionalProperties": false
             }
@@ -34785,6 +34933,13 @@
                     "string",
                     "null"
                   ]
+                },
+                "taxAmount": {
+                  "description": "The tax it gave back, when the provider said; null: not said",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -34795,7 +34950,8 @@
                 "reason",
                 "pendingActionId",
                 "createdAt",
-                "confirmedAt"
+                "confirmedAt",
+                "taxAmount"
               ],
               "additionalProperties": false
             }
@@ -35024,6 +35180,21 @@
           "createdAt": {
             "type": "string"
           },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -35052,6 +35223,10 @@
                 },
                 "total": {
                   "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
                 }
               },
               "required": [
@@ -35062,7 +35237,8 @@
                 "title",
                 "quantity",
                 "unitPrice",
-                "total"
+                "total",
+                "taxAmount"
               ],
               "additionalProperties": false
             }
@@ -35102,6 +35278,9 @@
           "expiresAt",
           "paidAt",
           "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
           "lines"
         ],
         "additionalProperties": false
@@ -35118,7 +35297,7 @@
     },
     {
       "name": "order.settings.get",
-      "description": "Get the order settings: the deployment's currency, how long an unpaid order lasts, and the least a buyer may pay towards a balance. Read-only.",
+      "description": "Get the order settings: the deployment's currency, how long an unpaid order lasts, the least a buyer may pay towards a balance, and tax at checkout: whether it is on, and each object for sale that declares a product tax code with the code it is taxed at. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -35152,13 +35331,64 @@
               "type": "string"
             },
             "description": "The sites a buyer may be sent back to after paying (https origins)."
+          },
+          "tax": {
+            "type": "boolean",
+            "description": "Whether the payment provider calculates tax at checkout (Stripe Tax). Off until a human admin turns it on. Prices include tax, so what a buyer pays does not change."
+          },
+          "taxCodes": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "A human admin's product tax code per object, over the one its pack declares."
+          },
+          "taxObjects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "declared": {
+                  "type": "string",
+                  "description": "The code its pack declares"
+                },
+                "code": {
+                  "type": "string",
+                  "description": "The code it is taxed at: an admin's, else the pack's"
+                },
+                "place": {
+                  "type": "boolean",
+                  "description": "Taxed where it takes place (an in-person event)"
+                }
+              },
+              "required": [
+                "object",
+                "label",
+                "declared",
+                "code",
+                "place"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
           "currency",
           "expiryMinutes",
           "minPartPayment",
-          "returnOrigins"
+          "returnOrigins",
+          "tax",
+          "taxCodes",
+          "taxObjects"
         ],
         "additionalProperties": false
       },
@@ -35166,7 +35396,7 @@
     },
     {
       "name": "order.settings.update",
-      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, or the least part payment, or the sites a buyer may come back to after paying. Only what you pass changes. Orders already started keep the currency they were started in. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, or the product tax code of an object for sale. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -35196,6 +35426,23 @@
               "type": "string",
               "maxLength": 200
             }
+          },
+          "tax": {
+            "description": "Turn tax at checkout on or off. On, the provider taxes each line whose object declares a tax code, inside the price, where the org has a tax registration in its account.",
+            "type": "boolean"
+          },
+          "taxCodes": {
+            "description": "Replaces the admin's product tax codes, by object (e.g. ticketing.tickettype → txcd_50010001). Only objects that declare a tax code may be given one; an object left out is taxed at its pack's code.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^txcd_\\d{8}$"
+            }
           }
         }
       },
@@ -35224,6 +35471,20 @@
             },
             "description": "The sites a buyer may be sent back to after paying (https origins)."
           },
+          "tax": {
+            "type": "boolean",
+            "description": "Whether the payment provider calculates tax at checkout (Stripe Tax). Off until a human admin turns it on. Prices include tax, so what a buyer pays does not change."
+          },
+          "taxCodes": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "A human admin's product tax code per object, over the one its pack declares."
+          },
           "previous": {
             "type": "object",
             "properties": {
@@ -35248,13 +35509,29 @@
                   "type": "string"
                 },
                 "description": "The sites a buyer may be sent back to after paying (https origins)."
+              },
+              "tax": {
+                "type": "boolean",
+                "description": "Whether the payment provider calculates tax at checkout (Stripe Tax). Off until a human admin turns it on. Prices include tax, so what a buyer pays does not change."
+              },
+              "taxCodes": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "A human admin's product tax code per object, over the one its pack declares."
               }
             },
             "required": [
               "currency",
               "expiryMinutes",
               "minPartPayment",
-              "returnOrigins"
+              "returnOrigins",
+              "tax",
+              "taxCodes"
             ],
             "additionalProperties": false
           }
@@ -35264,6 +35541,8 @@
           "expiryMinutes",
           "minPartPayment",
           "returnOrigins",
+          "tax",
+          "taxCodes",
           "previous"
         ],
         "additionalProperties": false
@@ -35408,6 +35687,21 @@
           "createdAt": {
             "type": "string"
           },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -35436,6 +35730,10 @@
                 },
                 "total": {
                   "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
                 }
               },
               "required": [
@@ -35446,7 +35744,8 @@
                 "title",
                 "quantity",
                 "unitPrice",
-                "total"
+                "total",
+                "taxAmount"
               ],
               "additionalProperties": false
             }
@@ -35493,6 +35792,9 @@
           "expiresAt",
           "paidAt",
           "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
           "lines",
           "token"
         ],
@@ -35604,6 +35906,21 @@
           "createdAt": {
             "type": "string"
           },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -35632,6 +35949,10 @@
                 },
                 "total": {
                   "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
                 }
               },
               "required": [
@@ -35642,7 +35963,8 @@
                 "title",
                 "quantity",
                 "unitPrice",
-                "total"
+                "total",
+                "taxAmount"
               ],
               "additionalProperties": false
             }
@@ -35682,6 +36004,9 @@
           "expiresAt",
           "paidAt",
           "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
           "lines"
         ],
         "additionalProperties": false

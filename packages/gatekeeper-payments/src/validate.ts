@@ -2,7 +2,14 @@
 // this Worker as an auxiliary worker and cannot transform them), so each input is checked here by
 // hand and copied into a fresh object holding only the known keys.
 
-import type { PaymentsCheckoutInput, PaymentsProviderName, PaymentsRefundInput } from "./types.js";
+import type {
+  PaymentsCheckoutInput,
+  PaymentsCheckoutTax,
+  PaymentsProviderName,
+  PaymentsRefundInput,
+  PaymentsTaxLine,
+  PaymentsTaxPlace,
+} from "./types.js";
 
 export const PROVIDER_NAMES: readonly PaymentsProviderName[] = ["stripe", "fake"];
 
@@ -123,7 +130,84 @@ const CHECKOUT_KEYS = [
   "returnUrl",
   "customerEmail",
   "idempotencyKey",
+  "tax",
 ] as const;
+
+/** A product tax code as Stripe's list has them: `txcd_` and eight digits. */
+export const TAX_CODE = /^txcd_\d{8}$/;
+/** The most lines a taxed checkout may have (an order has at most 50). */
+export const MAX_TAX_LINES = 50;
+const LINE_REF = /^[A-Za-z0-9_-]{1,64}$/;
+
+const COUNTRY = /^[A-Z]{2}$/;
+
+/** An event's address for tax: a country, and the parts of an address that are given. */
+export function parseTaxPlace(value: unknown, name: string): PaymentsTaxPlace {
+  const input = record(value, name);
+  refuseUnknownKeys(input, ["country", "region", "postcode", "city", "line1"]);
+  const place: PaymentsTaxPlace = {
+    country: matching(input.country, `${name}.country`, COUNTRY, "two upper-case letters"),
+  };
+  const part = (key: "region" | "postcode" | "city" | "line1", max: number) => {
+    if (input[key] === undefined) return;
+    place[key] = singleLine(boundedString(input[key], `${name}.${key}`, max), `${name}.${key}`);
+  };
+  part("region", 100);
+  part("postcode", 20);
+  part("city", 100);
+  part("line1", 200);
+  return place;
+}
+
+/** A taxed checkout's lines: known keys only, unique refs, amounts summing to `amount`. */
+export function parseCheckoutTax(value: unknown, amount: number): PaymentsCheckoutTax {
+  const input = record(value, "tax");
+  refuseUnknownKeys(input, ["behavior", "lines"]);
+  if (input.behavior !== "inclusive") {
+    throw new TypeError('tax.behavior must be "inclusive": prices include tax.');
+  }
+  if (!Array.isArray(input.lines) || input.lines.length < 1) {
+    throw new TypeError("tax.lines must be a list of at least one line.");
+  }
+  if (input.lines.length > MAX_TAX_LINES) {
+    throw new TypeError(`tax.lines has at most ${MAX_TAX_LINES} lines.`);
+  }
+  const refs = new Set<string>();
+  const lines: PaymentsTaxLine[] = input.lines.map((raw: unknown, index: number) => {
+    const line = record(raw, `tax.lines[${index}]`);
+    refuseUnknownKeys(line, ["ref", "name", "amount", "taxCode", "place"]);
+    const ref = matching(
+      line.ref,
+      `tax.lines[${index}].ref`,
+      LINE_REF,
+      "1 to 64 characters of [A-Za-z0-9_-]",
+    );
+    if (refs.has(ref)) throw new TypeError(`tax.lines[${index}].ref is on two lines.`);
+    refs.add(ref);
+    return {
+      ...(line.place !== undefined
+        ? { place: parseTaxPlace(line.place, `tax.lines[${index}].place`) }
+        : {}),
+      ref,
+      name: singleLine(
+        boundedString(line.name, `tax.lines[${index}].name`, 200),
+        `tax.lines[${index}].name`,
+      ),
+      amount: assertAmount(line.amount, `tax.lines[${index}].amount`),
+      taxCode: matching(
+        line.taxCode,
+        `tax.lines[${index}].taxCode`,
+        TAX_CODE,
+        "a product tax code: txcd_ and eight digits",
+      ),
+    };
+  });
+  const sum = lines.reduce((total, line) => total + line.amount, 0);
+  if (sum !== amount) {
+    throw new TypeError(`tax.lines sum to ${sum} minor units; the checkout's amount is ${amount}.`);
+  }
+  return { behavior: "inclusive", lines };
+}
 
 export function parseCheckoutInput(value: unknown): PaymentsCheckoutInput {
   const input = record(value, "The checkout input");
@@ -147,6 +231,8 @@ export function parseCheckoutInput(value: unknown): PaymentsCheckoutInput {
       "an email address",
     );
   }
+  // Only when asked for: without it the input is exactly as before tax existed.
+  if (input.tax !== undefined) parsed.tax = parseCheckoutTax(input.tax, parsed.amount);
   return parsed;
 }
 

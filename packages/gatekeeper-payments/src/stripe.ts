@@ -8,11 +8,24 @@
 import { ActionApplyError, ActionOutcomeUnknownError } from "@composable-os/gatekeeper-kit/actions";
 import type { CheckoutInput, PaymentProvider, RefundInput, VerifiedWebhook } from "./provider.js";
 import { verifySignatureHeader } from "./signature.js";
-import type { PaymentsEvent, PaymentsPayment } from "./types.js";
+import type { PaymentsEvent, PaymentsPayment, PaymentsTaxPlace } from "./types.js";
 
 /** Stripe's shortest Checkout Session lifetime is 30 minutes; one more absorbs clock skew. */
 const CHECKOUT_LIFETIME_SECONDS = 31 * 60;
 const MAX_METADATA_VALUE = 500;
+/**
+ * The API version sent on the calls that calculate tax, and only on them: Stripe documents tax
+ * for events (`tax_details[performance_location]`) as needing `2026-09-30.endive` or later
+ * (docs.stripe.com/tax/tax-for-tickets/integration-guide, read 2026-11-22). Every other call keeps
+ * the account's default version, as before.
+ */
+export const STRIPE_TAX_VERSION = "2026-09-30.endive";
+
+/** Where a facet keeps the tax location ids it made, one per address (Stripe asks for reuse). */
+export type TaxLocationCache = {
+  get(key: string): string | undefined;
+  put(key: string, id: string): void;
+};
 
 export type StripeOptions = {
   secretKey: string;
@@ -23,6 +36,8 @@ export type StripeOptions = {
   account: string;
   /** Injected by tests; the global fetch otherwise. */
   fetch?: typeof fetch;
+  /** The facet's own storage for tax location ids; without it, one is made per checkout. */
+  taxLocations?: TaxLocationCache;
 };
 
 type StripeResponse = { status: number; body: Record<string, unknown> };
@@ -52,10 +67,34 @@ export class StripeProvider implements PaymentProvider {
     const expiresAt = Math.floor(Date.now() / 1000) + CHECKOUT_LIFETIME_SECONDS;
     const form = new URLSearchParams();
     form.set("mode", "payment");
-    form.set("line_items[0][price_data][currency]", input.currency.toLowerCase());
-    form.set("line_items[0][price_data][unit_amount]", String(input.amount));
-    form.set("line_items[0][price_data][product_data][name]", input.description);
-    form.set("line_items[0][quantity]", "1");
+    if (input.tax) {
+      // Stripe Tax (ADR 0479): one line per share of the amount, each with its product tax code,
+      // tax-inclusive, and for an in-person event the place it is held (a performance location).
+      // Checkout collects the billing address; `required` makes it always do so.
+      form.set("automatic_tax[enabled]", "true");
+      form.set("billing_address_collection", "required");
+      for (const [i, line] of input.tax.lines.entries()) {
+        const p = `line_items[${i}]`;
+        form.set(`${p}[price_data][currency]`, input.currency.toLowerCase());
+        form.set(`${p}[price_data][unit_amount]`, String(line.amount));
+        form.set(`${p}[price_data][tax_behavior]`, "inclusive");
+        form.set(`${p}[price_data][product_data][name]`, line.name);
+        form.set(`${p}[price_data][product_data][tax_details][tax_code]`, line.taxCode);
+        if (line.place) {
+          form.set(
+            `${p}[price_data][product_data][tax_details][performance_location]`,
+            await this.#taxLocation(line.place),
+          );
+        }
+        form.set(`${p}[price_data][product_data][metadata][cos_line]`, line.ref);
+        form.set(`${p}[quantity]`, "1");
+      }
+    } else {
+      form.set("line_items[0][price_data][currency]", input.currency.toLowerCase());
+      form.set("line_items[0][price_data][unit_amount]", String(input.amount));
+      form.set("line_items[0][price_data][product_data][name]", input.description);
+      form.set("line_items[0][quantity]", "1");
+    }
     form.set("success_url", input.returnUrl);
     form.set("cancel_url", input.returnUrl);
     form.set("client_reference_id", input.orderId);
@@ -63,7 +102,13 @@ export class StripeProvider implements PaymentProvider {
     form.set("payment_intent_data[metadata][order_id]", input.orderId);
     if (input.customerEmail) form.set("customer_email", input.customerEmail);
     form.set("expires_at", String(expiresAt));
-    const { body } = await this.#call("POST", "/v1/checkout/sessions", form, input.idempotencyKey);
+    const { body } = await this.#call(
+      "POST",
+      "/v1/checkout/sessions",
+      form,
+      input.idempotencyKey,
+      input.tax ? STRIPE_TAX_VERSION : undefined,
+    );
     const ref = body.id;
     const url = body.url;
     if (typeof ref !== "string" || typeof url !== "string") {
@@ -130,11 +175,65 @@ export class StripeProvider implements PaymentProvider {
     return verifyStripeWebhook(this.#options.webhookSecret, headers, body, nowSeconds);
   }
 
+  /**
+   * The tax Stripe calculated on each line of a paid, taxed Checkout Session, by the `cos_line`
+   * the checkout gave its product. The session's webhook carries only the total
+   * (`total_details.amount_tax`); the lines are read from the session's line items.
+   */
+  async taxLines(sessionRef: string): Promise<{ ref: string; amount: number }[]> {
+    const { body } = await this.#call(
+      "GET",
+      `/v1/checkout/sessions/${encodeURIComponent(sessionRef)}/line_items?limit=100&expand[]=data.price.product`,
+      undefined,
+      undefined,
+      STRIPE_TAX_VERSION,
+    );
+    const data = Array.isArray(body.data) ? body.data : [];
+    const lines: { ref: string; amount: number }[] = [];
+    for (const item of data) {
+      const row = metadataOf(item);
+      const product = metadataOf(metadataOf(row.price).product);
+      const ref = stringOrNull(metadataOf(product.metadata).cos_line);
+      const amount = nonNegativeInteger(row.amount_tax);
+      if (ref === null || amount === null) {
+        throw new Error("Stripe answered a taxed session's line items without their tax.");
+      }
+      lines.push({ ref, amount });
+    }
+    return lines;
+  }
+
+  /** The tax location (type `performance`) of an event's address, made once and then reused. */
+  async #taxLocation(place: PaymentsTaxPlace): Promise<string> {
+    const key = `taxloc:${JSON.stringify([place.country, place.region ?? "", place.postcode ?? "", place.city ?? "", place.line1 ?? ""])}`;
+    const cached = this.#options.taxLocations?.get(key);
+    if (cached) return cached;
+    const form = new URLSearchParams();
+    form.set("type", "performance");
+    form.set("address[country]", place.country);
+    if (place.region) form.set("address[state]", place.region);
+    if (place.postcode) form.set("address[postal_code]", place.postcode);
+    if (place.city) form.set("address[city]", place.city);
+    if (place.line1) form.set("address[line1]", place.line1);
+    const { body } = await this.#call(
+      "POST",
+      "/v1/tax/locations",
+      form,
+      await idempotencyOf(key),
+      STRIPE_TAX_VERSION,
+    );
+    const id = stringOrNull(body.id);
+    if (id === null) throw new Error("Stripe answered the tax location without an id.");
+    this.#options.taxLocations?.put(key, id);
+    return id;
+  }
+
   async #call(
     method: "GET" | "POST",
     path: string,
     form: URLSearchParams | undefined,
     idempotencyKey: string | undefined,
+    version?: string,
   ): Promise<StripeResponse> {
     const headers: Record<string, string> = {
       authorization: `Bearer ${this.#options.secretKey}`,
@@ -142,6 +241,7 @@ export class StripeProvider implements PaymentProvider {
     };
     if (form) headers["content-type"] = "application/x-www-form-urlencoded";
     if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
+    if (version) headers["stripe-version"] = version;
     if (this.#options.account) headers["stripe-account"] = this.#options.account;
     const doFetch = this.#options.fetch ?? fetch;
     let response: Response;
@@ -188,6 +288,12 @@ function stripeErrorSummary(status: number, body: Record<string, unknown>): stri
   return parts.join(", ");
 }
 
+/** A stable idempotency key for `text`: the hex SHA-256 of it. */
+async function idempotencyOf(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
@@ -231,6 +337,22 @@ export function sessionToPayment(session: Record<string, unknown>, ref: string):
   };
 }
 
+/** A taxed payment whose tax Stripe did not report: answered 500, so Stripe delivers it again. */
+export class StripeTaxReportError extends Error {}
+
+/**
+ * Fills in each line's tax on a taxed payment event, from the session's line items. Throws when
+ * they cannot be read, so the delivery is answered with an error and Stripe retries it.
+ */
+export async function withStripeTaxLines(
+  event: PaymentsEvent,
+  read: (sessionRef: string) => Promise<{ ref: string; amount: number }[]>,
+): Promise<PaymentsEvent> {
+  if (event.kind !== "payment" || !event.tax) return event;
+  const lines = await read(event.checkoutRef);
+  return { ...event, tax: { ...event.tax, lines } };
+}
+
 /** Verifies a Stripe webhook delivery and maps the event it carries. */
 export async function verifyStripeWebhook(
   secret: string,
@@ -249,7 +371,13 @@ export async function verifyStripeWebhook(
   const parsed = metadataOf(event);
   const eventId = stringOrNull(parsed.id);
   if (eventId === null || eventId.length > 255) return { ok: false, reason: "malformed body" };
-  const mapped = mapStripeEvent(parsed, eventId);
+  let mapped: PaymentsEvent | null;
+  try {
+    mapped = mapStripeEvent(parsed, eventId);
+  } catch (error) {
+    if (error instanceof StripeTaxReportError) return { ok: false, reason: "retry", retry: true };
+    throw error;
+  }
   return { ok: true, eventId, events: mapped ? [mapped] : [] };
 }
 
@@ -276,7 +404,24 @@ export function mapStripeEvent(
     if (orderId === null || checkoutRef === null || amount === null || currency === null) {
       return null;
     }
+    // A session opened with automatic tax: Stripe's own figure, `total_details.amount_tax`, and
+    // the buyer's country. Each line's tax is read afterwards (StripeProvider.taxLines).
+    const taxed = metadataOf(object.automatic_tax).enabled === true;
+    const taxAmount = nonNegativeInteger(metadataOf(object.total_details).amount_tax);
+    if (taxed && taxAmount === null) {
+      throw new StripeTaxReportError("A taxed Checkout Session arrived without its tax amount.");
+    }
+    const country = stringOrNull(metadataOf(metadataOf(object.customer_details).address).country);
     return {
+      ...(taxed
+        ? {
+            tax: {
+              amount: taxAmount as number,
+              country: country && /^[A-Z]{2}$/.test(country) ? country : null,
+              lines: [],
+            },
+          }
+        : {}),
       kind: "payment",
       provider: "stripe",
       eventId,

@@ -144,6 +144,8 @@ export default defineExtension({
       sellable: {
         price: "price",
         saleWindow: { from: "onSaleFrom" },
+        // On-demand online courses, no place (ADR 0479): taxed only once an admin turns tax on.
+        tax: { code: "txcd_20060158" },
         grants: {
           object: "enrolment",
           set: { holder: "order.person", course: "item", order: "order", code: "code" },
@@ -190,6 +192,7 @@ export default defineExtension({
       public: { read: ["title", "slug", "summary", "description", "cover", "courses", "price"] },
       sellable: {
         price: "price",
+        tax: { code: "txcd_20060158" },
         grants: {
           object: "enrolment",
           set: { holder: "order.person", bundle: "item", order: "order", code: "code" },
