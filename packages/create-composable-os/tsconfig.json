@@ -4,5 +4,7 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["@cloudflare/workers-types", "@types/node"]
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  // A client repo stands in there; its code compiles only after cos init writes its client.
+  "exclude": ["test/fixtures", "test/.scratch"]
 }

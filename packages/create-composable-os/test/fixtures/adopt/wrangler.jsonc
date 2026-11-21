@@ -1,0 +1,8 @@
+// An Astro site on a Worker with its own D1, shaped like the first client's repository.
+{
+  "name": "movement-site",
+  "main": "./dist/_worker.js/index.js",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "d1_databases": [{ "binding": "DB", "database_name": "movement" }]
+}

@@ -112,6 +112,10 @@
     // Extension code calls operations here (codemode:ops), so the runner applies the same
     // approval floor as cos-app. Keep the two in step. See docs/deploying.md.
     "APPROVAL_FLOOR": "",
+    // The packs this deployment installs ("*": every pack in the release; "": none) and the
+    // sha256 of the org's own extensions in BLOBS, both set by `cos deploy` (stage 24, ADR 0422).
+    "COS_PACKS": "*",
+    "COS_ORG_EXTENSIONS": "",
     // codemode:ai and proposal summaries use the model role registry (ADR 0150), like cos-app:
     // keep these in step with apps/app/wrangler.jsonc. Workers AI needs an `ai` binding, added
     // by `pnpm run deploy` (COS_AI, docs/deploying.md).

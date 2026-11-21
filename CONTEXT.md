@@ -256,7 +256,7 @@ _Avoid_: prompt, rules file
 A unit of customisation written as code against the SDK contract: one `defineExtension` manifest
 and its files (objects, fields, views, automations, tools; `defineObject`, `defineDashboard`,
 `defineAutomation`, `defineTool`). The unit of the contract (ADR 0023). A **shipped extension**
-ships with the platform: today in `extensions/`, and from stage 24 as part of a **pack** (an org's
+ships with the platform as part of a **pack** (`packs/<id>/`, stage 24; an org's
 own extensions in its client repo are shipped extensions of its product). A **runtime extension**
 is written by AI in a deployment, approved there and stored in the extension workspace.
 _Avoid_: package (that means a pnpm workspace package), plugin, app
@@ -879,22 +879,44 @@ _Avoid_: hook, trigger (a trigger starts an automation), plugin
 
 **Pack**
 A shipped extension plus its headless client hooks, versioned and released by the platform, turned
-on per product: Deals, Leads, Ticketing, Content (stage 24, ADR 0401).
+on per product: Deals, Leads, Ticketing, Content (stage 24, ADR 0401). One folder, `packs/<id>/`:
+the extension (`index.ts` and its files), `client/` (headless hooks) and `blocks/` (screens). A
+product lists its packs (`packs` in its `product.ts`); a pack it does not list is not in its
+release.
 _Avoid_: module, plugin (a plugin is an assistant plugin, ADR 0347), app
 
 **Block**
-A screen, or part of one, for a pack, in a web skin or a native skin. Copied into a client repo
-from the registry; the client owns the copy (stage 24, ADR 0401).
+A screen, or part of one, for a pack or the base layer, in a web skin or a native skin: a folder
+with a `block.json` (its pack, skin, operations, files and the blocks it depends on). Shipped,
+MIT, inside the release; copied into a client app with `cos add`, recorded in
+`blocks.lock.json`, and the client's from then on (`cos diff` shows upstream changes). A block
+holds no rules; the block lint refuses one that does (stage 24, ADRs 0401, 0424).
 _Avoid_: component (too general), widget (a widget is a dashboard tile), template
 
 **Client app**
 A company's own code that its customers or staff use, in the company's repository: a web app, a
-mobile app, a TV app. It reaches the host only through the typed client (stage 24).
+mobile app, a TV app. It reaches the host only through the typed client (stage 24): a web app over
+its service binding to the host's `ClientApp` entrypoint, as the signed-in customer or the public
+and never as staff (ADR 0421); a phone over HTTPS.
 _Avoid_: frontend, site (a site is one kind of client app)
 
 **Client repo**
-The repository holding one product's client apps, its own extensions and its product definition.
-Started from the template, not a fork of the platform (stage 24).
+The repository holding one product's client apps, its own extensions (`extensions/`), copied
+blocks and its product definition (`product.ts`, `defineClientProduct`: the platform release the
+host is deployed from, its packs, its apps). Started from the template (`cos create`) or adopted
+in place (`cos init`), never a fork of the platform; it holds no platform code and no path to the
+database (stage 24, ADR 0422).
+
+**Client kit**
+What a release carries for client repos, verified with the rest of the bundle: the template, the
+skills as a client repo reads them, the blocks, the API contract per audience and the list of its
+packs. `cos create`, `init`, `add`, `diff` and `upgrade` read the kit of the release that matches
+the repo's platform version (stage 24, ADR 0422).
+
+**`ClientApp` (the client-app binding)**
+cos-app's entrypoint a company's web app binds to: customer sign-in and the HTTP surface for
+customers and the public only, the caller decided from the customer's verified session cookie,
+never staff (stage 24, ADR 0421).
 
 **Audience**
 Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402). An operation
@@ -1073,4 +1095,4 @@ and a dry-run reconcile, here against an empty local database with the core sche
 same code (`@composable-os/extension-check` for source, `checkEvaluated` in core for the
 manifest), so the same source gives the same issues. `cos ext test <dir>` runs the extension's
 tests and first refuses an extension with a tool or automation that no test names. In the
-repository: `pnpm cos ext check extensions/<id>`.
+repository: `pnpm cos ext check packs/<id>`.

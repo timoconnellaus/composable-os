@@ -1,0 +1,9 @@
+{
+  "name": "web-sign-in",
+  "pack": null,
+  "skin": "web",
+  "operations": [],
+  "files": ["sign-in-form.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label"],
+  "packages": {}
+}

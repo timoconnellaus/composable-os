@@ -121,7 +121,7 @@ jobs:
           version="${{ steps.versions.outputs.from || steps.versions.outputs.to }}"
           extra=()
           if [[ -z "${{ steps.versions.outputs.from }}" && -d release-bundle ]]; then extra+=(--bundle-dir release-bundle); fi
-          node packages/create-composable-os/dist/cli.js --yes --version "$version" --store-update-token --wait "${extra[@]}"
+          node packages/create-composable-os/dist/cli.js install --yes --version "$version" --store-update-token --wait "${extra[@]}"
           host=$(node packages/create-composable-os/dist/cli.js status --json | jq -r .state.hostname)
           echo "url=https://$host" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"

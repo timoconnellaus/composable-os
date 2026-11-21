@@ -74,6 +74,8 @@ export class FakeCloudflare {
   readonly calls: { method: string; path: string }[] = [];
   readonly d1 = new Map<string, { name: string; engine: SqlEngine }>();
   readonly r2 = new Set<string>();
+  /** R2 objects by `<bucket>/<key>` (the object upload API, stage 24). */
+  readonly r2Objects = new Map<string, Uint8Array>();
   readonly kv = new Map<string, string>();
   readonly queues = new Map<
     string,
@@ -189,6 +191,18 @@ export class FakeCloudflare {
     }
     if (!isAssetUpload && auth !== `Bearer ${this.options.token}`) {
       return fail(403, 10000, "Authentication error");
+    }
+    const object = new RegExp(`^/accounts/${this.accountId}/r2/buckets/([^/]+)/objects/(.+)$`).exec(
+      path,
+    );
+    if (object && method === "PUT") {
+      const bucket = object[1] as string;
+      if (!this.r2.has(bucket)) return fail(404, 10006, `no bucket ${bucket}`);
+      this.r2Objects.set(
+        `${bucket}/${decodeURIComponent(object[2] as string)}`,
+        new Uint8Array(await request.arrayBuffer()),
+      );
+      return ok({ key: decodeURIComponent(object[2] as string) });
     }
     let body: unknown;
     let form: FormData | undefined;

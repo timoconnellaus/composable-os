@@ -188,7 +188,7 @@ function UpdatesPage() {
                 key={release.version}
                 release={release}
                 canUpdate={Boolean(s?.canUpdateInApp)}
-                cliCommand={`npx create-composable-os upgrade --version ${release.version}`}
+                cliCommand={`npx @composable-os/cli upgrade --version ${release.version}`}
               />
             ))}
           </CardContent>

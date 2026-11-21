@@ -3,7 +3,7 @@
 //   cos client generate --out <dir> [--product <id>] [--extension <dir>]... [--runtime <module>]
 //
 // The contract is read from the product's own registry: the platform's operations, the tools of
-// the extensions the product names (packs, from `extensions/<id>` in this checkout), and any
+// the extensions the product names (its packs, from `packs/<id>` in this checkout), and any
 // extension directory given with --extension (the org's own). The output, `customer.ts` and
 // `staff.ts`, is committed in the client repo.
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -107,9 +107,9 @@ export async function runClient(argv: string[], io: ClientIo): Promise<number> {
   }
   const root = repoRoot(process.cwd());
   const dirs = [
-    ...product.extensions.map((ext) => {
+    ...product.packs.map((pack) => {
       if (!root) throw new Error("Run cos client generate in a checkout of the repository");
-      return join(root, "extensions", ext);
+      return join(root, "packs", pack);
     }),
     ...parsed.extensions,
   ];

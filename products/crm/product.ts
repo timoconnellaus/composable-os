@@ -11,7 +11,7 @@ export const product = defineProduct({
     database: "crm",
     resourcePrefix: "crm-",
   },
-  extensions: ["deals", "leads", "lifecycle"],
+  packs: ["deals", "leads", "lifecycle"],
   updateRepository: "timoconnellaus/composable-os",
   // Where the hosted CRM is served from is still open (ADR 0400): the value is unchanged.
   billingUrl: "https://app.relationshiposcrm.com/billing",

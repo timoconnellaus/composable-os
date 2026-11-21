@@ -7,9 +7,9 @@
 // To update the files after changing the API on purpose:
 //   pnpm --filter @composable-os/core api-contract
 import { env } from "cloudflare:workers";
-import deals from "@composable-os/extension-deals";
-import leads from "@composable-os/extension-leads";
-import lifecycle from "@composable-os/extension-lifecycle";
+import deals from "@composable-os/pack-deals";
+import leads from "@composable-os/pack-leads";
+import lifecycle from "@composable-os/pack-lifecycle";
 import { toManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";

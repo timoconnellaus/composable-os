@@ -2,7 +2,7 @@
 // with assets, crons and secrets, a runner with Durable Object migrations, an optional gatekeeper,
 // D1/R2/KV resources and core migrations), with tiny module bodies.
 import type { ProductDefinition } from "@composable-os/product";
-import { formatSums, releaseAssetNames, writeBundle } from "../bundle.ts";
+import { clientKitEntry, formatSums, releaseAssetNames, writeBundle } from "../bundle.ts";
 import { assetHash, sha256Hex } from "../hash.ts";
 import {
   MANIFEST_VERSION,
@@ -26,7 +26,7 @@ export const FIXTURE_PRODUCT_DEFINITION: ProductDefinition = {
     database: "demo",
     resourcePrefix: "demo-",
   },
-  extensions: [],
+  packs: [],
   updateRepository: "example/demo",
   billingUrl: "https://demo.example/billing",
   strings: { name: "Demo" },
@@ -77,6 +77,8 @@ export interface FixtureOptions {
   repository?: string;
   /** false: a release older than ADR 0180, with no AI Gateway set-up. */
   aiGateway?: false;
+  /** The client kit (stage 24): path inside `client/` → text. */
+  client?: Record<string, string>;
 }
 
 /** The AI Gateway set-up fixture releases carry (the shape of apps/app/deploy-inputs.json). */
@@ -382,11 +384,14 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
     assets: Object.fromEntries([...assets].map(([hash, bytes]) => [hash, { size: bytes.length }])),
     ...(options.aiGateway === false ? {} : { aiGateway: FIXTURE_AI_GATEWAY }),
   };
+  const client = new Map(Object.entries(options.client ?? {}).map(([p, t]) => [p, enc.encode(t)]));
+  if (client.size) manifest.client = await clientKitEntry(client);
   const { bytes, manifestText } = await writeBundle({
     manifest,
     modules,
     assets,
     migrations: migrationSql,
+    client,
   });
   const digest = await sha256Hex(bytes);
   const names = releaseAssetNames(manifest.product, version);

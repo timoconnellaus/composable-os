@@ -61,7 +61,7 @@ gatekeepers.
  GitHub Release: composable-os-crm-X.Y.Z.tar.gz · composable-os-crm-X.Y.Z.manifest.json · SHA256SUMS · build attestation
                     │ downloaded + verified (sha256, attestation, every file vs manifest)
         ┌───────────┴─────────────┐
- npx create-composable-os / cos upgrade    Settings → Updates (self-updater, optional COS_UPDATE_TOKEN)
+ npx @composable-os/cli install / cos upgrade    Settings → Updates (self-updater, optional COS_UPDATE_TOKEN)
         └───────────┬─────────────┘
           packages/release: Cloudflare REST API (no wrangler) — provision, migrate, stage versions,
           switch all Workers, smoke-check; bookmark + restore for rollback
@@ -164,7 +164,8 @@ Typed access to core tables uses Kysely ([ADR 0014](adr/0014-kysely-for-core-sch
 An **extension** is code against one contract (`packages/sdk`): `defineObject`, `defineView` /
 `defineDashboard`, `defineAutomation`, `defineTool` ([ADR 0005](adr/0005-extensions.md)).
 
-- **Shipped extensions** live in `extensions/` and ship with releases. Deals/Pipelines is the first;
+- **Shipped extensions** are packs: they live in `packs/` and ship with the releases of the products
+  that list them (stage 24). Deals/Pipelines is the first;
   Leads is the second business extension and depends on it. `lifecycle` is shipped but opt-in
   (`composableOs.optional` in its `package.json`): an admin installs it from Settings → Extensions.
 - **Runtime extensions** are written by Claude in-app or via MCP. They are stored in an
@@ -203,8 +204,9 @@ How stage 3a built it ([ADR 0040](adr/0040-extension-runtime-build.md)):
     permissions.
   - **Failures.** Runs are recorded. 3 consecutive failures quarantine an extension. Rollback
     reinstalls an earlier commit.
-- **Shipped extensions** (`extensions/<id>/`; Deals is the first) are bundled as source at build time
-  and installed through the same `extension.install` path at boot.
+- **Shipped extensions** (`packs/<id>/`; Deals is the first) are bundled as source at build time,
+  the packs the product lists and only those, and installed through the same `extension.install`
+  path at boot. A pack's `client/` and `blocks/` are client code and are not bundled.
 - **Leads** ([ADR 0246](adr/0246-leads-as-an-extension-and-assignment-rules-in-core.md)) is built on
   the public contract like Deals. A relation to `deals.deal` refuses the install where Deals is
   missing. Conversion is a tool making several CRM calls, written to be run again. The contract
@@ -774,7 +776,8 @@ packages/
                        real since stage 17 W1, the others are placeholders for later waves)
   release/             release bundles, manifest types, verification, the Cloudflare API deploy
                        engine, preflight and the update procedure (Node and Workers)
-  create-composable-os/ the installer CLI: npx create-composable-os, cos upgrade / rollback / status,
+  create-composable-os/ `cos` (published as @composable-os/cli): the client-repo commands (create, init,
+                       deploy, upgrade, add, diff) and the installer: cos install, upgrade / rollback / status,
                        and cos ext check / test in a checkout
   gatekeeper-interface/ the gatekeeper RPC interface (vendored from cloudflare-os, see UPSTREAMS.md)
   gatekeeper-kit/      gatekeeper building blocks (vendored)
@@ -786,8 +789,11 @@ packages/
 products/
   crm/                 the CRM: its definition (product.ts) and its apps
     apps/control/      hosted SaaS control plane and dispatch Worker (stage 10)  → "crm-control", "crm-dispatch"
-skills/                agent skills for building on the platform (stage 21, ADR 0405)
-extensions/
+skills/                agent skills for building on the platform (stage 21, ADR 0405) and in client repos (stage 24)
+templates/client/      the client repo `cos create` writes (stage 24): apps/web, apps/mobile, product.ts
+blocks/                the platform's blocks (stage 24, MIT): ui-* (web base layer), native-base, sign-in
+packs/                 shipped extensions with their client parts (stage 24): <id>/index.ts and its
+                       files (the extension), client/ (headless hooks), blocks/ (screens)
   deals/               (stage 4) Deals: pipelines, stages, deals, participants (ADR 0026, 0100)
   leads/               (stage 15) Leads: inbox, conversion to deals (ADR 0246)
   lifecycle/           (stage 15) opt-in lifecycle stage on people (ADR 0246)
@@ -946,7 +952,7 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
 - **The typed client:** `@composable-os/client` is the runtime (no DOM, Node or Workers types).
   `cos client generate` (`packages/client-gen`) writes a product's `customer.ts` and `staff.ts`
   from its registry: core operations, its packs' tools and the org's own extensions. A pack may
-  ship a headless entry over it (Deals: `extensions/deals/headless.ts`).
+  ship a headless entry over it (Deals: `packs/deals/client/index.ts`).
 - **Native apps** exchange a sign-in for tokens at `/api/v1/auth/token` and rotate them at
   `/api/v1/auth/refresh` (`core_device_session`). Customer sign-in, `/api/customer-auth/*`, is
   served by cos-app; codes go out through the email connection `customer.settings` names, sent by
@@ -1052,6 +1058,16 @@ platform. A **block** is a screen for a pack in a web skin (Radix or Base UI und
 components) or a native skin (React Native), copied into the client repo from a registry and owned
 there. Blocks hold no rules.
 
+As built (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
+[0424](adr/0424-blocks-as-built.md)): a pack is `packs/<id>/` (the extension, `client/` hooks,
+`blocks/`), published as `@composable-os/pack-<id>`; a product's release has the packs it lists, and
+a deployment installs those `COS_PACKS` names. A block is a folder with a `block.json` (pack,
+skin, operations, files, dependsOn, packages) in `blocks/` or `packs/<id>/blocks/`, MIT, shipped
+in the release's client kit and copied with `cos add`. The web base layer (`blocks/ui-*`) is
+generated from `packages/ui` (Radix underneath); the native base layer is `blocks/native-base`;
+sign-in ships in both skins. `scripts/check-blocks.mjs` (in `pnpm lint`) refuses a block that
+calculates a price, checks a capacity or checks a permission.
+
 | Pack | Built from | Status |
 | --- | --- | --- |
 | Deals | `stages` | exists |
@@ -1069,11 +1085,45 @@ One repository per company, started from a template: `apps/web` (TanStack Start)
 definition. The web app is its own Worker with a service binding to the host. It never opens D1.
 The staff admin and the MCP surface are the host's and are not rebuilt per client.
 
+As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
+[0421](adr/0421-the-client-app-binding-and-customer-sign-in.md)):
+
+- **`cos`** ([ADR 0422](adr/0422-client-repos-and-one-command-as-built.md)) is the one command:
+  `create` (also `npm create composable-os`), `init`, `deploy`, `upgrade`, `add`, `diff`,
+  `client generate`, `ext`, and `install` for a product with no client repo. Everything a client
+  repo takes from the platform (the template, the skills, the blocks, the API contract) comes from
+  the **client kit** inside the verified release its `product.ts` names
+  (`defineClientProduct({ platform: { version, release, repository }, packs, web, mobile })`).
+- **Deploying** (`cos deploy`): `cos ext check` on `extensions/` and a type check of the apps
+  first; then the host from the release, with `COS_PACKS` from the product and the org's own
+  extensions in BLOBS pinned by `COS_ORG_EXTENSIONS` (installed by the runner as shipped, with
+  no approval); then the built web app with its one binding. The host keeps the release's
+  names and strings.
+- **The template** (`templates/client`): `apps/web` (TanStack Start, `src/host.ts` framework-free)
+  and `apps/mobile` (Expo, `--with-mobile`; its `src/host.ts` signs in and keeps a device session).
+- **npm** ([ADR 0423](adr/0423-npm-packages-from-the-release-commit.md)): client, sdk, product,
+  cli, each pack and `create-composable-os`, built from the release commit, dry-run on every
+  release, published only when turned on.
+- **The binding.** The web app binds to cos-app's `ClientApp` entrypoint
+  (`apps/app/src/server/http/bound.ts`). It serves customer sign-in (`/api/customer-auth/*`) and
+  the HTTP surface, through `invoke()`, and nothing else. The caller is the customer whose session
+  cookie the web app forwards, verified by the host, or the public: never staff (no staff session
+  is read, and a bearer token is refused), and never a caller the web app names.
+- **Sign-in on the company's hostname.** The web app forwards the address and the code; the host
+  answers with a host-only customer cookie, which the web app passes through, so the browser keeps
+  it for the web app's hostname. `CUSTOMER_AUTH_URL` is the web app's origin. Staff cookies stay on
+  the host's address. `customerSession` in `@composable-os/client` forwards the customer cookie
+  and no other.
+
 ### Skills
 
 Stage 21; [ADR 0405](adr/0405-skills-ship-with-the-platform.md).
 
-Instructions for agents, in `skills/`: `write-extension` and `add-automations-tools-dashboards`.
+Instructions for agents, in `skills/`: `write-extension` and `add-automations-tools-dashboards`
+(stage 21), and `start-client-app` and `add-block` (stage 24), which are for client repos. A
+release's client kit carries them all as a client repo reads them: a paragraph between
+`<!-- platform-repo -->` markers is swapped for its `<!-- client-repo -->` text (in a client repo
+a gap is reported, not closed). `cos create`, `cos init` and `cos upgrade` write them to `skills/`.
 Each is one `SKILL.md` in four parts (when to use it, the steps, the rules, the check command),
 plain Markdown that points at the SDK and at Deals. `.claude/skills/` links to them and
 `AGENTS.md` points other agents at the folder. `skills/CONTRACT_VERSION` holds the contract
@@ -1111,7 +1161,7 @@ checkout of the repository (`pnpm cos ext ...`); how a client repo gets it is st
 | Platform | Host Workers | Everything, by release only |
 | Shipped extension (pack) | Runner, as `extension:<id>` | What its manifest's permissions grant |
 | Runtime extension | Runner, as `extension:<id>` | The same, after approval as a diff |
-| Client app, server side | The client's Worker | Call operations for the signed-in audience |
+| Client app, server side | The client's Worker | Call operations as the signed-in customer, or the public, over the `ClientApp` binding; never as staff |
 | Client app, on a device | Phone, browser, TV | The same, with the user's session |
 
 No row of this table can loosen identity or approval policy. Only a human admin can.

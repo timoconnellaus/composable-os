@@ -1,0 +1,15 @@
+{
+  "name": "ui-utils",
+  "pack": null,
+  "skin": "web",
+  "operations": [],
+  "files": [
+    "utils.ts",
+    "LICENSE"
+  ],
+  "dependsOn": [],
+  "packages": {
+    "clsx": "2.1.1",
+    "tailwind-merge": "3.7.0"
+  }
+}

@@ -14,6 +14,8 @@ import { runEmbeddingCron } from "./server/ai.ts";
 export { AssistantAgent } from "./server/assistant/agent.ts";
 // One object per agent (ADR 0344), bound as AGENT_JOB.
 export { AgentJob } from "./server/assistant/job.ts";
+// The door a company's web app binds to (stage 24, ADR 0421): customers and the public only.
+export { ClientApp } from "./server/http/bound.ts";
 
 import { type AssistantHttpEnv, handleSocket, SOCKET_PATH } from "./server/assistant/http.ts";
 import { runAgentJobCron } from "./server/assistant/job-cron.ts";

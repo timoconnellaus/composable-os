@@ -124,9 +124,39 @@ connection chosen for customer mail, which a human admin sets with `customer.set
 (`emailConnectionId`). The host sends the codes itself, through that connection, as the system
 user. Until both are set, a code request answers that customer sign-in is not set up.
 
+#### A company's web app on its own hostname (stage 24)
+
+A client repo (`cos create`, `cos init`) deploys its host and its web app with `cos deploy`, which
+does what follows. These are also the steps to wire a web app by hand. The web app is its
+own Worker on the company's hostname (`shop.example.com`); the host keeps its own address, which
+may be a subdomain (`admin.example.com`), and staff sign in there.
+
+1. In the web app's wrangler config, one service binding to the host's app Worker and its
+   `ClientApp` entrypoint, and no D1, R2, KV or secret of its own:
+   ```jsonc
+   "services": [{ "binding": "HOST", "service": "crm-app", "entrypoint": "ClientApp" }]
+   ```
+   The binding serves customer sign-in (`/api/customer-auth/*`) and the HTTP surface
+   (`/api/v1/op/*`, `/api/v1/manifest`) for customers and the public only. It never reads a staff
+   session and refuses a bearer token (ADR 0421).
+2. On the host, set `CUSTOMER_AUTH_URL` to the web app's origin (`https://shop.example.com`).
+   Customer cookies are then for that origin (`__Secure-` and `Secure` on https), and Better Auth
+   refuses a sign-in posted from any other page, the host's own included. `CUSTOMER_AUTH_SECRET`
+   and the customer mail connection are set as in [Customer sign-in](#customer-sign-in).
+3. The web app forwards its sign-in form to `HOST.fetch("https://host/api/customer-auth/...")`
+   with the browser's `Origin` and `cf-connecting-ip`, and passes the `Set-Cookie` it gets back to
+   the browser unchanged: the cookie is host-only, so it is kept for the web app's hostname. Its
+   operation calls go through the typed client with `fetch: (url, init) => env.HOST.fetch(url,
+   init)` and `headers: () => customerSession(request.headers.get("cookie"))` from
+   `@composable-os/client`, which forwards the customer cookie and no other.
+4. Put the [edge rule for public calls](#public-calls-a-rule-at-the-edge) on the web app's zone
+   too, over the web app's own sign-in and API paths: calls over a binding do not pass the host's
+   zone, so the host's rule does not see them. Signed-in customers are still limited per account
+   by the host.
+
 `crm-runner`'s only secrets are the AI ones ([In-app AI](#in-app-ai)). It runs extension code, which calls operations there, so set its
 `APPROVAL_FLOOR` var (in `apps/runner/wrangler.jsonc`) to the same value as crm-app's. Shipped
-extensions (`extensions/`) are installed through `extension.install` on the first request after a
+extensions (packs, `packs/`) are installed through `extension.install` on the first request after a
 deploy. AI (model roles for `codemode:ai`, "Describe a widget", summaries and semantic search) is
 described in [In-app AI](#in-app-ai) below.
 
@@ -157,23 +187,66 @@ Dashboard widget results are cached for 60 seconds in the Workers Cache API (ADR
 API does nothing on `*.workers.dev` hostnames, so put crm-app on a custom domain to get the cache;
 without it every widget view runs its query.
 
-## Option 1 (recommended): `npx create-composable-os`
+## A client repo: `cos create`, `cos init`, `cos deploy` (stage 24)
+
+A company's own product lives in its own repository (ADR 0401, ADR 0422): `npm create
+composable-os <dir>` starts one from the release's template, `cos init` adopts an existing one in
+place. `product.ts` names the platform release the host is deployed from, its packs and its apps.
+
+```sh
+npm create composable-os shop -- --label "Shop" [--with-mobile]
+cd shop && pnpm install
+CLOUDFLARE_API_TOKEN=... pnpm cos deploy     # checks extensions/ and the apps first, then deploys
+pnpm cos add web-sign-in                     # copies a block; pnpm cos diff web-sign-in later
+pnpm cos upgrade                             # moves to a newer platform version; deploys nothing
+```
+
+`cos deploy` installs (or upgrades, or repairs) the host from the release in `product.ts` with the
+product's packs (`COS_PACKS` on the runner) and the org's own extensions, which it checks with
+`cos ext check` first, puts in the BLOBS bucket and pins by hash (`COS_ORG_EXTENSIONS`); the runner
+installs them as shipped extensions, with no approval. A failed check, or a type error in an app,
+stops it before anything in the account changes. Then it uploads the built web app with its one
+binding, `HOST`, to the host's `ClientApp` entrypoint, and refuses a build with a database, bucket
+or KV binding of its own. **What a person does by hand:** the DNS for the web app's custom
+hostname (`web.hostname` in `product.ts`), and the edge rule below on the web app's zone.
+
+The host keeps the release's names (`crm-app`) and its strings ("CRM"): naming the host for the
+company's own product needs names applied at deploy time, which the platform does not do yet.
+
+### Publishing to npm
+
+The packages a client repo installs (`@composable-os/client`, `sdk`, `product`, `cli`, each
+`pack-<id>`, and `create-composable-os`) are built from the release commit by
+`scripts/release/npm-packages.ts`; `scripts/release/check-npm-packages.ts` installs them in a fresh
+folder, runs `cos create` against the release built in the same run, and type-checks and builds
+the result. The release workflow does both and runs `npm publish --dry-run` on every tarball on
+each release. It publishes nothing until a person turns it on:
+
+1. Claim the `@composable-os` organisation on npmjs.com, and the unscoped `create-composable-os`
+   package name.
+2. For each package, add a trusted publisher on npmjs.com: this repository, workflow
+   `release.yml`. Publishing then uses GitHub's OIDC token and npm provenance; no npm token is
+   created or stored.
+3. Set the repository variable `NPM_PUBLISH` to `true` (Settings, Secrets and variables, Actions,
+   Variables). The next release's `npm` job publishes the tarballs its `build` job made.
+
+## Option 1 (recommended): `npx @composable-os/cli install`
 
 Installs a published, verified **release bundle** (ADR 0053, ADR 0160) with the Cloudflare API. No
 checkout, no wrangler, no service of ours.
 
 ```sh
-npx create-composable-os            # the CRM (same as --product crm); or: pnpm dlx create-composable-os
+npx @composable-os/cli install            # the CRM (same as --product crm); or: pnpm dlx @composable-os/cli install
 ```
 
 **The CLI is not published to npm yet.** Run it from a checkout of this repository:
 
 ```sh
 pnpm install && pnpm --filter create-composable-os build
-node packages/create-composable-os/dist/cli.js            # install; add upgrade / rollback / status / uninstall
+node packages/create-composable-os/dist/cli.js install    # or upgrade / rollback / status / uninstall
 ```
 
-Everywhere this guide says `npx create-composable-os`, use `node packages/create-composable-os/dist/cli.js` for now.
+Everywhere this guide says `npx @composable-os/cli install`, use `node packages/create-composable-os/dist/cli.js install` for now.
 The release workflow publishes it only when an `NPM_TOKEN` secret is set (the name `create-crm` was taken on npm).
 
 It asks for, in order:
@@ -212,11 +285,11 @@ a bundle that fails. It creates or finds the D1 database, R2 bucket, KV namespac
 `BETTER_AUTH_URL`, and prints the URL. Open `<url>/setup`: sign up (the first account is the admin)
 and the setup wizard takes it from there.
 
-Re-running `npx create-composable-os` repairs an install: it changes only what is missing or wrong and keeps
+Re-running `npx @composable-os/cli install` repairs an install: it changes only what is missing or wrong and keeps
 secrets. Non-interactive use (CI):
 
 ```sh
-npx create-composable-os --yes --token "$CF_TOKEN" --account "$CF_ACCOUNT_ID" \
+npx @composable-os/cli install --yes --token "$CF_TOKEN" --account "$CF_ACCOUNT_ID" \
   --hostname crm.example.com --identity better-auth --gatekeepers google \
   --secret crm-gatekeeper-google:CLIENT_ID=… --secret crm-gatekeeper-google:CLIENT_SECRET=…
 ```
@@ -253,7 +326,7 @@ Every update runs the same procedure, whether from the app or the CLI (ADR 0164)
 
 **From the app (one click):** store a scoped token as the `COS_UPDATE_TOKEN` secret on crm-app (with
 the permissions above, including the AI Gateway ones, so updates can add the gateway and its
-custom providers): `npx create-composable-os --update-token <token>` (or `--store-update-token` to store
+custom providers): `npx @composable-os/cli install --update-token <token>` (or `--store-update-token` to store
 the install token), or `wrangler secret put COS_UPDATE_TOKEN --name crm-app`. Then Settings → Updates →
 **Preflight** → **Update**. Only human admins can update; every update is audited and listed under
 History.
@@ -261,9 +334,9 @@ History.
 **From your machine (no stored token):** Settings → Updates shows the command:
 
 ```sh
-npx create-composable-os upgrade                  # newest release on the deployment's channel
-npx create-composable-os upgrade --version 1.4.0
-npx create-composable-os status                   # installed version, channel, available releases, history
+npx @composable-os/cli upgrade                  # newest release on the deployment's channel
+npx @composable-os/cli upgrade --version 1.4.0
+npx @composable-os/cli status                   # installed version, channel, available releases, history
 ```
 
 ## Rollback
@@ -271,7 +344,7 @@ npx create-composable-os status                   # installed version, channel, 
 Settings → Updates → History → **Roll back** on the latest successful update, or:
 
 ```sh
-npx create-composable-os rollback
+npx @composable-os/cli rollback
 ```
 
 It redeploys the release the update replaced and restores the database to the bookmark taken just
@@ -379,7 +452,7 @@ BYOK no provider `Authorization` header is sent, so the gateway adds the stored 
 `--ai-gateway off` (no `AI_GATEWAY_ID`) Workers AI is called over the binding directly and other
 providers at their own URL, with a key from a Workers secret.
 
-Permissions: the table in [Option 1](#option-1-recommended-npx-create-composable-os). If the token lacks
+Permissions: the table in [Option 1](#option-1-recommended-npx-composable-oscli-install). If the token lacks
 AI Gateway Edit, the install still finishes: it warns and calls Workers AI directly. If it lacks
 Account API Tokens Edit, the gateway is still created, but you must set `AI_GATEWAY_TOKEN` yourself.
 To do that, create a token with Account → **AI Gateway → Run** and Account → **Workers AI → Read**
@@ -393,8 +466,8 @@ Uninstall deletes the gateway only if the install created it.
 `openai` or `google-ai-studio`, needs only a key:
 
 ```sh
-npx create-composable-os --provider-key deepseek=<DEEPSEEK_API_KEY>   # re-run install; never printed
-npx create-composable-os --provider-key openai=<OPENAI_API_KEY>
+npx @composable-os/cli install --provider-key deepseek=<DEEPSEEK_API_KEY>   # re-run install; never printed
+npx @composable-os/cli install --provider-key openai=<OPENAI_API_KEY>
 ```
 
 This also adds the provider to `AI_GATEWAY_BYOK` on both Workers, so the model registry knows the
@@ -456,12 +529,12 @@ release's Workers do not know the `deepseek` provider and ignore the preset.
 
 1. Create an API key on the DeepSeek platform (https://platform.deepseek.com).
 2. Make sure the install token has **AI Gateway: Edit** and **Secrets Store: Edit** (the table in
-   [Option 1](#option-1-recommended-npx-create-composable-os)).
+   [Option 1](#option-1-recommended-npx-composable-oscli-install)).
 3. Re-run the install against the deployment. A re-run repairs and keeps everything else, and on
    a new account it installs:
 
    ```sh
-   npx create-composable-os --model-roles deepseek-flash --provider-key deepseek="$DEEPSEEK_API_KEY"
+   npx @composable-os/cli install --model-roles deepseek-flash --provider-key deepseek="$DEEPSEEK_API_KEY"
    ```
 
    This does three things:
@@ -474,7 +547,7 @@ release's Workers do not know the `deepseek` provider and ignore the preset.
 4. Open **Settings → AI**. Each role except `embed` shows `deepseek-flash` with source
    "deploy", and DeepSeek shows as ready (BYOK). Press **Test** on a role to check it.
 
-To go back to the shipped defaults, run `npx create-composable-os --model-roles default`. The key stays in
+To go back to the shipped defaults, run `npx @composable-os/cli install --model-roles default`. The key stays in
 the gateway until you delete it there. Settings → AI overrides still win role by role, and
 `--model-roles` also takes a JSON file or inline JSON in the same shape as `AI_MODEL_ROLES`. It is
 checked when you run it, and a model a role cannot use fails the command.
@@ -601,19 +674,19 @@ Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-be
 Stage 8 acceptance criterion 8. **Status: not yet run; needs a human with a Cloudflare account.**
 Save a screenshot of each numbered step to `docs/stages/assets/stage-8-manual/NN-name.png`.
 
-1. Create an API token with the permissions in [Option 1](#option-1-recommended-npx-create-composable-os).
-2. `npx create-composable-os` and answer the prompts (workers.dev, Better Auth). Screenshot the summary. (`01-install.png`)
+1. Create an API token with the permissions in [Option 1](#option-1-recommended-npx-composable-oscli-install).
+2. `npx @composable-os/cli install` and answer the prompts (workers.dev, Better Auth). Screenshot the summary. (`01-install.png`)
 3. Open the printed URL, sign up; the setup wizard opens. Walk every step: organisation (name, logo,
    currency, timezone), AI (check it states the deployment's real models and any missing key), a
    policy preset, skip connect, install sample data. (`02-wizard-*.png`)
 4. Check People and Organisations show the "(sample)" records; remove them from Settings → General. (`03-sample.png`)
 5. Connect Claude over MCP (`docs/mcp.md`) and create a person from Claude. (`04-mcp.png`)
 6. Settings → Updates: version, channel, changelog; switch to beta and back. (`05-updates.png`)
-7. When a newer release exists: Preflight, then `npx create-composable-os upgrade` (no stored token). (`06-upgrade-cli.png`)
-8. Store a token (`npx create-composable-os --update-token …`), then update or roll back from Settings →
+7. When a newer release exists: Preflight, then `npx @composable-os/cli upgrade` (no stored token). (`06-upgrade-cli.png`)
+8. Store a token (`npx @composable-os/cli install --update-token …`), then update or roll back from Settings →
    Updates. (`07-update-app.png`, `08-rollback.png`)
-9. `npx create-composable-os status`. (`09-status.png`)
-10. Tear down: `npx create-composable-os uninstall`.
+9. `npx @composable-os/cli status`. (`09-status.png`)
+10. Tear down: `npx @composable-os/cli uninstall`.
 
 The automated equivalent in a dedicated test account is `.github/workflows/install-test.yml`
 (ADR 0168); create its secrets with `bash scripts/setup-ci-cloudflare.sh`.
@@ -638,7 +711,7 @@ before relying on "no prompts in AI Gateway logs".
    are **not** in the gateway's logs, `cf-aig-gateway-id` is not honoured on `/ai/v1/embeddings`:
    the call still works and logs nothing, but usage for `embed` is missing.
 4. **Usage.** Settings → AI → Usage shows Workers AI calls per role with tokens and cost.
-5. **Upgrade of an older install.** On an install from before ADR 0330, `npx create-composable-os
+5. **Upgrade of an older install.** On an install from before ADR 0330, `npx @composable-os/cli install
    upgrade` (or Settings → Updates) prints `AI_GATEWAY_TOKEN: replaced`; the old token is gone from
    the dashboard afterwards and `AI_GATEWAY_REST` is `true` on crm-app and crm-runner.
 6. **`--ai-gateway off`.** Workers AI still answers (binding), and `AI_GATEWAY_REST` is empty.

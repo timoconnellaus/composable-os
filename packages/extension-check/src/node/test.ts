@@ -59,7 +59,7 @@ export function runVitest(dir: string): Promise<number> {
   if (!existsSync(bin)) {
     throw new ExtCheckError(
       `${dir} has no vitest installed (node_modules/.bin/vitest). Give it a package.json with ` +
-        "vitest in devDependencies, as extensions/deals has, and run pnpm install",
+        "vitest in devDependencies, as packs/deals has, and run pnpm install",
     );
   }
   return new Promise((done, fail) => {

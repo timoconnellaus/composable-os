@@ -1,4 +1,4 @@
-// Entry point for `npx create-composable-os` and `cos`.
+// Entry point for `cos` (stage 24: one command; `npm create composable-os` is src/create.ts).
 import { ghAvailable, ghVerifier } from "./gh.ts";
 import { Redactor, terminalIo } from "./io.ts";
 import { runCli } from "./main.ts";

@@ -24,7 +24,7 @@ async function cos(argv: string[]) {
 
 describe("cos ext", () => {
   it("check passes a shipped extension and exits 0", async () => {
-    const { code, text } = await cos(["ext", "check", join(root, "extensions", "lifecycle")]);
+    const { code, text } = await cos(["ext", "check", join(root, "packs", "lifecycle")]);
     expect(text).toContain("ok: lifecycle");
     expect(code).toBe(0);
   });

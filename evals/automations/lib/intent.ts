@@ -18,7 +18,7 @@ import {
   type IntentQuestionId,
   intentState,
 } from "@composable-os/core/judge-authoring-intent";
-import deals from "@composable-os/extension-deals";
+import deals from "@composable-os/pack-deals";
 import type { AutomationManifest } from "@composable-os/sdk";
 import { toManifest } from "@composable-os/sdk";
 import type { AutomationCase } from "../prompts.ts";

@@ -1,0 +1,10 @@
+{
+  "name": "movement-mobile",
+  "private": true,
+  "main": "expo-router/entry",
+  "dependencies": {
+    "expo": "58.0.26",
+    "expo-secure-store": "15.0.0",
+    "react-native": "0.83.0"
+  }
+}

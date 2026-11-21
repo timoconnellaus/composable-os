@@ -1,100 +1,16 @@
 // The CLI end to end against a fake Cloudflare API and a fake GitHub served over real HTTP: install,
 // idempotent re-run, a tampered bundle refused, upgrade, preflight blocking an incompatible
 // extension, a failing migration rolled back, rollback and status. Output never contains a secret.
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { modelRolesVar } from "@composable-os/core/ai-roles";
 import {
   buildFixtureRelease,
   FIXTURE_PRODUCT_DEFINITION as DEMO,
-  FakeCloudflare,
-  FakeGitHub,
 } from "@composable-os/release/testing";
-import { nodeSqliteEngine } from "@composable-os/release/testing/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Redactor } from "../src/io.ts";
-import { type Env, runCli } from "../src/main.ts";
-
-const TOKEN = "cf-token-0123456789-secret";
-const ACCOUNT = "acc00000000000000000000000000cli";
-
-interface World {
-  cf: FakeCloudflare;
-  github: FakeGitHub;
-  server: Server;
-  env: Env;
-}
+import { ACCOUNT, runIn, startWorld, TOKEN, type World } from "./world.ts";
 
 let world: World;
-
-async function startWorld(): Promise<World> {
-  const cf = new FakeCloudflare({
-    token: TOKEN,
-    accountId: ACCOUNT,
-    sql: nodeSqliteEngine,
-    subdomain: "acme",
-  });
-  let github!: FakeGitHub;
-  const server = createServer(async (req, res) => {
-    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(chunk as Buffer);
-    const body = chunks.length ? Buffer.concat(chunks) : undefined;
-    const url = `${origin}${req.url}`;
-    let response: Response;
-    if (req.url?.startsWith("/client/v4/")) {
-      response = await cf.fetch(
-        new Request(url, {
-          method: req.method,
-          headers: req.headers as Record<string, string>,
-          ...(body && req.method !== "GET" ? { body } : {}),
-        }),
-      );
-    } else if (req.url === "/api/health") {
-      const version = cf.liveBinding("demo-app", "COS_RELEASE_VERSION")?.text;
-      response = Response.json({ status: "ok", version, migrations: { upToDate: true } });
-    } else {
-      response = await github.fetch(url);
-    }
-    res.writeHead(response.status, Object.fromEntries(response.headers));
-    res.end(Buffer.from(await response.arrayBuffer()));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  github = new FakeGitHub("example/demo", origin);
-  return {
-    cf,
-    github,
-    server,
-    env: {
-      COS_CLOUDFLARE_API: `${origin}/client/v4`,
-      COS_GITHUB_API: origin,
-      COS_HEALTH_ORIGIN: origin,
-      CLOUDFLARE_API_TOKEN: TOKEN,
-    },
-  };
-}
-
-async function cli(...argv: string[]) {
-  const lines: string[] = [];
-  const redactor = new Redactor();
-  const code = await runCli(argv, {
-    io: {
-      interactive: false,
-      out: (l) => lines.push(redactor.clean(l)),
-      err: (l) => lines.push(redactor.clean(l)),
-      ask: async () => {
-        throw new Error("no prompts in tests");
-      },
-    },
-    redactor,
-    products: { all: { [DEMO.id]: DEMO }, default: DEMO.id },
-    env: world.env,
-    ghVerifier: null,
-    smokeDelayMs: 0,
-  });
-  return { code, output: lines.join("\n") };
-}
+const cli = (...argv: string[]) => runIn(world, ...argv);
 
 async function sql(query: string) {
   const db = [...world.cf.d1.values()].find((d) => d.name === "demo");
@@ -112,7 +28,12 @@ afterEach(() => {
 describe("create-composable-os install", () => {
   it("installs a verified release and prints the URL", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const { code, output } = await cli("--yes", "--update-token", "update-token-abcdef123");
+    const { code, output } = await cli(
+      "install",
+      "--yes",
+      "--update-token",
+      "update-token-abcdef123",
+    );
     expect(code, output).toBe(0);
     expect(output).toContain("https://demo-app.acme.workers.dev");
     expect([...world.cf.scripts.keys()].sort()).toEqual(["demo-app", "demo-runner"]);
@@ -150,17 +71,17 @@ describe("create-composable-os install", () => {
 
   it("--product names the product to install, and an unknown one is refused before anything is read", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const unknown = await cli("--yes", "--product", "nope");
+    const unknown = await cli("install", "--yes", "--product", "nope");
     expect(unknown.code).toBe(1);
     expect(unknown.output).toContain("Unknown product nope");
     expect(world.cf.scripts.size).toBe(0);
-    const named = await cli("--yes", "--product", DEMO.id);
+    const named = await cli("install", "--yes", "--product", DEMO.id);
     expect(named.code, named.output).toBe(0);
   });
 
   it("--ai off installs without Workers AI and Vectorize, and re-runs keep it off", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const first = await cli("--yes", "--ai", "off", "--ai-gateway", "demo-gw");
+    const first = await cli("install", "--yes", "--ai", "off", "--ai-gateway", "demo-gw");
     expect(first.code, first.output).toBe(0);
     expect(first.output).toContain("In-app AI is off");
     expect(world.cf.vectorize.size).toBe(0);
@@ -173,7 +94,7 @@ describe("create-composable-os install", () => {
     expect(world.cf.gateways.size).toBe(0);
     expect(state.vars["demo-app"]?.AI_GATEWAY_ID).toBeUndefined();
 
-    const again = await cli("--yes");
+    const again = await cli("install", "--yes");
     expect(again.code, again.output).toBe(0);
     expect(world.cf.vectorize.size).toBe(0);
     const status = await cli("status");
@@ -181,7 +102,7 @@ describe("create-composable-os install", () => {
 
     // Turned back on: the index is created and both bindings come back.
     world.env = { ...world.env, COS_AI: "on", COS_AI_ADMIN_TOKEN: "ai-admin-token-secret-1" };
-    const on = await cli("--yes");
+    const on = await cli("install", "--yes");
     expect(on.code, on.output).toBe(0);
     expect(world.cf.vectorize.has("demo-records")).toBe(true);
     expect(world.cf.liveBinding("demo-runner", "AI")).toEqual({ type: "ai", name: "AI" });
@@ -196,7 +117,7 @@ describe("create-composable-os install", () => {
 
   it("is idempotent: a re-run creates nothing new and keeps secrets", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    expect((await cli("--yes")).code).toBe(0);
+    expect((await cli("install", "--yes")).code).toBe(0);
     const secret = world.cf.scripts.get("demo-app")?.secrets.get("BETTER_AUTH_SECRET");
     const creates = () =>
       world.cf.calls.filter(
@@ -205,7 +126,7 @@ describe("create-composable-os install", () => {
           /\/(d1\/database|r2\/buckets|storage\/kv\/namespaces)$/.test(c.path),
       ).length;
     const before = creates();
-    const { code, output } = await cli("--yes");
+    const { code, output } = await cli("install", "--yes");
     expect(code, output).toBe(0);
     expect(output).toContain("re-running it to repair");
     expect(creates()).toBe(before);
@@ -217,7 +138,7 @@ describe("create-composable-os install", () => {
     const release = await buildFixtureRelease({ version: "1.0.0" });
     const evil = await buildFixtureRelease({ version: "1.0.0", gatekeeperRevision: 99 });
     await world.github.publish(release, { tamper: { bytes: evil.bundle, rewriteSums: true } });
-    const { code, output } = await cli("--yes");
+    const { code, output } = await cli("install", "--yes");
     expect(code).toBe(1);
     expect(output).toMatch(/no build attestation|no valid build attestation/);
     expect(world.cf.scripts.size).toBe(0);
@@ -225,10 +146,11 @@ describe("create-composable-os install", () => {
 
   it("installs gatekeepers with their secrets and binds them to the runner", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const missing = await cli("--yes", "--gatekeepers", "test");
+    const missing = await cli("install", "--yes", "--gatekeepers", "test");
     expect(missing.code).toBe(1);
     expect(missing.output).toContain("--secret demo-gatekeeper-test:CLIENT_SECRET");
     const { code, output } = await cli(
+      "install",
       "--yes",
       "--gatekeepers",
       "test",
@@ -280,7 +202,7 @@ const denyAiGateway = (_method: string, path: string) =>
 describe("create-composable-os install: AI Gateway", () => {
   it("creates the gateway, the custom provider and the gateway token, and wires them", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const { code, output } = await cli("--yes");
+    const { code, output } = await cli("install", "--yes");
     expect(code, output).toBe(0);
     expect(world.cf.gateways.get("demo")).toMatchObject({
       id: "demo",
@@ -322,12 +244,12 @@ describe("create-composable-os install: AI Gateway", () => {
 
   it("repair replaces a token generated before ADR 0330 and turns on REST", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    expect((await cli("--yes")).code).toBe(0);
+    expect((await cli("install", "--yes")).code).toBe(0);
     await makePreRestInstall();
     const oldId = [...world.cf.tokens.keys()][0] as string;
     expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_REST")?.text).toBe("");
 
-    const { code, output } = await cli("--yes");
+    const { code, output } = await cli("install", "--yes");
     expect(code, output).toBe(0);
     expect(output).toContain("AI_GATEWAY_TOKEN: replaced");
     // The old token is deleted after the deploy; the new one has both permissions.
@@ -349,10 +271,10 @@ describe("create-composable-os install: AI Gateway", () => {
 
   it("re-runs reuse everything: no second gateway, provider or token", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    expect((await cli("--yes")).code).toBe(0);
+    expect((await cli("install", "--yes")).code).toBe(0);
     const token = world.cf.scripts.get("demo-app")?.secrets.get("AI_GATEWAY_TOKEN");
     const before = world.cf.calls.length;
-    const { code, output } = await cli("--yes");
+    const { code, output } = await cli("install", "--yes");
     expect(code, output).toBe(0);
     expect(output).toContain("AI Gateway demo: exists");
     expect(output).toContain("custom provider custom-example-llm: exists");
@@ -376,7 +298,7 @@ describe("create-composable-os install: AI Gateway", () => {
       cache_ttl: 60,
     });
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const { code, output } = await cli("--yes");
+    const { code, output } = await cli("install", "--yes");
     expect(code, output).toBe(0);
     expect(output).toContain("turned on collect_logs and authentication");
     expect(world.cf.gateways.get("demo")).toMatchObject({
@@ -391,7 +313,7 @@ describe("create-composable-os install: AI Gateway", () => {
   it("--provider-key stores the key as BYOK in the gateway and never prints it", async () => {
     const KEY = "example-key-0123456789abcdef";
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const { code, output } = await cli("--yes", "--provider-key", `example-llm=${KEY}`);
+    const { code, output } = await cli("install", "--yes", "--provider-key", `example-llm=${KEY}`);
     expect(code, output).toBe(0);
     expect(world.cf.providerConfigs.get("demo")).toEqual([
       expect.objectContaining({
@@ -412,7 +334,12 @@ describe("create-composable-os install: AI Gateway", () => {
     expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_BYOK")?.text).toBe("");
 
     // Re-run with a new key: replaced, not duplicated.
-    const again = await cli("--yes", "--provider-key", "example-llm=second-key-abcdef0123456");
+    const again = await cli(
+      "install",
+      "--yes",
+      "--provider-key",
+      "example-llm=second-key-abcdef0123456",
+    );
     expect(again.code, again.output).toBe(0);
     expect(world.cf.providerConfigs.get("demo")?.map((c) => c.secret)).toEqual([
       "second-key-abcdef0123456",
@@ -424,6 +351,7 @@ describe("create-composable-os install: AI Gateway", () => {
     const KEY = "sk-deepseek-0123456789abcdef";
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
     const { code, output } = await cli(
+      "install",
       "--yes",
       "--model-roles",
       "deepseek-flash",
@@ -448,7 +376,7 @@ describe("create-composable-os install: AI Gateway", () => {
     expect(state.vars["demo-runner"]).toMatchObject({ AI_MODEL_ROLES: preset });
 
     // A plain re-run and an upgrade keep the choice.
-    expect((await cli("--yes")).code).toBe(0);
+    expect((await cli("install", "--yes")).code).toBe(0);
     await world.github.publish(await buildFixtureRelease({ version: "1.1.0" }));
     const upgraded = await cli("upgrade", "--yes");
     expect(upgraded.code, upgraded.output).toBe(0);
@@ -458,17 +386,18 @@ describe("create-composable-os install: AI Gateway", () => {
     }
 
     // `default` goes back to the shipped (Workers AI) roles.
-    const reset = await cli("--yes", "--model-roles", "default", "--version", "1.1.0");
+    const reset = await cli("install", "--yes", "--model-roles", "default", "--version", "1.1.0");
     expect(reset.code, reset.output).toBe(0);
     expect(world.cf.liveBinding("demo-app", "AI_MODEL_ROLES")?.text).toBe("");
   });
 
   it("--model-roles refuses an unknown preset or a model the role cannot use", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const unknown = await cli("--yes", "--model-roles", "deepseek-pro");
+    const unknown = await cli("install", "--yes", "--model-roles", "deepseek-pro");
     expect(unknown.code).not.toBe(0);
     expect(unknown.output).toContain('no preset or file "deepseek-pro"');
     const bad = await cli(
+      "install",
       "--yes",
       "--model-roles",
       '{"embed":{"provider":"deepseek","model":"deepseek-flash"}}',
@@ -481,7 +410,7 @@ describe("create-composable-os install: AI Gateway", () => {
   it("without AI Gateway permissions, installs anyway and says so", async () => {
     world.cf.failOn = denyAiGateway;
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const { code, output } = await cli("--yes");
+    const { code, output } = await cli("install", "--yes");
     expect(code, output).toBe(0);
     expect(output).toContain("needs AI Gateway Edit");
     expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_ID")?.text).toBe("");
@@ -490,14 +419,14 @@ describe("create-composable-os install: AI Gateway", () => {
 
   it("--ai-gateway off installs without a gateway; uninstall removes what install created", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    const off = await cli("--yes", "--ai-gateway", "off");
+    const off = await cli("install", "--yes", "--ai-gateway", "off");
     expect(off.code, off.output).toBe(0);
     expect(world.cf.gateways.size).toBe(0);
     expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_ID")?.text).toBe("");
     // Workers AI stays on the binding, unchanged (ADR 0330).
     expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_REST")?.text).toBe("");
 
-    const on = await cli("--yes", "--ai-gateway", "demo");
+    const on = await cli("install", "--yes", "--ai-gateway", "demo");
     expect(on.code, on.output).toBe(0);
     expect(world.cf.gateways.has("demo")).toBe(true);
     expect(world.cf.liveBinding("demo-runner", "AI_GATEWAY_REST")?.text).toBe("true");
@@ -511,9 +440,9 @@ describe("create-composable-os install: AI Gateway", () => {
 describe("create-composable-os install: --ai-gateway off after on", () => {
   it("puts Workers AI back on the binding", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    expect((await cli("--yes")).code).toBe(0);
+    expect((await cli("install", "--yes")).code).toBe(0);
     expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_REST")?.text).toBe("true");
-    const off = await cli("--yes", "--ai-gateway", "off");
+    const off = await cli("install", "--yes", "--ai-gateway", "off");
     expect(off.code, off.output).toBe(0);
     for (const worker of ["demo-app", "demo-runner"]) {
       expect(world.cf.liveBinding(worker, "AI_GATEWAY_ID")?.text).toBe("");
@@ -525,7 +454,7 @@ describe("create-composable-os install: --ai-gateway off after on", () => {
 describe("cos upgrade, rollback and status", () => {
   async function installed() {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
-    expect((await cli("--yes")).code).toBe(0);
+    expect((await cli("install", "--yes")).code).toBe(0);
     await sql("INSERT INTO core_person (id, name) VALUES ('per_1', 'Ada')");
   }
 
@@ -564,7 +493,7 @@ describe("cos upgrade, rollback and status", () => {
 
   it("an upgrade from a release without AI Gateway creates the gateway", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0", aiGateway: false }));
-    expect((await cli("--yes")).code).toBe(0);
+    expect((await cli("install", "--yes")).code).toBe(0);
     expect(world.cf.gateways.size).toBe(0);
     await world.github.publish(await buildFixtureRelease({ version: "1.1.0" }));
     const { code, output } = await cli("upgrade", "--yes");

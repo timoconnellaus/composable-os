@@ -1,0 +1,12 @@
+// This product: what the host is deployed from, which packs are on, and where the apps are.
+// `cos deploy` reads it; `cos upgrade` moves `platform.version`. See AGENTS.md.
+import { defineClientProduct } from "@composable-os/product";
+
+export const product = defineClientProduct({
+  id: "{{id}}",
+  label: "{{label}}",
+  platform: { version: "{{version}}", release: "{{release}}", repository: "{{repository}}" },
+  // The release's packs that are on: for example "deals". Empty is base records only.
+  packs: [],
+  web: { dir: "apps/web", worker: "{{id}}-web" },
+});

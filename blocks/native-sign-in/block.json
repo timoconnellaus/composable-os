@@ -1,0 +1,9 @@
+{
+  "name": "native-sign-in",
+  "pack": null,
+  "skin": "native",
+  "operations": [],
+  "files": ["sign-in-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {}
+}

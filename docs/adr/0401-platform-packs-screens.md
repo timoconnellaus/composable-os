@@ -61,3 +61,26 @@ written per client.
   built.
 - Left for later: preview deployments per branch, a TV app in the template, any way to change
   screens without code.
+
+## As built (stage 24, steps 1 and 2 and the sign-in part of step 5, 2026-11-21)
+- Packs live in `packs/<id>/` (the extension, `client/`, `blocks/`) as `@composable-os/pack-<id>`;
+  a product lists its packs, and only those are in its release:
+  [ADR 0420](0420-packs-as-packages-as-built.md).
+- The web app's service binding is to cos-app's `ClientApp` entrypoint, which serves customer
+  sign-in and the HTTP surface for customers and the public only, reads only the customer's
+  verified session cookie, and never a staff session or a token. Customers sign in on the web
+  app's hostname; the host's cookie is passed through, host-only, and `CUSTOMER_AUTH_URL` names the
+  web app: [ADR 0421](0421-the-client-app-binding-and-customer-sign-in.md).
+
+## As built (stage 24, steps 3 to 10, 2026-11-21)
+- `cos` is the one command; a client repo's `product.ts` names a platform release, its packs and
+  its apps; the release carries the client kit (template, skills, blocks, contract); packs are
+  chosen at deploy and the org's own extensions are installed by deploy as shipped:
+  [ADR 0422](0422-client-repos-and-one-command-as-built.md).
+- The npm packages are built from the release commit and published only when turned on:
+  [ADR 0423](0423-npm-packages-from-the-release-commit.md).
+- Blocks, the base layers (Radix under the web layer) and the block lint:
+  [ADR 0424](0424-blocks-as-built.md).
+- Changed from the decision above: "A product definition naming the packs and platform version"
+  holds; the host keeps its release's names and strings, because they are built into the
+  verified release. Naming it for the client's product is platform work for later (ADR 0422).

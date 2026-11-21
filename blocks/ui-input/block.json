@@ -1,0 +1,14 @@
+{
+  "name": "ui-input",
+  "pack": null,
+  "skin": "web",
+  "operations": [],
+  "files": [
+    "input.tsx",
+    "LICENSE"
+  ],
+  "dependsOn": [
+    "ui-utils"
+  ],
+  "packages": {}
+}

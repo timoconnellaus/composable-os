@@ -10,7 +10,7 @@ import { untested } from "../src/node/test.ts";
 import expected from "./fixtures/expected.json" with { type: "json" };
 
 const fixture = (name: string) => join(import.meta.dirname, "fixtures", name);
-const shipped = (name: string) => join(import.meta.dirname, "..", "..", "..", "extensions", name);
+const shipped = (name: string) => join(import.meta.dirname, "..", "..", "..", "packs", name);
 
 function io(): ExtIo & { lines: string[]; errors: string[] } {
   const lines: string[] = [];

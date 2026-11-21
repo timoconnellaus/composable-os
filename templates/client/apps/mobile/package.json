@@ -1,0 +1,23 @@
+{
+  "name": "@composable-os/template-mobile",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The client template's mobile app (stage 24): Expo, signing customers in with a code by email and calling the host over HTTPS with the same typed client as the web app. `cos create --with-mobile` copies it into a client repo.",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@composable-os/client": "workspace:*",
+    "expo": "58.0.26",
+    "expo-constants": "58.0.16",
+    "expo-secure-store": "58.0.3",
+    "react": "19.3.1",
+    "react-native": "0.88.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "typescript": "6.0.3"
+  }
+}
