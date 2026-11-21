@@ -1,6 +1,6 @@
 ---
 name: write-extension
-description: Write a new Composable OS extension from a request, the way Deals is written - choosing an id, objects, fields and formulas, relations to base records and other extensions' objects, permissions, indexes, seeds, views, record tabs and panels, navigation, settings and behaviours (stages). Use when asked for a new extension, a new kind of record, or new fields on people, organisations or another extension's objects. For tools, automations and dashboards, continue with add-automations-tools-dashboards.
+description: Write a new Composable OS extension from a request, the way Deals is written - choosing an id, objects, fields and formulas, relations to base records and other extensions' objects, permissions, indexes, seeds, views, record tabs and panels, navigation, settings and behaviours (stages, states). Use when asked for a new extension, a new kind of record, or new fields on people, organisations or another extension's objects. For tools, automations and dashboards, continue with add-automations-tools-dashboards.
 ---
 
 # Write an extension
@@ -82,6 +82,16 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `StagesSpec` in `contract.ts`, the README's "Object behaviour", and Deals: `objects.stage` and
   `objects.deal.stages`. A smaller rule on one choice is `requires` on a select option
   (Leads: `status`).
+- **`states`** on an object: a fixed state machine, for a lifecycle whose states you set in code
+  (a request is submitted, approved or rejected) where `stages` is for ones admins edit. Declare
+  a `select` field whose options are the states, then
+  `states: { field, initial, moves: [{ from, to, by, requires?, final? }] }`. `by` lists who may
+  make each move: `staff` (people, MCP clients, automations and extension code, yours included),
+  `customer`, or `host` (only the platform; your tools cannot make it). The host refuses any
+  move you did not declare, records state history (`rec_state_history`) and posts moves on the
+  timeline when the field is tracked. An object has `stages` or `states`, not both. See
+  `StatesSpec` in `states.ts` and the README's "Object behaviour". Do not guard a status field
+  in a tool instead: a rule in a tool does not hold for the UI, MCP or an import.
 
 ## The rules
 
