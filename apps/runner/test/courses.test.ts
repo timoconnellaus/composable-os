@@ -574,9 +574,26 @@ describe("progress and session lessons (criteria 8 and 9)", () => {
       staff(admin),
     );
     const me = as(student.principal);
+    // Nothing of the request chooses what is assigned or to whom: a tool's input has no such
+    // fields (unknown keys are dropped), and the automation reads the committed progress row and
+    // the course's published version (ADR 0478).
+    const someoneElse = await createCustomer("someone-else");
+    const otherProgram = await create("programs.program", {
+      title: "Not in this course",
+      kind: "course",
+      layout: { weeks: [{ sessions: [] }] },
+    });
+    await publish("programs.program", otherProgram);
     const first = await run<{ state: string }>(
       "x.courses.progress",
-      { courseId, lessonKey: "wrists", position: 42 },
+      {
+        courseId,
+        lessonKey: "wrists",
+        position: 42,
+        personId: someoneElse.principal.personId,
+        holder: someoneElse.principal.personId,
+        programId: otherProgram,
+      },
       me,
     );
     expect(first.state).toBe("started");
@@ -613,6 +630,45 @@ describe("progress and session lessons (criteria 8 and 9)", () => {
       me,
     );
     expect(logged.id).toBeTruthy();
+
+    // Only the course's program, only for the student who wrote the progress.
+    const assignments = async (person: string) =>
+      (
+        await run<{ items: { values: Record<string, unknown> }[] }>(
+          "record.list",
+          { object: "programs.assignment", filter: { field: "person", op: "eq", value: person } },
+          staff(admin),
+        )
+      ).items.map((a) => a.values.program);
+    expect(await assignments(student.principal.personId)).toEqual([programId]);
+    expect(await assignments(someoneElse.principal.personId)).toEqual([]);
+
+    // The audit log names both: Courses' automation calling Programs' tool, and Programs' own
+    // writes under Programs, in the same cascade (one root event, one level deeper).
+    const audit = async (operation: string, user?: string) =>
+      (
+        await env.DB.prepare(
+          `SELECT actor, user_id, origin FROM core_audit WHERE operation = ?${user ? " AND user_id = ?" : ""} ORDER BY at DESC LIMIT 5`,
+        )
+          .bind(...(user ? [operation, user] : [operation]))
+          .all<{ actor: string; user_id: string; origin: string }>()
+      ).results.map((r) => ({ ...r, origin: JSON.parse(r.origin) as Record<string, unknown> }));
+    const users = await env.DB.prepare(
+      "SELECT id, user_id FROM core_extensions WHERE id IN ('courses', 'programs')",
+    ).all<{ id: string; user_id: string }>();
+    const userOf = Object.fromEntries(users.results.map((r) => [r.id, r.user_id]));
+    const [call] = await audit("x.programs.assign", userOf.courses);
+    expect(call).toMatchObject({
+      actor: "automation",
+      origin: { surface: "automation", automationId: "courses.assignSessions", extensionId: "courses" },
+    });
+    expect(Number(call?.origin.depth)).toBeGreaterThanOrEqual(1);
+    const [made] = await audit("record.create", userOf.programs);
+    expect(made).toMatchObject({
+      actor: "extension",
+      origin: { surface: "extension", extensionId: "programs", rootEventId: call?.origin.rootEventId },
+    });
+    expect(made?.origin.depth).toBe(call?.origin.depth);
 
     for (const key of ["welcome", "read", "day-1"]) {
       await run("x.courses.progress", { courseId, lessonKey: key, state: "done" }, me);
@@ -667,6 +723,35 @@ describe("progress and session lessons (criteria 8 and 9)", () => {
       staff(admin),
     );
     expect(assignments.items).toEqual([]);
+  });
+});
+
+describe("one extension calling another's tool (ADR 0478)", () => {
+  it("is refused unless the caller declares it, and runs under the called extension's own permissions", async () => {
+    const row = await env.DB.prepare("SELECT user_id FROM core_extensions WHERE id = 'courses'").first<{
+      user_id: string;
+    }>();
+    const user = await env.DB.prepare("SELECT id, email, name FROM core_user WHERE id = ?")
+      .bind(row?.user_id)
+      .first<{ id: string; email: string; name: string }>();
+    const person = await createCustomer("assigned-by-hand");
+    const asCourses = (operations: string[]) =>
+      ({
+        actor: "extension",
+        user: { ...(user as { id: string; email: string; name: string }), role: "member" },
+        origin: { surface: "extension", extensionId: "courses" },
+        db,
+        extensionHost: shippedHost,
+        extension: { id: "courses", permissions: { read: [], write: [], operations, modules: ["ops"] } },
+      }) as unknown as InvocationContext;
+    const input = { programId, personId: person.principal.personId, startDate: "2027-01-04" };
+    // Not declared: refused before anything runs.
+    const refused = await refusal(run("x.programs.assign", input, asCourses([])));
+    expect(refused).toMatchObject({ code: "forbidden" });
+    expect(refused.message).toContain("x.programs.assign is not in permissions.operations");
+    // Declared: it runs, and Programs' tool writes Programs' records as Programs.
+    const done = await run<{ assignmentId: string }>("x.programs.assign", input, asCourses(["x.programs.assign"]));
+    expect(done.assignmentId).toBeTruthy();
   });
 });
 

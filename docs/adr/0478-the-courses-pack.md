@@ -82,9 +82,42 @@ token has to be asked for again before it expires anyway, which the hook does, n
   a course page and `myCourses` must say "open" or "buy" without working it out.
 - **A tool's own operation calls start automations**, as the same write from the admin does (the
   runner gives them its events queue), and **a tool or an automation may call another
-  extension's tool** (`x.programs.assign`), run by the runner's own extension host under that
-  extension's permissions; an automation's call has no `ctx.caller`, as an automation has none.
-  Before this, a customer's progress row written by a tool started nothing.
+  extension's tool** (`x.programs.assign`), run by the runner's own extension host. Before this,
+  a customer's progress row written by a tool started nothing, and a call of another
+  extension's tool from extension code failed for want of an extension host. The rules, as
+  reviewed:
+  - **Who may call it.** Extension A may call B's tool only when A lists it in
+    `permissions.operations`: the pipeline's grant check for the `extension` actor and for an
+    automation of A (`pipeline.ts`, the `checkGrant` call after the actors check;
+    `packages/sdk/src/permissions.ts`: an `x.*` operation is allowed only when listed). Then the
+    usual checks hold: A's principal is a member, so it holds what a member holds of the tool
+    (its `records:read` or `records:write`), and the call is gated like any of A's calls, at its
+    risk (`x.programs.assign` is `bulk-write`), so a policy can send it for review. **A runtime
+    extension may not list another extension's tool** (an install issue, `outside_audience`,
+    `install.ts`'s `outsideDeclarations`): B's tool runs with B's permissions, so calling one is a
+    reviewed change, as opening a tool to customers is. Shipped extensions and an org's own may.
+  - **Under whose authority B runs.** B's tool runs in B's sandbox as B's principal with B's
+    manifest permissions (`executor.ts`, the run's `user` and `permissions` are B's). That is the
+    tool's contract: B's tool does what it does for any caller allowed to call it, and A can make
+    B do exactly that and nothing else, never call B's other operations as B. The audit log names
+    both: A's call (actor `automation` or `extension`, A's principal, origin naming A's extension
+    and automation) and B's writes (actor `extension`, B's principal, origin naming B).
+  - **A customer reaching a staff tool.** A customer's `progress` writes their own progress row
+    (the host sets its holder to them, and refuses it without access); the write starts
+    `assignSessions`, an automation of Courses, which runs as Courses' principal under the gate
+    like any automation, and reads the person from the committed row and the programs from the
+    course's published version. Nothing of the customer's request reaches it: the tool's input
+    has no person or program, and unknown keys are dropped.
+  - **Loops.** A tool's own calls keep the automation cascade they were made in (`depth`, `chain`
+    and `rootEventId` passed to `runTool` and carried on its calls' origin, `extensions/tools.ts`,
+    `executor/host.ts`'s `#toolOrigin`), so the cascade rails (`MAX_CASCADE_DEPTH`, the cycle
+    check on a record, the fan-out budget per root event, `automations/dispatch.ts`'s
+    `startRuns`) hold across a tool. Without that, an automation calling a tool that writes would
+    have started a fresh cascade at depth 0.
+  - **`ctx.caller`** is a person or a customer: for a call made by an automation or another
+    extension the tool now gets none, as an automation gets none (`executor.ts`). Before, no such
+    call reached a tool (see above), so nothing relied on it; Programs' `assign` records no
+    `assignedBy` for an automation's assignment, which is right (no person assigned it).
 - **`programs.session` shows its student which program it is** (`program` in its customer read),
   so a session lesson finds the student's own session.
 - **The block lint's `noPurchase`**: a block marked so in its `block.json` may list no order or
@@ -132,15 +165,15 @@ Each check removed, tests fail (restored after; counts of the runner, pack and l
 | Check removed | Tests that failed |
 | --- | --- |
 | Progress needs access (`requireAccess` in the seam's write helpers) | runner 2 |
-| Buying a course already held is refused (`buy`) | pack 1; the runner file did not start |
+| Buying a course already held is refused (`buy`) | runner 1, pack 1 |
 | A lesson is not found without access unless a free preview (`lesson`) | runner 3, pack 1 |
 | `access.check` answers the host's question (it answered every id held) | runner 3 |
-| An extension's `requires` is checked at install | the runner file failed at setup (Courses installed before Programs) |
+| An extension's `requires` is checked at install | core 1 (`extension-requires.test.ts`); the runner file failed at setup |
 | Only the host voids an enrolment (staff allowed too) | runner 1 |
-| A void enrolment gives no access (no `states` on the sources) | pack 1 (the manifest check); the runner file failed at setup |
+| A void enrolment gives no access (no `states` on the sources) | pack 1 (the manifest refuses it); the runner file failed at setup. The host's own state condition removed: `packages/core/test/access.test.ts`, 6 (ADR 0477) |
 | A `noPurchase` block may not buy (the lint rule off) | lint 1 |
 
-The runner's file is `apps/runner/test/courses.test.ts` (7 tests), the pack's
+The runner's file is `apps/runner/test/courses.test.ts` (7 tests; 8 with the review's), the pack's
 `packs/courses/test/courses.test.ts` (15), the lint's `scripts/check-blocks.test.mjs` (6). "Failed
 at setup" is its `beforeAll` failing, so every test of the file failed to run.
 
@@ -149,6 +182,10 @@ at setup" is its `beforeAll` failing, so every test of the file failed to run.
   the first release that carries it (`docs/deploying.md`, "Publishing to npm"), or that release's
   `npm` job fails on it.
 - A product that lists Courses must list Programs.
-- A lesson key used in two sections is not refused by the host (the schema refuses one twice
-  within a section): the builder's edits always make a fresh key, and `outlineProblems` lists
-  any for the import (step 8) to refuse.
+- A lesson key used in two sections is refused by the host: a list's `unique` key may now be
+  `uniqueAcross` every list of that node in the document (`packages/sdk/src/document.ts`), which
+  the outline's lessons declare, so two lessons' progress can never merge.
+- cos-runner's bundle grew from 6,616 KiB (the spine with main) to 6,811 KiB with this pack. The
+  pack's own source, carried as text in the release's shipped list, is 67 KiB of it (the seven
+  packs carry 304 KiB). A release carries every pack in the repository whether or not a product
+  lists it (ADR 0420 as amended); `COS_PACKS` chooses what is installed, not what is bundled.

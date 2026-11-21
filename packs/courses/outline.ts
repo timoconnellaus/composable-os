@@ -93,6 +93,8 @@ export const OUTLINE_SCHEMA: DocumentSchema = {
               type: "array",
               max: MAX_LESSONS_PER_SECTION,
               unique: "key",
+              // A lesson's key once in the whole outline: its progress is kept by it.
+              uniqueAcross: true,
               of: {
                 type: "union",
                 tag: "kind",

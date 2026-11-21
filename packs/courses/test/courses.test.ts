@@ -132,6 +132,16 @@ describe("the manifest and the outline", () => {
     expect(watchedToEnd(51, 60)).toBe(true);
     expect(watchedToEnd(49, 60)).toBe(false);
     expect(sessionPrograms(outline)).toEqual(["rec_program"]);
+    // The host refuses a key used in two sections, not only the builder (progress is kept by it).
+    const across = structuredClone(outline);
+    across.sections[1]?.lessons.push({ kind: "text", key: "wrists", title: "Again", body: { blocks: [] } });
+    const refused = validateDocument(OUTLINE_SCHEMA, across);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.issues).toEqual([
+        { path: ["sections", 1, "lessons", 2, "key"], message: '"wrists" is used already (at sections.0.lessons.1)' },
+      ]);
+    }
     const twice = structuredClone(outline);
     twice.sections[1]?.lessons.push({ kind: "text", key: "wrists", title: "Again" });
     expect(outlineProblems(twice)).toEqual(['The lesson key "wrists" is in start and train']);

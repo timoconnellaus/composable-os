@@ -187,6 +187,18 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
   const why =
     "Only a shipped extension, or one in the org's own repository, can do that: it is a " +
     "reviewed change. Remove it, or move the extension out of the workspace.";
+  // Another extension's tool runs with that extension's own permissions (ADR 0478): calling one
+  // is a reviewed change, so code written in the app may not list one.
+  manifest.permissions.operations.forEach((operation, i) => {
+    if (operation.startsWith("x.")) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `permissions.operations.${i}`,
+        message: `A runtime extension cannot call another extension's tool (${operation}). ${why}`,
+      });
+    }
+  });
   for (const [name, tool] of Object.entries(manifest.tools)) {
     const open = (tool.audiences ?? []).filter((audience) => audience !== "staff");
     if (open.length || tool.customerFields) {
