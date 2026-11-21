@@ -142,6 +142,12 @@ describe("what an extension opens to people outside the org (stage 22, ADR 0414)
       objects: {
         order: { customer: { field: "buyer", read: ["status", "total"], write: [] } },
         supplier: {},
+        event: {
+          public: { read: ["name"], when: { field: "status", in: ["on_sale"] } },
+        },
+        tier: {
+          public: { read: ["price"], when: { via: "event", field: "status", in: ["on_sale"] } },
+        },
       },
       tools: {
         cancel: {
@@ -155,6 +161,8 @@ describe("what an extension opens to people outside the org (stage 22, ADR 0414)
     expect(lines).toEqual([
       "This extension opens the host to people outside the org. Review these lines:",
       "  customers see shop.order where buyer is them: read status, total; write nothing",
+      "  the public sees shop.event while status is on_sale: read name",
+      "  the public sees shop.tier while its event's status is on_sale: read price",
       "  tool cancel (write) is open to customer, and may also set shop.order: status",
     ]);
   });

@@ -1,0 +1,131 @@
+// The public scope (stage 27, ADR 0438): what an object says the public may read, and the pure
+// rules the seam derives from it. Nothing here reads the database.
+//
+// An object declares it:
+//   public: { read: ["name", "startsAt"], when: { field: "status", in: ["on_sale"] } }
+//   public: { read: ["name", "price"], when: { via: "event", field: "status", in: ["on_sale"] } }
+// The public (and a signed-in customer, on an object that declares no customer) sees a record
+// only while `when` holds, and of it only the fields in `read`. Nothing is public by default: an
+// object that declares nothing does not exist for the public, and a record that does not meet
+// `when` is not found, as one that does not exist.
+//
+// `when` is one condition today. Stage 28's `publishable` adds "has a published version" as
+// another kind; the source below is where it joins.
+import { getObject } from "../fields/index.ts";
+import type { FieldDefinition, ObjectDefinition, PublicDeclaration } from "../fields/types.ts";
+import { viewColumnOf } from "../records/columns.ts";
+
+/** What is wrong with an object's `public` declaration (empty when nothing is). */
+export function publicProblems(object: ObjectDefinition): string[] {
+  const declared = object.public;
+  if (!declared) return [];
+  const problems: string[] = [];
+  if (object.customer) problems.push("an object declares customer or public, not both");
+  const field = (o: ObjectDefinition, name: string) => o.fields.find((f) => f.name === name);
+  if (new Set(declared.read).size !== declared.read.length) {
+    problems.push("public.read lists a field twice");
+  }
+  for (const name of declared.read) {
+    const f = field(object, name);
+    if (!f) problems.push(`public.read lists "${name}", which is not a field`);
+    else if (!viewColumnOf(f)) problems.push(`public.read lists "${name}", which has no column`);
+  }
+  const condition = resolveCondition(object, declared);
+  if (typeof condition === "string") problems.push(condition);
+  return problems;
+}
+
+/** The condition `when` names, resolved to view columns, or why it cannot be. */
+interface Condition {
+  /** The column of this object tested, or that points to the record tested. */
+  readonly column: string;
+  readonly values: readonly string[];
+  /** With `via`: the pointed-to object's view and its tested column. */
+  readonly via?: { readonly source: string; readonly column: string };
+}
+
+function resolveCondition(
+  object: ObjectDefinition,
+  declared: PublicDeclaration,
+): Condition | null | string {
+  const { when } = declared;
+  if (!when) return null;
+  const fieldOf = (o: ObjectDefinition, name: string) => o.fields.find((f) => f.name === name);
+  if (when.via === undefined) {
+    const own = fieldOf(object, when.field);
+    if (!own || own.fieldType !== "select" || !own.column) {
+      return `public.when.field "${when.field}" must be a select field`;
+    }
+    return { column: own.column, values: [...when.in] };
+  }
+  const via = fieldOf(object, when.via);
+  const to = via?.options?.to;
+  const target = to ? getObject(to) : undefined;
+  if (!via || via.fieldType !== "relation" || via.options?.many || !via.column || !target) {
+    return `public.when.via "${when.via}" must be a relation to one record`;
+  }
+  const tested = fieldOf(target, when.field);
+  if (!tested || tested.fieldType !== "select" || !tested.column) {
+    return `public.when.field "${when.field}" must be a select field of ${target.name}`;
+  }
+  return {
+    column: via.column,
+    values: [...when.in],
+    via: { source: target.source, column: tested.column },
+  };
+}
+
+/** A valid declaration resolved against the object's fields. */
+export interface PublicScope {
+  readonly kind: "public";
+  /** `id` and the readable fields, in the object's order. */
+  readonly fields: readonly FieldDefinition[];
+  /** The view columns the source has: `id` and the readable fields' columns. */
+  readonly columns: readonly string[];
+  /** Null: every live record (no `when`). */
+  readonly condition: Condition | null;
+  readonly declaration: PublicDeclaration;
+}
+
+/** The public scope of `object`, or null when it declares none. */
+export function publicScope(object: ObjectDefinition): PublicScope | null {
+  const declared = object.public;
+  if (!declared) return null;
+  const problems = publicProblems(object);
+  // A declaration that does not hold together shows nothing, and says so to whoever built it.
+  if (problems.length) {
+    throw new Error(`${object.name}: invalid public declaration: ${problems.join("; ")}`);
+  }
+  const readable = new Set(["id", ...declared.read]);
+  const fields = object.fields.filter((f) => readable.has(f.name));
+  const columns = [...new Set(fields.map((f) => viewColumnOf(f) as string))];
+  return {
+    kind: "public",
+    fields,
+    columns,
+    condition: resolveCondition(object, declared) as Condition | null,
+    declaration: declared,
+  };
+}
+
+/**
+ * The object as the public sees it: only `id` and the readable fields, so a filter, a sort or a
+ * field selection on anything else fails exactly as it does for a field that does not exist.
+ */
+export function publicObject(object: ObjectDefinition, scope: PublicScope): ObjectDefinition {
+  const names = new Set(scope.fields.map((f) => f.name));
+  const sort = names.has(object.defaultSort.field)
+    ? object.defaultSort
+    : ({ field: "id", direction: "asc" } as const);
+  return {
+    name: object.name,
+    label: object.label,
+    source: object.source,
+    fields: scope.fields,
+    defaultSort: sort,
+    ...(object.plural ? { plural: object.plural } : {}),
+    ...(object.extension ? { extension: object.extension } : {}),
+    ...(object.titleField && names.has(object.titleField) ? { titleField: object.titleField } : {}),
+    public: scope.declaration,
+  };
+}

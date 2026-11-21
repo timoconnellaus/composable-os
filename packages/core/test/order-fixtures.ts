@@ -50,6 +50,8 @@ export async function installBoxOffice(admin: ActingUser): Promise<void> {
             price: "price",
             deposit: { amount: "depositAmount", balanceDue: "balanceDue" },
           },
+          // A customer or a guest buys only what they may read (ADR 0438).
+          public: { read: ["name", "price", "depositAmount", "balanceDue"] },
         },
         import: {
           label: "Import",
@@ -60,6 +62,7 @@ export async function installBoxOffice(admin: ActingUser): Promise<void> {
             price: { type: "currency", label: "Price", currency: "USD" },
           },
           sellable: { price: "price" },
+          public: { read: ["name", "price"] },
         },
         poster: {
           label: "Poster",

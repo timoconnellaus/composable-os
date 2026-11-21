@@ -92,6 +92,23 @@
       "hostInternal": true
     },
     {
+      "name": "public.get",
+      "audiences": ["customer", "public"],
+      "risk": "read",
+      "toolOnly": true
+    },
+    {
+      "name": "public.list",
+      "audiences": ["customer", "public"],
+      "risk": "read",
+      "toolOnly": true
+    },
+    {
+      "name": "x.ticketing.eventsOnSale",
+      "audiences": ["customer", "public"],
+      "risk": "read"
+    },
+    {
       "name": "x.ticketing.myTickets",
       "audiences": ["customer"],
       "risk": "read"

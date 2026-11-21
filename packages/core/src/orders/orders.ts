@@ -17,10 +17,11 @@ import { type OrderState, orderObject } from "../fields/order.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
 import { type HandlerContext, recordHostChange } from "../operation.ts";
+import type { Principal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { applyTransition } from "../records/lifecycle.ts";
-import type { Mover } from "../records/transitions.ts";
-import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
+import { callerOf, type Mover } from "../records/transitions.ts";
+import { type AnyRow, orgReader, type VisibleSource, visibleSource } from "../visibility/index.ts";
 import { claimOrderPlaces } from "./holds.ts";
 import {
   GRANTS_PER_ORDER_CEILING,
@@ -144,13 +145,37 @@ function windowMoment(value: unknown, end: "start" | "end"): string | null {
  * Reads what `lines` cost, from the records, as the host. Refuses a record that is not for sale
  * (its object is not sellable, or it does not exist or is in the Trash: one answer for all
  * three), one with no price, one priced in another currency, one outside its sale window and a
- * quantity over the record's most per order (ADR 0435).
+ * quantity over the record's most per order (ADR 0435). A customer or the public buys only what
+ * they may read (ADR 0438): a record the seam does not show `buyer` gets the same answer.
  */
+/** Whether `principal` may read the record through the seam (their own, or the public's). */
+async function readable(
+  db: Kysely<CoreDatabase>,
+  principal: Principal,
+  object: ObjectDefinition,
+  id: string,
+): Promise<boolean> {
+  let source: VisibleSource<AnyRow, string>;
+  try {
+    source = visibleSource({ principal }, object);
+  } catch {
+    return false;
+  }
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const row = await (db as any)
+    .selectFrom(source)
+    .select("id")
+    .where("id", "=", id)
+    .executeTakeFirst();
+  return Boolean(row);
+}
+
 export async function priceLines(
   db: Kysely<CoreDatabase>,
   lines: readonly LineRequest[],
   currency: string,
   now: string = new Date().toISOString(),
+  buyer?: Principal,
 ): Promise<PricedLine[]> {
   // The host's own read, org-wide: a guest cannot see a ticket type through the seam, and the
   // price is the host's to read whoever is buying.
@@ -177,6 +202,9 @@ export async function priceLines(
       .where("id", "=", line.id)
       .executeTakeFirst()) as AnyRow | undefined;
     if (!row) refuseLine("not_for_sale", index, "This cannot be bought");
+    if (buyer && buyer.kind !== "staff" && !(await readable(db, buyer, object, line.id))) {
+      refuseLine("not_for_sale", index, "This cannot be bought");
+    }
     const field = (name: string) => object.fields.find((f) => f.name === name);
     const read = (name: string) => {
       const col = column(field(name));
@@ -296,7 +324,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
   if (!currency) {
     throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
   }
-  const lines = await priceLines(ctx.db, input.lines, currency, ctx.now);
+  const lines = await priceLines(ctx.db, input.lines, currency, ctx.now, callerOf(ctx));
   const total = lines.reduce((sum, line) => sum + line.total, 0);
   if (total <= 0) {
     throw new ValidationError("An order with nothing to pay cannot be started", { rule: "total" });

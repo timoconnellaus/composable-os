@@ -176,6 +176,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot make ${name} visible to customers. ${why}`,
       });
     }
+    // Records the public may read (ADR 0438): a reviewed change, as a customer is.
+    if (object.public) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.public`,
+        message: `A runtime extension cannot make ${name} readable by the public. ${why}`,
+      });
+    }
     // Selling to the public opens order.start to its records (ADR 0435): a reviewed change too.
     if (object.sellable) {
       issues.push({

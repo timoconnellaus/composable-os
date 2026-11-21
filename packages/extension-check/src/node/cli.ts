@@ -97,6 +97,7 @@ interface OpensOutside {
     string,
     {
       customer?: { field: string; read: string[]; write: string[] };
+      public?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       sellable?: { price: string; grants?: { object: string } };
     }
   >;
@@ -121,6 +122,14 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
         `  anyone can buy ${manifest.id}.${name} (priced by ${object.sellable.price})` +
           (grants ? `; a paid line grants ${grants.object}` : ""),
       );
+    }
+    const p = object.public;
+    if (p) {
+      const via = p.when?.via ? `its ${p.when.via}'s ` : "";
+      const while_ = p.when
+        ? ` while ${via}${p.when.field} is ${p.when.in.join(" or ")}`
+        : ", every record";
+      lines.push(`  the public sees ${manifest.id}.${name}${while_}: read ${p.read.join(", ")}`);
     }
     const c = object.customer;
     if (!c) continue;

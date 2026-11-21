@@ -177,6 +177,7 @@ export * from "./operations/user.ts";
 export * from "./operations/view.ts";
 export * from "./operations/voice.ts";
 export * from "./orders/index.ts";
+export * from "./pack-roles.ts";
 export {
   type AnyInvocationContext,
   type BatchOutcome,

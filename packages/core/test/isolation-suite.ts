@@ -25,6 +25,7 @@ import {
 import {
   type Customer,
   createCustomer,
+  createShows,
   createSupplier,
   DECLARATIONS,
   fixtureRegistry,
@@ -36,9 +37,11 @@ import {
   outside,
   PUBLIC,
   REQUEST,
+  SHOW,
   SUPPLIER,
   snapshot,
   TICKET,
+  TIER,
 } from "./customer-fixtures.ts";
 import { createUser } from "./helpers.ts";
 
@@ -50,6 +53,7 @@ export function isolationSuite(how: string, call: CallFn): void {
   let a: Customer;
   let b: Customer;
   let supplier: { id: string; secrets: string[] };
+  let shows: Awaited<ReturnType<typeof createShows>>;
 
   const GUESS = "rec_01GUESSED00000000000000000";
   const GUESS_PERSON = "per_01GUESSED00000000000000000";
@@ -60,6 +64,8 @@ export function isolationSuite(how: string, call: CallFn): void {
     a = await createCustomer(admin, "A");
     b = await createCustomer(admin, "B");
     supplier = await createSupplier(admin);
+    // Stage 27 (ADR 0438): what the public may read, and what it may not.
+    shows = await createShows(admin);
     // Stage 25, criterion 10: real orders and their lines, for both customers.
     await giveOrders(admin, a);
     await giveOrders(admin, b);
@@ -73,6 +79,9 @@ export function isolationSuite(how: string, call: CallFn): void {
     // The real Order and Order line (stage 25): base records that declare a customer.
     "order",
     "orderLine",
+    // Readable by the public (and customers) while on sale, and only their listed fields.
+    SHOW,
+    TIER,
     "person",
     "organisation",
     "activity",
@@ -233,6 +242,8 @@ export function isolationSuite(how: string, call: CallFn): void {
         .map((id, i): [string, string] => [id, `${GUESS.slice(0, -1)}${i}`]),
       [b.principal.personId, GUESS_PERSON],
       [supplier.id, `${GUESS.slice(0, -2)}S1`],
+      // A record the public may not read now answers as one that does not exist.
+      ...shows.hidden.ids.map((id, i): [string, string] => [id, `${GUESS.slice(0, -2)}H${i}`]),
     ];
     let text = JSON.stringify(input);
     const before = text;
@@ -286,7 +297,7 @@ export function isolationSuite(how: string, call: CallFn): void {
 
     it("no response holds a value from B's rows, and no write changes one", async () => {
       const before = { b: await snapshot(b), supplier: JSON.stringify(supplier) };
-      const secrets = [...b.secrets, ...supplier.secrets];
+      const secrets = [...b.secrets, ...supplier.secrets, ...shows.hidden.secrets];
       const problems: string[] = [];
       let calls = 0;
       let withTheirIds = 0;
@@ -306,7 +317,7 @@ export function isolationSuite(how: string, call: CallFn): void {
             }
             // A call that names B's record must answer as a call that names nothing does.
             const { control, swapped } = withGuesses(input);
-            if (swapped && caller.kind === "customer") {
+            if (swapped) {
               withTheirIds += 1;
               const guessed = await call(name, control, outside(caller));
               if (shape(outcome) !== shape(guessed)) {
@@ -403,9 +414,7 @@ export function isolationSuite(how: string, call: CallFn): void {
       // Read from the registry: staff operations, customer operations for the public, public
       // ones for customers, and tool-only ones called directly.
       const closed = (kind: "customer" | "public") =>
-        fixtureRegistry
-          .list()
-          .filter((op) => !audiencesOf(op).includes(kind) || (kind === "customer" && op.toolOnly));
+        fixtureRegistry.list().filter((op) => !audiencesOf(op).includes(kind) || op.toolOnly);
       let checked = 0;
       for (const caller of [a.principal, PUBLIC]) {
         const ops = closed(caller.kind);
@@ -422,8 +431,31 @@ export function isolationSuite(how: string, call: CallFn): void {
       expect(checked).toBeGreaterThan(200);
     });
 
-    it("the public see no object and change no record", async () => {
-      for (const object of OBJECTS) {
+    it("the public see what is declared public, of what is on sale, and nothing else (ADR 0438)", async () => {
+      for (const caller of [PUBLIC, a.principal]) {
+        const show = await call("fixture.publicPeek", { object: SHOW }, outside(caller));
+        if (caller.kind === "customer") {
+          // A customer reads at least what the public may (here through a customer's operation).
+          const mine = await call("fixture.myList", { object: SHOW }, outside(caller));
+          expect(mine).toEqual(show.ok ? show : mine);
+        }
+        if (caller.kind !== "public") continue;
+        expect(show).toMatchObject({ ok: true });
+        const items = (show as { value: { items: { id: string; values: object }[] } }).value.items;
+        const mine = items.find((i) => i.id === shows.onSale.show);
+        expect(mine?.values).toEqual({ name: shows.onSale.name, status: "on_sale" });
+        for (const id of shows.hidden.ids) expect(items.map((i) => i.id)).not.toContain(id);
+        const tiers = await call("fixture.publicPeek", { object: TIER }, outside(caller));
+        const tier = (
+          tiers as { value: { items: { id: string; values: object }[] } }
+        ).value.items.find((i) => i.id === shows.onSale.tier);
+        expect(Object.keys(tier?.values ?? {}).sort()).toEqual(["name", "price", "show"]);
+        expect(JSON.stringify(tiers)).not.toContain(shows.hidden.ids[1]);
+      }
+    });
+
+    it("the public see no other object and change no record", async () => {
+      for (const object of OBJECTS.filter((o) => o !== SHOW && o !== TIER)) {
         const peek = await call("fixture.publicPeek", { object }, outside(PUBLIC));
         expect(peek).toEqual({
           ok: false,

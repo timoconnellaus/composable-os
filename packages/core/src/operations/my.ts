@@ -4,9 +4,20 @@
 // handlers never filter by customer themselves. An object that declares no customer is an unknown
 // object here.
 import { z } from "zod";
+import { getObject } from "../fields/index.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation } from "../operation.ts";
+import { unknownObject } from "../visibility/customer.ts";
+
+/**
+ * my.* is a customer's own records only. The seam also lets a customer read what the public may
+ * (ADR 0438), but that is reached through a pack's tool (public.*), not here.
+ */
+function ownObject(name: string): string {
+  if (!getObject(name)?.customer) throw unknownObject(name);
+  return name;
+}
 
 const objectName = z
   .string()
@@ -41,7 +52,7 @@ export const myList = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     const { object, ...page } = input;
-    return ctx.records.list(object, page);
+    return ctx.records.list(ownObject(object), page);
   },
 });
 
@@ -57,7 +68,7 @@ export const myGet = defineOperation({
   audiences: ["customer"],
   mcp: { expose: false },
   async handler(input, ctx) {
-    return ctx.records.get(input.object, input.id);
+    return ctx.records.get(ownObject(input.object), input.id);
   },
 });
 

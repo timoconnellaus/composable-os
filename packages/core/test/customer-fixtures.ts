@@ -42,6 +42,10 @@ export const SUPPLIER = `${SHOP}.supplier`;
 export const REQUEST = `${SHOP}.request`;
 /** Something for sale (stage 25): what the real orders below are for. No customer declared. */
 export const ITEM = `${SHOP}.item`;
+/** Readable by the public while on sale (stage 27, ADR 0438): `public` with a state of its own. */
+export const SHOW = `${SHOP}.show`;
+/** Readable by the public while its show is on sale: `public` through a relation. */
+export const TIER = `${SHOP}.tier`;
 
 export const DECLARATIONS: Record<string, CustomerDeclaration> = {
   [ORDER]: { field: "buyer", read: ["title", "status", "total", "note"], write: ["note"] },
@@ -130,6 +134,41 @@ export async function installShop(): Promise<void> {
             price: { type: "currency", label: "Price", currency: "AUD" },
           },
           sellable: { price: "price" },
+          // A customer or a guest buys only what they may read (ADR 0438): every item is public.
+          public: { read: ["name", "price"] },
+        },
+        show: {
+          label: "Show",
+          plural: "Shows",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name", required: true },
+            status: {
+              type: "select",
+              label: "Status",
+              options: [
+                { value: "draft", label: "Draft" },
+                { value: "on_sale", label: "On sale" },
+              ],
+            },
+            backstage: { type: "text", label: "Backstage note" },
+          },
+          public: { read: ["name", "status"], when: { field: "status", in: ["on_sale"] } },
+        },
+        tier: {
+          label: "Tier",
+          plural: "Tiers",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name", required: true },
+            show: { type: "relation", label: "Show", to: `${SHOP}.show` },
+            price: { type: "number", label: "Price" },
+            cost: { type: "number", label: "Cost to us" },
+          },
+          public: {
+            read: ["name", "show", "price"],
+            when: { via: "show", field: "status", in: ["on_sale"] },
+          },
         },
         supplier: {
           label: "Supplier",
@@ -278,6 +317,54 @@ export async function createCustomer(admin: ActingUser, label: string): Promise<
     }
   }
   return customer;
+}
+
+/**
+ * Two shows with a tier each: one on sale, whose public fields anyone may read, and one in draft,
+ * of which nothing may be read. `hidden` is every value no one outside the org may learn: the
+ * draft show and its tier, whole, and the unlisted fields of the one on sale.
+ */
+export async function createShows(admin: ActingUser): Promise<{
+  onSale: { show: string; tier: string; name: string; tierName: string };
+  hidden: { ids: string[]; secrets: string[] };
+}> {
+  const tag = unique("show");
+  const make = async (object: string, values: Record<string, unknown>) =>
+    (await invoke("record.create", { object, values }, context(admin))).id;
+  const show = await make(SHOW, {
+    name: `Show-${tag}`,
+    status: "on_sale",
+    backstage: `Backstage-${tag}`,
+  });
+  const cost = secretNumber();
+  const tier = await make(TIER, { name: `Tier-${tag}`, show, price: secretNumber(), cost });
+  const draftShow = await make(SHOW, {
+    name: `DraftShow-${tag}`,
+    status: "draft",
+    backstage: `DraftBackstage-${tag}`,
+  });
+  const draftPrice = secretNumber();
+  const draftTier = await make(TIER, {
+    name: `DraftTier-${tag}`,
+    show: draftShow,
+    price: draftPrice,
+  });
+  return {
+    onSale: { show, tier, name: `Show-${tag}`, tierName: `Tier-${tag}` },
+    hidden: {
+      ids: [draftShow, draftTier],
+      secrets: [
+        `Backstage-${tag}`,
+        String(cost),
+        draftShow,
+        draftTier,
+        `DraftShow-${tag}`,
+        `DraftBackstage-${tag}`,
+        `DraftTier-${tag}`,
+        String(draftPrice),
+      ],
+    },
+  };
 }
 
 export async function createSupplier(

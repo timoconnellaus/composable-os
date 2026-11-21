@@ -145,6 +145,20 @@ export const objectManifestSchema = z.object({
     })
     .strict()
     .optional(),
+  public: z
+    .object({
+      read: z.array(z.string().max(40)).min(1).max(100),
+      when: z
+        .object({
+          via: z.string().max(40).optional(),
+          field: z.string().max(40),
+          in: z.array(z.string().max(100)).min(1).max(20),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .optional(),
   navigationOrder: z.number().int().min(0).max(10_000).optional(),
   requireOneOf: z
     .array(z.array(z.string().max(40)).min(2).max(8))
@@ -820,6 +834,58 @@ export function validateManifest(
             `customer.write lists "${fieldName}", which customer.read does not`,
           );
         }
+      }
+    }
+  }
+
+  // What the public may read (ADR 0438): fields of the object's own, and a condition on a
+  // state of the record or of one record of this extension it points to.
+  for (const [name, object] of Object.entries(m.objects)) {
+    const p = object.public;
+    if (!p) continue;
+    const path = `objects.${name}.public`;
+    if (object.customer) {
+      contract(path, "An object declares customer or public, not both");
+    }
+    if (new Set(p.read).size !== p.read.length)
+      contract(`${path}.read`, "public.read lists a field twice");
+    for (const fieldName of p.read) {
+      if (!object.fields[fieldName]) {
+        contract(
+          `${path}.read`,
+          `public.read lists "${fieldName}", which is not a field of ${name}`,
+        );
+      }
+    }
+    if (!p.when) continue;
+    let target = object;
+    let targetName = name;
+    if (p.when.via !== undefined) {
+      const via = object.fields[p.when.via];
+      const local =
+        via?.type === "relation" && !via.many && via.to?.startsWith(`${m.id}.`)
+          ? via.to.slice(m.id.length + 1)
+          : null;
+      const pointed = local ? m.objects[local] : undefined;
+      if (!pointed || !local) {
+        contract(
+          `${path}.when.via`,
+          `public.when.via must name a relation of ${name} to one record of another of this extension's objects`,
+        );
+        continue;
+      }
+      target = pointed;
+      targetName = local;
+    }
+    const field = target.fields[p.when.field];
+    if (!field || field.type !== "select") {
+      contract(`${path}.when.field`, `public.when.field must name a select field of ${targetName}`);
+      continue;
+    }
+    const values = new Set((field.options ?? []).map((o) => (typeof o === "string" ? o : o.value)));
+    for (const value of p.when.in) {
+      if (!values.has(value)) {
+        contract(`${path}.when.in`, `"${value}" is not an option of ${targetName}.${p.when.field}`);
       }
     }
   }

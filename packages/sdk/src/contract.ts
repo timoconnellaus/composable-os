@@ -189,6 +189,15 @@ export interface ObjectSpec {
    * fails `check`.
    */
   customer?: CustomerSpec;
+  /**
+   * What the public may read of this object (ADR 0438): the fields in `read`, of the records that
+   * meet `when`. Deny by default: left out, the public sees nothing of it, and a record that does
+   * not meet `when` is not found. A signed-in customer reads it too, unless the object declares a
+   * `customer` (an object declares one or the other). The public reaches it only through a pack's
+   * tool open to them (`public.list`, `public.get`). Only shipped extensions and an org's own may
+   * declare it.
+   */
+  public?: PublicSpec;
   /** Position in the sidebar among extension objects (lower first). Default 100. */
   navigationOrder?: number;
   /**
@@ -494,6 +503,24 @@ export type StartedBy =
 /** Who may call a tool. `staff` when nothing is declared (ADR 0402). */
 export const TOOL_AUDIENCES = ["staff", "customer", "public"] as const;
 export type ToolAudience = (typeof TOOL_AUDIENCES)[number];
+
+/**
+ * What the public may read of an object (ADR 0438). `when` is a condition on a state (a select
+ * field) of the record itself, or, with `via`, of the record one of its relations points to: an
+ * event while it is `on_sale`; a ticket type while its event is.
+ */
+export interface PublicSpec {
+  read: readonly string[];
+  /** Left out, every live record is public (a catalogue item). */
+  when?: {
+    /** A relation of this object, to another object of this extension: test that record. */
+    via?: string;
+    /** A select field (of this record, or of the one `via` points to). */
+    field: string;
+    /** The values for which the record is public. */
+    in: readonly string[];
+  };
+}
 
 /** An object's customer: see `ObjectSpec.customer`. */
 export interface CustomerSpec {
