@@ -54,6 +54,36 @@ pnpm --filter @composable-os/app exec playwright test deals --project=desktop
   journey a person takes through it. Rules, edge cases and anything that waits on time (cron
   ticks, delivery lags) belong in integration tests (vitest in workerd), which are fast.
 
+## How CI is laid out
+
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`. A change that
+touches only documents (`docs/` or a Markdown file at the root) skips everything but the document
+checks. Otherwise these jobs run in parallel, each on its own runner:
+
+- **Lint** and **Typecheck** (the typecheck job also builds the landing page).
+- **Unit tests**, in eight shards: core in three (vitest `--shard`), the runner, the app in two,
+  the gatekeepers, and every other package together. `scripts/ci-unit-shards.mjs` holds the
+  layout, balanced by measured time; CI's matrix is generated from it. The last shard takes every
+  package the others don't name, so a new package is tested without touching the layout, and
+  `pnpm lint` fails if a package with a `test` script would run in no shard or in two.
+- **E2E**: the app's Playwright suite in four shards, the control plane's, and the landing page's.
+
+Two jobs only gather results, and they are the names to require: **Lint, typecheck, unit tests**
+(lint, typecheck and every unit shard) and **E2E smoke (Playwright)** (the e2e shards and the
+control plane).
+
+To run one unit shard locally, exactly as CI does (`turbo run test` with its filters, so its
+packages' dependencies are type-checked first):
+
+```sh
+node scripts/ci-unit-shards.mjs --list               # the shards' names
+node scripts/ci-unit-shards.mjs --run "core 2/3"
+node scripts/ci-unit-shards.mjs --check              # every package's tests in exactly one shard
+```
+
+If one shard grows much slower than the others, move packages or change a split count in that
+file, using the times in the CI logs (each package's vitest `Duration`).
+
 ## Pull requests
 
 - Branch from `main`, keep commits focused, and open a pull request against `main`.

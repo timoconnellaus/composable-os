@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
+      unit_matrix: ${{ steps.unit.outputs.matrix }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -40,6 +41,9 @@ jobs:
           docs_only=$(printf '%s\n' "$files" | node scripts/ci-docs-only.mjs) || docs_only=false
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           echo "Documents only: $docs_only"
+      # The unit test shards, from the one list in scripts/ci-unit-shards.mjs (Node alone).
+      - id: unit
+        run: echo "matrix=$(node scripts/ci-unit-shards.mjs --matrix)" >> "$GITHUB_OUTPUT"
 
   docs:
     name: Documents
@@ -58,8 +62,9 @@ jobs:
       - run: node scripts/check-stray-names.mjs
       - run: node scripts/check-skills-version.mjs
 
-  # Lint, typecheck and unit tests run as three parallel jobs. The job named "Lint, typecheck, unit
-  # tests" (`check`, below) only gathers their results, so the required check keeps its name.
+  # Lint, typecheck and unit tests run as parallel jobs (the unit tests as a matrix of shards). The
+  # job named "Lint, typecheck, unit tests" (`check`, below) only gathers their results, so the
+  # required check keeps its name. A matrix job's result is success only if every shard passed.
   lint:
     name: Lint
     needs: changes
@@ -92,11 +97,20 @@ jobs:
       # The landing page (apps/marketing): its build fails on any tracker or third-party load.
       - run: pnpm --filter @composable-os/marketing build
 
+  # The unit tests, split across runners by measured time (scripts/ci-unit-shards.mjs says which
+  # packages each shard runs, and `pnpm lint` checks that every package's tests run exactly once).
+  # Each shard is `turbo run test` over its packages, so tests still get their `^typecheck` first;
+  # nothing is cached between runs. The gatekeepers and the rest keep `--concurrency=2`, and the
+  # gatekeepers' shard then runs gatekeeper-microsoft's timing tests alone.
   unit:
-    name: Unit tests
+    name: Unit ${{ matrix.shard }}
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
+    strategy:
+      # Let every shard finish, so one failure shows all the others too.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.unit_matrix) }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -105,11 +119,9 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Cap parallel packages: the vendored gatekeepers add thousands of CPU-heavy tests, and running
-      # every package at once on a 4-vCPU runner makes timing- and startup-sensitive tests flake.
-      - run: pnpm test --concurrency=2
-      # Wall-clock-sensitive vendored tests, run alone so CPU contention doesn't fail them.
-      - run: pnpm --filter @composable-os/gatekeeper-microsoft test:timing
+      - run: node scripts/ci-unit-shards.mjs --run "$SHARD"
+        env:
+          SHARD: ${{ matrix.shard }}
 
   # The required check. It runs even when a job it needs failed or was skipped (`always()`), and
   # passes only if all three passed. On a documents-only change it is skipped, as the three are,
