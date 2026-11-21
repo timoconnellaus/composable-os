@@ -17,6 +17,8 @@ import {
   type EventSink,
   type ExtensionHost,
   invokeByName,
+  type Origin,
+  type ToolCascade,
   type OutsidePrincipal,
   PendingApprovalError,
   type Permission,
@@ -119,6 +121,8 @@ export interface RunState {
    * module but `ops`, `storage` and `log`.
    */
   outside?: { principal: OutsidePrincipal; tool: string };
+  /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
+  cascade?: ToolCascade;
 }
 
 type Envelope =
@@ -211,6 +215,28 @@ export class RunHost extends RpcTarget {
     return { extensionHost: extensionHost(this.#env as never) };
   }
 
+  /**
+   * A tool's own calls are made from the tool's extension; inside an automation cascade they keep
+   * its depth, chain and root event, so the cascade rails hold across the tool (ADR 0478).
+   */
+  #toolOrigin(): Origin {
+    const run = this.#run;
+    const c = run.cascade;
+    return {
+      surface: "extension",
+      extensionId: run.extensionId,
+      ...(c
+        ? {
+            depth: c.depth,
+            chain: c.chain.slice(-10),
+            rootEventId: c.rootEventId,
+            ...(c.automationId ? { automationId: c.automationId } : {}),
+            ...(c.runId ? { runId: c.runId } : {}),
+          }
+        : {}),
+    };
+  }
+
   async #crmCall(args: unknown[]): Promise<unknown> {
     const run = this.#run;
     const [name, input] = args;
@@ -224,7 +250,7 @@ export class RunHost extends RpcTarget {
           await invokeByName(operation, input ?? {}, {
             principal: run.outside.principal,
             tool: { extension: run.extensionId, tool: run.outside.tool },
-            origin: { surface: "extension", extensionId: run.extensionId },
+            origin: this.#toolOrigin(),
             db: createCrmDb(this.#env.DB),
             floor: parseFloor(this.#env.APPROVAL_FLOOR),
             ...this.#events(),
@@ -233,7 +259,7 @@ export class RunHost extends RpcTarget {
         : await invokeByName(operation, input ?? {}, {
             actor: "extension",
             user: run.user,
-            origin: { surface: "extension", extensionId: run.extensionId },
+            origin: this.#toolOrigin(),
             db: createCrmDb(this.#env.DB),
             floor: parseFloor(this.#env.APPROVAL_FLOOR),
             extension: { id: run.extensionId, permissions: run.permissions },

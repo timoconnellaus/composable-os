@@ -61,11 +61,24 @@ export function toolOperation(
           { extension: manifest.id, status: row?.status ?? null },
         );
       }
+      // Called inside an automation cascade: the tool's own calls stay in it (ADR 0478).
+      const o = ctx.origin;
+      const cascade =
+        o.rootEventId !== undefined
+          ? {
+              depth: o.depth ?? 0,
+              chain: [...(o.chain ?? [])],
+              rootEventId: o.rootEventId,
+              ...(o.automationId ? { automationId: o.automationId } : {}),
+              ...(o.runId ? { runId: o.runId } : {}),
+            }
+          : undefined;
       const result = await requireHost(ctx).runTool({
         id: manifest.id,
         commit: row.commit_oid,
         tool: name,
         input,
+        ...(cascade ? { cascade } : {}),
         caller:
           ctx.principal.kind === "staff"
             ? { actor: ctx.actor, userId: ctx.user.id, name: ctx.user.name }

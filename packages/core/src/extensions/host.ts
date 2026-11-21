@@ -35,6 +35,22 @@ export interface RunToolInput {
   tool: string;
   input: unknown;
   caller: ToolCaller;
+  /**
+   * Where the call is in an automation cascade (ADR 0130), when an automation (or a tool an
+   * automation called) called the tool: the tool's own operation calls carry it on, so what they
+   * write starts automations one level deeper, in the same chain, and the cascade rails (depth,
+   * cycle, fan-out) hold across a tool (stage 42, ADR 0478).
+   */
+  cascade?: ToolCascade;
+}
+
+/** An automation cascade's position, carried through a tool's own operation calls. */
+export interface ToolCascade {
+  depth: number;
+  chain: string[];
+  rootEventId: string;
+  automationId?: string;
+  runId?: string;
 }
 
 export type RunToolResult =
