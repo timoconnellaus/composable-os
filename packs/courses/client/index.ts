@@ -85,6 +85,11 @@ export type CoursesOperations = {
     input: { object: string; id: string; values: Record<string, unknown> };
     output: { id: string; values: Record<string, unknown> };
   };
+  "record.get": {
+    kind: "query";
+    input: { object: string; id: string };
+    output: { id: string; values: Record<string, unknown> };
+  };
   "record.publish": {
     kind: "mutation";
     input: { object: string; id: string; note?: string };
@@ -119,6 +124,18 @@ export function refreshInMs(expiresAt: string, now = Date.now()): number {
   const at = Date.parse(expiresAt);
   if (Number.isNaN(at)) return 10_000;
   return Math.max(10_000, at - PLAYBACK_REFRESH_BEFORE_MS - now);
+}
+
+/** A price as the host gave it, in its currency (`99.00 AUD`). Display only: never worked out. */
+export function formatPrice(price: number | null | undefined, currency: string | null | undefined): string {
+  if (price === null || price === undefined) return "";
+  try {
+    return currency
+      ? new Intl.NumberFormat(undefined, { style: "currency", currency }).format(price)
+      : String(price);
+  } catch {
+    return `${price}${currency ? ` ${currency}` : ""}`;
+  }
 }
 
 /** A lesson's length as a reader sees it: `12 min`. Display only. */
@@ -260,6 +277,7 @@ export const COURSES_HOOKS_CALL = {
   useEnrol: ["x.courses.enrol"],
   useEndEnrolment: ["x.courses.endEnrolment"],
   useStats: ["x.courses.stats"],
+  useWorkingCopy: ["record.get"],
   useSaveOutline: ["record.update"],
   usePublishCourse: ["record.publish"],
   useLibraryVideos: ["media.list"],
@@ -371,6 +389,10 @@ function allCoursesHooks(react: { useQuery: UseQuery; useMutation: UseMutation }
     /** Staff: enrolments and lessons done. */
     useStats(courseId?: string) {
       return useQuery(api.query("x.courses.stats", courseId ? { courseId } : {}));
+    },
+    /** Staff: a course's working copy, as the builder edits it. */
+    useWorkingCopy(courseId: string) {
+      return useQuery(api.query("record.get", { object: COURSE, id: courseId }));
     },
     /** Staff: save the course's working copy (its outline). */
     useSaveOutline() {

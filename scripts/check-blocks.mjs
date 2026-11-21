@@ -6,6 +6,10 @@
 //
 // It reads the code with comments and string contents removed, so words in copy ("Total") are
 // not code. It is a lint, not a proof: what it cannot see, review does.
+//
+// A block marked `"noPurchase": true` in its block.json (stage 42: the app's course screens, as
+// the owner decided buying is on the web only) may also not buy: no order or checkout operation
+// in its `operations`, and no price, buy hook or checkout in its code.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,6 +80,23 @@ export const RULES = [
   },
 ];
 
+/** What a `noPurchase` block may not name, in its operations or its code. */
+const PURCHASE_OPERATION = /^(?:order\.(?:start|checkout|cancel)|x\.[a-z0-9]+\.(?:buy|orderStart|checkout))$/;
+const PURCHASE_CODE = /\b(?:price|prices|useBuy|checkout|orderStart|formatPrice)\b/;
+const NO_PURCHASE =
+  "buys or shows a price in a block marked noPurchase: buying is on the web only; show no price and no buy button";
+
+/** The problems of a `noPurchase` block's code: `{ line, rule, message }`. */
+export function lintNoPurchase(source) {
+  const problems = [];
+  codeOnly(source)
+    .split("\n")
+    .forEach((line, index) => {
+      if (PURCHASE_CODE.test(line)) problems.push({ line: index + 1, rule: "no-purchase", message: NO_PURCHASE });
+    });
+  return problems;
+}
+
 /** The problems in one file's text: `{ line, rule, message }`. */
 export function lintSource(source) {
   const problems = [];
@@ -111,10 +132,20 @@ export function blockFolders(root) {
 export function lintBlocks(folders, root) {
   const out = [];
   for (const dir of folders) {
+    const spec = JSON.parse(readFileSync(join(dir, "block.json"), "utf8"));
+    const noPurchase = spec.noPurchase === true;
+    if (noPurchase) {
+      for (const op of spec.operations ?? []) {
+        if (PURCHASE_OPERATION.test(op)) {
+          out.push(`${relative(root, join(dir, "block.json"))}: no-purchase: the block lists ${op}: ${NO_PURCHASE}`);
+        }
+      }
+    }
     for (const name of readdirSync(dir)) {
       if (!/\.(tsx?|jsx?)$/.test(name)) continue;
       const file = join(dir, name);
-      for (const p of lintSource(readFileSync(file, "utf8"))) {
+      const text = readFileSync(file, "utf8");
+      for (const p of [...lintSource(text), ...(noPurchase ? lintNoPurchase(text) : [])]) {
         out.push(`${relative(root, file)}:${p.line}: ${p.rule}: the block ${p.message}`);
       }
     }

@@ -39,3 +39,6 @@ COS_UPDATE_TOKEN=
 NATIVE_REDIRECT_URIS=http://127.0.0.1/cos-sign-in,cosdev://staff-sign-in
 # Customer sign-in (stage 22): its own secret, never BETTER_AUTH_SECRET. `pnpm dev` fills it in.
 CUSTOMER_AUTH_SECRET=
+# Local only, never in production: "true" sends videos to the fake Stream (stage 42, ADR 0475).
+# `pnpm dev` adds it. A deployment sets STREAM_* vars and secrets instead (docs/stream-runbook.md).
+# STREAM_FAKE=

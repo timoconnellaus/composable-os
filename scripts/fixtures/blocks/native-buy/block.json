@@ -1,0 +1,9 @@
+{
+  "name": "native-buy",
+  "pack": "courses",
+  "skin": "native",
+  "operations": ["x.courses.catalogue", "x.courses.buy"],
+  "files": ["buy-screen.tsx"],
+  "dependsOn": [],
+  "noPurchase": true
+}

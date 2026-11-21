@@ -1,0 +1,20 @@
+{
+  "name": "courses-player",
+  "pack": "courses",
+  "skin": "web",
+  "operations": [
+    "x.courses.lesson",
+    "media.play",
+    "x.courses.progress"
+  ],
+  "files": [
+    "player.tsx",
+    "LICENSE"
+  ],
+  "dependsOn": [
+    "ui-button"
+  ],
+  "packages": {
+    "@composable-os/pack-courses": "*"
+  }
+}

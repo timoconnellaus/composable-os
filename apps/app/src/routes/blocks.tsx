@@ -8,6 +8,11 @@
 // The blocks are read where they sit (`packs/<id>/blocks/<block>/`), their base-layer imports
 // joined to `blocks/` by pack-blocks-plugin.ts. A production build mounts nothing.
 import {
+  COURSES_HOOKS_CALL,
+  type CoursesClient,
+  createCoursesHooks,
+} from "@composable-os/pack-courses/client";
+import {
   createProgramsHooks,
   PROGRAMS_HOOKS_CALL,
   type ProgramsClient,
@@ -125,6 +130,9 @@ function usePackHooks(pack: string): AnyHooks {
       react,
       browserClient<FullClient<ProgramsClient>>(PROGRAMS_HOOKS_CALL),
     );
+  }
+  if (pack === "courses") {
+    return createCoursesHooks(react, browserClient<FullClient<CoursesClient>>(COURSES_HOOKS_CALL));
   }
   if (pack === "ticketing") {
     return createTicketingHooks(

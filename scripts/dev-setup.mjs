@@ -105,6 +105,15 @@ if (existsSync(appVars) && !/^AI_FAKE_MODEL=/m.test(readFileSync(appVars, "utf8"
   );
 }
 
+// Local dev has no Cloudflare Stream: videos go to the fake Stream (stage 42, ADR 0475), in new
+// and existing .dev.vars alike. Never in a deployment.
+if (existsSync(appVars) && !/^STREAM_FAKE=/m.test(readFileSync(appVars, "utf8"))) {
+  writeFileSync(
+    appVars,
+    `${readFileSync(appVars, "utf8").trimEnd()}\n\n# Local only: videos go to the fake Stream (no Cloudflare Stream locally).\nSTREAM_FAKE=true\n`,
+  );
+}
+
 // Stand-in speech for local dev and e2e, unless this checkout has a real key to try (ADR 0349).
 if (
   existsSync(appVars) &&
@@ -150,6 +159,13 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       readFileSync(join(root, "packs/programs", file), "utf8"),
     ]),
   );
+  // And Courses (stage 42), which requires Programs, the same way, for its e2e specs.
+  const courses = Object.fromEntries(
+    ["index.ts", "tools.ts", "outline.ts", "automations.ts", "dashboards.ts"].map((file) => [
+      file,
+      readFileSync(join(root, "packs/courses", file), "utf8"),
+    ]),
+  );
   // And Content (stage 28), the same way, for its e2e spec.
   const content = Object.fromEntries(
     ["index.ts", "tools.ts"].map((file) => [
@@ -187,6 +203,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       // And Programs (stage 41), the same way, for its e2e specs.
       { id: "programs", version: "0.1.0", optional: true, files: programs },
       { id: "content", version: "0.2.0", optional: true, files: content },
+      { id: "courses", version: "0.1.0", optional: true, files: courses },
     ].filter((extension) => asOrgExtension(extension.id)),
   });
   const hash = createHash("sha256").update(text).digest("hex");
