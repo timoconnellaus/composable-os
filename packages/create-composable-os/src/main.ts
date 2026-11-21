@@ -717,11 +717,11 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
   if (customerAuthUrl !== undefined) {
     vars[app.name] = { ...vars[app.name], CUSTOMER_AUTH_URL: customerAuthUrl };
   }
-  // The mobile app staff sign in to through the system browser (ADR 0451): the one redirect a
-  // sign-in code may be sent to, set by cos deploy from product.ts.
-  const staffRedirects = str(flags, "staff-app-redirects");
-  if (staffRedirects !== undefined) {
-    vars[app.name] = { ...vars[app.name], STAFF_APP_REDIRECTS: staffRedirects };
+  // The mobile app staff sign in to through the system browser (ADR 0451, ADR 0455): the
+  // redirects a sign-in may be sent back to, set by cos deploy from product.ts.
+  const nativeRedirects = str(flags, "native-redirect-uris");
+  if (nativeRedirects !== undefined) {
+    vars[app.name] = { ...vars[app.name], NATIVE_REDIRECT_URIS: nativeRedirects };
   }
   // A client product's gatekeeper settings (ADR 0452): plain vars the gatekeeper declares, by
   // the release's Worker name, checked by cos deploy against the manifest. Kept by upgrades.

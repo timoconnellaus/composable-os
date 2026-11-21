@@ -105,6 +105,12 @@ export interface ClientProductDefinition {
      * adopted site does today, and `cos deploy` only checks it; its wrangler config binds HOST.
      */
     deploy?: "cos" | "own";
+    /**
+     * The web app's routes that reach the host, for the edge rate-limit rule `cos` prints (so it
+     * names only those): the sign-in route (default `/auth/`) and the operation route
+     * (`operationRoute`, default `/api/v1/op/`).
+     */
+    routes?: { signIn?: string; operations?: string };
   };
   /**
    * The mobile app, if the repo has one: its folder, where its generated client is, and the pack
@@ -154,6 +160,12 @@ export interface ClientEnvironment {
   gatekeepers?: GatekeeperSettings;
   /** The web app in this environment: its hostname (else workers.dev) and its Worker's name. */
   web?: { hostname?: string; worker?: string };
+  /**
+   * The mobile app's build for this environment: its URL scheme, when it differs from the
+   * product's (a staging build of the app installed beside the live one), for staff sign-in's
+   * redirect (`<scheme>://staff-sign-in`, NATIVE_REDIRECT_URIS on the host).
+   */
+  mobile?: { scheme?: string };
   /** The host's names here, when they are not the derived ones. */
   names?: Partial<ProductDefinition["names"]>;
 }

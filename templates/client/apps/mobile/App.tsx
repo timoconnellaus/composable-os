@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { hostSession } from "./src/host.ts";
+import { secureRandom } from "./src/secure-random.ts";
 import { secureStore } from "./src/secure-store.ts";
 
 type TabKey = "home" | "account";
@@ -22,6 +23,7 @@ export default function App() {
         hostUrl: String(Constants.expoConfig?.extra?.hostUrl ?? ""),
         store: secureStore,
         deviceName: Constants.deviceName ?? "Phone",
+        random: secureRandom,
       }),
     [],
   );

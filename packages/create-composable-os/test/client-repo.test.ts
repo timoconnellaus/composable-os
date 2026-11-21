@@ -360,7 +360,30 @@ describe("a pack role's client in the mobile app (ADR 0451)", () => {
     expect(read(dir, "apps/mobile/src/client/customer.ts")).not.toContain("x.ticketing.checkIn");
     const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
     expect(deployed.code, deployed.output).toBe(0);
-    expect(world.cf.liveBinding("shop-app", "STAFF_APP_REDIRECTS")?.text).toBe(
+    expect(world.cf.liveBinding("shop-app", "NATIVE_REDIRECT_URIS")?.text).toBe(
+      "shop://staff-sign-in",
+    );
+  });
+
+  it("sets each environment's app redirect from its scheme", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(
+        /(\n\s*web: \{[^\n]*\},)/,
+        '$1\n  mobile: { dir: "apps/mobile" },',
+      ),
+    );
+    setEnvironments(dir, { staging: { mobile: { scheme: "shop-staging" } }, live: {} });
+    expect((await cos("deploy", "--env", "staging", "--skip-build", "--no-typecheck")).code).toBe(
+      0,
+    );
+    expect((await cos("deploy", "--env", "live", "--skip-build", "--no-typecheck")).code).toBe(0);
+    expect(world.cf.liveBinding("shop-staging-app", "NATIVE_REDIRECT_URIS")?.text).toBe(
+      "shop-staging://staff-sign-in",
+    );
+    expect(world.cf.liveBinding("shop-app", "NATIVE_REDIRECT_URIS")?.text).toBe(
       "shop://staff-sign-in",
     );
   });
@@ -683,6 +706,20 @@ describe("blocks (criterion 10)", () => {
     expect((await cos("diff", "greeting")).output).toContain("No upstream change");
   });
 
+  it("prints the release's version of a pack and the install command the app takes (Expo)", async () => {
+    await publish("1.0.0");
+    const dir = join(scratch(), "gym");
+    expect((await runIn(world, "create", dir, "--with-mobile", "--version", "1.0.0")).code).toBe(0);
+    cwd = dir;
+    setPacks(dir, ["ticketing"]);
+    const added = await cos("add", "ticketing-native-scanner");
+    expect(added.code, added.output).toBe(0);
+    expect(added.output).toContain(
+      "cd apps/mobile && npx expo install @composable-os/pack-ticketing@1.0.0",
+    );
+    expect(added.output).not.toContain("@*");
+  });
+
   it("copies the sign-in block with the base-layer blocks it depends on, and their MIT licence", async () => {
     await publish("1.0.0");
     const dir = await created();
@@ -864,6 +901,36 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
     expect(world.cf.scripts.has("movement-site")).toBe(false);
     expect(deployed.output).toContain('deploys itself (web.deploy "own")');
     expect(deployed.output).toContain("HOST's target is movement-app, entrypoint ClientApp");
+  });
+
+  it("shows the tsconfig change an Expo app needs for the host module's .ts imports, and scopes the edge rule", async () => {
+    await publish("1.0.0");
+    const dir = fixture();
+    writeFileSync(
+      join(dir, "mobile", "tsconfig.json"),
+      `${JSON.stringify({ extends: "expo/tsconfig.base", compilerOptions: { strict: true } }, null, 2)}\n`,
+    );
+    cwd = dir;
+    const init = await cos(
+      "init",
+      "--web",
+      ".",
+      "--mobile",
+      "mobile",
+      "--operation-route",
+      "/composable/op/",
+    );
+    expect(init.code, init.output).toBe(0);
+    expect(init.output).toContain("--- mobile/tsconfig.json");
+    expect(init.output).toContain('+     "allowImportingTsExtensions": true,');
+    expect(init.output).toContain('+     "noEmit": true');
+    expect(read(dir, "mobile/tsconfig.json")).not.toContain("allowImportingTsExtensions");
+    // The rule names only the routes that reach the host, not the site's own /api/.
+    expect(init.output).toContain(
+      '(starts_with(http.request.uri.path, "/auth/") or starts_with(http.request.uri.path, "/composable/op/"))',
+    );
+    expect(init.output).not.toContain('"/api/")');
+    expect(existsSync(join(dir, "mobile", "src", "composable-os", "secure-random.ts"))).toBe(true);
   });
 
   it("--packs turns on packs the release carries and refuses one it does not", async () => {

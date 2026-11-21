@@ -92,6 +92,66 @@ describe("a customer signs in on the company's own hostname", () => {
     expect((await browse("/account", { cookie: jar })).status).toBe(401);
   });
 
+  it("the operation route passes the browser's allowed calls, same origin only (ADR 0451)", async () => {
+    const email = await invitedPerson("Grace");
+    await browse("/auth/code", { body: { email } });
+    const code = sentCodes.get(email.toLowerCase());
+    const signedIn = await browse("/auth/sign-in", { body: { email, code } });
+    const jar = (signedIn.cookies[0] as string).split(";")[0] as string;
+    const op = (name: string, headers: Record<string, string>, body: string | undefined = "{}") =>
+      env.COMPANY_WEB.fetch(`${WEB_ORIGIN}/api/v1/op/${name}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: jar, ...headers },
+        body,
+      });
+
+    // The browser's typed client, from this site, as the signed-in customer.
+    const me = await op("me.get", { origin: WEB_ORIGIN });
+    expect(me.status).toBe(200);
+    expect(((await me.json()) as { data: { displayName: string } }).data.displayName).toBe(
+      "Grace Lovelace",
+    );
+    // No Set-Cookie or other host header comes back through it.
+    expect(me.headers.getSetCookie()).toEqual([]);
+    // A read with no Origin is allowed; a write with none is not.
+    expect((await op("me.get", {})).status).toBe(200);
+    expect((await op("me.update", { "idempotency-key": "k-1" }, '{"givenName":"G"}')).status).toBe(
+      403,
+    );
+    const written = await op(
+      "me.update",
+      { origin: WEB_ORIGIN, "idempotency-key": crypto.randomUUID() },
+      JSON.stringify({ givenName: "Gracie" }),
+    );
+    expect(written.status, await written.clone().text()).toBe(200);
+    // Another site, an operation not allowed, a body that is not JSON: refused.
+    expect((await op("me.get", { origin: "https://evil.example" })).status).toBe(403);
+    expect((await op("me.sessions.list", { origin: WEB_ORIGIN })).status).toBe(404);
+    expect((await op("me.get", { origin: WEB_ORIGIN, "content-type": "text/plain" })).status).toBe(
+      415,
+    );
+    // An Authorization header is never forwarded: a staff token here is nobody.
+    const staffToken = await issueDeviceSession(
+      db,
+      { audience: "staff", subjectId: admin.id },
+      "Laptop",
+      new Date(),
+    );
+    const asToken = await env.COMPANY_WEB.fetch(`${WEB_ORIGIN}/api/v1/op/me.get`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: WEB_ORIGIN,
+        authorization: `Bearer ${staffToken.accessToken}`,
+      },
+      body: "{}",
+    });
+    expect(asToken.status).toBe(404);
+    expect(((await asToken.json()) as { error: { code: string } }).error.code).toBe(
+      "unknown_operation",
+    );
+  });
+
   it("a staff cookie or token the web app forwards is not staff over the binding", async () => {
     // The web app's own client forwards only customer cookies; call the binding as a careless or
     // compromised web app would, with everything.

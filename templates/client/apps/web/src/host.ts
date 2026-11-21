@@ -9,7 +9,7 @@ import {
   customerSession,
   keepCustomerSignedIn,
 } from "@composable-os/client";
-import { createCustomerClient } from "./client/customer.ts";
+import { createCustomerClient, operations } from "./client/customer.ts";
 
 export interface HostEnv {
   /** The service binding to the host's ClientApp entrypoint (wrangler.jsonc). */
@@ -104,4 +104,70 @@ export async function withSessionKept(
   const kept = new Response(response.body, response);
   for (const cookie of cookies) kept.headers.append("set-cookie", cookie);
   return kept;
+}
+
+/** Where the browser's typed-client calls come in, unless `operationRoute` is told another path. */
+export const OPERATION_ROUTE = "/api/v1/op/";
+
+export interface OperationRouteOptions {
+  /** The operations a page in the browser may call through this route: nothing else is passed. */
+  allow: readonly (keyof typeof operations)[];
+  /** The path the route answers, ending in "/" (default /api/v1/op/): POST <path><operation>. */
+  path?: string;
+}
+
+const refuse = (status: number, code: string, message: string) =>
+  Response.json({ error: { code, message } }, { status });
+
+/**
+ * A same-origin route for calls from the browser (ADR 0451): a web block running in a page, an
+ * Astro island, any client code that cannot reach HOST itself. `POST <path><operation>` with a
+ * JSON body is forwarded to the host over HOST with the customer's cookie and the
+ * Idempotency-Key, and nothing else; the host's answer is passed back. Only operations in
+ * `allow` are passed. The request must come from this site (its Origin, which a write must
+ * send); an Authorization header is never forwarded. Null for any other request.
+ *
+ * In the browser: createCustomerClient({ baseUrl: location.origin, ... }) with the generated
+ * client, and its calls go to /api/v1/op/<operation>, which this route answers.
+ */
+export async function operationRoute(
+  request: Request,
+  env: HostEnv,
+  options: OperationRouteOptions,
+): Promise<Response | null> {
+  const path = options.path ?? OPERATION_ROUTE;
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith(path)) return null;
+  const name = decodeURIComponent(url.pathname.slice(path.length));
+  if (request.method !== "POST") return refuse(405, "invalid_input", "Use POST");
+  const spec = (operations as Record<string, { kind: "query" | "mutation" } | undefined>)[name];
+  if (!spec || !options.allow.includes(name as keyof typeof operations)) {
+    return refuse(404, "unknown_operation", `No operation named "${name}"`);
+  }
+  // Same origin only. A write must say where it comes from; a read may come with no Origin (a
+  // same-origin GET-like fetch from an older browser), never from another site.
+  const origin = request.headers.get("origin");
+  if (origin ? origin !== url.origin : spec.kind === "mutation") {
+    return refuse(403, "forbidden", "Calls come from this site only");
+  }
+  if (!/^application\/json\b/i.test(request.headers.get("content-type") ?? "")) {
+    return refuse(415, "invalid_input", "Send JSON (content-type: application/json)");
+  }
+  const body = await request.text();
+  if (body.length > 1_000_000) return refuse(413, "invalid_input", "The body is too large");
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    ...customerSession(request.headers.get("cookie")),
+  };
+  const key = request.headers.get("idempotency-key");
+  if (key) headers["idempotency-key"] = key;
+  const answer = await env.HOST.fetch(`${BOUND}/api/v1/op/${encodeURIComponent(name)}`, {
+    method: "POST",
+    headers,
+    body: body || "{}",
+  });
+  return new Response(answer.body, {
+    status: answer.status,
+    headers: { "content-type": answer.headers.get("content-type") ?? "application/json" },
+  });
 }
