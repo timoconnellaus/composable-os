@@ -380,7 +380,11 @@ export type CodeRequestRefusal =
 /** Reads a code request's refusal from Better Auth's error. Null: not one of ours. */
 export function codeRequestRefusal(error: unknown): CodeRequestRefusal | null {
   if (!(error instanceof APIError)) return null;
-  const body = (error.body ?? {}) as { code?: string; message?: string; retryAfterSeconds?: number };
+  const body = (error.body ?? {}) as {
+    code?: string;
+    message?: string;
+    retryAfterSeconds?: number;
+  };
   if (body.code === "SIGN_IN_NOT_SET_UP") {
     return { refused: "not_set_up", message: body.message ?? "Sign-in is not set up" };
   }

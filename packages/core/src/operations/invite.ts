@@ -125,7 +125,10 @@ export const userInvite = defineOperation({
     "visit once Access lets them in. Sign-up stays closed to everyone else. An address with an " +
     "account cannot be invited; inviting an address again replaces its pending invite. Expires " +
     "in 7 days. Admins only, and only a human can call it.",
-  input: z.object({ email: z.string().min(3).max(254).describe("Their email address"), ...accessInput }),
+  input: z.object({
+    email: z.string().min(3).max(254).describe("Their email address"),
+    ...accessInput,
+  }),
   output: inviteSchema.extend({
     /** How they get in: an emailed code (`code`) or Cloudflare Access (`access`). */
     signIn: z.enum(["code", "access"]),
@@ -263,9 +266,19 @@ export const userRevokeInvite = defineOperation({
         .set({ revoked_at: ctx.now, revoked_by: ctx.user.id, updated_at: ctx.now })
         .where("id", "=", before.id),
     );
-    ctx.recordChange({ object: "user_invite", id: before.id, action: "delete", before: audited(before) });
+    ctx.recordChange({
+      object: "user_invite",
+      id: before.id,
+      action: "delete",
+      before: audited(before),
+    });
     return { id: before.id, revokedAt: ctx.now };
   },
 });
 
-export const inviteOperations = [userInvites, userInvite, userUpdateInvite, userRevokeInvite] as const;
+export const inviteOperations = [
+  userInvites,
+  userInvite,
+  userUpdateInvite,
+  userRevokeInvite,
+] as const;

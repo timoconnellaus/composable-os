@@ -15,6 +15,7 @@ import {
 import type { IdentityProvider, IdentityProviderKind } from "./principal.ts";
 
 export {
+  addressKey,
   BETTER_AUTH_BASE_PATH,
   type BetterAuthInstance,
   type BetterAuthOptions,

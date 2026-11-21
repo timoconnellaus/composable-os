@@ -49,6 +49,12 @@ export const CUSTOMER_MAIL_ORIGIN = {
   automationId: "system.customer-mail",
 } as const;
 
+/** The system's own caller for staff mail (ADR 0455): invite notices and staff sign-in codes. */
+export const STAFF_MAIL_ORIGIN = {
+  surface: "system",
+  automationId: "system.staff-mail",
+} as const;
+
 /**
  * Calls the integration host as the host itself (ADR 0419): the system user with actor
  * `automation`, never a staff member. For customer mail only; cos-runner's integration host
@@ -57,6 +63,7 @@ export const CUSTOMER_MAIL_ORIGIN = {
 export function hostMailCall(
   runtime: Pick<IntegrationRuntime, "call">,
   reason = "A customer asked for a sign-in code",
+  origin: { surface: "system"; automationId: string } = CUSTOMER_MAIL_ORIGIN,
 ): CallIntegration {
   return async (input) => {
     const result = await runtime.call({
@@ -66,7 +73,7 @@ export function hostMailCall(
         userId: SYSTEM_USER.id,
         userName: SYSTEM_USER.name,
         role: SYSTEM_USER.role,
-        origin: { ...CUSTOMER_MAIL_ORIGIN },
+        origin: { ...origin },
         reason,
       },
     });

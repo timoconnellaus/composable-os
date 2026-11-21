@@ -63,7 +63,12 @@ const signIn = (email: string, otp: string, extra: Record<string, unknown> = {})
 
 async function invite(
   email: string,
-  options: { role?: string; packRole?: string | null; permissions?: string[]; expiresAt?: string } = {},
+  options: {
+    role?: string;
+    packRole?: string | null;
+    permissions?: string[];
+    expiresAt?: string;
+  } = {},
 ): Promise<string> {
   const id = `uin_${crypto.randomUUID().replace(/-/g, "").slice(0, 26).toUpperCase()}`;
   const now = new Date().toISOString();
@@ -136,7 +141,10 @@ describe("an invited person signs in with an emailed code", () => {
 
     const response = await signIn(email, code as string);
     expect(response.status).toBe(200);
-    const cookie = response.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+    const cookie = response.headers
+      .getSetCookie()
+      .map((c) => c.split(";")[0])
+      .join("; ");
     const principal = await provider.resolve(new Request(ORIGIN, { headers: { cookie } }));
     expect(principal?.email).toBe(email);
 
@@ -401,7 +409,9 @@ describe("native staff sign-in (no cookie)", () => {
     );
     const row = await userRow(email);
     expect(signedIn).toEqual({ userId: row?.id });
-    const sessions = await env.DB.prepare("SELECT COUNT(*) AS n FROM core_session WHERE user_id = ?")
+    const sessions = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM core_session WHERE user_id = ?",
+    )
       .bind(row?.id)
       .first<{ n: number }>();
     expect(sessions?.n).toBe(0);
@@ -410,6 +420,8 @@ describe("native staff sign-in (no cookie)", () => {
       await staffSignInWithCode(auth, env.DB, email, sent.get(email) as string, new Headers()),
     ).toBeNull();
     // No invite, no account: the same null.
-    expect(await staffSignInWithCode(auth, env.DB, unique("x"), "123456", new Headers())).toBeNull();
+    expect(
+      await staffSignInWithCode(auth, env.DB, unique("x"), "123456", new Headers()),
+    ).toBeNull();
   });
 });

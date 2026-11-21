@@ -221,6 +221,52 @@ export async function resolveAccessToken(
   return { audience: row.audience, subjectId, sessionId: row.id };
 }
 
+/** The audit row's operation name for a device session ending itself (ADR 0455). */
+export const DEVICE_SIGN_OUT_AUDIT = "deviceSession.signOut";
+
+/**
+ * Ends the device session a refresh token belongs to, from that token alone (ADR 0455): an
+ * account that may call no operation to sign out (a door account) can still end its own session.
+ * The token is spent either way. A token that was this session's, current or already rotated
+ * past, ends it; any other ends nothing. True when a session ended. Audited as a sign-out.
+ */
+export async function signOutDeviceSession(
+  db: CrmDb,
+  refreshToken: string,
+  now: Date,
+): Promise<boolean> {
+  const sessionId = sessionIdOf(refreshToken);
+  if (!sessionId) return false;
+  const row = await db.query
+    .selectFrom("core_device_session")
+    .select(["id", "audience", "user_id", "customer_id", "refresh_hash", "used_refresh_hashes"])
+    .where("id", "=", sessionId)
+    .executeTakeFirst();
+  if (!row) return false;
+  const hash = await tokenHash(refreshToken);
+  const used = JSON.parse(row.used_refresh_hashes) as string[];
+  if (hash !== row.refresh_hash && !used.includes(hash)) return false;
+  const at = now.toISOString();
+  await db.batch([
+    db.query.deleteFrom("core_device_session").where("id", "=", sessionId),
+    db.query.insertInto("core_audit").values({
+      id: newId("audit"),
+      at,
+      operation: DEVICE_SIGN_OUT_AUDIT,
+      risk: "write",
+      actor: row.audience === "staff" ? "human" : "customer",
+      user_id: row.audience === "staff" ? row.user_id : row.customer_id,
+      origin: JSON.stringify({ surface: "client", sessionId }),
+      input: JSON.stringify({ sessionId }),
+      result: JSON.stringify({ ended: true }),
+      gate_decision: "auto",
+      outcome: "ok",
+      error: null,
+    }),
+  ]);
+  return true;
+}
+
 /** Statements ending every device session of a customer account (disable, delete, merge). */
 export function endCustomerDeviceSessions(
   db: Kysely<CoreDatabase>,

@@ -63,6 +63,7 @@ import {
 } from "./gate.ts";
 import { findProvisionalIds, newId } from "./ids.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
+import type { HostMail } from "./invites.ts";
 import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
@@ -81,7 +82,6 @@ import {
   runAfterCommit,
   type SystemActivityInput,
 } from "./operation.ts";
-import type { HostMail } from "./invites.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
 import {
   type HeldPackRole,

@@ -94,6 +94,7 @@ export * from "./integrations/events.ts";
 export * from "./integrations/outbound.ts";
 export * from "./integrations/outbound-check.ts";
 export * from "./integrations/runtime.ts";
+export * from "./invites.ts";
 export * from "./invoke.ts";
 export * from "./judge/calibrated.ts";
 export * from "./judge/index.ts";
@@ -178,7 +179,6 @@ export * from "./operations/user.ts";
 export * from "./operations/view.ts";
 export * from "./operations/voice.ts";
 export * from "./orders/index.ts";
-export * from "./invites.ts";
 export * from "./pack-roles.ts";
 export {
   type AnyInvocationContext,

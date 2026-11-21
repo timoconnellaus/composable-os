@@ -6,6 +6,7 @@
 // adjudicator.
 
 import { env as workerEnv } from "cloudflare:workers";
+import { provideStaffCodes } from "@composable-os/auth";
 import { isApiPath, type RoutineDeliveryMessage } from "@composable-os/core";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
 import handler from "@tanstack/react-start/server-entry";
@@ -26,12 +27,14 @@ export { ClientApp } from "./server/http/bound.ts";
 import { type AssistantHttpEnv, handleSocket, SOCKET_PATH } from "./server/assistant/http.ts";
 import { runAgentJobCron } from "./server/assistant/job-cron.ts";
 import { handleRoutineDeliveries } from "./server/assistant/routines.ts";
+import { staffCodesFor } from "./server/host-mail.ts";
 import {
   type ApiEnv,
   handleApi,
   handleCustomerAuth,
   isCustomerAuthPath,
 } from "./server/http/api.ts";
+import { handleNativeStaffSignIn, NATIVE_STAFF_SIGN_IN_PATH } from "./server/http/native.ts";
 import { authorize } from "./server/identity.ts";
 import { createAppHandler } from "./server/mcp/handler.ts";
 import { runBlobDeletionCron, runScheduledMaintenance } from "./server/purge.ts";
@@ -57,6 +60,8 @@ async function apiResponse(request: Request, env: ApiEnv): Promise<Response> {
 
 export default {
   fetch(request, env, ctx) {
+    // Staff sign-in codes go out as the host's own mail (ADR 0455), for whichever route asks.
+    provideStaffCodes(env, staffCodesFor(env as unknown as ApiEnv));
     // Hosted support access (ADR 0212): a 404 unless COS_SUPPORT_PUBLIC_KEY is set.
     const pathname = new URL(request.url).pathname;
     if (isSupportRoute(pathname)) return handleSupportRoute(request, env);
@@ -69,6 +74,10 @@ export default {
     if (isApiPath(pathname)) return apiResponse(request, env as unknown as ApiEnv);
     // Customer sign-in (stage 22's routes, mounted by stage 23): a code by email, then a session.
     if (isCustomerAuthPath(pathname)) return handleCustomerAuth(request, env as unknown as ApiEnv);
+    // A native app's staff sign-in through the system browser (ADR 0455): a staff page.
+    if (pathname === NATIVE_STAFF_SIGN_IN_PATH) {
+      return handleNativeStaffSignIn(request, env as unknown as ApiEnv);
+    }
     return app.fetch(request, env, ctx);
   },
   // A routine's message from cos-runner (ADR 0343), into its owner's thread.
