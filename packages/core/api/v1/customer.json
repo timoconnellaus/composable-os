@@ -138,7 +138,7 @@
     },
     {
       "name": "me.get",
-      "description": "Your own Person, as a signed-in customer: your name, primary email and primary phone. Read-only.",
+      "description": "Your own Person, as a signed-in customer: your name, primary email and primary phone, and your account's sign-in address (signInEmail, the one the emailed code verified, with signInEmailVerified). Link records kept elsewhere to a customer by signInEmail only: primaryEmail is a contact address staff can change. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -166,6 +166,14 @@
           },
           "primaryPhone": {
             "type": ["string", "null"]
+          },
+          "signInEmail": {
+            "type": "string",
+            "description": "The address you sign in with: the one the emailed code verified, lower-cased. Not the Person's contact email (primaryEmail), which staff can change. The only address to trust when linking records kept elsewhere to this customer."
+          },
+          "signInEmailVerified": {
+            "type": "boolean",
+            "description": "Whether signInEmail was verified by an emailed code. True for every signed-in customer."
           }
         },
         "required": [
@@ -174,7 +182,9 @@
           "givenName",
           "familyName",
           "primaryEmail",
-          "primaryPhone"
+          "primaryPhone",
+          "signInEmail",
+          "signInEmailVerified"
         ],
         "additionalProperties": false
       },

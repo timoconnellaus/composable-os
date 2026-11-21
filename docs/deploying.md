@@ -154,6 +154,24 @@ may be a subdomain (`admin.example.com`), and staff sign in there.
    zone, so the host's rule does not see them. Signed-in customers are still limited per account
    by the host.
 
+#### Who a customer is, from the company's own server
+
+A company that keeps records of its own (members, bookings) links them to a platform customer by
+the address the customer signs in with. `me.get` returns it as `signInEmail` (with
+`signInEmailVerified`): the address the emailed code was sent to and verified on. Link by it
+alone. `primaryEmail` is the Person's contact address, which staff can change, and is not proof
+of anything.
+
+- **A browser on the web app:** the web app's Worker calls `me.get` over the binding with the
+  customer's cookie, as in step 3 above.
+- **A native app:** the app holds a device session's access token (ADR 0419), not a cookie. When
+  it calls the company's own server, it sends that token; the server checks it by calling
+  `me.get` on the host's **public HTTPS address** with `Authorization: Bearer <token>`
+  (`POST https://<host>/api/v1/op/me.get`, body `{}`), and links by the `signInEmail` it gets
+  back. A token that is not a live session answers 401. Do not send the token over the binding:
+  the binding takes cookies only and refuses any bearer token (`binding_takes_cookies_only`,
+  ADR 0421). The server never stores the token or uses it for anything but this check.
+
 `crm-runner`'s only secrets are the AI ones ([In-app AI](#in-app-ai)). It runs extension code, which calls operations there, so set its
 `APPROVAL_FLOOR` var (in `apps/runner/wrangler.jsonc`) to the same value as crm-app's. Shipped
 extensions (packs, `packs/`) are installed through `extension.install` on the first request after a

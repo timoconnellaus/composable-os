@@ -21,12 +21,12 @@ export type Operations = {
     output: { disabled: true; sessionsEnded: number; eraseRequest: { requestedAt: string; dueAt: string } };
   };
   /**
-   * Your own Person, as a signed-in customer: your name, primary email and primary phone. Read-only.
+   * Your own Person, as a signed-in customer: your name, primary email and primary phone, and your account's sign-in address (signInEmail, the one the emailed code verified, with signInEmailVerified). Link records kept elsewhere to a customer by signInEmail only: primaryEmail is a contact address staff can change. Read-only.
    */
   "me.get": {
     kind: "query";
     input: Record<string, unknown>;
-    output: { id: string; displayName: string; givenName: (string) | (null); familyName: (string) | (null); primaryEmail: (string) | (null); primaryPhone: (string) | (null) };
+    output: { id: string; displayName: string; givenName: (string) | (null); familyName: (string) | (null); primaryEmail: (string) | (null); primaryPhone: (string) | (null); signInEmail: string; signInEmailVerified: boolean };
   };
   /**
    * The places you are signed in, as a signed-in customer: each session's id, whether it is a browser or an app on a device (with the device's name), when it began, when it was last used and when it expires, and which one is this one. Read-only.
