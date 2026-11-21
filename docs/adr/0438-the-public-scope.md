@@ -104,3 +104,12 @@ the public. `my.list` and `my.get` now answer for an object that declares a cust
 `signedIn`: records shared with every signed-in customer are declared for them on purpose, as
 their own are. `public.*` stays for what the public may read. An object declares `public` or
 `signedIn`, not both. See [ADR 0447](0447-the-signed-in-scope.md).
+
+## Amended 2026-11-21 (ADR 0439)
+- `my.list` and `my.get` also answer for an object that declares `customerVia`: a customer reads
+  there the records their own records point to and, on an object that is public too, the public
+  ones beside them. On an object that declares only `public`, a customer still reads it only
+  through a pack's tool.
+- **Buying reads the scope without `customerVia`** (`buyableSource`): a customer or a guest buys
+  only what they may read as their own or as the public, never what they read only through their
+  own records.

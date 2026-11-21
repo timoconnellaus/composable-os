@@ -90,7 +90,9 @@ describe("a sign-in code, sent by the host", () => {
     const sent = await fakeProviderStub(env, outbox).sent();
     const mine = sent.filter((m) => m.to.includes(to));
     expect(mine).toHaveLength(1);
-    expect(mine[0]?.subject).toContain("482913");
+    // The code is in the body, never the subject the audit log keeps as the title (ADR 0455).
+    expect(mine[0]?.text).toContain("482913");
+    expect(mine[0]?.subject).not.toContain("482913");
 
     // The system user has no core_user row: it is no one on the staff.
     const systemRow = await env.DB.prepare("SELECT id FROM core_user WHERE id = ?")

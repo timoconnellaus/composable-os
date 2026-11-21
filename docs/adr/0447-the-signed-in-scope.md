@@ -88,3 +88,9 @@ count once.
 - A customer's write that sets a relation costs one read per relation field.
 - Stage 14a's staff scopes extend this seam; the signed-in scope is a customer scope and does not
   change what staff see.
+
+## Amended 2026-11-21 (ADR 0439)
+`customerVia` sits beside this scope: on an object that declares both, a customer reads the
+records their own records point to and the shared ones, each declaration's fields on the records
+it covers (`CASE WHEN`, as here). `ownedSource` and the write checks are unchanged: a record a
+customer reads through their own records is not theirs to change.

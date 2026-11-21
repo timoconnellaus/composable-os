@@ -8,7 +8,8 @@
 //     are fields staff edit, and a paid line grants one ticket per place, with the host's code,
 //     in the batch that marks the order paid; a full refund or a cancelled deposit voids them;
 //   - a ticket is its holder's (`customer`): they read its event, type, code and state, and
-//     nothing else, through the visibility seam;
+//     nothing else, through the visibility seam, and through it their event's name, times and
+//     venue and their ticket type's name, live, whatever the event's state (`customerVia`);
 //   - the door role (`roles`, ADR 0436): check tickets in and read events, ticket types and
 //     tickets, and nothing else.
 // The tools in tools.ts compose the host's operations and add no rules of their own.
@@ -39,6 +40,7 @@ export default defineExtension({
     read: ["person"],
     // public.list and capacity.get: the events on sale and their places, for the public.
     // extensionSettings.list: the pages the buyer's emails link to. email-send: the buyer's mail.
+    // order.settings.get: the currency the sales summary's amounts are in (staff).
     operations: [
       "order.start",
       "order.get",
@@ -46,6 +48,7 @@ export default defineExtension({
       "public.list",
       "capacity.get",
       "extensionSettings.list",
+      "order.settings.get",
     ],
     modules: ["ops", "email-send"],
   },
@@ -62,6 +65,16 @@ export default defineExtension({
         name: { type: "text", label: "Name", required: true },
         startsAt: { type: "datetime", label: "Starts" },
         endsAt: { type: "datetime", label: "Ends" },
+        // Where the event's clock is (ADR 0460): its days and times are this zone's, for buyers,
+        // holders, the emails and the reminders. Left empty, the deployment's zone.
+        timezone: {
+          type: "timezone",
+          label: "Time zone",
+          required: true,
+          description:
+            "The event's own time zone, e.g. Asia/Bangkok for a camp in Thailand. Its dates are " +
+            "shown, and its reminders sent, on this zone's days. Empty: this deployment's zone.",
+        },
         venue: { type: "text", label: "Venue" },
         description: { type: "longText", label: "Description" },
         image: { type: "url", label: "Image" },
@@ -97,8 +110,15 @@ export default defineExtension({
       capacity: { places: "places" },
       // The public reads an event while it is on sale (ADR 0438): what its page shows.
       public: {
-        read: ["name", "startsAt", "endsAt", "venue", "description", "image", "status"],
+        read: ["name", "startsAt", "endsAt", "timezone", "venue", "description", "image", "status"],
         when: { field: "status", in: ["on_sale"] },
+      },
+      // A ticket's holder reads its event whatever the event's state (ADR 0439): an ended
+      // event's name, times and venue are what a ticket is looked at for.
+      customerVia: {
+        from: "ticketing.ticket",
+        field: "event",
+        read: ["name", "startsAt", "endsAt", "timezone", "venue", "status"],
       },
       indexes: [["status", "startsAt"], ["startsAt"]],
     },
@@ -169,6 +189,9 @@ export default defineExtension({
         ],
         when: { via: "event", field: "status", in: ["on_sale"] },
       },
+      // A ticket's holder reads the name of its ticket type, whatever its event's state. Reading
+      // it is not buying it: a customer buys only what they may read as the public (ADR 0439).
+      customerVia: { from: "ticketing.ticket", field: "tickettype", read: ["name"] },
       indexes: [["event"]],
     },
     ticket: {

@@ -3,7 +3,7 @@
 //  - the header's border once the page scrolls
 //  - the mobile menu (Escape and link clicks close it)
 //  - reveal-on-scroll, once per element
-//  - waitlist forms post in the background and show their success message in place
+//  - the call form posts in the background and shows its success message in place
 
 const header = document.querySelector<HTMLElement>("header.site");
 if (header) {
@@ -52,7 +52,7 @@ const ERRORS: Record<string, string> = {
   rate_limited: "Too many tries just now. Please wait a minute and try again.",
 };
 
-for (const form of document.querySelectorAll<HTMLFormElement>("form[data-waitlist]")) {
+for (const form of document.querySelectorAll<HTMLFormElement>("form[data-form]")) {
   const error = document.getElementById(form.getAttribute("aria-describedby") ?? "");
   const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
   const done = form.querySelector<HTMLElement>(".done");

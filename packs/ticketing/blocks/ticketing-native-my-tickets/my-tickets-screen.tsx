@@ -1,6 +1,7 @@
 // A signed-in customer's tickets, for the mobile app's Tickets tab (stage 27). Which tickets are
 // theirs, and what of them they may see, is the host's (`useMyTickets` reads through the seam).
 import type { TicketingHooks } from "@composable-os/pack-ticketing/client";
+import { eventTime } from "@composable-os/pack-ticketing/client";
 import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
@@ -10,12 +11,9 @@ const STATE = { valid: "Valid", used: "Used", void: "Cancelled" } as const;
 
 export function MyTicketsScreen({
   ticketing,
-  eventName,
   onOpen,
 }: {
   ticketing: TicketingHooks;
-  /** The event's name for an id, from the app's own list of events. */
-  eventName?: (eventId: string | null) => string | null;
   /** Pushes the ticket's screen (TicketScreen) on the app's native stack. */
   onOpen: (ticket: { id: string; code: string | null; event: string | null }) => void;
 }) {
@@ -29,8 +27,14 @@ export function MyTicketsScreen({
           {data.items.map((ticket) => (
             <Row
               key={ticket.id}
-              title={eventName?.(ticket.event) ?? "Ticket"}
-              detail={STATE[ticket.state as keyof typeof STATE] ?? ticket.state}
+              title={ticket.eventName ?? "Ticket"}
+              detail={[
+                ticket.ticketTypeName,
+                ticket.startsAt ? eventTime(ticket) : null,
+                STATE[ticket.state as keyof typeof STATE] ?? ticket.state,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
               onPress={ticket.state === "valid" ? () => onOpen(ticket) : undefined}
             />
           ))}

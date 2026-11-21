@@ -421,6 +421,19 @@ are reachable without one. The OAuth routes (`/oauth/*`, `/.well-known/oauth-*`)
 are handled before TanStack Start by the OAuth provider, which checks Bearer tokens itself. A request without a Principal is redirected to sign-in (pages, Better
 Auth) or gets a 401 (APIs, server functions, and any request under Cloudflare Access).
 
+**Staff accounts and invites** ([ADR 0455](adr/0455-staff-invites-and-native-sign-in-by-tokens.md)).
+Sign-up stays closed after the first user (`AUTH_ALLOW_SIGNUP=false`). A human admin invites a
+person by address on Settings → Users (`user.invite`, not on MCP), with the role, pack role and
+grants the account will hold. With Better Auth, they accept by signing in with a code the host
+emails to that address (Better Auth's email OTP plugin, two of its routes served); the account is
+made in one insert with what the invite says, and an invite never applies to an account that
+exists. Under Cloudflare Access, Access decides who gets in and the invite is accepted on the
+person's first request. The host sends staff mail itself, on the one connection chosen for the
+host's mail. Deactivating an account ends its cookie and device sessions. Which paths a host
+behind Access keeps behind it and which it bypasses is `apps/app/src/server/access-layout.ts`,
+held to the route table by `apps/app/test-node/access-layout.test.ts` (`docs/deploying.md`,
+"Cloudflare Access").
+
 ### 8. AI
 
 **Model roles** (`build`, `assistant.core`, `assistant.subagent`, `summarise`, `extract`,
@@ -953,8 +966,11 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
   `cos client generate` (`packages/client-gen`) writes a product's `customer.ts` and `staff.ts`
   from its registry: core operations, its packs' tools and the org's own extensions. A pack may
   ship a headless entry over it (Deals: `packs/deals/client/index.ts`).
-- **Native apps** exchange a sign-in for tokens at `/api/v1/auth/token` and rotate them at
-  `/api/v1/auth/refresh` (`core_device_session`). Customer sign-in, `/api/customer-auth/*`, is
+- **Native apps** sign in for tokens with no cookie (ADR 0455): `/api/v1/auth/customer/code` and
+  `/customer/sign-in`, `/api/v1/auth/staff/code` and `/staff/sign-in`, and for staff whose sign-in
+  is browser-based, `/native/staff-sign-in` in the system browser then `/api/v1/auth/staff/exchange`.
+  They rotate tokens at `/api/v1/auth/refresh` and end their own session at `/api/v1/auth/sign-out`
+  (`core_device_session`). `/api/v1/auth/token` still exchanges a cookie session. Customer sign-in, `/api/customer-auth/*`, is
   served by cos-app; codes go out through the email connection `customer.settings` names, sent by
   the host as the system user.
 
@@ -1018,6 +1034,20 @@ has the public scope's shape and is read by every signed-in customer, never the 
 customer reads of their own empty on a shared row); alone it opens records to read. `my.list` and
 `my.get` read it. A customer changes only their own records (`ownedSource`), and a relation their
 write sets must point at a record they can see. `my.update` takes `from`.
+
+**Through their own records** ([ADR 0439](adr/0439-what-a-customer-reads-through-their-own-records.md),
+`packages/core/src/visibility/via.ts`). `customerVia: { from, field, read }` on an object: a
+customer reads the fields in `read` of the records one of their own records of `from` (an object
+of the same extension that declares a customer) points to through `field`, whatever their state
+(a ticket's event after it ended): `WHERE id IN (SELECT <field> FROM rec_<from> WHERE <customer> =
+:me)`. Beside `public` or `signedIn` the customer reads both, a column only one lists empty on the
+other's records. `my.list` and `my.get` read it. Buying reads `buyableSource`, the scope without
+it: reading is not buying. The seam also adds `currency` (the deployment's) beside a sellable
+object's records, and `me.get` returns the account's verified sign-in address (`signInEmail`).
+
+**Time zones** ([ADR 0460](adr/0460-time-zones-on-records.md)). A `timezone` field type (an IANA
+name the runtime knows; the deployment's zone when left empty on create), and date-relative
+triggers that count days in a record's own zone (`zoneField`), scanned hourly by cos-runner's cron.
 
 **The document field** ([ADR 0445](adr/0445-the-document-field.md),
 `packages/sdk/src/document.ts`). A field type whose value is one JSON document checked against a
@@ -1143,7 +1173,7 @@ calculates a price, checks a capacity or checks a permission.
 | --- | --- | --- |
 | Deals | `stages` | exists |
 | Leads, lifecycle | fields, tools | exists |
-| Ticketing | `states`, `capacity`, `sellable`, `customer`, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
+| Ticketing | `states`, `capacity`, `sellable`, `customer`, `public`, `customerVia`, a `timezone` field, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: the spine (objects, layout, versions, assign, logging, history, progress) built |
 | Content | `publishable`, rich text, media | stage 28 |
 | Bookings, memberships | `recurring`, `allowance`, recurring billing | later |

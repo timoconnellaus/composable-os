@@ -1,5 +1,6 @@
 ---
-// The shell for every page: metadata, self-hosted fonts, the icon sprite, header and footer. It
+// The shell for every page: metadata, self-hosted fonts, the icon sprite, and the frame that holds
+// the header, the page and the footer. It
 // loads nothing from another origin (no fonts, scripts, analytics or embeds), which
 // scripts/check-static.mjs enforces.
 import Fonts from "../components/Fonts.astro";
@@ -17,8 +18,8 @@ interface Props {
   noindex?: boolean;
 }
 const {
-  title = "Composable OS · Compose the software your company runs on",
-  description = "Composable OS is a platform for composing products on a trusted host in your own Cloudflare account. The first product is a CRM your AI can reshape, with a person approving each change.",
+  title = "Custom business software, with a head start · Composable OS",
+  description = "Zero BS AI builds custom software to fit your business on Composable OS, from parts that already work, then looks after it on one subscription. Book a call.",
   home = false,
   noindex = false,
 } = Astro.props;
@@ -36,33 +37,35 @@ const ogImage = new URL("/og.png", Astro.site);
     <meta name="referrer" content="no-referrer" />
     {noindex && <meta name="robots" content="noindex" />}
     <link rel="canonical" href={canonical} />
-    <meta name="theme-color" content="#f7f4ff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0e0b1f" media="(prefers-color-scheme: dark)" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#eaf3fe" />
+    <meta name="color-scheme" content="light" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta property="og:site_name" content="Composable OS" />
-    <meta property="og:title" content="Composable OS" />
-    <meta property="og:description" content="The operating system for your customer relationships." />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={ogImage} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Composable OS: compose the software your company runs on." />
+    <meta property="og:image:alt" content="Composable OS: a head start on custom software to fit your business." />
     <meta name="twitter:card" content="summary_large_image" />
     <!-- Marks that JavaScript runs, before first paint, so no-JS styles never flash. -->
     <script is:inline>document.documentElement.classList.add("js");</script>
     <Fonts />
+    <slot name="head" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
     <Sprite />
-    <Header home={home} />
-    <main id="main">
-      <slot />
-    </main>
-    <Footer />
+    <div class="frame">
+      <Header home={home} />
+      <main id="main">
+        <slot />
+      </main>
+      <Footer />
+    </div>
     <script>
       import "../scripts/site.ts";
     </script>

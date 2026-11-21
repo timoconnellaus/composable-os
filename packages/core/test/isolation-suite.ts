@@ -19,6 +19,7 @@ import {
   audiencesOf,
   encodeCursor,
   getObject,
+  invoke,
   type ObjectDefinition,
   openOperations,
 } from "../src/index.ts";
@@ -32,6 +33,7 @@ import {
   DECLARATIONS,
   fixtureRegistry,
   giveOrders,
+  ITEM,
   installShop,
   type call as invokeCall,
   LOG,
@@ -47,7 +49,7 @@ import {
   TICKET,
   TIER,
 } from "./customer-fixtures.ts";
-import { createUser } from "./helpers.ts";
+import { context, createUser } from "./helpers.ts";
 
 /** How a call is made: the same arguments and outcome as `call` in customer-fixtures.ts. */
 export type CallFn = typeof invokeCall;
@@ -505,6 +507,76 @@ export function isolationSuite(how: string, call: CallFn): void {
         expect(Object.keys(tier?.values ?? {}).sort()).toEqual(["name", "price", "show"]);
         expect(JSON.stringify(tiers)).not.toContain(shows.hidden.ids[1]);
       }
+    });
+
+    it("a customer reads the declared fields of a record their own record points to, and nothing else (ADR 0439)", async () => {
+      const heldA = a.records[SHOW]?.[0] as string;
+      const heldB = b.records[SHOW]?.[0] as string;
+      // Their own ticket points to a show that is not on sale: they read its declared fields.
+      const one = await call("fixture.myGet", { object: SHOW, id: heldA }, outside(a.principal));
+      expect(one).toEqual({
+        ok: true,
+        value: { object: SHOW, id: heldA, values: a.values[SHOW] },
+      });
+      // Never a field outside the declaration: not the backstage note of their own show.
+      const page = await call("fixture.myList", { object: SHOW }, outside(a.principal));
+      expect(page).toMatchObject({ ok: true });
+      const text = JSON.stringify(page);
+      expect(text).not.toContain("backstage");
+      expect(text).not.toContain("HeldBackstage-");
+      const items = (
+        page as { value: { items: { id: string; values: Record<string, unknown> }[] } }
+      ).value.items;
+      const ids = items.map((item) => item.id);
+      // Theirs, and the one on sale (the public's), and not B's or the draft one.
+      expect(ids).toContain(heldA);
+      expect(ids).toContain(shows.onSale.show);
+      expect(ids).not.toContain(heldB);
+      for (const id of shows.hidden.ids) expect(ids).not.toContain(id);
+      // A field only the declaration lists shows only on the records it covers: a show on sale
+      // that A holds no ticket for keeps its doors from A, as from the public.
+      const onSale = items.find((item) => item.id === shows.onSale.show);
+      expect(onSale?.values).toEqual({ name: shows.onSale.name, status: "on_sale", doors: null });
+      // Filtering on it cannot find another record's value either.
+      const probe = await call(
+        "fixture.myList",
+        { object: SHOW, filter: { field: "doors", op: "is_not_null" } },
+        outside(a.principal),
+      );
+      const found = (probe as { value: { items: { id: string }[] } }).value.items;
+      expect(found.map((item) => item.id)).toEqual([heldA]);
+      // B's held show is a record that is not there for A, the public, and through the
+      // public's door.
+      for (const caller of [a.principal, PUBLIC]) {
+        const peek = await call(
+          caller.kind === "public" ? "fixture.publicPeek" : "fixture.myGet",
+          caller.kind === "public" ? { object: SHOW } : { object: SHOW, id: heldB },
+          outside(caller),
+        );
+        expect(JSON.stringify(peek)).not.toContain(`HeldShow-`);
+      }
+      // Live: a record their ticket no longer points to is no longer theirs to read.
+      const ticket = a.records[TICKET]?.[0] as string;
+      const point = (show: string | null) =>
+        invoke("record.update", { object: TICKET, id: ticket, values: { show } }, context(admin));
+      await point(null);
+      try {
+        const gone = await call("fixture.myGet", { object: SHOW, id: heldA }, outside(a.principal));
+        expect(gone).toMatchObject({ ok: false, error: { code: "not_found" } });
+      } finally {
+        await point(heldA);
+      }
+    });
+
+    it("a sellable object's records come with the currency their prices are in, from the host", async () => {
+      // Stage 25: one currency per deployment, a setting. A client never states it itself.
+      const items = await call("fixture.publicPeek", { object: ITEM }, outside(PUBLIC));
+      expect(items).toMatchObject({ ok: true, value: { currency: "AUD" } });
+      // Not on an object that is not for sale.
+      const show = (await call("fixture.publicPeek", { object: SHOW }, outside(PUBLIC))) as {
+        value: Record<string, unknown>;
+      };
+      expect(show.value).not.toHaveProperty("currency");
     });
 
     it("the public see no other object and change no record", async () => {

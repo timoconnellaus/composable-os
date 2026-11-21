@@ -1,177 +1,118 @@
-// The landing page in a real browser, against the Worker and a local D1: the demo (autoplay, keys,
-// pause, reduced motion), both waitlist forms with and without JavaScript, layout at phone, tablet
-// and desktop widths, dark mode, and the page without JavaScript.
+// The landing page in a real browser, against the built site served by the Worker: the page says
+// what it sells and asks for one action, the call form works with and without JavaScript, the
+// layout holds at phone, tablet and desktop widths, and the metadata is served.
 import { randomUUID } from "node:crypto";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+
+const CTA = "Book a call";
 
 // The Worker rate limits form posts per client IP; give each test its own address.
 test.beforeEach(async ({ page }) => {
   await page.setExtraHTTPHeaders({ "cf-connecting-ip": `10.${randomUUID()}` });
 });
 
-const tab = (page: Page, name: string) => page.getByRole("tab", { name: new RegExp(name) });
-const live = (page: Page) => page.locator("[data-live]");
-
-test.describe("demo", () => {
-  test("autoplays, and the progress bar tracks the step", async ({ page }) => {
+test.describe("the page", () => {
+  test("says what it sells and asks for one action", async ({ page }) => {
     await page.goto("/");
-    await expect(tab(page, "Ask")).toHaveAttribute("aria-selected", "true");
-    // The demo is in the CRM's section, below the fold: it plays only while it is on screen.
-    await page.locator("[data-demo]").scrollIntoViewIfNeeded();
-    await expect(page.getByRole("button", { name: "Pause the demo" })).toBeVisible();
-    // The first beat of step 1: the assistant panel opens and the question is typed.
-    await expect(page.locator(".bub.u")).toContainText("60 days", { timeout: 5_000 });
-    await expect(tab(page, "Shape")).toHaveAttribute("aria-selected", "true", { timeout: 9_000 });
-    await expect(live(page)).toHaveText(/^Shape:/);
-    // While autoplaying, step changes aren't announced.
-    await expect(live(page)).toHaveAttribute("aria-live", "off");
-  });
-
-  test("responds to arrow, Home and End keys on the tablist", async ({ page }) => {
-    await page.goto("/");
-    await tab(page, "Ask").focus();
-    await page.keyboard.press("ArrowRight");
-    await expect(tab(page, "Shape")).toBeFocused();
-    await expect(tab(page, "Shape")).toHaveAttribute("aria-selected", "true");
-    await expect(tab(page, "Ask")).toHaveAttribute("tabindex", "-1");
-    await expect(live(page)).toHaveText(/^Shape:/);
-    await expect(live(page)).toHaveAttribute("aria-live", "polite");
-    await page.keyboard.press("End");
-    await expect(tab(page, "Approve")).toBeFocused();
-    await expect(page.locator("#demo-screen")).toHaveAttribute("aria-labelledby", "t4");
-    await page.keyboard.press("ArrowRight");
-    await expect(tab(page, "Ask")).toHaveAttribute("aria-selected", "true");
-    await page.keyboard.press("ArrowLeft");
-    await expect(tab(page, "Approve")).toHaveAttribute("aria-selected", "true");
-    await page.keyboard.press("Home");
-    await expect(tab(page, "Ask")).toBeFocused();
-    // Keyboard focus in the tabs holds the demo still.
-    await page.waitForTimeout(1_500);
-    await expect(tab(page, "Ask")).toHaveAttribute("aria-selected", "true");
-    await expect(tab(page, "Ask").locator(".prog")).toHaveCSS("transform", /matrix\(0, /);
-  });
-
-  test("clicking a tab jumps to that step", async ({ page }) => {
-    await page.goto("/");
-    await tab(page, "See").click();
-    await expect(tab(page, "See")).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator('[data-scene="dash"]')).toHaveClass(/\bon\b/);
-    await expect(page.locator("[data-describe]")).toHaveText(
-      "Open deal value by stage, this quarter",
-      { timeout: 5_000 },
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+      "A head start on custom software to fit your business",
     );
+    expect(await page.getByRole("heading", { level: 1 }).count()).toBe(1);
+    // The one action, worded the same in the header, the hero, mid-page and the close.
+    const actions = page.locator("a.btn:not(.ghost), button.btn");
+    expect(await actions.count()).toBeGreaterThanOrEqual(4);
+    for (const label of await actions.allTextContents()) expect(label.trim()).toBe(CTA);
+    for (const link of await page.locator("a.btn:not(.ghost)").all()) {
+      await expect(link).toHaveAttribute("href", "#call");
+    }
+    // The hero's action is on the first screen.
+    await expect(page.locator(".hero").getByRole("link", { name: CTA })).toBeInViewport();
+    // No hosted plans, prices or waitlist.
+    await expect(page.getByText(/waitlist|\$\d|per month/i)).toHaveCount(0);
   });
 
-  test("the Pause button stops the clock and Play resumes it", async ({ page }) => {
+  test("the header menu jumps to its sections", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Pause the demo" }).click();
-    const play = page.getByRole("button", { name: "Play the demo" });
-    await expect(play).toHaveText("Play");
-    const progress = tab(page, "Ask").locator(".prog");
-    const before = await progress.evaluate((el) => getComputedStyle(el).transform);
-    await page.waitForTimeout(1_000);
-    expect(await progress.evaluate((el) => getComputedStyle(el).transform)).toBe(before);
-    await play.click();
-    await expect(page.getByRole("button", { name: "Pause the demo" })).toBeVisible();
-    await expect
-      .poll(() => progress.evaluate((el) => getComputedStyle(el).transform))
-      .not.toBe(before);
+    const main = page.getByRole("navigation", { name: "Main" });
+    for (const [label, id] of [
+      ["How it works", "how"],
+      ["What can go in", "pieces"],
+      ["Looked after", "care"],
+      ["For developers", "developers"],
+    ] as const) {
+      await main.getByRole("link", { name: label }).click();
+      await expect(page.locator(`#${id}`)).toBeInViewport();
+    }
   });
 
-  test("with reduced motion, nothing autoplays and each step shows its end state", async ({
-    page,
-  }) => {
-    await page.emulateMedia({ reducedMotion: "reduce" });
+  test("the questions are also structured data", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "Play the demo" })).toBeVisible();
-    // Step 1's end state at once: the question and the answer.
-    await expect(page.locator(".bub.a")).toContainText("Four organisations");
-    await page.waitForTimeout(1_500);
-    await expect(tab(page, "Ask")).toHaveAttribute("aria-selected", "true");
-    await expect(live(page)).toHaveAttribute("aria-live", "polite");
-    await tab(page, "Approve").click();
-    await expect(page.locator("[data-approval]")).toHaveClass(/\bdone\b/);
-    await expect(page.locator("[data-toast]")).toHaveClass(/\bin\b/);
-    await expect(page.locator("[data-cursor]")).toBeHidden();
+    const schema = JSON.parse(
+      (await page.locator('script[type="application/ld+json"]').textContent()) ?? "{}",
+    );
+    expect(schema["@type"]).toBe("FAQPage");
+    const asked = await page.locator(".faq summary").allTextContents();
+    expect(schema.mainEntity.map((q: { name: string }) => q.name)).toEqual(
+      asked.map((text) => text.trim()),
+    );
   });
 });
 
-test.describe("waitlist forms", () => {
-  test("the hero form joins in place with JavaScript", async ({ page }) => {
-    await page.goto("/");
-    const hero = page.locator("form[data-waitlist]").first();
-    await hero.getByLabel("Work email").fill(`hero-${randomUUID()}@example.com`);
-    await hero.getByRole("button", { name: "Join the waitlist" }).click();
-    await expect(page.locator("#joined-hero")).toBeVisible();
-    await expect(page.locator("#joined-hero")).toBeFocused();
-    await expect(hero.getByLabel("Work email")).toBeHidden();
-    expect(new URL(page.url()).pathname).toBe("/");
-  });
-
-  test("the final form sends the team size with JavaScript", async ({ page }) => {
-    await page.goto("/#waitlist");
-    const form = page.locator("#waitlist form");
-    await form.getByLabel("Work email").fill(`final-${randomUUID()}@example.com`);
-    await form.getByLabel("Team size (optional)").selectOption({ label: "2 to 10" });
+test.describe("the call form", () => {
+  test("sends in place with JavaScript", async ({ page }) => {
+    await page.goto("/#call");
+    const form = page.locator("form[data-form]");
+    await form.getByLabel("Your name").fill("Ada Lovelace");
+    await form.getByLabel("Work email").fill(`call-${randomUUID()}@example.com`);
+    await form.getByLabel("Company").fill("Analytical Engines");
+    await form.getByLabel("What you need").fill("Orders, roasting and deliveries in one place.");
     const response = page.waitForResponse("**/api/signup");
-    await form.getByRole("button", { name: "Join the waitlist" }).click();
+    await form.getByRole("button", { name: CTA }).click();
     expect(await (await response).json()).toEqual({ ok: true });
-    await expect(page.locator("#joined-waitlist")).toBeVisible();
+    await expect(form.locator(".done")).toBeVisible();
+    await expect(form.locator(".done")).toBeFocused();
+    await expect(form.getByLabel("Work email")).toBeHidden();
+    expect(new URL(page.url()).pathname).toBe("/");
   });
 
   test("an invalid address shows the browser's own validation, and nothing is sent", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/#call");
     let posted = false;
     page.on("request", (request) => {
       if (request.url().endsWith("/api/signup")) posted = true;
     });
-    const hero = page.locator("form[data-waitlist]").first();
-    await hero.getByLabel("Work email").fill("not-an-email");
-    await hero.getByRole("button", { name: "Join the waitlist" }).click();
+    const form = page.locator("form[data-form]");
+    await form.getByLabel("Work email").fill("not-an-email");
+    await form.getByRole("button", { name: CTA }).click();
     await page.waitForTimeout(300);
     expect(posted).toBe(false);
-    await expect(page.locator("#joined-hero")).toBeHidden();
+    await expect(form.locator(".done")).toBeHidden();
   });
 
   test.describe("without JavaScript", () => {
     test.use({ javaScriptEnabled: false });
 
-    test("the hero form posts and comes back to its success message", async ({ page }) => {
+    test("the form posts and lands on the thanks page", async ({ page }) => {
       await page.goto("/");
-      const hero = page.locator("form[data-waitlist]").first();
-      await hero.getByLabel("Work email").fill(`nojs-${randomUUID()}@example.com`);
-      await hero.getByRole("button", { name: "Join the waitlist" }).click();
-      await page.waitForURL("**/#joined-hero");
-      await expect(page.locator("#joined-hero")).toBeVisible();
-      await expect(page.locator("#joined-hero")).toContainText("You're on the list");
-      await expect(hero.getByLabel("Work email")).toBeHidden();
+      const form = page.locator("form[data-form]");
+      await form.getByLabel("Work email").fill(`nojs-${randomUUID()}@example.com`);
+      await form.getByLabel("What you need").fill("A product for our bookings.");
+      await form.getByRole("button", { name: CTA }).click();
+      await page.waitForURL("**/thanks/");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Thanks");
     });
 
-    test("the final form posts the team size and comes back to its message", async ({ page }) => {
+    test("the page reads well: every section is visible", async ({ page }) => {
       await page.goto("/");
-      const form = page.locator("#waitlist form");
-      await form.getByLabel("Work email").fill(`nojs-final-${randomUUID()}@example.com`);
-      await form.getByLabel("Team size (optional)").selectOption({ label: "More than 50" });
-      await form.getByRole("button", { name: "Join the waitlist" }).click();
-      await page.waitForURL("**/#joined-waitlist");
-      await expect(page.locator("#joined-waitlist")).toBeVisible();
-      // The other form is untouched.
-      await expect(page.locator("#joined-hero")).toBeHidden();
-    });
-
-    test("the page reads well: content visible, demo shown as a still", async ({ page }) => {
-      await page.goto("/");
-      for (const heading of ["How it works", "Pricing", "Questions"]) {
+      for (const heading of ["The problem", "How it works", "Looked after", "Questions"]) {
         await expect(page.getByText(heading, { exact: true }).first()).toBeVisible();
       }
-      const features = page.locator(".feature").first();
-      await features.scrollIntoViewIfNeeded();
-      await expect(features).toHaveCSS("opacity", "1");
-      await expect(page.getByRole("tablist")).toBeHidden();
-      await expect(page.locator('[data-scene="org"]')).toHaveCSS("opacity", "1");
-      await expect(page.locator(".col-new").first()).toHaveCSS("opacity", "1");
+      const card = page.locator(".grid .card").first();
+      await card.scrollIntoViewIfNeeded();
+      await expect(card).toHaveCSS("opacity", "1");
+      await expect(page.getByRole("link", { name: CTA }).first()).toBeVisible();
     });
   });
 });
@@ -182,12 +123,13 @@ test.describe("layout", () => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/");
       // html and body clip overflow, so check every element against the viewport, skipping
-      // anything inside a container that scrolls or clips on purpose (the tab strip, the install
-      // snippet, the app demo).
+      // anything inside a container that scrolls or clips on purpose (the frame's rounded sheet,
+      // the product picture, the commands).
       const offenders = await page.evaluate(() => {
         const vw = document.documentElement.clientWidth;
         const clipped = (el: Element) => {
           for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+            if (p.classList.contains("frame")) continue;
             if (getComputedStyle(p).overflowX !== "visible") return true;
           }
           return false;
@@ -196,7 +138,7 @@ test.describe("layout", () => {
         for (const el of document.body.querySelectorAll("*")) {
           const style = getComputedStyle(el);
           if (style.display === "none" || style.visibility === "hidden") continue;
-          if (el.closest("[aria-hidden='true'].orb, .sr, .skip") || clipped(el)) continue;
+          if (el.closest(".sr, .skip") || clipped(el)) continue;
           const r = el.getBoundingClientRect();
           if (r.width === 0 || r.height === 0) continue;
           if (r.right > vw + 1 || r.left < -1) out.push(`${el.tagName}.${el.className}`);
@@ -210,41 +152,33 @@ test.describe("layout", () => {
     });
   }
 
-  test("the mobile menu opens, closes with Escape, and hides its links when closed", async ({
+  test("on a phone the action stays in the bar, and the menu opens and closes", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
+    await expect(page.locator("header").getByRole("link", { name: CTA })).toBeVisible();
+    // The hero's action is on the first screen (the skill's checklist: visible without scrolling).
+    await expect(page.locator(".hero").getByRole("link", { name: CTA })).toBeInViewport();
     const button = page.getByRole("button", { name: "Open menu" });
-    const pricing = page.locator("#mm").getByRole("link", { name: "Pricing" });
-    await expect(pricing).toBeHidden();
+    const link = page.locator("#mm").getByRole("link", { name: "Looked after" });
+    await expect(link).toBeHidden();
     await button.click();
     await expect(page.getByRole("button", { name: "Close menu" })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
-    await expect(pricing).toBeVisible();
+    await expect(link).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(pricing).toBeHidden();
+    await expect(link).toBeHidden();
     await expect(page.getByRole("button", { name: "Open menu" })).toBeFocused();
   });
-});
 
-test.describe("themes", () => {
-  test("follows the system colour scheme", async ({ page }) => {
-    const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    await page.emulateMedia({ colorScheme: "light" });
-    await page.goto("/");
-    expect(await background()).toBe("rgb(247, 244, 255)");
+  test("the page is light whatever the system colour scheme", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });
-    expect(await background()).toBe("rgb(14, 11, 31)");
-    await expect(page.locator('meta[name="theme-color"][media*="dark"]')).toHaveAttribute(
-      "content",
-      "#0e0b1f",
-    );
-    // The demo keeps the app's own light theme, like a screenshot.
-    expect(await page.locator(".app").evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-      "rgb(255, 255, 255)",
+    await page.goto("/");
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(
+      "rgb(234, 243, 254)",
     );
   });
 });
@@ -259,4 +193,12 @@ test("metadata, robots.txt and sitemap.xml are served", async ({ page, request }
   for (const path of ["/robots.txt", "/sitemap.xml", "/og.png", "/favicon.svg", "/privacy/"]) {
     expect((await request.get(path)).status(), path).toBe(200);
   }
+});
+
+test("the header fits a narrow phone", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto("/");
+  const menu = await page.getByRole("button", { name: "Open menu" }).boundingBox();
+  expect(menu && menu.x + menu.width).toBeLessThanOrEqual(360);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });

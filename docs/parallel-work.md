@@ -30,10 +30,13 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | S | — | 0420–0424 | Stage 24, Client apps (no migrations; ADR 0401 amended as built) | in flight |
 | T | 0420–0439 | 0425–0429 | Stage 25, States, orders and payments (migrations 0420 to 0422 and ADRs 0425 to 0429 used) | in flight |
 | U | 0440–0449 | 0430–0434 | Stage 26, Capacity and holds | in flight |
-| V | 0450–0459 | 0435–0439 | Stage 27, Ticketing and the first client (step 1, `sellable`: migration 0450, ADR 0435; steps 2 and 3, the pack, the door role and public reads: migration 0451, ADRs 0436 to 0438) | in flight |
+| V | 0450–0459 | 0435–0439 | Stage 27, Ticketing and the first client (step 1, `sellable`: migration 0450, ADR 0435; steps 2 and 3, the pack, the door role and public reads: migration 0451, ADRs 0436 to 0438; the first client's gaps, `fix/ticketing-client-gaps`: ADR 0439) | in flight |
 | W | 0460–0469 | 0440–0444 | Stage 28, Content | specced |
 | X | 0470–0479 | 0445–0449 | Stage 41, Programs (steps 1 to 3: the document field, `publishable` without its public half, the signed-in scope, the pack's spine) | in flight |
 | Y | — | 0450–0454 | Client releases and environments (every pack in a release, environments, customer auth on deploy, role clients; ADRs 0450 to 0452 used; ADRs 0420 to 0423 amended) | in flight |
+| Z | 0490–0499 | 0455–0459 | Staff invites, native sign-in by tokens, the host behind Cloudflare Access (`fix/staff-invites-and-native-sign-in`; block Y went to client releases) | in flight |
+| AA | — | 0460–0464 | The first client's gaps (`fix/ticketing-client-gaps`): ADR 0460, time zones; no migrations | in flight |
+| AB | — | 0465–0469 | The site redone (`apps/marketing`): the build-and-maintain service angle and the new design language; ADR 0465 used, ADR 0191 amended; no migrations | in flight |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.

@@ -68,6 +68,8 @@ export const ID_PREFIXES = {
   deviceSession: "dvs",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */
   capacityClaim: "clm",
+  /** An invite for a staff account (ADR 0455). */
+  userInvite: "uin",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

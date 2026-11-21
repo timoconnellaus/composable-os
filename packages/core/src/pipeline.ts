@@ -36,6 +36,7 @@ import {
 } from "./automations/outbox.ts";
 import type { TestSimulation } from "./automations/simulate.ts";
 import type { AutomationHost, EventSink } from "./automations/types.ts";
+import { loadCustomerSignIn } from "./customers/accounts.ts";
 import { checkOutsideRateLimit } from "./customers/limits.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
 import { diffRecords, type FieldDiff } from "./diff.ts";
@@ -63,6 +64,7 @@ import {
 } from "./gate.ts";
 import { findProvisionalIds, newId } from "./ids.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
+import type { HostMail } from "./invites.ts";
 import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
@@ -180,6 +182,8 @@ export interface InvocationContext {
   voice?: VoiceRuntime;
   /** The agents' Durable Objects (ADR 0344). Nested invocations inherit it. */
   agentJobs?: AgentJobHost;
+  /** The host's own mail for staff (ADR 0455). Not inherited when nested. */
+  hostMail?: HostMail;
   /**
    * Set on an agent's calls (ADR 0344): what its grant allows, checked on every call. Passed by the
    * AgentJob object, never by a model. Not inherited when nested, which is why operations that run
@@ -810,6 +814,7 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.assistantThreads ? { assistantThreads: ctx.assistantThreads } : {}),
     ...(ctx.voice ? { voice: ctx.voice } : {}),
     ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
+    ...(ctx.hostMail ? { hostMail: ctx.hostMail } : {}),
     pipeline: {
       crm: ctx.db,
       resolve: (name) => ctx.resolveOperation?.(name),
@@ -1643,6 +1648,12 @@ async function invokeOutside<O extends AnyOperation>(
     create: (object, values) => createVisible(seam, object, values),
     update: (object, id, values, options) => updateVisible(seam, object, id, values, options),
   });
+  // The caller's own account's sign-in address: read for the verified principal, never for an
+  // id from the input, so no handler can learn another account's.
+  const signIn =
+    principal.kind === "customer"
+      ? () => loadCustomerSignIn(ctx.db.query, principal.customerId, principal.personId)
+      : undefined;
   // What the operation's own handler gets. Unless the operation is `hostInternal` (core
   // bookkeeping that is not a record, ADR 0413) it has no database and no write queue: it reads
   // and writes records through `ctx.records`, so it cannot read past the seam or write unseen.
@@ -1689,6 +1700,7 @@ async function invokeOutside<O extends AnyOperation>(
         },
         principal,
         records,
+        signIn,
       }
     : {
         operation: op.name,
@@ -1711,6 +1723,7 @@ async function invokeOutside<O extends AnyOperation>(
         floor: ctx.floor ?? {},
         grantedPermissions: [],
         records,
+        signIn,
         write: () => closed("write"),
         recordChange: () => closed("recordChange"),
         postActivity: () => closed("postActivity"),

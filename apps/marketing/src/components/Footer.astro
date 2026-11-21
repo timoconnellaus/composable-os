@@ -4,10 +4,12 @@ import { CONTACT_EMAIL, LICENSE_URL, REPO_URL } from "../links.ts";
 
 <footer>
   <div class="wrap">
-    <span>Composable OS</span>
-    <span>
-      <a href={REPO_URL}>GitHub</a> · <a href={LICENSE_URL}>Licence</a> ·{" "}
-      <a href="/privacy/">Privacy</a> · <a href={`mailto:${CONTACT_EMAIL}`}>Contact</a>
-    </span>
+    <span>Composable OS is built and run by Zero BS AI</span>
+    <nav aria-label="Footer">
+      <a href={REPO_URL}>GitHub</a>
+      <a href={LICENSE_URL}>Licence</a>
+      <a href="/privacy/">Privacy</a>
+      <a href={`mailto:${CONTACT_EMAIL}`}>Contact</a>
+    </nav>
   </div>
 </footer>

@@ -1,4 +1,5 @@
-// The waitlist's optional team-size question and the page's two waitlist forms. The form markup and
+// The first site's waitlist: its optional team-size question and its two forms. The page no
+// longer has a waitlist (ADR 0465); the endpoint still accepts one, so these stay. The form markup and
 // the endpoint's validation both read these lists, so the two can't drift apart.
 export const TEAM_SIZES = [
   { value: "just-me", label: "Just me" },
