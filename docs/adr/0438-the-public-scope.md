@@ -113,3 +113,10 @@ their own are. `public.*` stays for what the public may read. An object declares
 - **Buying reads the scope without `customerVia`** (`buyableSource`): a customer or a guest buys
   only what they may read as their own or as the public, never what they read only through their
   own records.
+
+## Amendment, 2026-11-22 (stage 28, ADR 0442)
+On a publishable object the public scope's source is the object's live view: only records with a
+current version, their content from that version. `when` holds beside it. Three content reads,
+`content.get`, `content.list` and `content.preview`, are open to the public to call directly
+(not `toolOnly`), each reading as the public whoever calls. See
+[ADR 0442](0442-what-the-public-reads-of-content.md).

@@ -979,7 +979,8 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
 Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).
 
 The rules products share, declared in a manifest and enforced by the host in the write's own batch.
-`stages`, `states`, `capacity` and `sellable` exist, and `publishable` without its public half.
+`stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
+half since stage 28's steps 1 to 3; media is still to come).
 `recurring` and `allowance` are added as stages need them. Behaviours stack: an event is
 publishable, sellable and has a capacity.
 
@@ -1026,7 +1027,8 @@ of one record it points to. The seam limits rows and columns in the source itsel
 customers; a record that does not meet it is not found. A customer reads it too, on an object
 with no customer of its own. The public reach it only through a pack's tool, which calls the
 tool-only `public.list` and `public.get`. `capacity.get` and `order.start` answer outsiders only
-for records their scope shows them. Stage 28's `publishable` is another kind of condition.
+for records their scope shows them. On a publishable object the public's source is the object's
+live view, so the public reads only published versions (below).
 
 **The signed-in scope** ([ADR 0447](adr/0447-the-signed-in-scope.md)). `signedIn: { read, when? }`
 has the public scope's shape and is read by every signed-in customer, never the public. Beside a
@@ -1055,17 +1057,45 @@ schema the field declares (objects, lists, text, numbers, choices, refs, tagged 
 definitions), in the field type's own validation, so for every actor, the import and the dry run;
 a fault is refused with its path, a size limit is checked first, refs must name live records.
 Declared paths are read-only columns of the `rec_*` view. `private` object nodes are removed at the
-seam from what customers and the public read. Stage 28's `richText` is one fixed schema of it.
+seam from what customers and the public read.
 
-**`publishable`, the half without a public**
-([ADR 0446](adr/0446-publishable-without-its-public-half.md),
-`packages/core/src/operations/record-versions.ts`). `publishable: { content }`: the record is the
-working copy; `record.publish` (`records:publish`, admins by default, a person only, never an AI
-actor) snapshots the content fields as the next version in `core_publish_version` (migration 0470)
-and makes it current; `record.versions`, `record.version` and `record.restoreVersion` read and
-restore. Records get read-only `publishedVersion` and `publishedAt`. Stage 28 adds public reads of
-the current version, states, scheduling, slugs and preview. `record.createMany` writes up to 50
-records of one object in one batch, at 4 statements a record for an object with states (ADR 0448).
+**Rich text and slugs** ([ADR 0440](adr/0440-rich-text-is-data.md),
+[ADR 0442](adr/0442-what-the-public-reads-of-content.md), `packages/sdk/src/rich-text.ts`,
+`packages/core/src/records/slug.ts`). `richText` is a document field with the platform's one
+schema, `RICH_TEXT_SCHEMA`: blocks (paragraph, heading, list, quote, image, divider, embed,
+callout, button) of inline runs (text with bold, italic, code and a link; a line break). Text nodes
+are `noMarkup` (no tag, comment or character reference) and links are checked by scheme
+(`href: "web" | "link"`), so no HTML or script is stored by any actor. A picture names a `media`
+record, which stage 28's step 4 adds. `slug` is a field type: unique among an object's live records
+by a partial unique index the reconciler makes on its own table, made from the title when left
+empty, its old value kept in `core_slug_redirect` when a published record's slug changes.
+
+**`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),
+[ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),
+`packages/core/src/operations/record-versions.ts`, `packages/core/src/records/publish.ts`).
+`publishable: { content, slug?, date? }`: the record is the working copy; `record.publish`
+(`records:publish`, admins by default, a person only, never an AI actor) snapshots the content
+fields as the next version in `core_publish_version` (migration 0470) and makes it current;
+`record.schedulePublish` takes the snapshot now and the minute cron (cos-runner,
+`record.publishDue` through the pipeline) makes it current at the set time
+(`core_publish_schedule`, migration 0460); `record.unpublish` leaves no version current and keeps
+them all; `record.versions`, `record.version`, `record.compareVersions` and
+`record.restoreVersion` read, compare and restore. Records get read-only `publishedVersion`,
+`publishedAt`, `publishState` (draft, scheduled, published, unpublished: read from the versions
+and the schedule, never stored) and `publishAt`. `record.createMany` writes up to 50 records of
+one object in one batch, at 4 statements a record for an object with states (ADR 0448).
+
+**What the public reads of content** ([ADR 0442](adr/0442-what-the-public-reads-of-content.md),
+[ADR 0443](adr/0443-preview-links.md), `packages/core/src/operations/content.ts`). A publishable
+object that declares `public` gets a live view (`pub_x_<ext>_<object>`): one row per live record
+with a current version, its content columns that version's values, its other own columns the
+record's (its slug, a state `when` tests). The public scope's source is that view, so a draft, an
+unpublished record and a deleted one are not in it. `content.get { object, slug }` (a record, or a
+`redirect` for an old slug), `content.list` and `content.preview` (with a preview link's token,
+the working copy's declared fields) are open to the public, read as the public whoever calls, and
+give one not-found for everything they do not show. Their answers are cached in the Worker's cache
+keyed by the object's generation (`core_content_generation`), which every committed change to a
+record of the object bumps in its own batch (`content/cache.ts`).
 
 **Programs** (`packs/programs`, stage 41, steps 1 to 6; [ADR 0448](adr/0448-programs-the-layout-assignments-and-the-log.md)):
 an exercise bank, programs whose layout is one document (weeks, sessions, blocks, items, levels,
@@ -1182,7 +1212,7 @@ calculates a price, checks a capacity or checks a permission.
 | Leads, lifecycle | fields, tools | exists |
 | Ticketing | `states`, `capacity`, `sellable`, `customer`, `public`, `customerVia`, a `timezone` field, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
-| Content | `publishable`, rich text, media | stage 28 |
+| Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 3 built (rich text, `publishable` completed, public reads); media, the editor, the pack and Ghetto's blog to come |
 | Bookings, memberships | `recurring`, `allowance`, recurring billing | later |
 
 ### Client repos
