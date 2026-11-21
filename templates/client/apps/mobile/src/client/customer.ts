@@ -156,6 +156,54 @@ export type Operations = {
     input: { id: string; token: string };
     output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
   };
+  /**
+   * End a subscription when its current paid period (or trial) ends: nothing more is charged, and what it gives lasts until then. A signed-in customer cancels their own; staff any. Nothing is refunded (a period's refund is order.refund). It can be undone until the period ends (subscription.resume). Asked of the payment provider: the subscription shows it once the provider confirms. A person decides, not an AI assistant.
+   */
+  "subscription.cancel": {
+    kind: "mutation";
+    input: { id: string; reason?: string };
+    output: { id: string; requested: true };
+  };
+  /**
+   * Get one subscription: its plan, price per period, state (trial, active, past due, ended…), the current period and whether it ends when that period does. A signed-in customer gets the subscriptions they pay for only; anyone else's is not found. Read-only.
+   */
+  "subscription.get": {
+    kind: "query";
+    input: { id: string };
+    output: { id: string; state: ("incomplete") | ("expired") | ("trialing") | ("active") | ("past_due") | ("unpaid") | ("paused") | ("ended"); planObject: string; planId: string; planTitle: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); taxed: boolean; trialEnd: (string) | (null); currentPeriodStart: (string) | (null); currentPeriodEnd: (string) | (null); cancelAtPeriodEnd: boolean; canceledAt: (string) | (null); endedAt: (string) | (null); actionUrl: (string) | (null); createdAt: string; holderPersonId: (string) | (null); payerPersonId?: (string) | (null); email?: (string) | (null); endReason?: (string) | (null); failingSince?: (string) | (null) };
+  };
+  /**
+   * A page of subscriptions, newest first unless sorted otherwise. Filter on state, planObject, planId, payerPersonId, holderPersonId, cancelAtPeriodEnd, currentPeriodEnd, failingSince. A signed-in customer sees the ones they pay for only. Pass nextCursor back as cursor for the next page. Read-only.
+   */
+  "subscription.list": {
+    kind: "query";
+    input: { filter?: ({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }))[] }); sort?: { field: string; direction?: ("asc") | ("desc") }; cursor?: string; limit?: number };
+    output: { items: ({ id: string; state: ("incomplete") | ("expired") | ("trialing") | ("active") | ("past_due") | ("unpaid") | ("paused") | ("ended"); planObject: string; planId: string; planTitle: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); taxed: boolean; trialEnd: (string) | (null); currentPeriodStart: (string) | (null); currentPeriodEnd: (string) | (null); cancelAtPeriodEnd: boolean; canceledAt: (string) | (null); endedAt: (string) | (null); actionUrl: (string) | (null); createdAt: string; holderPersonId: (string) | (null); payerPersonId?: (string) | (null); email?: (string) | (null); endReason?: (string) | (null); failingSince?: (string) | (null) })[]; nextCursor: (string) | (null) };
+  };
+  /**
+   * Open the payment provider's customer portal for the signed-in customer: the card they pay with, their billing details and past invoices. Cancelling and plan changes are not there (subscription.cancel). The address is short-lived and opens in its own page, never a frame.
+   */
+  "subscription.portal": {
+    kind: "query";
+    input: { returnUrl: string };
+    output: { url: string };
+  };
+  /**
+   * Keep a subscription going that was set to end when its period does, before that happens: the provider charges the next period as usual. A signed-in customer resumes their own; staff any. Asked of the payment provider: the subscription shows it once the provider confirms. A person decides, not an AI assistant.
+   */
+  "subscription.resume": {
+    kind: "mutation";
+    input: { id: string };
+    output: { id: string; requested: true };
+  };
+  /**
+   * Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.
+   */
+  "subscription.start": {
+    kind: "mutation";
+    input: { plan: { object: string; id: string }; returnUrl: string; email?: string };
+    output: { subscriptionId: string; url: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); trialDays: (number) | (null); expiresAt: (string) | (null) };
+  };
 };
 
 /** What the runtime needs: each operation's kind, and what a mutation makes stale. */
@@ -179,6 +227,12 @@ export const operations = {
   "order.get": { kind: "query", invalidates: [] },
   "order.start": { kind: "mutation", invalidates: ["order.get","order.view"] },
   "order.view": { kind: "query", invalidates: [] },
+  "subscription.cancel": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.portal"] },
+  "subscription.get": { kind: "query", invalidates: [] },
+  "subscription.list": { kind: "query", invalidates: [] },
+  "subscription.portal": { kind: "query", invalidates: [] },
+  "subscription.resume": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.portal"] },
+  "subscription.start": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.portal"] },
 } as const;
 
 export const API_VERSION = "v1";
