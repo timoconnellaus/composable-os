@@ -4,12 +4,14 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { product } from "@composable-os/products/active";
 import type { Kysely } from "kysely";
+import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import {
   type CallIntegration,
   type ChannelTarget,
   resolveChannelTarget,
   sendEmail,
 } from "../notifications/channels.ts";
+import { SYSTEM_USER } from "../users.ts";
 import { loadCustomerEmailConnection } from "./settings.ts";
 
 /** The subject and text of a sign-in code email. Plain text; the code is the only variable. */
@@ -45,6 +47,31 @@ export const CUSTOMER_MAIL_ORIGIN = {
   surface: "system",
   automationId: "system.customer-mail",
 } as const;
+
+/**
+ * Calls the integration host as the host itself (ADR 0419): the system user with actor
+ * `automation`, never a staff member. For customer mail only; cos-runner's integration host
+ * accepts the system user, which has no core_user row.
+ */
+export function hostMailCall(
+  runtime: Pick<IntegrationRuntime, "call">,
+  reason = "A customer asked for a sign-in code",
+): CallIntegration {
+  return async (input) => {
+    const result = await runtime.call({
+      ...input,
+      caller: {
+        actor: "automation",
+        userId: SYSTEM_USER.id,
+        userName: SYSTEM_USER.name,
+        role: SYSTEM_USER.role,
+        origin: { ...CUSTOMER_MAIL_ORIGIN },
+        reason,
+      },
+    });
+    return { value: result.value, pending: result.pending, applied: result.applied };
+  };
+}
 
 /**
  * Sends a sign-in code through the email-send gatekeeper. A send the approval gate queued for

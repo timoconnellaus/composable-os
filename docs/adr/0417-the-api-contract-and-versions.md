@@ -15,10 +15,13 @@ addition, or what "no longer served" answers.
   operation a client may call, its name, description, risk, audiences, kind (`query` for a read,
   `mutation` for anything else), JSON Schema for input and output, and for a mutation the queries
   it makes stale. Tool-only operations are left out: no client calls them.
-- **What a mutation makes stale** is taken from what it writes, by namespace: `person.update`
-  stales the `person.*` reads, `x.deals.<tool>` the Deals reads, and a customer's own records are
-  one namespace (`me.*` and `my.*`), which a pack's tools write too. Operations do not yet declare
-  what they write; this rule stands in until one needs more.
+- **What a mutation makes stale is derived by namespace, not declared.** Operations declare
+  nothing about what they write. The contract infers it from the operation's name instead:
+  `person.update` stales the `person.*` reads, `x.deals.<tool>` the Deals reads, and a customer's
+  own records are one namespace (`me.*` and `my.*`), which a pack's tools write too. This departs
+  from the spec's wording ("taken from what the operation declares it writes") on purpose, and is
+  open to revisiting: when a write needs to stale reads outside its namespace (an order that
+  changes a capacity, say), give operations a declaration then, and the contract reads it.
 - **The same contract is served, committed and generated from.** `GET /api/v<n>/manifest` is the
   caller's audience's contract. `packages/core/api/v1/{staff,customer,public}.json` are
   committed. `cos client generate` writes the typed client from it (ADR 0418).

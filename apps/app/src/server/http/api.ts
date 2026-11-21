@@ -28,7 +28,6 @@ import {
 } from "@composable-os/auth";
 import {
   type AnyInvocationContext,
-  CUSTOMER_MAIL_ORIGIN,
   type CustomerPrincipal,
   coreInvoker,
   createHttpSurface,
@@ -37,6 +36,7 @@ import {
   errorReply,
   ForbiddenError,
   type HttpReply,
+  hostMailCall,
   issueDeviceSession,
   loadCustomer,
   type OutsideInvocationContext,
@@ -48,7 +48,6 @@ import {
   refreshDeviceSession,
   resolveAccessToken,
   resolveActingUser,
-  SYSTEM_USER,
   sendCustomerCode,
   ValidationError,
 } from "@composable-os/core";
@@ -85,24 +84,7 @@ function hostSendsCodes(env: ApiEnv) {
     if ("problem" in target) throw new Error(target.problem);
     const runtime = integrationRuntimeFor(env);
     if (!runtime) throw new Error("The integration host is not bound");
-    await sendCustomerCode(
-      async (input) => {
-        const result = await runtime.call({
-          ...input,
-          caller: {
-            actor: "automation",
-            userId: SYSTEM_USER.id,
-            userName: SYSTEM_USER.name,
-            role: SYSTEM_USER.role,
-            origin: { ...CUSTOMER_MAIL_ORIGIN },
-            reason: "A customer asked for a sign-in code",
-          },
-        });
-        return { value: result.value, pending: result.pending, applied: result.applied };
-      },
-      target.target,
-      message,
-    );
+    await sendCustomerCode(hostMailCall(runtime), target.target, message);
   };
 }
 
