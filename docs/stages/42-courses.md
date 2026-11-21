@@ -695,6 +695,62 @@ programs from the hosted platform and check, for each:
    its captions (WebVTT, or `.srt` to convert).
 8. Durations are known (minutes), and no lesson's video is over 6 hours (the upload's limit).
 
+## Build step 8, `cos courses import`, as built (2026-11-22)
+ADR 0485, no migration (block AG). The format and the command are in
+[`docs/importing.md`](../importing.md#courses-cos-courses-import), and the steps for an agent are
+in `skills/import-courses/`. Here the build read the spec one way, or decided what it left open:
+
+- **One engine.** The content import's generic half (the session, the sign-in, `record.import` in
+  batches, media by hash) is lifted into `packages/create-composable-os/src/import-door/`, and
+  both commands use it. The content import is unchanged.
+- **Videos are found again by hash.** A file's SHA-256, or that of `url:<address>`, is kept on the
+  video's row (`media.videoUpload`'s new `sha256`, and the new `media.videoFromUrl` for Stream's
+  copy from a link). The spec's "or the source's id" is not used: a hash needs nothing from the
+  old platform.
+- **A course with a video Stream has not finished is not written.** The command waits
+  (`--wait`, 10 minutes by default) and writes the courses that are ready. It names the rest and
+  exits 3. The same command run again writes them and uploads nothing. A bundle waits for its
+  courses.
+- **Resumable uploads** resume within a run (tus, from Stream's offset). A run that stopped leaves
+  the video `uploading`, and the next run deletes it and sends it again from the start.
+- **A student is found by email only**: the one person with that address. People are imported
+  first with the people CSV import, and the courses import never creates a person or sends mail.
+  An address no person has (never imported, or erased) is a listed row. Two people with one
+  address cannot happen on a host, and would be listed if it did.
+- **`access.csv`'s "where it came from" column is not taken.** Every imported enrolment's source is
+  `import`, and the reason says it came from the old platform.
+- **A student's own progress** is a row whose source is `self`. It is read before writing, and the
+  imported row for that lesson is reported as a conflict and not written.
+- **Captions** go through a new staff-token route, `POST /api/v1/media/<id>/captions`, beside
+  `POST /api/v1/media`. They are converted from SubRip when given as `.srt`.
+- **Never ran:**
+  - real Stream (every upload, copy, caption and poll was against the fake);
+  - a real export from the hosted platform;
+  - the browser sign-in from this command against a real host.
+
+### Before the first client's real import (build step 9)
+Run this against two real programs from the hosted platform, after the outline checklist above:
+1. Export them (or read them from the API) and write the converter's folder for just those two.
+   Every lesson has the old platform's lesson id as its `sourceId`, and the ids match the progress
+   export's.
+2. `--dry-run` against a staging host with Courses and Programs installed, the people imported,
+   and the session lessons' programs published. Fix every problem it names.
+3. Check each `access.csv` and `progress.csv` row the report lists as unmatched. Each is a person
+   not imported, an erased address, or a lesson the new outline dropped, and each is decided, never
+   ignored.
+4. Run it for real against staging with real Stream. Watch one large video go up in chunks. Stop
+   the command in the middle once, and check that the re-run sends that video again and nothing
+   else.
+5. Copy one video from a Vimeo or Wistia link (`url`), and check that it becomes ready and plays.
+6. Check the captions in the player, from a `.srt` and from a `.vtt`.
+7. Sign in as one imported student with an imported completion and progress. Check that they see
+   the course, it shows as done (or resumes at the right lesson), and they can play a lesson.
+   Check that a person without access cannot.
+8. Run the same command again: it reports nothing created or updated and nothing uploaded.
+9. Have the test student watch a lesson on staging, run again, and check that their progress is
+   reported as a conflict and kept.
+10. `--publish` as the person who decides, and check the course's page and a bundle's.
+
 ## Still open
 - **Whether Stripe Tax can take an event's place at Checkout**: answered in build step 1, yes
   (above).

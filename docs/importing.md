@@ -3,7 +3,8 @@
 `cos content import` loads posts and their pictures from another system (an old blog) into a
 host, as the person who runs it. It is the platform's door for writing content from a script
 ([ADR 0470](adr/0470-the-import-door.md)): every write is an operation that person's session calls,
-checked and audited as theirs.
+checked and audited as theirs. `cos courses import` is the same door for a course platform's
+courses, videos and students' access ([below](#courses-cos-courses-import), ADR 0485).
 
 ```bash
 cos content import ./export --host https://admin.example.com              # by the browser
@@ -151,3 +152,172 @@ const head = postHead(answer, { siteName: "The Hall", url: Astro.url.href, origi
   {head.canonical && <link rel="canonical" href={head.canonical} />}
 </head>
 ```
+
+## Courses: `cos courses import`
+
+`cos courses import` loads a studio's courses, bundles and their videos from a hosted course
+platform, with each student's access, completed courses and lesson-by-lesson progress
+([ADR 0485](adr/0485-the-courses-import.md), stage 42). It goes through the same door as the content
+import and runs on the same code (`packages/create-composable-os/src/import-door/`). The folder is
+checked whole before anyone signs in, and the sign-in lasts for the run only. `record.import`'s
+dry run checks every record on the host. Records are matched by import keys, conflicts are reported
+and never overwritten, and publishing is the person's own choice.
+
+```bash
+cos courses import ./export --host https://admin.example.com --dry-run    # checks, writes nothing
+cos courses import ./export --host https://admin.example.com              # as drafts
+cos courses import ./export --host https://admin.example.com --publish    # asks, then publishes
+cos courses import ./export --host https://admin.example.com --wait 60    # waits up to an hour
+```
+
+`--email`, `--publish` and `--yes` work as they do for content. The command exits 0 when
+everything is in, 1 on a problem (nothing written), 2 on a wrong command line, and 3 when some
+courses wait for Stream (below).
+
+### What it does
+
+1. Reads the folder and checks it (below). Any problem stops the run before signing in. Each
+   problem names its file, and for a CSV row its line (`access.csv:7`).
+2. Signs you in for the run (as for content).
+3. Finds each student on the host by email, and each session lesson's program. Checks every
+   theme, course and bundle on the host as it would be written (`record.import` with `dryRun`),
+   with placeholders standing in for media not yet uploaded. A problem stops the run with nothing
+   written. `--dry-run` stops here and says what would happen.
+4. Uploads the pictures and downloads the library does not have (by the SHA-256 of their bytes),
+   and the videos (below), each with its captions.
+5. Waits for Stream to have the videos ready (`--wait <minutes>`, 10 by default), showing what is
+   left. Then writes the themes, each course whose videos are all ready, the bundles whose courses
+   are all written, the enrolments and the progress.
+6. With `--publish`, after asking, publishes each course and bundle whose `status` is `published`.
+   One already published with the same content is left as it is. Without `--publish` every course
+   is a draft, and the report says which were published in the source.
+
+**A course whose videos are not ready is not written.** A published course with a video Stream
+cannot play would sell a lesson no one can watch. The report names each course still waiting and
+the command exits 3. Running the same command again later writes it: the videos are found by their
+hash, nothing is uploaded twice, and the rest of the run changes nothing. A bundle waits for its
+courses the same way.
+
+### Videos
+
+A lesson's or trailer's video is a file in `videos/` or an `https` address:
+
+- **A file** is hashed (SHA-256, read from disk a chunk at a time) and uploaded to Stream on a
+  one-time address (`media.videoUpload`). A file up to 200 MB goes in one post. A larger one goes
+  in resumable (tus) chunks, and the command shows the progress as it goes. When a chunk fails,
+  the command asks Stream how much it has and carries on from there, up to five times in a row. A
+  file may be up to 30 GB.
+- **An address** (a file the old platform, Vimeo or Wistia serves) is copied by Stream itself
+  (`media.videoFromUrl`, Stream's copy from a link), so nothing passes through your computer.
+  Stream must be able to fetch the address without signing in.
+
+Each video is kept with the hash of its file (or of `url:<address>`), so a re-run finds it and
+uploads nothing. Suppose a stopped run left a video half-sent (`uploading`), or Stream could not
+take it (`failed`): the video is removed and sent again from the start, and the report says so.
+Captions go up with the video, through `POST /api/v1/media/<id>/captions`, which takes a staff
+device token only.
+
+### Students: how a row finds its person
+
+People are imported first, with the people CSV import (Settings → Import, `import.csv.*`), which
+matches by email. The courses import then finds each row's student by its `email`, lowercased: the
+one person on the host with that address.
+
+- **No person has it** (not imported, or the address was erased when the person asked to be
+  forgotten): the row is listed in the report with its file and line, and nothing is made for it.
+  The import never creates a person and never sends mail.
+- **Two people have it**: this cannot happen on a host, where an address is unique. If it ever
+  did, the row would be listed ("merge them first"), never guessed.
+- A student keeps signing in with that address, by a code sent by email. No password or account
+  moves.
+
+### Access, completions and progress
+
+- **Access** (`access.csv`): each row becomes a `courses.enrolment` for its person and a course or
+  a bundle. It has source `import`, the row's `from` and `until`, and the key
+  `<email>|course:<key>` (or `bundle:<key>`). No order is made, and nothing is charged or
+  refunded. An `until` in the past is kept, so the student has no access, as before.
+- **Completed courses**: `completed` (`yes`, `true` or `1`) marks the enrolment completed.
+- **Progress** (`progress.csv`): each row becomes a `courses.progress` for its person, course and
+  lesson, matched by the lesson's `sourceId`. It has source `import` and the key
+  `<email>|<course>|<sourceId>`.
+- **A row whose lesson no `sourceId` matches** (the new outline dropped it) is listed with its file
+  and line, and the rest imports.
+- **A student's own progress is kept.** Suppose the student has their own row for that lesson
+  because they watched it on the new site. The imported row is then a conflict, reported and left
+  as it is. So is a row the import wrote that has changed since.
+- **Without `progress.csv`**, the completed courses are completed and every other course starts at
+  its first lesson. The report says so, and names each course that had access but no progress to
+  bring.
+
+### The folder
+
+```
+export/
+  courses/handstands.json    one course per file; the file name (without .json) is its import key
+  bundles/all-access.json    one bundle per file
+  videos/wrists.mp4          the videos the courses name by `file`
+  captions/wrists.srt        their captions: WebVTT, or SubRip (.srt, converted)
+  pictures/cover.png         covers, and pictures in rich text
+  downloads/sheet.pdf        download lessons' files (PDF)
+  access.csv                 who holds what
+  progress.csv               lesson by lesson, when the old platform exports it
+```
+
+A course file:
+
+| Field | | What |
+| --- | --- | --- |
+| `key` | optional | The import key. Default: the file name. Keep it the same between runs (the old platform's id). |
+| `title`, `price` | required | The price in the major unit (`99` is 99.00). |
+| `slug`, `summary`, `level` | optional | `level` 1 to 3. The slug defaults to one made from the title. |
+| `description` | optional | Rich text (`RICH_TEXT_SCHEMA`), a picture as `{ "type": "image", "file" }`. |
+| `cover` | optional | `{ "file": "cover.png", "alt": "…" }`. |
+| `trailer` | optional | A video (below). |
+| `theme` | optional | The theme's name. Each name is made into a theme once. |
+| `outline` | required | `{ "sections": [{ "key", "title", "lessons": [...] }] }`. |
+| `status` | optional | `draft` (default) or `published`, acted on with `--publish`. |
+
+Every lesson has these fields:
+
+- `kind`: `video`, `text`, `session` or `download`.
+- `key`: lowercase letters, digits and `-`, unique in the course.
+- `title`.
+- Optionally `minutes`, `preview` (a free preview) and `sourceId` (its id on the old platform,
+  unique in the course, which `progress.csv` names).
+
+Then each kind has its own fields:
+
+- A `video` lesson has `video` and `notes` (rich text).
+- A `text` lesson has `body`.
+- A `session` lesson has `program` (a published Programs program's id or exact title), `week` and
+  `session`.
+- A `download` lesson has `file` (in `downloads/`) and `note`.
+
+A video is `{ "file": "wrists.mp4" }` or `{ "url": "https://…" }`. It may also have
+`"captions": [{ "language": "en", "file": "wrists.srt", "label": "English" }]`.
+
+A bundle file has `key`, `title`, `price`, `slug`, `summary`, `description`, `cover` and `status`,
+and `courses`, which lists the courses' keys.
+
+`access.csv` starts with a header row. Its columns may come in any order, and extra ones are
+ignored:
+
+| Column | | What |
+| --- | --- | --- |
+| `email` | required | The student's address. |
+| `course` or `bundle` | one of them | The course's or bundle's key in the folder. |
+| `from`, `until` | optional | Dates (`2024-05-01`) or dates and times with their zone. |
+| `completed` | optional | `yes` when the student finished the course. |
+
+`progress.csv` has three required columns: `email`, `course` (its key) and `lesson` (the lesson's
+`sourceId`). Three more are optional: `state` (`done`, the default, or `started`), `done_at`, and
+`position` (seconds into the video).
+
+### What the host needs
+
+- The Courses pack (and Programs, which it requires) installed, and the students already imported
+  as people.
+- You are staff. `--publish` needs the publish permission.
+- Stream configured on the host ([docs/stream-runbook.md](stream-runbook.md)). Behind Cloudflare
+  Access nothing else is needed, as for content.

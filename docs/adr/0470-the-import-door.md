@@ -134,3 +134,12 @@ unknown field in a post file let through (1).
   arrives.
 - Without `--publish`, a post already published (or scheduled) here and unchanged gets no note; a
   changed one is said to be saved, not published.
+
+## Amended 2026-11-22 (ADR 0485)
+- The door's generic half is lifted out of `content-import/` into `import-door/` (the host over a
+  session, the run's sign-in and confirmation, `record.import` in batches with its outcomes, media
+  by hash), so `cos courses import` uses the same code. The content import's behaviour is unchanged.
+- A second token route beside the surface: `POST /api/v1/media/<id>/captions`, a video's captions with
+  a staff device token only, under the same rules as `POST /api/v1/media`.
+- A video's row keeps a SHA-256 too (`media.videoUpload`'s and `media.videoFromUrl`'s `sha256`), so
+  `media.findByHash` finds videos on a re-run as it finds pictures.

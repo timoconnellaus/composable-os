@@ -83,7 +83,9 @@ async function personFor(
     limit: 3,
   });
   if (!found.items.length) {
-    return { problem: `No person on the host has ${email}: import people first (the people CSV import)` };
+    return {
+      problem: `No person on the host has ${email}: import people first (the people CSV import)`,
+    };
   }
   if (found.items.length > 1) {
     return {
@@ -177,11 +179,21 @@ export async function runCoursesImport(
     const hash = fileHashes.get(ref) ?? videoHashes.get(ref);
     const have = hash ? known.get(hash)?.id : undefined;
     if (have) return have;
-    if (!dryIds.has(ref)) dryIds.set(ref, placeholder((n += 1)));
+    if (!dryIds.has(ref)) {
+      n += 1;
+      dryIds.set(ref, placeholder(n));
+    }
     return dryIds.get(ref) as string;
   };
-  const themeRecords = plan.themes.map((name) => ({ key: `theme:${name}`, file: null, values: { name } }));
-  const courseRecords = (media: (ref: string) => string, themeId: (name: string) => string | null) =>
+  const themeRecords = plan.themes.map((name) => ({
+    key: `theme:${name}`,
+    file: null,
+    values: { name },
+  }));
+  const courseRecords = (
+    media: (ref: string) => string,
+    themeId: (name: string) => string | null,
+  ) =>
     plan.courses.map((c) => ({
       key: c.key,
       file: c.file,
@@ -190,11 +202,19 @@ export async function runCoursesImport(
         ...(c.theme && themeId(c.theme) ? { theme: themeId(c.theme) } : {}),
       },
     }));
-  const dryThemes = await importRecords(host, THEME, themeRecords, { dryRun: true, checkReferences: false });
-  const dryCourses = await importRecords(host, COURSE, courseRecords(dryMedia, () => null), {
+  const dryThemes = await importRecords(host, THEME, themeRecords, {
     dryRun: true,
     checkReferences: false,
   });
+  const dryCourses = await importRecords(
+    host,
+    COURSE,
+    courseRecords(dryMedia, () => null),
+    {
+      dryRun: true,
+      checkReferences: false,
+    },
+  );
   const dryBundles = await importRecords(
     host,
     BUNDLE,
@@ -219,7 +239,10 @@ export async function runCoursesImport(
   const access = plan.access.flatMap((row) => {
     const who = people.get(row.email);
     if (!who || "problem" in who) {
-      report.unmatched.push({ file: `${row.file}:${row.line}`, message: who?.problem ?? "No person" });
+      report.unmatched.push({
+        file: `${row.file}:${row.line}`,
+        message: who?.problem ?? "No person",
+      });
       return [];
     }
     return [{ row, person: who.id }];
@@ -227,7 +250,10 @@ export async function runCoursesImport(
   const progress = (plan.progress ?? []).flatMap((row) => {
     const who = people.get(row.email);
     if (!who || "problem" in who) {
-      report.unmatched.push({ file: `${row.file}:${row.line}`, message: who?.problem ?? "No person" });
+      report.unmatched.push({
+        file: `${row.file}:${row.line}`,
+        message: who?.problem ?? "No person",
+      });
       return [];
     }
     const lessonKey = courseOf.get(row.course)?.lessons.get(row.sourceId);
@@ -281,7 +307,10 @@ export async function runCoursesImport(
     if (have) {
       // An upload a run left half-done, or one Stream could not take: removed and sent again.
       await host.call("media.delete", { id: have.id });
-      report.notes.push({ file: video.file ? `videos/${video.file}` : video.url ?? ref, message: `Sent again (it was ${have.state})` });
+      report.notes.push({
+        file: video.file ? `videos/${video.file}` : (video.url ?? ref),
+        message: `Sent again (it was ${have.state})`,
+      });
     }
     report.wroteNothing = false;
     if (video.url) {
@@ -305,7 +334,12 @@ export async function runCoursesImport(
     }
     report.media.videosUploaded += 1;
     for (const caption of video.captions) {
-      await host.uploadCaption?.(ids.get(ref) as string, caption.language, caption.label, caption.vtt);
+      await host.uploadCaption?.(
+        ids.get(ref) as string,
+        caption.language,
+        caption.label,
+        caption.vtt,
+      );
     }
   }
 
@@ -324,7 +358,10 @@ export async function runCoursesImport(
     await sleep(options.pollMs ?? 5000);
   }
   const mediaId = (ref: string) => ids.get(ref) as string;
-  const themes = await importRecords(host, THEME, themeRecords, { dryRun: false, checkReferences: true });
+  const themes = await importRecords(host, THEME, themeRecords, {
+    dryRun: false,
+    checkReferences: true,
+  });
   const themeIds = new Map(themes.map((t) => [t.key, t.id]));
   const writable = plan.courses.filter((c) => c.videos.every((v) => ready.has(v)));
   for (const c of plan.courses.filter((c) => !writable.includes(c))) {
@@ -363,26 +400,28 @@ export async function runCoursesImport(
   const enrolments = await importRecords(
     host,
     ENROLMENT,
-    (
-      access
-        .filter(({ row }) => (row.course ? courseIds.has(row.course) : bundleIds.has(row.bundle as string)))
-        .map(({ row, person }) => {
-          const key = `${row.email}|${row.course ? `course:${row.course}` : `bundle:${row.bundle}`}`;
-          return {
-            key,
-            file: `${row.file}:${row.line}`,
-            values: {
-              holder: person,
-              ...(row.course ? { course: courseIds.get(row.course) } : { bundle: bundleIds.get(row.bundle as string) }),
-              source: "import",
-              reason: "Imported from the old platform",
-              ...(row.from ? { from: row.from } : {}),
-              ...(row.until ? { until: row.until } : {}),
-              completed: row.completed,
-            },
-          };
-        })
-    ),
+    access
+      .filter(({ row }) =>
+        row.course ? courseIds.has(row.course) : bundleIds.has(row.bundle as string),
+      )
+      .map(({ row, person }) => {
+        const key = `${row.email}|${row.course ? `course:${row.course}` : `bundle:${row.bundle}`}`;
+        return {
+          key,
+          file: `${row.file}:${row.line}`,
+          values: {
+            holder: person,
+            ...(row.course
+              ? { course: courseIds.get(row.course) }
+              : { bundle: bundleIds.get(row.bundle as string) }),
+            source: "import",
+            reason: "Imported from the old platform",
+            ...(row.from ? { from: row.from } : {}),
+            ...(row.until ? { until: row.until } : {}),
+            completed: row.completed,
+          },
+        };
+      }),
     { dryRun: false, checkReferences: true },
   );
 
@@ -458,7 +497,10 @@ export async function runCoursesImport(
     (c) => plan.access.some((a) => a.course === c.key) && !withProgress.has(c.key),
   );
   if (plan.progress === null && plan.access.length) {
-    report.notes.push({ file: "", message: "No progress.csv: completions imported, lesson progress not" });
+    report.notes.push({
+      file: "",
+      message: "No progress.csv: completions imported, lesson progress not",
+    });
   }
   for (const c of brought) {
     report.notes.push({ file: c.file, message: "No lesson progress to bring for this course" });
@@ -475,7 +517,10 @@ export async function runCoursesImport(
         object: item.object,
         id: item.id,
       });
-      if (record.values.publishState === "published" && typeof record.values.publishedVersion === "number") {
+      if (
+        record.values.publishState === "published" &&
+        typeof record.values.publishedVersion === "number"
+      ) {
         const diff = await host.call<{ changes: unknown[] }>("record.compareVersions", {
           object: item.object,
           id: item.id,
@@ -492,7 +537,10 @@ export async function runCoursesImport(
     }
   } else {
     for (const x of [...plan.courses, ...plan.bundles].filter((x) => x.status === "published")) {
-      report.notes.push({ file: x.file, message: "Published in the source: imported as a draft (pass --publish to publish it)" });
+      report.notes.push({
+        file: x.file,
+        message: "Published in the source: imported as a draft (pass --publish to publish it)",
+      });
     }
   }
   return report;
@@ -532,9 +580,10 @@ export async function sendVideo(
     if (!response?.ok) {
       if (retries++ >= 5) throw new Error("Stream stopped taking the upload; run the import again");
       // Ask where Stream is, and carry on from there.
-      const head = await send(upload.url, { method: "HEAD", headers: { "Tus-Resumable": "1.0.0" } }).catch(
-        () => null,
-      );
+      const head = await send(upload.url, {
+        method: "HEAD",
+        headers: { "Tus-Resumable": "1.0.0" },
+      }).catch(() => null);
       offset = Number(head?.headers.get("upload-offset") ?? offset);
       continue;
     }
@@ -569,7 +618,8 @@ export function coursesReportLines(report: CoursesImportReport, dryRun: boolean)
     );
   }
   for (const p of report.published) if (p.as !== "unchanged") lines.push(`  ${p.file}: ${p.as}`);
-  for (const note of report.notes) lines.push(`  ${note.file ? `${note.file}: ` : ""}${note.message}`);
+  for (const note of report.notes)
+    lines.push(`  ${note.file ? `${note.file}: ` : ""}${note.message}`);
   return lines;
 }
 

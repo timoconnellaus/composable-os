@@ -12,11 +12,11 @@
 // and none is printed.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { confirmer, LOOPBACK_PATH, signInForRun } from "../import-door/sign-in.ts";
 import type { Io } from "../io.ts";
 import { reportLines, runImport } from "./engine.ts";
 import { POST_FIELDS, readFolder } from "./format.ts";
 import { sessionHost } from "./host.ts";
-import { confirmer, LOOPBACK_PATH, signInForRun } from "../import-door/sign-in.ts";
 
 export { LOOPBACK_PATH };
 

@@ -8,11 +8,19 @@
 // Videos in videos/ are read from disk a chunk at a time (a 20 GB file is never held whole), and
 // hashed once to find them again on a re-run.
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  statSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
-import type { Io } from "../io.ts";
 import { sessionHost } from "../import-door/host.ts";
 import { confirmer, signInForRun } from "../import-door/sign-in.ts";
+import type { Io } from "../io.ts";
 import { coursesReportLines, runCoursesImport, type VideoSource } from "./engine.ts";
 import { type CoursesFolder, readCoursesFolder } from "./format.ts";
 
@@ -40,12 +48,21 @@ export function readCoursesDisk(dir: string): CoursesFolder {
         .map((n) => [n, readFileSync(join(root, sub, n), "utf8")] as const),
     );
   const bytes = (sub: string) =>
-    new Map(filesIn(join(root, sub)).map((n) => [n, new Uint8Array(readFileSync(join(root, sub, n)))] as const));
-  const text = (name: string) => (existsSync(join(root, name)) ? readFileSync(join(root, name), "utf8") : null);
+    new Map(
+      filesIn(join(root, sub)).map(
+        (n) => [n, new Uint8Array(readFileSync(join(root, sub, n)))] as const,
+      ),
+    );
+  const text = (name: string) =>
+    existsSync(join(root, name)) ? readFileSync(join(root, name), "utf8") : null;
   return {
     courses: json("courses"),
     bundles: json("bundles"),
-    videos: new Map(filesIn(join(root, "videos")).map((n) => [n, statSync(join(root, "videos", n)).size] as const)),
+    videos: new Map(
+      filesIn(join(root, "videos")).map(
+        (n) => [n, statSync(join(root, "videos", n)).size] as const,
+      ),
+    ),
     captions: bytes("captions"),
     pictures: bytes("pictures"),
     downloads: bytes("downloads"),
@@ -131,14 +148,18 @@ export async function coursesImport(
     return 1;
   }
   try {
-    const report = await runCoursesImport(plan, sessionHost(host, () => session.headers()), {
-      dryRun: Boolean(flags.dryRun),
-      publish: Boolean(flags.publish),
-      confirm: confirmer(io, flags.yes),
-      videoFiles: (name) => videos.get(name),
-      waitMs: (flags.wait ?? 10) * 60_000,
-      progress: (line) => io.out(line),
-    });
+    const report = await runCoursesImport(
+      plan,
+      sessionHost(host, () => session.headers()),
+      {
+        dryRun: Boolean(flags.dryRun),
+        publish: Boolean(flags.publish),
+        confirm: confirmer(io, flags.yes),
+        videoFiles: (name) => videos.get(name),
+        waitMs: (flags.wait ?? 10) * 60_000,
+        progress: (line) => io.out(line),
+      },
+    );
     for (const line of coursesReportLines(report, Boolean(flags.dryRun))) {
       (report.problems.length ? io.err : io.out)(line);
     }

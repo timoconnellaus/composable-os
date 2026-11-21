@@ -12,9 +12,9 @@ import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   applyPlan,
+  type CustomerPrincipal,
   coreInvoker,
   createFakeStream,
-  type CustomerPrincipal,
   handleMedia,
   type InvocationContext,
   invoke,
@@ -145,10 +145,28 @@ function folder(change: (f: CoursesFolder) => void = () => {}): CoursesFolder {
                     key: "read",
                     title: "Read this",
                     sourceId: "lw-102",
-                    body: { blocks: [{ type: "paragraph", content: [{ type: "text", text: "Imported-text" }] }] },
+                    body: {
+                      blocks: [
+                        { type: "paragraph", content: [{ type: "text", text: "Imported-text" }] },
+                      ],
+                    },
                   },
-                  { kind: "download", key: "sheet", title: "Worksheet", sourceId: "lw-103", file: "sheet.pdf" },
-                  { kind: "session", key: "day-1", title: "Day one", sourceId: "lw-104", program: `Strength ${tag}`, week: 1, session: 0 },
+                  {
+                    kind: "download",
+                    key: "sheet",
+                    title: "Worksheet",
+                    sourceId: "lw-103",
+                    file: "sheet.pdf",
+                  },
+                  {
+                    kind: "session",
+                    key: "day-1",
+                    title: "Day one",
+                    sourceId: "lw-104",
+                    program: `Strength ${tag}`,
+                    week: 1,
+                    session: 0,
+                  },
                 ],
               },
             ],
@@ -183,7 +201,12 @@ function folder(change: (f: CoursesFolder) => void = () => {}): CoursesFolder {
     bundles: new Map([
       [
         `starter-${tag}.json`,
-        JSON.stringify({ title: `Starter ${tag}`, price: 120, status: "published", courses: [`handstands-${tag}`, `mobility-${tag}`] }),
+        JSON.stringify({
+          title: `Starter ${tag}`,
+          price: 120,
+          status: "published",
+          courses: [`handstands-${tag}`, `mobility-${tag}`],
+        }),
       ],
     ]),
     videos: new Map([
@@ -213,7 +236,10 @@ function folder(change: (f: CoursesFolder) => void = () => {}): CoursesFolder {
   return f;
 }
 
-const run = (plan = readCoursesFolder(folder()), options: Parameters<typeof runCoursesImport>[2] = {}) =>
+const run = (
+  plan = readCoursesFolder(folder()),
+  options: Parameters<typeof runCoursesImport>[2] = {},
+) =>
   runCoursesImport(plan, asStaff(), {
     videoFiles: (name) => videoFiles.get(name),
     pollMs: 1,
@@ -231,18 +257,31 @@ beforeAll(async () => {
     await refreshSchemaRegistry(db.query);
   }
   accessToken = (
-    await issueDeviceSession(db, { audience: "staff", subjectId: admin.id }, "Courses import test", new Date())
+    await issueDeviceSession(
+      db,
+      { audience: "staff", subjectId: admin.id },
+      "Courses import test",
+      new Date(),
+    )
   ).accessToken;
   videoFiles.set("wrists.mp4", await memoryVideo(1));
   videoFiles.set("trailer.mp4", await memoryVideo(2));
   // The students come first, through the people import (here: as staff would have them).
   for (const who of ["ana", "ben", "cy", "dee"]) {
-    const person = await invoke("person.create", { givenName: who, emails: [{ email: email(who) }] }, staff());
+    const person = await invoke(
+      "person.create",
+      { givenName: who, emails: [{ email: email(who) }] },
+      staff(),
+    );
     people[who] = { kind: "customer", customerId: `cus_${who}${tag}`, personId: person.id };
   }
   // eve is not on the host (her people row did not import): her rows are reported, not guessed.
   // Two people cannot share an address here (person.create refuses it), so an address names one.
-  const pike = await invoke("record.create", { object: "programs.exercise", values: { name: "Pike", measure: "reps" } }, staff());
+  const pike = await invoke(
+    "record.create",
+    { object: "programs.exercise", values: { name: "Pike", measure: "reps" } },
+    staff(),
+  );
   programId = (
     await invoke(
       "record.create",
@@ -258,7 +297,18 @@ beforeAll(async () => {
                   {
                     name: "Press",
                     day: 1,
-                    blocks: [{ label: "A", items: [{ kind: "all", label: "A1", exercises: [{ exercise: pike.id, sets: [{ kind: "reps", reps: 5 }] }] }] }],
+                    blocks: [
+                      {
+                        label: "A",
+                        items: [
+                          {
+                            kind: "all",
+                            label: "A1",
+                            exercises: [{ exercise: pike.id, sets: [{ kind: "reps", reps: 5 }] }],
+                          },
+                        ],
+                      },
+                    ],
                   },
                 ],
               },
@@ -275,9 +325,13 @@ beforeAll(async () => {
 afterAll(() => setVideoHost(undefined));
 
 const courseId = async (key: string) =>
-  (await env.DB.prepare("SELECT record_id FROM core_import_key WHERE object_type = ? AND import_key = ?")
-    .bind(COURSE, key)
-    .first<{ record_id: string }>())?.record_id as string;
+  (
+    await env.DB.prepare(
+      "SELECT record_id FROM core_import_key WHERE object_type = ? AND import_key = ?",
+    )
+      .bind(COURSE, key)
+      .first<{ record_id: string }>()
+  )?.record_id as string;
 
 describe("cos courses import against the real host (ADR 0485)", () => {
   it("a course whose videos Stream has not finished is not written yet; a re-run writes it", async () => {
@@ -289,7 +343,22 @@ describe("cos courses import against the real host (ADR 0485)", () => {
             JSON.stringify({
               title: `Later ${tag}`,
               price: 10,
-              outline: { sections: [{ key: "s", title: "S", lessons: [{ kind: "video", key: "v", title: "V", video: { url: `https://videos.example.com/${tag}/later.mp4` } }] }] },
+              outline: {
+                sections: [
+                  {
+                    key: "s",
+                    title: "S",
+                    lessons: [
+                      {
+                        kind: "video",
+                        key: "v",
+                        title: "V",
+                        video: { url: `https://videos.example.com/${tag}/later.mp4` },
+                      },
+                    ],
+                  },
+                ],
+              },
             }),
           ],
         ]);
@@ -311,11 +380,27 @@ describe("cos courses import against the real host (ADR 0485)", () => {
   it("a bad folder stops before any write, each problem with its file and line", async () => {
     const plan = readCoursesFolder(
       folder((f) => {
-        f.courses.set("broken.json", JSON.stringify({ title: "Broken", outline: { sections: [{ key: "s", title: "S", lessons: [{ kind: "video", key: "Bad Key", video: { file: "missing.mp4" } }] }] } }));
+        f.courses.set(
+          "broken.json",
+          JSON.stringify({
+            title: "Broken",
+            outline: {
+              sections: [
+                {
+                  key: "s",
+                  title: "S",
+                  lessons: [{ kind: "video", key: "Bad Key", video: { file: "missing.mp4" } }],
+                },
+              ],
+            },
+          }),
+        );
         f.access = `${f.access}\nnot-an-email,handstands-${tag},,,,`;
       }),
     );
-    expect(plan.problems.map((p) => p.file)).toEqual(expect.arrayContaining(["courses/broken.json", "access.csv:7"]));
+    expect(plan.problems.map((p) => p.file)).toEqual(
+      expect.arrayContaining(["courses/broken.json", "access.csv:7"]),
+    );
     const report = await run(plan);
     expect(report.wroteNothing).toBe(true);
   });
@@ -333,25 +418,42 @@ describe("cos courses import against the real host (ADR 0485)", () => {
     expect(report.waiting).toEqual([]);
     expect(report.media).toMatchObject({ uploaded: 1, videosUploaded: 3 });
     // The rows that matched nothing, with their file and line; the rest imported.
-    expect(report.unmatched.map((u) => u.file).sort()).toEqual(["access.csv:6", "progress.csv:4", "progress.csv:5"]);
-    expect(report.unmatched.find((u) => u.file === "progress.csv:5")?.message).toContain("No person on the host");
-    expect(report.unmatched.find((u) => u.file === "progress.csv:4")?.message).toContain('"lw-999"');
+    expect(report.unmatched.map((u) => u.file).sort()).toEqual([
+      "access.csv:6",
+      "progress.csv:4",
+      "progress.csv:5",
+    ]);
+    expect(report.unmatched.find((u) => u.file === "progress.csv:5")?.message).toContain(
+      "No person on the host",
+    );
+    expect(report.unmatched.find((u) => u.file === "progress.csv:4")?.message).toContain(
+      '"lw-999"',
+    );
     const handstands = await courseId(`handstands-${tag}`);
     // The session lesson names the published program by id; the caption came over as WebVTT.
     const course = await invoke("record.get", { object: COURSE, id: handstands }, staff());
     expect(JSON.stringify(course.values.outline)).toContain(programId);
     expect(course.values.publishState).toBe("published");
-    const wrists = (course.values.outline as { sections: { lessons: { key: string; video?: { media: string } }[] }[] })
-      .sections[0]?.lessons[0]?.video?.media as string;
+    const wrists = (
+      course.values.outline as {
+        sections: { lessons: { key: string; video?: { media: string } }[] }[];
+      }
+    ).sections[0]?.lessons[0]?.video?.media as string;
     const played = await invoke("media.play", { id: wrists }, staff());
     expect(played.captions).toEqual([{ language: "en", label: "English" }]);
     // Access: imported as enrolments, never orders; the completed one is marked.
     const enrolments = await invoke(
       "record.list",
-      { object: "courses.enrolment", filter: { field: "source", op: "eq", value: "import" }, limit: 50 },
+      {
+        object: "courses.enrolment",
+        filter: { field: "source", op: "eq", value: "import" },
+        limit: 50,
+      },
       staff(),
     );
-    const mine = enrolments.items.filter((e) => Object.values(people).some((p) => p.personId === e.values.holder));
+    const mine = enrolments.items.filter((e) =>
+      Object.values(people).some((p) => p.personId === e.values.holder),
+    );
     expect(mine).toHaveLength(4);
     expect(mine.find((e) => e.values.holder === people.cy?.personId)?.values.completed).toBe(true);
     const orders = await env.DB.prepare("SELECT count(*) AS n FROM core_order WHERE person_id = ?")
@@ -361,15 +463,22 @@ describe("cos courses import against the real host (ADR 0485)", () => {
     // Progress by the lesson's sourceId.
     const progress = await invoke(
       "record.list",
-      { object: "courses.progress", filter: { field: "holder", op: "eq", value: people.ana?.personId } },
+      {
+        object: "courses.progress",
+        filter: { field: "holder", op: "eq", value: people.ana?.personId },
+      },
       staff(),
     );
-    expect(progress.items.map((p) => [p.values.lessonKey, p.values.state, p.values.source]).sort()).toEqual([
+    expect(
+      progress.items.map((p) => [p.values.lessonKey, p.values.state, p.values.source]).sort(),
+    ).toEqual([
       ["read", "started", "import"],
       ["wrists", "done", "import"],
     ]);
     // Mobility had access but no progress rows: the report says so.
-    expect(report.notes.map((n) => n.message)).toContain("No lesson progress to bring for this course");
+    expect(report.notes.map((n) => n.message)).toContain(
+      "No lesson progress to bring for this course",
+    );
   });
 
   it("an imported student plays the lesson's video; someone without access, and the lapsed one, cannot", async () => {
@@ -377,26 +486,37 @@ describe("cos courses import against the real host (ADR 0485)", () => {
     const ana = as(people.ana as CustomerPrincipal);
     const read = await invoke("my.get", { object: COURSE, id: handstands }, ana);
     expect(JSON.stringify(read.values)).toContain("Imported-text");
-    const wrists = (read.values.outline as { sections: { lessons: { video?: { media: string } }[] }[] }).sections[0]
-      ?.lessons[0]?.video?.media as string;
+    const wrists = (
+      read.values.outline as { sections: { lessons: { video?: { media: string } }[] }[] }
+    ).sections[0]?.lessons[0]?.video?.media as string;
     const token = await invoke("media.play", { id: wrists }, ana);
     expect((await stream.fake.handle(new Request(token.hls))).status).toBe(200);
     // ben holds the bundle, which lists the course.
-    expect(await invoke("media.play", { id: wrists }, as(people.ben as CustomerPrincipal))).toBeTruthy();
+    expect(
+      await invoke("media.play", { id: wrists }, as(people.ben as CustomerPrincipal)),
+    ).toBeTruthy();
     for (const who of ["cy", "dee"]) {
-      await expect(invoke("media.play", { id: wrists }, as(people[who] as CustomerPrincipal))).rejects.toMatchObject({
+      await expect(
+        invoke("media.play", { id: wrists }, as(people[who] as CustomerPrincipal)),
+      ).rejects.toMatchObject({
         code: "not_found",
       });
     }
   });
 
   it("a re-run changes nothing and uploads nothing", async () => {
-    const before = stream.fake.calls.filter((c) => c.method === "createUpload" || c.method === "copyFromUrl").length;
+    const before = stream.fake.calls.filter(
+      (c) => c.method === "createUpload" || c.method === "copyFromUrl",
+    ).length;
     const report = await run(undefined, { publish: true, confirm: async () => true });
     expect(report.problems).toEqual([]);
-    expect(report.records.filter((r) => r.outcome === "created" || r.outcome === "updated")).toEqual([]);
+    expect(
+      report.records.filter((r) => r.outcome === "created" || r.outcome === "updated"),
+    ).toEqual([]);
     expect(report.media).toMatchObject({ uploaded: 0, videosUploaded: 0 });
-    expect(stream.fake.calls.filter((c) => c.method === "createUpload" || c.method === "copyFromUrl")).toHaveLength(before);
+    expect(
+      stream.fake.calls.filter((c) => c.method === "createUpload" || c.method === "copyFromUrl"),
+    ).toHaveLength(before);
     expect(report.published.every((p) => p.as === "unchanged")).toBe(true);
   });
 
@@ -409,16 +529,34 @@ describe("cos courses import against the real host (ADR 0485)", () => {
         "record.list",
         {
           object: "courses.progress",
-          filter: { and: [{ field: "holder", op: "eq", value: ana.personId }, { field: "lessonKey", op: "eq", value: "read" }] },
+          filter: {
+            and: [
+              { field: "holder", op: "eq", value: ana.personId },
+              { field: "lessonKey", op: "eq", value: "read" },
+            ],
+          },
         },
         staff(),
       )
     ).items[0] as { id: string };
-    await invoke("record.update", { object: "courses.progress", id: row.id, values: { state: "done" } }, staff());
+    await invoke(
+      "record.update",
+      { object: "courses.progress", id: row.id, values: { state: "done" } },
+      staff(),
+    );
     // and starts a lesson the export knows nothing of yet; the next export has it.
     await invoke(
       "record.create",
-      { object: "courses.progress", values: { holder: ana.personId, course: handstands, lessonKey: "sheet", state: "started", source: "self" } },
+      {
+        object: "courses.progress",
+        values: {
+          holder: ana.personId,
+          course: handstands,
+          lessonKey: "sheet",
+          state: "started",
+          source: "self",
+        },
+      },
       staff(),
     );
     const report = await run(
@@ -438,17 +576,38 @@ describe("cos courses import against the real host (ADR 0485)", () => {
     for (const actor of ["assistant", "mcp", "automation"] as const) {
       const ai = staff({ actor } as never);
       await expect(
-        invoke("record.import", { object: COURSE, records: [{ key: "x", values: { title: "x", price: 1 } }] }, ai),
+        invoke(
+          "record.import",
+          { object: COURSE, records: [{ key: "x", values: { title: "x", price: 1 } }] },
+          ai,
+        ),
       ).rejects.toMatchObject({ code: "forbidden" });
-      await expect(invoke("media.videoFromUrl", { name: "x", url: "https://videos.example.com/x.mp4" }, ai)).rejects.toMatchObject({
+      await expect(
+        invoke("media.videoFromUrl", { name: "x", url: "https://videos.example.com/x.mp4" }, ai),
+      ).rejects.toMatchObject({
         code: "forbidden",
       });
-      await expect(invoke("media.videoUpload", { name: "x", bytes: 10 }, ai)).rejects.toMatchObject({ code: "forbidden" });
+      await expect(invoke("media.videoUpload", { name: "x", bytes: 10 }, ai)).rejects.toMatchObject(
+        { code: "forbidden" },
+      );
     }
+    // Stream copies from an https address only.
+    await expect(
+      invoke("media.videoFromUrl", { name: "x", url: "http://videos.example.com/x.mp4" }, staff()),
+    ).rejects.toMatchObject({
+      code: "invalid_input",
+    });
     // The caption route takes a staff device token only: a cookie, or none, is refused.
-    const id = (await env.DB.prepare("SELECT id FROM core_media WHERE kind = 'video' LIMIT 1").first<{ id: string }>())?.id;
+    const id = (
+      await env.DB.prepare("SELECT id FROM core_media WHERE kind = 'video' LIMIT 1").first<{
+        id: string;
+      }>()
+    )?.id;
     const refused = await serve(
-      new Request(`${ORIGIN}/api/v1/media/${id}/captions?language=fr`, { method: "POST", body: vtt("WEBVTT\n") }),
+      new Request(`${ORIGIN}/api/v1/media/${id}/captions?language=fr`, {
+        method: "POST",
+        body: vtt("WEBVTT\n"),
+      }),
     );
     expect(refused.status).toBe(401);
   });

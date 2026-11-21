@@ -200,14 +200,19 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
       const name = isObject(c) && typeof c.file === "string" ? c.file : "";
       const bytes = folder.captions.get(name);
       if (!/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/.test(language) || !bytes) {
-        fault(`${where}.captions: ${name ? `captions/${name}` : "a caption"} with a language (en, pt-BR) and a file in captions/`);
+        fault(
+          `${where}.captions: ${name ? `captions/${name}` : "a caption"} with a language (en, pt-BR) and a file in captions/`,
+        );
         continue;
       }
       const text = new TextDecoder().decode(bytes);
       const vtt = new TextEncoder().encode(
         name.toLowerCase().endsWith(".srt") ? srtToVtt(text) : text,
       );
-      if (vtt.byteLength > MEDIA_CAPTION_MAX_BYTES || !new TextDecoder().decode(vtt).replace(/^﻿/, "").startsWith("WEBVTT")) {
+      if (
+        vtt.byteLength > MEDIA_CAPTION_MAX_BYTES ||
+        !new TextDecoder().decode(vtt).replace(/^﻿/, "").startsWith("WEBVTT")
+      ) {
         fault(`captions/${name}: a WebVTT or SubRip file of at most 10 MB`);
         continue;
       }
@@ -304,7 +309,8 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
     if (raw.level !== undefined) values.level = raw.level;
     if (raw.price !== undefined) values.price = raw.price;
     else fault("price is required (in the major unit: 99 is 99.00)");
-    if (raw.description !== undefined) values.description = richText(raw.description, "description", fault);
+    if (raw.description !== undefined)
+      values.description = richText(raw.description, "description", fault);
     if (raw.cover !== undefined) {
       const c = isObject(raw.cover) ? raw.cover : {};
       const ref = picture(c.file, "cover", fault);
@@ -322,10 +328,11 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
     if (theme) themes.add(theme);
     const lessons = new Map<string, string>();
     const programs: PlannedCourse["programs"] = [];
-    const outline = isObject(raw.outline) && Array.isArray(raw.outline.sections) ? raw.outline : null;
+    const outline =
+      isObject(raw.outline) && Array.isArray(raw.outline.sections) ? raw.outline : null;
     if (!outline) fault("outline is { sections: [{ key, title, lessons: [...] }] }");
     const lessonKeys = new Set<string>();
-    const sections = (outline?.sections as unknown[] | undefined ?? []).map((section, s) => {
+    const sections = ((outline?.sections as unknown[] | undefined) ?? []).map((section, s) => {
       const sec = isObject(section) ? section : {};
       const list = Array.isArray(sec.lessons) ? sec.lessons : [];
       return {
@@ -338,7 +345,8 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
           }
           const lesson: Record<string, unknown> = { ...given };
           const lessonKey = typeof lesson.key === "string" ? lesson.key : "";
-          if (!LESSON_KEY_RE.test(lessonKey)) fault(`${where}.key is lowercase letters, digits and -`);
+          if (!LESSON_KEY_RE.test(lessonKey))
+            fault(`${where}.key is lowercase letters, digits and -`);
           else if (lessonKeys.has(lessonKey)) fault(`${where}.key "${lessonKey}" is used twice`);
           lessonKeys.add(lessonKey);
           if (typeof lesson.sourceId === "string") {
@@ -355,7 +363,8 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
             }
           }
           for (const text of ["notes", "body"] as const) {
-            if (lesson[text] !== undefined) lesson[text] = richText(lesson[text], `${where}.${text}`, fault);
+            if (lesson[text] !== undefined)
+              lesson[text] = richText(lesson[text], `${where}.${text}`, fault);
           }
           if (lesson.kind === "download") {
             const ref = download(lesson.file, `${where}.file`, fault);
@@ -373,8 +382,18 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
     values.outline = { sections };
     const status = (raw.status ?? "draft") as Status;
     if (!STATUSES.includes(status)) fault(`status is ${STATUSES.join(" or ")}`);
-    if (values.slug === undefined && typeof raw.title === "string") values.slug = slugify(raw.title);
-    courses.push({ file: path, key, status, theme, values, lessons, videos: courseVideos, programs });
+    if (values.slug === undefined && typeof raw.title === "string")
+      values.slug = slugify(raw.title);
+    courses.push({
+      file: path,
+      key,
+      status,
+      theme,
+      values,
+      lessons,
+      videos: courseVideos,
+      programs,
+    });
   }
 
   for (const [file, text] of [...folder.bundles].sort(([a], [b]) => a.localeCompare(b))) {
@@ -396,14 +415,18 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
     for (const name of ["title", "slug", "summary", "price"] as const) {
       if (raw[name] !== undefined) values[name] = raw[name];
     }
-    if (values.slug === undefined && typeof raw.title === "string") values.slug = slugify(raw.title);
-    if (raw.description !== undefined) values.description = richText(raw.description, "description", fault);
+    if (values.slug === undefined && typeof raw.title === "string")
+      values.slug = slugify(raw.title);
+    if (raw.description !== undefined)
+      values.description = richText(raw.description, "description", fault);
     if (raw.cover !== undefined) {
       const c = isObject(raw.cover) ? raw.cover : {};
       const ref = picture(c.file, "cover", fault);
       if (ref) values.cover = { media: ref, alt: typeof c.alt === "string" ? c.alt : "" };
     }
-    const list = Array.isArray(raw.courses) ? raw.courses.filter((c): c is string => typeof c === "string") : [];
+    const list = Array.isArray(raw.courses)
+      ? raw.courses.filter((c): c is string => typeof c === "string")
+      : [];
     for (const c of list) if (!keys.has(c)) fault(`courses: "${c}" is no course in courses/`);
     const status = (raw.status ?? "draft") as Status;
     if (!STATUSES.includes(status)) fault(`status is ${STATUSES.join(" or ")}`);
@@ -418,7 +441,8 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
     const header = rows.shift();
     const names = (header?.cells ?? []).map((c) => c.trim().toLowerCase());
     for (const required of columns.filter((c) => c.endsWith("*")).map((c) => c.slice(0, -1))) {
-      if (!names.includes(required)) problems.push({ file, message: `The header has no "${required}" column` });
+      if (!names.includes(required))
+        problems.push({ file, message: `The header has no "${required}" column` });
     }
     return rows.map((row) => {
       const cell = (name: string) => {
@@ -431,7 +455,14 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
   const access: AccessRow[] = [];
   const bundleKeys = new Set(bundles.map((b) => b.key));
   if (folder.access !== null) {
-    for (const { line, cell } of csv(folder.access, "access.csv", ["email*", "course", "bundle", "from", "until", "completed"])) {
+    for (const { line, cell } of csv(folder.access, "access.csv", [
+      "email*",
+      "course",
+      "bundle",
+      "from",
+      "until",
+      "completed",
+    ])) {
       const fault = (message: string) => problems.push({ file: `access.csv:${line}`, message });
       const email = cell("email").toLowerCase();
       const course = cell("course") || null;
@@ -450,13 +481,29 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
         return new Date(v).toISOString();
       };
       const completed = /^(true|yes|1)$/i.test(cell("completed"));
-      access.push({ file: "access.csv", line, email, course, bundle, from: date("from"), until: date("until"), completed });
+      access.push({
+        file: "access.csv",
+        line,
+        email,
+        course,
+        bundle,
+        from: date("from"),
+        until: date("until"),
+        completed,
+      });
     }
   }
   let progress: ProgressRow[] | null = null;
   if (folder.progress !== null) {
     progress = [];
-    for (const { line, cell } of csv(folder.progress, "progress.csv", ["email*", "course*", "lesson*", "state", "done_at", "position"])) {
+    for (const { line, cell } of csv(folder.progress, "progress.csv", [
+      "email*",
+      "course*",
+      "lesson*",
+      "state",
+      "done_at",
+      "position",
+    ])) {
       const fault = (message: string) => problems.push({ file: `progress.csv:${line}`, message });
       const email = cell("email").toLowerCase();
       const course = cell("course");
@@ -465,7 +512,8 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
       const state = (cell("state") || "done").toLowerCase();
       if (state !== "started" && state !== "done") fault("state is started or done");
       const doneAt = cell("done_at");
-      if (doneAt && (!DATETIME_RE.test(doneAt) || Number.isNaN(Date.parse(doneAt)))) fault("done_at is a date or a date and time");
+      if (doneAt && (!DATETIME_RE.test(doneAt) || Number.isNaN(Date.parse(doneAt))))
+        fault("done_at is a date or a date and time");
       const position = cell("position");
       if (position && !/^\d+(\.\d+)?$/.test(position)) fault("position is seconds");
       progress.push({
@@ -480,7 +528,16 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
       });
     }
   }
-  return { courses, bundles, themes: [...themes].sort(), videos, files, access, progress, problems };
+  return {
+    courses,
+    bundles,
+    themes: [...themes].sort(),
+    videos,
+    files,
+    access,
+    progress,
+    problems,
+  };
 }
 
 /** Every `{ $media: ref }` in a value replaced by `id(ref)`. */
