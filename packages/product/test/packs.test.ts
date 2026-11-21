@@ -31,7 +31,11 @@ describe("productPacks", () => {
     const packs = productPacks(withPacks(["ticketing"]), root);
     expect(packs.map((p) => p.id)).toEqual(["ticketing"]);
     const ticketing = packs[0];
-    expect(Object.keys(ticketing?.files ?? {}).sort()).toEqual(["index.ts", "tools.ts"]);
+    const files = Object.keys(ticketing?.files ?? {}).sort();
+    // Exactly the extension's sources: what the runner bundles for the host.
+    expect(files).toEqual(["automations.ts", "dashboards.ts", "index.ts", "tools.ts"]);
+    // Never the client code (hooks, blocks) or the tests: they do not run in the host.
+    expect(files.filter((f) => /^(client|blocks|test)\//.test(f))).toEqual([]);
     // Installed at boot in every deployment of a product that lists it, not opt-in.
     expect(ticketing?.optional).toBeUndefined();
   });

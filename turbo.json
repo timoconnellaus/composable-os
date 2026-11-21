@@ -23,6 +23,45 @@
       "dependsOn": ["^typecheck"],
       "outputs": []
     },
+    "@composable-os/product#test": {
+      "dependsOn": ["^typecheck"],
+      "outputs": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packs/**",
+        "$TURBO_ROOT$/blocks/**",
+        "!$TURBO_ROOT$/packs/*/node_modules/**",
+        "!$TURBO_ROOT$/packs/*/.turbo/**",
+        "!$TURBO_ROOT$/blocks/node_modules/**",
+        "!$TURBO_ROOT$/blocks/.turbo/**"
+      ]
+    },
+    "@composable-os/runner#test": {
+      "dependsOn": ["^typecheck"],
+      "outputs": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packs/**",
+        "$TURBO_ROOT$/blocks/**",
+        "!$TURBO_ROOT$/packs/*/node_modules/**",
+        "!$TURBO_ROOT$/packs/*/.turbo/**",
+        "!$TURBO_ROOT$/blocks/node_modules/**",
+        "!$TURBO_ROOT$/blocks/.turbo/**"
+      ]
+    },
+    "@composable-os/release-scripts#test": {
+      "dependsOn": ["^typecheck"],
+      "outputs": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packs/**",
+        "$TURBO_ROOT$/blocks/**",
+        "!$TURBO_ROOT$/packs/*/node_modules/**",
+        "!$TURBO_ROOT$/packs/*/.turbo/**",
+        "!$TURBO_ROOT$/blocks/node_modules/**",
+        "!$TURBO_ROOT$/blocks/.turbo/**"
+      ]
+    },
     "types": {
       "cache": false
     },
