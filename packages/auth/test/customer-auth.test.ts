@@ -625,3 +625,39 @@ describe("stage 23: per client address, and not set up", () => {
     expect(results).toEqual([]);
   });
 });
+
+describe("a code that is not sent never works (ADR 0455)", () => {
+  it("is removed when the send is queued for review, so reading it in Approvals signs no one in", async () => {
+    // The gatekeeper queues the send for review: its text would sit in the Approvals preview.
+    let queued = "";
+    const reviewed = customerIdentity(
+      createCustomerAuth({
+        db: env.DB,
+        secret: CUSTOMER_SECRET,
+        baseURL: ORIGIN,
+        sendCode: (message) => {
+          queued = message.code;
+          return sendCustomerCode(
+            async () => ({ value: null, pending: [{ action: 1 }], applied: [] }),
+            TARGET,
+            message,
+          );
+        },
+      }),
+      env.DB,
+    );
+    const email = address("queued");
+    await inviteCustomer(db, email, admin.id);
+    const asked = await reviewed.handle(
+      post("/api/customer-auth/email-otp/send-verification-otp", { email, type: "sign-in" }),
+    );
+    // The same answer as a sent code.
+    expect(asked?.status).toBe(200);
+    expect(queued).toMatch(/^\d{6}$/);
+    const signedIn = await reviewed.handle(
+      post("/api/customer-auth/sign-in/email-otp", { email, otp: queued }),
+    );
+    expect(signedIn?.status).toBe(400);
+    expect(await customerRow(email)).toBeNull();
+  });
+});

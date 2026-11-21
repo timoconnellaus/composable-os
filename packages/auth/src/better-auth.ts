@@ -264,7 +264,13 @@ export function createBetterAuth(options: BetterAuthOptions) {
           try {
             await codes.send({ to: email, code: otp });
           } catch (error) {
-            // A failed send must not answer differently from a refused one.
+            // Not sent (queued for review, or failed): the code is removed, as for a refused
+            // address, so a code nobody received never works. Queued, its text is in the
+            // Approvals preview, where whoever approves it could otherwise sign in as this
+            // address (ADR 0455). The answer is the same as for a sent code.
+            await ctx?.context.internalAdapter.deleteVerificationByIdentifier(
+              `${type}-otp-${email.toLowerCase()}`,
+            );
             console.error(
               "staff sign-in code not sent",
               error instanceof Error ? error.message : error,

@@ -393,6 +393,37 @@ describe("code requests", () => {
   });
 });
 
+describe("a code that is not sent never works", () => {
+  it("is removed when the host's mail queues it for review or fails, whoever the address", async () => {
+    // Queued, the code's text would be in the Approvals preview: an admin who asked for another
+    // admin's code could read it there and sign in as them.
+    let read = "";
+    const e = staffEnv();
+    provideStaffCodes(e, {
+      send: async ({ code }) => {
+        read = code;
+        throw new Error("The sign-in code was queued, not sent");
+      },
+      ready: async () => null,
+    });
+    const p = createIdentityProvider(e);
+    const email = unique("victim");
+    await invite(email, { role: "admin" });
+    // biome-ignore lint/style/noNonNullAssertion: the Better Auth adapter always has routes.
+    const asked = (await p.handle!(
+      new Request(`${ORIGIN}/api/auth/email-otp/send-verification-otp`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN },
+        body: JSON.stringify({ email, type: "sign-in" }),
+      }),
+    )) as Response;
+    expect(asked.status).toBe(200);
+    expect(read).toMatch(/^\d{6}$/);
+    expect(await refusal(await signIn(email, read))).toEqual(REFUSED);
+    expect(await userRow(email)).toBeNull();
+  });
+});
+
 describe("native staff sign-in (no cookie)", () => {
   it("returns who signed in and leaves no cookie session behind", async () => {
     const auth = getBetterAuth(closed);

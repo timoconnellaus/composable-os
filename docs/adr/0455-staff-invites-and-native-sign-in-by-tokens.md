@@ -105,9 +105,14 @@ and `.finishBrowserSignIn(...)` (`@composable-os/client`).
   One sender is simpler than two and gives one place to check and audit; the setting is shown as
   the host's mail connection in Settings → Users. Until it is set, a staff code request answers
   `sign_in_not_set_up` and `user.invite` says the invite email was not sent.
-  As for customer codes, the connection's send kind must be set to apply without review
-  (Settings → Integrations, outbound auto-approval): a code that waits in Approvals is not sent
-  when it is asked for, and an admin who approves it sees the code in the preview.
+  The connection's send kind must apply without review (Settings → Integrations, outbound
+  auto-approval). **A code whose send does not end as sent (queued for review, or failed) is
+  deleted at once**, staff and customer alike, as for an address that may not get one: otherwise
+  its text would sit in the Approvals preview, and whoever approved it could sign in as that
+  address, under another person's name in the audit log. The answer is the same either way.
+- **The code is not in the subject.** The send's title (`Send email: <subject>`) is kept in the
+  audit row of `integration.outbound` for the audit retention, so the subject is "Your <product>
+  sign-in code" and the code is in the body only.
 - **Disabling ends every session.** `user.deactivate` deletes the account's device sessions with
   its cookie sessions, so reactivating does not revive them.
 - **Under Cloudflare Access** Access decides who gets in and the host decides what they hold. An
@@ -190,9 +195,20 @@ is set" is observed, not removed: the phone in `native-sign-in.test.ts` records 
 the host sends and every cookie the runtime sends, and both lists stay empty.
 
 ## Consequences
-- The fake outbox's sends are always reviewed, so in development the admin approves the host's
-  mail in Approvals, and the preview shows the code. A real connection's sends are set to apply
-  without review.
+- Only sends to colleagues are auto-approvable: email-send's `email.internal` (every recipient at
+  its internal domains), and the fake outbox's `fake.internal` (every recipient at the outbox's own
+  domain, which the fake now decides as email-send does). A code to any other address waits for
+  review and so is deleted: customer codes to outside addresses, and staff whose address is not a
+  colleague's, cannot be delivered by email-send today. This was already so for customer codes;
+  a decision on host mail and review is filed separately.
+- A send waiting for review holds back every later send on the same resource (the gatekeeper
+  applies them in order), so one queued invite notice stops the codes after it until it is
+  decided. The e2e journey approves the invite notice (it holds no secret) after letting colleague
+  mail apply without review.
+- After a sent code: the body, with the code, is in the gatekeeper's action record while the
+  gatekeeper keeps it (email-send does not set `retainApplied`; the fake outbox's journal keeps it,
+  dev only). A queued send's preview is kept on its pending action (full detail 30 days, then a
+  summary), but that code was deleted when the send was queued.
 - Seat limits count accounts, not pending invites.
 - Erasing a person does not delete a staff invite to their address (the erase code is another
   build's); an invite expires in 7 days.
