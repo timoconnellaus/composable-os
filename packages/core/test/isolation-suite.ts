@@ -30,6 +30,7 @@ import {
   DECLARATIONS,
   fixtureRegistry,
   giveOrders,
+  ITEM,
   installShop,
   type call as invokeCall,
   ORDER,
@@ -452,6 +453,17 @@ export function isolationSuite(how: string, call: CallFn): void {
         expect(Object.keys(tier?.values ?? {}).sort()).toEqual(["name", "price", "show"]);
         expect(JSON.stringify(tiers)).not.toContain(shows.hidden.ids[1]);
       }
+    });
+
+    it("a sellable object's records come with the currency their prices are in, from the host", async () => {
+      // Stage 25: one currency per deployment, a setting. A client never states it itself.
+      const items = await call("fixture.publicPeek", { object: ITEM }, outside(PUBLIC));
+      expect(items).toMatchObject({ ok: true, value: { currency: "AUD" } });
+      // Not on an object that is not for sale.
+      const show = (await call("fixture.publicPeek", { object: SHOW }, outside(PUBLIC))) as {
+        value: Record<string, unknown>;
+      };
+      expect(show.value).not.toHaveProperty("currency");
     });
 
     it("the public see no other object and change no record", async () => {

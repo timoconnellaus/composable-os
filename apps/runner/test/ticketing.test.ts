@@ -457,6 +457,7 @@ describe("the sales summary", () => {
       revenue: 12000,
     });
     expect(summary.totals).toEqual({ sold: 3, held: 1, remaining: 16, revenue: 21000 });
+    expect((summary as { currency?: string }).currency).toBe("AUD");
   });
 });
 
@@ -527,7 +528,7 @@ describe("the hooks against the host (step 5)", () => {
     g.reset();
     const picker = g.hooks.useTicketPicker(found);
     expect(picker.quantities).toEqual({ [types[0] as string]: 2, [types[1] as string]: 2 });
-    expect(picker.estimate).toEqual({ full: 13000, deposit: null });
+    expect(picker.estimate).toEqual({ full: 13000, deposit: null, currency: "AUD" });
     const order = await g.hooks
       .useStartOrder()
       .mutateAsync({ lines: picker.lines, email: buyerEmail() });
@@ -650,7 +651,12 @@ interface OnSale {
     id: string;
     name: string | null;
     availability: { status: string; available?: number | null };
-    ticketTypes: { id: string; price: number | null; availability: { status: string } }[];
+    ticketTypes: {
+      id: string;
+      price: number | null;
+      currency: string | null;
+      availability: { status: string };
+    }[];
   }[];
 }
 
@@ -671,6 +677,8 @@ describe("public reads (criterion 9)", () => {
       const event = seen.events.find((e) => e.id === onSale.event);
       expect(event?.ticketTypes.map((t) => t.id)).toEqual(onSale.types);
       expect(event?.ticketTypes[0]?.price).toBe(45);
+      // The currency the price is in comes from the host, beside it: no client states its own.
+      expect(event?.ticketTypes[0]?.currency).toBe("AUD");
       expect(event?.ticketTypes[0]?.availability).toEqual({ status: "low", available: 3 });
       // Only one event asked for: a draft one is not there at all.
       expect(

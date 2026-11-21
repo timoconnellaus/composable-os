@@ -9,6 +9,7 @@ import {
   type EventOnSale,
   estimate,
   formatMoney,
+  formatPrice,
   minorFromInput,
   orderStatus,
   pickerLines,
@@ -25,6 +26,7 @@ const type = (values: Partial<EventOnSale["ticketTypes"][number]>) => ({
   name: "Shared",
   description: null,
   price: 450,
+  currency: "AUD",
   onSaleFrom: null,
   onSaleUntil: null,
   maxPerOrder: null,
@@ -52,9 +54,16 @@ describe("plain functions", () => {
       type({ id: "a", price: 450, deposit: 100, balanceDue: "2027-01-01" }),
       type({ id: "b", price: 19.99 }),
     ]);
-    expect(estimate(e, { a: 2 })).toEqual({ full: 90000, deposit: 20000 });
-    expect(estimate(e, { a: 1, b: 3 })).toEqual({ full: 45000 + 5997, deposit: null });
-    expect(estimate(e, {})).toEqual({ full: 0, deposit: null });
+    expect(estimate(e, { a: 2 })).toEqual({ full: 90000, deposit: 20000, currency: "AUD" });
+    expect(estimate(e, { a: 1, b: 3 })).toEqual({
+      full: 45000 + 5997,
+      deposit: null,
+      currency: "AUD",
+    });
+    expect(estimate(e, {})).toEqual({ full: 0, deposit: null, currency: "AUD" });
+    // A currency with no minor unit: the host's currency decides the scale, not the app.
+    const yen = event([type({ id: "y", price: 4500, currency: "JPY" })]);
+    expect(estimate(yen, { y: 2 })).toEqual({ full: 9000, deposit: null, currency: "JPY" });
     expect(pickerLines({ a: 2, b: 0 })).toEqual([{ ticketTypeId: "a", quantity: 2 }]);
   });
 
@@ -73,6 +82,9 @@ describe("plain functions", () => {
     expect(minorFromInput("12,50")).toBe(1250);
     expect(minorFromInput("nope")).toBeNull();
     expect(minorFromInput("0")).toBeNull();
+    expect(formatMoney(9000, "JPY")).toBe("9000 JPY");
+    expect(minorFromInput("4500", "JPY")).toBe(4500);
+    expect(formatPrice(45.5, "AUD")).toBe("45.50 AUD");
   });
 
   it("says an order is waiting until the host says it is paid", () => {

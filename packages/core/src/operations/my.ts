@@ -9,6 +9,7 @@ import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation } from "../operation.ts";
 import { unknownObject } from "../visibility/customer.ts";
+import { visibleCurrency } from "./public-read.ts";
 
 /**
  * my.* is a customer's own records only. The seam also lets a customer read what the public may
@@ -30,6 +31,7 @@ const recordSchema = z.object({
   id: z.string(),
   /** The fields the object lets its customer read, by field name. */
   values: z.record(z.string(), z.unknown()),
+  currency: visibleCurrency,
 });
 
 export const myList = defineOperation({
@@ -45,7 +47,11 @@ export const myList = defineOperation({
     cursor: z.string().max(1000).optional(),
     limit: z.number().int().min(1).max(LIST_MAX_LIMIT).default(50),
   }),
-  output: z.object({ items: z.array(recordSchema), nextCursor: z.string().nullable() }),
+  output: z.object({
+    items: z.array(recordSchema.omit({ currency: true })),
+    nextCursor: z.string().nullable(),
+    currency: visibleCurrency,
+  }),
   permission: "records:read",
   risk: "read",
   audiences: ["customer"],

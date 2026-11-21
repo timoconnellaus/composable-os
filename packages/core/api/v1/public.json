@@ -480,7 +480,7 @@
     },
     {
       "name": "x.ticketing.eventsOnSale",
-      "description": "The events on sale now, soonest first, each with its ticket types (name, price, sale window, most per order, deposit) and whether places are left. For an event page or a list of events. Only what the public may read: an event that is not on sale is not here. Read-only. (Extension tool from Ticketing 0.1.0.)",
+      "description": "The events on sale now, soonest first, each with its ticket types (name, price and its currency, sale window, most per order, deposit) and whether places are left. Prices and deposits are in the major unit of `currency` (45.5 is 45.50). For an event page or a list of events. Only what the public may read: an event that is not on sale is not here. Read-only. (Extension tool from Ticketing 0.1.0.)",
       "risk": "read",
       "audiences": ["public"],
       "kind": "query",
@@ -563,6 +563,10 @@
                       "price": {
                         "type": ["number", "null"]
                       },
+                      "currency": {
+                        "description": "The currency the prices are in (ISO 4217): the deployment's one currency, from the host. Null until an admin sets it, and until then nothing can be bought.",
+                        "type": ["string", "null"]
+                      },
                       "onSaleFrom": {
                         "type": ["string", "null"]
                       },
@@ -599,6 +603,7 @@
                       "name",
                       "description",
                       "price",
+                      "currency",
                       "onSaleFrom",
                       "onSaleUntil",
                       "maxPerOrder",

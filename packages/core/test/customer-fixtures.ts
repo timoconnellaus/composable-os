@@ -598,7 +598,11 @@ const publicPeek = defineOperation({
   name: "fixture.publicPeek",
   description: "Fixture: a public operation that tries to list an object.",
   input: z.object({ object: objectName }),
-  output: z.object({ items: z.array(recordOut), nextCursor: z.string().nullable() }),
+  output: z.object({
+    items: z.array(recordOut),
+    nextCursor: z.string().nullable(),
+    currency: z.string().nullable().optional(),
+  }),
   permission: "records:read",
   risk: "read",
   audiences: ["public"],

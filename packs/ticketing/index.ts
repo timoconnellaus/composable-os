@@ -39,6 +39,7 @@ export default defineExtension({
     read: ["person"],
     // public.list and capacity.get: the events on sale and their places, for the public.
     // extensionSettings.list: the pages the buyer's emails link to. email-send: the buyer's mail.
+    // order.settings.get: the currency the sales summary's amounts are in (staff).
     operations: [
       "order.start",
       "order.get",
@@ -46,6 +47,7 @@ export default defineExtension({
       "public.list",
       "capacity.get",
       "extensionSettings.list",
+      "order.settings.get",
     ],
     modules: ["ops", "email-send"],
   },

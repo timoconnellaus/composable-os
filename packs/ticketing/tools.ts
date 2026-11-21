@@ -17,6 +17,8 @@ interface RecordShape {
 interface ListShape {
   items: RecordShape[];
   nextCursor?: string | null;
+  /** On a sellable object's records (a ticket type): the currency its prices are in. */
+  currency?: string | null;
 }
 
 const text = (value: unknown): string | null =>
@@ -31,10 +33,19 @@ const availability = z.object({
   available: z.number().nullable().optional().describe("Places left, when the type says so"),
 });
 
+const currency = z
+  .string()
+  .nullable()
+  .describe(
+    "The currency the prices are in (ISO 4217): the deployment's one currency, from the host. " +
+      "Null until an admin sets it, and until then nothing can be bought.",
+  );
+
 export const eventsOnSale = defineTool({
   description:
-    "The events on sale now, soonest first, each with its ticket types (name, price, sale " +
-    "window, most per order, deposit) and whether places are left. For an event page or a list " +
+    "The events on sale now, soonest first, each with its ticket types (name, price and its " +
+    "currency, sale window, most per order, deposit) and whether places are left. Prices and " +
+    "deposits are in the major unit of `currency` (45.5 is 45.50). For an event page or a list " +
     "of events. Only what the public may read: an event that is not on sale is not here. " +
     "Read-only.",
   input: z.object({
@@ -58,6 +69,7 @@ export const eventsOnSale = defineTool({
             name: z.string().nullable(),
             description: z.string().nullable(),
             price: z.number().nullable(),
+            currency,
             onSaleFrom: z.string().nullable(),
             onSaleUntil: z.string().nullable(),
             maxPerOrder: z.number().nullable(),
@@ -113,6 +125,8 @@ export const eventsOnSale = defineTool({
             name: text(type.values.name),
             description: text(type.values.description),
             price: num(type.values.price),
+            // What currency the prices are in is the host's to say, beside them (ADR 0435).
+            currency: types.currency ?? null,
             onSaleFrom: text(type.values.onSaleFrom),
             onSaleUntil: text(type.values.onSaleUntil),
             maxPerOrder: num(type.values.maxPerOrder),
@@ -305,11 +319,13 @@ export const salesSummary = defineTool({
   description:
     "How one event is selling, per ticket type: places sold (taken), held by orders being paid, " +
     "remaining (null when unlimited), and revenue (the line totals of orders paid in full or by " +
-    "deposit, in the currency's minor unit), with the event's totals. For the dashboard and for " +
-    "questions such as 'how are sales going'. Read-only.",
+    "deposit, in the currency's minor unit), with the event's totals and the currency. Prices " +
+    "are in the major unit. For the dashboard and for questions such as 'how are sales going'. " +
+    "Read-only.",
   input: z.object({ eventId: z.string().min(1).max(64) }),
   output: z.object({
     event: z.object({ id: z.string(), name: z.string().nullable(), status: z.string().nullable() }),
+    currency,
     ticketTypes: z.array(
       z.object({
         id: z.string(),
@@ -370,8 +386,10 @@ export const salesSummary = defineTool({
     const typesLeft = ticketTypes.every((t) => t.remaining !== null)
       ? ticketTypes.reduce((sum, t) => sum + (t.remaining ?? 0), 0)
       : null;
+    const settings = await ctx.ops.call<{ currency: string | null }>("order.settings.get", {});
     return {
       event: { id: event.id, name: text(event.values.name), status: text(event.values.status) },
+      currency: settings.currency ?? null,
       ticketTypes,
       totals: {
         sold: ticketTypes.reduce((sum, t) => sum + t.sold, 0),

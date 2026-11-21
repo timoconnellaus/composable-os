@@ -74,23 +74,50 @@ export interface TicketingClient {
 
 // --- Plain functions ------------------------------------------------------------------------------
 
+/**
+ * How many decimal places `currency` has (2 for AUD, 0 for JPY), for display. The currency is
+ * always the host's, from the data (a ticket type's `currency`, an order's): never the app's.
+ */
+export function currencyDigits(currency: string | null | undefined): number {
+  if (!currency) return 2;
+  try {
+    return (
+      new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
+        .maximumFractionDigits ?? 2
+    );
+  } catch {
+    return 2;
+  }
+}
+
 /** An amount in the minor unit as the buyer reads it: `450.00 AUD`. Display only. */
-export function formatMoney(minor: number, currency: string): string {
-  return `${(minor / 100).toFixed(2)} ${currency}`;
+export function formatMoney(minor: number, currency: string | null): string {
+  const digits = currencyDigits(currency);
+  return `${(minor / 10 ** digits).toFixed(digits)}${currency ? ` ${currency}` : ""}`;
 }
 
 /** A ticket type's price (major unit, as the record holds it) as the buyer reads it. */
-export function formatPrice(price: number | null, currency: string): string {
-  return price === null ? "" : `${price.toFixed(2)} ${currency}`;
+export function formatPrice(price: number | null, currency: string | null): string {
+  return price === null
+    ? ""
+    : `${price.toFixed(currencyDigits(currency))}${currency ? ` ${currency}` : ""}`;
+}
+
+/** The currency an event's prices are in, as the host gave it with its ticket types. */
+export function eventCurrency(event: EventOnSale): string | null {
+  return event.ticketTypes.find((type) => type.currency)?.currency ?? null;
 }
 
 /**
- * An amount a buyer typed (`120`, `120.50`) in the minor unit, or null when it is not one. The
- * host decides whether it may be charged (at least the set minimum, at most the balance).
+ * An amount a buyer typed (`120`, `120.50`) in the minor unit of `currency`, or null when it is
+ * not one. The host decides whether it may be charged (at least the set minimum, at most the
+ * balance).
  */
-export function minorFromInput(text: string): number | null {
+export function minorFromInput(text: string, currency: string | null = null): number | null {
   const value = Number(text.trim().replace(",", "."));
-  return Number.isFinite(value) && value > 0 ? Math.round(value * 100) : null;
+  return Number.isFinite(value) && value > 0
+    ? Math.round(value * 10 ** currencyDigits(currency))
+    : null;
 }
 
 /** What the picker shows of a ticket type's places: "Sold out", "Only 3 left", or nothing. */
@@ -119,18 +146,20 @@ export function pickerLines(quantities: Quantities): { ticketTypeId: string; qua
 export function estimate(
   event: EventOnSale,
   quantities: Quantities,
-): { full: number; deposit: number | null } {
+): { full: number; deposit: number | null; currency: string | null } {
+  const currency = eventCurrency(event);
+  const scale = 10 ** currencyDigits(currency);
   let full = 0;
   let deposit = 0;
   let everyLineOffersDeposit = true;
   for (const type of event.ticketTypes) {
     const quantity = quantities[type.id] ?? 0;
     if (quantity <= 0) continue;
-    full += Math.round((type.price ?? 0) * 100) * quantity;
+    full += Math.round((type.price ?? 0) * scale) * quantity;
     if (type.deposit === null || type.balanceDue === null) everyLineOffersDeposit = false;
-    else deposit += Math.round(type.deposit * 100) * quantity;
+    else deposit += Math.round(type.deposit * scale) * quantity;
   }
-  return { full, deposit: full > 0 && everyLineOffersDeposit ? deposit : null };
+  return { full, deposit: full > 0 && everyLineOffersDeposit ? deposit : null, currency };
 }
 
 /** The most the picker offers of one type: its declared most per order, or 10 as the host does. */
@@ -232,7 +261,7 @@ export function createTicketingHooks(
         quantities,
         set,
         lines,
-        estimate: event ? estimate(event, quantities) : { full: 0, deposit: null },
+        estimate: event ? estimate(event, quantities) : { full: 0, deposit: null, currency: null },
         empty: lines.length === 0,
         max: (type: TicketTypeOnSale) => pickerMax(type),
         clear: () => setQuantities({}),

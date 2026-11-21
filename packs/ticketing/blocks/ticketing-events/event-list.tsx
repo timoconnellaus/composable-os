@@ -46,16 +46,11 @@ export function EventList({
   );
 }
 
-/** One event's details and its ticket types, with room for the picker below. */
-export function EventSection({
-  event,
-  currency,
-  children,
-}: {
-  event: EventOnSale;
-  currency: string;
-  children?: ReactNode;
-}) {
+/**
+ * One event's details and its ticket types, with room for the picker below. Prices show in the
+ * currency the host gives with them.
+ */
+export function EventSection({ event, children }: { event: EventOnSale; children?: ReactNode }) {
   return (
     <section aria-labelledby={`event-${event.id}`} className="grid gap-4">
       {event.image ? <img src={event.image} alt="" className="w-full rounded-lg" /> : null}
@@ -71,7 +66,7 @@ export function EventSection({
           <li key={type.id} className="flex justify-between gap-4">
             <span>{type.name}</span>
             <span>
-              {formatPrice(type.price, currency)}
+              {formatPrice(type.price, type.currency)}
               {availabilityLabel(type.availability)
                 ? ` · ${availabilityLabel(type.availability)}`
                 : ""}

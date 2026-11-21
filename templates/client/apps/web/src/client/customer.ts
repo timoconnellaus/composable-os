@@ -66,7 +66,7 @@ export type Operations = {
   "my.get": {
     kind: "query";
     input: { object: string; id: string };
-    output: { object: string; id: string; values: Record<string, unknown> };
+    output: { object: string; id: string; values: Record<string, unknown>; currency?: (string) | (null) };
   };
   /**
    * A page of your own records of an object, as a signed-in customer: only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.
@@ -74,7 +74,7 @@ export type Operations = {
   "my.list": {
     kind: "query";
     input: { object: string; filter?: ({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }))[] }); sort?: { field: string; direction?: ("asc") | ("desc") }; cursor?: string; limit?: number };
-    output: { items: { object: string; id: string; values: Record<string, unknown> }[]; nextCursor: (string) | (null) };
+    output: { items: { object: string; id: string; values: Record<string, unknown> }[]; nextCursor: (string) | (null); currency?: (string) | (null) };
   };
   /**
    * Cancel an order. A signed-in customer can cancel their own order while nothing has been paid on it. Staff can also cancel an order that is part paid (a deposit was paid): that gives up its places, and refunding what was paid is a separate step. A paid order is refunded, not cancelled. Returns the order.
