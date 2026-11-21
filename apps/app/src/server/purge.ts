@@ -12,6 +12,7 @@ import {
   parseFloor,
   purgeAgentJobs,
   purgeCacheReview,
+  purgeIdempotencyKeys,
   purgeIntegrationEvents,
   purgeNotificationDeliveries,
   purgeNotifications,
@@ -99,6 +100,11 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
   // Prompt cache review data is kept 180 days (ADR 0341).
   const cacheReview = await step("cache review data", () => purgeCacheReview(db.query, now));
   if (cacheReview?.deleted) console.log(`cache review: ${cacheReview.deleted} row(s) purged`);
+  // The HTTP surface's idempotency keys are kept 24 hours (stage 23, ADR 0416).
+  const idempotencyKeys = await step("idempotency keys", () =>
+    purgeIdempotencyKeys(db, clock?.() ?? new Date()),
+  );
+  if (idempotencyKeys?.deleted) console.log(`idempotency keys: ${idempotencyKeys.deleted} purged`);
   // Erase requests past their due date: admins are told once a day until staff close them.
   const eraseRequests = await step("overdue erase requests", () =>
     notifyOverdueEraseRequests(db, clock?.() ?? new Date()),
@@ -114,6 +120,7 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
     notifications,
     cacheReview,
     eraseRequests,
+    idempotencyKeys,
   };
 }
 

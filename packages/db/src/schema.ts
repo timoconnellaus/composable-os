@@ -878,6 +878,31 @@ export interface CoreCustomerInviteTable {
 }
 
 /**
+ * Migration 0410 (stage 23, ADR 0416): a write over the HTTP surface that committed, by its
+ * Idempotency-Key. Inserted in the write's own batch.
+ */
+export interface CoreIdempotencyKeyTable {
+  scope: string;
+  idempotency_key: string;
+  operation: string;
+  input_hash: string;
+  claim: string;
+  status: number | null;
+  response: string | null;
+  created_at: string;
+}
+
+/** Migration 0410: a key whose call is running, so a second call with it waits. */
+export interface CoreIdempotencyClaimTable {
+  scope: string;
+  idempotency_key: string;
+  operation: string;
+  input_hash: string;
+  claim: string;
+  claimed_at: string;
+}
+
+/**
  * Migration 0402 (stage 22, ADR 0402): a request to erase a Person, made when a customer deletes
  * their account. Staff erase the person (status `erased`) or decline with a reason.
  */
@@ -1656,6 +1681,8 @@ export interface CoreDatabase {
   core_customer_verification: CoreCustomerVerificationTable;
   core_customer_invite: CoreCustomerInviteTable;
   core_erase_request: CoreEraseRequestTable;
+  core_idempotency_key: CoreIdempotencyKeyTable;
+  core_idempotency_claim: CoreIdempotencyClaimTable;
   rec_stage_history: CrmStageHistoryView;
   rec_user: CrmUsersView;
   rec_person: CrmPeopleView;

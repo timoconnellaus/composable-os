@@ -20,7 +20,8 @@ export type Actor = (typeof ACTORS)[number];
 
 /** Where a call came from, recorded in the audit log. */
 export const originSchema = z.object({
-  // `client`: a client app or site calling for a customer or the public (stage 22).
+  // `client`: a client app or site: a customer or the public (stage 22), or any caller of the
+  // HTTP surface (stage 23).
   surface: z.enum(["ui", "mcp", "automation", "system", "extension", "assistant", "client"]),
   /** The MCP client id (OAuth client_id). */
   clientId: z.string().optional(),

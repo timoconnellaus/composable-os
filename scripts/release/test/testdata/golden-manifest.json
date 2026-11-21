@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 402,
+  "coreSchemaVersion": 410,
   "extensionContract": {
     "supported": [
       1
@@ -404,6 +404,10 @@
     {
       "name": "0402_erase_requests.sql",
       "sha256": "d099b7700feedebb3f3ecb130f6543df93f365ed0ef5a16fcd2d06366497ce39"
+    },
+    {
+      "name": "0410_idempotency_keys.sql",
+      "sha256": "77225b7a6b3c36632653d9ea8dfdb3c13ef32803946c2b7f11e867840f3a7060"
     }
   ],
   "product": "crm",
@@ -688,6 +692,15 @@
           "type": "ratelimit"
         },
         {
+          "name": "CUSTOMER_RATE_LIMIT",
+          "namespace_id": "4104",
+          "simple": {
+            "limit": 60,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
           "name": "AI_FAKE_MODEL",
           "text": "",
           "type": "plain_text"
@@ -730,6 +743,11 @@
         {
           "name": "AI_SECRET_SCRIPTS",
           "text": "crm-app,crm-runner",
+          "type": "plain_text"
+        },
+        {
+          "name": "API_ALLOWED_ORIGINS",
+          "text": "",
           "type": "plain_text"
         },
         {
@@ -962,7 +980,7 @@
           "source": "user"
         }
       ],
-      "sha256": "ceaa00750c62e27cf1256c7b84c4ddb30abd9ea1d9ab3a2ebe5b6b603b7dd2fe"
+      "sha256": "2ab7bacc4c4ba5bac5bf305d6291478113b771bd4c38cdbfa055515cc6526907"
     },
     {
       "bindings": [
