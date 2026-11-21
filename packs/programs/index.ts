@@ -20,7 +20,9 @@ import { LAYOUT_SCHEMA, SESSION_PLAN_SCHEMA } from "./layout.ts";
 import {
   assign,
   classToday,
+  draft,
   history,
+  importText,
   logAdd,
   logUpdate,
   progress,
@@ -52,7 +54,7 @@ export default defineExtension({
   permissions: {
     // person.get: the name an assignment is titled with.
     read: ["person"],
-    modules: ["ops"],
+    modules: ["ops", "ai"],
   },
   objects: {
     exercise: {
@@ -303,6 +305,14 @@ export default defineExtension({
         kind,
         person: { type: "relation", label: "Person", to: "person" },
         classType: { type: "relation", label: "Class type", to: "programs.classtype" },
+        programTitle: {
+          type: "text",
+          label: "Program",
+          readOnly: true,
+          description:
+            "The program's title in the assigned version, so a member reads it with the session.",
+        },
+        classTypeName: { type: "text", label: "Class type (name)", readOnly: true },
         date: { type: "date", label: "Date", required: true },
         week: { type: "number", label: "Week", readOnly: true, min: 1, max: 52, step: 1 },
         day: { type: "number", label: "Day of the week", readOnly: true, min: 1, max: 7, step: 1 },
@@ -357,6 +367,8 @@ export default defineExtension({
           "programVersion",
           "kind",
           "classType",
+          "programTitle",
+          "classTypeName",
           "date",
           "week",
           "day",
@@ -376,6 +388,8 @@ export default defineExtension({
           "programVersion",
           "kind",
           "classType",
+          "programTitle",
+          "classTypeName",
           "date",
           "week",
           "day",
@@ -409,6 +423,12 @@ export default defineExtension({
         session: { type: "relation", label: "Session", to: "programs.session", required: true },
         assignment: { type: "relation", label: "Assignment", to: "programs.assignment" },
         exercise: { type: "relation", label: "Exercise", to: "programs.exercise", required: true },
+        exerciseName: {
+          type: "text",
+          label: "Exercise (name)",
+          description:
+            "The exercise's name when the set was logged, so a member reads it with the set.",
+        },
         item: { type: "text", label: "Item", description: "The item's label: A1." },
         setNumber: { type: "number", label: "Set number", min: 1, max: 30, step: 1 },
         level: { type: "number", label: "Level taken", min: 1, max: 5, step: 1 },
@@ -446,6 +466,7 @@ export default defineExtension({
           "session",
           "assignment",
           "exercise",
+          "exerciseName",
           "item",
           "setNumber",
           "level",
@@ -603,5 +624,7 @@ export default defineExtension({
     sessionComplete,
     history,
     progress,
+    draft,
+    importText,
   },
 });
