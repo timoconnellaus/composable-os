@@ -268,6 +268,8 @@ describe("a write with a key", () => {
     expect(ran(text)).toBe(1);
 
     const queuedText = unique("queued");
+    // A key of its own: \`key\` with its last character changed was the same key one time in 16.
+    const queuedKey = crypto.randomUUID();
     const reviewed = context(admin, {
       origin: { surface: "client" },
       floor: { "*": { write: "review" } },
@@ -276,13 +278,13 @@ describe("a write with a key", () => {
       "fixture.countedPerson",
       { text: queuedText },
       reviewed,
-      key.replace(/.$/, "0"),
+      queuedKey,
     );
     const q2 = await send(
       "fixture.countedPerson",
       { text: queuedText },
       reviewed,
-      key.replace(/.$/, "0"),
+      queuedKey,
     );
     expect(q1.status).toBe(202);
     expect(JSON.parse(q1.text).error.code).toBe("pending_approval");
