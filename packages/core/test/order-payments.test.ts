@@ -13,6 +13,7 @@ import {
   applyStoredPaymentEvent,
   confirmationMessage,
   coreRegistry,
+  devJudge,
   type IntegrationRuntime,
   loadOrderRow,
   memoryEventSink,
@@ -597,6 +598,25 @@ describe("refunds through approval (criterion 8)", () => {
         );
         expect(viaDecide.code).toBe("forbidden");
       }
+      // The assistant in the person's own chat, with their plain yes: still refused. A refund is
+      // approved by a person's own press in the Approvals inbox.
+      const inChat = await refusal(
+        run(
+          "approval.decide",
+          { actionIds: [actionId], decision: "approve" },
+          staff(admin, {
+            actor: "assistant",
+            judge: devJudge,
+            assistantTurn: {
+              threadId: "ath_1",
+              messageSeq: 1,
+              text: "Yes, approve the refund",
+              via: "text",
+            },
+          }),
+        ),
+      );
+      expect(inChat.code).toBe("forbidden");
       expect(gw.applied.length).toBe(appliedBefore);
       // A person without the permission cannot either; an admin can.
       const memberApproves = await refusal(
