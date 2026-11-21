@@ -259,6 +259,7 @@ describe("states (criterion 2)", () => {
   it("scheduling and unpublishing are a person's with the publish permission; a schedule is in the future", async () => {
     const post = await createPost({ title: "Gated schedule" });
     const at = new Date(Date.now() + 3_600_000).toISOString();
+    // An AI actor only asks: its request waits for a person (ADR 0480).
     for (const actor of ["assistant", "mcp", "automation"] as const) {
       const error = await refusal(
         invoke(
@@ -266,11 +267,14 @@ describe("states (criterion 2)", () => {
           { object: POST, id: post.id, at },
           context(admin, {
             actor,
-            origin: { surface: actor === "automation" ? "automation" : actor, sessionId: "s" },
+            origin: {
+              surface: actor === "automation" ? "automation" : actor,
+              sessionId: `s_${actor}_${Date.now()}`,
+            },
           } as never),
         ),
       );
-      expect(error.code, actor).toBe("forbidden");
+      expect(error.code, actor).toBe("pending_approval");
     }
     expect(
       await refusal(

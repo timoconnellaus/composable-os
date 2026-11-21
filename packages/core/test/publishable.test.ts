@@ -1,6 +1,7 @@
 // Stage 41, build step 1: `publishable` without its public half (ADR 0446). A working copy staff
 // edit, published versions, the publish move, reading and restoring an old version. Publishing
-// needs `records:publish` (admins by default) and a person: no AI actor publishes.
+// needs `records:publish` (admins by default) and a person: an AI actor only asks, and a person
+// approves (ADR 0480, tested in publish-requests.test.ts).
 import { env } from "cloudflare:workers";
 import { validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -166,8 +167,12 @@ describe("versions", () => {
     expect(changes.map((c) => c.operation)).toEqual(
       expect.arrayContaining(["record.publish", "record.restoreVersion"]),
     );
+    // What went live against what was live (nothing), and the working copy's fingerprint.
     expect(changes.find((c) => c.operation === "record.publish")?.diff).toEqual({
       publishedVersion: { before: null, after: 1 },
+      title: { before: null, after: "Week one" },
+      body: { before: null, after: "Squat" },
+      draftFingerprint: { before: expect.any(String), after: expect.any(String) },
     });
   });
 
@@ -196,11 +201,11 @@ describe("versions", () => {
 });
 
 describe("who publishes", () => {
-  it("a person with records:publish: no AI actor, whatever its role, and no member", async () => {
+  it("a person with records:publish; an AI actor only asks (ADR 0480), and no member", async () => {
     const doc = await create({ title: "Gated" });
     for (const actor of ["assistant", "mcp", "automation", "extension"] as const) {
       const error = await refusal(invoke("record.publish", { object: DOC, id: doc.id }, ai(actor)));
-      expect(error.code, actor).toBe("forbidden");
+      expect(error.code, actor).toBe("pending_approval");
     }
     const asMember = await refusal(
       invoke("record.publish", { object: DOC, id: doc.id }, context(member)),

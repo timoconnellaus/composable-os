@@ -151,6 +151,12 @@ export interface HandlerContext {
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
   /**
+   * Set only while an approved pending action is applied: which action, who approved it (a
+   * person's user id, or the adjudicator's principal) and the preview they approved. A publish
+   * records its approver and refuses a working copy changed since it was asked for (ADR 0480).
+   */
+  readonly approval?: Pick<ApplyingApproval, "actionId" | "approvedBy" | "preview"> | undefined;
+  /**
    * Records through the visibility seam: what the caller may see and, for a customer, change.
    * On a customer's or the public's call this is the only way to the database: `db`, `write`,
    * `recordChange` and `postActivity` throw there unless the operation is `hostInternal`.
