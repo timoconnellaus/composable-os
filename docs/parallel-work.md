@@ -32,7 +32,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | U | 0440–0449 | 0430–0434 | Stage 26, Capacity and holds | in flight |
 | V | 0450–0459 | 0435–0439 | Stage 27, Ticketing and the first client (step 1, `sellable`: migration 0450, ADR 0435; steps 2 and 3, the pack, the door role and public reads: migration 0451, ADRs 0436 to 0438) | in flight |
 | W | 0460–0469 | 0440–0444 | Stage 28, Content | specced |
-| X | — | 0450–0454 | Client releases and environments (every pack in a release, environments, customer auth on deploy, role clients; ADR 0450 used; ADRs 0420, 0421, 0422, 0423 amended) | in flight |
+| Y | — | 0450–0454 | Client releases and environments (every pack in a release, environments, customer auth on deploy, role clients; ADR 0450 used; ADRs 0420, 0421, 0422, 0423 amended) | in flight |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.

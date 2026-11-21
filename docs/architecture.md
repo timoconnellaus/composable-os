@@ -1089,8 +1089,11 @@ there. Blocks hold no rules.
 
 As built (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
 [0424](adr/0424-blocks-as-built.md)): a pack is `packs/<id>/` (the extension, `client/` hooks,
-`blocks/`), published as `@composable-os/pack-<id>`; a product's release has the packs it lists, and
-a deployment installs those `COS_PACKS` names. A block is a folder with a `block.json` (pack,
+`blocks/`), published as `@composable-os/pack-<id>`; a release carries every pack in the repository
+(its runner bundles them, its client kit lists them in `packs.json`), and a deployment installs the
+ones `COS_PACKS` names (`*`: the release product's own). A named pack the release does not carry is
+a loud failure, never dropped (ADR 0420 as amended). The API contract files are the union over the
+carried packs, each tool named with its `pack`; a deployment serves `forPacks(file, installed)`. A block is a folder with a `block.json` (pack,
 skin, operations, files, dependsOn, packages) in `blocks/` or `packs/<id>/blocks/`, MIT, shipped
 in the release's client kit and copied with `cos add`. The web base layer (`blocks/ui-*`) is
 generated from `packages/ui` (Radix underneath); the native base layer is `blocks/native-base`;
@@ -1129,6 +1132,13 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   no approval); then the built web app with its one binding. A first install names the host
   for the client's product through the deployment state's name maps and sets its label
   (`COS_PRODUCT_LABEL`), with the verified release unchanged (ADR 0422 amended, issue #155).
+  It checks the product's packs against the release's `packs.json` only, sets
+  `CUSTOMER_AUTH_URL` to the web app's origin and makes `CUSTOMER_AUTH_SECRET` once, and installs
+  the gatekeepers `product.ts` names with their settings
+  ([ADR 0452](adr/0452-gatekeeper-settings-in-product-ts.md)).
+- **Environments** ([ADR 0450](adr/0450-client-environments.md)): `product.ts` may declare
+  several deployments (`staging`, `live`), each its own host in the same account (`<id>-staging-app`;
+  `live` keeps `<id>-app`), deployed with `cos deploy --env <name>`.
 - **The template** (`templates/client`): `apps/web` (TanStack Start, `src/host.ts` framework-free)
   and `apps/mobile` (Expo, `--with-mobile`; its `src/host.ts` signs in and keeps a device session).
 - **npm** ([ADR 0423](adr/0423-npm-packages-from-the-release-commit.md)): client, sdk, product,

@@ -6,7 +6,15 @@ export const product = defineClientProduct({
   id: "{{id}}",
   label: "{{label}}",
   platform: { version: "{{version}}", release: "{{release}}", repository: "{{repository}}" },
-  // The release's packs that are on: for example "deals". Empty is base records only.
+  // The packs that are on: any the release carries (its packs.json), for example "ticketing".
+  // Empty is base records only.
   packs: [],
   web: { dir: "apps/web", worker: "{{id}}-web" },
+  // A staging host and a live host side by side in one account: `cos deploy --env <name>`.
+  // `live` keeps the names above ({{id}}-app); staging is {{id}}-staging-app. Gatekeepers and their
+  // settings go here too (docs/deploying.md); secrets never do.
+  // environments: {
+  //   staging: { live: false, web: { hostname: "staging.example.com" } },
+  //   live: { web: { hostname: "example.com" } },
+  // },
 });

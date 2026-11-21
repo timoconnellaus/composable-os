@@ -126,3 +126,21 @@ The deviation above ("the host keeps the release's names and strings") is closed
 - **Not covered:** the MCP server's machine name (`SERVER_NAME`, the build's product id) is
   unchanged; the hosted path (Workers for Platforms) deploys release names in a namespace and was
   not changed.
+
+## Amendment, 2026-11-21 (client releases and environments)
+- **Packs.** "A release has its product's packs" is replaced: a release carries every pack in the
+  repository (ADR 0420 as amended). **`cos deploy` and `cos upgrade` trust only `packs.json`**
+  (`kitPacks`): the contract files are the union over the repository's packs, so a tool named there
+  said nothing about the release's runner, and the old check, which also counted `x.<pack>.*` names
+  in the contract, passed for a pack the runner did not have. A pack the release does not carry is
+  refused before any call to Cloudflare, naming the pack and the release. `cos init --packs` takes
+  the packs to turn on and refuses one the release does not carry.
+- **Environments** ([ADR 0450](0450-client-environments.md)): `product.ts` may declare several
+  deployments of the product, deployed side by side with `cos deploy --env <name>`.
+- **Customer sign-in** is set up by `cos deploy` ([ADR 0450](0450-client-environments.md)).
+- **Gatekeepers and their settings** come from `product.ts` ([ADR 0452](0452-gatekeeper-settings-in-product-ts.md)).
+- **An adopted site's top-level config gets no `HOST` binding from `cos init`**: it deploys itself,
+  perhaps on every push, and a binding to a host that does not exist yet would fail that deploy.
+  `cos init` shows it under a matching environment of the site's config, or prints it with when to
+  add it; `cos deploy` prints exactly what each environment needs.
+- The old "the host keeps the release's names" text of `docs/deploying.md` is corrected.

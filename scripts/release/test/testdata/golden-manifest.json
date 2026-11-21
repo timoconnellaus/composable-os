@@ -79,7 +79,7 @@
     },
     {
       "default": "*",
-      "description": "The packs this deployment installs: \"*\" every pack in the release, a comma-separated list, or \"\" for none (set by cos deploy, ADR 0422)",
+      "description": "The packs this deployment installs: \"*\" the release product's own packs, a comma-separated list of packs the release carries, or \"\" for none (set by cos deploy, ADR 0422)",
       "kind": "var",
       "name": "COS_PACKS",
       "workers": [
