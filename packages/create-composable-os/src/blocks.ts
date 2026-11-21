@@ -184,6 +184,29 @@ export async function diff(argv: string[], flags: Flags, deps: Deps): Promise<nu
   if (!entry) throw new CliError(`${name} was not copied with cos add (${LOCK}).`);
   const { io } = deps;
   const target = str(flags, "version") ?? product.platform.version;
+  // `--accept`: the upstream changes shown were applied here by hand. Recorded only against the
+  // kit of the version the repo is on, so a later diff starts from there (issue #177).
+  const accept = Boolean(flags.accept);
+  if (accept && target !== product.platform.version) {
+    throw new CliError(
+      `cos diff --accept records a block as merged up to the version product.ts is on (${product.platform.version}), not ${target}. Run cos upgrade first, or leave out --version.`,
+    );
+  }
+  const accepted = (kit: Map<string, Uint8Array>) => {
+    if (!accept) return;
+    const manifest = blockManifest(kit, name);
+    const files: Record<string, string> = {};
+    for (const file of manifest.files) {
+      const bytes = kit.get(`blocks/${name}/${file}`);
+      if (bytes) files[file] = sha(bytes);
+    }
+    const lock = readLock(root);
+    lock[name] = { ...entry, version: target, files };
+    writeLock(root, lock);
+    io.out(
+      `\nAccepted: ${name} is recorded as merged up to ${target} (${LOCK}). Your files are not changed; a later cos diff shows only what changes after this.`,
+    );
+  };
   // Local edits are the client's; they are said, never touched.
   for (const [file, hash] of Object.entries(entry.files)) {
     const path = join(root, blockDir(entry.app, name), file);
@@ -217,6 +240,7 @@ export async function diff(argv: string[], flags: Flags, deps: Deps): Promise<nu
         ? `${name}'s files in ${target} changed since it was copied (the release was rebuilt at the same version). Apply by hand; nothing is changed.`
         : `No upstream change: ${name} was copied from ${entry.version}, the version product.ts is on.`,
     );
+    if (changed) accepted(kit);
     return 0;
   }
   const [from, to] = [await fetch(entry.version), await fetch(target)];
@@ -242,5 +266,6 @@ export async function diff(argv: string[], flags: Flags, deps: Deps): Promise<nu
   for (const dep of after.dependsOn.filter((d) => !before.dependsOn.includes(d))) {
     io.out(`It now depends on ${dep}: cos add ${dep}`);
   }
+  accepted(to.kit);
   return 0;
 }

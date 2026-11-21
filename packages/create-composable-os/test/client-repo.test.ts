@@ -656,6 +656,11 @@ describe("cos upgrade in a client repo (criterion 11)", () => {
     const dir = await created();
     compilingApp(dir);
     world.cf.calls.length = 0;
+    // The upgrade moves the packages; the type check waits for them to be installed.
+    const moved = await cos("upgrade", "--version", "1.1.0");
+    expect(moved.code, moved.output).toBe(0);
+    expect(moved.output).toContain("The type check was skipped");
+    installedAt(dir, "1.1.0");
     const upgraded = await cos("upgrade", "--version", "1.1.0");
     expect(upgraded.code).toBe(1);
     expect(upgraded.output).toMatch(/apps\/web\/src\/account\.ts:3: .*include/);
@@ -671,13 +676,74 @@ describe("cos upgrade in a client repo (criterion 11)", () => {
     });
     const dir = await created();
     compilingApp(dir);
+    installedAt(dir, "1.1.0");
     const upgraded = await cos("upgrade");
     expect(upgraded.code, upgraded.output).toBe(0);
     expect(read(dir, "product.ts")).toContain('version: "1.1.0"');
     expect(read(dir, "skills/start-client-app/SKILL.md")).toContain("as of 1.1.0");
-    expect(upgraded.output).toContain("Nothing is deployed yet");
+    expect(upgraded.output).toContain("the apps type-check against it. Nothing is deployed yet");
+  });
+
+  it("moves every @composable-os dependency, keeps what it cannot rewrite, and type-checks only once installed (issue #177)", async () => {
+    await publish("1.0.0");
+    await publish("1.1.0");
+    const dir = await created();
+    compilingApp(dir);
+    // A range, and a local tarball cos must not rewrite.
+    const web = JSON.parse(read(dir, "apps/web/package.json"));
+    web.dependencies["@composable-os/client"] = "^1.0.0";
+    web.dependencies["@composable-os/pack-ticketing"] = "file:../../tarballs/pack-ticketing.tgz";
+    writeFileSync(join(dir, "apps/web/package.json"), `${JSON.stringify(web, null, 2)}\n`);
+    installedAt(dir, "1.0.0");
+
+    const upgraded = await cos("upgrade");
+    expect(upgraded.code, upgraded.output).toBe(0);
+    const after = JSON.parse(read(dir, "apps/web/package.json"));
+    expect(after.dependencies["@composable-os/client"]).toBe("^1.1.0");
+    expect(after.dependencies["@composable-os/pack-ticketing"]).toBe(
+      "file:../../tarballs/pack-ticketing.tgz",
+    );
+    const rootPkg = JSON.parse(read(dir, "package.json"));
+    for (const [name, spec] of Object.entries({
+      ...rootPkg.dependencies,
+      ...rootPkg.devDependencies,
+    }) as [string, string][]) {
+      if (name.startsWith("@composable-os/")) expect(spec, name).toBe("1.1.0");
+    }
+    expect(upgraded.output).toContain(
+      "apps/web/package.json: @composable-os/client ^1.0.0 → ^1.1.0",
+    );
+    expect(upgraded.output).toContain(
+      'apps/web/package.json: @composable-os/pack-ticketing "file:../../tarballs/pack-ticketing.tgz"',
+    );
+    // Installed at 1.0.0 still: the check is skipped and said so, never reported as a pass.
+    expect(upgraded.output).toContain("@composable-os/client (1.0.0 installed)");
+    expect(upgraded.output).toContain("pnpm install");
+    expect(upgraded.output).toContain("not yet type-checked");
+    expect(upgraded.output).not.toContain("the apps type-check against it");
+
+    installedAt(dir, "1.1.0");
+    const again = await cos("upgrade");
+    expect(again.code, again.output).toBe(0);
+    expect(again.output).toContain("Already on 1.1.0");
+    expect(again.output).toContain("the apps type-check against it");
   });
 });
+
+/** Stands in for an install: each @composable-os dependency's package.json, at `version`. */
+function installedAt(dir: string, version: string) {
+  for (const app of [".", "apps/web", "apps/mobile"]) {
+    const file = join(dir, app, "package.json");
+    if (!existsSync(file)) continue;
+    const pkg = JSON.parse(readFileSync(file, "utf8"));
+    for (const name of Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })) {
+      if (!name.startsWith("@composable-os/")) continue;
+      const at = join(dir, app, "node_modules", name);
+      mkdirSync(at, { recursive: true });
+      writeFileSync(join(at, "package.json"), JSON.stringify({ name, version }));
+    }
+  }
+}
 
 /** Publishes `version` again, replacing the release of that tag: a kit rebuilt at one version. */
 async function republish(version: string, change: (files: Record<string, string>) => void) {
@@ -776,6 +842,43 @@ describe("cos upgrade keeps the host modules current (ADR 0451, amended)", () =>
 });
 
 describe("blocks (criterion 10)", () => {
+  it("cos diff --accept records changes applied by hand, so the next diff starts there (issue #177)", async () => {
+    await publish("1.0.0");
+    await publish("1.1.0", (files) => {
+      files["blocks/greeting/greeting.tsx"] =
+        'export function Greeting({ name }: { name: string }) {\n  return <p className="greeting">Hello, {name}!</p>;\n}\n';
+    });
+    const dir = await created();
+    expect((await cos("add", "greeting")).code).toBe(0);
+    const file = join(dir, "apps", "web", "src", "blocks", "greeting", "greeting.tsx");
+    // The client restyles its copy, then upgrades.
+    const edited = readFileSync(file, "utf8").replace("<p>", '<p style={{ color: "teal" }}>');
+    writeFileSync(file, edited);
+    expect((await cos("upgrade")).code).toBe(0);
+
+    // Accepting against a version the repo is not on is refused, and records nothing.
+    const refused = await cos("diff", "greeting", "--version", "1.0.0", "--accept");
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("merged up to the version product.ts is on (1.1.0)");
+    expect(JSON.parse(read(dir, "blocks.lock.json")).greeting.version).toBe("1.0.0");
+
+    // The changes are merged by hand, then accepted: shown once more, then recorded.
+    writeFileSync(file, edited.replace("Hello, {name}</p>", "Hello, {name}!</p>"));
+    const accepted = await cos("diff", "greeting", "--accept");
+    expect(accepted.code, accepted.output).toBe(0);
+    expect(accepted.output).toContain('+   return <p className="greeting">Hello, {name}!</p>;');
+    expect(accepted.output).toContain("Accepted: greeting is recorded as merged up to 1.1.0");
+    const lock = JSON.parse(read(dir, "blocks.lock.json")).greeting;
+    expect(lock.version).toBe("1.1.0");
+    expect(lock.app).toBe("apps/web");
+    // The file is the client's: never touched.
+    expect(readFileSync(file, "utf8")).toContain('style={{ color: "teal" }}');
+    // The next diff shows nothing new upstream, only that the copy is edited here.
+    const after = await cos("diff", "greeting");
+    expect(after.output).toContain("No upstream change");
+    expect(after.output).not.toContain('className="greeting"');
+  });
+
   it("cos add copies from the matching release; cos diff shows upstream changes and keeps edits", async () => {
     await publish("1.0.0");
     await publish("1.1.0", (files) => {

@@ -70,7 +70,10 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    development only, as whoever is signed in.
 6. **Later, upstream changes.** After `cos upgrade`, `pnpm cos diff <name>` says which of your
    copied files you edited and shows what changed in the block between the version you copied and
-   the release you are on. Nothing changes your copy: apply what you want by hand.
+   the release you are on. Nothing changes your copy: apply what you want by hand. When you have,
+   `pnpm cos diff <name> --accept` shows the changes once more and records the block as merged up
+   to the version the repo is on (in `blocks.lock.json`), so the next `cos diff` shows only what
+   changes after it. It refuses `--version` of another release: upgrade first. Commit the lock.
 
 ## The rules
 

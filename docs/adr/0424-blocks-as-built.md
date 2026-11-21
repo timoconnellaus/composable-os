@@ -74,3 +74,11 @@ counterpart of the `rootDirs` above, `apps/app/pack-blocks-plugin.ts`), and pass
 hooks over a client that calls `/api/v1/op` from the browser as whoever the cookie says: staff,
 a customer or the public. The e2e specs drive Programs' builder and today blocks there; any pack's
 web blocks can be mounted the same way. Native blocks are never mounted.
+
+## Amended 2026-11-21 (issue #177): accepting upstream changes merged by hand
+`blocks.lock.json` recorded only what a block was copied from, so after its upstream changes were
+merged by hand every later `cos diff` showed them again. **`cos diff <block> --accept`** shows the
+changes once more and records the block as merged up to the kit of the version `product.ts` is on:
+that version and the kit's content hashes. The copy here is not touched. It refuses `--version` of
+any other release (upgrade first), so the lock never claims a version the repo is not on. Test:
+`packages/create-composable-os/test/client-repo.test.ts`.
