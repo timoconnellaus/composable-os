@@ -31,9 +31,12 @@ TypeScript source.
   an `NPM_TOKEN` secret is replaced.
 
 ## Checked
-Run locally for 0.0.1 from this branch: eight tarballs built; the fresh-folder check installed
-them, created a client repo from the locally built release, type-checked both apps and built the
-web app with no file from this checkout; `npm publish --dry-run` accepted a tarball.
+Run locally for 0.0.2 from this branch, after the merge of stage 25: eight tarballs built; the
+fresh-folder check installed them, created a client repo (with the mobile app) from the locally
+built release, passed `cos ext check` on an extension there, type-checked both apps and built the
+web app, with no file from this checkout; `npm publish --dry-run` accepted a tarball. The first
+run found that `cos ext check` could not type-check against the SDK source inside node_modules;
+it now works from a copy outside it, with `zod` (a dependency of the CLI) beside it.
 
 ## Consequences
 - Before the first publish, a person claims the `@composable-os` organisation and the
