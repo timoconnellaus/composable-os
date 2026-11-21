@@ -1037,12 +1037,19 @@ restore. Records get read-only `publishedVersion` and `publishedAt`. Stage 28 ad
 the current version, states, scheduling, slugs and preview. `record.createMany` writes up to 50
 records of one object in one batch, at 4 statements a record for an object with states (ADR 0448).
 
-**Programs** (`packs/programs`, stage 41, steps 1 to 3; [ADR 0448](adr/0448-programs-the-layout-assignments-and-the-log.md)):
+**Programs** (`packs/programs`, stage 41, steps 1 to 6; [ADR 0448](adr/0448-programs-the-layout-assignments-and-the-log.md)):
 an exercise bank, programs whose layout is one document (weeks, sessions, blocks, items, levels,
 typed sets, notes for coaches or members), versions, class types, assignments to a person or a
 class type that pin a version and make dated sessions carrying their own plans, and a log of every
 set against its target. Its tools compose the host's operations: `assign`, `today`, `sessionGet`,
-`classToday`, `logAdd`, `logUpdate`, `sessionComplete`, `history`, `progress`.
+`classToday`, `logAdd`, `logUpdate`, `sessionComplete`, `history`, `progress`, and, for staff,
+`draft` (a working copy from a brief, with the `extract` model role) and `importText` (coaches'
+shorthand into structured targets, unread lines listed). The staff side is declarations: the
+Training dashboard, saved views, the Person page's Training tab and panels. Its headless entry
+(`@composable-os/pack-programs/client`) holds the layout's pure edits and a self-saving working
+copy; twelve blocks (the program builder, the exercise bank, today and session, class today,
+history and progress, the coach's client view; web and native) are built on it. In development
+`apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended).
 
 **Ticketing** (`packs/ticketing`, stage 27) is the first pack that is not about a CRM: events,
 ticket types and tickets, built from these behaviours alone, with tools that compose the host's
@@ -1141,7 +1148,7 @@ calculates a price, checks a capacity or checks a permission.
 | Deals | `stages` | exists |
 | Leads, lifecycle | fields, tools | exists |
 | Ticketing | `states`, `capacity`, `sellable`, `customer`, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
-| Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: the spine (objects, layout, versions, assign, logging, history, progress) built |
+| Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, media | stage 28 |
 | Bookings, memberships | `recurring`, `allowance`, recurring billing | later |
 

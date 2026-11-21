@@ -120,3 +120,15 @@ are not a member's to mark. Every staff member sees every client's training unti
 - Not built here (stage 41 steps 4 to 7): the Training dashboard, saved views, the Person page's
   tab, the hooks and blocks (the builder, the bank, today and session, history and progress, class
   today, the coach's client view), the assistant's draft, the text import and Ghetto.
+
+## Amendment, 2026-11-21 (stage 41, steps 4 to 6)
+- **Names a member reads without a second lookup.** A logged set stores `exerciseName` and a
+  session `programTitle` and `classTypeName`, copied when the tools write them, as the target is.
+  A rename in the bank or the program does not rewrite what was done.
+- **Staff side:** the Training dashboard, six saved views, the Person page's Training tab and two
+  panels are declarations over the `rec_*` views; nothing in the host is Programs-specific.
+- **Working copies without the builder.** `x.programs.draft` and `x.programs.importText` (staff)
+  create a program from a brief or from coaches' shorthand, and never publish it. They pick
+  exercises from the bank by name and list what they could not read rather than guess; the record
+  write still checks the schema and every ref. The draft asks for the `extract` model role and
+  reads the brief itself when no model is configured.
