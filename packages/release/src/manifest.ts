@@ -213,6 +213,13 @@ export interface ReleaseManifest {
   assets: Record<string, { size: number }>;
   /** AI Gateway set up with the `ai` feature (ADR 0180). Optional: older releases lack it. */
   aiGateway?: AiGatewayConfig;
+  /**
+   * The client kit (stage 24, ADR 0422): what a client repo takes from this release, stored at
+   * `client/<path>` and verified like every other file: the template (`template/`), the skills
+   * for client repos (`skills/`), the blocks (`blocks/<name>/`, with a `block.json` each) and the
+   * API contract per audience (`contract/<audience>.json`). Optional: older releases lack it.
+   */
+  client?: { files: { path: string; sha256: string; size: number }[] };
 }
 
 // ---- Placeholders -------------------------------------------------------------------------------
