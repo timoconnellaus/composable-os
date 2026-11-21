@@ -8,7 +8,10 @@ import {
   createTicketingHooks,
   type EventOnSale,
   estimate,
+  eventDay,
+  eventTime,
   formatMoney,
+  formatPrice,
   minorFromInput,
   orderStatus,
   pickerLines,
@@ -25,6 +28,7 @@ const type = (values: Partial<EventOnSale["ticketTypes"][number]>) => ({
   name: "Shared",
   description: null,
   price: 450,
+  currency: "AUD",
   onSaleFrom: null,
   onSaleUntil: null,
   maxPerOrder: null,
@@ -39,6 +43,7 @@ const event = (types: EventOnSale["ticketTypes"]): EventOnSale => ({
   name: "Camp",
   startsAt: null,
   endsAt: null,
+  timeZone: null,
   venue: null,
   description: null,
   image: null,
@@ -52,9 +57,16 @@ describe("plain functions", () => {
       type({ id: "a", price: 450, deposit: 100, balanceDue: "2027-01-01" }),
       type({ id: "b", price: 19.99 }),
     ]);
-    expect(estimate(e, { a: 2 })).toEqual({ full: 90000, deposit: 20000 });
-    expect(estimate(e, { a: 1, b: 3 })).toEqual({ full: 45000 + 5997, deposit: null });
-    expect(estimate(e, {})).toEqual({ full: 0, deposit: null });
+    expect(estimate(e, { a: 2 })).toEqual({ full: 90000, deposit: 20000, currency: "AUD" });
+    expect(estimate(e, { a: 1, b: 3 })).toEqual({
+      full: 45000 + 5997,
+      deposit: null,
+      currency: "AUD",
+    });
+    expect(estimate(e, {})).toEqual({ full: 0, deposit: null, currency: "AUD" });
+    // A currency with no minor unit: the host's currency decides the scale, not the app.
+    const yen = event([type({ id: "y", price: 4500, currency: "JPY" })]);
+    expect(estimate(yen, { y: 2 })).toEqual({ full: 9000, deposit: null, currency: "JPY" });
     expect(pickerLines({ a: 2, b: 0 })).toEqual([{ ticketTypeId: "a", quantity: 2 }]);
   });
 
@@ -73,6 +85,23 @@ describe("plain functions", () => {
     expect(minorFromInput("12,50")).toBe(1250);
     expect(minorFromInput("nope")).toBeNull();
     expect(minorFromInput("0")).toBeNull();
+    expect(formatMoney(9000, "JPY")).toBe("9000 JPY");
+    expect(minorFromInput("4500", "JPY")).toBe(4500);
+    expect(formatPrice(45.5, "AUD")).toBe("45.50 AUD");
+  });
+
+  it("shows an event's times in its own zone, and says the zone when it is not the viewer's (ADR 0460)", () => {
+    // 06:30 on 1 March in Bangkok (UTC+7) is 23:30 UTC on 28 February, and 10:30 in Sydney.
+    const camp = { startsAt: "2027-02-28T23:30:00Z", endsAt: null, timeZone: "Asia/Bangkok" };
+    const fromSydney = eventTime(camp, { viewer: "Australia/Sydney", locale: "en-GB" });
+    expect(fromSydney).toContain("1 Mar 2027");
+    expect(fromSydney).toContain("06:30");
+    expect(fromSydney).toContain("(Bangkok time)");
+    const inBangkok = eventTime(camp, { viewer: "Asia/Bangkok", locale: "en-GB" });
+    expect(inBangkok).toContain("06:30");
+    expect(inBangkok).not.toContain("time)");
+    expect(eventDay(camp)).toBe("2027-03-01");
+    expect(eventTime({ startsAt: null, timeZone: "Asia/Bangkok" })).toBe("");
   });
 
   it("says an order is waiting until the host says it is paid", () => {

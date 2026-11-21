@@ -16,11 +16,22 @@ const objectName = z
   .max(80)
   .describe("An object that declares what the public may read, e.g. `ticketing.event`");
 
+/** Beside a sellable object's records: the currency their prices are in (ADR 0435). */
+export const visibleCurrency = z
+  .string()
+  .nullable()
+  .optional()
+  .describe(
+    "For an object that is for sale: the currency every price of it is in (the deployment's " +
+      "one currency), or null until one is set. Absent for any other object.",
+  );
+
 const recordSchema = z.object({
   object: z.string(),
   id: z.string(),
   /** The fields the object lets the public read, by field name. */
   values: z.record(z.string(), z.unknown()),
+  currency: visibleCurrency,
 });
 
 /** Only objects that declare a public scope: a customer's own objects are my.*'s. */
@@ -42,7 +53,11 @@ export const publicList = defineOperation({
     cursor: z.string().max(1000).optional(),
     limit: z.number().int().min(1).max(LIST_MAX_LIMIT).default(50),
   }),
-  output: z.object({ items: z.array(recordSchema), nextCursor: z.string().nullable() }),
+  output: z.object({
+    items: z.array(recordSchema.omit({ currency: true })),
+    nextCursor: z.string().nullable(),
+    currency: visibleCurrency,
+  }),
   permission: "records:read",
   risk: "read",
   audiences: ["customer", "public"],

@@ -262,11 +262,15 @@ function triggerPhrase(trigger: Trigger, labels: Labels): Text {
         out
           .b(plural(Math.abs(trigger.offsetDays), "day"))
           .t(trigger.offsetDays > 0 ? " after " : " before ");
-      return out
+      out
         .t(`${article(label)} `)
         .b(label)
         .t("'s ")
         .b(fieldWords);
+      if (trigger.zoneField) {
+        out.t(", in its ").b(labels.field(trigger.object, trigger.zoneField));
+      }
+      return out;
     }
     case "manual": {
       const { label, plural: many } = labels.object(trigger.object);
@@ -716,7 +720,9 @@ function triggerNode(trigger: Trigger, labels: Labels): DiagramNode {
         ...base,
         text: `${labels.object(trigger.object).label} · ${when} {code}`,
         code: [trigger.field],
-        detail: `Checked daily (${labels.timezone})`,
+        detail: trigger.zoneField
+          ? `Checked hourly, in each record's own time zone (${labels.field(trigger.object, trigger.zoneField)})`
+          : `Checked daily (${labels.timezone})`,
       });
     }
     case "manual":

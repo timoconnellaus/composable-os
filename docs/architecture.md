@@ -1019,6 +1019,20 @@ customer reads of their own empty on a shared row); alone it opens records to re
 `my.get` read it. A customer changes only their own records (`ownedSource`), and a relation their
 write sets must point at a record they can see. `my.update` takes `from`.
 
+**Through their own records** ([ADR 0439](adr/0439-what-a-customer-reads-through-their-own-records.md),
+`packages/core/src/visibility/via.ts`). `customerVia: { from, field, read }` on an object: a
+customer reads the fields in `read` of the records one of their own records of `from` (an object
+of the same extension that declares a customer) points to through `field`, whatever their state
+(a ticket's event after it ended): `WHERE id IN (SELECT <field> FROM rec_<from> WHERE <customer> =
+:me)`. Beside `public` or `signedIn` the customer reads both, a column only one lists empty on the
+other's records. `my.list` and `my.get` read it. Buying reads `buyableSource`, the scope without
+it: reading is not buying. The seam also adds `currency` (the deployment's) beside a sellable
+object's records, and `me.get` returns the account's verified sign-in address (`signInEmail`).
+
+**Time zones** ([ADR 0460](adr/0460-time-zones-on-records.md)). A `timezone` field type (an IANA
+name the runtime knows; the deployment's zone when left empty on create), and date-relative
+triggers that count days in a record's own zone (`zoneField`), scanned hourly by cos-runner's cron.
+
 **The document field** ([ADR 0445](adr/0445-the-document-field.md),
 `packages/sdk/src/document.ts`). A field type whose value is one JSON document checked against a
 schema the field declares (objects, lists, text, numbers, choices, refs, tagged unions, named
@@ -1143,7 +1157,7 @@ calculates a price, checks a capacity or checks a permission.
 | --- | --- | --- |
 | Deals | `stages` | exists |
 | Leads, lifecycle | fields, tools | exists |
-| Ticketing | `states`, `capacity`, `sellable`, `customer`, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
+| Ticketing | `states`, `capacity`, `sellable`, `customer`, `public`, `customerVia`, a `timezone` field, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: the spine (objects, layout, versions, assign, logging, history, progress) built |
 | Content | `publishable`, rich text, media | stage 28 |
 | Bookings, memberships | `recurring`, `allowance`, recurring billing | later |

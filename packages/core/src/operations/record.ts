@@ -29,6 +29,7 @@ import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/comm
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
 import type { StageCache } from "../records/stages.ts";
 import { type Mover, type TransitionOutcome, transitionTimeline } from "../records/transitions.ts";
+import { loadGeneralSettings } from "../settings.ts";
 import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 import { setRecordWriter } from "../visibility/writes.ts";
 
@@ -525,7 +526,7 @@ async function applyDefaults(
   object: ObjectDefinition,
   values: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const named = await withDefaultTitle(ctx, object, values);
+  const named = await withZoneDefaults(ctx, object, await withDefaultTitle(ctx, object, values));
   const fields = object.fields.filter(
     (f) =>
       f.extension === object.extension &&
@@ -549,6 +550,28 @@ async function applyDefaults(
     if (value !== undefined && value !== null) out[field.name] = value;
   }
   return out;
+}
+
+/**
+ * A `timezone` field left empty on a new record, with no default of its own, is the deployment's
+ * zone (Settings → General, `timezone`; ADR 0460): an event created in Sydney is in Sydney until
+ * someone says it is in Bangkok.
+ */
+async function withZoneDefaults(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const empty = object.fields.filter(
+    (f) =>
+      f.fieldType === "timezone" &&
+      f.options?.default === undefined &&
+      !f.options?.defaultSetting &&
+      (values[f.name] === undefined || values[f.name] === null || values[f.name] === ""),
+  );
+  if (!empty.length) return values;
+  const { timezone } = await loadGeneralSettings(ctx.db);
+  return { ...values, ...Object.fromEntries(empty.map((f) => [f.name, timezone])) };
 }
 
 /** `titleDefault` (ADR 0246): a record left untitled is named after its first filled relation. */

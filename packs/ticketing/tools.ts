@@ -17,6 +17,8 @@ interface RecordShape {
 interface ListShape {
   items: RecordShape[];
   nextCursor?: string | null;
+  /** On a sellable object's records (a ticket type): the currency its prices are in. */
+  currency?: string | null;
 }
 
 const text = (value: unknown): string | null =>
@@ -31,10 +33,28 @@ const availability = z.object({
   available: z.number().nullable().optional().describe("Places left, when the type says so"),
 });
 
+const currency = z
+  .string()
+  .nullable()
+  .describe(
+    "The currency the prices are in (ISO 4217): the deployment's one currency, from the host. " +
+      "Null until an admin sets it, and until then nothing can be bought.",
+  );
+
+/** An event's own time zone: its days and times are this zone's (ADR 0460). */
+const timeZone = z
+  .string()
+  .nullable()
+  .describe(
+    "The event's IANA time zone, e.g. Asia/Bangkok: show its start and end, and count its days, " +
+      "in this zone. Null only for an event made before events had one.",
+  );
+
 export const eventsOnSale = defineTool({
   description:
-    "The events on sale now, soonest first, each with its ticket types (name, price, sale " +
-    "window, most per order, deposit) and whether places are left. For an event page or a list " +
+    "The events on sale now, soonest first, each with its ticket types (name, price and its " +
+    "currency, sale window, most per order, deposit) and whether places are left. Prices and " +
+    "deposits are in the major unit of `currency` (45.5 is 45.50). For an event page or a list " +
     "of events. Only what the public may read: an event that is not on sale is not here. " +
     "Read-only.",
   input: z.object({
@@ -46,8 +66,9 @@ export const eventsOnSale = defineTool({
       z.object({
         id: z.string(),
         name: z.string().nullable(),
-        startsAt: z.string().nullable(),
+        startsAt: z.string().nullable().describe("When it starts (ISO 8601, UTC)"),
         endsAt: z.string().nullable(),
+        timeZone,
         venue: z.string().nullable(),
         description: z.string().nullable(),
         image: z.string().nullable(),
@@ -58,6 +79,7 @@ export const eventsOnSale = defineTool({
             name: z.string().nullable(),
             description: z.string().nullable(),
             price: z.number().nullable(),
+            currency,
             onSaleFrom: z.string().nullable(),
             onSaleUntil: z.string().nullable(),
             maxPerOrder: z.number().nullable(),
@@ -103,6 +125,7 @@ export const eventsOnSale = defineTool({
         name: text(v.name),
         startsAt: text(v.startsAt),
         endsAt: text(v.endsAt),
+        timeZone: text(v.timezone),
         venue: text(v.venue),
         description: text(v.description),
         image: text(v.image),
@@ -113,6 +136,8 @@ export const eventsOnSale = defineTool({
             name: text(type.values.name),
             description: text(type.values.description),
             price: num(type.values.price),
+            // What currency the prices are in is the host's to say, beside them (ADR 0435).
+            currency: types.currency ?? null,
             onSaleFrom: text(type.values.onSaleFrom),
             onSaleUntil: text(type.values.onSaleUntil),
             maxPerOrder: num(type.values.maxPerOrder),
@@ -246,9 +271,10 @@ export const orderStart = defineTool({
 
 export const myTickets = defineTool({
   description:
-    "The signed-in customer's own tickets: each with its event, ticket type, " +
-    "code and state (valid, used or void). Only the caller's tickets exist here; a code that " +
-    "is not theirs finds nothing. Filter by event or by code. Read-only.",
+    "The signed-in customer's own tickets: each with its event (id, name, start, end, venue " +
+    "and state, as they are now, whether or not the event is still on sale), its ticket type " +
+    "(id and name), its code and its state (valid, used or void). Only the caller's tickets " +
+    "exist here; a code that is not theirs finds nothing. Filter by event or by code. Read-only.",
   input: z.object({
     event: z.string().min(1).max(64).optional().describe("Only tickets for this event"),
     code: z.string().trim().min(1).max(64).optional().describe("Only the ticket with this code"),
@@ -264,6 +290,16 @@ export const myTickets = defineTool({
         ticketType: z.string().nullable(),
         code: z.string().nullable(),
         state: z.string().nullable(),
+        eventName: z.string().nullable(),
+        startsAt: z.string().nullable().describe("When the event starts (ISO 8601, UTC)"),
+        endsAt: z.string().nullable(),
+        timeZone,
+        venue: z.string().nullable(),
+        eventStatus: z
+          .string()
+          .nullable()
+          .describe("The event's state now: draft, on_sale, ended or cancelled"),
+        ticketTypeName: z.string().nullable(),
       }),
     ),
     nextCursor: z.string().nullable(),
@@ -286,14 +322,42 @@ export const myTickets = defineTool({
       limit: input.limit,
       ...(input.cursor ? { cursor: input.cursor } : {}),
     });
+    // Their tickets' events and ticket types, as they are now: the seam lets a holder read the
+    // fields those objects declare for them (customerVia, ADR 0439), whatever the event's state,
+    // and only for records one of their own tickets points to.
+    const pointed = async (object: string, field: string) => {
+      const ids = [...new Set(page.items.map((t) => text(t.values[field])).filter(Boolean))];
+      if (!ids.length) return new Map<string, Record<string, unknown>>();
+      const found = await ctx.ops.call<ListShape>("my.list", {
+        object,
+        filter: { field: "id", op: "in", value: ids },
+        limit: ids.length,
+      });
+      return new Map(found.items.map((item) => [item.id, item.values]));
+    };
+    const events = await pointed(EVENT, "event");
+    const types = await pointed(TICKET_TYPE, "tickettype");
     return {
-      items: page.items.map((ticket) => ({
-        id: ticket.id,
-        event: text(ticket.values.event),
-        ticketType: text(ticket.values.tickettype),
-        code: text(ticket.values.code),
-        state: text(ticket.values.state),
-      })),
+      items: page.items.map((ticket) => {
+        const eventId = text(ticket.values.event);
+        const typeId = text(ticket.values.tickettype);
+        const event = (eventId && events.get(eventId)) || {};
+        const type = (typeId && types.get(typeId)) || {};
+        return {
+          id: ticket.id,
+          event: eventId,
+          ticketType: typeId,
+          code: text(ticket.values.code),
+          state: text(ticket.values.state),
+          eventName: text(event.name),
+          startsAt: text(event.startsAt),
+          endsAt: text(event.endsAt),
+          timeZone: text(event.timezone),
+          venue: text(event.venue),
+          eventStatus: text(event.status),
+          ticketTypeName: text(type.name),
+        };
+      }),
       nextCursor: page.nextCursor ?? null,
     };
   },
@@ -305,11 +369,13 @@ export const salesSummary = defineTool({
   description:
     "How one event is selling, per ticket type: places sold (taken), held by orders being paid, " +
     "remaining (null when unlimited), and revenue (the line totals of orders paid in full or by " +
-    "deposit, in the currency's minor unit), with the event's totals. For the dashboard and for " +
-    "questions such as 'how are sales going'. Read-only.",
+    "deposit, in the currency's minor unit), with the event's totals and the currency. Prices " +
+    "are in the major unit. For the dashboard and for questions such as 'how are sales going'. " +
+    "Read-only.",
   input: z.object({ eventId: z.string().min(1).max(64) }),
   output: z.object({
     event: z.object({ id: z.string(), name: z.string().nullable(), status: z.string().nullable() }),
+    currency,
     ticketTypes: z.array(
       z.object({
         id: z.string(),
@@ -370,8 +436,10 @@ export const salesSummary = defineTool({
     const typesLeft = ticketTypes.every((t) => t.remaining !== null)
       ? ticketTypes.reduce((sum, t) => sum + (t.remaining ?? 0), 0)
       : null;
+    const settings = await ctx.ops.call<{ currency: string | null }>("order.settings.get", {});
     return {
       event: { id: event.id, name: text(event.values.name), status: text(event.values.status) },
+      currency: settings.currency ?? null,
       ticketTypes,
       totals: {
         sold: ticketTypes.reduce((sum, t) => sum + t.sold, 0),

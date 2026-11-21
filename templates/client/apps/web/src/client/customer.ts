@@ -21,12 +21,12 @@ export type Operations = {
     output: { disabled: true; sessionsEnded: number; eraseRequest: { requestedAt: string; dueAt: string } };
   };
   /**
-   * Your own Person, as a signed-in customer: your name, primary email and primary phone. Read-only.
+   * Your own Person, as a signed-in customer: your name, primary email and primary phone, and your account's sign-in address (signInEmail, the one the emailed code verified, with signInEmailVerified). Link records kept elsewhere to a customer by signInEmail only: primaryEmail is a contact address staff can change. Read-only.
    */
   "me.get": {
     kind: "query";
     input: Record<string, unknown>;
-    output: { id: string; displayName: string; givenName: (string) | (null); familyName: (string) | (null); primaryEmail: (string) | (null); primaryPhone: (string) | (null) };
+    output: { id: string; displayName: string; givenName: (string) | (null); familyName: (string) | (null); primaryEmail: (string) | (null); primaryPhone: (string) | (null); signInEmail: string; signInEmailVerified: boolean };
   };
   /**
    * The places you are signed in, as a signed-in customer: each session's id, whether it is a browser or an app on a device (with the device's name), when it began, when it was last used and when it expires, and which one is this one. Read-only.
@@ -61,20 +61,20 @@ export type Operations = {
     output: { id: string; displayName: string; givenName: (string) | (null); familyName: (string) | (null); primaryEmail: (string) | (null); primaryPhone: (string) | (null) };
   };
   /**
-   * One of your own records, as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.
+   * One of your own records (or one that a record of yours points to, such as your ticket's event), as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.
    */
   "my.get": {
     kind: "query";
     input: { object: string; id: string };
-    output: { object: string; id: string; values: Record<string, unknown> };
+    output: { object: string; id: string; values: Record<string, unknown>; currency?: (string) | (null) };
   };
   /**
-   * A page of your own records of an object, as a signed-in customer (and the records every signed-in customer may read, where the object shares some): only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.
+   * A page of your own records of an object, as a signed-in customer (and the records every signed-in customer may read, where the object shares some, and the ones a record of yours points to, such as your ticket's event): only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.
    */
   "my.list": {
     kind: "query";
     input: { object: string; filter?: ({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }))[] }); sort?: { field: string; direction?: ("asc") | ("desc") }; cursor?: string; limit?: number };
-    output: { items: { object: string; id: string; values: Record<string, unknown> }[]; nextCursor: (string) | (null) };
+    output: { items: { object: string; id: string; values: Record<string, unknown> }[]; nextCursor: (string) | (null); currency?: (string) | (null) };
   };
   /**
    * Cancel an order. A signed-in customer can cancel their own order while nothing has been paid on it. Staff can also cancel an order that is part paid (a deposit was paid): that gives up its places, and refunding what was paid is a separate step. A paid order is refunded, not cancelled. Returns the order.
