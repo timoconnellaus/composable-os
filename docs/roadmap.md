@@ -137,7 +137,7 @@ gets its interview and spec when a client needs it, and not before.
 | 29 | Forms | Public writes as a primitive; a Forms pack: enquiry forms, sign-ups, waivers with a signature, surveys, reviews and feedback | not specced |
 | 30 | Notifications | Email, SMS and push as one primitive: templates, a person's preferences, an SMS gatekeeper, push to client apps | not specced |
 | 31 | Recurring schedules and Bookings | The `recurring` behaviour (a timetable generates sessions); a Bookings pack: classes, appointments, rooms, waitlists, late-cancel rules | not specced |
-| 32 | Allowances, recurring billing and Memberships | The `allowance` behaviour (a pass or plan grants uses, a booking spends one); recurring charges through the payments gatekeeper with retries, pauses and cancellation; a Memberships pack | not specced |
+| 32 | Allowances, recurring billing and Memberships | The `allowance` behaviour (a pass or plan grants uses, a booking spends one); recurring charges through the payments gatekeeper with retries, pauses and cancellation; a Memberships pack; subscriptions to courses as a third source of stage 42's access (decided at stage 42's interview: a subscription covers every published course, later ones too; a card at the start of the trial, charged when it ends unless cancelled, one trial per person; today's subscribers subscribe again, free until their paid-up date, the old one ending at its period end: [stage 42](stages/42-courses.md), "Decided for stage 32") | not specced |
 | 33 | Leaving Mindbody | Import of clients, visit history, passes and schedules; a period where both run; what happens to stored payment details | not specced |
 | 34 | Price adjustments and Offers | Adjustments on orders as a primitive; an Offers pack: promo codes, gift cards, referrals, loyalty | not specced |
 | 35 | Invoices and quotes | Quote, accept, invoice, pay, chase; PDF output; built on orders | not specced |
@@ -147,13 +147,13 @@ gets its interview and spec when a client needs it, and not before.
 | 39 | Jobs and projects | Work with stages, tasks and time spent; built on `stages` and Tasks | not specced |
 | 40 | Rosters | Shifts, availability and timesheets; built on `recurring` | not specced |
 | 41 | Programs | A bank of exercises and programs built from it in one layout (weeks, sessions, blocks, items with typed sets and levels); assigned to a person or a class type with dates; every set logged against its target ([spec](stages/41-programs.md)) | in build: steps 1 to 6 built (the spine; the Training dashboard, views and Person tab; hooks and twelve blocks; draft and text import); step 7 (Ghetto) next |
-| 42 | Courses | Video lessons with levels and progress, sold one-off, as a bundle or by subscription; built on Programs, orders and recurring billing ([spec](stages/42-courses.md)) | spec proposed (interview pending) |
+| 42 | Courses | Video lessons with levels and progress in Cloudflare Stream with signed playback, sold one at a time or as fixed bundles on the web; tax worked out by the provider at checkout; built on Programs and orders. Subscriptions wait for stage 32 ([spec](stages/42-courses.md)) | spec agreed (interview 2026-11-23) |
 
 ### How a module is built
 
 - **A client pulls it.** Ghetto Movement sets the first order: 27, then 41 and 42 (its online
   program, agreed 2026-11-21), 28, then 29, 31, 32 and 33, which together replace Mindbody. Courses
-  sold by subscription need 32's recurring billing first.
+  sold by subscription need 32's recurring billing first: stage 42 ships without them.
 - **The manifest is written on paper first.** Whatever it cannot express is the platform work.
 - **Two halves.** A primitive half adds behaviours to the host, one at a time, because it touches
   core. A pack half builds the extension, hooks and blocks, and several packs can be built at once.

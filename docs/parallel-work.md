@@ -39,7 +39,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | AB | — | 0465–0469 | The site redone (`apps/marketing`): the build-and-maintain service angle and the new design language; ADR 0465 used, ADR 0191 amended; no migrations | in flight |
 | AC | 0500–0509 | — | Content media for client sites (`fix/content-media-for-client-sites`, issue #181): migration 0500 (after 0470, which it reads); no ADRs, ADR 0444 amended. The content import (`feat/content-import`): migration 0501 | in flight |
 | AD | — | 0470–0474 | The content import door (`feat/content-import`): ADR 0470; ADRs 0444 and 0455 amended | in flight |
-| AE | 0510–0519 | 0475–0479 | Stage 42, Courses (proposed spec; video media, signed playback, the access scope, subscriptions) | specced (proposal) |
+| AE | 0510–0519 | 0475–0479 | Stage 42, Courses (video media, signed playback, the access scope, tax at checkout on orders) | specced |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.
