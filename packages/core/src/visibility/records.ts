@@ -122,7 +122,13 @@ export interface RecordAccess {
   /** Creates a record that belongs to the caller. Customers only. */
   create(object: string, values: Record<string, unknown>): Promise<{ id: string }>;
   /** Changes one of the caller's own records. Customers only. */
-  update(object: string, id: string, values: Record<string, unknown>): Promise<void>;
+  update(
+    object: string,
+    id: string,
+    values: Record<string, unknown>,
+    /** Move only from this state, as `record.update`'s `from` (ADR 0437). */
+    options?: { from?: string | undefined },
+  ): Promise<void>;
 }
 
 /** `ctx.records` over `reader`, with the given writes (none: reads only). */

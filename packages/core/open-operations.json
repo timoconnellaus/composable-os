@@ -104,6 +104,46 @@
       "toolOnly": true
     },
     {
+      "name": "x.programs.classToday",
+      "audiences": ["staff", "customer"],
+      "risk": "read"
+    },
+    {
+      "name": "x.programs.history",
+      "audiences": ["staff", "customer"],
+      "risk": "read"
+    },
+    {
+      "name": "x.programs.logAdd",
+      "audiences": ["staff", "customer"],
+      "risk": "write"
+    },
+    {
+      "name": "x.programs.logUpdate",
+      "audiences": ["staff", "customer"],
+      "risk": "write"
+    },
+    {
+      "name": "x.programs.progress",
+      "audiences": ["staff", "customer"],
+      "risk": "read"
+    },
+    {
+      "name": "x.programs.sessionComplete",
+      "audiences": ["staff", "customer"],
+      "risk": "write"
+    },
+    {
+      "name": "x.programs.sessionGet",
+      "audiences": ["staff", "customer"],
+      "risk": "read"
+    },
+    {
+      "name": "x.programs.today",
+      "audiences": ["staff", "customer"],
+      "risk": "read"
+    },
+    {
       "name": "x.ticketing.eventsOnSale",
       "audiences": ["customer", "public"],
       "risk": "read"

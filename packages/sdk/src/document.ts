@@ -246,11 +246,18 @@ export function checkDocumentSchema(
         node(`${path}.of`, value.of, depth + 1, false);
         if (value.unique !== undefined) {
           const of = resolve(value.of);
-          const keyNode = of?.type === "object" ? of.fields[String(value.unique)] : undefined;
+          // The key of an object, or of every variant of a union.
+          const shapes =
+            of?.type === "object"
+              ? [of]
+              : of?.type === "union"
+                ? Object.values(of.variants ?? {})
+                : [];
+          const keyNodes = shapes.map((shape) => resolve(shape.fields?.[String(value.unique)]));
           if (
             typeof value.unique !== "string" ||
-            !keyNode ||
-            !["text", "number", "choice", "ref"].includes(keyNode.type)
+            !keyNodes.length ||
+            keyNodes.some((n) => !n || !["text", "number", "choice", "ref"].includes(n.type))
           ) {
             add(
               `${path}.unique`,

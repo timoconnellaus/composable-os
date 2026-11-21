@@ -1635,7 +1635,7 @@ async function invokeOutside<O extends AnyOperation>(
   };
   const records = recordAccess(reader, {
     create: (object, values) => createVisible(seam, object, values),
-    update: (object, id, values) => updateVisible(seam, object, id, values),
+    update: (object, id, values, options) => updateVisible(seam, object, id, values, options),
   });
   // What the operation's own handler gets. Unless the operation is `hostInternal` (core
   // bookkeeping that is not a record, ADR 0413) it has no database and no write queue: it reads

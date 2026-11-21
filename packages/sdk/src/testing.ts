@@ -314,7 +314,12 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     checkDocuments(object, values);
     sequence += 1;
     const id = `rec_test${sequence}`;
-    const row = { ...values, id };
+    // A record with a state machine starts in its initial state, as the host makes it.
+    const local = object.startsWith(`${manifest.id}.`) ? object.slice(manifest.id.length + 1) : "";
+    const states = manifest.objects[local]?.states;
+    const initial =
+      states && values[states.field] == null ? { [states.field]: states.initial } : {};
+    const row = { ...initial, ...values, id };
     table(object).set(id, row);
     return row;
   };

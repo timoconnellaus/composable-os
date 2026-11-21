@@ -124,6 +124,7 @@ export interface RecordWriter {
     object: ObjectDefinition,
     id: string,
     values: Record<string, unknown>,
+    options?: { from?: string | undefined },
   ): Promise<boolean>;
 }
 
@@ -259,6 +260,7 @@ export async function updateVisible(
   name: string,
   id: string,
   values: Record<string, unknown>,
+  options: { from?: string | undefined } = {},
 ): Promise<void> {
   const { object, scope } = customerScopeFor(writer, name);
   assertSettable(writer, object, scope, values);
@@ -276,5 +278,7 @@ export async function updateVisible(
     coreWriters.get(object.name)?.update ??
     (isCoreObject(object.name) ? null : recordWriter?.update);
   if (!update) throw new OperationError("internal", `No writer for ${object.name}`);
-  await recording(writer, (host) => update(host, object, id, values));
+  // `from` is passed by the tool and judged by the record code: a move made from a current read.
+  const from = options.from === undefined ? {} : { from: options.from };
+  await recording(writer, (host) => update(host, object, id, values, from));
 }
