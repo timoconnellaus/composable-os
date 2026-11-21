@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 410,
+  "coreSchemaVersion": 420,
   "extensionContract": {
     "supported": [
       1
@@ -408,6 +408,14 @@
     {
       "name": "0410_idempotency_keys.sql",
       "sha256": "77225b7a6b3c36632653d9ea8dfdb3c13ef32803946c2b7f11e867840f3a7060"
+    },
+    {
+      "name": "0411_device_sessions.sql",
+      "sha256": "103b467e9530085f1e1addf5c0c4804fb1ba5ac3384e6a4c3f72f1a0523918bb"
+    },
+    {
+      "name": "0420_transition_history.sql",
+      "sha256": "aa9df11dd345c7c61b992fc9af5a5a4612f04025a703379be4d8d302f4f86c7e"
     }
   ],
   "product": "crm",
@@ -701,6 +709,24 @@
           "type": "ratelimit"
         },
         {
+          "name": "CUSTOMER_CODE_RATE_LIMIT",
+          "namespace_id": "4105",
+          "simple": {
+            "limit": 3,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "CUSTOMER_CODE_ADDRESS_RATE_LIMIT",
+          "namespace_id": "4106",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
           "name": "AI_FAKE_MODEL",
           "text": "",
           "type": "plain_text"
@@ -980,7 +1006,7 @@
           "source": "user"
         }
       ],
-      "sha256": "2ab7bacc4c4ba5bac5bf305d6291478113b771bd4c38cdbfa055515cc6526907"
+      "sha256": "c2a4901a2ea80b5b0e2209d346274bb98b161a74fa92e53a972dd7dc53cb56c1"
     },
     {
       "bindings": [

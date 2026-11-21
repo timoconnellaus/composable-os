@@ -338,7 +338,7 @@ describe("CSV import and export of deals", () => {
     )) as { values: Record<string, unknown> };
     expect(second.values).toMatchObject({ stage: seedRecordId("deals", "stage", "nbLead") });
     const historyRows = await env.DB.prepare(
-      "SELECT count(*) AS n FROM core_stage_history WHERE record_id IN (?, ?)",
+      "SELECT count(*) AS n FROM core_transition_history WHERE record_id IN (?, ?)",
     )
       .bind(done.created[0], done.created[1])
       .first<{ n: number }>();

@@ -1303,17 +1303,25 @@ export interface CorePersonSignatureTable {
   seen_at: Timestamp;
 }
 
-/** One stage a record has been in (migration 0100, ADR 0100). `left_at` is null for the current one. */
-export interface CoreStageHistoryTable {
+/**
+ * The transition engine's history (migration 0420, ADR 0425; `core_stage_history` before it): one
+ * position a record has been in. `left_at` is null for the current one. A stage row holds the
+ * stage record's id and open, won or lost; a state row holds the state's value, no group, and
+ * `open` or `final`.
+ */
+export interface CoreTransitionHistoryTable {
   id: string;
   object_type: string;
   record_id: string;
-  stage_id: string;
+  form: Generated<"stages" | "states">;
+  position_id: string;
   group_id: string | null;
-  stage_type: "open" | "won" | "lost";
+  position_type: "open" | "won" | "lost" | "final";
   entered_at: Timestamp;
   left_at: Timestamp | null;
   entered_by: string | null;
+  /** Who made the move: staff, a customer, or platform code. */
+  entered_as: Generated<"staff" | "customer" | "host">;
 }
 
 export interface CrmStageHistoryView {
@@ -1328,6 +1336,21 @@ export interface CrmStageHistoryView {
   is_current: number;
   days_in_stage: number;
   entered_by: string | null;
+}
+
+/** `rec_state_history` (migration 0420): the history of state-driven objects. */
+export interface RecStateHistoryView {
+  id: string;
+  object_type: string;
+  record_id: string;
+  state: string;
+  is_final: number;
+  entered_at: Timestamp;
+  left_at: Timestamp | null;
+  is_current: number;
+  days_in_state: number;
+  entered_by: string | null;
+  entered_as: "staff" | "customer" | "host";
 }
 
 /** Stage 8 (migration 0160): installer choices, JSON under key 'deployment' (no secrets). */
@@ -1665,7 +1688,7 @@ export interface CoreDatabase {
   core_extension_proposals: CoreExtensionProposalsTable;
   core_extension_objects: CoreExtensionObjectsTable;
   core_extension_fields: CoreExtensionFieldsTable;
-  core_stage_history: CoreStageHistoryTable;
+  core_transition_history: CoreTransitionHistoryTable;
   core_automations: CoreAutomationsTable;
   core_routine: CoreRoutineTable;
   core_automation_runs: CoreAutomationRunsTable;
@@ -1700,6 +1723,7 @@ export interface CoreDatabase {
   core_idempotency_claim: CoreIdempotencyClaimTable;
   core_device_session: CoreDeviceSessionTable;
   rec_stage_history: CrmStageHistoryView;
+  rec_state_history: RecStateHistoryView;
   rec_user: CrmUsersView;
   rec_person: CrmPeopleView;
   rec_organisation: CrmOrganisationsView;

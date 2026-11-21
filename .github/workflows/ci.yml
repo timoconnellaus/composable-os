@@ -51,6 +51,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
+          # Without this, setup-node sees `packageManager` in package.json and looks for pnpm to
+          # cache for it, which this job never installs.
+          package-manager-cache: false
       # No install: these checks use Node alone.
       - run: node scripts/check-stray-names.mjs
       - run: node scripts/check-skills-version.mjs
