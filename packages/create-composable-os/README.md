@@ -6,7 +6,7 @@ It downloads a release from GitHub Releases, verifies its sha256 and its GitHub 
 of ours, no telemetry.
 
 Not published to npm yet: build it from a checkout (`pnpm --filter create-composable-os build`) and run
-`node packages/create-composable-os/dist/cli.js` wherever this says `npx @composable-os/cli install`.
+`node packages/create-composable-os/dist/cli.js install` wherever this says `npx @composable-os/cli install`.
 
 ```sh
 npx @composable-os/cli install                  # install (or repair an install)

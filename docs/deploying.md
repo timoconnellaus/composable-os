@@ -243,10 +243,10 @@ npx @composable-os/cli install            # the CRM (same as --product crm); or:
 
 ```sh
 pnpm install && pnpm --filter create-composable-os build
-node packages/create-composable-os/dist/cli.js            # install; add upgrade / rollback / status / uninstall
+node packages/create-composable-os/dist/cli.js install    # or upgrade / rollback / status / uninstall
 ```
 
-Everywhere this guide says `npx @composable-os/cli install`, use `node packages/create-composable-os/dist/cli.js` for now.
+Everywhere this guide says `npx @composable-os/cli install`, use `node packages/create-composable-os/dist/cli.js install` for now.
 The release workflow publishes it only when an `NPM_TOKEN` secret is set (the name `create-crm` was taken on npm).
 
 It asks for, in order:

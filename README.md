@@ -15,7 +15,7 @@ automations are code that AI writes, you approve, and the CRM runs safely. Websi
 ```sh
 # Not on npm yet: run the CLI from a checkout (docs/deploying.md)
 pnpm install && pnpm --filter create-composable-os build
-node packages/create-composable-os/dist/cli.js
+node packages/create-composable-os/dist/cli.js install
 ```
 
 The CLI asks for a scoped Cloudflare API token, your account and hostname (`workers.dev` or your own
