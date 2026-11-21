@@ -24,9 +24,9 @@ async function ask(panel: ReturnType<Page["getByTestId"]>, text: string) {
   await panel.getByTestId("assistant-send").click();
 }
 
-test("every catalogue component draws inside the width, with nothing falling back", async ({
-  page,
-}) => {
+test("every catalogue component draws inside the width, with nothing falling back", {
+  tag: "@phone",
+}, async ({ page }) => {
   const width = isPhone(page) ? 390 : 384;
   await open(page, isPhone(page) ? "/assistant/cards" : "/assistant/cards?width=384");
   const gallery = page.getByTestId("a2ui-gallery");

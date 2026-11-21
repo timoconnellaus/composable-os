@@ -33,7 +33,10 @@ function item(set: Locator, title: RegExp): Locator {
 const TAG = /^Update 2 people/;
 const DELETE = /^Delete person/;
 
-test("approving a whole change set applies it and lowers the count", async ({ page, baseURL }) => {
+test("approving a whole change set applies it and lowers the count", { tag: "@phone" }, async ({
+  page,
+  baseURL,
+}) => {
   await open(page, "/approvals");
   const before = await sidebarCount(page);
   const seeded = await seedChangeSet(page, baseURL ?? "");

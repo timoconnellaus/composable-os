@@ -115,9 +115,9 @@ test("push to talk: nothing is heard until the button is held, and letting go en
   await bar.getByTestId("voice-end").click();
 });
 
-test("the full-screen view on a phone reads the reply out and keeps its controls", async ({
-  page,
-}) => {
+test("the full-screen view on a phone reads the reply out and keeps its controls", {
+  tag: "@phone",
+}, async ({ page }) => {
   test.skip(!isPhone(page), "the view is for phones");
   await open(page, "/");
   await openPanel(page);

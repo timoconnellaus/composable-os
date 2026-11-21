@@ -12,10 +12,9 @@ import {
 } from "./extension-authoring.ts";
 import { expectNoHorizontalScroll, open } from "./helpers.ts";
 
-test("an extension proposal shows its diff, impact, check and AI summary, and installs on approval", async ({
-  page,
-  baseURL,
-}) => {
+test("an extension proposal shows its diff, impact, check and AI summary, and installs on approval", {
+  tag: "@phone",
+}, async ({ page, baseURL }) => {
   const app = await connectAdminApp(page, baseURL ?? "");
   const id = extensionId("apr");
   const proposal = await writeCheckPropose(

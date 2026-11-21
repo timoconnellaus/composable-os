@@ -1,7 +1,8 @@
 // The app shell and list behaviour: fixed page headers, infinite scroll over virtualised rows,
 // live counts, scroll restoration, j/k navigation, select-all-matching bulk actions, and the
 // record page's scroll panels (independent on desktop, one scroll with a collapsing header on
-// phones). Runs at desktop and phone width (see playwright.config.ts).
+// phones). Runs at desktop width, and the `@phone` tests at phone width too (see
+// playwright.config.ts).
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,9 +62,9 @@ test.describe
       await context.close();
     });
 
-    test("the header stays put while more rows load on scroll, with a bounded DOM", async ({
-      page,
-    }) => {
+    test("the header stays put while more rows load on scroll, with a bounded DOM", {
+      tag: "@phone",
+    }, async ({ page }) => {
       // Count concurrent person.list requests: scrolling must never stack them up.
       let inFlight = 0;
       let maxInFlight = 0;
@@ -210,7 +211,9 @@ test.describe
       await expect(page.getByRole("heading", { level: 1 })).toBeInViewport();
     });
 
-    test("the record header collapses to name and tabs on a phone", async ({ page }) => {
+    test("the record header collapses to name and tabs on a phone", { tag: "@phone" }, async ({
+      page,
+    }) => {
       test.skip(!isPhone(page), "phone layout");
       await open(page, listUrl());
       await personLink(page, 2).click();
