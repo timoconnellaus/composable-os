@@ -92,7 +92,10 @@ extension declares it; it never implements it. Each behaviour the platform has i
   move you did not declare, records state history (`rec_state_history`) and posts moves on the
   timeline when the field is tracked. An object has `stages` or `states`, not both. See
   `StatesSpec` in `states.ts` and the README's "Object behaviour". Do not guard a status field
-  in a tool instead: a rule in a tool does not hold for the UI, MCP or an import.
+  in a tool instead: a rule in a tool does not hold for the UI, MCP or an import. A move is made
+  from a current read or not at all (ADR 0437): when two people may make the same move at once
+  (checking a ticket in), the tool passes `from` to `record.update` and the host lets exactly one
+  through; never read the state and then write it.
 - **`capacity`** on an object: its records have a limited number of places that the host never
   gives out twice (ticket types, classes, slots). Declare a number field and
   `capacity: { places: "<field>" }`; add `pool: "<relation>"` to draw on a parent's places too (a
@@ -117,6 +120,17 @@ extension declares it; it never implements it. Each behaviour the platform has i
   is refused, since selling to the public is a reviewed change. Never create tickets or check a
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
   and ADR 0435.
+
+### Roles
+
+A pack may declare **fixed staff roles** (`roles`, `RoleSpec` in `contract.ts`, ADR 0436) for
+staff who should do one job and nothing else (Ticketing's door role: check tickets in, read
+events, ticket types and tickets). A role lists `permissions`, which are permissions its own
+tools declare (`permission: "<id>:<word>"` on the tool, see `add-automations-tools-dashboards`),
+and `read`, objects of its own (`<id>.<object>`) the holder may open and list. A human admin gives
+it to a staff account; while it is held it is all that account may do, on every operation. Use a
+role only for that; ordinary staff need none. Only a pack or the org's own extension may declare
+one. See Ticketing: `roles` in `packs/ticketing/index.ts`.
 
 ## The rules
 

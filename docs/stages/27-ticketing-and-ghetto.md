@@ -234,3 +234,30 @@ ADR 0435, migration 0450. Where the build read the spec one way, or decided what
   their holder; a granting line holds at most its `maxPerOrder` or 10, and an order 100 grants
   (5 statements each, measured); a field named with an SQL keyword (`order`, `group`, `select`)
   works, with the column `<word>_`.
+
+## Steps 2 and 3, the pack, check-in and the door role, as built (2026-11-21)
+ADRs 0436 and 0437, migration 0451. Where the build read the spec one way, or decided what it left open:
+
+- **Names.** Object names are lowercase letters and digits in the contract, so the ticket type is
+  `ticketing.tickettype`, not `ticketType`. Tools are operations `x.ticketing.<tool>`:
+  `orderStart` (the spec's `ticketing.order.start`), `myTickets`, `salesSummary`, `checkIn`,
+  `undoCheckIn`.
+- **Not built: `ticketing.events.onSale` and criterion 9.** The host has no public read of an
+  object's declared fields: the seam gives the public nothing, and stage 28 is where "an object
+  declares which fields the public may read" is specced. A tool cannot fill that in. Waiting on a
+  decision: build the public scope now (an object's `public: { read, when }`, a ticket type
+  readable while its event is on sale), or move the event page's reads to stage 28.
+- **A ticket type of an event that is not on sale can still be bought** by anyone holding its id:
+  `sellable` checks the ticket type's own sale window only. No tool checks the event's status
+  (that would be a rule in a tool). Waiting on a decision with the public read above.
+- **The door role** is a pack role (ADR 0436): `roles` in the manifest, `permission` on a tool,
+  `core_user.pack_role`, checked by the pipeline on every staff call before the input is parsed.
+  `user.setPackRole` and `user.packRoles` are human-admin operations.
+- **Check-in is a compare-and-set in the host** (ADR 0437): the history close is conditioned on
+  the record's position, and `record.update { from: "valid" }` makes the move the point.
+- **Who checked a ticket in** comes from the host (`ctx.caller`, ADR 0436). No extension may read
+  users, so the ticket keeps the name as it was then (`usedByName`) beside the user (`usedBy`).
+- **The pack is not optional:** a product that lists it installs it at boot. The CRM does not
+  list it.
+- **What the door sees:** a ticket's holder relation, so holders' names on the list; nothing else
+  of a person. The ticket has no email field.

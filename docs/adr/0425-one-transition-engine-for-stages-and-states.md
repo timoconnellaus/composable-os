@@ -119,3 +119,9 @@ still passes unedited.
   behaviours that will want to act when a move happens; the engine has no such hook yet.
 - Deleting a record leaves its history, as before. `core_transition_history` is not yet in the
   erase stores; it joins them in the second half, when a Person's orders have history.
+
+## Amendment, 2026-11-21 (stage 27, ADR 0437)
+A move is now made from a current read or not at all: the engine closes the current history row
+only while the record still holds the position the write was judged from, so a second write
+racing to move the same record fails its batch as a conflict (`moved_meanwhile`).
+`record.update` takes `from`. See [ADR 0437](0437-a-move-is-made-from-a-current-read.md).
