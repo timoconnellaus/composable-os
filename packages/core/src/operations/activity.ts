@@ -2,7 +2,7 @@
 // soft-delete them, and read a record's timeline. `system` activities are written only by the
 // pipeline (field changes, job changes, task completion), never through activity.log.
 import type { CoreDatabase } from "@composable-os/db";
-import { type Kysely, sql } from "kysely";
+import { type Kysely, type Selectable, sql } from "kysely";
 import { z } from "zod";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { activityObject } from "../fields/activity.ts";
@@ -26,6 +26,7 @@ import {
   recordRefSchema,
   uniqueRefs,
 } from "../records/links.ts";
+import { type Reader, visibleTable } from "../visibility/index.ts";
 import { TRASH_RETENTION_DAYS } from "./person.ts";
 
 // --- Schemas -----------------------------------------------------------------------------------
@@ -169,9 +170,9 @@ export function visibleTo(userId: string) {
   return sql<boolean>`(a.private_to IS NULL OR a.private_to = ${userId})`;
 }
 
-function activityQuery(db: Kysely<CoreDatabase>) {
-  return db
-    .selectFrom("core_activity as a")
+function activityQuery(reader: Reader) {
+  return reader.db
+    .selectFrom(visibleTable(reader, "activity", "a"))
     .leftJoin("core_user as u", "u.id", "a.author_user_id")
     .select([
       "a.id",
@@ -223,24 +224,24 @@ async function toActivities(db: Kysely<CoreDatabase>, rows: ActivityRow[]): Prom
 }
 
 export async function loadActivity(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   id: string,
   { includeDeleted = false } = {},
 ): Promise<Activity | null> {
-  let query = activityQuery(db).where("a.id", "=", id);
+  let query = activityQuery(reader).where("a.id", "=", id);
   if (!includeDeleted) query = query.where("a.deleted_at", "is", null);
   const row = await query.executeTakeFirst();
   if (!row) return null;
-  const [activity] = await toActivities(db, [row]);
+  const [activity] = await toActivities(reader.db, [row]);
   return activity ?? null;
 }
 
 async function requireActivity(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   id: string,
   options?: { includeDeleted?: boolean },
 ): Promise<Activity> {
-  const activity = await loadActivity(db, id, options);
+  const activity = await loadActivity(reader, id, options);
   if (!activity) throw new NotFoundError("activity", id);
   return activity;
 }
@@ -336,7 +337,7 @@ export const activityLog = defineOperation({
         ...activitySnapshot({ subject, body, payload, occurredAt }, linkKeys(links)),
       },
     });
-    return ctx.afterCommit(() => requireActivity(ctx.db, id));
+    return ctx.afterCommit(() => requireActivity(ctx, id));
   },
 });
 
@@ -376,7 +377,7 @@ export const activityGet = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const activity = await requireActivity(ctx.db, input.id, {
+    const activity = await requireActivity(ctx, input.id, {
       includeDeleted: input.includeDeleted,
     });
     if (activity.private && activity.authorUserId !== ctx.user.id) {
@@ -404,7 +405,7 @@ export const activityUpdate = defineOperation({
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
-    const before = await requireActivity(ctx.db, input.id);
+    const before = await requireActivity(ctx, input.id);
     if (before.type === "system") {
       throw new ValidationError("System activities are written by the CRM and cannot be edited");
     }
@@ -449,7 +450,7 @@ export const activityUpdate = defineOperation({
       before: activitySnapshot(before, beforeLinks),
       after: activitySnapshot({ subject, body, payload, occurredAt }, afterLinks),
     });
-    return ctx.afterCommit(() => requireActivity(ctx.db, input.id));
+    return ctx.afterCommit(() => requireActivity(ctx, input.id));
   },
 });
 
@@ -463,7 +464,7 @@ export const activityDelete = defineOperation({
   permission: "records:write",
   risk: "destructive",
   async handler(input, ctx) {
-    await requireActivity(ctx.db, input.id);
+    await requireActivity(ctx, input.id);
     ctx.write(
       ctx.db
         .updateTable("core_activity")
@@ -491,7 +492,7 @@ export const activityRestore = defineOperation({
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
-    const activity = await requireActivity(ctx.db, input.id, { includeDeleted: true });
+    const activity = await requireActivity(ctx, input.id, { includeDeleted: true });
     if (!activity.deletedAt) throw new ValidationError("This activity is not in Trash");
     ctx.write(
       ctx.db
@@ -505,7 +506,7 @@ export const activityRestore = defineOperation({
       action: "restore",
       diff: { deletedAt: { before: activity.deletedAt, after: null } },
     });
-    return ctx.afterCommit(() => requireActivity(ctx.db, input.id));
+    return ctx.afterCommit(() => requireActivity(ctx, input.id));
   },
 });
 
@@ -529,7 +530,7 @@ export const activityListForRecord = defineOperation({
   risk: "read",
   mcp: { curated: true, idempotent: true },
   async handler(input, ctx) {
-    let query = activityQuery(ctx.db)
+    let query = activityQuery(ctx)
       .where("a.deleted_at", "is", null)
       .where(visibleTo(ctx.user.id))
       .where("a.id", "in", (eb) =>
@@ -581,14 +582,14 @@ export const activityList = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const page = await runListQuery(
-      ctx.db.selectFrom("rec_activity").selectAll(),
+    const page = await runListQuery<Selectable<CoreDatabase["rec_activity"]>>(
+      ctx,
       getObject("activity") ?? activityObject,
       input,
     );
     const ids = page.rows.map((row) => row.id);
     const rows = ids.length
-      ? await activityQuery(ctx.db).where("a.id", "in", jsonList(ids)).execute()
+      ? await activityQuery(ctx).where("a.id", "in", jsonList(ids)).execute()
       : [];
     const byId = new Map(rows.map((row) => [row.id, row]));
     const ordered = ids.flatMap((id) => {
@@ -617,7 +618,7 @@ export const activitySetPrivate = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     const row = await ctx.db
-      .selectFrom("core_activity")
+      .selectFrom(visibleTable(ctx, "activity"))
       .select(["id", "external_key", "author_user_id", "private_to"])
       .where("id", "=", input.id)
       .where("deleted_at", "is", null)
@@ -645,7 +646,7 @@ export const activitySetPrivate = defineOperation({
       before: { private: row.private_to !== null },
       after: { private: input.private },
     });
-    return ctx.afterCommit(() => requireActivity(ctx.db, row.id));
+    return ctx.afterCommit(() => requireActivity(ctx, row.id));
   },
 });
 
@@ -661,7 +662,7 @@ export const activityGetBody = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const row = await ctx.db
-      .selectFrom("core_activity as a")
+      .selectFrom(visibleTable(ctx, "activity", "a"))
       .select(["a.id", "a.body", "a.body_ref"])
       .where("a.id", "=", input.id)
       .where("a.deleted_at", "is", null)

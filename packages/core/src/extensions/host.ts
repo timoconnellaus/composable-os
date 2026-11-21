@@ -3,6 +3,8 @@
 // reaches the same implementation over the RUNNER service binding. Extension operations receive
 // it through the invocation context, so packages/core never imports the runtime.
 
+import type { OutsidePrincipal } from "../principals.ts";
+
 /** A problem found evaluating extension source (before the manifest exists). */
 export interface SourceIssue {
   code: "syntax" | "import" | "entry" | "evaluate" | "too_large" | "type";
@@ -17,6 +19,12 @@ export type EvaluateResult =
 export interface ToolCaller {
   actor: string;
   userId: string;
+  /**
+   * Set when a customer or the public called the tool (ADR 0414): the run then acts as that
+   * principal. Its operation calls go through the outside path of the pipeline, never as the
+   * extension, so which records it reaches stays the host's decision.
+   */
+  principal?: OutsidePrincipal;
 }
 
 export interface RunToolInput {

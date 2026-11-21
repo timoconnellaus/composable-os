@@ -1,11 +1,12 @@
 // The core registry and typed entry points adapters call.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
+import { audiencesOf } from "./audiences.ts";
 import { UnknownOperationError } from "./errors.ts";
 import { loadExtensionOperations, resolveExtensionOperation } from "./extensions/tools.ts";
 import type { AnyOperation, OperationInput, OperationOutput } from "./operation.ts";
 import { coreOperations } from "./operations/index.ts";
-import { type InvocationContext, invokeOperation } from "./pipeline.ts";
+import { type AnyInvocationContext, invokeOperation } from "./pipeline.ts";
 import { createRegistry, type OperationMap, type OperationRegistry } from "./registry.ts";
 
 export const coreRegistry = createRegistry(coreOperations);
@@ -25,11 +26,13 @@ export function createInvoker<Ops extends readonly AnyOperation[]>(
   const invokeByName = async (
     name: string,
     input: unknown,
-    ctx: InvocationContext,
+    ctx: AnyInvocationContext,
   ): Promise<unknown> => {
     // Extension tools (`x.<extension>.<tool>`) are resolved from installed manifests.
     const op = registry.get(name) ?? (await resolveExtensionOperation(ctx.db.query, name));
     if (!op) throw new UnknownOperationError(name);
+    // A customer's or the public's call (ADR 0402) runs no other operation and resolves none.
+    if (ctx.principal) return invokeOperation(op, input, ctx);
     // Approvals re-run queued actions by name, synchronously; queued extension tools must
     // resolve too, so load them first.
     const extensionOps =
@@ -44,7 +47,7 @@ export function createInvoker<Ops extends readonly AnyOperation[]>(
   const invoke = <N extends keyof Map & string>(
     name: N,
     input: Map[N] extends AnyOperation ? OperationInput<Map[N]> : never,
-    ctx: InvocationContext,
+    ctx: AnyInvocationContext,
   ) =>
     invokeByName(name, input, ctx) as Promise<
       Map[N] extends AnyOperation ? OperationOutput<Map[N]> : never
@@ -54,11 +57,11 @@ export function createInvoker<Ops extends readonly AnyOperation[]>(
 
 const coreInvoker = createInvoker(coreRegistry);
 
-/** Invokes a core operation by name: validate → role → gate → handler → audit. */
+/** Invokes a core operation by name: audience → validate → role → gate → handler → audit. */
 export function invoke<N extends CoreOperationName>(
   name: N,
   input: CoreInput<N>,
-  ctx: InvocationContext,
+  ctx: AnyInvocationContext,
 ): Promise<CoreOutput<N>> {
   return coreInvoker.invokeByName(name, input, ctx) as Promise<CoreOutput<N>>;
 }
@@ -67,7 +70,7 @@ export function invoke<N extends CoreOperationName>(
 export function invokeByName(
   name: string,
   input: unknown,
-  ctx: InvocationContext,
+  ctx: AnyInvocationContext,
 ): Promise<unknown> {
   return coreInvoker.invokeByName(name, input, ctx);
 }
@@ -77,5 +80,9 @@ export function invokeByName(
  * (stage 2) lists tools from this.
  */
 export async function listOperations(db: Kysely<CoreDatabase>): Promise<AnyOperation[]> {
-  return [...coreRegistry.list(), ...(await loadExtensionOperations(db))];
+  // Staff surfaces list only what staff may call (ADR 0402): an operation for customers alone
+  // would answer them as an unknown name.
+  return [...coreRegistry.list(), ...(await loadExtensionOperations(db))].filter((op) =>
+    audiencesOf(op).includes("staff"),
+  );
 }

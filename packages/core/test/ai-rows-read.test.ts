@@ -95,9 +95,11 @@ beforeAll(async () => {
 
 describe("rows read on the AI paths", () => {
   it("summary.get reads the record, its links and the cache row by key", async () => {
+    // The budget includes one read of sqlite_master, which grows by a row per table and index:
+    // migration 0401 (customer accounts) added 13 and took this from 389 to 402 rows.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
-    ).toBeLessThan(400);
+    ).toBeLessThan(450);
     expect(
       await measure("summary.get", {
         subject: { kind: "record", object: "organisation", id: orgId },

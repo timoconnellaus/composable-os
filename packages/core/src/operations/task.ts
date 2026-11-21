@@ -1,6 +1,6 @@
 // task.* operations: to-dos with a due date, an assignee and links to any records.
 import type { CoreDatabase } from "@composable-os/db";
-import type { Kysely } from "kysely";
+import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import { NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
@@ -18,6 +18,7 @@ import {
   recordRefSchema,
   uniqueRefs,
 } from "../records/links.ts";
+import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 import { TRASH_RETENTION_DAYS } from "./person.ts";
 
 // --- Schemas -----------------------------------------------------------------------------------
@@ -119,11 +120,12 @@ async function toTasks(db: Kysely<CoreDatabase>, rows: TaskRow[]): Promise<Task[
 }
 
 export async function loadTask(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   id: string,
   { includeDeleted = false } = {},
 ): Promise<Task | null> {
-  let query = db.selectFrom("core_task").selectAll().where("id", "=", id);
+  const { db } = reader;
+  let query = db.selectFrom(visibleTable(reader, "task")).selectAll().where("id", "=", id);
   if (!includeDeleted) query = query.where("deleted_at", "is", null);
   const row = await query.executeTakeFirst();
   if (!row) return null;
@@ -132,11 +134,11 @@ export async function loadTask(
 }
 
 async function requireTask(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   id: string,
   options?: { includeDeleted?: boolean },
 ): Promise<Task> {
-  const task = await loadTask(db, id, options);
+  const task = await loadTask(reader, id, options);
   if (!task) throw new NotFoundError("task", id);
   return task;
 }
@@ -273,7 +275,7 @@ export const taskCreate = defineOperation({
         linkKeys(links),
       ),
     });
-    return ctx.afterCommit(() => requireTask(ctx.db, id));
+    return ctx.afterCommit(() => requireTask(ctx, id));
   },
 });
 
@@ -288,7 +290,7 @@ export const taskGet = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    return requireTask(ctx.db, input.id, { includeDeleted: input.includeDeleted });
+    return requireTask(ctx, input.id, { includeDeleted: input.includeDeleted });
   },
 });
 
@@ -310,7 +312,7 @@ export const taskUpdate = defineOperation({
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
-    const before = await requireTask(ctx.db, input.id);
+    const before = await requireTask(ctx, input.id);
     const after = { ...before };
     const set: Record<string, unknown> = { updated_at: ctx.now };
     if (input.title !== undefined) set.title = after.title = input.title;
@@ -337,7 +339,7 @@ export const taskUpdate = defineOperation({
       before: taskSnapshot(before, beforeLinks),
       after: taskSnapshot(after, afterLinks),
     });
-    return ctx.afterCommit(() => requireTask(ctx.db, input.id));
+    return ctx.afterCommit(() => requireTask(ctx, input.id));
   },
 });
 
@@ -352,7 +354,7 @@ export const taskComplete = defineOperation({
   risk: "write",
   mcp: { curated: true, idempotent: true },
   async handler(input, ctx) {
-    const task = await requireTask(ctx.db, input.id);
+    const task = await requireTask(ctx, input.id);
     if (task.status === "done") return task;
     ctx.write(
       ctx.db
@@ -379,7 +381,7 @@ export const taskComplete = defineOperation({
       payload: { kind: "task_completed", taskId: task.id, title: task.title },
       links: timelineLinks(task),
     });
-    return ctx.afterCommit(() => requireTask(ctx.db, input.id));
+    return ctx.afterCommit(() => requireTask(ctx, input.id));
   },
 });
 
@@ -394,7 +396,7 @@ export const taskReopen = defineOperation({
   risk: "write",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const task = await requireTask(ctx.db, input.id);
+    const task = await requireTask(ctx, input.id);
     if (task.status === "open") return task;
     ctx.write(
       ctx.db
@@ -411,7 +413,7 @@ export const taskReopen = defineOperation({
         completedAt: { before: task.completedAt, after: null },
       },
     });
-    return ctx.afterCommit(() => requireTask(ctx.db, input.id));
+    return ctx.afterCommit(() => requireTask(ctx, input.id));
   },
 });
 
@@ -425,7 +427,7 @@ export const taskDelete = defineOperation({
   permission: "records:write",
   risk: "destructive",
   async handler(input, ctx) {
-    await requireTask(ctx.db, input.id);
+    await requireTask(ctx, input.id);
     ctx.write(
       ctx.db
         .updateTable("core_task")
@@ -451,7 +453,7 @@ export const taskRestore = defineOperation({
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
-    const task = await requireTask(ctx.db, input.id, { includeDeleted: true });
+    const task = await requireTask(ctx, input.id, { includeDeleted: true });
     if (!task.deletedAt) throw new ValidationError("This task is not in Trash");
     ctx.write(
       ctx.db
@@ -465,7 +467,7 @@ export const taskRestore = defineOperation({
       action: "restore",
       diff: { deletedAt: { before: task.deletedAt, after: null } },
     });
-    return ctx.afterCommit(() => requireTask(ctx.db, input.id));
+    return ctx.afterCommit(() => requireTask(ctx, input.id));
   },
 });
 
@@ -484,8 +486,8 @@ export const taskList = defineOperation({
   risk: "read",
   mcp: { curated: true, idempotent: true },
   async handler(input, ctx) {
-    const page = await runListQuery(
-      ctx.db.selectFrom("rec_task").selectAll(),
+    const page = await runListQuery<Selectable<CoreDatabase["rec_task"]>>(
+      ctx,
       getObject("task") ?? taskObject,
       input,
     );
@@ -522,7 +524,7 @@ export const taskListMine = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const rows = await ctx.db
-      .selectFrom("rec_task")
+      .selectFrom(visibleSource(ctx, "task"))
       .selectAll()
       .where("assignee_id", "=", ctx.user.id)
       .where("status", "=", "open")

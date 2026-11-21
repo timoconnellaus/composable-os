@@ -339,7 +339,7 @@ export const searchHybrid = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     return hybridSearch(
-      { db: ctx.db, models: ctx.models, vectors: ctx.vectors },
+      { db: ctx.db, principal: ctx.principal, models: ctx.models, vectors: ctx.vectors },
       { query: input.query, objects: input.objects, limit: input.limit, withText: input.withText },
     );
   },
@@ -367,7 +367,7 @@ export const recordSimilar = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const result = await similarRecords(
-      { db: ctx.db, models: ctx.models, vectors: ctx.vectors },
+      { db: ctx.db, principal: ctx.principal, models: ctx.models, vectors: ctx.vectors },
       { object: input.object, id: input.id, limit: input.limit, objects: input.objects },
     );
     return {

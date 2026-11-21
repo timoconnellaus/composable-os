@@ -10,6 +10,7 @@ import type { AiEnv } from "./ai/client.ts";
 import type { VectorStore } from "./ai/vectors.ts";
 import type { AgentJobHost } from "./assistant/agent-jobs.ts";
 import type { AssistantThreadStore } from "./assistant/threads.ts";
+import { type Audience, audienceProblems, audiencesOf, isOpenOutside } from "./audiences.ts";
 import type { AutomationHost, EventSink } from "./automations/types.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
 import type { FieldDiff } from "./diff.ts";
@@ -26,10 +27,12 @@ import {
   type Origin,
   PERMISSIONS,
   type Permission,
+  type Principal,
   RISK_CLASSES,
   type RiskClass,
 } from "./principals.ts";
 import type { UpdaterRuntime } from "./updates.ts";
+import type { RecordAccess } from "./visibility/records.ts";
 
 /** One record touched by an operation, recorded as field diffs in core_audit_changes. */
 export interface RecordChange {
@@ -103,8 +106,15 @@ export function runAfterCommit<T>(value: AfterCommit<T>): Promise<T> {
  */
 export interface HandlerContext {
   readonly operation: string;
+  /**
+   * The staff-side actor and the staff user the call acts for. A customer's or the public's
+   * call has neither: reading them there throws, so code written for staff can never run for
+   * someone outside the org by mistake. Operations open to them read `principal`.
+   */
   readonly actor: Actor;
   readonly user: ActingUser;
+  /** Who the call is for: staff, a customer or the public. The visibility seam reads it. */
+  readonly principal: Principal;
   readonly origin: Origin;
   /** The invocation's timestamp (ISO-8601 UTC). Use it for created_at/updated_at. */
   readonly now: string;
@@ -118,6 +128,12 @@ export interface HandlerContext {
   readonly grantedPermissions?: readonly Permission[] | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
+  /**
+   * Records through the visibility seam: what the caller may see and, for a customer, change.
+   * On a customer's or the public's call this is the only way to the database: `db`, `write`,
+   * `recordChange` and `postActivity` throw there unless the operation is `hostInternal`.
+   */
+  readonly records: RecordAccess;
   /** Queues statements (Kysely insert/update/delete builders) for the commit batch, in order. */
   write(...statements: (Compilable | CompiledQuery)[]): void;
   /**
@@ -294,8 +310,27 @@ export interface OperationDefinition<
   output: Out;
   permission: Permission;
   risk: RiskClass;
+  /**
+   * Core operations only, and only ones open to customers or the public: the handler keeps the
+   * raw database and write queue (`ctx.db`, `ctx.write`). For account and session bookkeeping
+   * that is not a record (sign-in, sign-out, sessions, deleting the account). Every use shows in
+   * open-operations.json. Never on an extension tool (ADR 0413).
+   */
+  hostInternal?: boolean;
+  /**
+   * Open to customers only from inside a pack's tool they called (ADR 0414): a direct call gets
+   * the unknown-operation answer. For the generic record writes (`my.create`, `my.update`),
+   * which a customer never calls themselves. Shown in open-operations.json.
+   */
+  toolOnly?: boolean;
   /** Actor types allowed to call it at all. Default: every actor. */
   actors?: readonly Actor[];
+  /**
+   * Who may call it at all: a non-empty subset of `staff`, `customer`, `public` (ADR 0402).
+   * Left out, it is staff only. Opening it to `customer` or `public` is a reviewed change: the
+   * risk class must be `read` or `write`, and the operation joins open-operations.json.
+   */
+  audiences?: readonly Audience[];
   /** For bulk operations: how many records this input touches (the gate's bulk threshold). */
   bulkSize?: (input: z.output<In>) => number;
   /** Extra input keys to redact in the audit log (secrets matching common names always are). */
@@ -336,6 +371,21 @@ export type OperationInput<O extends AnyOperation> = z.input<O["input"]>;
 /** What callers get back. */
 export type OperationOutput<O extends AnyOperation> = z.output<O["output"]>;
 
+const HOST_TOOLS = new WeakSet<object>();
+
+/**
+ * Marks the operation the host builds for an extension tool (extensions/tools.ts). Its handler is
+ * host code that starts the sandbox, so on a customer's call it keeps the database and the
+ * extension host. Only that module calls this; a manifest cannot.
+ */
+export function markHostTool(op: AnyOperation): void {
+  HOST_TOOLS.add(op);
+}
+
+export function isHostTool(op: AnyOperation): boolean {
+  return HOST_TOOLS.has(op);
+}
+
 export const OPERATION_NAME_RE = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
 
 /** Defines an operation. Checks the definition is complete; the registry test checks them all. */
@@ -368,6 +418,24 @@ export function operationProblems(op: AnyOperation): string[] {
     problems.push("actors must list known actor types");
   }
   if (typeof op.handler !== "function") problems.push("handler missing");
+  problems.push(...audienceProblems(op));
+  if (op.hostInternal !== undefined) {
+    if (op.hostInternal !== true) problems.push("hostInternal is true or left out");
+    if (op.name?.startsWith("x.")) problems.push("an extension tool can never be hostInternal");
+    if (!isOpenOutside(op)) {
+      problems.push("hostInternal is only for an operation open to customer or public callers");
+    }
+  }
+  if (op.toolOnly !== undefined) {
+    if (op.toolOnly !== true) problems.push("toolOnly is true or left out");
+    if (op.name?.startsWith("x.")) problems.push("an extension tool cannot be toolOnly");
+    if (!audiencesOf(op).includes("customer")) {
+      problems.push("toolOnly is only for an operation open to customer callers");
+    }
+  }
+  if (isOpenOutside(op) && op.alwaysReview) {
+    problems.push("an operation open to customer or public callers is never queued for review");
+  }
   if ((op.risk === "bulk-write" || op.risk === "destructive") && op.name.endsWith("Many")) {
     if (typeof op.bulkSize !== "function") problems.push("batch operations need bulkSize");
   }

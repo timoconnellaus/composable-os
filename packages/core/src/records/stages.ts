@@ -19,6 +19,7 @@ import { getObject } from "../fields/index.ts";
 import type { FieldDefinition, ObjectDefinition, StagesDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
+import { type Reader, visibleSource } from "../visibility/index.ts";
 import { viewColumnOf } from "./columns.ts";
 
 export type StageType = "open" | "won" | "lost";
@@ -76,7 +77,7 @@ function stageObjectOf(object: ObjectDefinition, stages: StagesDefinition): Obje
 
 /** Reads stages by id (live records only), through the cache. */
 export async function loadStages(
-  ctx: Pick<HandlerContext, "db">,
+  ctx: Reader,
   stageObject: ObjectDefinition,
   stages: StagesDefinition,
   ids: readonly string[],
@@ -92,7 +93,7 @@ export async function loadStages(
     const fieldOf = (name: string | undefined) =>
       name ? stageObject.fields.find((f) => f.name === name) : undefined;
     const rows = await sql<Record<string, unknown>>`
-      SELECT * FROM ${sql.table(stageObject.source)}
+      SELECT * FROM ${visibleSource(ctx, stageObject)}
       WHERE id IN (SELECT value FROM json_each(${JSON.stringify(missing)}))
     `.execute(ctx.db);
     const titleColumn = stageObject.titleField ? column(stageObject, stageObject.titleField) : null;
@@ -126,7 +127,7 @@ export async function loadStages(
 
 /** The first stage (by order) of a group, or of all stages when the behaviour has no groups. */
 async function firstStage(
-  ctx: Pick<HandlerContext, "db">,
+  ctx: Reader,
   stageObject: ObjectDefinition,
   stages: StagesDefinition,
   group: string | null,
@@ -136,7 +137,7 @@ async function firstStage(
   if (!order) return null;
   const where = groupColumn ? sql`WHERE ${sql.ref(groupColumn)} = ${group}` : sql``;
   const row = await sql<{ id: string }>`
-    SELECT id FROM ${sql.table(stageObject.source)} ${where}
+    SELECT id FROM ${visibleSource(ctx, stageObject)} ${where}
     ORDER BY ${sql.ref(order)} IS NULL, ${sql.ref(order)}, id LIMIT 1
   `.execute(ctx.db);
   return row.rows[0]?.id ?? null;
@@ -147,7 +148,7 @@ async function firstStage(
  * default), by id or title (case-insensitive), or null.
  */
 async function defaultGroup(
-  ctx: Pick<HandlerContext, "db">,
+  ctx: Reader,
   object: ObjectDefinition,
   stages: StagesDefinition,
   group: string,
@@ -179,7 +180,7 @@ async function defaultGroup(
   const title = column(groupObject, groupObject.titleField);
   if (!title) return null;
   const row = await sql<{ id: string }>`
-    SELECT id FROM ${sql.table(groupObject.source)}
+    SELECT id FROM ${visibleSource(ctx, groupObject)}
     WHERE id = ${value.trim()} OR lower(${sql.ref(title)}) = ${value.trim().toLowerCase()}
     ORDER BY id = ${value.trim()} DESC, id LIMIT 1
   `.execute(ctx.db);

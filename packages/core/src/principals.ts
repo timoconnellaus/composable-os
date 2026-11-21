@@ -20,7 +20,8 @@ export type Actor = (typeof ACTORS)[number];
 
 /** Where a call came from, recorded in the audit log. */
 export const originSchema = z.object({
-  surface: z.enum(["ui", "mcp", "automation", "system", "extension", "assistant"]),
+  // `client`: a client app or site calling for a customer or the public (stage 22).
+  surface: z.enum(["ui", "mcp", "automation", "system", "extension", "assistant", "client"]),
   /** The MCP client id (OAuth client_id). */
   clientId: z.string().optional(),
   /** The MCP client's display name, as registered (self-asserted). */
@@ -128,3 +129,46 @@ export interface ActingUser {
   name: string;
   role: Role;
 }
+
+/**
+ * Who a call is made for (ADR 0402): the three audiences as principals.
+ * - `staff`: a user of the org, every `ActingUser`.
+ * - `customer`: a Person who signed in to their own account. Never a `core_user`, never a role.
+ * - `public`: a caller with no account.
+ * The visibility seam and the audience check read nothing else about the caller.
+ */
+export interface StaffPrincipal {
+  readonly kind: "staff";
+  readonly userId: string;
+  readonly role: Role;
+}
+
+export interface CustomerPrincipal {
+  readonly kind: "customer";
+  /** The customer account (cus_…). */
+  readonly customerId: string;
+  /** The Person the account is linked to (per_…): whose records the caller may see. */
+  readonly personId: string;
+}
+
+export interface PublicPrincipal {
+  readonly kind: "public";
+}
+
+export type OutsidePrincipal = CustomerPrincipal | PublicPrincipal;
+export type Principal = StaffPrincipal | OutsidePrincipal;
+
+export function staffPrincipal(user: Pick<ActingUser, "id" | "role">): StaffPrincipal {
+  return Object.freeze({ kind: "staff", userId: user.id, role: user.role });
+}
+
+/**
+ * The actors of calls from outside the org, as the audit log records them. They are not in
+ * `ACTORS`: the approval policy, the queue and an operation's `actors` are about staff-side
+ * callers, and a customer's or the public's call is never queued.
+ */
+export const OUTSIDE_ACTORS = ["customer", "public"] as const;
+export type OutsideActor = (typeof OUTSIDE_ACTORS)[number];
+/** Every actor a handler can be called by and the audit log can hold. */
+export const ALL_ACTORS = [...ACTORS, ...OUTSIDE_ACTORS] as const;
+export type AnyActor = (typeof ALL_ACTORS)[number];

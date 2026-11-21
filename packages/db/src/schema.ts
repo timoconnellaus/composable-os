@@ -80,7 +80,10 @@ export type UserRole = "admin" | "member" | "viewer";
 export type ActivityType = "note" | "email" | "call" | "meeting" | "system";
 export type ActivityAuthorActor = "human" | "assistant" | "mcp" | "automation" | "system";
 export type TaskStatus = "open" | "done";
-export type AuditActor = "human" | "assistant" | "mcp" | "automation" | "extension";
+/** Who a staff-side call is made by: the actors the approval policy and the queue know. */
+export type StaffActor = "human" | "assistant" | "mcp" | "automation" | "extension";
+/** Every actor the audit log records: staff-side actors, customers and the public (migration 0400). */
+export type AuditActor = StaffActor | "customer" | "public";
 export type AuditRisk =
   | "read"
   | "write"
@@ -828,6 +831,70 @@ export interface CoreErasedAddressTable {
   erased_by: string | null;
 }
 
+/**
+ * Migration 0401 (stage 22, ADR 0402): a customer account, a Person who can sign in. Never a
+ * core_user. Better Auth's user model for customers (packages/auth/src/customer-auth.ts).
+ */
+export interface CoreCustomerTable {
+  id: string;
+  /** Null until the first sign-in links it, and while link_state is `needs_merge`. */
+  person_id: Defaulted<string | null>;
+  email: string;
+  email_verified: Defaulted<number>;
+  status: Defaulted<CustomerStatus>;
+  link_state: Defaulted<CustomerLinkState>;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+  last_sign_in_at: Defaulted<string | null>;
+}
+export type CustomerStatus = "active" | "disabled";
+export type CustomerLinkState = "linked" | "needs_merge";
+
+/** Migration 0401: a customer's session. No client address and no user agent, by design. */
+export interface CoreCustomerSessionTable {
+  id: string;
+  customer_id: string;
+  token: string;
+  expires_at: DateColumn;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+}
+
+/** Migration 0401: a customer's one-time sign-in code (hashed). */
+export interface CoreCustomerVerificationTable {
+  id: string;
+  identifier: string;
+  value: string;
+  expires_at: DateColumn;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+}
+
+/** Migration 0401: an address staff invited to sign up. */
+export interface CoreCustomerInviteTable {
+  email: string;
+  invited_by: string;
+  invited_at: string;
+}
+
+/**
+ * Migration 0402 (stage 22, ADR 0402): a request to erase a Person, made when a customer deletes
+ * their account. Staff erase the person (status `erased`) or decline with a reason.
+ */
+export interface CoreEraseRequestTable {
+  id: string;
+  person_id: string;
+  customer_id: Defaulted<string | null>;
+  requested_at: string;
+  due_at: string;
+  status: Defaulted<EraseRequestStatus>;
+  decline_reason: Defaulted<string | null>;
+  closed_at: Defaulted<string | null>;
+  closed_by: Defaulted<string | null>;
+  last_notified_at: Defaulted<string | null>;
+}
+export type EraseRequestStatus = "open" | "erased" | "declined";
+
 /** Migration 0310 (ADR 0246): an assignment rule, ordered per object. */
 export interface CoreAssignmentRuleTable {
   id: string;
@@ -970,7 +1037,7 @@ export interface CoreChangeSetTable {
   client_id: string | null;
   client_name: string | null;
   user_id: string;
-  actor: AuditActor;
+  actor: StaffActor;
   origin: JsonText;
   explicit: Defaulted<number>;
   state: Defaulted<ChangeSetState>;
@@ -988,7 +1055,7 @@ export interface CorePendingActionTable {
   risk: AuditRisk;
   input: JsonText;
   reason: string;
-  actor: AuditActor;
+  actor: StaffActor;
   user_id: string;
   origin: JsonText;
   granted_permissions: JsonText | null;
@@ -1584,6 +1651,11 @@ export interface CoreDatabase {
   core_assignment_state: CoreAssignmentStateTable;
   core_assignment_fallback: CoreAssignmentFallbackTable;
   core_field_options: CoreFieldOptionsTable;
+  core_customer: CoreCustomerTable;
+  core_customer_session: CoreCustomerSessionTable;
+  core_customer_verification: CoreCustomerVerificationTable;
+  core_customer_invite: CoreCustomerInviteTable;
+  core_erase_request: CoreEraseRequestTable;
   rec_stage_history: CrmStageHistoryView;
   rec_user: CrmUsersView;
   rec_person: CrmPeopleView;

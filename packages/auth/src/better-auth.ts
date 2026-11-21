@@ -24,7 +24,7 @@ export const BETTER_AUTH_BASE_PATH = "/api/auth";
 const ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 /** 32 random alphanumeric characters, like Better Auth's default ids. */
-function randomId(): string {
+export function randomId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return Array.from(bytes, (byte) => ID_ALPHABET[byte % ID_ALPHABET.length]).join("");
 }

@@ -5,9 +5,8 @@
 //
 // Core objects keep their own operations (person.update, …); `record.update` on a core object
 // writes only extension fields (into side tables), and `record.get` returns them.
-import type { CoreDatabase } from "@composable-os/db";
 import type { FieldManifest } from "@composable-os/sdk";
-import { CompiledQuery, type Kysely, type SelectQueryBuilder, sql } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { NotFoundError, ValidationError } from "../errors.ts";
@@ -22,6 +21,8 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import { applyStageBehaviour, type StageCache, type StageOutcome } from "../records/stages.ts";
+import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
+import { setRecordWriter } from "../visibility/writes.ts";
 
 const objectName = z
   .string()
@@ -105,12 +106,12 @@ function fromRow(object: ObjectDefinition, row: Record<string, unknown>): Record
 }
 
 async function loadRecord(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   object: ObjectDefinition,
   id: string,
 ): Promise<RecordOutput | null> {
-  const row = await (db as AnyDb)
-    .selectFrom(object.source)
+  const row = await (reader.db as AnyDb)
+    .selectFrom(visibleSource(reader, object))
     .selectAll()
     .where("id", "=", id)
     .executeTakeFirst();
@@ -298,7 +299,7 @@ async function assertReferences(ctx: HandlerContext, prepared: PreparedValue[]) 
       const target = getObject(p.field.options.to);
       if (!target) throw new ValidationError(`${p.field.name}: unknown target object`);
       const found = await (ctx.db as AnyDb)
-        .selectFrom(target.source)
+        .selectFrom(visibleSource(ctx, target))
         .select("id")
         .where("id", "in", jsonList(ids))
         .execute();
@@ -363,7 +364,7 @@ export const recordCreate = defineOperation({
   async handler(input, ctx) {
     const object = requireExtensionObject(input.object);
     const id = await createRecord(ctx, object, input.values);
-    return ctx.afterCommit(async () => (await loadRecord(ctx.db, object, id)) as RecordOutput);
+    return ctx.afterCommit(async () => (await loadRecord(ctx, object, id)) as RecordOutput);
   },
 });
 
@@ -514,7 +515,7 @@ async function titleOf(ctx: HandlerContext, to: string | undefined, id: unknown)
         : undefined;
   if (!target || !column) return null;
   const row = await sql<{ title: string | null }>`
-    SELECT ${sql.ref(column)} AS title FROM ${sql.table(target.source)} WHERE id = ${id}
+    SELECT ${sql.ref(column)} AS title FROM ${visibleSource(ctx, target)} WHERE id = ${id}
   `.execute(ctx.db);
   return row.rows[0]?.title ?? null;
 }
@@ -575,11 +576,79 @@ export const recordGet = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    const record = await loadRecord(ctx.db, object, input.id);
+    const record = await loadRecord(ctx, object, input.id);
     if (!record) throw new NotFoundError(input.object, input.id);
     return record;
   },
 });
+
+/**
+ * Queues the writes that change one record (validation, the stage behaviour, search, audit).
+ * Returns false when `values` is empty. record.update and the visibility seam's write helper
+ * share it.
+ */
+export async function updateRecord(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  values: Record<string, unknown>,
+): Promise<boolean> {
+  const input = { object: object.name, id, values };
+  const before = await loadRecord(ctx, object, input.id);
+  if (!before) throw new NotFoundError(input.object, input.id);
+  let prepared = await prepareValues(ctx, object, input.values, "update");
+  if (!prepared.length) return false;
+  assertChoiceRequirements(object, prepared, {
+    ...before.values,
+    ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
+  });
+  assertOneOf(object, {
+    ...before.values,
+    ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
+  });
+  const outcome = await applyStageBehaviour(
+    ctx,
+    object,
+    input.id,
+    before.values,
+    valuesOf(prepared),
+  );
+  prepared = withHostValues(prepared, outcome, object);
+  const own = prepared.filter((p) => p.own);
+  if (own.length || !isCoreObject(object.name)) {
+    const table = objectTableOf(object.name);
+    if (table) {
+      ctx.write(
+        CompiledQuery.raw(
+          `UPDATE ${table} SET ${[...own.map((p) => `${p.column} = ?`), "updated_at = ?", "updated_by = ?"].join(", ")} WHERE id = ? AND deleted_at IS NULL`,
+          [...own.map((p) => p.stored), ctx.now, ctx.user.id, input.id],
+        ),
+      );
+    }
+  }
+  ctx.write(...sideWrites(input.id, prepared), ...outcome.history);
+  const after = {
+    ...before.values,
+    ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
+  };
+  const timeline = await timelineFor(ctx, object, input.id, before.values, after, outcome);
+  if (object.titleField && prepared.some((p) => p.field.name === object.titleField)) {
+    const title = after[object.titleField];
+    ctx.write(...searchDoc(object.name, input.id, title == null ? null : String(title)));
+  }
+  ctx.recordChange({
+    object: object.name,
+    id: input.id,
+    action: "update",
+    before: snapshot(before),
+    after,
+    ...(timeline ? { timeline } : {}),
+  });
+  return true;
+}
+
+// The seam's write helper (visibility/writes.ts) changes extension records with this code.
+setRecordWriter({ create: createRecord, update: updateRecord });
 
 export const recordUpdate = defineOperation({
   name: "record.update",
@@ -594,59 +663,8 @@ export const recordUpdate = defineOperation({
   risk: "write",
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    const before = await loadRecord(ctx.db, object, input.id);
-    if (!before) throw new NotFoundError(input.object, input.id);
-    let prepared = await prepareValues(ctx, object, input.values, "update");
-    if (!prepared.length) return before;
-    assertChoiceRequirements(object, prepared, {
-      ...before.values,
-      ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
-    });
-    assertOneOf(object, {
-      ...before.values,
-      ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
-    });
-    const outcome = await applyStageBehaviour(
-      ctx,
-      object,
-      input.id,
-      before.values,
-      valuesOf(prepared),
-    );
-    prepared = withHostValues(prepared, outcome, object);
-    const own = prepared.filter((p) => p.own);
-    if (own.length || !isCoreObject(object.name)) {
-      const table = objectTableOf(object.name);
-      if (table) {
-        ctx.write(
-          CompiledQuery.raw(
-            `UPDATE ${table} SET ${[...own.map((p) => `${p.column} = ?`), "updated_at = ?", "updated_by = ?"].join(", ")} WHERE id = ? AND deleted_at IS NULL`,
-            [...own.map((p) => p.stored), ctx.now, ctx.user.id, input.id],
-          ),
-        );
-      }
-    }
-    ctx.write(...sideWrites(input.id, prepared), ...outcome.history);
-    const after = {
-      ...before.values,
-      ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
-    };
-    const timeline = await timelineFor(ctx, object, input.id, before.values, after, outcome);
-    if (object.titleField && prepared.some((p) => p.field.name === object.titleField)) {
-      const title = after[object.titleField];
-      ctx.write(...searchDoc(object.name, input.id, title == null ? null : String(title)));
-    }
-    ctx.recordChange({
-      object: object.name,
-      id: input.id,
-      action: "update",
-      before: snapshot(before),
-      after,
-      ...(timeline ? { timeline } : {}),
-    });
-    return ctx.afterCommit(
-      async () => (await loadRecord(ctx.db, object, input.id)) as RecordOutput,
-    );
+    await updateRecord(ctx, object, input.id, input.values);
+    return ctx.afterCommit(async () => (await loadRecord(ctx, object, input.id)) as RecordOutput);
   },
 });
 
@@ -661,7 +679,7 @@ export const recordDelete = defineOperation({
   risk: "destructive",
   async handler(input, ctx) {
     const object = requireExtensionObject(input.object);
-    const before = await loadRecord(ctx.db, object, input.id);
+    const before = await loadRecord(ctx, object, input.id);
     if (!before) throw new NotFoundError(input.object, input.id);
     const table = objectTableOf(object.name) as string;
     ctx.write(
@@ -698,7 +716,7 @@ export const recordRestore = defineOperation({
     const object = requireExtensionObject(input.object);
     const table = objectTableOf(object.name) as string;
     const row = await sql<{ deleted_at: string | null }>`
-      SELECT deleted_at FROM ${sql.table(table)} WHERE id = ${input.id}
+      SELECT deleted_at FROM ${visibleTable(ctx, object)} WHERE id = ${input.id}
     `.execute(ctx.db);
     const deletedAt = row.rows[0]?.deleted_at;
     if (deletedAt === undefined) throw new NotFoundError(input.object, input.id);
@@ -710,7 +728,7 @@ export const recordRestore = defineOperation({
     );
     ctx.recordChange({ object: object.name, id: input.id, action: "restore", diff: {} });
     return ctx.afterCommit(async () => {
-      const record = (await loadRecord(ctx.db, object, input.id)) as RecordOutput;
+      const record = (await loadRecord(ctx, object, input.id)) as RecordOutput;
       await ctx.db
         .insertInto("core_search_docs")
         .values({
@@ -739,12 +757,7 @@ export const recordList = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    const page = await runListQuery(
-      (ctx.db as AnyDb).selectFrom(object.source).selectAll() as ReturnType<AnyDb["selectFrom"]> &
-        SelectQueryBuilder<CoreDatabase, keyof CoreDatabase, { id: string }>,
-      object,
-      input,
-    );
+    const page = await runListQuery<{ id: string }>(ctx, object, input);
     const items = page.rows.map((row) => {
       const record = fromRow(object, row as Record<string, unknown>);
       if (input.fields) {

@@ -316,6 +316,9 @@ export class Executor {
       deadline,
       logs: [],
       operations: [],
+      ...(input.caller.principal
+        ? { outside: { principal: input.caller.principal, tool: input.tool } }
+        : {}),
     };
     const host = new RunHost(this.#env, run);
     const outcome = await invoke<ExtensionEntrypoint, RunResponse>(

@@ -23,6 +23,7 @@ import type { ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
+import { visibleSource } from "../visibility/index.ts";
 
 const objectName = z
   .string()
@@ -376,7 +377,7 @@ export const assignmentTest = defineOperation({
       const id = input.values[via];
       if (!target || typeof id !== "string") continue;
       const { rows } = await sql<Record<string, unknown>>`
-        SELECT * FROM ${sql.table(target.source)} WHERE id = ${id}
+        SELECT * FROM ${visibleSource(ctx, target)} WHERE id = ${id}
       `.execute(ctx.db);
       related.set(via, rows[0] ?? null);
     }
@@ -453,7 +454,7 @@ export const assignmentApply = defineOperation({
     const ids = [...new Set(input.ids)];
     // The object's view holds live records only, so a deleted record reads as missing.
     const { rows } = await sql<Record<string, unknown>>`
-      SELECT * FROM ${sql.table(object.source)}
+      SELECT * FROM ${visibleSource(ctx, object)}
       WHERE id IN ${sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`}
     `.execute(ctx.db);
     const byId = new Map(rows.map((row) => [String(row.id), row]));

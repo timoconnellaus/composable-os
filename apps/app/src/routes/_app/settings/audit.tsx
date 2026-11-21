@@ -38,7 +38,15 @@ export const Route = createFileRoute("/_app/settings/audit")({
 });
 
 const ANY = "__any__";
-const ACTORS = ["human", "assistant", "mcp", "automation"] as const;
+const ACTORS = [
+  "human",
+  "assistant",
+  "mcp",
+  "automation",
+  "extension",
+  "customer",
+  "public",
+] as const;
 const OUTCOMES = ["ok", "forbidden", "denied", "review", "error"] as const;
 const RECORD_OBJECTS = ["person", "organisation", "activity", "task"] as const;
 
