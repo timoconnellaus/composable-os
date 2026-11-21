@@ -194,3 +194,11 @@ test("metadata, robots.txt and sitemap.xml are served", async ({ page, request }
     expect((await request.get(path)).status(), path).toBe(200);
   }
 });
+
+test("the header fits a narrow phone", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto("/");
+  const menu = await page.getByRole("button", { name: "Open menu" }).boundingBox();
+  expect(menu && menu.x + menu.width).toBeLessThanOrEqual(360);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+});

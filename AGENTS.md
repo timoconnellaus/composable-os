@@ -21,8 +21,9 @@ vocabulary in [`CONTEXT.md`](CONTEXT.md), and respect the decisions in [`docs/ad
 ## Skills
 
 Step-by-step instructions for common work are in [`skills/`](skills/), one folder each with a
-`SKILL.md` (plain Markdown, for any agent; linked into `.claude/skills/`). Read the skill in full
-before starting the work it names.
+`SKILL.md` (plain Markdown, for any agent; linked into `.claude/skills/`). Skills taken from other
+projects are not in `skills/`: they are copied unchanged into `.claude/skills/` (`UPSTREAMS.md`).
+Read the skill in full before starting the work it names.
 
 - Writing a new extension, a new kind of record, or fields on other objects:
   [`skills/write-extension/SKILL.md`](skills/write-extension/SKILL.md).

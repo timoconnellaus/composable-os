@@ -29,7 +29,8 @@ be in such a product, not the offer.
 - **The hosted CRM offer is off the site:** no waitlist and no plans. The endpoint still accepts
   a `waitlist` submission and the rows already stored stay.
 - **Proof is real or absent.** Ghetto is the first client; its quote and case study are added
-  when they exist. Until then the page shows plain facts and nothing invented.
+  when they exist. Until then the page shows plain facts and nothing invented. A piece that is
+  not finished says so on the page ("being built", "in design").
 - **Design language:** light only; Poppins; a pale blue page on a near-white frame; one lime pill
   button for the action and a dark pill in the header; blue arches behind the product picture;
   navy and lime as accents. The hero's picture is an invented business's product (a coffee

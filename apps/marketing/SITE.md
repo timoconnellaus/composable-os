@@ -20,7 +20,7 @@ the same PR** (`AGENTS.md`, "The site"). The decisions behind it are in
 | 2 | Facts bar (`Hero`) | Built for your business. Looked after by us, on one subscription. The code is yours if you want it. Your data stays yours. |
 | 3 | The problem (`Problem`) | A dozen subscriptions and none is quite right: nothing quite fits, you make the concessions, nickel-and-dimed everywhere. |
 | 4 | How it works (`HowItWorks`) | Three steps: tell us how you work; we compose your product; we look after it (hosting, fixes, support and changes). |
-| 5 | What can go in (`Pieces`) | **Customers and sales** (people, organisations, deals, leads, pipelines, email on the timeline): ready today. **Ticketing** (events, ticket types, checkout, door scanning): in design. **Content** (pages and posts, drafts, preview, publishing): in design. **The part only you have:** built for that business. |
+| 5 | What can go in (`Pieces`) | **Customers and sales** (people, organisations, deals, leads, pipelines, email on the timeline): ready today. **Ticketing** (events, ticket types, checkout, door scanning): being built (the pack exists; stage 27 is not finished). **Content** (pages and posts, drafts, preview, publishing): in design. **The part only you have:** built for that business. |
 | 6 | What's inside (`Inside`) | Every product starts with: your records; your rules (stages, prices, who may see and do what, for people and AI); your screens (a web app, a mobile app when needed, for staff and customers); automations (tested before they go live); connections (email, calendars, Slack, payments); dashboards (describe a chart and get one). |
 | 7 | Looked after (`Care`) | The subscription covers: hosting and keeping it running; updates to the platform; fixes; changes and new features as the business changes; support for the team. No seats, tiers or add-ons. |
 | 8 | When the business changes (`Control`) | The product is changed by asking, in the app or from Claude, ChatGPT or Cursor. Admins decide what needs a person. Approved (new fields, bulk edits, deletes and outgoing emails wait for sign-off), sandboxed (no internet except through approved connections), audited (every action logged with who and why). |
@@ -31,7 +31,7 @@ the same PR** (`AGENTS.md`, "The site"). The decisions behind it are in
 
 ## What changes it
 
-- A pack or piece is added, or one marked "in design" is built (row 5, and the questions).
+- A pack or piece is added, or one marked "being built" or "in design" moves on (row 5, and the questions). Ticketing becomes "Ready today" when stage 27 is done.
 - A new kind of connection ships, or one is removed (rows 6 and 10).
 - The approval defaults, the sandbox or the audit log change (row 8 and the questions).
 - The client CLI's commands change (row 9; `docs/deploying.md` changes with it).

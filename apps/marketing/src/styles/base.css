@@ -17,6 +17,10 @@
   --line: #dfe7f3;
   --line-2: #c6d3e6;
   --blue: #1f6bff;
+  /* Blue for small text and focus rings: 4.5:1 or better on the panel and the tint. */
+  --blue-ink: #1554d1;
+  /* Form field edges: 3:1 on the tint. */
+  --field: #74839d;
   --blue-2: #5aa2ff;
   --blue-soft: #d6e6ff;
   --navy: #14295c;
@@ -27,7 +31,6 @@
   --radius: 22px;
   --shadow: 0 24px 60px -28px rgba(24, 60, 130, 0.35), 0 2px 6px rgba(24, 60, 130, 0.06);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ring: 0 0 0 3px color-mix(in srgb, var(--blue) 40%, transparent);
 }
 
 * {
@@ -63,9 +66,8 @@ a {
   color: inherit;
 }
 :focus-visible {
-  outline: none;
-  box-shadow: var(--ring);
-  border-radius: 10px;
+  outline: 2px solid var(--blue-ink);
+  outline-offset: 3px;
 }
 .sr {
   position: absolute;
@@ -110,7 +112,7 @@ a {
   gap: 8px;
   font-size: 13px;
   font-weight: 500;
-  color: var(--blue);
+  color: var(--blue-ink);
 }
 .eyebrow::before {
   content: "";
@@ -299,7 +301,7 @@ header.site.scrolled::after {
 }
 @media (hover: hover) and (pointer: fine) {
   .links a:hover {
-    color: var(--blue);
+    color: var(--blue-ink);
   }
 }
 .nav .btn {
@@ -404,7 +406,7 @@ footer a {
   margin-top: 16px;
 }
 .page .prose a {
-  color: var(--blue);
+  color: var(--blue-ink);
 }
 .page .actions {
   margin-top: 32px;
@@ -433,8 +435,13 @@ footer a {
   }
   .nav .btn {
     min-height: 44px;
-    padding: 0 18px;
+    padding: 0 16px;
     font-size: 14px;
+  }
+  .logo {
+    min-width: 0;
+    gap: 8px;
+    font-size: 15px;
   }
   .js .menu-btn {
     display: inline-flex;

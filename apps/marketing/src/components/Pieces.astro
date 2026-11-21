@@ -1,7 +1,7 @@
 ---
 // What can go into a company's product. Each line is true of the repository today: "Customers and
-// sales" is the base records plus the Deals and Leads packs; ticketing and content are designed and
-// not built, and say so. The last card is the piece built only for this business.
+// sales" is the base records plus the Deals and Leads packs; ticketing is a pack being built with
+// its first client (stage 27) and content is designed and not built, and each says so. The last card is the piece built only for this business.
 import Icon from "./Icon.astro";
 
 const pieces = [
@@ -11,12 +11,12 @@ const pieces = [
     body: "People, organisations, deals and leads, with pipelines and email on the timeline. Ready today.",
   },
   {
-    soon: true,
+    soon: "Being built",
     title: "Ticketing",
     body: "Events, ticket types, checkout and door scanning.",
   },
   {
-    soon: true,
+    soon: "In design",
     title: "Content",
     body: "Pages and posts with drafts, preview and publishing.",
   },
@@ -38,7 +38,7 @@ const pieces = [
         pieces.map((piece) => (
           <div class="card reveal">
             {piece.soon ? (
-              <span class="soon">In design</span>
+              <span class="soon">{piece.soon}</span>
             ) : (
               <div class="ic">
                 <Icon name={piece.icon ?? "grid"} />

@@ -525,7 +525,7 @@
   display: none;
 }
 .faq summary svg {
-  color: var(--blue);
+  color: var(--blue-ink);
   transition: transform 200ms var(--ease-out);
 }
 .faq details[open] summary svg {
@@ -562,7 +562,7 @@
   width: 100%;
   min-height: 52px;
   border-radius: 26px;
-  border: 1.5px solid var(--line-2);
+  border: 1.5px solid var(--field);
   background: var(--card);
   color: var(--ink);
   padding: 0 22px;
