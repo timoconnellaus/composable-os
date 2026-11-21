@@ -5,7 +5,7 @@
 // the host only while the student holds the course (`useProgress`).
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
 import { mediaPath } from "@composable-os/pack-courses/client";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 
 /** How often the player keeps the position while a video plays, in seconds of video. */
@@ -33,9 +33,11 @@ export function LessonPlayer({
   const progress = courses.useProgress();
   const video = useRef<HTMLVideoElement | null>(null);
   const kept = useRef(0);
+  const [doneNow, setDoneNow] = useState(false);
 
   useEffect(() => {
     kept.current = 0;
+    setDoneNow(false);
   }, [lessonKey]);
 
   if (isPending) return <p aria-busy="true">Loading the lesson…</p>;
@@ -49,12 +51,20 @@ export function LessonPlayer({
     note?: string;
   };
   const keep = (state?: "done") =>
-    progress.mutate({
-      courseId,
-      lessonKey,
-      ...(state ? { state } : {}),
-      ...(video.current ? { position: video.current.currentTime, duration: video.current.duration } : {}),
-    });
+    progress
+      .mutateAsync({
+        courseId,
+        lessonKey,
+        ...(state ? { state } : {}),
+        ...(video.current && Number.isFinite(video.current.duration)
+          ? { position: video.current.currentTime, duration: video.current.duration }
+          : {}),
+      })
+      .then((kept) => {
+        if (kept.state === "done") setDoneNow(true);
+      })
+      .catch(() => undefined);
+  const done = doneNow || data.state === "done";
 
   return (
     <article className="grid gap-4" aria-labelledby="lesson-title">
@@ -77,10 +87,10 @@ export function LessonPlayer({
             const at = e.currentTarget.currentTime;
             if (Math.abs(at - kept.current) >= KEEP_EVERY) {
               kept.current = at;
-              keep();
+              void keep();
             }
           }}
-          onEnded={() => keep("done")}
+          onEnded={() => void keep("done")}
         />
       ) : null}
       {lesson.kind === "video" && lesson.notes && renderText ? renderText(lesson.notes) : null}
@@ -95,8 +105,8 @@ export function LessonPlayer({
       ) : null}
       {lesson.kind === "session" && renderSession ? renderSession(courseId, lessonKey) : null}
       <div className="flex gap-2">
-        <Button variant={data.state === "done" ? "outline" : "default"} onClick={() => keep("done")}>
-          {data.state === "done" ? "Done" : "Mark as done"}
+        <Button variant={done ? "outline" : "default"} onClick={() => void keep("done")}>
+          {done ? "Done" : "Mark as done"}
         </Button>
         {data.next ? (
           <Button variant="outline" onClick={() => data.next && onNext(data.next.key)}>
