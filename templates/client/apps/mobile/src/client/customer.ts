@@ -85,7 +85,15 @@ export type Operations = {
     output: { id: string; displayName: string; givenName: (string) | (null); familyName: (string) | (null); primaryEmail: (string) | (null); primaryPhone: (string) | (null) };
   };
   /**
-   * Whether the caller may be served one picture, and at what width: staff any live one; a customer or the public only one that a published record they may read shows. Anything else is not found. The media route (`/api/media/<id>`) streams it. Read-only.
+   * A short-lived token to play one ready video, and where it plays (HLS, DASH, Stream's player), signed by the host: staff may play any; a customer or the public only a video that a published record they may read shows, in a part they may read (a lesson's video only for a holder of access to its course, a trailer for anyone). Anything else, and a made-up id, is not found. The token is for this video only, lives at most an hour, and never allows a download. Read-only.
+   */
+  "media.play": {
+    kind: "query";
+    input: { id: string; record?: { object: string; id: string }; field?: string; purpose?: "stream"; seconds?: number };
+    output: { id: string; token: string; expiresAt: string; hls: string; dash: string; iframe: string; poster: string; duration: (number) | (null); captions: { language: string; label: string }[] };
+  };
+  /**
+   * Whether the caller may be served one picture or downloadable file, and at what width: staff any live one; a customer or the public only one that a published record they may read shows in a part they may read. Anything else is not found, and so is a video (it plays with media.play). The media route (`/api/media/<id>`) streams it. Read-only.
    */
   "media.serve": {
     kind: "query";
@@ -162,6 +170,7 @@ export const operations = {
   "me.sessions.revoke": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
   "me.signOut": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
   "me.update": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
+  "media.play": { kind: "query", invalidates: [] },
   "media.serve": { kind: "query", invalidates: [] },
   "my.get": { kind: "query", invalidates: [] },
   "my.list": { kind: "query", invalidates: [] },

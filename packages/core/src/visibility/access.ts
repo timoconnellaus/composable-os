@@ -26,33 +26,22 @@ import { documentRefs } from "@composable-os/sdk";
 import { type Kysely, type RawBuilder, sql } from "kysely";
 import { liveViewOf } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
-import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
+import type {
+  AccessSource,
+  FieldDefinition,
+  ObjectDefinition,
+  RecordAccessSource,
+} from "../fields/types.ts";
+
+export type {
+  AccessDeclaration,
+  AccessSource,
+  KindAccessSource,
+  RecordAccessSource,
+} from "../fields/types.ts";
+
 import { viewColumnOf } from "../records/columns.ts";
 import type { Reader } from "./index.ts";
-
-/** A source of kind `record`: the caller's own record of `via` (see the header). */
-export interface RecordAccessSource {
-  readonly kind?: "record" | undefined;
-  readonly via: string;
-  readonly field: string;
-  readonly through?: string | undefined;
-  readonly states?: readonly string[] | undefined;
-  readonly until?: string | undefined;
-}
-
-/** A source of a kind the host provides (`registerAccessSource`). */
-export interface KindAccessSource {
-  readonly kind: string;
-  readonly options?: Readonly<Record<string, unknown>> | undefined;
-  readonly via?: undefined;
-}
-
-export type AccessSource = RecordAccessSource | KindAccessSource;
-
-/** Who holds access to an object's records (ADR 0477), as declared. */
-export interface AccessDeclaration {
-  readonly sources: readonly AccessSource[];
-}
 
 /** What a source of one kind is asked. */
 export interface AccessQuery {
