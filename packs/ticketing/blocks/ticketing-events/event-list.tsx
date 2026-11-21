@@ -2,13 +2,14 @@
 // web base layer. What is on sale, the prices and the places left are the host's
 // (`useEventsOnSale`); this lays them out.
 import type { EventOnSale, TicketingHooks } from "@composable-os/pack-ticketing/client";
-import { availabilityLabel, formatPrice } from "@composable-os/pack-ticketing/client";
+import { availabilityLabel, eventTime, formatPrice } from "@composable-os/pack-ticketing/client";
 import type { ReactNode } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui-card/card.tsx";
 
-const when = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : null;
+// An event's times are shown in its own zone, with the zone said when it is not the viewer's.
+const when = (event: EventOnSale, at: "startsAt" | "endsAt" = "startsAt") =>
+  eventTime(event, { at }) || null;
 
 /** Every event on sale, soonest first, each with a button to open it. */
 export function EventList({
@@ -30,7 +31,7 @@ export function EventList({
             <CardHeader>
               <CardTitle>{event.name}</CardTitle>
               <CardDescription>
-                {[when(event.startsAt), event.venue].filter(Boolean).join(" · ")}
+                {[when(event), event.venue].filter(Boolean).join(" · ")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -46,16 +47,11 @@ export function EventList({
   );
 }
 
-/** One event's details and its ticket types, with room for the picker below. */
-export function EventSection({
-  event,
-  currency,
-  children,
-}: {
-  event: EventOnSale;
-  currency: string;
-  children?: ReactNode;
-}) {
+/**
+ * One event's details and its ticket types, with room for the picker below. Prices show in the
+ * currency the host gives with them.
+ */
+export function EventSection({ event, children }: { event: EventOnSale; children?: ReactNode }) {
   return (
     <section aria-labelledby={`event-${event.id}`} className="grid gap-4">
       {event.image ? <img src={event.image} alt="" className="w-full rounded-lg" /> : null}
@@ -63,7 +59,7 @@ export function EventSection({
         {event.name}
       </h2>
       <p className="text-muted-foreground">
-        {[when(event.startsAt), when(event.endsAt), event.venue].filter(Boolean).join(" · ")}
+        {[when(event), when(event, "endsAt"), event.venue].filter(Boolean).join(" · ")}
       </p>
       {event.description ? <p className="whitespace-pre-line">{event.description}</p> : null}
       <ul className="grid gap-2">
@@ -71,7 +67,7 @@ export function EventSection({
           <li key={type.id} className="flex justify-between gap-4">
             <span>{type.name}</span>
             <span>
-              {formatPrice(type.price, currency)}
+              {formatPrice(type.price, type.currency)}
               {availabilityLabel(type.availability)
                 ? ` · ${availabilityLabel(type.availability)}`
                 : ""}

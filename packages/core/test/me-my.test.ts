@@ -96,20 +96,62 @@ describe("what this step opens", () => {
 });
 
 describe("me.get", () => {
+  const SIGN_IN = ["signInEmail", "signInEmailVerified"];
+  let a2: Customer;
+  beforeAll(async () => {
+    a2 = await createCustomer(admin, "A2");
+  });
+
   it("returns the caller's own Person, only the listed fields, in staff shape", async () => {
-    const me = await call("me.get", {}, outside(a.principal));
+    // A fixture principal has no account row of its own; this one is given one.
+    const mine = await account(a2);
+    const me = await call("me.get", {}, outside(a2.principal));
     expect(me.ok, JSON.stringify(me)).toBe(true);
     const value = (me as { value: Record<string, unknown> }).value;
-    expect(Object.keys(value).sort()).toEqual(["id", ...READ].sort());
+    expect(Object.keys(value).sort()).toEqual(["id", ...READ, ...SIGN_IN].sort());
     const staff = await invoke(
       "person.list",
-      { filter: { field: "id", op: "eq", value: a.principal.personId } },
+      { filter: { field: "id", op: "eq", value: a2.principal.personId } },
       context(admin),
     );
     const row = staff.items[0] as Record<string, unknown>;
-    expect(value).toEqual(Object.fromEntries(["id", ...READ].map((k) => [k, row[k]])));
-    expect(value.id).toBe(a.principal.personId);
+    expect(value).toMatchObject(Object.fromEntries(["id", ...READ].map((k) => [k, row[k]])));
+    expect(value.id).toBe(a2.principal.personId);
     expect(JSON.stringify(value)).not.toContain(b.principal.personId);
+    expect(value).toMatchObject({ signInEmail: mine.email, signInEmailVerified: true });
+  });
+
+  it("signInEmail is the account's verified address, which staff changing the contact email does not move", async () => {
+    const b2 = await createCustomer(admin, "B2");
+    const mine = await account(b2);
+    const other = `${b2.principal.customerId.toLowerCase()}@contact.example`;
+    await invoke(
+      "person.update",
+      { id: b2.principal.personId, emails: [{ email: other, primary: true }] },
+      context(admin),
+    );
+    const me = (await call("me.get", {}, outside(b2.principal))) as {
+      value: Record<string, unknown>;
+    };
+    expect(me.value.primaryEmail).toBe(other);
+    expect(me.value).toMatchObject({ signInEmail: mine.email, signInEmailVerified: true });
+    // An unverified account says so: the field reports the column, it does not assume.
+    await env.DB.prepare("UPDATE core_customer SET email_verified = 0 WHERE id = ?")
+      .bind(b2.principal.customerId)
+      .run();
+    const unverified = (await call("me.get", {}, outside(b2.principal))) as {
+      value: Record<string, unknown>;
+    };
+    expect(unverified.value.signInEmailVerified).toBe(false);
+  });
+
+  it("is the caller's own account only: a principal whose account is gone gets no address", async () => {
+    // A principal is built from a live account (ADR 0419); one with none answers not found
+    // rather than another account's address.
+    const ghost = await createCustomer(admin, "Ghost");
+    const me = await call("me.get", {}, outside(ghost.principal));
+    expect(me).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(JSON.stringify(me)).not.toContain("@");
   });
 });
 
@@ -272,6 +314,8 @@ describe("my.list and my.get", () => {
 
 interface Account {
   customer: Customer;
+  /** The account's sign-in address: not the Person's email. */
+  email: string;
   sessions: string[];
 }
 
@@ -279,17 +323,12 @@ interface Account {
 async function account(customer: Customer): Promise<Account> {
   const now = new Date().toISOString();
   const expires = new Date(Date.now() + 86_400_000).toISOString();
+  const email = `${customer.principal.customerId.toLowerCase()}@customers.example`;
   await env.DB.prepare(
     `INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at)
      VALUES (?, ?, ?, 1, ?, ?)`,
   )
-    .bind(
-      customer.principal.customerId,
-      customer.principal.personId,
-      `${customer.principal.customerId.toLowerCase()}@customers.example`,
-      now,
-      now,
-    )
+    .bind(customer.principal.customerId, customer.principal.personId, email, now, now)
     .run();
   const sessions: string[] = [];
   for (let n = 0; n < 2; n += 1) {
@@ -302,7 +341,7 @@ async function account(customer: Customer): Promise<Account> {
       .run();
     sessions.push(id);
   }
-  return { customer, sessions };
+  return { customer, email, sessions };
 }
 
 async function sessionIds(customerId: string): Promise<string[]> {

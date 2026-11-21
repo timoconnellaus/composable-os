@@ -22,6 +22,7 @@ import {
 import { CompiledQuery, type Kysely } from "kysely";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
+import { ORG_TIMEZONE_SETTING } from "../settings.ts";
 import {
   columnName,
   ident,
@@ -186,6 +187,7 @@ export function planFromState(
       ...(object.customer ? { customer: object.customer } : {}),
       ...(object.public ? { public: object.public } : {}),
       ...(object.signedIn ? { signedIn: object.signedIn } : {}),
+      ...(object.customerVia ? { customerVia: object.customerVia } : {}),
       ...(object.publishable ? { publishable: object.publishable } : {}),
       ...(object.navigationOrder !== undefined ? { navigationOrder: object.navigationOrder } : {}),
       ...(object.requireOneOf?.length ? { requireOneOf: object.requireOneOf } : {}),
@@ -450,6 +452,17 @@ export function planFromState(
         tableDdl.push(
           `ALTER TABLE ${table} ADD COLUMN ${columnDdl(column, spec.type)}${stateDefault(declaring, local)}`,
         );
+        // A time zone added to records that already exist is the deployment's zone, as a new
+        // record's is (ADR 0460): no record is left without one, so a required zone never makes
+        // an unrelated edit fail. The setting is read in the batch, so it is the zone then.
+        if (spec.type === "timezone" && !spec.default) {
+          dataStatements.push(
+            CompiledQuery.raw(
+              `UPDATE ${table} SET ${ident(column)} = COALESCE((SELECT json_extract(value, '$') FROM core_settings WHERE key = ?), 'UTC') WHERE ${ident(column)} IS NULL`,
+              [ORG_TIMEZONE_SETTING],
+            ),
+          );
+        }
       }
       next.fields.push({
         extensionId: ext,

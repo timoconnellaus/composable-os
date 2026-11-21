@@ -6,9 +6,11 @@ import { type DocumentSchema, redactDocument } from "@composable-os/sdk";
 import { sql } from "kysely";
 import { NotFoundError, OperationError } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
+import { getObject } from "../fields/index.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { compileFilter, type Filter } from "../filter.ts";
 import { type ListInput, runListQuery } from "../list.ts";
+import { loadOrderCurrency } from "../orders/settings.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type CapacityView, readCapacity } from "./capacity.ts";
 import { type AnyRow, type Reader, type Viewer, visibleObject, visibleSource } from "./index.ts";
@@ -18,6 +20,25 @@ export interface VisibleRecord {
   object: string;
   id: string;
   values: Record<string, unknown>;
+  /**
+   * On a record of a sellable object (ADR 0435): the deployment's currency, which every price
+   * of it is in (stage 25: one per deployment), or null until an admin sets one. Absent on any
+   * other object.
+   */
+  currency?: string | null;
+}
+
+/**
+ * The currency a sellable object's prices are in, for a read that returns them: so no client
+ * states a currency of its own beside the host's prices. Undefined for an object that is not
+ * sellable. One read of the setting.
+ */
+async function currencyOf(
+  ctx: Reader,
+  object: ObjectDefinition,
+): Promise<{ currency?: string | null }> {
+  if (!getObject(object.name)?.sellable) return {};
+  return { currency: await loadOrderCurrency(ctx.db) };
 }
 
 function fieldValue(field: FieldDefinition, row: AnyRow): unknown {
@@ -56,12 +77,13 @@ export async function listVisible(
   ctx: Reader,
   object: string | ObjectDefinition,
   input: Pick<ListInput, "filter" | "sort" | "cursor" | "limit">,
-): Promise<{ items: VisibleRecord[]; nextCursor: string | null }> {
+): Promise<{ items: VisibleRecord[]; nextCursor: string | null; currency?: string | null }> {
   const visible = visibleObject(ctx, object);
   const page = await runListQuery<AnyRow & { id: string }>(ctx, visible, input);
   return {
     items: page.rows.map((row) => toRecord(visible, row, ctx)),
     nextCursor: page.nextCursor,
+    ...(await currencyOf(ctx, visible)),
   };
 }
 
@@ -79,7 +101,7 @@ export async function getVisible(
     .where("id", "=", id)
     .executeTakeFirst();
   if (!row) throw new NotFoundError(visible.name, id);
-  return toRecord(visible, row as AnyRow, ctx);
+  return { ...toRecord(visible, row as AnyRow, ctx), ...(await currencyOf(ctx, visible)) };
 }
 
 /** The most rows one count reads (as record.count). */
@@ -114,7 +136,7 @@ export interface RecordAccess {
   list(
     object: string,
     input?: Partial<Pick<ListInput, "filter" | "sort" | "cursor" | "limit">>,
-  ): Promise<{ items: VisibleRecord[]; nextCursor: string | null }>;
+  ): Promise<{ items: VisibleRecord[]; nextCursor: string | null; currency?: string | null }>;
   get(object: string, id: string): Promise<VisibleRecord>;
   count(object: string, filter?: Filter): Promise<{ count: number; capped: boolean }>;
   /** A record's places: the real numbers for staff, what the object's `show` allows otherwise. */

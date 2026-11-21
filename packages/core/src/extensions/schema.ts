@@ -64,6 +64,8 @@ export interface ObjectDefinitionJson {
     read: string[];
     when?: { via?: string | undefined; field: string; in: string[] } | undefined;
   };
+  /** What a customer reads of a record their own record points to (ADR 0439), as declared. */
+  customerVia?: { from: string; field: string; read: string[] };
   /** Versions of the content fields (ADR 0446), as declared. */
   publishable?: { content: string[] };
   navigationOrder?: number;
@@ -713,6 +715,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
       ...(object.definition.public ? { public: object.definition.public } : {}),
       ...(object.definition.signedIn ? { signedIn: object.definition.signedIn } : {}),
+      ...(object.definition.customerVia ? { customerVia: object.definition.customerVia } : {}),
       ...(publishable ? { publishable: { content: [...publishable.content] } } : {}),
       ...(object.definition.navigationOrder !== undefined
         ? { navigationOrder: object.definition.navigationOrder }

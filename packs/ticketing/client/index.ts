@@ -74,23 +74,127 @@ export interface TicketingClient {
 
 // --- Plain functions ------------------------------------------------------------------------------
 
+/**
+ * How many decimal places `currency` has (2 for AUD, 0 for JPY), for display. The currency is
+ * always the host's, from the data (a ticket type's `currency`, an order's): never the app's.
+ */
+export function currencyDigits(currency: string | null | undefined): number {
+  if (!currency) return 2;
+  try {
+    return (
+      new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
+        .maximumFractionDigits ?? 2
+    );
+  } catch {
+    return 2;
+  }
+}
+
 /** An amount in the minor unit as the buyer reads it: `450.00 AUD`. Display only. */
-export function formatMoney(minor: number, currency: string): string {
-  return `${(minor / 100).toFixed(2)} ${currency}`;
+export function formatMoney(minor: number, currency: string | null): string {
+  const digits = currencyDigits(currency);
+  return `${(minor / 10 ** digits).toFixed(digits)}${currency ? ` ${currency}` : ""}`;
 }
 
 /** A ticket type's price (major unit, as the record holds it) as the buyer reads it. */
-export function formatPrice(price: number | null, currency: string): string {
-  return price === null ? "" : `${price.toFixed(2)} ${currency}`;
+export function formatPrice(price: number | null, currency: string | null): string {
+  return price === null
+    ? ""
+    : `${price.toFixed(currencyDigits(currency))}${currency ? ` ${currency}` : ""}`;
+}
+
+/** The viewer's own time zone, as their device reports it. */
+export function viewerTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
 /**
- * An amount a buyer typed (`120`, `120.50`) in the minor unit, or null when it is not one. The
- * host decides whether it may be charged (at least the set minimum, at most the balance).
+ * When an event starts (or ends, with `at: "endsAt"`), as a buyer or holder reads it: the day and
+ * time in the event's own zone (ADR 0460), never the device's, so a camp in Bangkok reads as
+ * Bangkok's time on a phone in Sydney. When the event's zone is not the viewer's, the zone is
+ * said (`… (Bangkok time)`). Display only.
  */
-export function minorFromInput(text: string): number | null {
+export function eventTime(
+  event: { startsAt: string | null; endsAt?: string | null; timeZone: string | null },
+  options: { at?: "startsAt" | "endsAt"; viewer?: string; locale?: string } = {},
+): string {
+  const iso = options.at === "endsAt" ? (event.endsAt ?? null) : event.startsAt;
+  if (!iso) return "";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  const viewer = options.viewer ?? viewerTimeZone();
+  const zone = event.timeZone ?? viewer;
+  let text: string;
+  try {
+    text = new Intl.DateTimeFormat(options.locale, {
+      timeZone: zone,
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(at);
+  } catch {
+    return at.toISOString();
+  }
+  if (zone === viewer || sameOffset(at, zone, viewer)) return text;
+  const city = zone.split("/").pop()?.replace(/_/g, " ") ?? zone;
+  return `${text} (${city} time)`;
+}
+
+/** Whether two zones show the same wall-clock time at `at` (then saying the zone adds nothing). */
+function sameOffset(at: Date, a: string, b: string): boolean {
+  try {
+    const wall = (timeZone: string) =>
+      new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hourCycle: "h23",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(at);
+    return wall(a) === wall(b);
+  } catch {
+    return false;
+  }
+}
+
+/** The day an event starts on in its own zone (`2027-03-01`), for grouping or a calendar. */
+export function eventDay(event: { startsAt: string | null; timeZone: string | null }): string {
+  if (!event.startsAt) return "";
+  const at = new Date(event.startsAt);
+  if (Number.isNaN(at.getTime())) return "";
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: event.timeZone ?? viewerTimeZone(),
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(at);
+    return parts;
+  } catch {
+    return event.startsAt.slice(0, 10);
+  }
+}
+
+/** The currency an event's prices are in, as the host gave it with its ticket types. */
+export function eventCurrency(event: EventOnSale): string | null {
+  return event.ticketTypes.find((type) => type.currency)?.currency ?? null;
+}
+
+/**
+ * An amount a buyer typed (`120`, `120.50`) in the minor unit of `currency`, or null when it is
+ * not one. The host decides whether it may be charged (at least the set minimum, at most the
+ * balance).
+ */
+export function minorFromInput(text: string, currency: string | null = null): number | null {
   const value = Number(text.trim().replace(",", "."));
-  return Number.isFinite(value) && value > 0 ? Math.round(value * 100) : null;
+  return Number.isFinite(value) && value > 0
+    ? Math.round(value * 10 ** currencyDigits(currency))
+    : null;
 }
 
 /** What the picker shows of a ticket type's places: "Sold out", "Only 3 left", or nothing. */
@@ -119,18 +223,20 @@ export function pickerLines(quantities: Quantities): { ticketTypeId: string; qua
 export function estimate(
   event: EventOnSale,
   quantities: Quantities,
-): { full: number; deposit: number | null } {
+): { full: number; deposit: number | null; currency: string | null } {
+  const currency = eventCurrency(event);
+  const scale = 10 ** currencyDigits(currency);
   let full = 0;
   let deposit = 0;
   let everyLineOffersDeposit = true;
   for (const type of event.ticketTypes) {
     const quantity = quantities[type.id] ?? 0;
     if (quantity <= 0) continue;
-    full += Math.round((type.price ?? 0) * 100) * quantity;
+    full += Math.round((type.price ?? 0) * scale) * quantity;
     if (type.deposit === null || type.balanceDue === null) everyLineOffersDeposit = false;
-    else deposit += Math.round(type.deposit * 100) * quantity;
+    else deposit += Math.round(type.deposit * scale) * quantity;
   }
-  return { full, deposit: full > 0 && everyLineOffersDeposit ? deposit : null };
+  return { full, deposit: full > 0 && everyLineOffersDeposit ? deposit : null, currency };
 }
 
 /** The most the picker offers of one type: its declared most per order, or 10 as the host does. */
@@ -232,7 +338,7 @@ export function createTicketingHooks(
         quantities,
         set,
         lines,
-        estimate: event ? estimate(event, quantities) : { full: 0, deposit: null },
+        estimate: event ? estimate(event, quantities) : { full: 0, deposit: null, currency: null },
         empty: lines.length === 0,
         max: (type: TicketTypeOnSale) => pickerMax(type),
         clear: () => setQuantities({}),

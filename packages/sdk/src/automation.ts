@@ -119,12 +119,16 @@ export type AutomationTrigger =
   | {
       /**
        * `offsetDays` days after (positive) or before (negative) a date field of each live record
-       * of `object`; 0 is the day itself. Evaluated once a day, in the automation timezone.
+       * of `object`; 0 is the day itself. Evaluated once a day, in the automation timezone; or,
+       * with `zoneField`, in each record's own time zone (ADR 0460): the day of the date and
+       * "today" are both that zone's, and the run starts in the first hour of that local day.
        */
       type: "dateRelative";
       object: string;
       field: string;
       offsetDays: number;
+      /** A `timezone` field of `object`: count days in the zone each record names. */
+      zoneField?: string;
     }
   | {
       /**
@@ -443,6 +447,7 @@ export const automationTriggerSchema = z.discriminatedUnion("type", [
       object: objectName,
       field: fieldName,
       offsetDays: z.number().int().min(-365).max(365),
+      zoneField: fieldName.optional(),
     })
     .strict(),
   z

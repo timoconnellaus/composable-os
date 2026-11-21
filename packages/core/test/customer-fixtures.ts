@@ -80,7 +80,7 @@ const PLAN_SCHEMA = {
 
 export const DECLARATIONS: Record<string, CustomerDeclaration> = {
   [ORDER]: { field: "buyer", read: ["title", "status", "total", "note"], write: ["note"] },
-  [TICKET]: { field: "holder", read: ["code", "seat", "comment"], write: ["comment"] },
+  [TICKET]: { field: "holder", read: ["code", "seat", "comment", "show"], write: ["comment"] },
   [REQUEST]: { field: "asker", read: ["text"], write: ["text"] },
 };
 
@@ -144,6 +144,8 @@ export async function installShop(): Promise<void> {
             comment: { type: "text", label: "Comment" },
             checkedInBy: { type: "text", label: "Checked in by" },
             holder: { type: "relation", label: "Holder", to: "person" },
+            // The show this ticket is for: its holder reads that show through it (ADR 0439).
+            show: { type: "relation", label: "Show", to: `${SHOP}.show` },
           },
         },
         request: {
@@ -183,8 +185,12 @@ export async function installShop(): Promise<void> {
               ],
             },
             backstage: { type: "text", label: "Backstage note" },
+            doors: { type: "text", label: "Doors open" },
           },
           public: { read: ["name", "status"], when: { field: "status", in: ["on_sale"] } },
+          // A ticket's holder reads its show's name, state and doors, whatever its state, and only
+          // the public's fields of a show on sale they hold no ticket for (ADR 0439).
+          customerVia: { from: `${SHOP}.ticket`, field: "show", read: ["name", "status", "doors"] },
         },
         tier: {
           label: "Tier",
@@ -370,12 +376,38 @@ export async function createCustomer(admin: ActingUser, label: string): Promise<
     { givenName: `Given-${tag}`, familyName: `Family-${tag}`, emails: [{ email }] },
     context(admin),
   );
+  // A show only this customer holds a ticket for, not on sale (ADR 0439): they read its name,
+  // state and doors through their ticket, never its backstage note; no one else reads any of it.
+  const held = await invoke(
+    "record.create",
+    {
+      object: SHOW,
+      values: {
+        name: `HeldShow-${tag}`,
+        status: "draft",
+        backstage: `HeldBackstage-${tag}`,
+        doors: `HeldDoors-${tag}`,
+      },
+    },
+    context(admin),
+  );
   const customer: Customer = {
     label,
     principal: { kind: "customer", customerId: `cus_${tag}`, personId: person.id },
-    records: { [ORDER]: [], [TICKET]: [], [REQUEST]: [] },
-    secrets: [`Given-${tag}`, `Family-${tag}`, email, person.id],
-    values: {},
+    records: { [ORDER]: [], [TICKET]: [], [REQUEST]: [], [SHOW]: [held.id] },
+    secrets: [
+      `Given-${tag}`,
+      `Family-${tag}`,
+      email,
+      person.id,
+      held.id,
+      `HeldShow-${tag}`,
+      `HeldBackstage-${tag}`,
+      `HeldDoors-${tag}`,
+    ],
+    values: {
+      [SHOW]: { name: `HeldShow-${tag}`, status: "draft", doors: `HeldDoors-${tag}` },
+    },
   };
   for (let n = 1; n <= 2; n += 1) {
     const order = {
@@ -393,6 +425,8 @@ export async function createCustomer(admin: ActingUser, label: string): Promise<
       comment: `Comment-${tag}-${n}`,
       checkedInBy: `CheckedIn-${tag}-${n}`,
       holder: person.id,
+      // The first ticket is for the show only this customer holds; the second for none.
+      ...(n === 1 ? { show: held.id } : {}),
     };
     const request = {
       text: `Request-${tag}-${n}`,
@@ -532,6 +566,8 @@ export async function createShows(admin: ActingUser): Promise<{
     name: `Show-${tag}`,
     status: "on_sale",
     backstage: `Backstage-${tag}`,
+    // Not the public's to read: only a holder of a ticket for it reads it (ADR 0439).
+    doors: `Doors-${tag}`,
   });
   const cost = secretNumber();
   const tier = await make(TIER, { name: `Tier-${tag}`, show, price: secretNumber(), cost });
@@ -552,6 +588,7 @@ export async function createShows(admin: ActingUser): Promise<{
       ids: [draftShow, draftTier],
       secrets: [
         `Backstage-${tag}`,
+        `Doors-${tag}`,
         String(cost),
         draftShow,
         draftTier,
@@ -795,7 +832,11 @@ const publicPeek = defineOperation({
   name: "fixture.publicPeek",
   description: "Fixture: a public operation that tries to list an object.",
   input: z.object({ object: objectName }),
-  output: z.object({ items: z.array(recordOut), nextCursor: z.string().nullable() }),
+  output: z.object({
+    items: z.array(recordOut),
+    nextCursor: z.string().nullable(),
+    currency: z.string().nullable().optional(),
+  }),
   permission: "records:read",
   risk: "read",
   audiences: ["public"],

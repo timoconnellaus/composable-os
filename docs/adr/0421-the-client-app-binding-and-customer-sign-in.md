@@ -110,3 +110,28 @@ the customer identity reads only its own cookie anyway.
 `CUSTOMER_AUTH_URL` and `CUSTOMER_AUTH_SECRET` are set by `cos deploy` for a product with a web
 app, per environment: the URL is that environment's web app origin, the secret is generated once
 and never changed by a later deploy ([ADR 0450](0450-client-environments.md)).
+
+## Amended 2026-11-21 (the first client: linking its own members)
+- **The address to link by is the sign-in address.** A company that keeps its own member records
+  links them to a customer by verified email (stage 27's decision for the first client). `me.get`
+  now returns the account's sign-in address as `signInEmail`, with `signInEmailVerified`: the
+  address the emailed code was sent to and verified on, read by the host for the verified
+  principal's own account (`ctx.signIn`, set by the pipeline only on a customer's call; no input
+  names an account). The Person's `primaryEmail` is a contact address staff can change and is not
+  to be trusted for linking. No other operation returns the sign-in address.
+- **A native app's customer, checked by the company's own server.** The app holds a device
+  session's bearer token (ADR 0419), not a cookie, so the binding cannot check it: the binding
+  stays cookies-only and keeps refusing every bearer token. The sanctioned path is that the
+  company's server calls `me.get` on the host's **public HTTPS surface**
+  (`POST /api/v1/op/me.get`) with `Authorization: Bearer <access token>`, and links by the
+  `signInEmail` it is answered with. The server is then a caller of the public surface holding a
+  customer's credential, exactly as the app is; it learns only that customer's own Person and
+  address, and nothing a staff credential would give. `docs/deploying.md` ("Who a customer is,
+  from the company's own server") says so.
+- **Test:** `apps/app/test/client-binding.test.ts`, "a company's own server checks a native app's
+  customer": a customer's session is exchanged for tokens on the host, `me.get` with the bearer
+  token on the public surface answers with their `signInEmail` and `signInEmailVerified: true`, a
+  forged token is 401, and the same token over the binding is refused
+  `binding_takes_cookies_only`. `packages/core/test/me-my.test.ts`: the address is the account's,
+  unchanged when staff change the Person's contact email, reports an unverified account as such,
+  and is not found for a principal with no account.
