@@ -1,5 +1,5 @@
 // What every import writes records with (ADR 0470, shared by `cos content import` and `cos
-// courses import`, ADR 0485): `record.import` in batches, each record named by its import key, a
+// courses import`, ADR 0495): `record.import` in batches, each record named by its import key, a
 // dry run first, a person's edit reported as a conflict, never overwritten.
 import type { ImportHost } from "./host.ts";
 

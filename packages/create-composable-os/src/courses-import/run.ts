@@ -1,4 +1,4 @@
-// `cos courses import <folder>` (stage 42, ADR 0485): loads a studio's courses, bundles, videos,
+// `cos courses import <folder>` (stage 42, ADR 0495): loads a studio's courses, bundles, videos,
 // students' access and progress from an old course platform's export into a host, as the person
 // running it, on the shared import door (import-door/, ADR 0470).
 //

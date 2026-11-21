@@ -1,4 +1,4 @@
-// The courses import itself (stage 42, ADR 0485): a plan (format.ts) written to a host through its
+// The courses import itself (stage 42, ADR 0495): a plan (format.ts) written to a host through its
 // HTTP surface as the person signed in for the run, on the shared import door (import-door/,
 // ADR 0470): `record.import` with import keys, a dry run first, a person's or a student's edit
 // reported as a conflict, never overwritten. No file system and no terminal here.

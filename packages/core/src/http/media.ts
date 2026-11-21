@@ -17,7 +17,7 @@
 //                                           (staff only; stage 42, ADR 0475)
 //   POST /api/v1/media/<id>/captions?language=&label=
 //                                           the same with a staff device token only, for an import
-//                                           a person signed in to (cos courses import, ADR 0485)
+//                                           a person signed in to (cos courses import, ADR 0495)
 //   *    /api/v1/media/fake-stream/*        the fake Stream's upload and playback addresses, only
 //                                           where the fake is configured (development and tests)
 //
@@ -70,7 +70,7 @@ export interface MediaRouteOptions {
 
 const ID = /^med_[A-Za-z0-9]{1,60}$/;
 const CAPTIONS = /^\/api\/media\/(med_[A-Za-z0-9]{1,60})\/captions$/;
-/** The same with a staff device token (stage 42's import, ADR 0485), beside the HTTP surface. */
+/** The same with a staff device token (stage 42's import, ADR 0495), beside the HTTP surface. */
 const TOKEN_CAPTIONS = /^\/api\/v1\/media\/(med_[A-Za-z0-9]{1,60})\/captions$/;
 const FAKE_STREAM_PREFIX = `${PUBLIC_MEDIA_ROUTE}/fake-stream/`;
 

@@ -1,4 +1,4 @@
-# ADR 0485: The courses import
+# ADR 0495: The courses import
 
 Status: accepted, 2026-11-22 (stage 42, build step 8: `cos courses import`, `feat/courses-import`).
 Builds on ADRs [0470](0470-the-import-door.md) (the import door),
@@ -99,8 +99,8 @@ the token twin of `/api/media/<id>/captions`, as `POST /api/v1/media` is of `/ap
 and calls `media.captionUpload`. It is on only where `tokenUploads` is. It sits under
 `/api/v1/*`, so a host behind Cloudflare Access needs no new path.
 
-**No new migration.** `core_media.sha256` already existed (0501). Block AG (migrations 0530 to 0539,
-ADRs 0485 to 0489) is claimed, and only ADR 0485 is used.
+**No new migration.** `core_media.sha256` already existed (0501). Block AH (migrations 0550 to 0559,
+ADRs 0495 to 0499) is claimed, and only ADR 0495 is used. (Block AG went to stage 32 first.)
 
 ## Proof
 - `apps/app/test/courses-import.test.ts`, 8 tests against the real host (handleApi, the media

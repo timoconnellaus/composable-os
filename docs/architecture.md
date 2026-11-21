@@ -1161,7 +1161,7 @@ while it holds what the import last wrote, a person's edit reported as a conflic
 publishes or schedules them with their own dates. The door's generic half (the session, the
 sign-in, `record.import` in batches, media by hash) is `src/import-door/`.
 
-`cos courses import <folder>` ([ADR 0485](adr/0485-the-courses-import.md),
+`cos courses import <folder>` ([ADR 0495](adr/0495-the-courses-import.md),
 `src/courses-import/`) is the same door for a course platform. It uploads videos to Stream
 (`media.videoUpload`, tus chunks resumed from Stream's offset) or has Stream copy them from a
 link (`media.videoFromUrl`), each kept with a SHA-256 so a re-run finds it. Captions go over

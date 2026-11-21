@@ -696,7 +696,7 @@ programs from the hosted platform and check, for each:
 8. Durations are known (minutes), and no lesson's video is over 6 hours (the upload's limit).
 
 ## Build step 8, `cos courses import`, as built (2026-11-22)
-ADR 0485, no migration (block AG). The format and the command are in
+ADR 0495, no migration (block AH). The format and the command are in
 [`docs/importing.md`](../importing.md#courses-cos-courses-import), and the steps for an agent are
 in `skills/import-courses/`. Here the build read the spec one way, or decided what it left open:
 

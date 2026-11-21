@@ -1,4 +1,4 @@
-// The courses import's folder (stage 42, ADR 0485): what `cos courses import <folder>` reads, as
+// The courses import's folder (stage 42, ADR 0495): what `cos courses import <folder>` reads, as
 // data, checked before anyone signs in. Pure: run.ts reads the disk and hands the files here; the
 // tests hand them in memory.
 //

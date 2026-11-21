@@ -1303,7 +1303,7 @@ async function content(argv: string[], deps: Deps): Promise<number> {
   }
 }
 
-/** `cos courses import <folder>` (stage 42, ADR 0485): the import door for a course platform. */
+/** `cos courses import <folder>` (stage 42, ADR 0495): the import door for a course platform. */
 async function courses(argv: string[], deps: Deps): Promise<number> {
   const usage =
     "Usage: cos courses import <folder> --host <url> [--email <you>] [--dry-run] [--publish] [--yes] [--wait <minutes>]";

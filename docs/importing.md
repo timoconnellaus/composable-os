@@ -4,7 +4,7 @@
 host, as the person who runs it. It is the platform's door for writing content from a script
 ([ADR 0470](adr/0470-the-import-door.md)): every write is an operation that person's session calls,
 checked and audited as theirs. `cos courses import` is the same door for a course platform's
-courses, videos and students' access ([below](#courses-cos-courses-import), ADR 0485).
+courses, videos and students' access ([below](#courses-cos-courses-import), ADR 0495).
 
 ```bash
 cos content import ./export --host https://admin.example.com              # by the browser
@@ -157,7 +157,7 @@ const head = postHead(answer, { siteName: "The Hall", url: Astro.url.href, origi
 
 `cos courses import` loads a studio's courses, bundles and their videos from a hosted course
 platform, with each student's access, completed courses and lesson-by-lesson progress
-([ADR 0485](adr/0485-the-courses-import.md), stage 42). It goes through the same door as the content
+([ADR 0495](adr/0495-the-courses-import.md), stage 42). It goes through the same door as the content
 import and runs on the same code (`packages/create-composable-os/src/import-door/`). The folder is
 checked whole before anyone signs in, and the sign-in lasts for the run only. `record.import`'s
 dry run checks every record on the host. Records are matched by import keys, conflicts are reported

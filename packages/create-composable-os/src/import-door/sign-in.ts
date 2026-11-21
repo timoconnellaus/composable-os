@@ -1,5 +1,5 @@
 // Who an import runs as (ADR 0470, shared by `cos content import` and `cos courses import`, ADR
-// 0485): a person, signed in for this run only. With --email the host emails a staff code (its own
+// 0495): a person, signed in for this run only. With --email the host emails a staff code (its own
 // sign-in); without it the system browser opens the host's staff sign-in (Cloudflare Access,
 // Google), which hands a one-time code back to a port on 127.0.0.1 this command listens on (ADR
 // 0455; the host lists `http://127.0.0.1/cos-sign-in` in NATIVE_REDIRECT_URIS). Either way the

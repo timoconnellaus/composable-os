@@ -86,7 +86,7 @@ async function captionsOf(ctx: HandlerContext, id: string) {
 }
 
 /**
- * A video's name in the library for a re-run (stage 42's import, ADR 0485): the SHA-256 the
+ * A video's name in the library for a re-run (stage 42's import, ADR 0495): the SHA-256 the
  * uploader worked out from the file's bytes, or of the address Stream copies from. The host keeps
  * it to find the same video again (`media.findByHash`); it never trusts it as the file's type or
  * size, which are Stream's to say.

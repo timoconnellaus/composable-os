@@ -1,4 +1,4 @@
-// `cos courses import` (stage 42, ADR 0485) against the real host: the CLI's own engine
+// `cos courses import` (stage 42, ADR 0495) against the real host: the CLI's own engine
 // (packages/create-composable-os/src/courses-import) over cos-app's real HTTP surface and media
 // routes, with a person's staff device session, as the command runs it, and the fake Stream as
 // the video host. Programs and Courses are reconciled into the host from their own manifests.
@@ -333,7 +333,7 @@ const courseId = async (key: string) =>
       .first<{ record_id: string }>()
   )?.record_id as string;
 
-describe("cos courses import against the real host (ADR 0485)", () => {
+describe("cos courses import against the real host (ADR 0495)", () => {
   it("a course whose videos Stream has not finished is not written yet; a re-run writes it", async () => {
     const plan = readCoursesFolder(
       folder((f) => {

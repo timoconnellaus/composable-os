@@ -1,4 +1,4 @@
-// `cos courses import`'s folder (stage 42, ADR 0485): what it reads and the problems it names
+// `cos courses import`'s folder (stage 42, ADR 0495): what it reads and the problems it names
 // before anyone signs in. The import against a real host is apps/app/test/courses-import.test.ts.
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

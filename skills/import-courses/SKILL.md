@@ -12,7 +12,7 @@ Describes extension contract version 1.
 A studio sells courses on a hosted platform and they should be on its host as Courses pack
 records, with each student keeping what they bought, the courses they finished and where they are
 in each. The import runs as a staff member who signs in for the run, as the content import does
-(ADR 0470, ADR 0485). Read the "Courses" section of `docs/importing.md` in full first: it defines
+(ADR 0470, ADR 0495). Read the "Courses" section of `docs/importing.md` in full first: it defines
 the format. This skill is the order to do it in.
 
 ## The steps
