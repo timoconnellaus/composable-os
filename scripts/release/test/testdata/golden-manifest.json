@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 402,
+  "coreSchemaVersion": 420,
   "extensionContract": {
     "supported": [
       1
@@ -404,6 +404,10 @@
     {
       "name": "0402_erase_requests.sql",
       "sha256": "d099b7700feedebb3f3ecb130f6543df93f365ed0ef5a16fcd2d06366497ce39"
+    },
+    {
+      "name": "0420_transition_history.sql",
+      "sha256": "aa9df11dd345c7c61b992fc9af5a5a4612f04025a703379be4d8d302f4f86c7e"
     }
   ],
   "product": "crm",

@@ -20,7 +20,9 @@ import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
-import { applyStageBehaviour, type StageCache, type StageOutcome } from "../records/stages.ts";
+import { applyTransition, callerMover } from "../records/lifecycle.ts";
+import type { StageCache } from "../records/stages.ts";
+import { type Mover, type TransitionOutcome, transitionTimeline } from "../records/transitions.ts";
 import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 import { setRecordWriter } from "../visibility/writes.ts";
 
@@ -133,7 +135,7 @@ async function prepareValues(
   object: ObjectDefinition,
   values: Record<string, unknown>,
   mode: "create" | "update",
-  options: { checkReferences?: boolean } = {},
+  options: { checkReferences?: boolean; by?: Mover } = {},
 ): Promise<PreparedValue[]> {
   const prepared: PreparedValue[] = [];
   for (const [name, value] of Object.entries(values)) {
@@ -158,7 +160,9 @@ async function prepareValues(
       field.fieldType !== "formula" &&
       field.extension !== undefined &&
       ctx.extension?.id === field.extension;
-    if (field.readOnly && !ownCode) {
+    // Platform code making a host move sets them too (a payment's reference and time).
+    const hostCode = field.fieldType !== "formula" && options.by === "host";
+    if (field.readOnly && !ownCode && !hostCode) {
       throw new ValidationError(
         field.fieldType === "formula"
           ? `${object.name}.${name} is computed and cannot be set`
@@ -204,7 +208,7 @@ async function prepareValues(
   return prepared;
 }
 
-/** Values the host sets (the stage behaviour): validated by type; read-only fields allowed. */
+/** Values the host sets (a lifecycle's): validated by type; read-only fields allowed. */
 function hostValues(object: ObjectDefinition, values: Record<string, unknown>): PreparedValue[] {
   return Object.entries(values).map(([name, value]) => {
     const field = object.fields.find((f) => f.name === name);
@@ -225,7 +229,7 @@ function hostValues(object: ObjectDefinition, values: Record<string, unknown>): 
 
 function withHostValues(
   prepared: PreparedValue[],
-  outcome: StageOutcome,
+  outcome: TransitionOutcome,
   object: ObjectDefinition,
 ) {
   const extra = hostValues(object, outcome.values);
@@ -369,15 +373,20 @@ export const recordCreate = defineOperation({
 });
 
 /**
- * Queues the writes that create one record of an extension object (validation, the stage
- * behaviour and its history, search, audit) and returns its id. record.create and the record CSV
- * import share it.
+ * Queues the writes that create one record of an extension object (validation, the object's
+ * lifecycle and its history, search, audit) and returns its id. record.create and the record CSV
+ * import share it. `by` is who creates it: the caller unless platform code says `host`.
  */
 export async function createRecord(
   ctx: HandlerContext,
   object: ObjectDefinition,
   values: Record<string, unknown>,
-  options: { cache?: StageCache; checkReferences?: boolean; assignmentTimeline?: boolean } = {},
+  options: {
+    cache?: StageCache;
+    checkReferences?: boolean;
+    assignmentTimeline?: boolean;
+    by?: Mover;
+  } = {},
 ): Promise<string> {
   const withDefaults = await applyDefaults(ctx, object, values);
   let prepared = await prepareValues(ctx, object, withDefaults, "create", options);
@@ -397,14 +406,10 @@ export async function createRecord(
   assertChoiceRequirements(object, prepared, valuesOf(prepared));
   const table = objectTableOf(object.name) as string;
   const id = newId("record");
-  const outcome = await applyStageBehaviour(
-    ctx,
-    object,
-    id,
-    null,
-    valuesOf(prepared),
-    options.cache,
-  );
+  const outcome = await applyTransition(ctx, object, id, null, valuesOf(prepared), {
+    by: options.by ?? callerMover(ctx),
+    cache: options.cache,
+  });
   prepared = withHostValues(prepared, outcome, object);
   const own = prepared.filter((p) => p.own);
   const columns = ["id", "created_at", "updated_at", "created_by", ...own.map((p) => p.column)];
@@ -521,8 +526,9 @@ async function titleOf(ctx: HandlerContext, to: string | undefined, id: unknown)
 }
 
 /**
- * The timeline post's subject, links and value labels for an update (ADR 0100): a stage move
- * reads "Moved to <stage>", and posts also go on the records named by the object's timelineLinks.
+ * The timeline post's subject, links and value labels for an update (ADR 0100, ADR 0425): a move
+ * reads "Moved to <stage or state>", and posts also go on the records named by the object's
+ * timelineLinks.
  */
 async function timelineFor(
   ctx: HandlerContext,
@@ -530,8 +536,9 @@ async function timelineFor(
   id: string,
   before: Record<string, unknown>,
   after: Record<string, unknown>,
-  outcome: StageOutcome,
+  outcome: TransitionOutcome,
 ) {
+  const move = transitionTimeline(outcome);
   const tracked = object.fields.filter(
     (f) =>
       f.track === "timeline" &&
@@ -546,18 +553,18 @@ async function timelineFor(
   }
   const labels: Record<string, { before: string | null; after: string | null }> = {};
   for (const field of tracked) {
-    if (field.fieldType !== "relation" || field.options?.many) continue;
-    if (outcome.moved && field.name === object.stages?.field) {
-      labels[field.name] = { before: outcome.left?.title ?? null, after: outcome.moved.title };
+    if (move && field.name === move.field) {
+      labels[field.name] = move.labels;
       continue;
     }
+    if (field.fieldType !== "relation" || field.options?.many) continue;
     labels[field.name] = {
       before: await titleOf(ctx, field.options?.to, before[field.name]),
       after: await titleOf(ctx, field.options?.to, after[field.name]),
     };
   }
   return {
-    ...(outcome.moved ? { subject: `Moved to ${outcome.moved.title}` } : {}),
+    ...(move ? { subject: move.subject } : {}),
     links,
     labels,
   };
@@ -583,20 +590,20 @@ export const recordGet = defineOperation({
 });
 
 /**
- * Queues the writes that change one record (validation, the stage behaviour, search, audit).
- * Returns false when `values` is empty. record.update and the visibility seam's write helper
- * share it.
+ * Queues the writes that update one record (validation, the object's lifecycle and its history,
+ * search, audit, the timeline post). Returns false when `values` is empty. record.update and the
+ * visibility seam's write helper are a caller's ways in; `updateRecordAsHost` is platform code's.
  */
 export async function updateRecord(
   ctx: HandlerContext,
   object: ObjectDefinition,
   id: string,
   values: Record<string, unknown>,
+  options: { by?: Mover } = {},
 ): Promise<boolean> {
-  const input = { object: object.name, id, values };
-  const before = await loadRecord(ctx, object, input.id);
-  if (!before) throw new NotFoundError(input.object, input.id);
-  let prepared = await prepareValues(ctx, object, input.values, "update");
+  const before = await loadRecord(ctx, object, id);
+  if (!before) throw new NotFoundError(object.name, id);
+  let prepared = await prepareValues(ctx, object, values, "update", options);
   if (!prepared.length) return false;
   assertChoiceRequirements(object, prepared, {
     ...before.values,
@@ -606,13 +613,9 @@ export async function updateRecord(
     ...before.values,
     ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
   });
-  const outcome = await applyStageBehaviour(
-    ctx,
-    object,
-    input.id,
-    before.values,
-    valuesOf(prepared),
-  );
+  const outcome = await applyTransition(ctx, object, id, before.values, valuesOf(prepared), {
+    by: options.by ?? callerMover(ctx),
+  });
   prepared = withHostValues(prepared, outcome, object);
   const own = prepared.filter((p) => p.own);
   if (own.length || !isCoreObject(object.name)) {
@@ -621,24 +624,24 @@ export async function updateRecord(
       ctx.write(
         CompiledQuery.raw(
           `UPDATE ${table} SET ${[...own.map((p) => `${p.column} = ?`), "updated_at = ?", "updated_by = ?"].join(", ")} WHERE id = ? AND deleted_at IS NULL`,
-          [...own.map((p) => p.stored), ctx.now, ctx.user.id, input.id],
+          [...own.map((p) => p.stored), ctx.now, ctx.user.id, id],
         ),
       );
     }
   }
-  ctx.write(...sideWrites(input.id, prepared), ...outcome.history);
+  ctx.write(...sideWrites(id, prepared), ...outcome.history);
   const after = {
     ...before.values,
     ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
   };
-  const timeline = await timelineFor(ctx, object, input.id, before.values, after, outcome);
+  const timeline = await timelineFor(ctx, object, id, before.values, after, outcome);
   if (object.titleField && prepared.some((p) => p.field.name === object.titleField)) {
     const title = after[object.titleField];
-    ctx.write(...searchDoc(object.name, input.id, title == null ? null : String(title)));
+    ctx.write(...searchDoc(object.name, id, title == null ? null : String(title)));
   }
   ctx.recordChange({
     object: object.name,
-    id: input.id,
+    id,
     action: "update",
     before: snapshot(before),
     after,
@@ -667,6 +670,25 @@ export const recordUpdate = defineOperation({
     return ctx.afterCommit(async () => (await loadRecord(ctx, object, input.id)) as RecordOutput);
   },
 });
+
+/**
+ * Platform code's way to write a record as the host (ADR 0425): the only way to make a move a
+ * `states` declaration marks `host` (a payment confirmed, an order expired), and to set the
+ * read-only fields that go with it. It queues the writes on the calling operation's batch.
+ *
+ * It is a function, not an operation: nothing a person, an MCP client, an extension or an import
+ * can send reaches it, because they can only call operations, and no operation passes its input
+ * here. Call it from a handler that has itself established the fact (a verified webhook).
+ */
+export async function updateRecordAsHost(
+  ctx: HandlerContext,
+  objectName: string,
+  id: string,
+  values: Record<string, unknown>,
+): Promise<void> {
+  const object = requireObject(objectName);
+  await updateRecord(ctx, object, id, values, { by: "host" });
+}
 
 export const recordDelete = defineOperation({
   name: "record.delete",
@@ -812,6 +834,8 @@ export const objectInfoSchema = z.object({
   navigation: z.enum(["main", "settings", "none"]),
   /** The stage behaviour, when it has one (ADR 0100). */
   stages: z.record(z.string(), z.unknown()).nullable(),
+  /** The state machine, when it has one (ADR 0425). */
+  states: z.record(z.string(), z.unknown()).nullable(),
   timelineLinks: z.array(z.string()),
   /** The owner field assignment rules set (ADR 0246), when the object has one. */
   ownerField: z.string().nullable(),
@@ -834,6 +858,7 @@ export function objectInfo(object: ObjectDefinition): ObjectInfo {
     view: object.source,
     navigation: object.navigation ?? "main",
     stages: object.stages ? { ...object.stages } : null,
+    states: object.states ? { ...object.states } : null,
     timelineLinks: [...(object.timelineLinks ?? [])],
     ownerField: object.ownerField ?? null,
     navigationOrder: object.navigationOrder ?? 100,

@@ -219,8 +219,10 @@ How stage 3a built it ([ADR 0040](adr/0040-extension-runtime-build.md)):
   an object's declarative `stages` key is enforced by the host inside `record.create`,
   `record.update` and `import.records.commit` (`packages/core/src/records/stages.ts`): stage rules
   (a `StageRuleError` naming the missing fields), default stage and pipeline, probability,
-  status and won/lost date, `core_stage_history` rows (read as `rec_stage_history`) and
-  "Moved to <stage>" timeline posts on the record and its `timelineLinks`. The reconciler also
+  status and won/lost date, `core_transition_history` rows (read as `rec_stage_history`) and
+  "Moved to <stage>" timeline posts on the record and its `timelineLinks`. Since stage 25 it runs
+  on the transition engine it shares with `states` (see Behaviours,
+  [ADR 0425](adr/0425-one-transition-engine-for-stages-and-states.md)). The reconciler also
   creates declared `indexes` (partial, live rows) and inserts `seed` records once.
 - **UI**: generic list and record pages at `/x/<ext>.<object>` (with CSV import and export),
   field widgets for every type, extension fields on core record pages, Settings → Extensions, set-up
@@ -922,8 +924,22 @@ Writes carry idempotency keys.
 Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).
 
 The rules products share, declared in a manifest and enforced by the host in the write's own batch.
-`stages` exists. `states`, `capacity`, `sellable`, `publishable`, `recurring` and `allowance` are
+`stages` and `states` exist. `capacity`, `sellable`, `publishable`, `recurring` and `allowance` are
 added as stages need them. Behaviours stack: an event is publishable, sellable and has a capacity.
+
+`stages` and `states` are two declarations on one **transition engine**
+([ADR 0425](adr/0425-one-transition-engine-for-stages-and-states.md),
+`packages/core/src/records/transitions.ts`). For a write to a record with a lifecycle the engine
+decides whether the move is allowed, which fields it requires and who may make it, and puts the
+history row in the write's batch. `stages` is data: pipelines and stages are records an admin
+edits, with every rule of ADR 0100. `states` is declared in code: a select field, an initial
+state, and moves that each say who may make them (`staff`, `customer`, `host`), the fields they
+require and whether they are final. A `host` move is made only by platform code calling the
+engine from its own handler (`updateRecordAsHost`); every caller of an operation is staff, so no
+person, MCP client, extension or import can make one. A stage move is for staff and the host;
+a customer never makes one. Both forms write `core_transition_history`
+(migration 0420), read as `rec_stage_history` and `rec_state_history`. An object has one
+lifecycle. Orders, the first core object with a state machine, are the second half of stage 25.
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be
