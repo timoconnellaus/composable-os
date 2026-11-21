@@ -64,6 +64,7 @@ export function sellableProblems(sellable: Sellable, object: ObjectDefinition): 
     numeric(sellable.deposit.amount, "deposit.amount");
     date(sellable.deposit.balanceDue, "deposit.balanceDue");
   }
+  if (sellable.recurring?.trialDays) numeric(sellable.recurring.trialDays, "recurring.trialDays");
   if (!object.titleField) problems.push("a sellable object needs a title field");
   return problems;
 }

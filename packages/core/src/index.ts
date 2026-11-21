@@ -180,6 +180,7 @@ export * from "./operations/routine.ts";
 export * from "./operations/search.ts";
 export { COMMON_CURRENCIES, MAX_LOGO_LENGTH } from "./operations/settings.ts";
 export * from "./operations/setup.ts";
+export * from "./operations/subscription.ts";
 export * from "./operations/suggestions.ts";
 export * from "./operations/summary.ts";
 export * from "./operations/support.ts";
@@ -268,6 +269,7 @@ export {
   loadApprovalPolicy,
   loadGeneralSettings,
 } from "./settings.ts";
+export * from "./subscriptions/index.ts";
 export * from "./support.ts";
 export * from "./sync/ingest.ts";
 export * from "./sync/signals.ts";

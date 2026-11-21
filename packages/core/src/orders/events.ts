@@ -25,6 +25,7 @@ import { resolveChannelTarget } from "../notifications/channels.ts";
 import { loadDeliverySettings } from "../notifications/preferences.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
+import { applySubscriptionEvent } from "../subscriptions/events.ts";
 import { SYSTEM_USER } from "../users.ts";
 import { type PaymentsEvent, sendHostEmail } from "./gateway.ts";
 import { hashOrderToken, newOrderToken } from "./guests.ts";
@@ -47,6 +48,66 @@ const taxReport = z.object({
     .regex(/^[A-Z]{2}$/)
     .nullable(),
   lines: z.array(z.object({ ref: id, amount: minor })).max(100),
+});
+
+const moment = z.iso.datetime({ offset: true }).transform((t) => new Date(t).toISOString());
+const reason = z
+  .string()
+  .regex(/^[a-z_]{1,60}$/)
+  .nullable();
+/** A subscription read (stage 32a, ADR 0485), as the gatekeeper delivers it. */
+const subscriptionRead = z.object({
+  provider,
+  ref: id,
+  customerRef: id.nullable(),
+  subscriptionId: id.nullable(),
+  status: z.enum([
+    "incomplete",
+    "incomplete_expired",
+    "trialing",
+    "active",
+    "past_due",
+    "unpaid",
+    "paused",
+    "canceled",
+  ]),
+  amount: minor,
+  currency,
+  interval: z.enum(["week", "month", "year"]).nullable(),
+  cancelAtPeriodEnd: z.boolean(),
+  trialEnd: moment.nullable(),
+  currentPeriodStart: moment.nullable(),
+  currentPeriodEnd: moment.nullable(),
+  canceledAt: moment.nullable(),
+  endedAt: moment.nullable(),
+  endReason: reason,
+  observedAt: moment,
+});
+const invoiceRead = z.object({
+  ref: id,
+  status: z.string().regex(/^[a-z_]{1,60}$/),
+  amountPaid: minor,
+  amountDue: minor,
+  currency,
+  paymentRef: id.nullable(),
+  periodStart: moment.nullable(),
+  periodEnd: moment.nullable(),
+  billingReason: reason,
+  attemptCount: minor,
+  nextAttemptAt: moment.nullable(),
+  hostedUrl: z
+    .url({ protocol: /^https$/ })
+    .max(2000)
+    .nullable(),
+  tax: z
+    .object({
+      amount: minor,
+      country: z
+        .string()
+        .regex(/^[A-Z]{2}$/)
+        .nullable(),
+    })
+    .optional(),
 });
 
 /** The event as the gatekeeper's hook delivers it, checked before it is stored. */
@@ -75,6 +136,28 @@ export const paymentsEventSchema: z.ZodType<PaymentsEvent> = z.discriminatedUnio
     currency,
     occurredAt: z.string().max(40),
     tax: z.object({ amount: minor }).optional(),
+    creditNote: z.boolean().optional(),
+  }),
+  z.object({
+    kind: z.literal("subscription"),
+    provider,
+    eventId: id,
+    trigger: z.enum([
+      "checkout_completed",
+      "created",
+      "updated",
+      "deleted",
+      "paused",
+      "resumed",
+      "trial_will_end",
+      "invoice_paid",
+      "invoice_payment_failed",
+      "invoice_action_required",
+      "invoice_finalization_failed",
+    ]),
+    subscription: subscriptionRead,
+    invoice: invoiceRead.optional(),
+    occurredAt: z.string().max(40),
   }),
 ]) as z.ZodType<PaymentsEvent>;
 
@@ -168,9 +251,81 @@ export async function applyPaymentEvent(
         .where("event_id", "=", key.eventId)
         .where("applied_at", "is", null),
     );
+  if (event.kind === "subscription") return applySubscriptionEvent(ctx, event, done);
+  if (event.kind === "refund" && event.creditNote) return reportCreditNoteTax(ctx, event, done);
   return event.kind === "payment"
     ? applyPayment(ctx, event, done)
     : confirmRefund(ctx, event, done);
+}
+
+/**
+ * A credit note's report of the tax a period's refund gave back (ADR 0486). It confirms nothing:
+ * the refund's own event does. Arriving after the confirmation, it fills in the refund's tax and
+ * the order's; arriving before, it waits on the refund asked for, and the confirmation uses it.
+ * A figure that does not fit the payment's tax is not stored, as for any refund (ADR 0479).
+ */
+async function reportCreditNoteTax(
+  ctx: HandlerContext,
+  event: Extract<PaymentsEvent, { kind: "refund" }>,
+  done: (outcome: string) => void,
+): Promise<AppliedPaymentEvent> {
+  const said = event.tax?.amount;
+  const none = (outcome: string, orderId: string | null = null) => {
+    done(outcome);
+    return { outcome, orderId, state: null, confirmation: null };
+  };
+  if (said === undefined) return none("credit_note_without_tax");
+  const confirmed = await ctx.db
+    .selectFrom("core_order_refund")
+    .selectAll()
+    .where("provider", "=", event.provider)
+    .where("provider_refund_ref", "=", event.refundRef)
+    .executeTakeFirst();
+  if (confirmed) {
+    if (confirmed.tax_amount !== null) return none("duplicate", confirmed.order_id);
+    const row = await loadOrderRow(ctx.db, confirmed.order_id);
+    const tax = await refundTaxOf(ctx, row.id, {
+      ...event,
+      amount: confirmed.amount,
+      paymentRef: confirmed.payment_ref,
+    });
+    if (tax === null) return none("credit_note_tax_mismatch", row.id);
+    ctx.write(
+      ctx.db
+        .updateTable("core_order_refund")
+        .set({ tax_amount: tax })
+        .where("id", "=", confirmed.id),
+    );
+    const next = await changeOrder(
+      ctx,
+      row,
+      row.state,
+      { tax_refunded: row.tax_refunded + tax },
+      // The host's change: the provider said what tax went back.
+      "host",
+    );
+    done("credit_note_tax");
+    return { outcome: "credit_note_tax", orderId: row.id, state: next.state, confirmation: null };
+  }
+  const requested = event.refundId
+    ? await ctx.db
+        .selectFrom("core_order_refund")
+        .select(["id", "order_id", "amount"])
+        .where("id", "=", event.refundId)
+        .where("provider", "=", event.provider)
+        .where("status", "=", "requested")
+        .executeTakeFirst()
+    : undefined;
+  if (requested && said <= requested.amount) {
+    ctx.write(
+      ctx.db
+        .updateTable("core_order_refund")
+        .set({ reported_tax: said })
+        .where("id", "=", requested.id),
+    );
+    return none("credit_note_waiting", requested.order_id);
+  }
+  return none("credit_note_unmatched");
 }
 
 async function applyPayment(
@@ -293,7 +448,13 @@ async function confirmRefund(
     );
     return { outcome: "mismatch", orderId: row.id, state: row.state, confirmation: null };
   }
-  const refundTax = await refundTaxOf(ctx, row.id, event);
+  // A credit note's tax that arrived first (ADR 0486) stands for the provider's word on this one.
+  const reported = requested?.reported_tax ?? null;
+  const refundTax = await refundTaxOf(
+    ctx,
+    row.id,
+    event.tax === undefined && reported !== null ? { ...event, tax: { amount: reported } } : event,
+  );
   const confirmed = {
     status: "confirmed" as const,
     amount: event.amount,
@@ -438,6 +599,7 @@ export interface PaymentEventDeps {
 
 /** How many times an event is applied again after the order changed under it. */
 export const PAYMENT_EVENT_RETRIES = 5;
+const RETRIED_REASONS = new Set(["order_stale", "subscription_stale", "moved_meanwhile"]);
 
 /**
  * Applies one stored event through `order.applyPaymentEvent`, again on `order_stale`, then sends
@@ -467,9 +629,17 @@ export async function applyStoredPaymentEvent(
       }
       return result;
     } catch (error) {
+      // Another event for the same order or subscription committed first (two deliveries at
+      // once): read it again. A subscription made by both, or one invoice's order by both, is the
+      // same: the second application sees the first's row.
+      const details = (error instanceof ConflictError ? error.details : undefined) as
+        | { reason?: unknown; constraint?: unknown }
+        | undefined;
       const stale =
         error instanceof ConflictError &&
-        (error.details as { reason?: unknown } | undefined)?.reason === "order_stale";
+        (RETRIED_REASONS.has(String(details?.reason)) ||
+          (typeof details?.constraint === "string" &&
+            /^core_(subscription|order)\./.test(details.constraint)));
       if (stale && attempt < PAYMENT_EVENT_RETRIES) {
         attempt += 1;
         continue;

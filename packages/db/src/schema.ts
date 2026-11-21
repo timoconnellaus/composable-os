@@ -1453,6 +1453,11 @@ export interface CoreOrderTable {
   tax_refunded: Generated<number>;
   /** Migration 0516: the country the latest taxed payment was charged for. */
   tax_country: Defaulted<string | null>;
+  /** Migration 0530: a subscription period's order (ADR 0486): its subscription, period, invoice. */
+  subscription_id: Defaulted<string | null>;
+  period_start: Defaulted<Timestamp | null>;
+  period_end: Defaulted<Timestamp | null>;
+  invoice_ref: Defaulted<string | null>;
 }
 
 export interface CoreOrderLineTable {
@@ -1501,6 +1506,8 @@ export interface CoreOrderPaymentTable {
   /** Migration 0516: the provider's tax on this payment, and its country. Null: not taxed. */
   tax_amount: Defaulted<number | null>;
   tax_country: Defaulted<string | null>;
+  /** Migration 0530: the subscription invoice this payment paid. */
+  invoice_ref: Defaulted<string | null>;
 }
 
 /** Migration 0422: a checkout the host opened on the provider's page for an order. */
@@ -1520,7 +1527,7 @@ export interface CoreOrderCheckoutTable {
 export interface CorePaymentEventTable {
   provider: string;
   event_id: string;
-  kind: "payment" | "refund";
+  kind: "payment" | "refund" | "subscription";
   connection_id: Defaulted<string | null>;
   /** The event as JSON: ids, amounts and the currency. */
   payload: string;
@@ -1549,6 +1556,75 @@ export interface CoreOrderRefundTable {
   created_at: Timestamp;
   /** Migration 0516: the tax this refund gave back, when the provider said. */
   tax_amount: Defaulted<number | null>;
+  /** Migration 0530: a credit note's tax that arrived before the refund's confirmation. */
+  reported_tax: Defaulted<number | null>;
+}
+
+/** Migration 0530 (ADR 0485): a subscription's state, mirrored from the provider's. */
+export type SubscriptionState =
+  | "incomplete"
+  | "expired"
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "unpaid"
+  | "paused"
+  | "ended";
+export type SubscriptionInterval = "week" | "month" | "year";
+
+/** Migration 0530: a subscription checkout the host opened. */
+export interface CoreSubscriptionCheckoutTable {
+  id: string;
+  provider: string;
+  ref: string;
+  payer_person_id: string | null;
+  holder_person_id: string | null;
+  email: string | null;
+  placed_as: "customer" | "public" | "staff";
+  plan_object: string;
+  plan_id: string;
+  plan_title: string;
+  amount: number;
+  currency: string;
+  interval: SubscriptionInterval;
+  trial_days: Defaulted<number | null>;
+  trial_end: Defaulted<Timestamp | null>;
+  tax_code: Defaulted<string | null>;
+  subscription_ref: Defaulted<string | null>;
+  created_at: Timestamp;
+}
+
+/** Migration 0530: a subscription the provider runs and the host mirrors. */
+export interface CoreSubscriptionTable {
+  id: string;
+  payer_person_id: string | null;
+  holder_person_id: string | null;
+  email: string | null;
+  placed_as: "customer" | "public" | "staff";
+  plan_object: string;
+  plan_id: string;
+  plan_title: string;
+  amount: number;
+  currency: string;
+  interval: SubscriptionInterval;
+  tax_code: Defaulted<string | null>;
+  state: Generated<SubscriptionState>;
+  provider: string;
+  provider_ref: string;
+  customer_ref: Defaulted<string | null>;
+  trial_end: Defaulted<Timestamp | null>;
+  current_period_start: Defaulted<Timestamp | null>;
+  current_period_end: Defaulted<Timestamp | null>;
+  cancel_at_period_end: Generated<number>;
+  canceled_at: Defaulted<Timestamp | null>;
+  ended_at: Defaulted<Timestamp | null>;
+  end_reason: Defaulted<string | null>;
+  action_url: Defaulted<string | null>;
+  failing_since: Defaulted<Timestamp | null>;
+  observed_at: Timestamp;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  version: Generated<number>;
 }
 
 export interface CrmOrderView {
@@ -2123,6 +2199,8 @@ export interface CoreDatabase {
   core_order_payment: CoreOrderPaymentTable;
   core_order_checkout: CoreOrderCheckoutTable;
   core_payment_event: CorePaymentEventTable;
+  core_subscription: CoreSubscriptionTable;
+  core_subscription_checkout: CoreSubscriptionCheckoutTable;
   core_order_refund: CoreOrderRefundTable;
   core_automations: CoreAutomationsTable;
   core_routine: CoreRoutineTable;

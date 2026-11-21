@@ -136,6 +136,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "records/links.ts": [10, WHY.part],
   "records/tags.ts": [1, WHY.part],
   "retention.ts": [1, WHY.org],
+  // The host's read of a period's order by its invoice (stage 32a, ADR 0486).
+  "subscriptions/periods.ts": [1, WHY.host],
   "sync/ingest.ts": [8, WHY.org],
 };
 

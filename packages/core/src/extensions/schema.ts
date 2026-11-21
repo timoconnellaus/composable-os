@@ -721,6 +721,14 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
           },
         }
       : {}),
+    ...(declared.recurring
+      ? {
+          recurring: {
+            interval: declared.recurring.interval,
+            trialDays: opt(declared.recurring.trialDays),
+          },
+        }
+      : {}),
   };
 }
 

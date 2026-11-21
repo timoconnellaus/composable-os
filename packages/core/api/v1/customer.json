@@ -1779,6 +1779,550 @@
       "invalidates": []
     },
     {
+      "name": "subscription.cancel",
+      "description": "End a subscription when its current paid period (or trial) ends: nothing more is charged, and what it gives lasts until then. A signed-in customer cancels their own; staff any. Nothing is refunded (a period's refund is order.refund). It can be undone until the period ends (subscription.resume). Asked of the payment provider: the subscription shows it once the provider confirms. A person decides, not an AI assistant.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Subscription id (sbs_…)"
+          },
+          "reason": {
+            "default": "Cancelled by the payer",
+            "description": "Why",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "requested": {
+            "type": "boolean",
+            "const": true,
+            "description": "Asked of the provider; the subscription shows it once the provider confirms"
+          }
+        },
+        "required": ["id", "requested"],
+        "additionalProperties": false
+      },
+      "invalidates": ["subscription.get", "subscription.list", "subscription.portal"]
+    },
+    {
+      "name": "subscription.get",
+      "description": "Get one subscription: its plan, price per period, state (trial, active, past due, ended…), the current period and whether it ends when that period does. A signed-in customer gets the subscriptions they pay for only; anyone else's is not found. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Subscription id (sbs_…)"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "incomplete",
+              "expired",
+              "trialing",
+              "active",
+              "past_due",
+              "unpaid",
+              "paused",
+              "ended"
+            ]
+          },
+          "planObject": {
+            "type": "string"
+          },
+          "planId": {
+            "type": "string"
+          },
+          "planTitle": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "description": "The price of one period, in the currency's minor unit, tax included"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string",
+            "enum": ["week", "month", "year"]
+          },
+          "taxed": {
+            "type": "boolean"
+          },
+          "trialEnd": {
+            "type": ["string", "null"]
+          },
+          "currentPeriodStart": {
+            "type": ["string", "null"]
+          },
+          "currentPeriodEnd": {
+            "description": "When the current paid period (or trial) ends: the next charge",
+            "type": ["string", "null"]
+          },
+          "cancelAtPeriodEnd": {
+            "type": "boolean",
+            "description": "Set to end when the current period ends"
+          },
+          "canceledAt": {
+            "type": ["string", "null"]
+          },
+          "endedAt": {
+            "type": ["string", "null"]
+          },
+          "actionUrl": {
+            "description": "The provider's page to confirm a renewal on, while one waits",
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "holderPersonId": {
+            "type": ["string", "null"]
+          },
+          "payerPersonId": {
+            "type": ["string", "null"]
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "endReason": {
+            "type": ["string", "null"]
+          },
+          "failingSince": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "planObject",
+          "planId",
+          "planTitle",
+          "amount",
+          "currency",
+          "interval",
+          "taxed",
+          "trialEnd",
+          "currentPeriodStart",
+          "currentPeriodEnd",
+          "cancelAtPeriodEnd",
+          "canceledAt",
+          "endedAt",
+          "actionUrl",
+          "createdAt",
+          "holderPersonId"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "subscription.list",
+      "description": "A page of subscriptions, newest first unless sorted otherwise. Filter on state, planObject, planId, payerPersonId, holderPersonId, cancelAtPeriodEnd, currentPeriodEnd, failingSince. A signed-in customer sees the ones they pay for only. Pass nextCursor back as cursor for the next page. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "direction": {
+                "default": "asc",
+                "type": "string",
+                "enum": ["asc", "desc"]
+              }
+            },
+            "required": ["field"]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "neq",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "between",
+                      "in",
+                      "not_in",
+                      "contains",
+                      "not_contains",
+                      "starts_with",
+                      "ends_with",
+                      "is_null",
+                      "is_not_null"
+                    ]
+                  },
+                  "value": {}
+                },
+                "required": ["field", "op"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "and": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["and"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "or": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["or"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "incomplete",
+                    "expired",
+                    "trialing",
+                    "active",
+                    "past_due",
+                    "unpaid",
+                    "paused",
+                    "ended"
+                  ]
+                },
+                "planObject": {
+                  "type": "string"
+                },
+                "planId": {
+                  "type": "string"
+                },
+                "planTitle": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "The price of one period, in the currency's minor unit, tax included"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "string",
+                  "enum": ["week", "month", "year"]
+                },
+                "taxed": {
+                  "type": "boolean"
+                },
+                "trialEnd": {
+                  "type": ["string", "null"]
+                },
+                "currentPeriodStart": {
+                  "type": ["string", "null"]
+                },
+                "currentPeriodEnd": {
+                  "description": "When the current paid period (or trial) ends: the next charge",
+                  "type": ["string", "null"]
+                },
+                "cancelAtPeriodEnd": {
+                  "type": "boolean",
+                  "description": "Set to end when the current period ends"
+                },
+                "canceledAt": {
+                  "type": ["string", "null"]
+                },
+                "endedAt": {
+                  "type": ["string", "null"]
+                },
+                "actionUrl": {
+                  "description": "The provider's page to confirm a renewal on, while one waits",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "holderPersonId": {
+                  "type": ["string", "null"]
+                },
+                "payerPersonId": {
+                  "type": ["string", "null"]
+                },
+                "email": {
+                  "type": ["string", "null"]
+                },
+                "endReason": {
+                  "type": ["string", "null"]
+                },
+                "failingSince": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": [
+                "id",
+                "state",
+                "planObject",
+                "planId",
+                "planTitle",
+                "amount",
+                "currency",
+                "interval",
+                "taxed",
+                "trialEnd",
+                "currentPeriodStart",
+                "currentPeriodEnd",
+                "cancelAtPeriodEnd",
+                "canceledAt",
+                "endedAt",
+                "actionUrl",
+                "createdAt",
+                "holderPersonId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "subscription.portal",
+      "description": "Open the payment provider's customer portal for the signed-in customer: the card they pay with, their billing details and past invoices. Cancelling and plan changes are not there (subscription.cancel). The address is short-lived and opens in its own page, never a frame.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "returnUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Where the portal's back link goes"
+          }
+        },
+        "required": ["returnUrl"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": ["url"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "subscription.resume",
+      "description": "Keep a subscription going that was set to end when its period does, before that happens: the provider charges the next period as usual. A signed-in customer resumes their own; staff any. Asked of the payment provider: the subscription shows it once the provider confirms. A person decides, not an AI assistant.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Subscription id (sbs_…)"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "requested": {
+            "type": "boolean",
+            "const": true,
+            "description": "Asked of the provider; the subscription shows it once the provider confirms"
+          }
+        },
+        "required": ["id", "requested"],
+        "additionalProperties": false
+      },
+      "invalidates": ["subscription.get", "subscription.list", "subscription.portal"]
+    },
+    {
+      "name": "subscription.start",
+      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "description": "The plan's object"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The plan"
+              }
+            },
+            "required": ["object", "id"]
+          },
+          "returnUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Where the payer comes back to"
+          },
+          "email": {
+            "description": "The payer's email. Required unless the caller is a signed-in customer.",
+            "type": "string",
+            "maxLength": 320
+          }
+        },
+        "required": ["plan", "returnUrl"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "subscriptionId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "The provider's page"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string",
+            "enum": ["week", "month", "year"]
+          },
+          "trialDays": {
+            "type": ["number", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "subscriptionId",
+          "url",
+          "amount",
+          "currency",
+          "interval",
+          "trialDays",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": ["subscription.get", "subscription.list", "subscription.portal"]
+    },
+    {
       "name": "x.content.categories",
       "description": "Every category of posts, by name: its id, name and address (slug), for a site's menu or a post's label. Read-only. (Extension tool from Content 0.2.0.)",
       "risk": "read",

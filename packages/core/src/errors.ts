@@ -162,6 +162,12 @@ export function toOperationError(error: unknown): OperationError {
       reason: "order_stale",
     });
   }
+  // A subscription written from an older read of it (migration 0530): as for an order.
+  if (message.includes("core_subscription_stale")) {
+    return new ConflictError("The subscription changed while this was being applied. Try again.", {
+      reason: "subscription_stale",
+    });
+  }
   // A move judged from a position the record has since left (ADR 0437): another write moved it
   // first, and this one's history row would be a second current one. Nothing was applied.
   if (

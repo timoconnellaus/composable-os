@@ -21,6 +21,15 @@ export interface Gateway {
   refunds: Map<number, { orderId: string; paymentRef: string; amount: number; refundId: string }>;
   applied: number[];
   action: number;
+  /** Subscription checkouts the host opened (stage 32a), with the ref the double gave each. */
+  subscriptions: ({
+    ref: string;
+    subscriptionId: string;
+    amount: number;
+    currency: string;
+  } & Record<string, unknown>)[];
+  /** Cancel, resume and portal calls the host made. */
+  changes: { method: string; request: Record<string, unknown> }[];
 }
 
 export interface PaymentsDouble {
@@ -63,7 +72,15 @@ async function applyAndReturn(
 /** A fresh double. `events` gives the event sink of the test running now; `crm` the database the
  * host applies events with (a test may count what it writes). */
 export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db): PaymentsDouble {
-  const gw: Gateway = { checkouts: [], emails: [], refunds: new Map(), applied: [], action: 0 };
+  const gw: Gateway = {
+    checkouts: [],
+    emails: [],
+    refunds: new Map(),
+    applied: [],
+    action: 0,
+    subscriptions: [],
+    changes: [],
+  };
   let connectionId = "";
   const no = () => Promise.reject(new Error("not used in this test"));
   const runtime: IntegrationRuntime = {
@@ -87,6 +104,35 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
         gw.checkouts.push({ ref, ...request });
         return {
           value: { provider: "fake", ref, url: `https://pay.example/${ref}`, expiresAt: null },
+          pending: [],
+          applied: [],
+        };
+      }
+      // Stage 32a (ADR 0485): the host's own subscription calls.
+      if (input.method === "createSubscriptionCheckout") {
+        const request = input.args[0] as Gateway["subscriptions"][number];
+        const ref = `fcs_${unique("s")}`;
+        gw.subscriptions.push({ ...request, ref });
+        return {
+          value: { provider: "fake", ref, url: `https://pay.example/${ref}`, expiresAt: null },
+          pending: [],
+          applied: [],
+        };
+      }
+      if (
+        input.method === "cancelSubscription" ||
+        input.method === "resumeSubscription" ||
+        input.method === "openPortal"
+      ) {
+        gw.changes.push({
+          method: input.method,
+          request: input.args[0] as Record<string, unknown>,
+        });
+        return {
+          value:
+            input.method === "openPortal"
+              ? { url: "https://billing.example/portal" }
+              : { status: "sent", id: gw.changes.length },
           pending: [],
           applied: [],
         };

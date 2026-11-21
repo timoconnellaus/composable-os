@@ -9,6 +9,7 @@
 // Both objects declare a customer: a signed-in customer reads their own orders and those orders'
 // lines through the visibility seam, and nobody else's. Nothing is writable by a customer.
 import { mediaObject } from "./media.ts";
+import { subscriptionObject } from "./subscription.ts";
 import { defineObject, type ObjectDefinition, type StatesDefinition } from "./types.ts";
 
 export const ORDER_STATES = [
@@ -77,6 +78,9 @@ export const orderObject = defineObject({
       "taxAmount",
       "taxRefunded",
       "taxCountry",
+      "subscriptionId",
+      "periodStart",
+      "periodEnd",
     ],
     write: [],
   },
@@ -161,6 +165,10 @@ export const orderObject = defineObject({
       sortable: false,
     },
     { ...amount, name: "net", label: "Net of tax", column: "net" },
+    // A subscription period's order (ADR 0486).
+    { ...id, name: "subscriptionId", label: "Subscription", column: "subscription_id" },
+    { ...when, name: "periodStart", label: "Period from", column: "period_start" },
+    { ...when, name: "periodEnd", label: "Period to", column: "period_end" },
   ],
 });
 
@@ -241,6 +249,8 @@ export const BASE_OBJECTS = {
   orderLine: orderLineObject,
   // Stage 28 (ADR 0444): the media library.
   media: mediaObject,
+  // Stage 32a (ADR 0485): a subscription the payment provider runs.
+  subscription: subscriptionObject,
 } as const satisfies Record<string, ObjectDefinition>;
 
 export type BaseObjectName = keyof typeof BASE_OBJECTS;
@@ -250,4 +260,5 @@ export const BASE_TABLES = {
   order: "core_order",
   orderLine: "core_order_line",
   media: "core_media",
+  subscription: "core_subscription",
 } as const satisfies Record<BaseObjectName, string>;
