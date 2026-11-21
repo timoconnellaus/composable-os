@@ -13,7 +13,14 @@
 //     tickets, and nothing else.
 // The tools in tools.ts compose the host's operations and add no rules of their own.
 import { defineExtension } from "@composable-os/sdk";
-import { checkIn, myTickets, orderStart, salesSummary, undoCheckIn } from "./tools.ts";
+import {
+  checkIn,
+  eventsOnSale,
+  myTickets,
+  orderStart,
+  salesSummary,
+  undoCheckIn,
+} from "./tools.ts";
 
 export default defineExtension({
   id: "ticketing",
@@ -28,7 +35,8 @@ export default defineExtension({
     // order still has a balance owing, at check-in. query.sql: revenue per ticket type for the
     // sales summary. person.get (read person): the holder's name a check-in reports.
     read: ["person"],
-    operations: ["order.start", "order.get", "query.sql"],
+    // public.list and capacity.get: the events on sale and their places, for the public.
+    operations: ["order.start", "order.get", "query.sql", "public.list", "capacity.get"],
     modules: ["ops"],
   },
   objects: {
@@ -77,6 +85,11 @@ export default defineExtension({
         ],
       },
       capacity: { places: "places" },
+      // The public reads an event while it is on sale (ADR 0438): what its page shows.
+      public: {
+        read: ["name", "startsAt", "endsAt", "venue", "description", "image", "status"],
+        when: { field: "status", in: ["on_sale"] },
+      },
       indexes: [["status", "startsAt"], ["startsAt"]],
     },
     tickettype: {
@@ -130,6 +143,21 @@ export default defineExtension({
           },
           void: "void",
         },
+      },
+      // A ticket type is public while its event is on sale; its places are capacity.get's.
+      public: {
+        read: [
+          "event",
+          "name",
+          "description",
+          "price",
+          "onSaleFrom",
+          "onSaleUntil",
+          "maxPerOrder",
+          "depositAmount",
+          "balanceDue",
+        ],
+        when: { via: "event", field: "status", in: ["on_sale"] },
       },
       indexes: [["event"]],
     },
@@ -204,5 +232,5 @@ export default defineExtension({
       read: ["ticketing.event", "ticketing.tickettype", "ticketing.ticket"],
     },
   },
-  tools: { orderStart, myTickets, salesSummary, checkIn, undoCheckIn },
+  tools: { eventsOnSale, orderStart, myTickets, salesSummary, checkIn, undoCheckIn },
 });

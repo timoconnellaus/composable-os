@@ -49,6 +49,7 @@ describe("ticketing pack (test host)", () => {
     expect(h.issues).toEqual([]);
     expect(Object.keys(h.manifest.objects)).toEqual(["event", "tickettype", "ticket"]);
     expect(Object.keys(h.manifest.tools)).toEqual([
+      "eventsOnSale",
       "orderStart",
       "myTickets",
       "salesSummary",
@@ -56,6 +57,16 @@ describe("ticketing pack (test host)", () => {
       "undoCheckIn",
     ]);
     expect(h.manifest.tools.orderStart?.audiences).toEqual(["customer", "public"]);
+    expect(h.manifest.tools.eventsOnSale).toMatchObject({
+      risk: "read",
+      audiences: ["customer", "public"],
+    });
+    expect(h.manifest.objects.event?.public?.when).toEqual({ field: "status", in: ["on_sale"] });
+    expect(h.manifest.objects.tickettype?.public?.when).toEqual({
+      via: "event",
+      field: "status",
+      in: ["on_sale"],
+    });
     expect(h.manifest.tools.myTickets?.audiences).toEqual(["customer"]);
     expect(h.manifest.tools.salesSummary?.audiences).toBeUndefined();
     expect(h.manifest.tools.checkIn).toMatchObject({
@@ -211,6 +222,71 @@ describe("ticketing pack (test host)", () => {
       ["tt2", 3, 0, null],
     ]);
     expect(out.totals).toEqual({ sold: 15, held: 2, remaining: 30, revenue: 540000 });
+  });
+});
+
+describe("eventsOnSale (test host)", () => {
+  it("lists through public.list and asks capacity.get for places: the host decides what is public", async () => {
+    const asked: Record<string, unknown>[] = [];
+    const h = createTestHost(extension, {
+      operations: {
+        "public.list": (input) => {
+          asked.push(input);
+          return input.object === "ticketing.event"
+            ? {
+                items: [
+                  {
+                    id: "ev1",
+                    title: null,
+                    values: { name: "Camp", startsAt: "2027-02-01T00:00:00Z", status: "on_sale" },
+                  },
+                ],
+                nextCursor: null,
+              }
+            : {
+                items: [
+                  {
+                    id: "tt1",
+                    title: null,
+                    values: { event: "ev1", name: "Shared", price: 450, depositAmount: 100 },
+                  },
+                ],
+                nextCursor: null,
+              };
+        },
+        "capacity.get": (input) =>
+          input.object === "ticketing.event"
+            ? { status: "available" }
+            : { status: "low", available: 3 },
+      },
+    });
+    const out = await h.runTool<{ events: Record<string, unknown>[] }>(
+      "eventsOnSale",
+      {},
+      { caller: { kind: "public" } },
+    );
+    expect(out.events).toEqual([
+      expect.objectContaining({
+        id: "ev1",
+        name: "Camp",
+        availability: { status: "available" },
+        ticketTypes: [
+          expect.objectContaining({
+            id: "tt1",
+            price: 450,
+            deposit: 100,
+            availability: { status: "low", available: 3 },
+          }),
+        ],
+      }),
+    ]);
+    // No filter of its own on status: which events are on sale is the seam's to say.
+    expect(asked[0]).toEqual({
+      object: "ticketing.event",
+      sort: { field: "startsAt", direction: "asc" },
+      limit: 20,
+    });
+    expect(asked[1]).toMatchObject({ filter: { field: "event", op: "eq", value: "ev1" } });
   });
 });
 

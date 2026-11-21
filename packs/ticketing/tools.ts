@@ -24,6 +24,109 @@ const text = (value: unknown): string | null =>
 const num = (value: unknown): number | null =>
   typeof value === "number" ? value : value == null ? null : Number(value);
 
+// --- On sale -------------------------------------------------------------------------------------
+
+const availability = z.object({
+  status: z.enum(["available", "low", "sold_out"]),
+  available: z.number().nullable().optional().describe("Places left, when the type says so"),
+});
+
+export const eventsOnSale = defineTool({
+  description:
+    "The events on sale now, soonest first, each with its ticket types (name, price, sale " +
+    "window, most per order, deposit) and whether places are left. For an event page or a list " +
+    "of events. Only what the public may read: an event that is not on sale is not here. " +
+    "Read-only.",
+  input: z.object({
+    event: z.string().min(1).max(64).optional().describe("Only this event"),
+    limit: z.number().int().min(1).max(50).default(20),
+  }),
+  output: z.object({
+    events: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string().nullable(),
+        startsAt: z.string().nullable(),
+        endsAt: z.string().nullable(),
+        venue: z.string().nullable(),
+        description: z.string().nullable(),
+        image: z.string().nullable(),
+        availability,
+        ticketTypes: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string().nullable(),
+            description: z.string().nullable(),
+            price: z.number().nullable(),
+            onSaleFrom: z.string().nullable(),
+            onSaleUntil: z.string().nullable(),
+            maxPerOrder: z.number().nullable(),
+            deposit: z.number().nullable(),
+            balanceDue: z.string().nullable(),
+            availability,
+          }),
+        ),
+      }),
+    ),
+  }),
+  risk: "read",
+  audiences: ["customer", "public"],
+  async handler(input, ctx) {
+    // The seam decides which events and which fields: the public scope shows an event only
+    // while it is on sale, and a ticket type only while its event is (ADR 0438).
+    const events = await ctx.ops.call<ListShape>("public.list", {
+      object: EVENT,
+      ...(input.event ? { filter: { field: "id", op: "eq", value: input.event } } : {}),
+      sort: { field: "startsAt", direction: "asc" },
+      limit: input.limit,
+    });
+    const places = async (object: string, id: string) => {
+      const view = await ctx.ops.call<{
+        status: "available" | "low" | "sold_out";
+        available?: number | null;
+      }>("capacity.get", { object, id });
+      return {
+        status: view.status,
+        ...(view.available === undefined ? {} : { available: view.available }),
+      };
+    };
+    const out = [];
+    for (const event of events.items) {
+      const types = await ctx.ops.call<ListShape>("public.list", {
+        object: TICKET_TYPE,
+        filter: { field: "event", op: "eq", value: event.id },
+        limit: 50,
+      });
+      const v = event.values;
+      out.push({
+        id: event.id,
+        name: text(v.name),
+        startsAt: text(v.startsAt),
+        endsAt: text(v.endsAt),
+        venue: text(v.venue),
+        description: text(v.description),
+        image: text(v.image),
+        availability: await places(EVENT, event.id),
+        ticketTypes: await Promise.all(
+          types.items.map(async (type) => ({
+            id: type.id,
+            name: text(type.values.name),
+            description: text(type.values.description),
+            price: num(type.values.price),
+            onSaleFrom: text(type.values.onSaleFrom),
+            onSaleUntil: text(type.values.onSaleUntil),
+            maxPerOrder: num(type.values.maxPerOrder),
+            deposit: num(type.values.depositAmount),
+            balanceDue: text(type.values.balanceDue),
+            availability: await places(TICKET_TYPE, type.id),
+          })),
+        ),
+      });
+    }
+    return { events: out };
+  },
+});
+
 // --- Buying -------------------------------------------------------------------------------------
 
 const orderLine = z.object({

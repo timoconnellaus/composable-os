@@ -136,13 +136,16 @@ async function createRecord(object: string, values: Record<string, unknown>): Pr
 async function eventWith(
   types: Record<string, unknown>[],
   places: number | null = 100,
+  status: "on_sale" | "draft" = "on_sale",
 ): Promise<{ event: string; types: string[] }> {
   const event = await createRecord(EVENT, { name: unique("Gains"), places });
-  await run(
-    "record.update",
-    { object: EVENT, id: event, values: { status: "on_sale" } },
-    staff(admin),
-  );
+  if (status === "on_sale") {
+    await run(
+      "record.update",
+      { object: EVENT, id: event, values: { status: "on_sale" } },
+      staff(admin),
+    );
+  }
   const ids: string[] = [];
   for (const values of types) {
     ids.push(
@@ -446,6 +449,130 @@ describe("the sales summary", () => {
       revenue: 12000,
     });
     expect(summary.totals).toEqual({ sold: 3, held: 1, remaining: 16, revenue: 21000 });
+  });
+});
+
+// --- Criterion 9: public reads (ADR 0438) -----------------------------------------------------------
+
+interface OnSale {
+  events: {
+    id: string;
+    name: string | null;
+    availability: { status: string; available?: number | null };
+    ticketTypes: { id: string; price: number | null; availability: { status: string } }[];
+  }[];
+}
+
+describe("public reads (criterion 9)", () => {
+  it("the public sees only events on sale, and only their declared fields", async () => {
+    const onSale = await eventWith([{ price: 45, places: 3 }], 50);
+    const draft = await eventWith([{ price: 99 }], 50, "draft");
+    await run(
+      "record.update",
+      { object: EVENT, id: onSale.event, values: { venue: "The gym" } },
+      staff(admin),
+    );
+    for (const ctx of [guest, as((await createCustomer("visitor")).principal)]) {
+      const seen = await run<OnSale>("x.ticketing.eventsOnSale", { limit: 50 }, ctx);
+      const ids = seen.events.map((e) => e.id);
+      expect(ids).toContain(onSale.event);
+      expect(ids).not.toContain(draft.event);
+      const event = seen.events.find((e) => e.id === onSale.event);
+      expect(event?.ticketTypes.map((t) => t.id)).toEqual(onSale.types);
+      expect(event?.ticketTypes[0]?.price).toBe(45);
+      expect(event?.ticketTypes[0]?.availability).toEqual({ status: "low", available: 3 });
+      // Only one event asked for: a draft one is not there at all.
+      expect(
+        (await run<OnSale>("x.ticketing.eventsOnSale", { event: draft.event }, ctx)).events,
+      ).toEqual([]);
+      // Nothing undeclared: not the places, the held count or who made it.
+      const text = JSON.stringify(seen);
+      for (const word of ["places", "held", "taken", "createdBy", "updatedBy"]) {
+        expect(text).not.toContain(`"${word}"`);
+      }
+    }
+    // The public never reads records directly: public.list is for a pack's tool only.
+    expect(await refusal(run("public.list", { object: EVENT }, guest))).toMatchObject({
+      code: "unknown_operation",
+    });
+    // Nor a customer: my.* is their own records only.
+    const someone = await createCustomer("direct");
+    expect(await refusal(run("my.list", { object: EVENT }, as(someone.principal)))).toMatchObject({
+      code: "invalid_input",
+    });
+  });
+
+  it("places are told only about what the caller may read", async () => {
+    const onSale = await eventWith([{ places: 5 }]);
+    const draft = await eventWith([{ places: 5 }], 100, "draft");
+    expect(
+      await run("capacity.get", { object: TICKET_TYPE, id: onSale.types[0] }, guest),
+    ).toMatchObject({ status: "low", available: 5 });
+    for (const id of [draft.types[0], draft.event]) {
+      const object = id === draft.event ? EVENT : TICKET_TYPE;
+      expect(await refusal(run("capacity.get", { object, id }, guest))).toMatchObject({
+        code: "not_found",
+      });
+    }
+  });
+});
+
+// --- Decision: buying only what you may read ----------------------------------------------------
+
+describe("a customer or guest buys only what they may read", () => {
+  it("a ticket type of a draft event cannot be bought, and answers as one that does not exist", async () => {
+    const draft = await eventWith([{}], 100, "draft");
+    const email = buyerEmail();
+    const notThere = await refusal(
+      run(
+        "x.ticketing.orderStart",
+        { lines: [{ ticketTypeId: "rec_01NOSUCHRECORD000000000000" }], email },
+        guest,
+      ),
+    );
+    const hidden = await refusal(
+      run("x.ticketing.orderStart", { lines: [{ ticketTypeId: draft.types[0] }], email }, guest),
+    );
+    expect(hidden).toEqual(notThere);
+    expect(hidden.details).toMatchObject({ rule: "not_for_sale" });
+    const customer = await createCustomer("drafty");
+    expect(
+      await refusal(
+        run(
+          "x.ticketing.orderStart",
+          { lines: [{ ticketTypeId: draft.types[0] }] },
+          as(customer.principal),
+        ),
+      ),
+    ).toEqual(notThere);
+    // Staff may still start an order for anything sellable.
+    const order = await run<Order>(
+      "order.start",
+      { lines: [{ object: TICKET_TYPE, id: draft.types[0] }], email },
+      staff(admin),
+    );
+    expect(order.state).toBe("pending");
+  });
+});
+
+// --- Decision: what counts towards quarantine ---------------------------------------------------
+
+describe("quarantine counts the pack's failures, not the caller's", () => {
+  it("ten calls ending in not_found leave the pack active", async () => {
+    for (let i = 0; i < 10; i += 1) {
+      const refused = await refusal(
+        run(
+          "x.ticketing.undoCheckIn",
+          { ticketId: `rec_01NOSUCHTICKET${i}00000000000` },
+          staff(admin),
+        ),
+      );
+      expect(refused).toMatchObject({ code: "extension_error", inner: "not_found" });
+    }
+    const row = await env.DB.prepare(
+      "SELECT status, failure_count FROM core_extensions WHERE id = 'ticketing'",
+    ).first();
+    expect(row).toEqual({ status: "active", failure_count: 0 });
   });
 });
 
