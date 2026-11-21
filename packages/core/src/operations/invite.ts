@@ -132,8 +132,8 @@ export const userInvite = defineOperation({
   output: inviteSchema.extend({
     /** How they get in: an emailed code (`code`) or Cloudflare Access (`access`). */
     signIn: z.enum(["code", "access"]),
-    /** Whether the invite notice was emailed (it holds no secret). */
-    invitationEmail: z.enum(["sent", "not_sent", "not_needed"]),
+    /** Whether the invite notice was emailed, waits for review (it holds no secret), or not. */
+    invitationEmail: z.enum(["sent", "pending", "not_sent", "not_needed"]),
   }),
   permission: "users:manage",
   risk: "write",

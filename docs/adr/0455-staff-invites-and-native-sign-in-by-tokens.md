@@ -214,3 +214,10 @@ the host sends and every cookie the runtime sends, and both lists stay empty.
   build's); an invite expires in 7 days.
 - Under Access, two first requests racing for one invited address can leave one of them acting as
   a member for that one request before the invite's role is written.
+
+## Amended 2026-11-21 (ADR 0456)
+Sign-in codes are now the host's own outbound kind, "Send sign-in codes" (`email.signin`),
+decided by the gatekeeper from the host's queue and the fixed template, and turned on by a human
+admin. Sign-in by code is not set up until it would go out at once, so a code to an outside address
+is delivered, and the same-domain workaround in the fake outbox and the e2e journey is gone. A
+send waiting for review never held back a code in email-send; the fake outbox now matches it.

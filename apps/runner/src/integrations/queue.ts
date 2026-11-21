@@ -19,6 +19,7 @@ import {
   type PendingApproval,
   parseFloor,
   readCountHour,
+  type SignInMailOrigin,
   submitOutbound,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
@@ -31,6 +32,13 @@ export type QueueCaller =
       // `payments`: verified payment events (stage 25). `orders`: the host's own calls for an
       // order, a checkout and its confirmation email (`callAsHost`, ADR 0429).
       purpose: "sync" | "webhook" | "payments" | "orders" | "probe";
+      user: ActingUser;
+    }
+  | {
+      kind: "system";
+      // The host's sign-in mail (ADR 0456): only `callAsHost` with purpose `sign-in` opens it.
+      purpose: "sign-in";
+      origin: SignInMailOrigin;
       user: ActingUser;
     };
 
@@ -133,6 +141,15 @@ export class HostQueue extends RpcTarget {
     }
   }
 
+  /**
+   * Whether this session is the host's own sign-in mail (ADR 0456). A gatekeeper asks before it
+   * gives a send the sign-in kind: the answer comes from how the host opened the queue, never from
+   * anything the caller sent.
+   */
+  async isHostSignInMail(): Promise<boolean> {
+    return this.#caller.kind === "system" && this.#caller.purpose === "sign-in";
+  }
+
   async submitAction(action: number, description: OutboundDescription): Promise<void> {
     const host = this.#host;
     const caller =
@@ -143,10 +160,13 @@ export class HostQueue extends RpcTarget {
             userId: this.#caller.user.id,
             userName: this.#caller.user.name,
             role: this.#caller.user.role,
-            origin: {
-              surface: "automation" as const,
-              automationId: `${this.#caller.purpose}:${host.connectionId}`,
-            },
+            origin:
+              this.#caller.purpose === "sign-in"
+                ? { surface: "system" as const, automationId: this.#caller.origin }
+                : {
+                    surface: "automation" as const,
+                    automationId: `${this.#caller.purpose}:${host.connectionId}`,
+                  },
           };
     const submission: OutboundSubmission = {
       connectionId: host.connectionId,

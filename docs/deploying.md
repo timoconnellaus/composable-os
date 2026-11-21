@@ -132,9 +132,15 @@ hostname in front before opening anything to the public.
 
 Customers sign in at `/api/customer-auth/*` with a code sent by email. It needs
 `CUSTOMER_AUTH_SECRET` (a secret, different from `BETTER_AUTH_SECRET`) and an org email-send
-connection chosen for customer mail, which a human admin sets with `customer.settings.update`
-(`emailConnectionId`). The host sends the codes itself, through that connection, as the system
-user. Until both are set, a code request answers that customer sign-in is not set up.
+connection chosen for the host's mail (Settings → Users, "The host's mail"; or
+`customer.settings.update` `emailConnectionId`). The host sends the codes itself, through that
+connection, as the system user, as its own kind of send, "Send sign-in codes" (`email.signin`,
+ADR 0456). A human admin turns on "Send sign-in codes without review" on Settings → Users (or that
+kind's auto-approval on Settings → Integrations); it needs the Balanced approval policy, and an
+`APPROVAL_FLOOR` that does not review automations' outbound sends. Until all of this holds, a code
+request, customer's or staff member's, answers that sign-in is not set up, and no code is made:
+a code that would wait for review is never sent. Only the host's fixed code email goes out this
+way; every other email still follows the approval policy. `cos deploy` does not turn it on.
 
 #### A company's web app on its own hostname (stage 24)
 
@@ -397,10 +403,11 @@ environment not marked `live: false`, or a product without environments).
 2. In `product.ts`, set `ALLOWED_SENDER_DOMAINS` to that domain and `INTERNAL_DOMAINS` to the org's
    own, and if you want the binding limited to some addresses, `sendEmail.allowedSenderAddresses`.
 3. `pnpm cos deploy --env <name>`.
-4. As a human admin on the host, Settings → Integrations: enable email sending and create the org
-   connection. Then Settings → Users: choose it as the host's mail connection and turn on **Send
-   sign-in codes without review** for it. Customer and staff sign-in codes go out from it. `cos
-   deploy` never does this step.
+4. As a human admin on the host, Settings → Integrations: enable email sending, create the org
+   connection, then on Settings → Users choose it as the host's mail and turn on "Send sign-in
+   codes without review" (ADR 0456). Staff and customer sign-in codes go out from it, to any
+   address; until it is on, sign-in by code says it is not set up. `cos deploy` never does
+   this step, in any environment.
 
 #### Stripe (payments), in a client repo
 The design is ADR 0429; the platform's own test-mode run is

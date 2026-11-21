@@ -29,6 +29,7 @@ import {
   recordIntegrationEvents,
   recordPaymentEvent,
   revokeBindings,
+  SIGN_IN_MAIL_ORIGINS,
   SYNC_BATCH_MAX,
   SYSTEM_USER,
   type SyncConfig,
@@ -833,19 +834,34 @@ export class IntegrationHost extends DurableObject<Env> {
     resource: string;
     method: string;
     args: unknown[];
-    purpose: "orders";
+    purpose: "orders" | "sign-in";
+    origin?: string;
   }): Promise<IntegrationCallResult> {
     const meta = await this.#meta();
     if (meta.scope !== "org") throw new Error("The host uses org connections only");
-    if (input.purpose !== "orders") throw new Error("Not a purpose the host calls for");
+    if (input.purpose !== "orders" && input.purpose !== "sign-in") {
+      throw new Error("Not a purpose the host calls for");
+    }
     if (!/^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(input.method) || input.method === "constructor") {
       throw new Error("Not a session method");
     }
-    const user = await loadUser(this.env, meta.ownerUserId);
-    const { value, queue } = await this.#withSession(
-      input.resource,
-      { kind: "system", purpose: "orders", user },
-      async (session) => toJson(await session[input.method](...input.args)),
+    let caller: QueueCaller;
+    if (input.purpose === "sign-in") {
+      // The host's sign-in mail (ADR 0456): one send, for a customer's or a staff member's code,
+      // by the system user. The queue tells the gatekeeper so; no other caller's queue does.
+      if (input.method !== "send") throw new Error("Sign-in mail is one send");
+      const origin = SIGN_IN_MAIL_ORIGINS.find((o) => o === input.origin);
+      if (!origin) throw new Error("Not an origin the host sends sign-in mail for");
+      caller = { kind: "system", purpose: "sign-in", origin, user: SYSTEM_USER };
+    } else {
+      caller = {
+        kind: "system",
+        purpose: "orders",
+        user: await loadUser(this.env, meta.ownerUserId),
+      };
+    }
+    const { value, queue } = await this.#withSession(input.resource, caller, async (session) =>
+      toJson(await session[input.method](...input.args)),
     );
     return { value, pending: queue.pending, applied: queue.applied };
   }

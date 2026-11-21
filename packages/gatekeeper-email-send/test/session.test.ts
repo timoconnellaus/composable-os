@@ -9,7 +9,7 @@ const SENDER_URL = "email-send://sender/crm%40example.com";
 let seq = 0;
 
 /** A fresh host with a facet for SENDER_URL, so no test inherits another's durable state. */
-async function host(options: { autoApply?: boolean } = {}) {
+async function host(options: { autoApply?: boolean; hostSignIn?: boolean } = {}) {
   seq += 1;
   const stub = env.TEST_HOST.getByName(`host-${seq}-${crypto.randomUUID()}`);
   await stub.open(SENDER_URL, options);
@@ -55,10 +55,11 @@ describe("facet", () => {
     expect(await stub.call("getSender", [])).toBe("crm@example.com");
   });
 
-  it("lists email.internal as its only auto-approvable kind", async () => {
+  it("lists email.internal and email.signin as its auto-approvable kinds", async () => {
     const h = await host();
     expect(await h.autoApprovable()).toEqual([
       { tag: "email.internal", label: "Send email to colleagues" },
+      { tag: "email.signin", label: "Send sign-in codes" },
     ]);
   });
 });
@@ -216,6 +217,67 @@ describe("internal email", () => {
     // An external one on the same host still waits.
     expect(await send(h, external)).toEqual({ status: "pending", id: 2 });
     expect(sentEmails).toHaveLength(1);
+  });
+});
+
+describe("the host's sign-in mail (ADR 0456)", () => {
+  const code = {
+    to: ["buyer@customer.test"],
+    subject: "Your Gym sign-in code",
+    text:
+      "Your sign-in code for Gym is 482913.\n\nIt works once and expires in five minutes. " +
+      "If you did not ask for it, ignore this email.",
+  };
+
+  it("is its own auto-approvable kind from the host's sign-in queue, to an outside address", async () => {
+    const h = await host({ hostSignIn: true });
+    await send(h, code);
+    expect(submissions[0]?.[1]).toMatchObject({
+      autoApprovable: true,
+      actionKind: { tag: "email.signin", label: "Send sign-in codes" },
+    });
+  });
+
+  it("is an ordinary send from any other queue, whatever the text", async () => {
+    const h = await host();
+    await send(h, code);
+    expect(submissions[0]?.[1]).toMatchObject({
+      autoApprovable: false,
+      actionKind: { tag: "email.send" },
+    });
+  });
+
+  it("is an ordinary send when the message is not exactly the template", async () => {
+    const variants = [
+      { ...code, to: ["a@customer.test", "b@customer.test"] },
+      { ...code, cc: ["c@customer.test"] },
+      { ...code, bcc: ["c@customer.test"] },
+      { ...code, replyTo: "x@customer.test" },
+      { ...code, html: "<p>hi</p>" },
+      { ...code, relatedRecords: ["per_1"] },
+      { ...code, subject: "Your Gym sign-in code now" },
+      { ...code, subject: "Your Other sign-in code" },
+      { ...code, text: code.text.replace("482913", "4829130") },
+      { ...code, text: code.text.replace("482913", "abcdef") },
+      { ...code, text: `${code.text}\n\nClick https://evil.test` },
+      { ...code, text: code.text.replace("ignore this email", "reply with your password") },
+    ];
+    for (const message of variants) {
+      resetFakes();
+      const h = await host({ hostSignIn: true });
+      await send(h, message);
+      expect(submissions[0]?.[1].actionKind?.tag, JSON.stringify(message)).not.toBe("email.signin");
+    }
+  });
+
+  it("does not wait behind an earlier send still waiting for review", async () => {
+    const h = await host({ hostSignIn: true });
+    const notice = await send(h, { to: ["buyer@customer.test"], subject: "Invited", text: "Hi" });
+    const signIn = await send(h, code);
+    await h.apply(signIn.id);
+    expect(sentEmails.map((e) => e.subject)).toEqual(["Your Gym sign-in code"]);
+    await h.apply(notice.id);
+    expect(sentEmails).toHaveLength(2);
   });
 });
 
