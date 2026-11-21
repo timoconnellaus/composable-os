@@ -14,11 +14,10 @@
 // - Every write needs an Idempotency-Key.
 // - Cross-origin calls are allowed only from the deployment's listed origins. A request with no
 //   Origin (a phone, a server) is not a browser's and is let through to authenticate.
-import { z } from "zod";
-import { OperationError, PendingApprovalError, ValidationError } from "../errors.ts";
+import { PendingApprovalError, UnknownOperationError, ValidationError } from "../errors.ts";
 import type { Invoker } from "../invoke.ts";
-import type { AnyOperation } from "../operation.ts";
 import type { AnyInvocationContext, BatchOutcome } from "../pipeline.ts";
+import { buildContract, contractFor, SERVED_API_VERSIONS } from "./contract.ts";
 import { dataReply, errorReply, type HttpReply, retryAfter } from "./envelope.ts";
 import {
   IDEMPOTENCY_HEADER,
@@ -28,8 +27,6 @@ import {
 } from "./idempotency.ts";
 
 export const API_PREFIX = "/api/v1";
-const OPERATION_PATH = `${API_PREFIX}/op/`;
-const MANIFEST_PATH = `${API_PREFIX}/manifest`;
 const NAME = /^[A-Za-z0-9._-]{1,100}$/;
 /** The largest request body accepted, in bytes. */
 export const MAX_BODY_BYTES = 1_000_000;
@@ -45,10 +42,16 @@ export interface HttpSurfaceOptions {
   context(request: Request): Promise<AnyInvocationContext>;
   /** Origins a browser may call from, besides the API's own (exact `scheme://host[:port]`). */
   allowedOrigins?: readonly string[];
+  /**
+   * The adapter's own routes under the version (sign-in tokens, `/auth/*`): a reply, or null
+   * when the route is not one of them.
+   */
+  routes?: (route: string, request: Request) => Promise<HttpReply | null>;
 }
 
+/** `/api/v<n>` and everything under it: served, or answered for a version not served. */
 export function isApiPath(pathname: string): boolean {
-  return pathname === API_PREFIX || pathname.startsWith(`${API_PREFIX}/`);
+  return /^\/api\/v\d+(\/|$)/.test(pathname);
 }
 
 /** Origins as configured: a comma- or space-separated list, normalised. */
@@ -210,41 +213,53 @@ async function callOperation(
   }
 }
 
-function jsonSchema(schema: z.ZodType, io: "input" | "output"): unknown {
-  try {
-    return z.toJSONSchema(schema, { unrepresentable: "any", io });
-  } catch {
-    return {};
-  }
-}
-
-/** One operation as the manifest lists it. */
-export function manifestEntry(op: AnyOperation) {
-  return {
-    name: op.name,
-    description: op.description,
-    risk: op.risk,
-    input: jsonSchema(op.input, "input"),
-    output: jsonSchema(op.output, "output"),
-  };
-}
-
 async function manifest(options: HttpSurfaceOptions, request: Request): Promise<HttpReply> {
   const ctx = await options.context(request);
   try {
-    const ops = await options.invoker.listFor(ctx);
-    return dataReply({
-      version: "v1",
-      audience: ctx.principal?.kind ?? "staff",
-      operations: ops.map(manifestEntry).sort((a, b) => a.name.localeCompare(b.name)),
-    });
+    const audience = ctx.principal?.kind ?? "staff";
+    const contract = contractFor(buildContract(await options.invoker.listFor(ctx)), audience);
+    return dataReply({ ...contract, audience });
   } catch (error) {
     return errorReply(error, isOutside(ctx));
   }
 }
 
+const VERSIONED = /^\/api\/(v\d+)(\/.*)?$/;
+
+function versionNumber(version: string): number {
+  return Number.parseInt(version.slice(1), 10);
+}
+
+/** The answer for a version this host does not serve (ADR 0417). */
+function unservedVersion(version: string): HttpReply {
+  const oldest = Math.min(...SERVED_API_VERSIONS.map(versionNumber));
+  if (versionNumber(version) < oldest) {
+    return {
+      status: 426,
+      body: JSON.stringify({
+        error: {
+          code: "upgrade_required",
+          message:
+            "This version of the app is no longer supported. Update the app to keep using it.",
+          details: { version, served: [...SERVED_API_VERSIONS] },
+        },
+      }),
+    };
+  }
+  return {
+    status: 404,
+    body: JSON.stringify({
+      error: {
+        code: "not_found",
+        message: `This host does not serve /api/${version} yet`,
+        details: { version, served: [...SERVED_API_VERSIONS] },
+      },
+    }),
+  };
+}
+
 /**
- * Serves `/api/v1/*`; null for any other path. A failure to build the caller's context (a
+ * Serves `/api/v<n>/*`; null for any other path. A failure to build the caller's context (a
  * request carrying two sessions, say) is answered with its error.
  */
 export function createHttpSurface(options: HttpSurfaceOptions) {
@@ -252,7 +267,10 @@ export function createHttpSurface(options: HttpSurfaceOptions) {
   return {
     async handle(request: Request): Promise<Response | null> {
       const { pathname } = new URL(request.url);
-      if (!isApiPath(pathname)) return null;
+      const match = VERSIONED.exec(pathname);
+      if (!match) return null;
+      const version = match[1] as string;
+      const route = match[2] ?? "/";
       const origin = checkOrigin(request, allowed);
       if (!origin.ok) return refusal(403, "forbidden", "This origin may not call the API");
       if (request.method === "OPTIONS") {
@@ -266,22 +284,19 @@ export function createHttpSurface(options: HttpSurfaceOptions) {
           },
         });
       }
+      if (!SERVED_API_VERSIONS.includes(version)) {
+        return respond(unservedVersion(version), origin.cors);
+      }
       try {
-        if (pathname === MANIFEST_PATH) {
+        if (route === "/manifest") {
           if (request.method !== "GET") return methodNotAllowed("GET", origin.cors);
           return respond(await manifest(options, request), origin.cors);
         }
-        if (pathname.startsWith(OPERATION_PATH)) {
-          const name = decodeURIComponent(pathname.slice(OPERATION_PATH.length));
+        if (route.startsWith("/op/")) {
+          const name = decodeURIComponent(route.slice("/op/".length));
           if (!NAME.test(name)) {
             return respond(
-              errorReply(
-                new OperationError(
-                  "unknown_operation",
-                  `No operation named "${name.slice(0, 100)}"`,
-                ),
-                true,
-              ),
+              errorReply(new UnknownOperationError(name.slice(0, 100)), true),
               origin.cors,
             );
           }
@@ -292,6 +307,8 @@ export function createHttpSurface(options: HttpSurfaceOptions) {
             ...(replayed ? { "idempotent-replayed": "true" } : {}),
           });
         }
+        const extra = options.routes ? await options.routes(route, request) : null;
+        if (extra) return respond(extra, origin.cors);
         return respond(
           {
             status: 404,

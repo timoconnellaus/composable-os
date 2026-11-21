@@ -2,6 +2,8 @@
 // manifest and cross-origin calls. Isolation over HTTP is http-isolation.test.ts; keys are
 // http-idempotency.test.ts.
 import { beforeAll, describe, expect, it } from "vitest";
+import customerContract from "../api/v1/customer.json";
+import publicContract from "../api/v1/public.json";
 import committed from "../open-operations.json";
 import {
   type ActingUser,
@@ -48,13 +50,34 @@ async function said(response: Response | null) {
 }
 
 describe("the route", () => {
-  it("serves only /api/v1", async () => {
-    expect(await surface.handle(new Request(`${ORIGIN}/api/v2/op/x`))).toBeNull();
+  it("serves only /api/v<n>", async () => {
     expect(await surface.handle(new Request(`${ORIGIN}/mcp`))).toBeNull();
+    expect(await surface.handle(new Request(`${ORIGIN}/api/auth/x`))).toBeNull();
     expect(await said(await surface.handle(new Request(`${ORIGIN}/api/v1/nothing`)))).toEqual({
       status: 404,
       body: { error: { code: "not_found", message: "No such route" } },
     });
+  });
+
+  it("a version no longer served is upgrade_required; one not served yet is not found (criterion 8)", async () => {
+    for (const path of ["/api/v0/op/fixture.whoAmI", "/api/v0/manifest"]) {
+      const old = await said(
+        await surface.handle(new Request(`${ORIGIN}${path}`, { method: "POST" })),
+      );
+      expect(old).toEqual({
+        status: 426,
+        body: {
+          error: {
+            code: "upgrade_required",
+            message:
+              "This version of the app is no longer supported. Update the app to keep using it.",
+            details: { version: "v0", served: ["v1"] },
+          },
+        },
+      });
+    }
+    const future = await said(await surface.handle(new Request(`${ORIGIN}/api/v9/op/x`)));
+    expect(future).toMatchObject({ status: 404, body: { error: { code: "not_found" } } });
   });
 
   it("runs an operation for each of the three callers, from the request's credential", async () => {
@@ -258,6 +281,20 @@ describe("the manifest", () => {
     expect(m.audience).toBe("customer");
     expect(m.operations.map((op) => op.name)).toEqual(listed(generated, "customer"));
     expect(m.operations.length).toBeGreaterThan(0);
+  });
+
+  it("is the committed contract for each outside audience, byte for byte in content", async () => {
+    const { audience: _a, ...forCustomer } = (await manifestOf(
+      core,
+      outside(a.principal),
+    )) as never as {
+      audience: string;
+    };
+    expect(forCustomer).toEqual(customerContract);
+    const { audience: _b, ...forPublic } = (await manifestOf(core, null)) as never as {
+      audience: string;
+    };
+    expect(forPublic).toEqual(publicContract);
   });
 
   it("for the public lists exactly the public ones", async () => {
