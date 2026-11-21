@@ -105,3 +105,8 @@ the customer identity reads only its own cookie anyway.
 - **The edge rule** for the web app's zone is printed by `cos create`, `cos init` and `cos deploy`
   as a step a person does before opening the app to the public.
 - **The native token routes stay off the binding.**
+
+## Amended 2026-11-21 (client releases and environments)
+`CUSTOMER_AUTH_URL` and `CUSTOMER_AUTH_SECRET` are set by `cos deploy` for a product with a web
+app, per environment: the URL is that environment's web app origin, the secret is generated once
+and never changed by a later deploy ([ADR 0450](0450-client-environments.md)).

@@ -162,6 +162,7 @@ export * from "./operations/plan.ts";
 export * from "./operations/policy.ts";
 export * from "./operations/query.ts";
 export * from "./operations/record.ts";
+export * from "./operations/record-versions.ts";
 export * from "./operations/retention.ts";
 export * from "./operations/routine.ts";
 export * from "./operations/search.ts";

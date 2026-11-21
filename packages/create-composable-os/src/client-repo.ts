@@ -21,6 +21,8 @@ import {
   clientWeb,
   defineClientProduct,
   environmentNames,
+  gatekeeperSettings,
+  isLiveEnvironment,
   LIVE_ENVIRONMENT,
   type ProductDefinition,
 } from "@composable-os/product";
@@ -953,6 +955,99 @@ export function staffAppRedirect(product: ClientProductDefinition): string {
   return `${product.mobile?.scheme ?? product.id}://staff-sign-in`;
 }
 
+type ManifestWorker = ReleaseManifest["workers"][number];
+
+/**
+ * What a deploy applies of product.ts's gatekeeper settings (ADR 0452): the gatekeepers to
+ * install and, per the release's Worker name, the plain vars and send_email limits each takes.
+ * A setting the gatekeeper does not declare, a secret, a derived value, or the fake payment
+ * provider in a live environment is a problem, said before anything changes.
+ */
+export function gatekeeperPlan(
+  manifest: ReleaseManifest,
+  product: ClientProductDefinition,
+  environment: string | undefined,
+):
+  | {
+      workers: ManifestWorker[];
+      vars: Record<string, Record<string, string>>;
+      sendEmail: NonNullable<DeploymentState["sendEmail"]>;
+    }
+  | { problem: string } {
+  const settings = gatekeeperSettings(product, environment) as Record<
+    string,
+    Record<string, unknown> | undefined
+  >;
+  const where = environment ? `environment ${environment}` : "product.ts";
+  const gatekeepers = manifest.workers.filter((w) => w.role === "gatekeeper");
+  const workers: ManifestWorker[] = [];
+  const vars: Record<string, Record<string, string>> = {};
+  const sendEmail: NonNullable<DeploymentState["sendEmail"]> = {};
+  for (const [short, values] of Object.entries(settings)) {
+    const worker = gatekeepers.find((w) => w.shortName === short);
+    if (!worker) {
+      return {
+        problem: `${where} names the gatekeeper ${short}, which this release does not have (it has ${gatekeepers.map((w) => w.shortName).join(", ")}).`,
+      };
+    }
+    workers.push(worker);
+    const declared = worker.bindings
+      .filter((b) => b.type === "plain_text")
+      .map((b) => b.name)
+      // Derived from the environment's own host: never set by hand.
+      .filter((name) => name !== "BASE_URL");
+    const secrets = (worker.secrets ?? []).map((s) => s.name);
+    for (const [key, value] of Object.entries(values ?? {})) {
+      if (key === "sendEmail") {
+        const email = worker.bindings.find((b) => b.type === "send_email");
+        if (!email) return { problem: `${short} has no send_email binding to set.` };
+        const v = value as {
+          allowedSenderAddresses?: string[];
+          destinationAddress?: string;
+          allowedDestinationAddresses?: string[];
+        };
+        sendEmail[worker.name] = {
+          [email.name]: {
+            ...(v.allowedSenderAddresses
+              ? { allowed_sender_addresses: v.allowedSenderAddresses }
+              : {}),
+            ...(v.destinationAddress ? { destination_address: v.destinationAddress } : {}),
+            ...(v.allowedDestinationAddresses
+              ? { allowed_destination_addresses: v.allowedDestinationAddresses }
+              : {}),
+          },
+        };
+        continue;
+      }
+      if (secrets.includes(key)) {
+        return {
+          problem: `${key} is a secret of ${short}: it never goes in product.ts. Take it out, and set it with npx wrangler secret put ${key} --name <the deployed ${short} Worker>.`,
+        };
+      }
+      if (key === "BASE_URL") {
+        return {
+          problem: `${short}'s BASE_URL is derived from the host's hostname: take it out of ${where}.`,
+        };
+      }
+      if (!declared.includes(key)) {
+        return {
+          problem: `${short} takes no setting ${key}. It takes: ${declared.join(", ") || "none"}.`,
+        };
+      }
+      vars[worker.name] = { ...vars[worker.name], [key]: String(value) };
+    }
+    if (
+      vars[worker.name]?.PAYMENTS_FAKE_PROVIDER === "true" &&
+      isLiveEnvironment(product, environment)
+    ) {
+      return {
+        problem: `${where} is live and turns on the fake payment provider: only an environment marked live: false may.`,
+      };
+    }
+  }
+  return { workers, vars, sendEmail };
+}
+
 /** The HOST binding an adopted site's own Worker config needs in an environment, as text. */
 export function hostBindingText(host: string, environment: string | undefined): string {
   const entry = `{ "binding": "HOST", "service": "${host}", "entrypoint": "ClientApp" }`;
@@ -1022,6 +1117,20 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
       `${release.label} ${product.platform.version} does not carry the pack${missing.length > 1 ? "s" : ""} ${missing.join(", ")} that product.ts lists (it carries ${[...inRelease].sort().join(", ") || "none"}): the platform needs it in a release first. Nothing was deployed.`,
     );
     return 1;
+  }
+  // The gatekeepers product.ts turns on here and their settings, checked against what each
+  // declares in this release before anything changes (ADR 0452).
+  const gatekeepers = gatekeeperPlan(manifest, product, environment);
+  if ("problem" in gatekeepers) {
+    io.err(`${gatekeepers.problem} Nothing was deployed.`);
+    return 1;
+  }
+  if (gatekeepers.workers.length) {
+    hostFlags.gatekeepers = gatekeepers.workers.map((w) => w.name).join(",");
+    hostFlags["gatekeeper-vars"] = JSON.stringify(gatekeepers.vars);
+    if (Object.keys(gatekeepers.sendEmail).length) {
+      hostFlags["send-email"] = JSON.stringify(gatekeepers.sendEmail);
+    }
   }
 
   const token = str(flags, "token") ?? deps.env.CLOUDFLARE_API_TOKEN;
@@ -1100,6 +1209,20 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     const bucket = blobsBucket(manifest, located.state);
     await api.putR2Object(accountId, bucket, `org-extensions/${ownHash}.json`, ownBytes);
     io.out(`Org extensions: ${own.map((e) => e.id).join(", ")} (${ownHash.slice(0, 12)}…)`);
+  }
+
+  // The gatekeepers' secrets: set by a person, never by product.ts. Which are missing, and how.
+  for (const worker of gatekeepers.workers) {
+    const deployedAs = deployedWorker(worker.name);
+    const set = await api.listSecrets(accountId, deployedAs);
+    const missing = (worker.secrets ?? []).filter((s) => !set.includes(s.name));
+    if (!missing.length) continue;
+    io.out(`\n${deployedAs} has no ${missing.map((s) => s.name).join(", ")}. A person sets each:`);
+    for (const secret of missing) {
+      io.out(
+        `  npx wrangler secret put ${secret.name} --name ${deployedAs}${secret.description ? `\n    (${secret.description})` : ""}`,
+      );
+    }
   }
 
   if (built && web) {

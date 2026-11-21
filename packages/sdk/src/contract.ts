@@ -4,6 +4,7 @@
 import type { z } from "zod";
 import type { AutomationSpec } from "./automation.ts";
 import type { CapacitySpec } from "./capacity.ts";
+import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StatesSpec } from "./states.ts";
@@ -98,8 +99,6 @@ export type FieldSpec =
       type:
         | "text"
         | "longText"
-        | "number"
-        | "percent"
         | "date"
         | "datetime"
         | "boolean"
@@ -108,11 +107,16 @@ export type FieldSpec =
         | "phone"
         | "url";
     })
-  | (FieldBase & {
-      type: "currency";
-      /** ISO 4217 code shown with the value. Default USD. */
-      currency?: string;
-    })
+  | (FieldBase &
+      NumberBounds & {
+        type: "number" | "percent";
+      })
+  | (FieldBase &
+      NumberBounds & {
+        type: "currency";
+        /** ISO 4217 code shown with the value. Default USD. */
+        currency?: string;
+      })
   | (FieldBase & {
       type: "select" | "multiSelect";
       options: readonly SelectOption[];
@@ -129,11 +133,35 @@ export type FieldSpec =
       /** Many records (stored as a JSON array of ids). Default one. */
       many?: boolean;
     })
+  | (Omit<FieldBase, "default" | "defaultSetting" | "track"> & {
+      /**
+       * One JSON document checked against `schema` on every write, by every actor (ADR 0445).
+       * A fault is refused with its path. `maxBytes` (default 65,536, at most 524,288) limits
+       * its JSON. `paths` show values inside it as read-only columns of the object's rec_* view,
+       * to list, filter, sort and chart by. A `private` object node is removed from what a
+       * customer or the public reads.
+       */
+      type: "document";
+      schema: DocumentSchema;
+      maxBytes?: number;
+      paths?: Record<string, DocumentPathSpec>;
+    })
   | (Omit<FieldBase, "required"> & {
       type: "formula";
       /** An expression over fields of the same record. See the SDK README for the grammar. */
       expression: string;
     });
+
+/**
+ * Bounds of a number field (stage 41): the host refuses a value below `min`, above `max`, or not
+ * a multiple of `step` from `min` (or from 0), for every actor, in imports and in the dry run.
+ * An RPE is `{ min: 1, max: 10, step: 0.5 }`; a count of reps `{ min: 0, step: 1 }`.
+ */
+export interface NumberBounds {
+  min?: number;
+  max?: number;
+  step?: number;
+}
 
 export type FieldSpecs = Record<string, FieldSpec>;
 
@@ -198,6 +226,23 @@ export interface ObjectSpec {
    * declare it.
    */
   public?: PublicSpec;
+  /**
+   * What every signed-in customer may read of this object (ADR 0447), whoever's record it is:
+   * the fields in `read`, of the records that meet `when` (the shape of `public.when`), or of
+   * every live record without it. Beside a `customer` declaration it shares those records with
+   * every signed-in customer while each still reads and writes their own as before (a class's
+   * sessions beside a client's own); on its own it opens the records to read only (an exercise
+   * bank). Never read by the public. Only shipped extensions and an org's own may declare it.
+   */
+  signedIn?: SignedInSpec;
+  /**
+   * A working copy staff edit and published versions (ADR 0446): `content` names the fields a
+   * version keeps. `record.publish` snapshots them as the next version (a person with the
+   * publish permission, never an AI actor); `record.versions` and `record.version` read them;
+   * `record.restoreVersion` copies one back into the working copy. Editing the working copy
+   * never changes a version. Records get read-only `publishedVersion` and `publishedAt`.
+   */
+  publishable?: PublishableSpec;
   /** Position in the sidebar among extension objects (lower first). Default 100. */
   navigationOrder?: number;
   /**
@@ -522,6 +567,19 @@ export interface PublicSpec {
   };
 }
 
+/** What every signed-in customer may read: see `ObjectSpec.signedIn` (ADR 0447). */
+export interface SignedInSpec {
+  read: readonly string[];
+  /** Left out, every live record. */
+  when?: PublicSpec["when"];
+}
+
+/** Versions of an object's content: see `ObjectSpec.publishable` (ADR 0446). */
+export interface PublishableSpec {
+  /** The fields a version keeps: the content staff edit in the working copy. */
+  content: readonly string[];
+}
+
 /** An object's customer: see `ObjectSpec.customer`. */
 export interface CustomerSpec {
   field: string;
@@ -620,6 +678,13 @@ export interface ExtensionSpec {
   automations?: Record<string, AutomationSpec<any>>;
   /** Fixed staff roles an admin can give to a staff account (ADR 0436). */
   roles?: Record<string, RoleSpec>;
+  /**
+   * Permissions of this extension's tools (`<id>:<word>`) a human admin may grant to a staff
+   * account one by one (ADR 0449), on top of its role: a coach who is a member granted the
+   * permission of a tool a member could not otherwise call. Only shipped extensions and an org's
+   * own may declare them.
+   */
+  grantable?: readonly string[];
 }
 
 const EXTENSION = Symbol.for("ops.extension");

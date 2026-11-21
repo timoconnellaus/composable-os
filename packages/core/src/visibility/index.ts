@@ -22,10 +22,16 @@ import { BASE_TABLES, type CoreObjectName, getObject, isCoreObject } from "../fi
 import type { ObjectDefinition } from "../fields/types.ts";
 import { type Principal, staffPrincipal } from "../principals.ts";
 import { type CustomerScope, customerObject, customerScope, unknownObject } from "./customer.ts";
-import { type PublicScope, publicObject, publicScope } from "./public.ts";
+import {
+  type Condition,
+  type PublicScope,
+  publicObject,
+  publicScope,
+  signedInScope,
+} from "./public.ts";
 
 export { type CustomerScope, customerProblems } from "./customer.ts";
-export { type PublicScope, publicProblems } from "./public.ts";
+export { type PublicScope, publicProblems, signedInProblems } from "./public.ts";
 
 /** Who is reading. A handler's context is one. */
 export interface Viewer {
@@ -59,8 +65,14 @@ export function scopeOf(principal: Principal, given: ObjectDefinition): Scope {
     case "staff":
       return { kind: "all" };
     case "customer":
-      // A customer reads at least what the public may: an object declares one or the other.
-      return customerScope(object, principal.personId) ?? publicScope(object) ?? NONE;
+      // Their own records (with any shared beside them), else what every signed-in customer
+      // may read (ADR 0447), else at least what the public may.
+      return (
+        customerScope(object, principal.personId) ??
+        signedInScope(object) ??
+        publicScope(object) ??
+        NONE
+      );
     case "public":
       return publicScope(object) ?? NONE;
     default:
@@ -156,8 +168,24 @@ export function visibleSource(
       // Only the caller's rows, and only the listed columns: a column that is not listed is not
       // in the source at all, so no filter, sort or select can reach it. Registry columns are
       // trusted identifiers (fields/types.ts); the person id is a bound parameter.
-      const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
-      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${sql.ref(scope.column)} = ${scope.personId})`.as(
+      const own = sql`${sql.ref(scope.column)} = ${scope.personId}`;
+      if (!scope.shared) {
+        const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
+        return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${own})`.as(
+          name,
+        );
+      }
+      // With records shared with every signed-in customer (ADR 0447): those too, showing only
+      // the columns `signedIn.read` lists unless the row is also the caller's own.
+      const { shared } = scope;
+      const columns = sql.join(
+        scope.columns.map((column) =>
+          shared.columns.has(column)
+            ? sql.ref(column)
+            : sql`CASE WHEN ${own} THEN ${sql.ref(column)} END AS ${sql.ref(column)}`,
+        ),
+      );
+      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${own} OR ${conditionSql(shared.condition)})`.as(
         name,
       );
     }
@@ -165,19 +193,46 @@ export function visibleSource(
       // Only the records meeting `when`, and only the listed columns. With `via`, the record it
       // points to must meet it: a ticket type while its event is on sale (ADR 0438).
       const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
-      const { condition } = scope;
-      const values = condition ? sql.join(condition.values.map((value) => sql`${value}`)) : null;
-      const where = !condition
-        ? sql`1 = 1`
-        : condition.via
-          ? sql`${sql.ref(condition.column)} IN (SELECT id FROM ${sql.table(condition.via.source)} WHERE ${sql.ref(condition.via.column)} IN (${values}))`
-          : sql`${sql.ref(condition.column)} IN (${values})`;
-      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${where})`.as(
+      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${conditionSql(scope.condition)})`.as(
         name,
       );
     }
     case "none":
       throw unknownObject(definition.name);
+  }
+}
+
+/** A `when` condition as SQL over the object's view: values bound, columns trusted. */
+function conditionSql(condition: Condition | null) {
+  if (!condition) return sql`1 = 1`;
+  const values = sql.join(condition.values.map((value) => sql`${value}`));
+  return condition.via
+    ? sql`${sql.ref(condition.column)} IN (SELECT id FROM ${sql.table(condition.via.source)} WHERE ${sql.ref(condition.via.column)} IN (${values}))`
+    : sql`${sql.ref(condition.column)} IN (${values})`;
+}
+
+/**
+ * The ids of the records of `object` that are the caller's own: for a customer, the rows whose
+ * customer field is their Person, without what is shared with them (ADR 0447); for staff, every
+ * live row. What a customer may change is read from here, never from what they may only read.
+ * Anyone else has none.
+ */
+export function ownedSource(
+  ctx: Viewer,
+  object: ObjectDefinition,
+  alias?: string,
+): VisibleSource<AnyRow, string> {
+  const scope = scopeOf(ctx.principal, object);
+  const name = alias ?? object.source;
+  switch (scope.kind) {
+    case "all":
+      return sql<AnyRow>`${sql.table(object.source)}`.as(name);
+    case "customer":
+      return sql<AnyRow>`(SELECT id FROM ${sql.table(object.source)} WHERE ${sql.ref(scope.column)} = ${scope.personId})`.as(
+        name,
+      );
+    default:
+      throw unknownObject(object.name);
   }
 }
 

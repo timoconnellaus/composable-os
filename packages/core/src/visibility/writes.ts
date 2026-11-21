@@ -9,7 +9,14 @@ import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext, RecordChange } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
 import { unknownObject } from "./customer.ts";
-import { type AnyRow, type Reader, type Scope, scopeOf, visibleSource } from "./index.ts";
+import {
+  type AnyRow,
+  ownedSource,
+  type Reader,
+  type Scope,
+  scopeOf,
+  visibleSource,
+} from "./index.ts";
 
 /** Fields the host sets on a new record. A create may carry them; no one chooses them. */
 const SET_BY_HOST = new Set(["id", "createdAt", "updatedAt", "createdBy"]);
@@ -86,13 +93,14 @@ export async function assertVisibleWrites(
       existing.set(object.name, [...(existing.get(object.name) ?? []), change.id]);
     }
   }
-  // Every record changed must be one the caller can see: one read per object, through door 1.
+  // Every record changed must be the caller's own: one read per object. A record shared with
+  // every signed-in customer (ADR 0447) is read, never changed, by one.
   for (const [name, ids] of existing) {
     const object = getObject(name);
     if (!object) throw unknownObject(name);
     // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
     const rows = (await (ctx.db as any)
-      .selectFrom(visibleSource(ctx, object))
+      .selectFrom(ownedSource(ctx, object))
       .select("id")
       .where("id", "in", jsonList([...new Set(ids)]))
       .execute()) as AnyRow[];
@@ -116,6 +124,7 @@ export interface RecordWriter {
     object: ObjectDefinition,
     id: string,
     values: Record<string, unknown>,
+    options?: { from?: string | undefined },
   ): Promise<boolean>;
 }
 
@@ -173,6 +182,40 @@ function assertSettable(
   }
 }
 
+/**
+ * A customer's write may point a relation only at records the customer can see (ADR 0447): a
+ * log at their own session, or at a class's session shared with them, never at another
+ * customer's. The record code checks a relation against the host's org-wide reader, which sees
+ * everything; this reads through the caller's own. One read per relation field set; an id they
+ * cannot see is answered as one that does not exist.
+ */
+async function assertRelationsVisible(
+  reader: Reader,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<void> {
+  for (const [name, value] of Object.entries(values)) {
+    if (value === null || value === undefined) continue;
+    const field = object.fields.find((f) => f.name === name);
+    const to = field?.fieldType === "relation" ? field.options?.to : undefined;
+    if (!to) continue;
+    const target = getObject(to);
+    const ids = [...new Set(Array.isArray(value) ? value.map(String) : [String(value)])];
+    const missing = (wanted: string) => new NotFoundError(to, wanted);
+    if (!target) throw missing(ids[0] ?? "");
+    if (scopeOf(reader.principal, target).kind === "none") throw missing(ids[0] ?? "");
+    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+    const rows = (await (reader.db as any)
+      .selectFrom(visibleSource(reader, target))
+      .select("id")
+      .where("id", "in", jsonList(ids))
+      .execute()) as AnyRow[];
+    const seen = new Set(rows.map((row) => String(row.id)));
+    const unseen = ids.find((id) => !seen.has(id));
+    if (unseen !== undefined) throw missing(unseen);
+  }
+}
+
 /** Runs `write` and marks every change it recorded as one the seam checked. */
 async function recording<T>(
   writer: SeamWriter,
@@ -205,6 +248,7 @@ export async function createVisible(
   if (isCoreObject(object.name) || !recordWriter) {
     throw new ForbiddenError(`A customer cannot create a ${object.name}`);
   }
+  await assertRelationsVisible(writer.reader, object, values);
   const owned = { ...values, [scope.declaration.field]: scope.personId };
   const create = recordWriter.create;
   return { id: await recording(writer, (host) => create(host, object, owned)) };
@@ -216,20 +260,25 @@ export async function updateVisible(
   name: string,
   id: string,
   values: Record<string, unknown>,
+  options: { from?: string | undefined } = {},
 ): Promise<void> {
   const { object, scope } = customerScopeFor(writer, name);
   assertSettable(writer, object, scope, values);
-  // The record must be one the seam shows the caller: otherwise it is not there.
+  // The record must be the caller's own: otherwise it is not there. One shared with them is
+  // theirs to read only (ADR 0447).
   // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
   const row = await (writer.reader.db as any)
-    .selectFrom(visibleSource(writer.reader, object))
+    .selectFrom(ownedSource(writer.reader, object))
     .select("id")
     .where("id", "=", id)
     .executeTakeFirst();
   if (!row) throw new NotFoundError(object.name, id);
+  await assertRelationsVisible(writer.reader, object, values);
   const update =
     coreWriters.get(object.name)?.update ??
     (isCoreObject(object.name) ? null : recordWriter?.update);
   if (!update) throw new OperationError("internal", `No writer for ${object.name}`);
-  await recording(writer, (host) => update(host, object, id, values));
+  // `from` is passed by the tool and judged by the record code: a move made from a current read.
+  const from = options.from === undefined ? {} : { from: options.from };
+  await recording(writer, (host) => update(host, object, id, values, from));
 }

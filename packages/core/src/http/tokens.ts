@@ -197,26 +197,6 @@ export async function refreshDeviceSession(
   };
 }
 
-/**
- * Ends the session a refresh token belongs to (`POST /api/v1/auth/sign-out`, ADR 0451): signing
- * out needs no operation, so a pack role, which may call nothing else, can still sign out. Only
- * the session's current refresh token ends it; any other answers as if it had (nothing to say).
- */
-export async function endDeviceSessionByRefreshToken(
-  db: CrmDb,
-  refreshToken: string,
-): Promise<{ ended: boolean }> {
-  const sessionId = sessionIdOf(refreshToken);
-  if (!sessionId) return { ended: false };
-  const removed = await db.query
-    .deleteFrom("core_device_session")
-    .where("id", "=", sessionId)
-    .where("refresh_hash", "=", await tokenHash(refreshToken))
-    .returning("id")
-    .executeTakeFirst();
-  return { ended: Boolean(removed) };
-}
-
 /** Who an access token is for, or a refusal saying why it is not accepted. */
 export async function resolveAccessToken(
   db: CrmDb,

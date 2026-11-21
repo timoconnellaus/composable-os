@@ -93,19 +93,6 @@ export function tokenSession(options: TokenSessionOptions) {
       await options.store.save(tokens);
       return tokens;
     },
-    /**
-     * Exchanges a staff sign-in made in the system browser for tokens (ADR 0451): the code the
-     * host sent to the app's redirect, the PKCE verifier only the app holds, and that redirect.
-     */
-    async exchangeCode(input: {
-      code: string;
-      codeVerifier: string;
-      redirectUri: string;
-    }): Promise<Tokens> {
-      const tokens = await post(fetcher, `${base}/api/v1/auth/token`, input);
-      await options.store.save(tokens);
-      return tokens;
-    },
     /** The headers for a call: a current access token, refreshed first when it is about to end. */
     async headers(): Promise<Record<string, string>> {
       let tokens = await options.store.load();

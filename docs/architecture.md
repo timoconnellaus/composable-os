@@ -963,9 +963,9 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
 Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).
 
 The rules products share, declared in a manifest and enforced by the host in the write's own batch.
-`stages`, `states`, `capacity` and `sellable` exist. `publishable`, `recurring` and `allowance`
-are added as stages need them. Behaviours stack: an event is publishable, sellable and has a
-capacity.
+`stages`, `states`, `capacity` and `sellable` exist, and `publishable` without its public half.
+`recurring` and `allowance` are added as stages need them. Behaviours stack: an event is
+publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
 ([ADR 0425](adr/0425-one-transition-engine-for-stages-and-states.md),
@@ -1012,6 +1012,38 @@ with no customer of its own. The public reach it only through a pack's tool, whi
 tool-only `public.list` and `public.get`. `capacity.get` and `order.start` answer outsiders only
 for records their scope shows them. Stage 28's `publishable` is another kind of condition.
 
+**The signed-in scope** ([ADR 0447](adr/0447-the-signed-in-scope.md)). `signedIn: { read, when? }`
+has the public scope's shape and is read by every signed-in customer, never the public. Beside a
+`customer` declaration it shares records (`WHERE <customer> = :me OR <when>`, fields only the
+customer reads of their own empty on a shared row); alone it opens records to read. `my.list` and
+`my.get` read it. A customer changes only their own records (`ownedSource`), and a relation their
+write sets must point at a record they can see. `my.update` takes `from`.
+
+**The document field** ([ADR 0445](adr/0445-the-document-field.md),
+`packages/sdk/src/document.ts`). A field type whose value is one JSON document checked against a
+schema the field declares (objects, lists, text, numbers, choices, refs, tagged unions, named
+definitions), in the field type's own validation, so for every actor, the import and the dry run;
+a fault is refused with its path, a size limit is checked first, refs must name live records.
+Declared paths are read-only columns of the `rec_*` view. `private` object nodes are removed at the
+seam from what customers and the public read. Stage 28's `richText` is one fixed schema of it.
+
+**`publishable`, the half without a public**
+([ADR 0446](adr/0446-publishable-without-its-public-half.md),
+`packages/core/src/operations/record-versions.ts`). `publishable: { content }`: the record is the
+working copy; `record.publish` (`records:publish`, admins by default, a person only, never an AI
+actor) snapshots the content fields as the next version in `core_publish_version` (migration 0470)
+and makes it current; `record.versions`, `record.version` and `record.restoreVersion` read and
+restore. Records get read-only `publishedVersion` and `publishedAt`. Stage 28 adds public reads of
+the current version, states, scheduling, slugs and preview. `record.createMany` writes up to 50
+records of one object in one batch, at 4 statements a record for an object with states (ADR 0448).
+
+**Programs** (`packs/programs`, stage 41, steps 1 to 3; [ADR 0448](adr/0448-programs-the-layout-assignments-and-the-log.md)):
+an exercise bank, programs whose layout is one document (weeks, sessions, blocks, items, levels,
+typed sets, notes for coaches or members), versions, class types, assignments to a person or a
+class type that pin a version and make dated sessions carrying their own plans, and a log of every
+set against its target. Its tools compose the host's operations: `assign`, `today`, `sessionGet`,
+`classToday`, `logAdd`, `logUpdate`, `sessionComplete`, `history`, `progress`.
+
 **Ticketing** (`packs/ticketing`, stage 27) is the first pack that is not about a CRM: events,
 ticket types and tickets, built from these behaviours alone, with tools that compose the host's
 operations (`eventsOnSale`, `orderStart`, `myTickets`, `salesSummary`, `checkIn`, `undoCheckIn`)
@@ -1027,6 +1059,13 @@ every staff call and refuses any other operation before its input is parsed, and
 own role grants nothing. Ticketing's door role checks tickets in and reads events, ticket types
 and tickets. Stage 14a's roles and teams extend this check rather than add another. Tools learn
 who started them from the host (`ctx.caller`), to record who checked a ticket in.
+
+**Permission grants** ([ADR 0449](adr/0449-permissions-granted-one-by-one.md)). A human admin
+grants a staff account named permissions on top of its role (`user.setPermissions`,
+`core_user.granted_permissions`, migration 0471): `records:publish`, `orders:refund`, and pack
+tool permissions a pack declares `grantable`. Read in the pack role's statement on every call;
+additive to the role, replaced by a pack role, and judged beside an operation's `actors`, so a
+grant never lets an AI actor publish.
 
 ### Orders
 
@@ -1089,8 +1128,11 @@ there. Blocks hold no rules.
 
 As built (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
 [0424](adr/0424-blocks-as-built.md)): a pack is `packs/<id>/` (the extension, `client/` hooks,
-`blocks/`), published as `@composable-os/pack-<id>`; a product's release has the packs it lists, and
-a deployment installs those `COS_PACKS` names. A block is a folder with a `block.json` (pack,
+`blocks/`), published as `@composable-os/pack-<id>`; a release carries every pack in the repository
+(its runner bundles them, its client kit lists them in `packs.json`), and a deployment installs the
+ones `COS_PACKS` names (`*`: the release product's own). A named pack the release does not carry is
+a loud failure, never dropped (ADR 0420 as amended). The API contract files are the union over the
+carried packs, each tool named with its `pack`; a deployment serves `forPacks(file, installed)`. A block is a folder with a `block.json` (pack,
 skin, operations, files, dependsOn, packages) in `blocks/` or `packs/<id>/blocks/`, MIT, shipped
 in the release's client kit and copied with `cos add`. The web base layer (`blocks/ui-*`) is
 generated from `packages/ui` (Radix underneath); the native base layer is `blocks/native-base`;
@@ -1102,6 +1144,7 @@ calculates a price, checks a capacity or checks a permission.
 | Deals | `stages` | exists |
 | Leads, lifecycle | fields, tools | exists |
 | Ticketing | `states`, `capacity`, `sellable`, `customer`, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
+| Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: the spine (objects, layout, versions, assign, logging, history, progress) built |
 | Content | `publishable`, rich text, media | stage 28 |
 | Bookings, memberships | `recurring`, `allowance`, recurring billing | later |
 
@@ -1129,6 +1172,13 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   no approval); then the built web app with its one binding. A first install names the host
   for the client's product through the deployment state's name maps and sets its label
   (`COS_PRODUCT_LABEL`), with the verified release unchanged (ADR 0422 amended, issue #155).
+  It checks the product's packs against the release's `packs.json` only, sets
+  `CUSTOMER_AUTH_URL` to the web app's origin and makes `CUSTOMER_AUTH_SECRET` once, and installs
+  the gatekeepers `product.ts` names with their settings
+  ([ADR 0452](adr/0452-gatekeeper-settings-in-product-ts.md)).
+- **Environments** ([ADR 0450](adr/0450-client-environments.md)): `product.ts` may declare
+  several deployments (`staging`, `live`), each its own host in the same account (`<id>-staging-app`;
+  `live` keeps `<id>-app`), deployed with `cos deploy --env <name>`.
 - **The template** (`templates/client`): `apps/web` (TanStack Start, `src/host.ts` framework-free)
   and `apps/mobile` (Expo, `--with-mobile`; its `src/host.ts` signs in and keeps a device session).
 - **npm** ([ADR 0423](adr/0423-npm-packages-from-the-release-commit.md)): client, sdk, product,

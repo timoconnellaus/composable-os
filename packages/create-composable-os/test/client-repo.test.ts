@@ -71,8 +71,14 @@ beforeEach(async () => {
 });
 afterEach(() => world.server.close());
 
-async function publish(version: string, change?: (files: Record<string, string>) => void) {
-  await world.github.publish(await buildFixtureRelease({ version, client: kit(change) }));
+async function publish(
+  version: string,
+  change?: (files: Record<string, string>) => void,
+  options: { clientGatekeepers?: boolean } = {},
+) {
+  await world.github.publish(
+    await buildFixtureRelease({ version, client: kit(change), ...options }),
+  );
 }
 
 /** A created repo with a stand-in build of its web app (vite is not run in these tests). */
@@ -444,6 +450,92 @@ describe("environments (ADR 0450)", () => {
     const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
     expect(deployed.code, deployed.output).toBe(0);
     expect(world.cf.scripts.has("shop-app")).toBe(true);
+  });
+});
+
+describe("gatekeeper settings per environment (ADR 0452)", () => {
+  const settings = {
+    staging: {
+      live: false,
+      hostname: "admin.staging.shop.example",
+      gatekeepers: {
+        "email-send": {
+          ALLOWED_SENDER_DOMAINS: "staging.shop.example",
+          sendEmail: { allowedSenderAddresses: ["tickets@staging.shop.example"] },
+        },
+        payments: { PAYMENTS_FAKE_PROVIDER: true },
+      },
+    },
+    live: {
+      gatekeepers: {
+        "email-send": { ALLOWED_SENDER_DOMAINS: "shop.example", INTERNAL_DOMAINS: "shop.example" },
+        payments: { STRIPE_ACCOUNT: "acct_123" },
+      },
+    },
+  };
+
+  it("installs each environment's gatekeepers with its settings, and says which secrets a person sets", async () => {
+    await publish("1.0.0", undefined, { clientGatekeepers: true });
+    const dir = await created();
+    setEnvironments(dir, settings);
+    const staging = await cos("deploy", "--env", "staging", "--skip-build", "--no-typecheck");
+    expect(staging.code, staging.output).toBe(0);
+    expect(
+      world.cf.liveBinding("shop-staging-gatekeeper-email-send", "ALLOWED_SENDER_DOMAINS")?.text,
+    ).toBe("staging.shop.example");
+    expect(world.cf.liveBinding("shop-staging-gatekeeper-email-send", "EMAIL")).toMatchObject({
+      type: "send_email",
+      allowed_sender_addresses: ["tickets@staging.shop.example"],
+    });
+    expect(
+      world.cf.liveBinding("shop-staging-gatekeeper-payments", "PAYMENTS_FAKE_PROVIDER")?.text,
+    ).toBe("true");
+    // Derived, never typed: the webhook address on this environment's own host.
+    expect(world.cf.liveBinding("shop-staging-gatekeeper-payments", "BASE_URL")?.text).toBe(
+      "https://admin.staging.shop.example/gatekeeper/payments",
+    );
+    expect(staging.output).toContain(
+      "npx wrangler secret put STRIPE_SECRET_KEY --name shop-staging-gatekeeper-payments",
+    );
+
+    const live = await cos("deploy", "--env", "live", "--skip-build", "--no-typecheck");
+    expect(live.code, live.output).toBe(0);
+    expect(world.cf.liveBinding("shop-gatekeeper-payments", "STRIPE_ACCOUNT")?.text).toBe(
+      "acct_123",
+    );
+    expect(world.cf.liveBinding("shop-gatekeeper-payments", "PAYMENTS_FAKE_PROVIDER")?.text).toBe(
+      "false",
+    );
+    expect(world.cf.liveBinding("shop-gatekeeper-email-send", "INTERNAL_DOMAINS")?.text).toBe(
+      "shop.example",
+    );
+  });
+
+  it("refuses, before any call, a secret in product.ts, a setting the gatekeeper does not take, and the fake provider on live", async () => {
+    await publish("1.0.0", undefined, { clientGatekeepers: true });
+    const dir = await created();
+    const original = read(dir, "product.ts");
+    const attempt = async (environments: Record<string, unknown>) => {
+      writeFileSync(join(dir, "product.ts"), original);
+      setEnvironments(dir, environments);
+      world.cf.calls.length = 0;
+      const out = await cos("deploy", "--env", "live", "--skip-build", "--no-typecheck");
+      expect(out.code).toBe(1);
+      expect(world.cf.calls).toEqual([]);
+      return out.output;
+    };
+    expect(
+      await attempt({ live: { gatekeepers: { payments: { STRIPE_SECRET_KEY: "x" } } } }),
+    ).toContain("STRIPE_SECRET_KEY is a secret of payments: it never goes in product.ts");
+    expect(await attempt({ live: { gatekeepers: { payments: { COLOUR: "red" } } } })).toContain(
+      "payments takes no setting COLOUR. It takes: PAYMENTS_FAKE_PROVIDER, STRIPE_ACCOUNT",
+    );
+    expect(
+      await attempt({ live: { gatekeepers: { payments: { PAYMENTS_FAKE_PROVIDER: true } } } }),
+    ).toContain("is live and turns on the fake payment provider");
+    expect(await attempt({ live: { gatekeepers: { sms: {} } } })).toContain(
+      "names the gatekeeper sms, which this release does not have",
+    );
   });
 });
 

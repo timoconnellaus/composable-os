@@ -28,13 +28,11 @@ import {
 } from "@composable-os/auth";
 import {
   type AnyInvocationContext,
-  API_PREFIX,
   type CustomerPrincipal,
   coreInvoker,
   createHttpSurface,
   customerCodeTarget,
   dataReply,
-  endDeviceSessionByRefreshToken,
   errorReply,
   ForbiddenError,
   type HttpReply,
@@ -63,9 +61,8 @@ import {
   staffContext,
 } from "../operations.ts";
 import { type SupportEnv, supportPrincipal } from "../support.ts";
-import { APP_LINK_ROUTE, type AppLinkEnv, exchangeAppLinkCode, handleAppLink } from "./app-link.ts";
 
-export interface ApiEnv extends OperationsEnv, IdentityEnv, CustomerIdentityEnv, AppLinkEnv {
+export interface ApiEnv extends OperationsEnv, IdentityEnv, CustomerIdentityEnv {
   COS_SUPPORT_PUBLIC_KEY?: string;
   /** Origins a browser may call the API from, comma separated (a client app's site). */
   API_ALLOWED_ORIGINS?: string;
@@ -228,35 +225,23 @@ async function body(request: Request): Promise<Record<string, unknown>> {
 
 /**
  * `/auth/token`: exchanges the sign-in the request carries (a staff or customer cookie session)
- * for a native app's tokens. `/auth/refresh`: rotates them. `/auth/sign-out`: ends the session
- * a refresh token belongs to (ADR 0451), for any caller, a pack role's included. None takes a
- * bearer token.
+ * for a native app's tokens. `/auth/refresh`: rotates them. Neither takes a bearer token.
  */
 async function authRoutes(route: string, request: Request, env: ApiEnv): Promise<HttpReply | null> {
-  if (route !== "/auth/token" && route !== "/auth/refresh" && route !== "/auth/sign-out") {
-    return null;
-  }
+  if (route !== "/auth/token" && route !== "/auth/refresh") return null;
   try {
     const input = await body(request);
     const db = createCrmDb(env.DB);
     const now = new Date();
-    if (route === "/auth/refresh" || route === "/auth/sign-out") {
+    if (route === "/auth/refresh") {
       const refreshToken = input.refreshToken;
       if (typeof refreshToken !== "string" || refreshToken.length > 300) {
         throw new ValidationError("refreshToken is required", { field: "refreshToken" });
-      }
-      if (route === "/auth/sign-out") {
-        return dataReply(await endDeviceSessionByRefreshToken(db, refreshToken));
       }
       return dataReply(await refreshDeviceSession(db, refreshToken, now));
     }
     if (request.headers.get("authorization")) {
       throw new ValidationError("Exchange a sign-in, not a token: send the session cookie");
-    }
-    // A staff member's sign-in in the system browser, for a mobile app (ADR 0451): the code the
-    // browser handed the app, with the PKCE verifier only the app holds. No cookie is read.
-    if (input.code !== undefined) {
-      return dataReply(await exchangeAppLinkCode(env, db, input, now));
     }
     const deviceName = deviceNameSchema(input.deviceName);
     const staff = await staffSession(request, env);
@@ -296,13 +281,6 @@ const surfaces = new WeakMap<object, ReturnType<typeof createHttpSurface>>();
 
 /** Serves `/api/v<n>/*`; null for any other path. */
 export function handleApi(request: Request, env: ApiEnv): Promise<Response | null> {
-  if (new URL(request.url).pathname === `${API_PREFIX}${APP_LINK_ROUTE}`) {
-    return handleAppLink(request, env, {
-      staff: (req) => staffSession(req, env),
-      user: (principal) => resolveActingUser(createCrmDb(env.DB), principal),
-      signInPath: createIdentityProvider(env).signInPath,
-    });
-  }
   let surface = surfaces.get(env);
   if (!surface) {
     surface = createHttpSurface({

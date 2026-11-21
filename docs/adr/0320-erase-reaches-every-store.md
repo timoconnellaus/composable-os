@@ -198,3 +198,11 @@ in facet storage only vendored code can read, and `packages/gatekeeper-*`, `gate
 > term or the full name in a line's text, condition or team history. A single given name alone is
 > not matched. The thread a line was said in is scrubbed too, even if its turn looked up no record.
 > `person.erase` and `organisation.erase` report `memoryLinesDeleted`.
+
+## Amendment, 2026-11-21 (stage 41, ADR 0448)
+A document field (ADR 0445) is scrubbed like a text field, inside: every string that is the
+subject's address, phone or id becomes `[erased]` and others lose their terms (and names, on a
+row about them), keeping the document's shape (`scrubDocument`). Published versions
+(`core_publish_version`, ADR 0446) that mention a term are scrubbed the same way. Programs' logged
+sets are deleted with their person; assignments and sessions are kept with no person. See
+[ADR 0448](0448-programs-the-layout-assignments-and-the-log.md).

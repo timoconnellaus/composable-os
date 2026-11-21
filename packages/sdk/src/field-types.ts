@@ -21,6 +21,8 @@ export const FIELD_TYPES = [
   "phone",
   "url",
   "formula",
+  // A JSON document checked against a schema the field declares (stage 41, ADR 0445).
+  "document",
 ] as const;
 export type FieldTypeName = (typeof FIELD_TYPES)[number];
 
@@ -52,6 +54,7 @@ export function formulaTypeOf(
       return "datetime";
     case "multiSelect":
     case "formula":
+    case "document":
       return null;
   }
 }
@@ -77,6 +80,7 @@ export const LOSSLESS_TYPE_CHANGES: Readonly<Record<FieldTypeName, readonly Fiel
   phone: ["text", "longText"],
   url: ["text", "longText"],
   formula: [],
+  document: [],
 };
 
 export function isLosslessChange(from: FieldTypeName, to: FieldTypeName): boolean {
