@@ -61,6 +61,8 @@ export const ID_PREFIXES = {
   eraseRequest: "erq",
   /** A native app's signed-in session on the HTTP surface (stage 23, ADR 0419). */
   deviceSession: "dvs",
+  /** Places claimed from a record's capacity (stage 26, ADR 0430). */
+  capacityClaim: "clm",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

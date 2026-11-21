@@ -935,6 +935,37 @@ export interface CoreEraseRequestTable {
 }
 export type EraseRequestStatus = "open" | "erased" | "declined";
 
+/** Migration 0440 (stage 26, ADR 0430): a record's capacity counter. */
+export interface CoreCapacityTable {
+  object_type: string;
+  record_id: string;
+  /** Null: unlimited. */
+  places: Defaulted<number | null>;
+  held: Defaulted<number>;
+  taken: Defaulted<number>;
+  pool_object_type: Defaulted<string | null>;
+  pool_record_id: Defaulted<string | null>;
+  updated_at: string;
+}
+
+/** Migration 0440: places claimed from a counter (and its pool) for an order line or booking. */
+export interface CoreCapacityClaimTable {
+  id: string;
+  object_type: string;
+  record_id: string;
+  pool_object_type: Defaulted<string | null>;
+  pool_record_id: Defaulted<string | null>;
+  quantity: number;
+  state: Defaulted<CapacityClaimState>;
+  for_type: string;
+  for_id: string;
+  created_at: string;
+  updated_at: string;
+  confirmed_at: Defaulted<string | null>;
+  released_at: Defaulted<string | null>;
+}
+export type CapacityClaimState = "held" | "confirmed" | "released";
+
 /** Migration 0310 (ADR 0246): an assignment rule, ordered per object. */
 export interface CoreAssignmentRuleTable {
   id: string;
@@ -1722,6 +1753,8 @@ export interface CoreDatabase {
   core_idempotency_key: CoreIdempotencyKeyTable;
   core_idempotency_claim: CoreIdempotencyClaimTable;
   core_device_session: CoreDeviceSessionTable;
+  core_capacity: CoreCapacityTable;
+  core_capacity_claim: CoreCapacityClaimTable;
   rec_stage_history: CrmStageHistoryView;
   rec_state_history: RecStateHistoryView;
   rec_user: CrmUsersView;

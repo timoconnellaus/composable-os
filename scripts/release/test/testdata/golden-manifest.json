@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 420,
+  "coreSchemaVersion": 441,
   "extensionContract": {
     "supported": [
       1
@@ -416,6 +416,14 @@
     {
       "name": "0420_transition_history.sql",
       "sha256": "aa9df11dd345c7c61b992fc9af5a5a4612f04025a703379be4d8d302f4f86c7e"
+    },
+    {
+      "name": "0440_capacity.sql",
+      "sha256": "d89c897cfd3dbeac491dae659842c6b40d1e4464924c883087404310266b9963"
+    },
+    {
+      "name": "0441_capacity_views.sql",
+      "sha256": "ff5c75be1cdc48701bdd2fafd63d1ca8b30e0dd25aef9484364424e67e5ef9b3"
     }
   ],
   "product": "crm",
