@@ -16,7 +16,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import { type AliasedRawBuilder, type Kysely, sql } from "kysely";
 import { ident } from "../extensions/naming.ts";
 import { objectTableOf } from "../extensions/schema.ts";
-import { type CoreObjectName, getObject, isCoreObject } from "../fields/index.ts";
+import { BASE_TABLES, type CoreObjectName, getObject, isCoreObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { type Principal, staffPrincipal } from "../principals.ts";
 import { type CustomerScope, customerObject, customerScope, unknownObject } from "./customer.ts";
@@ -182,7 +182,9 @@ export function visibleTable(
   const definition = resolve(object);
   const table = isCoreObject(definition.name)
     ? CORE_SOURCES[definition.name].table
-    : objectTableOf(definition.name);
+    : Object.hasOwn(BASE_TABLES, definition.name)
+      ? BASE_TABLES[definition.name as keyof typeof BASE_TABLES]
+      : objectTableOf(definition.name);
   if (!table) throw new Error(`${definition.name} has no record table`);
   const scope = scopeOf(ctx.principal, definition);
   switch (scope.kind) {

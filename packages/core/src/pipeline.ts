@@ -98,6 +98,7 @@ import type { RateLimitBinding } from "./rate-limit.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { loadApprovalPolicy } from "./settings.ts";
 import type { UpdaterRuntime } from "./updates.ts";
+import { SYSTEM_USER } from "./users.ts";
 import { orgReader } from "./visibility/index.ts";
 import { recordAccess } from "./visibility/records.ts";
 import {
@@ -729,7 +730,15 @@ async function invokeOnce<O extends AnyOperation>(
     postActivity: (activity) => {
       const id = newId("activity");
       activities.push(
-        ...activityStatements(ctx.db, { userId: ctx.user.id, actor: ctx.actor }, now, id, activity),
+        // The system user is not a core_user row (users.ts): its posts have no author (stage 25:
+        // an order paid or expired by the host posts on the buyer's timeline).
+        ...activityStatements(
+          ctx.db,
+          { userId: ctx.user.id === SYSTEM_USER.id ? null : ctx.user.id, actor: ctx.actor },
+          now,
+          id,
+          activity,
+        ),
       );
       return id;
     },
@@ -1323,6 +1332,11 @@ export interface OutsideInvocationContext {
    * account and per operation (customers/limits.ts). Absent: not limited here.
    */
   rateLimit?: RateLimitBinding;
+  /**
+   * The integration host, given only to a `hostInternal` core operation's handler (stage 25,
+   * ADR 0429: `order.checkout` opens the payment provider's page for a buyer).
+   */
+  integrations?: IntegrationRuntime;
   /** As for staff calls: the adapter's statements in the call's own batch (ADR 0416). */
   inBatch?: InBatch | undefined;
   /** Never set: these make a context a staff one. */
@@ -1392,8 +1406,16 @@ function outsideError(error: unknown): OperationError {
     console.error("outside call failed", error.message);
     return internal();
   }
-  console.error("outside call failed", errorForLog(error));
   const typed = toOperationError(error);
+  // Sold out (stage 26, a claim the database refused as an order commits): the buyer is told
+  // there are not enough places, and no more than that (ADR 0433 decides what numbers to show).
+  if (
+    typed.code === "invalid_input" &&
+    (typed.details as { rule?: unknown })?.rule === "capacity"
+  ) {
+    return new ValidationError("There are not enough places left", { rule: "capacity" });
+  }
+  console.error("outside call failed", errorForLog(error));
   if (typed.code === "conflict")
     return new ConflictError("A record with that value already exists");
   if (typed.code === "invalid_input") return new ValidationError("A value is not allowed");
@@ -1538,6 +1560,8 @@ async function invokeOutside<O extends AnyOperation>(
     user: { id: subjectId ?? "public", email: "", name: actor, role: "viewer" },
     // The host's own reads while it writes (the row before, a relation's target) are org-wide.
     principal: orgReader(ctx.db.query).principal,
+    // Who the write is really for: the lifecycle engine names them as the mover (ADR 0426).
+    onBehalfOf: principal,
     origin,
     now,
     auditId,
@@ -1585,10 +1609,26 @@ async function invokeOutside<O extends AnyOperation>(
   // back through this same path).
   const hostTool = isHostTool(op);
   const hostInternal = (op.hostInternal === true && !op.name.startsWith("x.")) || hostTool;
+  // What a core bookkeeping operation records with `recordHostChange` is the host's own change
+  // (ADR 0428): the seam does not judge it against the caller's scope. What it records with
+  // `recordChange` is still checked in full. Never a tool's: a tool starter gets neither, and
+  // what the tool's code then writes comes back through this path as the caller's.
+  const madeByHost = new Set<RecordChange>();
   const handlerCtx: HandlerContext = hostInternal
     ? {
         ...pick(host),
+        ...(op.hostInternal === true && !op.name.startsWith("x.")
+          ? {
+              recordHostChange: (change: RecordChange) => {
+                madeByHost.add(change);
+                host.recordChange(change);
+              },
+            }
+          : {}),
         ...(hostTool && ctx.extensionHost ? { extensionHost: ctx.extensionHost } : {}),
+        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.integrations
+          ? { integrations: ctx.integrations }
+          : {}),
         get actor() {
           return staffOnly("actor");
         },
@@ -1641,7 +1681,7 @@ async function invokeOutside<O extends AnyOperation>(
       throw new OperationError("internal", `${op.name} is a read but queued writes`);
     }
     // The seam has the last word on every record the call would change.
-    await assertVisibleWrites(reader, changes, checkedBySeam);
+    await assertVisibleWrites(reader, changes, checkedBySeam, madeByHost);
   } catch (error) {
     return fail(error);
   }

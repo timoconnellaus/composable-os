@@ -15,16 +15,19 @@
 import { DurableObject, RpcTarget } from "cloudflare:workers";
 import {
   type ActingUser,
+  applyStoredPaymentEvent,
   type BoundResource,
   type ConnectRedeemed,
   type ConnectStart,
   catalogueEntry,
+  errorForLog,
   type IntegrationCaller,
   type IntegrationCallResult,
   invokeByName,
   ROLES,
   type Role,
   recordIntegrationEvents,
+  recordPaymentEvent,
   revokeBindings,
   SYNC_BATCH_MAX,
   SYSTEM_USER,
@@ -35,6 +38,7 @@ import {
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { runnerJudge } from "../extensions/ai.ts";
+import { paymentEventDeps } from "./payments.ts";
 import { HostQueue, type QueueCaller, type QueueHost } from "./queue.ts";
 import { adapterFor, type SyncKind } from "./sync.ts";
 
@@ -88,7 +92,7 @@ interface FacetRecord {
 interface HookRecord {
   id: string;
   facetKey: string;
-  purpose: "sync" | "webhook" | "agent";
+  purpose: "sync" | "webhook" | "payments" | "agent";
   title: string;
   description: string;
   enabled: boolean;
@@ -232,6 +236,36 @@ class WebhookSink extends RpcTarget {
         occurredAt: event?.receivedAt ?? new Date().toISOString(),
       },
     ]);
+  }
+}
+
+/**
+ * Verified payment events (stage 25, ADR 0429): stored as the provider's word, then applied to
+ * their orders through order.applyPaymentEvent. Storing is what this delivery must get done (the
+ * gatekeeper retries until it does); applying is retried here on a stale order and by the minute
+ * cron, so a failure to apply never loses the event.
+ */
+export class PaymentSink extends RpcTarget {
+  readonly #env: Env;
+  readonly #connectionId: string;
+  constructor(env: Env, connectionId: string) {
+    super();
+    this.#env = env;
+    this.#connectionId = connectionId;
+  }
+  async receiveEvent(event: unknown): Promise<void> {
+    const crm = createCrmDb(this.#env.DB);
+    const key = await recordPaymentEvent(crm, event, this.#connectionId, new Date().toISOString());
+    if (!key) {
+      console.warn("payments: a delivered event was not one this host understands");
+      return;
+    }
+    try {
+      await applyStoredPaymentEvent(paymentEventDeps(this.#env), key);
+    } catch (error) {
+      // Stored: the minute cron applies it.
+      console.error("payments: event stored, not yet applied", key.eventId, errorForLog(error));
+    }
   }
 }
 
@@ -611,6 +645,14 @@ export class IntegrationHost extends DurableObject<Env> {
       vendor,
     };
     await this.ctx.storage.put(`facet:${key}`, record);
+    // A payment account delivers its verified events to the host from the moment it is bound.
+    if (meta.vendor === "payments") {
+      await this.#withSession(
+        key,
+        { kind: "system", purpose: "payments", user: await loadUser(this.env, meta.ownerUserId) },
+        (s) => s.subscribe(new PaymentSink(this.env, meta.connectionId)),
+      );
+    }
     // A webhook endpoint delivers into the CRM's event log from the moment it is bound.
     if (meta.vendor === "webhook") {
       await this.#withSession(
@@ -782,6 +824,32 @@ export class IntegrationHost extends DurableObject<Env> {
     return { value, pending: queue.pending, applied: queue.applied };
   }
 
+  /**
+   * A session call the host makes for itself (stage 25, ADR 0429): an order's checkout and its
+   * confirmation email. Only platform code reaches it (`IntegrationRuntime.callAsHost`); an
+   * outbound action it submits is the host's own message. Org connections only.
+   */
+  async callAsHost(input: {
+    resource: string;
+    method: string;
+    args: unknown[];
+    purpose: "orders";
+  }): Promise<IntegrationCallResult> {
+    const meta = await this.#meta();
+    if (meta.scope !== "org") throw new Error("The host uses org connections only");
+    if (input.purpose !== "orders") throw new Error("Not a purpose the host calls for");
+    if (!/^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(input.method) || input.method === "constructor") {
+      throw new Error("Not a session method");
+    }
+    const user = await loadUser(this.env, meta.ownerUserId);
+    const { value, queue } = await this.#withSession(
+      input.resource,
+      { kind: "system", purpose: "orders", user },
+      async (session) => toJson(await session[input.method](...input.args)),
+    );
+    return { value, pending: queue.pending, applied: queue.applied };
+  }
+
   /** A session stub for code (Code Mode, extension tools) acting as `caller`. */
   async openSession(input: { resource: string; caller: IntegrationCaller }): Promise<Stub> {
     const meta = await this.#meta();
@@ -816,7 +884,7 @@ export class IntegrationHost extends DurableObject<Env> {
   async #enableHook(
     id: string,
     facetKey: string,
-    purpose: "sync" | "webhook",
+    purpose: "sync" | "webhook" | "payments",
     d: { title: string; description: string },
   ): Promise<void> {
     const meta = await this.#meta();
@@ -842,12 +910,15 @@ export class IntegrationHost extends DurableObject<Env> {
     if (!hook?.enabled) throw new Error("This hook is no longer enabled");
     const { record } = await this.#facetFor(hook.facetKey);
     const user = await loadUser(this.env, meta.ownerUserId);
-    const purpose = hook.purpose === "webhook" ? "webhook" : "sync";
+    const purpose =
+      hook.purpose === "webhook" || hook.purpose === "payments" ? hook.purpose : "sync";
     const queue = new HostQueue(this.#queueHost(meta, record), { kind: "system", purpose, user });
     const callback =
       hook.purpose === "webhook"
         ? new WebhookSink(this.env, meta.connectionId)
-        : new SyncHookTarget(() => this.syncSoon());
+        : hook.purpose === "payments"
+          ? new PaymentSink(this.env, meta.connectionId)
+          : new SyncHookTarget(() => this.syncSoon());
     return { callback, approvalQueue: queue };
   }
 

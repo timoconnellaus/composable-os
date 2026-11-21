@@ -19,6 +19,7 @@ import {
   purgeRunHistory,
   queueEventSink,
   runAuditPurge,
+  runOrderNotices,
   runTrashPurge,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
@@ -109,6 +110,8 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
   const eraseRequests = await step("overdue erase requests", () =>
     notifyOverdueEraseRequests(db, clock?.() ?? new Date()),
   );
+  // Orders (stage 25, ADR 0429): late payments undecided and balances past due, told daily.
+  const orders = await step("order notices", () => runOrderNotices(db, now));
   return {
     purge,
     expired,
@@ -120,6 +123,7 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
     notifications,
     cacheReview,
     eraseRequests,
+    orders,
     idempotencyKeys,
   };
 }

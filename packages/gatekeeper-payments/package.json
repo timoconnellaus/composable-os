@@ -1,0 +1,31 @@
+{
+  "name": "@composable-os/gatekeeper-payments",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "description": "Gatekeeper Worker for payments: opens the provider's hosted checkout, submits refunds as approval-queue actions and delivers verified payment events to a bound hook.",
+  "type": "module",
+  "main": "./src/worker.ts",
+  "exports": {
+    ".": "./src/worker.ts",
+    "./types": "./src/types.d.ts"
+  },
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "types": "wrangler types",
+    "typecheck": "wrangler types --check && tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/gatekeeper-configurator-ui": "workspace:*",
+    "@composable-os/gatekeeper-interface": "workspace:*",
+    "@composable-os/gatekeeper-kit": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@composable-os/config": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0",
+    "wrangler": "4.157.0"
+  }
+}

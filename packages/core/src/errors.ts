@@ -155,6 +155,13 @@ export function toOperationError(error: unknown): OperationError {
   const capacity = capacityRefusal(error);
   if (capacity) return capacity;
   const message = error instanceof Error ? error.message : String(error);
+  // An order written from a read that is no longer current (migration 0421): nothing was
+  // applied, and the same call made again reads the order as it now is.
+  if (message.includes("core_order_stale")) {
+    return new ConflictError("The order changed while this was being applied. Try again.", {
+      reason: "order_stale",
+    });
+  }
   const unique = /UNIQUE constraint failed: ([\w.]+(?:, [\w.]+)*)/.exec(message);
   if (unique) {
     return new ConflictError("A record with that value already exists", {

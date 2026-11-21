@@ -1,0 +1,116 @@
+// The provider-neutral interface every payment provider implements, and the configuration that
+// says which providers this deployment offers. The host never sees a provider's keys: they live in
+// this Worker's secrets only.
+
+import { stripTrailingSlashes } from "@composable-os/gatekeeper-interface/gatekeeper";
+import type {
+  PaymentsCheckoutInput,
+  PaymentsEvent,
+  PaymentsPayment,
+  PaymentsProviderName,
+  PaymentsRefundInput,
+} from "./types.js";
+
+export type CheckoutInput = PaymentsCheckoutInput;
+export type RefundInput = PaymentsRefundInput;
+
+/** What a verified webhook delivery carries. */
+export type VerifiedWebhook =
+  | { ok: true; events: PaymentsEvent[]; eventId: string }
+  | { ok: false; reason: string };
+
+export interface PaymentProvider {
+  readonly name: PaymentsProviderName;
+  createCheckout(
+    input: CheckoutInput,
+  ): Promise<{ ref: string; url: string; expiresAt: string | null }>;
+  getPayment(ref: string): Promise<PaymentsPayment>;
+  /**
+   * Sends a refund. Throws `ActionApplyError` when the provider refused it before refunding
+   * anything, and `ActionOutcomeUnknownError` when it may have gone through.
+   */
+  refund(input: RefundInput): Promise<{ refundRef: string; status: "pending" | "succeeded" }>;
+  /** Verifies a webhook delivery; returns the typed events it carries (possibly none), or a rejection reason. */
+  verifyWebhook(
+    headers: Record<string, string>,
+    body: Uint8Array,
+    nowSeconds: number,
+  ): Promise<VerifiedWebhook>;
+}
+
+type Env = Cloudflare.Env;
+
+/** The fake provider's signing secret when FAKE_WEBHOOK_SECRET is empty. Not a secret. */
+export const DEFAULT_FAKE_WEBHOOK_SECRET = "fake-payments-dev-secret";
+
+/** Reads a var as a plain string: `wrangler types` types each var as its committed literal. */
+function stringVar(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+/** The public base the routes are served under, without a trailing slash. */
+export function baseUrl(env: Env): string {
+  return stripTrailingSlashes(
+    stringVar(env.BASE_URL) || "http://localhost:5173/gatekeeper/payments",
+  );
+}
+
+export function stripeApiBase(env: Env): string {
+  return stripTrailingSlashes(stringVar(env.STRIPE_API_BASE) || "https://api.stripe.com");
+}
+
+export function stripeAccount(env: Env): string {
+  return stringVar(env.STRIPE_ACCOUNT);
+}
+
+export function stripeSecretKey(env: Env): string {
+  return stringVar(env.STRIPE_SECRET_KEY);
+}
+
+export function stripeWebhookSecret(env: Env): string {
+  return stringVar(env.STRIPE_WEBHOOK_SECRET);
+}
+
+export function fakeEnabled(env: Env): boolean {
+  return stringVar(env.PAYMENTS_FAKE_PROVIDER) === "true";
+}
+
+export function fakeWebhookSecret(env: Env): string {
+  return stringVar(env.FAKE_WEBHOOK_SECRET) || DEFAULT_FAKE_WEBHOOK_SECRET;
+}
+
+/** The environment the availability check reads, so a test can pass a hand-made one. */
+export type AvailabilityEnv = Pick<Env, "PAYMENTS_FAKE_PROVIDER"> & {
+  STRIPE_SECRET_KEY?: string | undefined;
+};
+
+/** Why `provider` cannot be used in this deployment, or undefined when it can. */
+export function unavailableReason(
+  env: AvailabilityEnv,
+  provider: PaymentsProviderName,
+): string | undefined {
+  if (provider === "fake") {
+    return stringVar(env.PAYMENTS_FAKE_PROVIDER) === "true"
+      ? undefined
+      : "The fake payment provider is off in this deployment. It is for development and tests " +
+          "only, and is turned on with PAYMENTS_FAKE_PROVIDER=true.";
+  }
+  return stringVar(env.STRIPE_SECRET_KEY)
+    ? undefined
+    : "Stripe is not set up in this deployment: an administrator must set the STRIPE_SECRET_KEY " +
+        "secret on cos-gatekeeper-payments.";
+}
+
+/** Throws the reason `provider` cannot be used, if any. */
+export function assertProviderAvailable(
+  env: AvailabilityEnv,
+  provider: PaymentsProviderName,
+): void {
+  const reason = unavailableReason(env, provider);
+  if (reason !== undefined) throw new Error(reason);
+}
+
+export const PROVIDER_TITLES: Record<PaymentsProviderName, string> = {
+  stripe: "Stripe",
+  fake: "Fake provider (development)",
+};

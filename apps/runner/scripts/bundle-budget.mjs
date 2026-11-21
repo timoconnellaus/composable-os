@@ -16,8 +16,10 @@ import { fileURLToPath } from "node:url";
 // (2026-11-05): stage 6b (run-as, integration-event triggers, the outbox retry and notification
 // delivery) on top of 7a and 8 took it to 5,124 KiB. Raised to 6,144 KiB (2026-11-06): stage 15's
 // assignment rules, stage 16's duplicates and stage 17's A2UI catalogue, which each fit alone,
-// took it to 5,741 KiB together. No React or compiler came with them.
-const MAIN_BUDGET_KIB = 6_144;
+// took it to 5,741 KiB together. No React or compiler came with them. Raised to 6,656 KiB
+// (2026-11-21): stages 22, 23, 25 and 26 (customers, the HTTP surface, orders and payments,
+// capacity) took it to 6,146 KiB. No React or compiler came with them either.
+const MAIN_BUDGET_KIB = 6_656;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");

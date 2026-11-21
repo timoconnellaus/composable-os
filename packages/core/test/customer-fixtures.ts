@@ -9,7 +9,7 @@ import { env } from "cloudflare:workers";
 import { CompiledQuery, sql } from "kysely";
 import { z } from "zod";
 import { fieldStorage, objectTableOf } from "../src/extensions/schema.ts";
-import { listObjects, setExtensionObjects } from "../src/fields/index.ts";
+import { BASE_TABLES, listObjects, setExtensionObjects } from "../src/fields/index.ts";
 import type { CustomerDeclaration } from "../src/fields/types.ts";
 import {
   type ActingUser,
@@ -26,6 +26,7 @@ import {
   type OutsideInvocationContext,
   type PublicPrincipal,
   refreshSchemaRegistry,
+  registerSellable,
   runListQuery,
   sortSchema,
   ValidationError,
@@ -40,6 +41,8 @@ export const TICKET = `${SHOP}.ticket`;
 export const SUPPLIER = `${SHOP}.supplier`;
 /** An object a customer may create records of: every field they must give is writable. */
 export const REQUEST = `${SHOP}.request`;
+/** Something for sale (stage 25): what the real orders below are for. No customer declared. */
+export const ITEM = `${SHOP}.item`;
 
 export const DECLARATIONS: Record<string, CustomerDeclaration> = {
   [ORDER]: { field: "buyer", read: ["title", "status", "total", "note"], write: ["note"] },
@@ -119,6 +122,15 @@ export async function installShop(): Promise<void> {
             asker: { type: "relation", label: "Asker", to: "person" },
           },
         },
+        item: {
+          label: "Item",
+          plural: "Items",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name", required: true },
+            price: { type: "currency", label: "Price", currency: "AUD" },
+          },
+        },
         supplier: {
           label: "Supplier",
           plural: "Suppliers",
@@ -132,6 +144,65 @@ export async function installShop(): Promise<void> {
     }),
   );
   await declareCustomers();
+  // Real orders (stage 25): the item is for sale, and the deployment has a currency.
+  registerSellable({ object: ITEM, price: "price" });
+  await env.DB.prepare(
+    "INSERT INTO core_settings (key, value, updated_at, updated_by) VALUES ('order_currency', '\"AUD\"', ?, NULL) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+  )
+    .bind(new Date().toISOString())
+    .run();
+}
+
+/**
+ * Gives `customer` a real account and two real orders (stage 25, ADR 0427), each for an item
+ * only they bought, started as the customer through `order.start`. Their ids, their lines' ids,
+ * their totals and what they bought join the customer's records and secrets, so everything that
+ * aims at B's rows aims at B's orders too.
+ */
+export async function giveOrders(admin: ActingUser, customer: Customer): Promise<void> {
+  const tag = customer.principal.customerId.slice("cus_".length).toLowerCase();
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+  )
+    .bind(
+      customer.principal.customerId,
+      customer.principal.personId,
+      `${tag}@orders.example`,
+      now,
+      now,
+    )
+    .run();
+  customer.records.order = [];
+  customer.records.orderLine = [];
+  for (let n = 1; n <= 2; n += 1) {
+    const cents = secretNumber();
+    const name = `Item-${tag}-${n}`;
+    const item = await invoke(
+      "record.create",
+      { object: ITEM, values: { name, price: cents / 100 } },
+      context(admin),
+    );
+    const order = (await invoker.invokeByName(
+      "order.start",
+      { lines: [{ object: ITEM, id: item.id }] },
+      outside(customer.principal),
+    )) as { id: string; total: number; lines: { id: string }[] };
+    if (order.total !== cents) throw new Error(`fixture order priced ${order.total}, not ${cents}`);
+    customer.records.order.push(order.id);
+    customer.records.orderLine.push(...order.lines.map((line) => line.id));
+    customer.secrets.push(order.id, ...order.lines.map((l) => l.id), String(cents), name, item.id);
+    if (n === 1) {
+      customer.values.order = { total: cents, state: "pending", currency: "AUD" };
+      customer.values.orderLine = {
+        orderId: order.id,
+        title: name,
+        unitPrice: cents,
+        total: cents,
+      };
+    }
+  }
+  customer.secrets.push(`${tag}@orders.example`);
 }
 
 export interface Customer {
@@ -225,7 +296,8 @@ export async function createSupplier(
 export async function snapshot(customer: Customer): Promise<string> {
   const rows: unknown[] = [];
   for (const [object, ids] of Object.entries(customer.records)) {
-    const table = objectTableOf(object) as string;
+    const table = (objectTableOf(object) ??
+      BASE_TABLES[object as keyof typeof BASE_TABLES]) as string;
     for (const id of ids) {
       rows.push(await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(id).first());
     }

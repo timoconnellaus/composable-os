@@ -18,8 +18,27 @@ import { ValidationError } from "../errors.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
+import type { Principal } from "../principals.ts";
 
 export type { Mover };
+
+/**
+ * Who a call is really for. On the host's own context during a customer's or the public's call
+ * `principal` is the org's (the host's reads are org-wide) and `onBehalfOf` is the caller.
+ */
+export function callerOf(ctx: Pick<HandlerContext, "principal" | "onBehalfOf">): Principal {
+  return ctx.onBehalfOf ?? ctx.principal;
+}
+
+/**
+ * The staff user a move is written down as made by (`entered_by`), or null. A customer's or the
+ * public's call has no staff user (`ctx.user` throws there, or is a stand-in), and platform code
+ * making a `host` move during such a call is not that caller either: the row then says only who
+ * moved it as (`entered_as`).
+ */
+export function enteredBy(ctx: HandlerContext): string | null {
+  return callerOf(ctx).kind === "staff" ? ctx.user.id : null;
+}
 export const ALL_MOVERS: readonly Mover[] = ["staff", "customer", "host"];
 
 /** A place in a lifecycle: a stage record, or a declared state. */
@@ -247,7 +266,7 @@ export async function runTransition<P extends Placement>(
           placement.group(),
           to.type,
           ctx.now,
-          ctx.user.id,
+          enteredBy(ctx),
           by,
         ],
       ),

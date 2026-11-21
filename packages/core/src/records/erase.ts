@@ -17,6 +17,7 @@ import {
   customerAddresses,
   queueEraseCustomers,
   queueEraseExtensions,
+  queueEraseOrders,
   queueEraseRuns,
   queueEraseSync,
 } from "./erase-stores.ts";
@@ -332,6 +333,9 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
 
   // Their customer account, its sessions and codes, invites and erase requests (stage 22).
   const eraseRequests = await queueEraseCustomers(ctx, subject);
+
+  // Their records' lifecycle history, and what ties an order to them (stage 25, ADR 0426).
+  await queueEraseOrders(ctx, subject);
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.

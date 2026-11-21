@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as BuyRouteImport } from './routes/buy'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppActivityRouteImport } from './routes/_app/activity'
@@ -26,11 +27,14 @@ import { Route as AppTrashRouteImport } from './routes/_app/trash'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ConnectHandoffRouteImport } from './routes/connect.handoff'
 import { Route as GatekeeperSplatRouteImport } from './routes/gatekeeper/$'
+import { Route as OrderIdRouteImport } from './routes/order.$id'
 import { Route as AppAssistantCardsRouteImport } from './routes/_app/assistant_.cards'
 import { Route as AppAutomationsIndexRouteImport } from './routes/_app/automations/index'
 import { Route as AppAutomationsIdRouteImport } from './routes/_app/automations/$id'
 import { Route as AppDashboardsIndexRouteImport } from './routes/_app/dashboards/index'
 import { Route as AppDashboardsIdRouteImport } from './routes/_app/dashboards/$id'
+import { Route as AppOrdersIndexRouteImport } from './routes/_app/orders/index'
+import { Route as AppOrdersIdRouteImport } from './routes/_app/orders/$id'
 import { Route as AppOrganisationsIndexRouteImport } from './routes/_app/organisations/index'
 import { Route as AppOrganisationsIdRouteImport } from './routes/_app/organisations/$id'
 import { Route as AppPeopleIndexRouteImport } from './routes/_app/people/index'
@@ -53,6 +57,7 @@ import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app/setti
 import { Route as AppSettingsNotificationDeliveryRouteImport } from './routes/_app/settings/notification-delivery'
 import { Route as AppSettingsNotificationRoutesRouteImport } from './routes/_app/settings/notification-routes'
 import { Route as AppSettingsNotificationsRouteImport } from './routes/_app/settings/notifications'
+import { Route as AppSettingsOrdersRouteImport } from './routes/_app/settings/orders'
 import { Route as AppSettingsPlanRouteImport } from './routes/_app/settings/plan'
 import { Route as AppSettingsStorageRouteImport } from './routes/_app/settings/storage'
 import { Route as AppSettingsSupportAccessRouteImport } from './routes/_app/settings/support-access'
@@ -69,6 +74,11 @@ import { Route as ApiAssistantThreadStreamRouteImport } from './routes/api/assis
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuyRoute = BuyRouteImport.update({
+  id: '/buy',
+  path: '/buy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -151,6 +161,11 @@ const GatekeeperSplatRoute = GatekeeperSplatRouteImport.update({
   path: '/gatekeeper/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrderIdRoute = OrderIdRouteImport.update({
+  id: '/order/$id',
+  path: '/order/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppAssistantCardsRoute = AppAssistantCardsRouteImport.update({
   id: '/assistant_/cards',
   path: '/assistant/cards',
@@ -174,6 +189,16 @@ const AppDashboardsIndexRoute = AppDashboardsIndexRouteImport.update({
 const AppDashboardsIdRoute = AppDashboardsIdRouteImport.update({
   id: '/dashboards/$id',
   path: '/dashboards/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppOrdersIndexRoute = AppOrdersIndexRouteImport.update({
+  id: '/orders/',
+  path: '/orders/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppOrdersIdRoute = AppOrdersIdRouteImport.update({
+  id: '/orders/$id',
+  path: '/orders/$id',
   getParentRoute: () => AppRoute,
 } as any)
 const AppOrganisationsIndexRoute = AppOrganisationsIndexRouteImport.update({
@@ -294,6 +319,11 @@ const AppSettingsNotificationsRoute =
     path: '/settings/notifications',
     getParentRoute: () => AppRoute,
   } as any)
+const AppSettingsOrdersRoute = AppSettingsOrdersRouteImport.update({
+  id: '/settings/orders',
+  path: '/settings/orders',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsPlanRoute = AppSettingsPlanRouteImport.update({
   id: '/settings/plan',
   path: '/settings/plan',
@@ -364,6 +394,7 @@ const ApiAssistantThreadStreamRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/buy': typeof BuyRoute
   '/sign-in': typeof SignInRoute
   '/activity': typeof AppActivityRoute
   '/approvals': typeof AppApprovalsRoute
@@ -379,9 +410,11 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/connect/handoff': typeof ConnectHandoffRoute
   '/gatekeeper/$': typeof GatekeeperSplatRoute
+  '/order/$id': typeof OrderIdRoute
   '/assistant/cards': typeof AppAssistantCardsRoute
   '/automations/$id': typeof AppAutomationsIdRoute
   '/dashboards/$id': typeof AppDashboardsIdRoute
+  '/orders/$id': typeof AppOrdersIdRoute
   '/organisations/$id': typeof AppOrganisationsIdRoute
   '/people/$id': typeof AppPeopleIdRoute
   '/settings/adjudicator': typeof AppSettingsAdjudicatorRoute
@@ -401,6 +434,7 @@ export interface FileRoutesByFullPath {
   '/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
   '/settings/notification-routes': typeof AppSettingsNotificationRoutesRoute
   '/settings/notifications': typeof AppSettingsNotificationsRoute
+  '/settings/orders': typeof AppSettingsOrdersRoute
   '/settings/plan': typeof AppSettingsPlanRoute
   '/settings/storage': typeof AppSettingsStorageRoute
   '/settings/support-access': typeof AppSettingsSupportAccessRoute
@@ -412,6 +446,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/automations/': typeof AppAutomationsIndexRoute
   '/dashboards/': typeof AppDashboardsIndexRoute
+  '/orders/': typeof AppOrdersIndexRoute
   '/organisations/': typeof AppOrganisationsIndexRoute
   '/people/': typeof AppPeopleIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
@@ -421,6 +456,7 @@ export interface FileRoutesByFullPath {
   '/x/$object/': typeof AppXObjectIndexRoute
 }
 export interface FileRoutesByTo {
+  '/buy': typeof BuyRoute
   '/sign-in': typeof SignInRoute
   '/activity': typeof AppActivityRoute
   '/approvals': typeof AppApprovalsRoute
@@ -436,10 +472,12 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/connect/handoff': typeof ConnectHandoffRoute
   '/gatekeeper/$': typeof GatekeeperSplatRoute
+  '/order/$id': typeof OrderIdRoute
   '/': typeof AppIndexRoute
   '/assistant/cards': typeof AppAssistantCardsRoute
   '/automations/$id': typeof AppAutomationsIdRoute
   '/dashboards/$id': typeof AppDashboardsIdRoute
+  '/orders/$id': typeof AppOrdersIdRoute
   '/organisations/$id': typeof AppOrganisationsIdRoute
   '/people/$id': typeof AppPeopleIdRoute
   '/settings/adjudicator': typeof AppSettingsAdjudicatorRoute
@@ -459,6 +497,7 @@ export interface FileRoutesByTo {
   '/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
   '/settings/notification-routes': typeof AppSettingsNotificationRoutesRoute
   '/settings/notifications': typeof AppSettingsNotificationsRoute
+  '/settings/orders': typeof AppSettingsOrdersRoute
   '/settings/plan': typeof AppSettingsPlanRoute
   '/settings/storage': typeof AppSettingsStorageRoute
   '/settings/support-access': typeof AppSettingsSupportAccessRoute
@@ -470,6 +509,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/automations': typeof AppAutomationsIndexRoute
   '/dashboards': typeof AppDashboardsIndexRoute
+  '/orders': typeof AppOrdersIndexRoute
   '/organisations': typeof AppOrganisationsIndexRoute
   '/people': typeof AppPeopleIndexRoute
   '/settings': typeof AppSettingsIndexRoute
@@ -481,6 +521,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/buy': typeof BuyRoute
   '/sign-in': typeof SignInRoute
   '/_app/activity': typeof AppActivityRoute
   '/_app/approvals': typeof AppApprovalsRoute
@@ -496,10 +537,12 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/connect/handoff': typeof ConnectHandoffRoute
   '/gatekeeper/$': typeof GatekeeperSplatRoute
+  '/order/$id': typeof OrderIdRoute
   '/_app/': typeof AppIndexRoute
   '/_app/assistant_/cards': typeof AppAssistantCardsRoute
   '/_app/automations/$id': typeof AppAutomationsIdRoute
   '/_app/dashboards/$id': typeof AppDashboardsIdRoute
+  '/_app/orders/$id': typeof AppOrdersIdRoute
   '/_app/organisations/$id': typeof AppOrganisationsIdRoute
   '/_app/people/$id': typeof AppPeopleIdRoute
   '/_app/settings/adjudicator': typeof AppSettingsAdjudicatorRoute
@@ -519,6 +562,7 @@ export interface FileRoutesById {
   '/_app/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
   '/_app/settings/notification-routes': typeof AppSettingsNotificationRoutesRoute
   '/_app/settings/notifications': typeof AppSettingsNotificationsRoute
+  '/_app/settings/orders': typeof AppSettingsOrdersRoute
   '/_app/settings/plan': typeof AppSettingsPlanRoute
   '/_app/settings/storage': typeof AppSettingsStorageRoute
   '/_app/settings/support-access': typeof AppSettingsSupportAccessRoute
@@ -530,6 +574,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/automations/': typeof AppAutomationsIndexRoute
   '/_app/dashboards/': typeof AppDashboardsIndexRoute
+  '/_app/orders/': typeof AppOrdersIndexRoute
   '/_app/organisations/': typeof AppOrganisationsIndexRoute
   '/_app/people/': typeof AppPeopleIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
@@ -542,6 +587,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/buy'
     | '/sign-in'
     | '/activity'
     | '/approvals'
@@ -557,9 +603,11 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/connect/handoff'
     | '/gatekeeper/$'
+    | '/order/$id'
     | '/assistant/cards'
     | '/automations/$id'
     | '/dashboards/$id'
+    | '/orders/$id'
     | '/organisations/$id'
     | '/people/$id'
     | '/settings/adjudicator'
@@ -579,6 +627,7 @@ export interface FileRouteTypes {
     | '/settings/notification-delivery'
     | '/settings/notification-routes'
     | '/settings/notifications'
+    | '/settings/orders'
     | '/settings/plan'
     | '/settings/storage'
     | '/settings/support-access'
@@ -590,6 +639,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/automations/'
     | '/dashboards/'
+    | '/orders/'
     | '/organisations/'
     | '/people/'
     | '/settings/'
@@ -599,6 +649,7 @@ export interface FileRouteTypes {
     | '/x/$object/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/buy'
     | '/sign-in'
     | '/activity'
     | '/approvals'
@@ -614,10 +665,12 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/connect/handoff'
     | '/gatekeeper/$'
+    | '/order/$id'
     | '/'
     | '/assistant/cards'
     | '/automations/$id'
     | '/dashboards/$id'
+    | '/orders/$id'
     | '/organisations/$id'
     | '/people/$id'
     | '/settings/adjudicator'
@@ -637,6 +690,7 @@ export interface FileRouteTypes {
     | '/settings/notification-delivery'
     | '/settings/notification-routes'
     | '/settings/notifications'
+    | '/settings/orders'
     | '/settings/plan'
     | '/settings/storage'
     | '/settings/support-access'
@@ -648,6 +702,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/automations'
     | '/dashboards'
+    | '/orders'
     | '/organisations'
     | '/people'
     | '/settings'
@@ -658,6 +713,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
+    | '/buy'
     | '/sign-in'
     | '/_app/activity'
     | '/_app/approvals'
@@ -673,10 +729,12 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/connect/handoff'
     | '/gatekeeper/$'
+    | '/order/$id'
     | '/_app/'
     | '/_app/assistant_/cards'
     | '/_app/automations/$id'
     | '/_app/dashboards/$id'
+    | '/_app/orders/$id'
     | '/_app/organisations/$id'
     | '/_app/people/$id'
     | '/_app/settings/adjudicator'
@@ -696,6 +754,7 @@ export interface FileRouteTypes {
     | '/_app/settings/notification-delivery'
     | '/_app/settings/notification-routes'
     | '/_app/settings/notifications'
+    | '/_app/settings/orders'
     | '/_app/settings/plan'
     | '/_app/settings/storage'
     | '/_app/settings/support-access'
@@ -707,6 +766,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/_app/automations/'
     | '/_app/dashboards/'
+    | '/_app/orders/'
     | '/_app/organisations/'
     | '/_app/people/'
     | '/_app/settings/'
@@ -718,10 +778,12 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  BuyRoute: typeof BuyRoute
   SignInRoute: typeof SignInRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ConnectHandoffRoute: typeof ConnectHandoffRoute
   GatekeeperSplatRoute: typeof GatekeeperSplatRoute
+  OrderIdRoute: typeof OrderIdRoute
   ApiAssistantThreadRoute: typeof ApiAssistantThreadRouteWithChildren
   ApiAssistantTurnRoute: typeof ApiAssistantTurnRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -734,6 +796,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/buy': {
+      id: '/buy'
+      path: '/buy'
+      fullPath: '/buy'
+      preLoaderRoute: typeof BuyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {
@@ -848,6 +917,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GatekeeperSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/order/$id': {
+      id: '/order/$id'
+      path: '/order/$id'
+      fullPath: '/order/$id'
+      preLoaderRoute: typeof OrderIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/assistant_/cards': {
       id: '/_app/assistant_/cards'
       path: '/assistant/cards'
@@ -881,6 +957,20 @@ declare module '@tanstack/react-router' {
       path: '/dashboards/$id'
       fullPath: '/dashboards/$id'
       preLoaderRoute: typeof AppDashboardsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/orders/': {
+      id: '/_app/orders/'
+      path: '/orders'
+      fullPath: '/orders/'
+      preLoaderRoute: typeof AppOrdersIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/orders/$id': {
+      id: '/_app/orders/$id'
+      path: '/orders/$id'
+      fullPath: '/orders/$id'
+      preLoaderRoute: typeof AppOrdersIdRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/organisations/': {
@@ -1037,6 +1127,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsNotificationsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/orders': {
+      id: '/_app/settings/orders'
+      path: '/settings/orders'
+      fullPath: '/settings/orders'
+      preLoaderRoute: typeof AppSettingsOrdersRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/plan': {
       id: '/_app/settings/plan'
       path: '/settings/plan'
@@ -1147,6 +1244,7 @@ interface AppRouteChildren {
   AppAssistantCardsRoute: typeof AppAssistantCardsRoute
   AppAutomationsIdRoute: typeof AppAutomationsIdRoute
   AppDashboardsIdRoute: typeof AppDashboardsIdRoute
+  AppOrdersIdRoute: typeof AppOrdersIdRoute
   AppOrganisationsIdRoute: typeof AppOrganisationsIdRoute
   AppPeopleIdRoute: typeof AppPeopleIdRoute
   AppSettingsAdjudicatorRoute: typeof AppSettingsAdjudicatorRoute
@@ -1166,6 +1264,7 @@ interface AppRouteChildren {
   AppSettingsNotificationDeliveryRoute: typeof AppSettingsNotificationDeliveryRoute
   AppSettingsNotificationRoutesRoute: typeof AppSettingsNotificationRoutesRoute
   AppSettingsNotificationsRoute: typeof AppSettingsNotificationsRoute
+  AppSettingsOrdersRoute: typeof AppSettingsOrdersRoute
   AppSettingsPlanRoute: typeof AppSettingsPlanRoute
   AppSettingsStorageRoute: typeof AppSettingsStorageRoute
   AppSettingsSupportAccessRoute: typeof AppSettingsSupportAccessRoute
@@ -1174,6 +1273,7 @@ interface AppRouteChildren {
   AppSettingsVoiceRoute: typeof AppSettingsVoiceRoute
   AppAutomationsIndexRoute: typeof AppAutomationsIndexRoute
   AppDashboardsIndexRoute: typeof AppDashboardsIndexRoute
+  AppOrdersIndexRoute: typeof AppOrdersIndexRoute
   AppOrganisationsIndexRoute: typeof AppOrganisationsIndexRoute
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
@@ -1197,6 +1297,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAssistantCardsRoute: AppAssistantCardsRoute,
   AppAutomationsIdRoute: AppAutomationsIdRoute,
   AppDashboardsIdRoute: AppDashboardsIdRoute,
+  AppOrdersIdRoute: AppOrdersIdRoute,
   AppOrganisationsIdRoute: AppOrganisationsIdRoute,
   AppPeopleIdRoute: AppPeopleIdRoute,
   AppSettingsAdjudicatorRoute: AppSettingsAdjudicatorRoute,
@@ -1216,6 +1317,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsNotificationDeliveryRoute: AppSettingsNotificationDeliveryRoute,
   AppSettingsNotificationRoutesRoute: AppSettingsNotificationRoutesRoute,
   AppSettingsNotificationsRoute: AppSettingsNotificationsRoute,
+  AppSettingsOrdersRoute: AppSettingsOrdersRoute,
   AppSettingsPlanRoute: AppSettingsPlanRoute,
   AppSettingsStorageRoute: AppSettingsStorageRoute,
   AppSettingsSupportAccessRoute: AppSettingsSupportAccessRoute,
@@ -1224,6 +1326,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsVoiceRoute: AppSettingsVoiceRoute,
   AppAutomationsIndexRoute: AppAutomationsIndexRoute,
   AppDashboardsIndexRoute: AppDashboardsIndexRoute,
+  AppOrdersIndexRoute: AppOrdersIndexRoute,
   AppOrganisationsIndexRoute: AppOrganisationsIndexRoute,
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
@@ -1248,10 +1351,12 @@ const ApiAssistantThreadRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  BuyRoute: BuyRoute,
   SignInRoute: SignInRoute,
   ApiHealthRoute: ApiHealthRoute,
   ConnectHandoffRoute: ConnectHandoffRoute,
   GatekeeperSplatRoute: GatekeeperSplatRoute,
+  OrderIdRoute: OrderIdRoute,
   ApiAssistantThreadRoute: ApiAssistantThreadRouteWithChildren,
   ApiAssistantTurnRoute: ApiAssistantTurnRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

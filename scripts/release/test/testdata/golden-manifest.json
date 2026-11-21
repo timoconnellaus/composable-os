@@ -418,6 +418,14 @@
       "sha256": "aa9df11dd345c7c61b992fc9af5a5a4612f04025a703379be4d8d302f4f86c7e"
     },
     {
+      "name": "0421_orders.sql",
+      "sha256": "e020c6b972061341d682952be639bf52796ede8e0d9fed56bf90e2f2ec1ad38b"
+    },
+    {
+      "name": "0422_order_payments.sql",
+      "sha256": "9df6fa5d00ac90b41f8510b61aeea6e2192a396f9599a3efe8ad01a7de3b7785"
+    },
+    {
       "name": "0440_capacity.sql",
       "sha256": "d89c897cfd3dbeac491dae659842c6b40d1e4464924c883087404310266b9963"
     },
@@ -457,6 +465,24 @@
       "type": "durable_object",
       "usedBy": [
         "crm-app"
+      ]
+    },
+    {
+      "implicit": true,
+      "name": "crm-gatekeeper-payments:FakePaymentsLedger",
+      "optional": true,
+      "type": "durable_object",
+      "usedBy": [
+        "crm-gatekeeper-payments"
+      ]
+    },
+    {
+      "implicit": true,
+      "name": "crm-gatekeeper-payments:PaymentsEvents",
+      "optional": true,
+      "type": "durable_object",
+      "usedBy": [
+        "crm-gatekeeper-payments"
       ]
     },
     {
@@ -1607,6 +1633,109 @@
       ],
       "sha256": "5a3a8a1e0fd92715a9b5083b4698799fc9ec43fac402086c11d7fd20ec968c19",
       "shortName": "microsoft"
+    },
+    {
+      "bindings": [
+        {
+          "class_name": "PaymentsEvents",
+          "name": "PAYMENTS_EVENTS",
+          "type": "durable_object_namespace"
+        },
+        {
+          "class_name": "FakePaymentsLedger",
+          "name": "FAKE_PAYMENTS",
+          "type": "durable_object_namespace"
+        },
+        {
+          "name": "BASE_URL",
+          "text": "https://$HOSTNAME/gatekeeper/payments",
+          "type": "plain_text"
+        },
+        {
+          "name": "FAKE_WEBHOOK_SECRET",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "PAYMENTS_FAKE_PROVIDER",
+          "text": "false",
+          "type": "plain_text"
+        },
+        {
+          "name": "STRIPE_ACCOUNT",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "STRIPE_API_BASE",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "STRIPE_SECRET_KEY",
+          "text": "$SECRET(STRIPE_SECRET_KEY)",
+          "type": "secret_text"
+        },
+        {
+          "name": "STRIPE_WEBHOOK_SECRET",
+          "text": "$SECRET(STRIPE_WEBHOOK_SECRET)",
+          "type": "secret_text"
+        }
+      ],
+      "compatibilityDate": "2026-09-04",
+      "compatibilityFlags": [
+        "allow_irrevocable_stub_storage"
+      ],
+      "crons": [],
+      "dependsOn": [],
+      "durableObjectMigrations": [
+        {
+          "new_sqlite_classes": [
+            "PaymentsEvents",
+            "FakePaymentsLedger",
+            "PaymentsGatekeeper"
+          ],
+          "tag": "v1"
+        }
+      ],
+      "mainModule": "index.js",
+      "modules": [
+        {
+          "name": "index.js",
+          "sha256": "48a983656226b3c263fb24648ad2e3e1c16cac238e64aa0905b73d01f22bbc62",
+          "size": 70,
+          "type": "esm"
+        }
+      ],
+      "name": "crm-gatekeeper-payments",
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1,
+        "logs": {
+          "invocation_logs": false
+        }
+      },
+      "optional": true,
+      "package": "packages/gatekeeper-payments",
+      "public": false,
+      "queueConsumers": [],
+      "role": "gatekeeper",
+      "secrets": [
+        {
+          "description": "Stripe secret API key (sk_live_… or a restricted key with Checkout Sessions and Refunds write). Without it the Stripe payment account is refused.",
+          "name": "STRIPE_SECRET_KEY",
+          "required": false,
+          "source": "user"
+        },
+        {
+          "description": "Signing secret (whsec_…) of the Stripe webhook endpoint that posts to <BASE_URL>/in/stripe.",
+          "name": "STRIPE_WEBHOOK_SECRET",
+          "required": false,
+          "source": "user"
+        }
+      ],
+      "sha256": "a1e24fb3bb5bdcae54dfa6ca856d08bf9daa42efa47fc0086e63fd0c25809a0d",
+      "shortName": "payments"
     },
     {
       "bindings": [

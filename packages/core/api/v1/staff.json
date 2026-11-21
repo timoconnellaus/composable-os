@@ -30836,6 +30836,2475 @@
       ]
     },
     {
+      "name": "order.applyPaymentEvent",
+      "description": "Platform use only: apply a payment or refund event the payments gatekeeper verified and the host stored. Takes only the event's key: the event itself is read from what the host stored, so nothing passed here can describe a payment. Applying an event twice changes nothing. Run by the host's payments adapter and the minute cron.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "eventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "provider",
+          "eventId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string"
+          },
+          "orderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "part_paid",
+                  "paid",
+                  "cancelled",
+                  "expired",
+                  "refunded"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "orderId": {
+                    "type": "string"
+                  },
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "orderId",
+                  "token"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "outcome",
+          "orderId",
+          "state",
+          "confirmation"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.cancel",
+      "description": "Cancel an order. A signed-in customer can cancel their own order while nothing has been paid on it. Staff can also cancel an order that is part paid (a deposit was paid): that gives up its places, and refunding what was paid is a separate step. A paid order is refunded, not cancelled. Returns the order.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.checkout",
+      "description": "Open the payment provider's own page to pay for an order, and get its address to send the buyer to. The host says what is charged: the whole price or the deposit for an order with nothing paid (no amount may be given), or, for a part-paid order, the balance or a part of it of at least the set minimum (`amount`, in the currency's minor unit). The buyer comes back to `returnUrl`, which must be on one of the deployment's listed sites; coming back does not mark anything paid. Only the provider's confirmation does. A guest passes the order's token; a signed-in customer pays their own orders.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "returnUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Where the buyer comes back to"
+          },
+          "amount": {
+            "description": "Part-paid orders only: how much to pay towards the balance, in minor units",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "returnUrl"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The provider's payment page"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit",
+              "balance",
+              "part"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "url",
+          "amount",
+          "currency",
+          "kind",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.expireDue",
+      "description": "Platform use only: expire pending orders whose time to pay has run out (the minute cron). Their held places go back. Part-paid orders never expire. Returns the orders expired.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "expired": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "expired"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.extendBalanceDue",
+      "description": "Give a part-paid order (a deposit was paid) more time: set the date its balance is due. The new date must be in the future. Nothing else changes: the order keeps its places, and the buyer pays the rest from their order link. Returns the order.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "balanceDueAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "description": "When the balance is now due (ISO 8601, with a time zone)"
+          }
+        },
+        "required": [
+          "id",
+          "balanceDueAt"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.get",
+      "description": "Get one order with its lines: its state, amounts (in the currency's minor unit), what has been paid, the balance and when it is due. A signed-in customer gets their own orders only; anyone else's is not found. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "order.honourLate",
+      "description": "Keep a payment that arrived after the order expired: the order becomes paid (part paid for a late deposit). When what it bought has limited places they are taken again, and this is refused when they have gone: refund the payment instead. A person with the refund permission decides, not an AI assistant. Returns the order.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.list",
+      "description": "A page of orders, newest first unless sorted otherwise, without their lines (order.get has them). Filter and sort on an order's fields: state, total, paid, balance, pay, personId, email, createdAt, balanceDueAt. Amounts are in the currency's minor unit. Pass nextCursor back as cursor for the next page. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "direction": {
+                "default": "asc",
+                "type": "string",
+                "enum": [
+                  "asc",
+                  "desc"
+                ]
+              }
+            },
+            "required": [
+              "field"
+            ]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "neq",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "between",
+                      "in",
+                      "not_in",
+                      "contains",
+                      "not_contains",
+                      "starts_with",
+                      "ends_with",
+                      "is_null",
+                      "is_not_null"
+                    ]
+                  },
+                  "value": {}
+                },
+                "required": [
+                  "field",
+                  "op"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "and": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": [
+                  "and"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "or": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": [
+                  "or"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "part_paid",
+                    "paid",
+                    "cancelled",
+                    "expired",
+                    "refunded"
+                  ]
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "paid": {
+                  "type": "number"
+                },
+                "balance": {
+                  "type": "number"
+                },
+                "refunded": {
+                  "type": "number",
+                  "description": "What has gone back to the buyer, confirmed by the provider"
+                },
+                "pay": {
+                  "type": "string",
+                  "enum": [
+                    "full",
+                    "deposit"
+                  ]
+                },
+                "deposit": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "balanceDueAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "placedAs": {
+                  "type": "string",
+                  "enum": [
+                    "customer",
+                    "public",
+                    "staff"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "state",
+                "currency",
+                "total",
+                "paid",
+                "balance",
+                "refunded",
+                "pay",
+                "deposit",
+                "balanceDueAt",
+                "expiresAt",
+                "paidAt",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "order.overdue",
+      "description": "List part-paid orders whose balance is past its due date, oldest first. Nothing happens to them by itself: extend the date (order.extendBalanceDue), cancel (order.cancel), or the buyer pays. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "part_paid",
+                    "paid",
+                    "cancelled",
+                    "expired",
+                    "refunded"
+                  ]
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "paid": {
+                  "type": "number"
+                },
+                "balance": {
+                  "type": "number"
+                },
+                "refunded": {
+                  "type": "number",
+                  "description": "What has gone back to the buyer, confirmed by the provider"
+                },
+                "pay": {
+                  "type": "string",
+                  "enum": [
+                    "full",
+                    "deposit"
+                  ]
+                },
+                "deposit": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "balanceDueAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "placedAs": {
+                  "type": "string",
+                  "enum": [
+                    "customer",
+                    "public",
+                    "staff"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "state",
+                "currency",
+                "total",
+                "paid",
+                "balance",
+                "refunded",
+                "pay",
+                "deposit",
+                "balanceDueAt",
+                "expiresAt",
+                "paidAt",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "order.paidLate",
+      "description": "List payments that arrived after their order had closed (expired or cancelled), oldest first, that staff have not decided on: honour one (order.honourLate) or refund it (order.refund). Amounts are in the currency's minor unit. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "orderId": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "eventId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "receivedAt": {
+                  "type": "string"
+                },
+                "orderState": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "part_paid",
+                    "paid",
+                    "cancelled",
+                    "expired",
+                    "refunded"
+                  ]
+                },
+                "orderTotal": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "orderId",
+                "provider",
+                "eventId",
+                "amount",
+                "currency",
+                "receivedAt",
+                "orderState",
+                "orderTotal"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "order.payments",
+      "description": "An order's money in detail, for staff: each checkout opened, each verified payment (applied, late or not matching) and each refund (asked for or confirmed), with what can still be refunded per payment. Amounts are in the currency's minor unit. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "checkouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider",
+                "ref",
+                "amount",
+                "kind",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "eventId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "type": "string"
+                },
+                "paymentRef": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "resolved": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "receivedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider",
+                "eventId",
+                "amount",
+                "currency",
+                "outcome",
+                "paymentRef",
+                "resolved",
+                "receivedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "refunds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "paymentRef": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "pendingActionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "confirmedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "amount",
+                "status",
+                "paymentRef",
+                "reason",
+                "pendingActionId",
+                "createdAt",
+                "confirmedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "refundable": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "paymentRef": {
+                  "type": "string"
+                },
+                "paid": {
+                  "type": "number"
+                },
+                "refundable": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "paymentRef",
+                "paid",
+                "refundable"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "checkouts",
+          "payments",
+          "refunds",
+          "refundable"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "order.refund",
+      "description": "Ask for a refund of an order's payments: all that can be refunded, or `amount` (in the currency's minor unit). Nothing is sent yet: each refund goes to the Approvals inbox, with what will be sent back and to which payment, and a person with the refund permission approves it (an AI assistant can ask, never approve). The order is marked refunded only when the payment provider confirms everything paid has gone back; a part refund is recorded as an amount. A part-paid order is cancelled first. Returns the refunds asked for and the pending approvals.",
+      "risk": "outbound",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "amount": {
+            "description": "Minor units; default all",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why, in staff's words"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "refunds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "paymentRef": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "pendingActionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "paymentRef",
+                "amount",
+                "pendingActionId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "pending": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "refunds",
+          "pending"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.setPerson",
+      "description": "Say whose order it is, for an order that belongs to no one yet because the address it was placed with matched several people. Merge those people first, then pass the one that remains. An order that already has a person is refused. Returns the order.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id",
+          "personId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.settings.get",
+      "description": "Get the order settings: the deployment's currency, how long an unpaid order lasts, and the least a buyer may pay towards a balance. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "description": "The one currency every order is in (ISO 4217). Null: not set, nothing can be sold.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiryMinutes": {
+            "type": "number",
+            "description": "Minutes an order nothing has been paid on lasts."
+          },
+          "minPartPayment": {
+            "type": "number",
+            "description": "The least a buyer may pay towards a balance, in the currency's minor unit."
+          },
+          "returnOrigins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The sites a buyer may be sent back to after paying (https origins)."
+          }
+        },
+        "required": [
+          "currency",
+          "expiryMinutes",
+          "minPartPayment",
+          "returnOrigins"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "order.settings.update",
+      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, or the least part payment, or the sites a buyer may come back to after paying. Only what you pass changes. Orders already started keep the currency they were started in. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "expiryMinutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 1440
+          },
+          "minPartPayment": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000000
+          },
+          "returnOrigins": {
+            "description": "Replaces the list of sites a buyer may come back to, e.g. https://shop.example.com",
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "description": "The one currency every order is in (ISO 4217). Null: not set, nothing can be sold.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiryMinutes": {
+            "type": "number",
+            "description": "Minutes an order nothing has been paid on lasts."
+          },
+          "minPartPayment": {
+            "type": "number",
+            "description": "The least a buyer may pay towards a balance, in the currency's minor unit."
+          },
+          "returnOrigins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The sites a buyer may be sent back to after paying (https origins)."
+          },
+          "previous": {
+            "type": "object",
+            "properties": {
+              "currency": {
+                "description": "The one currency every order is in (ISO 4217). Null: not set, nothing can be sold.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expiryMinutes": {
+                "type": "number",
+                "description": "Minutes an order nothing has been paid on lasts."
+              },
+              "minPartPayment": {
+                "type": "number",
+                "description": "The least a buyer may pay towards a balance, in the currency's minor unit."
+              },
+              "returnOrigins": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The sites a buyer may be sent back to after paying (https origins)."
+              }
+            },
+            "required": [
+              "currency",
+              "expiryMinutes",
+              "minPartPayment",
+              "returnOrigins"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "currency",
+          "expiryMinutes",
+          "minPartPayment",
+          "returnOrigins",
+          "previous"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.start",
+      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "The object of the record to buy"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The record to buy"
+                },
+                "quantity": {
+                  "default": 1,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": [
+                "object",
+                "id"
+              ]
+            },
+            "description": "What to buy. There is no price here: the host reads it from each record, and a price or total sent anyway is ignored."
+          },
+          "pay": {
+            "default": "full",
+            "description": "full: pay the whole price now. deposit: pay the deposit now and the balance by its due date, when every line offers a deposit.",
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "email": {
+            "description": "The buyer's email address. Required when the caller is not a signed-in customer; a signed-in customer's order uses their account's address and must not pass one.",
+            "type": "string",
+            "maxLength": 320
+          }
+        },
+        "required": [
+          "lines"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          },
+          "token": {
+            "description": "A guest's key to this order. Null for everyone else.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines",
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.view",
+      "description": "See one order with the token it was started with (a guest's link from order.start or the confirmation email). The token opens that order only, while it is open and for 30 days after it closes. A wrong id, a wrong token and an old link are all not found. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The order's token"
+          }
+        },
+        "required": [
+          "id",
+          "token"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "organisation.create",
       "description": "Create an organisation (a company or other body) with a name and optional domains, website, industry, addresses, parent organisation, owner, tags and description. Check with organisation.list or search first: domains must be unique across live organisations (they power email → organisation matching), and a taken domain fails with a conflict. Domains are normalised (scheme, www. and paths stripped). Unknown tags are created. Returns the created organisation. Check possibleDuplicates in the result: existing organisations this one may duplicate by plain rules (same name, or a website at a domain another holds), each with its reason. If one is the same organisation, merge them with organisation.merge.",
       "risk": "write",

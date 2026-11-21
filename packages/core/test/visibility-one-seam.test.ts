@@ -33,6 +33,9 @@ const RECORD_TABLES = [
   "core_base_organisations",
   "core_base_activities",
   "core_base_tasks",
+  // Stage 25 (ADR 0427): orders and their lines are records.
+  "core_order",
+  "core_order_line",
 ];
 
 // `rec_user` is the staff directory, not a record: no object declares it, and it is read by
@@ -72,6 +75,13 @@ const WHY = {
   org: "org-wide: a job or check with no caller",
   /** A staff write reading what it is about to change: uniqueness, snapshots, merge, import, erase. */
   write: "staff write path: uniqueness, snapshots, merge, import, erase",
+  /**
+   * The host's own code for orders (ADR 0427, ADR 0428): the order it is about to move or apply
+   * a payment to, and an order whose caller it has itself established (their own through the
+   * seam first, or the order's token). What a caller is answered with is what a customer may
+   * read of an order.
+   */
+  host: "host code for orders: the order it is about to change, or one the caller proved is theirs",
 } as const;
 type Why = (typeof WHY)[keyof typeof WHY];
 
@@ -106,11 +116,18 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/enrichment.ts": [8, WHY.write],
   "operations/erasure.ts": [2, WHY.write],
   "operations/import.ts": [8, WHY.write],
+  "operations/order.ts": [1, WHY.host],
   "operations/organisation.ts": [9, WHY.write],
   "operations/person.ts": [7, WHY.write],
   "operations/setup.ts": [1, WHY.write],
   "operations/suggestions.ts": [6, WHY.write],
+  "orders/checkout.ts": [1, WHY.host],
+  "orders/guests.ts": [1, WHY.host],
+  "orders/holds.ts": [1, WHY.host],
+  "orders/late.ts": [2, WHY.host],
+  "orders/orders.ts": [2, WHY.host],
   "records/erase-log.ts": [1, WHY.write],
+  "records/erase-stores.ts": [1, WHY.write],
   "records/erase-subject.ts": [6, WHY.write],
   "records/erase.ts": [8, WHY.write],
   "records/links.ts": [10, WHY.part],
