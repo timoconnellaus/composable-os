@@ -38,7 +38,10 @@ beforeAll(async () => {
   b = await createCustomer(admin, "B");
 }, 60_000);
 
+// capacity.get (stage 26, ADR 0433) is open to customers and the public too: places left, as
+// the object's `show` allows.
 const OPENED = [
+  "capacity.get",
   "me.deleteAccount",
   "me.get",
   "me.sessions.list",
@@ -77,7 +80,8 @@ describe("what this step opens", () => {
   });
 
   it("staff and the public cannot call them", async () => {
-    for (const name of OPENED) {
+    // capacity.get is for everyone, so it is not one of "them".
+    for (const name of OPENED.filter((n) => n !== "capacity.get")) {
       for (const ctx of [context(admin), outside(PUBLIC)]) {
         const outcome = await call(name, {}, ctx);
         expect(outcome, name).toMatchObject({ ok: false, error: { code: "unknown_operation" } });

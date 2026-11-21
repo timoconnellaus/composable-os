@@ -62,6 +62,8 @@ export const ID_PREFIXES = {
   /** An order and one of its lines (stage 25, ADR 0426). */
   order: "ord",
   orderLine: "orl",
+  /** Places claimed from a record's capacity (stage 26, ADR 0430). */
+  capacityClaim: "clm",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

@@ -2,8 +2,12 @@ import { defineConfig, devices } from "@playwright/test";
 
 // The e2e suite runs against `vite dev`: both Workers, local D1 and the hello Workflow.
 // - `smoke` signs in through the UI itself, at desktop size.
-// - `desktop` (1280 px) and `phone` (390 px) run the app specs signed in, from the storage
-//   state global-setup saves.
+// - `desktop` (1280 px) runs every app spec signed in, from the storage state global-setup saves.
+// - `phone` (390 px) runs only the tests tagged `@phone`: `test("…", { tag: "@phone" }, …)`, on
+//   each test (Biome refuses the option on a `test.describe`). Tag a test when its layout really
+//   differs at phone width (the nav drawer, sheets, a reflowing table or grid, touch in place of
+//   drag or hover, a phone-only assertion), not by default. See CONTRIBUTING.md (End-to-end tests).
+// CI splits the run across runners with `--shard=N/4` (.github/workflows/ci.yml).
 const PORT = Number(process.env.E2E_PORT ?? 5179);
 const baseURL = `http://localhost:${PORT}`;
 const storageState = "e2e/.auth/user.json";
@@ -31,6 +35,7 @@ export default defineConfig({
     {
       name: "phone",
       testIgnore: ["smoke.spec.ts", "live/**"],
+      grep: /@phone/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 390, height: 844 },

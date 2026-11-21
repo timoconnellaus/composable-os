@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
 import { expectNoHorizontalScroll, open, unique } from "./helpers.ts";
 import { TEST_USER } from "./test-user.ts";
 
-test("an admin sets up the CRM end to end", async ({ page }) => {
+test("an admin sets up the CRM end to end", { tag: "@phone" }, async ({ page }) => {
   const orgName = `Setup Org ${unique()}`;
 
   // Reopen it from Settings → General.

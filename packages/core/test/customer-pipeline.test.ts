@@ -62,6 +62,7 @@ describe("default closed (criterion 1)", () => {
     const openTo = (kind: string) =>
       new Set(listed.filter((e) => e.audiences.includes(kind) && !e.toolOnly).map((e) => e.name));
     expect([...openTo("customer")].sort()).toEqual([
+      "capacity.get",
       "me.deleteAccount",
       "me.get",
       "me.sessions.list",
@@ -76,8 +77,8 @@ describe("default closed (criterion 1)", () => {
       "order.start",
       "order.view",
     ]);
-    // Stage 25: a guest starts an order and opens it again with its token. Nothing else.
-    expect([...openTo("public")].sort()).toEqual(["order.start", "order.view"]);
+    // Stage 25: a guest starts, opens and pays an order. Stage 26: places left (ADR 0433).
+    expect([...openTo("public")].sort()).toEqual(["capacity.get", "order.start", "order.view"]);
     for (const principal of [a.principal, PUBLIC]) {
       const open = openTo(principal.kind);
       for (const op of coreOperations) {

@@ -92,6 +92,14 @@ extension declares it; it never implements it. Each behaviour the platform has i
   timeline when the field is tracked. An object has `stages` or `states`, not both. See
   `StatesSpec` in `states.ts` and the README's "Object behaviour". Do not guard a status field
   in a tool instead: a rule in a tool does not hold for the UI, MCP or an import.
+- **`capacity`** on an object: its records have a limited number of places that the host never
+  gives out twice (ticket types, classes, slots). Declare a number field and
+  `capacity: { places: "<field>" }`; add `pool: "<relation>"` to draw on a parent's places too (a
+  ticket type within its event; the parent object must declare a capacity and no pool), and
+  `show: "exact" | "low" | "availability"` (with `lowAt` for `low`) for what customers and the
+  public are told. Records get read-only `held`, `taken` and `available`, so don't declare fields
+  with those names. Never count places in a tool: claims are made by the host in the write that
+  needs them (an order). See `CapacitySpec` in `packages/sdk/src/capacity.ts` and ADR 0431.
 
 ## The rules
 

@@ -152,6 +152,8 @@ export function toOperationError(error: unknown): OperationError {
   if (error instanceof Error && error.name === "AiAllowanceError") {
     return new PlanLimitError(error.message, { reason: "platform_ai" });
   }
+  const capacity = capacityRefusal(error);
+  if (capacity) return capacity;
   const message = error instanceof Error ? error.message : String(error);
   // An order written from a read that is no longer current (migration 0421): nothing was
   // applied, and the same call made again reads the order as it now is.
@@ -173,4 +175,84 @@ export function toOperationError(error: unknown): OperationError {
     return new ValidationError("A value is not allowed", { reason: message });
   }
   return new OperationError("internal", "Internal error", { reason: message });
+}
+
+// Capacity refusals (stage 26, ADR 0430; migration 0440). A claim, or a change of places, that
+// would put a counter past its places fails its statement with `core_capacity_refused {json}`,
+// so every batch that fails on capacity reports the numbers, whichever operation queued it,
+// without a read.
+
+/** Details of a refused claim (`invalid_input`). */
+export interface CapacityRefusalDetails {
+  rule: "capacity";
+  object: string;
+  record: string;
+  asked: number;
+  available: number;
+}
+
+/** Details of places refused because they are fewer than are already claimed. */
+export interface CapacityPlacesDetails {
+  rule: "capacity";
+  object: string;
+  record: string;
+  places: number;
+  held: number;
+  taken: number;
+}
+
+interface CapacityRefusalPayload {
+  object: string;
+  record: string;
+  places: number;
+  held: number;
+  taken: number;
+  asked: number;
+  available: number;
+}
+
+const CAPACITY_REFUSED = /core_capacity_refused (\{[^{}]*\})/;
+
+/** The error for a batch the capacity rule refused, or null when it failed for another reason. */
+export function capacityRefusal(error: unknown): ValidationError | null {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = CAPACITY_REFUSED.exec(message);
+  if (match) {
+    let payload: CapacityRefusalPayload;
+    try {
+      payload = JSON.parse(match[1] as string) as CapacityRefusalPayload;
+    } catch {
+      return new ValidationError("Not enough places", { rule: "capacity" });
+    }
+    if (payload.asked > 0) {
+      const details: CapacityRefusalDetails = {
+        rule: "capacity",
+        object: payload.object,
+        record: payload.record,
+        asked: payload.asked,
+        available: payload.available,
+      };
+      return new ValidationError(
+        `Not enough places: asked for ${payload.asked}, ${payload.available} left`,
+        details,
+      );
+    }
+    const details: CapacityPlacesDetails = {
+      rule: "capacity",
+      object: payload.object,
+      record: payload.record,
+      places: payload.places,
+      held: payload.held,
+      taken: payload.taken,
+    };
+    return new ValidationError(
+      `Places cannot be fewer than are claimed: ${payload.held} held and ${payload.taken} taken`,
+      details,
+    );
+  }
+  // The CHECK behind the trigger: reached only if the trigger is missing.
+  if (message.includes("core_capacity_within_places")) {
+    return new ValidationError("Not enough places", { rule: "capacity" });
+  }
+  return null;
 }

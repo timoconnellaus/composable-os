@@ -3,7 +3,9 @@
 import { expect, test } from "@playwright/test";
 import { createPerson, expectNoHorizontalScroll, open, pressUntil, unique } from "./helpers.ts";
 
-test("merge two people, keeping activities, with the loser in Trash", async ({ page }) => {
+test("merge two people, keeping activities, with the loser in Trash", { tag: "@phone" }, async ({
+  page,
+}) => {
   const token = unique("mrg");
   await open(page, "/people");
   const loserId = await createPerson(page, {

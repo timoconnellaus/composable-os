@@ -16,6 +16,7 @@ import { assistantOperations } from "./assistant.ts";
 import { auditOperations } from "./audit.ts";
 import { automationOperations } from "./automation.ts";
 import { automationBindingOperations } from "./automation-binding.ts";
+import { capacityOperations } from "./capacity.ts";
 import { codeOperations } from "./code.ts";
 import { connectedAppOperations } from "./connected-app.ts";
 import { countOperations } from "./count.ts";
@@ -125,4 +126,5 @@ export const coreOperations = [
   ...meOperations,
   ...orderOperations,
   ...myOperations,
+  ...capacityOperations,
 ] as const;

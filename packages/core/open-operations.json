@@ -2,6 +2,11 @@
   "$comment": "Generated. Every operation customers or the public may call, with its risk class (ADR 0402, ADR 0411). Do not edit: run `pnpm --filter @composable-os/core open-operations`. A new line here opens the host to people outside the org, so review it as such.",
   "operations": [
     {
+      "name": "capacity.get",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read"
+    },
+    {
       "name": "me.deleteAccount",
       "audiences": ["customer"],
       "risk": "write",

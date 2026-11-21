@@ -29,7 +29,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | R | 0410–0419 | 0415–0419 | Stage 23, HTTP surface and typed client (ADR 0403 amended as built) | specced |
 | S | — | 0420–0424 | Stage 24, Client apps (no migrations; ADR 0401 amended as built) | specced |
 | T | 0420–0439 | 0425–0429 | Stage 25, States, orders and payments (first half: the transition engine, `states`, `stages` on the engine; migration 0420 and ADR 0425, merged. Second half, spine: orders, the verified-payment rule, deposits, guest checkout; migration 0421 and ADRs 0426 to 0428 used. Left for the gatekeeper half: migrations 0422 to 0439 and ADR 0429) | in flight |
-| U | 0440–0449 | 0430–0434 | Stage 26, Capacity and holds | specced |
+| U | 0440–0449 | 0430–0434 | Stage 26, Capacity and holds | in flight |
 | V | 0450–0459 | 0435–0439 | Stage 27, Ticketing and the first client | specced |
 | W | 0460–0469 | 0440–0444 | Stage 28, Content | specced |
 
@@ -48,6 +48,7 @@ Avoid these unless your build is the one named, because another build is changin
 | `person.erase`, `organisation.erase`, `records/erase.ts`, `assistant/erase.ts`, sync ingest's suppression check | Erase completeness |
 | `packages/core/src/visibility/`, `audiences` on operations, `invoke()`'s audience check, customer and public principals | Stage 22 |
 | Visibility and permissions anywhere | Stage 14, once it starts |
+| `packages/core/src/capacity/`, `core_capacity*` tables | Stage 26 |
 | `packages/agent-*`, `apps/app/src/server/assistant/`, the assistant UI (sidebar, `/assistant`, settings pages for memory, routines, agents, plugins and voice) | Stage 17 |
 
 Remove a row when its build merges.
