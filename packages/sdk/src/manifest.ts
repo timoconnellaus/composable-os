@@ -212,6 +212,43 @@ export const objectManifestSchema = z.object({
     })
     .strict()
     .optional(),
+  access: z
+    .object({
+      sources: z
+        .array(
+          z.union([
+            z
+              .object({
+                via: z.string().max(81),
+                field: z.string().max(40),
+                through: z.string().max(40).optional(),
+                states: z.array(z.string().max(60)).min(1).max(20).optional(),
+                until: z.string().max(40).optional(),
+              })
+              .strict(),
+            z
+              .object({
+                kind: z.string().regex(/^[a-z][a-zA-Z0-9]{0,39}$/),
+                options: z
+                  .record(
+                    z.string().max(40),
+                    z.union([
+                      z.string().max(200),
+                      z.number(),
+                      z.boolean(),
+                      z.array(z.string().max(200)).max(20),
+                    ]),
+                  )
+                  .optional(),
+              })
+              .strict(),
+          ]),
+        )
+        .min(1)
+        .max(8),
+    })
+    .strict()
+    .optional(),
   publishable: z
     .object({
       content: z.array(z.string().max(40)).min(1).max(40),
@@ -417,13 +454,16 @@ function checkDocumentField(
   known: ReadonlySet<string>,
   contract: (path: string, message: string) => void,
 ): void {
-  if (field.type === "image") {
+  if (field.type === "image" || field.type === "video") {
     for (const key of ["schema", "maxBytes", "paths"] as const) {
       if (field[key] !== undefined) {
-        contract(`${path}.${key}`, `An image field has the platform's schema and no ${key}`);
+        contract(
+          `${path}.${key}`,
+          `An ${field.type} field has the platform's schema and no ${key}`,
+        );
       }
     }
-    if (field.track) contract(`${path}.track`, "An image is not tracked on the timeline");
+    if (field.track) contract(`${path}.track`, `An ${field.type} is not tracked on the timeline`);
     return;
   }
   if (field.type === "richText") {
@@ -1204,6 +1244,88 @@ export function validateManifest(
         `customerVia.field "${v.field}" must be one ${local}'s customer may read (customer.read)`,
       );
     }
+  }
+
+  // Who holds access to a record (ADR 0477): sources of this extension's own records. A kind the
+  // host provides is checked by the host, which knows its kinds.
+  for (const [name, object] of Object.entries(m.objects)) {
+    const a = object.access;
+    if (!a) continue;
+    a.sources.forEach((given, i) => {
+      const path = `objects.${name}.access.sources.${i}`;
+      if (!("via" in given)) return;
+      const source = given;
+      const local = source.via.startsWith(`${m.id}.`) ? source.via.slice(m.id.length + 1) : null;
+      const via = local ? m.objects[local] : undefined;
+      if (!via || local === name) {
+        contract(
+          `${path}.via`,
+          `via must name another of this extension's objects, as ${m.id}.<object>`,
+        );
+        return;
+      }
+      if (!via.customer) {
+        contract(`${path}.via`, "via must name an object that declares a customer");
+        return;
+      }
+      const pointer = via.fields[source.field];
+      if (pointer?.type !== "relation" || pointer.many || !pointer.to) {
+        contract(`${path}.field`, `field must name a relation of ${local} to one record`);
+        return;
+      }
+      if (source.through === undefined) {
+        if (pointer.to !== `${m.id}.${name}`) {
+          contract(`${path}.field`, `field must be a relation of ${local} to one ${name}`);
+        }
+      } else {
+        const targetLocal = pointer.to.startsWith(`${m.id}.`)
+          ? pointer.to.slice(m.id.length + 1)
+          : null;
+        const target = targetLocal ? m.objects[targetLocal] : undefined;
+        const list = target?.fields[source.through];
+        const lists =
+          (list?.type === "relation" && list.many && list.to === `${m.id}.${name}`) ||
+          list?.type === "document";
+        if (!target || !lists) {
+          contract(
+            `${path}.through`,
+            `through must name a many relation to ${name}, or a document whose refs name it, on the object field points to`,
+          );
+        }
+      }
+      if (via.states) {
+        const stateField = via.fields[via.states.field];
+        const known = new Set((stateField?.options ?? []).map((o) => o.value));
+        // What a refund moves a grant of `via` to: never a state that gives access.
+        const voids = new Set(
+          Object.values(m.objects).flatMap((o) => {
+            const g = o.sellable?.grants;
+            return g && (g.object === local || g.object === source.via) ? [g.void] : [];
+          }),
+        );
+        if (!source.states?.length) {
+          contract(`${path}.states`, `${local} has states: name the ones that give access`);
+        } else {
+          for (const st of source.states) {
+            if (!known.has(st)) contract(`${path}.states`, `"${st}" is not a state of ${local}`);
+            if (voids.has(st)) {
+              contract(
+                `${path}.states`,
+                `"${st}" is where a refund moves ${local}: it gives no access`,
+              );
+            }
+          }
+        }
+      } else if (source.states !== undefined) {
+        contract(`${path}.states`, `${local} has no states`);
+      }
+      if (source.until !== undefined) {
+        const until = via.fields[source.until];
+        if (until?.type !== "date" && until?.type !== "datetime") {
+          contract(`${path}.until`, `until must name a date or datetime field of ${local}`);
+        }
+      }
+    });
   }
 
   for (const [target, fields] of Object.entries(m.fields)) {

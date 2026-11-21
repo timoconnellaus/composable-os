@@ -18,7 +18,7 @@ import { ConflictError, ValidationError } from "../errors.ts";
 import type { ObjectDefinition, PublishableDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import type { Actor } from "../principals.ts";
-import { mediaUsesOf } from "./media.ts";
+import { type MediaUse, mediaUsesOf } from "./media.ts";
 
 /** The operations that change what the public reads; only a person approves an AI's request. */
 export const PUBLISH_OPERATIONS: ReadonlySet<string> = new Set([
@@ -296,11 +296,7 @@ export function unpublishWrites(object: string, id: string): CompiledQuery[] {
 }
 
 /** The record's rows of core_published_media, replaced by `media`. */
-function publishedMediaWrites(
-  object: string,
-  id: string,
-  uses: { media: string; field: string }[],
-): CompiledQuery[] {
+function publishedMediaWrites(object: string, id: string, uses: MediaUse[]): CompiledQuery[] {
   return [
     CompiledQuery.raw("DELETE FROM core_published_media WHERE object_type = ? AND record_id = ?", [
       object,
@@ -308,8 +304,8 @@ function publishedMediaWrites(
     ]),
     ...uses.map((use) =>
       CompiledQuery.raw(
-        "INSERT OR IGNORE INTO core_published_media (media_id, object_type, record_id, field) VALUES (?, ?, ?, ?)",
-        [use.media, object, id, use.field],
+        "INSERT OR IGNORE INTO core_published_media (media_id, object_type, record_id, field, reach) VALUES (?, ?, ?, ?, ?)",
+        [use.media, object, id, use.field, use.reach],
       ),
     ),
   ];

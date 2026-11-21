@@ -12,13 +12,24 @@
 //                                           person signed in to (`cos content import`, ADR 0470):
 //                                           beside the surface, so it works behind Access, and
 //                                           never with a cookie, so no browser page can reach it.
+//   POST /api/media/<id>/captions?language=&label=
+//                                           a video's WebVTT caption track: `media.captionUpload`
+//                                           (staff only; stage 42, ADR 0475)
+//   *    /api/v1/media/fake-stream/*        the fake Stream's upload and playback addresses, only
+//                                           where the fake is configured (development and tests)
+//
+// A picture and a file (a PDF) go up here; a video never does: the browser sends it straight to
+// the address Stream gave `media.videoUpload`.
 //
 // What may be served, to whom, is `media.serve`'s answer, through `invoke()`. This module reads
 // R2 only for an item that answer named, and writes it only through `media.upload`.
+
+import { MEDIA_CAPTION_MAX_BYTES, MEDIA_FILE_MAX_BYTES } from "@composable-os/sdk";
 import { ForbiddenError, ValidationError } from "../errors.ts";
 import type { Invoker } from "../invoke.ts";
 import type { AnyInvocationContext } from "../pipeline.ts";
-import { MEDIA_MAX_BYTES, type MediaResizer, type MediaStore } from "../records/media.ts";
+import type { MediaResizer, MediaStore } from "../records/media.ts";
+import { videoHost } from "../records/stream.ts";
 import { errorReply } from "./envelope.ts";
 
 export const MEDIA_ROUTE = "/api/media";
@@ -55,6 +66,16 @@ export interface MediaRouteOptions {
 }
 
 const ID = /^med_[A-Za-z0-9]{1,60}$/;
+const CAPTIONS = /^\/api\/media\/(med_[A-Za-z0-9]{1,60})\/captions$/;
+const FAKE_STREAM_PREFIX = `${PUBLIC_MEDIA_ROUTE}/fake-stream/`;
+
+/** The fake Stream's control, when this isolate's video host is the fake. */
+function fakeStream(): { handle(request: Request): Promise<Response> } | undefined {
+  const host = videoHost() as
+    | { fake?: { handle(request: Request): Promise<Response> } }
+    | undefined;
+  return host?.fake;
+}
 
 function reply(status: number, body: string, headers: Record<string, string> = {}): Response {
   return new Response(body, {
@@ -76,6 +97,19 @@ function failure(error: unknown): Response {
 export async function handleMedia(request: Request, options: MediaRouteOptions): Promise<Response> {
   const url = new URL(request.url);
   try {
+    if (url.pathname.startsWith(FAKE_STREAM_PREFIX)) {
+      const fake = fakeStream();
+      if (!fake)
+        return reply(404, JSON.stringify({ error: { code: "not_found", message: "Not found" } }));
+      return await fake.handle(request);
+    }
+    const caption = CAPTIONS.exec(url.pathname);
+    if (caption?.[1]) {
+      if (request.method !== "POST" || !options.uploads) {
+        return reply(404, JSON.stringify({ error: { code: "not_found", message: "Not found" } }));
+      }
+      return await captionUpload(request, url, caption[1], options);
+    }
     if (url.pathname === MEDIA_ROUTE) {
       if (request.method !== "POST" || !options.uploads) {
         return reply(404, JSON.stringify({ error: { code: "not_found", message: "Not found" } }));
@@ -137,13 +171,14 @@ async function upload(
     throw new ValidationError("Upload from the admin", { httpStatus: 403 });
   }
   const declared = Number(request.headers.get("content-length") ?? "0");
-  if (declared > MEDIA_MAX_BYTES) {
-    throw new ValidationError(`A picture is at most ${MEDIA_MAX_BYTES} bytes`, {
+  // The largest a file may be; media.upload holds each kind to its own limit.
+  if (declared > MEDIA_FILE_MAX_BYTES) {
+    throw new ValidationError(`A file is at most ${MEDIA_FILE_MAX_BYTES} bytes`, {
       reason: "too_large",
       httpStatus: 413,
     });
   }
-  const bytes = await readCapped(request, MEDIA_MAX_BYTES);
+  const bytes = await readCapped(request, MEDIA_FILE_MAX_BYTES);
   const ctx = given ?? (await options.context(request));
   const input = {
     name: url.searchParams.get("name") ?? "picture",
@@ -154,6 +189,34 @@ async function upload(
     ...(options.media ? { media: options.media } : {}),
     upload: { bytes },
   } as AnyInvocationContext);
+  return reply(200, JSON.stringify({ data: result }));
+}
+
+/** A video's caption track, from the admin (stage 42, ADR 0475). */
+async function captionUpload(
+  request: Request,
+  url: URL,
+  id: string,
+  options: MediaRouteOptions,
+): Promise<Response> {
+  const origin = request.headers.get("origin");
+  if (origin && origin !== url.origin) {
+    throw new ValidationError("Upload from the admin", { httpStatus: 403 });
+  }
+  if (Number(request.headers.get("content-length") ?? "0") > MEDIA_CAPTION_MAX_BYTES) {
+    throw new ValidationError(`A caption file is at most ${MEDIA_CAPTION_MAX_BYTES} bytes`, {
+      reason: "too_large",
+      httpStatus: 413,
+    });
+  }
+  const bytes = await readCapped(request, MEDIA_CAPTION_MAX_BYTES);
+  const ctx = await options.context(request);
+  const label = url.searchParams.get("label");
+  const result = await options.invoker.invokeByName(
+    "media.captionUpload",
+    { id, language: url.searchParams.get("language") ?? "", ...(label ? { label } : {}) },
+    { ...ctx, upload: { bytes } } as AnyInvocationContext,
+  );
   return reply(200, JSON.stringify({ data: result }));
 }
 
@@ -169,7 +232,7 @@ async function readCapped(request: Request, max: number): Promise<Uint8Array> {
     size += value.byteLength;
     if (size > max) {
       await reader.cancel();
-      throw new ValidationError(`A picture is at most ${max} bytes`, {
+      throw new ValidationError(`A file here is at most ${max} bytes`, {
         reason: "too_large",
         httpStatus: 413,
       });
@@ -219,6 +282,8 @@ async function serve(request: Request, url: URL, options: MediaRouteOptions): Pr
     status: 200,
     headers: {
       "content-type": type,
+      // A download is saved, never shown in the page (stage 42).
+      ...(type === "application/pdf" ? { "content-disposition": "attachment" } : {}),
       "x-content-type-options": "nosniff",
       "content-security-policy": "default-src 'none'",
       // The public's copy may be kept a little; a staff member's is theirs only.

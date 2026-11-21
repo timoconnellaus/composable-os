@@ -667,8 +667,118 @@
       "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
     },
     {
+      "name": "media.play",
+      "description": "A short-lived token to play one ready video, and where it plays (HLS, DASH, Stream's player), signed by the host: staff may play any; a customer or the public only a video that a published record they may read shows, in a part they may read (a lesson's video only for a holder of access to its course, a trailer for anyone). Anything else, and a made-up id, is not found. The token is for this video only, lives at most an hour, and never allows a download. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A media item's id"
+          },
+          "record": {
+            "description": "The record that shows it, to look only there",
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "maxLength": 81
+              },
+              "id": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": ["object", "id"]
+          },
+          "field": {
+            "description": "The field of that record that shows it",
+            "type": "string",
+            "maxLength": 40
+          },
+          "purpose": {
+            "default": "stream",
+            "description": "stream: to watch. (A download for offline viewing is not offered yet.)",
+            "type": "string",
+            "enum": ["stream"]
+          },
+          "seconds": {
+            "description": "How long the token lives; at most, and by default, an hour",
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 3600
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "hls": {
+            "type": "string"
+          },
+          "dash": {
+            "type": "string"
+          },
+          "iframe": {
+            "type": "string"
+          },
+          "poster": {
+            "type": "string",
+            "description": "The poster frame Stream made, with the token"
+          },
+          "duration": {
+            "type": ["number", "null"]
+          },
+          "captions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "language": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": ["language", "label"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "token",
+          "expiresAt",
+          "hls",
+          "dash",
+          "iframe",
+          "poster",
+          "duration",
+          "captions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "media.serve",
-      "description": "Whether the caller may be served one picture, and at what width: staff any live one; a customer or the public only one that a published record they may read shows. Anything else is not found. The media route (`/api/media/<id>`) streams it. Read-only.",
+      "description": "Whether the caller may be served one picture or downloadable file, and at what width: staff any live one; a customer or the public only one that a published record they may read shows in a part they may read. Anything else is not found, and so is a video (it plays with media.play). The media route (`/api/media/<id>`) streams it. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",

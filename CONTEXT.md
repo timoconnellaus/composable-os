@@ -1267,10 +1267,47 @@ _Avoid_: external id (a synced email's), source id
 **Media** (a media item; the **media library**)
 A picture staff uploaded (JPEG, PNG, GIF, WebP or AVIF, at most 10 MB, its type read from its
 bytes), kept as one original in R2 with its size, dimensions and alt text (stage 28, ADR 0444).
-A rich text picture and an `image` field name one by id. Staff are served any; a customer or the
-public only one that published content they may read shows. Deleting one is to the Trash; the
-purge deletes its file.
+Since stage 42 an item has a **kind**: `image`, `file` (a PDF for downloads, at most 50 MB, in R2
+and served as a picture is) or `video` (below) (ADR 0475). A rich text picture and an `image`
+field name one by id, and a document's ref may say which kind it takes. Staff are served any; a
+customer or the public only one that published content they may read shows, in a part they may
+read. Deleting one is to the Trash; the purge deletes its file, or the video from Stream.
 _Avoid_: asset, upload (the act, not the thing), attachment (an email's)
+
+**Video** (stage 42)
+A media item held in Cloudflare Stream on the deployment's own account (ADR 0475): uploaded from
+the staff browser straight to Stream with a one-time address (`media.videoUpload`), `uploading`,
+then `processing`, then `ready` or `failed` as Stream says (`media.videoRefresh`), with caption
+tracks in WebVTT. A record may name one only once it is ready (a `video` field, or a document's
+ref with `media: "video"`). Nothing of it is in R2, and it plays only with a playback token.
+_Avoid_: clip, stream (Stream is the service)
+
+**Playback token**
+What `media.play` gives a caller the host has decided may watch one video (ADR 0476): signed by
+the host with the deployment's Stream signing key, for that video only, expiring within the hour,
+never allowing a download. Staff get one for any ready video; anyone else only for a video that a
+published record they may read shows, in a part they may read. Every other answer is the one
+not-found. The video's id alone plays nothing.
+_Avoid_: signed URL (the token goes in the address; it is not the address), key
+
+**Access** (to a record; a **holder**)
+What a customer holds when one of the sources an object declares is live for them (ADR 0477): an
+enrolment of theirs pointing at the course, in a state that gives access and before its `until`,
+or one pointing at a bundle whose published version lists the course. "Does this customer hold
+access to this record" is one question the seam asks (`holdsAccess`), for every read and for
+`media.play`; a later stage adds a kind of source (a subscription) without changing it. A
+refund in full voids a granted enrolment, so access ends in the refund's batch. Staff hold
+everything; the public nothing.
+_Avoid_: entitlement (a hosted plan's limits, ADR 0211), purchase (access can be given or
+imported), licence
+
+**Holders' part** (of a document)
+A part of a document field its schema marks `holders` (ADR 0477): an object, or some keys of one
+(a lesson's video and notes, while its title stays), removed from what an outsider without access
+to the record reads, unless the object's `unless` key is true (a free preview). A `private` part
+is removed for every outsider, holder or not. What a published version shows is kept with its
+reach (all, holders, private), so a holders' video is played only to a holder.
+_Avoid_: paywalled, premium, locked
 
 **Preview** (link)
 A token that lets whoever holds it read one record's working copy (the fields the public would

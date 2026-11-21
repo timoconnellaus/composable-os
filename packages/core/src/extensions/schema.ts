@@ -38,6 +38,17 @@ import {
   viewOf,
 } from "./naming.ts";
 
+/** One source of access as declared (ADR 0477): a record source, or a kind the host provides. */
+export type AccessSourceJson =
+  | {
+      via: string;
+      field: string;
+      through?: string | undefined;
+      states?: string[] | undefined;
+      until?: string | undefined;
+    }
+  | { kind: string; options?: Record<string, unknown> | undefined };
+
 export interface ObjectDefinitionJson {
   label: string;
   plural: string;
@@ -69,6 +80,8 @@ export interface ObjectDefinitionJson {
   };
   /** What a customer reads of a record their own record points to (ADR 0439), as declared. */
   customerVia?: { from: string; field: string; read: string[] };
+  /** Who holds access to a record (ADR 0477), as declared. */
+  access?: { sources: AccessSourceJson[] };
   /** Versions of the content fields (ADR 0446), as declared. */
   publishable?: { content: string[]; slug?: string | undefined; date?: string | undefined };
   navigationOrder?: number;
@@ -736,7 +749,7 @@ function registryField(field: FieldState, object: string): FieldDefinition {
       ? { document: { schema: def.schema, maxBytes: def.maxBytes } }
       : {}),
     // Rich text is a document with the platform's schema (ADR 0440).
-    ...(field.type === "richText" || field.type === "image"
+    ...(field.type === "richText" || field.type === "image" || field.type === "video"
       ? {
           document: {
             schema: documentSchemaOf(def) as unknown as Record<string, unknown>,
@@ -858,6 +871,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.public ? { public: object.definition.public } : {}),
       ...(object.definition.signedIn ? { signedIn: object.definition.signedIn } : {}),
       ...(object.definition.customerVia ? { customerVia: object.definition.customerVia } : {}),
+      ...(object.definition.access ? { access: object.definition.access } : {}),
       ...(publishable
         ? {
             publishable: {

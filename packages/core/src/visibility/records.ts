@@ -12,6 +12,7 @@ import { compileFilter, type Filter } from "../filter.ts";
 import { type ListInput, runListQuery } from "../list.ts";
 import { loadOrderCurrency } from "../orders/settings.ts";
 import { viewColumnOf } from "../records/columns.ts";
+import { holdsAccess } from "./access.ts";
 import { type CapacityView, readCapacity } from "./capacity.ts";
 import {
   type AnyRow,
@@ -60,10 +61,18 @@ function fieldValue(field: FieldDefinition, row: AnyRow): unknown {
 
 /**
  * A row as the caller may see it. For a caller outside the org, a document's `private` parts
- * are removed (ADR 0445): a coach's note is not a member's to read unless it is marked so.
+ * are removed (ADR 0445): a coach's note is not a member's to read unless it is marked so. Its
+ * `holders` parts are removed too unless the record is in `held` (ADR 0477): the records the
+ * caller holds access to, as `holdsAccess` answered.
  */
-function toRecord(object: ObjectDefinition, row: AnyRow, viewer: Viewer): VisibleRecord {
+function toRecord(
+  object: ObjectDefinition,
+  row: AnyRow,
+  viewer: Viewer,
+  held: ReadonlySet<string> = NONE_HELD,
+): VisibleRecord {
   const outsider = viewer.principal.kind !== "staff";
+  const holder = held.has(String(row.id));
   const values: Record<string, unknown> = {};
   for (const field of object.fields) {
     if (field.name === "id") continue;
@@ -72,11 +81,29 @@ function toRecord(object: ObjectDefinition, row: AnyRow, viewer: Viewer): Visibl
     values[field.name] =
       outsider && isDocumentType(field.fieldType)
         ? schema
-          ? redactDocument(schema, value)
+          ? redactDocument(schema, value, { holder })
           : null
         : value;
   }
   return { object: object.name, id: String(row.id), values };
+}
+
+const NONE_HELD: ReadonlySet<string> = new Set();
+
+/**
+ * Which of these rows the caller holds access to (ADR 0477): asked only of a caller outside the
+ * org, on an object that declares access, when the rows carry a document (else nothing is
+ * redacted by it). One question for the whole page.
+ */
+async function heldOf(ctx: Reader, object: ObjectDefinition, rows: AnyRow[]) {
+  const definition = getObject(object.name) ?? object;
+  if (ctx.principal.kind === "staff" || !definition.access || !rows.length) return NONE_HELD;
+  if (!object.fields.some((f) => isDocumentType(f.fieldType))) return NONE_HELD;
+  return holdsAccess(
+    ctx,
+    definition,
+    rows.map((row) => String(row.id)),
+  );
 }
 
 /** One page of the caller's records of `object`. Filter and sort see only visible fields. */
@@ -87,8 +114,9 @@ export async function listVisible(
 ): Promise<{ items: VisibleRecord[]; nextCursor: string | null; currency?: string | null }> {
   const visible = visibleObject(ctx, object);
   const page = await runListQuery<AnyRow & { id: string }>(ctx, visible, input);
+  const held = await heldOf(ctx, visible, page.rows);
   return {
-    items: page.rows.map((row) => toRecord(visible, row, ctx)),
+    items: page.rows.map((row) => toRecord(visible, row, ctx, held)),
     nextCursor: page.nextCursor,
     ...(await currencyOf(ctx, visible)),
   };
@@ -108,7 +136,11 @@ export async function getVisible(
     .where("id", "=", id)
     .executeTakeFirst();
   if (!row) throw new NotFoundError(visible.name, id);
-  return { ...toRecord(visible, row as AnyRow, ctx), ...(await currencyOf(ctx, visible)) };
+  const held = await heldOf(ctx, visible, [row as AnyRow]);
+  return {
+    ...toRecord(visible, row as AnyRow, ctx, held),
+    ...(await currencyOf(ctx, visible)),
+  };
 }
 
 /**

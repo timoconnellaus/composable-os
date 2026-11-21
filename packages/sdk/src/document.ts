@@ -23,6 +23,11 @@
 // An object node may be `private`: removed from what a customer or the public reads
 // (`redactDocument`), unless its `unless` key is true (a coach's note marked as shown to
 // members). The host does that at the visibility seam; staff read the whole document.
+//
+// An object node may also be for `holders` (stage 42, ADR 0477): removed, or some of its keys
+// removed, from what an outsider reads unless they hold access to the record (the seam's one
+// question, visibility/access.ts) or its `unless` key is true (a lesson marked as a free
+// preview). A `ref` to `media` may name the kind of item it takes (`media: "video"`).
 
 /** The most a document may be, in bytes of its JSON, whatever a field declares. */
 export const DOCUMENT_MAX_BYTES = 524_288;
@@ -89,7 +94,24 @@ export interface DocumentObjectNode extends NodeBase {
    * that boolean key of the object is true (a note marked as shown to members).
    */
   private?: true | { unless: string };
+  /**
+   * For holders only (stage 42, ADR 0477): removed when someone outside the org who does not
+   * hold access to the record reads the document. `true` or `{ unless }` removes the whole object,
+   * as `private` does; `{ keys, unless? }` removes only those keys of it (a lesson's video and
+   * notes, while its title stays). `unless` names a boolean key of this object that keeps it (a
+   * free preview).
+   */
+  holders?: DocumentHolders;
 }
+
+/** What of an object node is for holders only: see `DocumentObjectNode.holders`. */
+export type DocumentHolders =
+  | true
+  | { unless: string; keys?: undefined }
+  | { keys: readonly string[]; unless?: string };
+
+/** The kinds of media item (stage 42, ADR 0475). */
+export type DocumentMediaKind = "image" | "video" | "file";
 export interface DocumentArrayNode extends NodeBase {
   type: "array";
   of: DocumentNode;
@@ -139,6 +161,11 @@ export interface DocumentChoiceNode extends NodeBase {
 export interface DocumentRefNode extends NodeBase {
   type: "ref";
   to: string;
+  /**
+   * For a ref to `media` (stage 42, ADR 0475): the kind of item it takes, checked by the host on
+   * write; a video must also be ready. Left out, any live item.
+   */
+  media?: DocumentMediaKind;
 }
 /** One of several object shapes, told apart by the value of `tag`. */
 export interface DocumentUnionNode extends NodeBase {
@@ -271,7 +298,7 @@ export function checkDocumentSchema(
     };
     switch (value.type) {
       case "object": {
-        expect("fields", "private");
+        expect("fields", "private", "holders");
         object(path, value, depth);
         break;
       }
@@ -360,11 +387,17 @@ export function checkDocumentSchema(
         break;
       }
       case "ref": {
-        expect("to");
+        expect("to", "media");
         if (typeof value.to !== "string" || !OBJECT_RE.test(value.to)) {
           add(`${path}.to`, "A ref names an object: `<extension>.<object>` or a core object");
         } else if (knownObjects && !knownObjects.has(value.to)) {
           add(`${path}.to`, `Unknown object "${value.to}"`);
+        }
+        if (value.media !== undefined) {
+          if (value.to !== "media") add(`${path}.media`, "media is for a ref to media");
+          else if (!["image", "video", "file"].includes(String(value.media))) {
+            add(`${path}.media`, "media is image, video or file");
+          }
         }
         break;
       }
@@ -438,6 +471,33 @@ export function checkDocumentSchema(
         add(`${path}.private`, "private is true, or { unless: <a boolean key of this object> }");
       }
     }
+    const holders = value.holders;
+    if (holders !== undefined && holders !== true) {
+      const fields = value.fields as Record<string, unknown>;
+      const shape = isObject(holders) ? holders : null;
+      const unless = shape?.unless;
+      const keys = shape?.keys;
+      const flag = typeof unless === "string" ? fields[unless] : undefined;
+      const badUnless = unless !== undefined && (!isObject(flag) || flag.type !== "boolean");
+      const badKeys =
+        keys !== undefined &&
+        (!Array.isArray(keys) ||
+          !keys.length ||
+          keys.some((k) => typeof k !== "string" || !Object.hasOwn(fields, k) || k === unless));
+      const extra = shape ? Object.keys(shape).filter((k) => k !== "unless" && k !== "keys") : [];
+      if (
+        !shape ||
+        (unless === undefined && keys === undefined) ||
+        badUnless ||
+        badKeys ||
+        extra.length
+      ) {
+        add(
+          `${path}.holders`,
+          "holders is true, { unless: <a boolean key> } or { keys: [<keys of this object>], unless? }",
+        );
+      }
+    }
   };
 
   const resolve = (value: unknown, seen = new Set<string>()): DocumentNode | undefined => {
@@ -477,6 +537,10 @@ export function documentPathNode(
     const at = useOf(schema, current);
     if (at?.type !== "object")
       return `"${spec.path}" passes through something that is not an object`;
+    // A column of the view is read whole: a part for holders only cannot be one (ADR 0477).
+    if (at.holders && (at.holders === true || !at.holders.keys || at.holders.keys.includes(key))) {
+      return `"${spec.path}" is in a part for holders only, which a column cannot keep from others`;
+    }
     current = at.fields[key];
     if (!current) return `"${spec.path}" is not in the schema (no "${key}")`;
   }
@@ -694,24 +758,70 @@ export function formatDocumentIssue(issue: DocumentIssue): string {
 
 // --- Reading a value -----------------------------------------------------------------------------
 
+/** One `ref` of a value: the object it names, the id, where it is, and a media ref's kind. */
+export interface DocumentRef {
+  to: string;
+  id: string;
+  path: (string | number)[];
+  media?: DocumentMediaKind;
+}
+
 /** Every `ref` in a valid value: the object it names, the id, and where it is. */
-export function documentRefs(
-  schema: DocumentSchema,
-  value: unknown,
-): { to: string; id: string; path: (string | number)[] }[] {
-  const refs: { to: string; id: string; path: (string | number)[] }[] = [];
+export function documentRefs(schema: DocumentSchema, value: unknown): DocumentRef[] {
+  const refs: DocumentRef[] = [];
   visit(schema, value, (node, v, path) => {
-    if (node.type === "ref" && typeof v === "string") refs.push({ to: node.to, id: v, path });
+    if (node.type === "ref" && typeof v === "string") {
+      refs.push({ to: node.to, id: v, path, ...(node.media ? { media: node.media } : {}) });
+    }
   });
   return refs;
 }
 
+/** Who outside the org may read a part of a document (ADR 0477). */
+export type DocumentReach = "all" | "holders" | "private";
+
+/**
+ * The media items a value names, each with who outside the org reads the part it is in: `all`
+ * (anyone who may read the field), `holders` (only a reader who holds access to the record) or
+ * `private` (no one outside the org). Read from `redactDocument` itself, so it is exactly what the
+ * seam shows. An item named in several parts has the widest reach of them.
+ */
+export function documentMediaReach(
+  schema: DocumentSchema,
+  value: unknown,
+  mediaObject = "media",
+): Map<string, DocumentReach> {
+  const ids = (v: unknown) =>
+    new Set(
+      v === null || v === undefined
+        ? []
+        : documentRefs(schema, v)
+            .filter((r) => r.to === mediaObject)
+            .map((r) => r.id),
+    );
+  const everyone = ids(redactDocument(schema, value, { holder: false }));
+  const holders = ids(redactDocument(schema, value, { holder: true }));
+  const reach = new Map<string, DocumentReach>();
+  for (const id of ids(value)) {
+    reach.set(id, everyone.has(id) ? "all" : holders.has(id) ? "holders" : "private");
+  }
+  return reach;
+}
+
 /**
  * The document as someone outside the org may read it: every `private` object removed (from a
- * list, its entry; from an object, its key), unless its `unless` key is true. A value that does
- * not fit the schema is returned as null: an outsider is never shown what was not checked.
+ * list, its entry; from an object, its key), unless its `unless` key is true. Unless `holder` is
+ * true (the reader holds access to the record, ADR 0477), every `holders` object is removed the
+ * same way and every `holders` key of an object dropped, unless its `unless` key is true. A value
+ * that does not fit the schema is returned as null: an outsider is never shown what was not
+ * checked.
  */
-export function redactDocument(schema: DocumentSchema, value: unknown): unknown {
+export function redactDocument(
+  schema: DocumentSchema,
+  value: unknown,
+  options: { holder?: boolean } = {},
+): unknown {
+  const holder = options.holder === true;
   if (value === null || value === undefined) return value ?? null;
   const strip = (
     node: DocumentNode | undefined,
@@ -731,10 +841,22 @@ export function redactDocument(schema: DocumentSchema, value: unknown): unknown 
           const unless = shape.private === true ? null : shape.private.unless;
           if (!unless || v[unless] !== true) return { keep: false, value: null };
         }
+        // Holders' parts (ADR 0477): for a reader without access, the object or its listed keys.
+        let dropped: ReadonlySet<string> | null = null;
+        const h = shape.holders;
+        if (h && !holder) {
+          const unless = h === true ? undefined : h.unless;
+          const open = unless !== undefined && v[unless] === true;
+          if (!open) {
+            const keys = h === true ? undefined : h.keys;
+            if (!keys) return { keep: false, value: null };
+            dropped = new Set(keys);
+          }
+        }
         const out: Record<string, unknown> = {};
         if (at.type === "union") out[at.tag] = v[at.tag];
         for (const [key, child] of Object.entries(shape.fields)) {
-          if (!Object.hasOwn(v, key)) continue;
+          if (!Object.hasOwn(v, key) || dropped?.has(key)) continue;
           const kept = strip(child, v[key], depth + 1);
           if (kept.keep) out[key] = kept.value;
         }

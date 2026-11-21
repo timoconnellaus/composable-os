@@ -23,6 +23,7 @@ import {
   type ObjectDefinition,
   openOperations,
 } from "../src/index.ts";
+import { type AccessWorld, createAccessWorld, fakeStream } from "./access-fixtures.ts";
 import {
   ASSIGNMENT,
   type Customer,
@@ -51,7 +52,10 @@ import {
   TICKET,
   TIER,
 } from "./customer-fixtures.ts";
+import { extId } from "./extension-helpers.ts";
 import { context, createUser } from "./helpers.ts";
+
+const ACCESS_SUITE_EXT = extId("crsi");
 
 /** How a call is made: the same arguments and outcome as `call` in customer-fixtures.ts. */
 export type CallFn = typeof invokeCall;
@@ -649,6 +653,93 @@ export function isolationSuite(how: string, call: CallFn): void {
       );
       expect(write).toMatchObject({ ok: false, error: { code: "invalid_input" } });
       expect(await snapshot(b)).toBe(before);
+    });
+  });
+
+  // Stage 42, step 3 (ADR 0477): who holds access to a course. The holders' parts of its outline
+  // and the video they show are a holder's only: a customer enrolled in the course, or in a
+  // bundle that lists it. Not a customer enrolled in nothing, nor one whose enrolment was voided
+  // (a refund in full) or has passed its `until`, nor the public. Staff read and play everything.
+  describe(`isolation ${how}: access to a course (stage 42)`, () => {
+    let world: AccessWorld;
+    const NOT_FOUND = {
+      ok: false,
+      error: { code: "not_found", message: "Not found", details: { object: "media" } },
+    };
+
+    beforeAll(async () => {
+      fakeStream();
+      world = await createAccessWorld(admin, ACCESS_SUITE_EXT);
+    }, 60_000);
+
+    const course = () => `${ACCESS_SUITE_EXT}.course`;
+    const read = (who: Parameters<typeof outside>[0], id: string) =>
+      call("my.get", { object: course(), id }, outside(who));
+
+    it("a holder reads the holders' parts and plays the lesson's video", async () => {
+      const text = JSON.stringify(await read(world.holder, world.course));
+      expect(text).toContain("Holders-only-notes");
+      expect(text).toContain(world.lessonVideo);
+      expect(text).not.toContain("Staff-only-note");
+      expect(
+        await call("media.play", { id: world.lessonVideo }, outside(world.holder)),
+      ).toMatchObject({
+        ok: true,
+      });
+    });
+
+    it("a holder of a bundle reads and plays its courses, and no other", async () => {
+      expect(JSON.stringify(await read(world.bundleHolder, world.other))).toContain("Other-notes");
+      expect(JSON.stringify(await read(world.bundleHolder, world.course))).not.toContain(
+        "Holders-only-notes",
+      );
+      expect(
+        await call("media.play", { id: world.otherVideo }, outside(world.bundleHolder)),
+      ).toMatchObject({ ok: true });
+      expect(
+        await call("media.play", { id: world.lessonVideo }, outside(world.bundleHolder)),
+      ).toEqual(NOT_FOUND);
+    });
+
+    it("a non-holder, a voided enrolment, a lapsed one and the public: no holders' part, the one not-found", async () => {
+      for (const who of [world.stranger, world.voided, world.lapsed]) {
+        const outcome = await read(who, world.course);
+        expect(outcome.ok).toBe(true);
+        const text = JSON.stringify(outcome);
+        expect(text).not.toContain("Holders-only-notes");
+        expect(text).not.toContain(world.lessonVideo);
+        expect(await call("media.play", { id: world.lessonVideo }, outside(who))).toEqual(
+          NOT_FOUND,
+        );
+        // Filtering on the outline finds nothing it does not show.
+        const probe = await call(
+          "my.list",
+          { object: course(), filter: { field: "outline", op: "contains", value: "Holders-only" } },
+          outside(who),
+        );
+        expect(JSON.stringify(probe)).not.toContain("Holders-only-notes");
+      }
+      expect(await call("media.play", { id: world.lessonVideo }, outside(PUBLIC))).toEqual(
+        NOT_FOUND,
+      );
+      const peek = JSON.stringify(
+        await call("content.get", { object: course(), slug: "handstands" }, outside(PUBLIC)),
+      );
+      expect(peek).not.toContain("Holders-only-notes");
+      // A made-up id answers as a video they may not play.
+      expect(
+        await call("media.play", { id: "med_01MADEUP000000000000000000" }, outside(world.holder)),
+      ).toEqual(NOT_FOUND);
+    });
+
+    it("staff read the whole outline and play any ready video", async () => {
+      const got = await call("record.get", { object: course(), id: world.course }, context(admin));
+      const text = JSON.stringify(got);
+      expect(text).toContain("Holders-only-notes");
+      expect(text).toContain("Staff-only-note");
+      expect(await call("media.play", { id: world.lessonVideo }, context(admin))).toMatchObject({
+        ok: true,
+      });
     });
   });
 }

@@ -26,6 +26,7 @@ import { recordHref } from "#/lib/schema";
 import { useUserLabel, useUsers } from "#/lib/users-adapter";
 import { ImageFieldEditor } from "./media-picker.tsx";
 import { RichTextEditor } from "./rich-text-editor.tsx";
+import { VideoFieldEditor } from "./video-picker.tsx";
 
 type Choice = { value: string; label: string; color?: string };
 
@@ -186,6 +187,11 @@ export function FieldDisplay({ field, value }: { field: FieldInfo; value: unknow
       ) : (
         <>—</>
       );
+    }
+    case "video": {
+      // A video from the media library (stage 42, ADR 0475): it plays only with a signed token.
+      const video = value as { media?: string } | null;
+      return video?.media ? <span className="font-mono text-xs">{video.media}</span> : <>—</>;
     }
     case "document":
       // A structured document (ADR 0445): shown as its JSON here; a pack's block edits it.
@@ -398,6 +404,8 @@ export function FieldEditor({
       return <RichTextEditor id={id} value={value} onChange={onChange} />;
     case "image":
       return <ImageFieldEditor id={id} value={value} onChange={onChange} />;
+    case "video":
+      return <VideoFieldEditor id={id} value={value} onChange={onChange} />;
     case "textarea":
       return (
         <Textarea id={id} value={(value as string) ?? ""} onChange={(e) => text(e.target.value)} />

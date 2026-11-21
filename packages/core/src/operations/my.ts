@@ -2,7 +2,8 @@
 // that declares a customer, through the visibility seam. The seam decides which rows (the ones
 // whose customer field is the caller's Person) and which fields (the ones the object lists): these
 // handlers never filter by customer themselves. An object that declares no customer, no
-// `signedIn` (ADR 0447) and no `customerVia` (ADR 0439) is an unknown object here.
+// `signedIn` (ADR 0447), no `customerVia` (ADR 0439) and no `access` (ADR 0477) is an unknown
+// object here.
 import { z } from "zod";
 import { getObject } from "../fields/index.ts";
 import { filterSchema } from "../filter.ts";
@@ -19,7 +20,11 @@ import { visibleCurrency } from "./public-read.ts";
  */
 function ownObject(name: string): string {
   const object = getObject(name);
-  if (!object?.customer && !object?.signedIn && !object?.customerVia) throw unknownObject(name);
+  // An object with holders' parts (ADR 0477) is read here too: what the caller may read of it,
+  // with the parts they hold access to.
+  if (!object?.customer && !object?.signedIn && !object?.customerVia && !object?.access) {
+    throw unknownObject(name);
+  }
   return name;
 }
 

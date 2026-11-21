@@ -13,6 +13,7 @@ import {
   isApiPath,
   isMediaPath,
   type RoutineDeliveryMessage,
+  setVideoHost,
 } from "@composable-os/core";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
 import handler from "@tanstack/react-start/server-entry";
@@ -22,6 +23,10 @@ import { runEmbeddingCron } from "./server/ai.ts";
 // A client product's label (issue #155): a deploy-time var, read once per isolate, which every
 // surface that shows the product's name uses. Unset: the build's own name.
 setProductLabel((workerEnv as unknown as Record<string, string | undefined>)[PRODUCT_LABEL_VAR]);
+
+// Videos in Cloudflare Stream (stage 42, ADR 0475): the account, its token and signing key are
+// this Worker's own vars and secrets, read once per isolate.
+setVideoHost(videoHostFor(workerEnv as unknown as VideoEnv));
 
 // Staff sign-in codes go out as the host's own mail (ADR 0455). Given for the module env that
 // TanStack Start's routes read (/api/auth/*) as well as the fetch handler's own.
@@ -48,7 +53,13 @@ import {
 import { handleNativeStaffSignIn, NATIVE_STAFF_SIGN_IN_PATH } from "./server/http/native.ts";
 import { authorize } from "./server/identity.ts";
 import { createAppHandler } from "./server/mcp/handler.ts";
-import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "./server/media.ts";
+import {
+  type MediaEnv,
+  mediaResizerFor,
+  mediaStoreFor,
+  type VideoEnv,
+  videoHostFor,
+} from "./server/media.ts";
 import { runBlobDeletionCron, runScheduledMaintenance } from "./server/purge.ts";
 import { handleSupportRoute, isSupportRoute } from "./server/support.ts";
 

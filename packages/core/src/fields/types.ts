@@ -153,6 +153,11 @@ export interface ObjectDefinition {
    * out, a customer reads nothing of the object that way. Enforced only at the visibility seam.
    */
   customerVia?: CustomerViaDeclaration;
+  /**
+   * Who holds access to a record (stage 42, ADR 0477): the sources the seam's one question
+   * (`holdsAccess`) answers from. A document's `holders` parts are read only by a holder.
+   */
+  access?: AccessDeclaration;
 }
 
 /**
@@ -323,4 +328,29 @@ export function getField(object: ObjectDefinition, name: string): FieldDefinitio
 /** Names of the fields flagged `track: "timeline"`. */
 export function timelineFields(object: ObjectDefinition): string[] {
   return object.fields.filter((field) => field.track === "timeline").map((field) => field.name);
+}
+
+// Access (stage 42, ADR 0477): its rules are visibility/access.ts's.
+/** A source of kind `record`: the caller's own record of `via` (see the header). */
+export interface RecordAccessSource {
+  readonly kind?: "record" | undefined;
+  readonly via: string;
+  readonly field: string;
+  readonly through?: string | undefined;
+  readonly states?: readonly string[] | undefined;
+  readonly until?: string | undefined;
+}
+
+/** A source of a kind the host provides (`registerAccessSource`). */
+export interface KindAccessSource {
+  readonly kind: string;
+  readonly options?: Readonly<Record<string, unknown>> | undefined;
+  readonly via?: undefined;
+}
+
+export type AccessSource = RecordAccessSource | KindAccessSource;
+
+/** Who holds access to an object's records (ADR 0477), as declared. */
+export interface AccessDeclaration {
+  readonly sources: readonly AccessSource[];
 }

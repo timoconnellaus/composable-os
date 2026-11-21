@@ -73,6 +73,8 @@ describe("default closed (criterion 1)", () => {
       "me.sessions.revoke",
       "me.signOut",
       "me.update",
+      // Stage 42 (ADR 0476): a token for a video a record they may read shows them.
+      "media.play",
       // Stage 28 (ADR 0444): a picture published content shows.
       "media.serve",
       "my.get",
@@ -91,6 +93,7 @@ describe("default closed (criterion 1)", () => {
       "content.get",
       "content.list",
       "content.preview",
+      "media.play",
       "media.serve",
       "order.checkout",
       "order.start",
@@ -373,7 +376,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.sessions.list",
       "me.sessions.revoke",
       "me.signOut",
-      // Stage 28 (ADR 0444): it reads which records show a picture.
+      // Stage 42 (ADR 0476) and stage 28 (ADR 0444): they read which records show an item.
+      "media.play",
       "media.serve",
       // Stage 25 (ADR 0428): the host itself starts and changes an order for the caller.
       "order.cancel",

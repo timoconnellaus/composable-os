@@ -496,6 +496,10 @@
       "sha256": "b3a3436e7bfbdad871b91bd41e1d30a5b9839b6f107ef4096787375d9e852f1e"
     },
     {
+      "name": "0510_video_and_file_media.sql",
+      "sha256": "e7f6a8c1afaec765c414e5ca0012c08781dc4753e65b8761e16b854ab38763e7"
+    },
+    {
       "name": "0516_order_tax.sql",
       "sha256": "adc6007fe320c5d9113b44d0e7c93251a3c7f6464ebd331f23c946807553c6b0"
     },
@@ -951,6 +955,31 @@
           "type": "plain_text"
         },
         {
+          "name": "STREAM_ACCOUNT_ID",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "STREAM_ALLOWED_ORIGINS",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "STREAM_CUSTOMER_CODE",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "STREAM_FAKE",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "STREAM_SIGNING_KEY_ID",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
           "name": "VECTORIZE_DIMENSIONS",
           "text": "384",
           "type": "plain_text"
@@ -998,6 +1027,16 @@
         {
           "name": "GOOGLE_CLIENT_SECRET",
           "text": "$SECRET(GOOGLE_CLIENT_SECRET)",
+          "type": "secret_text"
+        },
+        {
+          "name": "STREAM_API_TOKEN",
+          "text": "$SECRET(STREAM_API_TOKEN)",
+          "type": "secret_text"
+        },
+        {
+          "name": "STREAM_SIGNING_JWK",
+          "text": "$SECRET(STREAM_SIGNING_JWK)",
           "type": "secret_text"
         }
       ],
@@ -1108,9 +1147,21 @@
           "name": "GOOGLE_CLIENT_SECRET",
           "required": false,
           "source": "user"
+        },
+        {
+          "description": "Optional. Videos in Cloudflare Stream (stage 42, ADR 0475): an account API token with Stream Write only, for direct uploads, states, captions and deletion. Set by a person (docs/stream-runbook.md); without it and STREAM_SIGNING_JWK video is not configured.",
+          "name": "STREAM_API_TOKEN",
+          "required": false,
+          "source": "user"
+        },
+        {
+          "description": "Optional. The Stream signing key's JWK, as POST /stream/keys returns it (base64): the host signs each playback token with it. Set by a person (docs/stream-runbook.md), with the STREAM_SIGNING_KEY_ID var.",
+          "name": "STREAM_SIGNING_JWK",
+          "required": false,
+          "source": "user"
         }
       ],
-      "sha256": "c2a4901a2ea80b5b0e2209d346274bb98b161a74fa92e53a972dd7dc53cb56c1"
+      "sha256": "c0abf892657e820a34e3138e30a2cec62e6fdfc8e3bc053250ab56afe72fca19"
     },
     {
       "bindings": [

@@ -131,12 +131,12 @@ describe("what an upload may be (criterion 9)", () => {
       ["an SVG", text('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')],
       ["HTML", text("<!doctype html><script>alert(1)</script>")],
       ["a script", text("#!/bin/sh\nrm -rf /")],
-      ["a PDF", text("%PDF-1.7")],
       ["a few bytes", new Uint8Array([0x89, 0x50])],
     ] as const) {
       const refused = await attempt(upload(bytes, "photo.png"));
       expect(refused, what).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     }
+    // A PDF is taken now, as a file (stage 42, ADR 0475: video.test.ts), never as a picture.
     const tooBig = await attempt(upload(png(1, 1, MEDIA_MAX_BYTES)));
     expect(tooBig).toMatchObject({ ok: false, error: { details: { reason: "too_large" } } });
     const empty = await attempt(upload(new Uint8Array()));

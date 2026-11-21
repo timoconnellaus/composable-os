@@ -175,6 +175,7 @@ const TEXT_TYPES = new Set([
   "document",
   "richText",
   "image",
+  "video",
   "slug",
 ]);
 const IDENT = /^[a-z][a-z0-9_]*$/;
@@ -496,7 +497,7 @@ function scrubField(
   m: SubjectMatcher,
   pattern: RegExp | null,
 ): string | null {
-  if (type === "document" || type === "richText" || type === "image") {
+  if (type === "document" || type === "richText" || type === "image" || type === "video") {
     return scrubDocument(value, m, pattern);
   }
   if (m.identifies(value)) return null;

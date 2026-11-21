@@ -33,6 +33,9 @@ export const FIELD_TYPES = [
   "slug",
   // A picture from the media library, with alt text and a focal point (stage 28, ADR 0444).
   "image",
+  // A video from the media library, held in Cloudflare Stream, played only with a token the host
+  // signs (stage 42, ADR 0475).
+  "video",
 ] as const;
 export type FieldTypeName = (typeof FIELD_TYPES)[number];
 
@@ -69,6 +72,7 @@ export function formulaTypeOf(
     case "document":
     case "richText":
     case "image":
+    case "video":
       return null;
   }
 }
@@ -99,6 +103,7 @@ export const LOSSLESS_TYPE_CHANGES: Readonly<Record<FieldTypeName, readonly Fiel
   richText: [],
   slug: ["text", "longText"],
   image: [],
+  video: [],
 };
 
 export function isLosslessChange(from: FieldTypeName, to: FieldTypeName): boolean {

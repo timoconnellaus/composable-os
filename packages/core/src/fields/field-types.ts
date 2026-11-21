@@ -32,7 +32,8 @@ export type WidgetKind =
   | "formula"
   | "document"
   | "richText"
-  | "image";
+  | "image"
+  | "video";
 
 /** The storage value of a field: what goes into its column. */
 export type StoredValue = string | number | null;
@@ -324,6 +325,8 @@ export const FIELD_TYPE_REGISTRY: Record<FieldTypeName, FieldTypeSpec> = {
   richText: { ...documentType, widget: { display: "richText", edit: "richText" } },
   // A picture from the media library (stage 28, ADR 0444): a document with the image schema.
   image: { ...documentType, widget: { display: "image", edit: "image" } },
+  // A video from the media library (stage 42, ADR 0475): a document with the video schema.
+  video: { ...documentType, widget: { display: "video", edit: "video" } },
   // A record's address (stage 28, ADR 0442). Unique among live records by an index the
   // reconciler makes; made from the title when left empty (records/slug.ts).
   slug: textType(

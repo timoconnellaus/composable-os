@@ -173,6 +173,15 @@ export type FieldSpec =
        */
       type: "image";
     })
+  | (Omit<FieldBase, "default" | "defaultSetting" | "track"> & {
+      /**
+       * A video from the media library (stage 42, ADR 0475): `{ media, poster? }`, a video held in
+       * Cloudflare Stream (a ready one, checked on write) and a picture to show before it plays.
+       * Every video needs a token the host signs to play (`media.play`); the id alone plays
+       * nothing.
+       */
+      type: "video";
+    })
   | (Omit<FieldBase, "required"> & {
       type: "formula";
       /** An expression over fields of the same record. See the SDK README for the grammar. */
@@ -273,6 +282,15 @@ export interface ObjectSpec {
    * may declare it.
    */
   customerVia?: CustomerViaSpec;
+  /**
+   * Who holds access to a record (stage 42, ADR 0477): a customer for whom one of `sources` is
+   * live (an enrolment of theirs pointing at it, or at a bundle that lists it). The parts of a
+   * document field this object's schema marks `holders` are read only by a holder; everyone
+   * else who may read the record reads it without them. The host asks one question for every
+   * read and for `media.play`; a block, a hook or a client app is only told the answer. Only
+   * shipped extensions and an org's own may declare it.
+   */
+  access?: AccessSpec;
   /**
    * A working copy staff edit and published versions (ADR 0446): `content` names the fields a
    * version keeps. `record.publish` snapshots them as the next version (a person with the
@@ -617,6 +635,44 @@ export interface CustomerViaSpec {
   /** Fields of this object its customer may read. */
   read: readonly string[];
 }
+
+/** Who holds access to a record: see `ObjectSpec.access` (ADR 0477). */
+export interface AccessSpec {
+  /** Where access comes from. Any one live source is enough. */
+  sources: readonly AccessSourceSpec[];
+}
+
+/**
+ * One source of access. A record source (`via`) is a record of another of this extension's
+ * objects that declares a customer: the caller's own, in one of `states`, before its `until`,
+ * pointing at the record through `field` (an enrolment's `course`) or, with `through`, at a
+ * record whose field `through` lists it (an enrolment's `bundle`, whose `courses` name the
+ * course). A source of another `kind` is one the host provides (a subscription, stage 32).
+ */
+export type AccessSourceSpec =
+  | {
+      /** `<extension>.<object>`: an object of this extension that declares a customer. */
+      via: string;
+      /** A relation of `via` to one record of this object, or of the object `through` is on. */
+      field: string;
+      /**
+       * A field of the record `field` points to that lists this object's records: a many
+       * relation, or a document whose refs name them. Read from its published version when the
+       * public reads it.
+       */
+      through?: string;
+      /** The states of `via` (its `states` behaviour) in which it gives access. */
+      states?: readonly string[];
+      /** A date or datetime field of `via`: access ends then. Empty is no end. */
+      until?: string;
+      kind?: undefined;
+    }
+  | {
+      /** A kind of source the host provides (none yet: stage 32 adds subscriptions). */
+      kind: string;
+      options?: Readonly<Record<string, string | number | boolean | readonly string[]>>;
+      via?: undefined;
+    };
 
 /** What every signed-in customer may read: see `ObjectSpec.signedIn` (ADR 0447). */
 export interface SignedInSpec {

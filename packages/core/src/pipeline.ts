@@ -403,7 +403,12 @@ function auditInsert(db: CrmDb, row: AuditRow): Compilable {
     user_id: row.ctx.user.id,
     origin: JSON.stringify(originSchema.parse(row.ctx.origin)),
     input: JSON.stringify(redactInput(row.input, row.op.redact) ?? null),
-    result: row.result === undefined ? null : JSON.stringify(row.result),
+    result:
+      row.result === undefined
+        ? null
+        : JSON.stringify(
+            row.op.redactResult ? redactInput(row.result, row.op.redactResult) : row.result,
+          ),
     gate_decision: row.gate,
     outcome: row.outcome,
     error: row.error ? JSON.stringify(row.error.toJSON()) : null,
@@ -1526,7 +1531,12 @@ function outsideAuditInsert(db: CrmDb, row: OutsideAudit): Compilable {
     user_id: row.subjectId,
     origin: JSON.stringify(row.origin),
     input: JSON.stringify(redactInput(row.input, row.op.redact) ?? null),
-    result: row.result === undefined ? null : JSON.stringify(row.result),
+    result:
+      row.result === undefined
+        ? null
+        : JSON.stringify(
+            row.op.redactResult ? redactInput(row.result, row.op.redactResult) : row.result,
+          ),
     gate_decision: row.gate,
     outcome: row.outcome,
     error: row.error ? JSON.stringify(row.error.toJSON()) : null,
