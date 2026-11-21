@@ -9,6 +9,7 @@
 // - Signing out and deleting the account end what the cookie can do.
 import { env } from "cloudflare:workers";
 import { createIdentityProvider, getCustomerIdentity } from "@composable-os/auth";
+import { keepCustomerSignedIn } from "@composable-os/client";
 import { inviteCustomer, issueDeviceSession } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -389,5 +390,98 @@ describe("cookies apart (criterion 4)", () => {
     );
     expect(fromHostPage.status).toBe(403);
     expect(fromHostPage.headers.getSetCookie()).toEqual([]);
+  });
+});
+
+describe("a customer stays signed in on the web app's hostname (the session helper)", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const bindingFetch = (url: string, init: { method: string; headers: Record<string, string> }) =>
+    handleBound(new Request(url, init), boundEnv);
+
+  /** Moves a customer's session expiry by `ms`, as if that much time had passed (negative). */
+  async function shiftExpiry(customer: Customer, to: (expires: number) => number) {
+    const token = tokenOf(customer);
+    const row = await env.DB.prepare("SELECT expires_at FROM core_customer_session WHERE token = ?")
+      .bind(token)
+      .first<{ expires_at: string | number }>();
+    if (!row) throw new Error("no session row");
+    const current =
+      typeof row.expires_at === "number" ? row.expires_at : Date.parse(String(row.expires_at));
+    const next = to(current);
+    await env.DB.prepare("UPDATE core_customer_session SET expires_at = ? WHERE token = ?")
+      .bind(typeof row.expires_at === "number" ? next : new Date(next).toISOString(), token)
+      .run();
+  }
+
+  it("a session used on day 6 is still valid on day 8", async () => {
+    const gil = await newCustomer("Gil");
+    const maxAge = (cookie: string) => Number(/Max-Age=(\d+)/i.exec(cookie)?.[1]);
+    // The cookie from sign-in lasts seven days: without a refresh the browser drops it on day 7.
+    const first = (await signIn(gil.email)).headers.getSetCookie()[0] as string;
+    expect(maxAge(first)).toBe(7 * 24 * 60 * 60);
+
+    // Day 6: the session has a day left.
+    await shiftExpiry(gil, () => Date.now() + DAY);
+    const day6 = new Date();
+    const refreshed = await keepCustomerSignedIn({
+      cookieHeader: gil.cookie,
+      fetch: bindingFetch,
+      baseUrl: BOUND,
+      now: day6,
+    });
+    expect(refreshed).toHaveLength(2);
+    const [cookie, marker] = refreshed as [string, string];
+    expect(cookie.startsWith(`${gil.cookie};`)).toBe(true);
+    expect(cookie).toMatch(/HttpOnly/);
+    // The host extended the session and the cookie now lasts as long: past day 8.
+    expect(maxAge(cookie)).toBeGreaterThan(6.9 * 24 * 60 * 60);
+    expect(marker).toMatch(/^cos-session-checked=\d+;/);
+
+    // Later the same day the helper does nothing (once a day at most).
+    const jar = `${gil.cookie}; ${marker.split(";")[0]}`;
+    let asked = 0;
+    const again = await keepCustomerSignedIn({
+      cookieHeader: jar,
+      fetch: (url, init) => {
+        asked += 1;
+        return bindingFetch(url, init);
+      },
+      baseUrl: BOUND,
+      now: new Date(day6.getTime() + 60 * 60 * 1000),
+    });
+    expect(again).toEqual([]);
+    expect(asked).toBe(0);
+
+    // Day 8: two days on, the cookie the browser holds is still in date and still signs in.
+    await shiftExpiry(gil, (expires) => expires - 2 * DAY);
+    expect(maxAge(cookie) * 1000).toBeGreaterThan(2 * DAY);
+    const me = await call("me.get", {}, { cookie: gil.cookie });
+    expect(me.status).toBe(200);
+    expect(me.body.data.id).toBe(gil.personId);
+  });
+
+  it("an ended session clears the cookie", async () => {
+    const hal = await newCustomer("Hal");
+    await shiftExpiry(hal, () => Date.now() - 1000);
+    const cleared = await keepCustomerSignedIn({
+      cookieHeader: hal.cookie,
+      fetch: bindingFetch,
+      baseUrl: BOUND,
+    });
+    expect(cleared.map((c) => c.split(";")[0])).toEqual([
+      `${cookieName(hal)}=`,
+      "cos-session-checked=",
+    ]);
+    expect(cleared.every((c) => /Max-Age=0/.test(c))).toBe(true);
+  });
+
+  it("does nothing without a customer cookie", async () => {
+    expect(
+      await keepCustomerSignedIn({
+        cookieHeader: admin.cookie,
+        fetch: bindingFetch,
+        baseUrl: BOUND,
+      }),
+    ).toEqual([]);
   });
 });

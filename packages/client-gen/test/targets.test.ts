@@ -14,11 +14,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { buildContract, defineOperation } from "@composable-os/core";
+import deals from "@composable-os/pack-deals";
+import leads from "@composable-os/pack-leads";
+import lifecycle from "@composable-os/pack-lifecycle";
 import { build } from "esbuild";
-
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { renderClient } from "../src/index.ts";
+import { productContract, renderClient } from "../src/index.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const runtime = join(here, "..", "..", "client", "src", "index.ts");
@@ -149,6 +151,23 @@ describe("the generated client's targets", () => {
       }
       expect(readFileSync(path, "utf8"), `${path} is stale: UPDATE_CLIENT_FIXTURE=1`).toBe(text);
     }
+  });
+
+  it("the company-web fixture's committed client is the CRM's current customer client", () => {
+    // apps/app/test/fixtures/company-web stands in for a client repo, which commits its
+    // generated client (stage 24). This keeps the fixture's copy current, so it is refreshed on
+    // purpose: UPDATE_CLIENT_FIXTURE=1 rewrites it.
+    const path = join(here, "..", "..", "..", "apps", "app", "test", "fixtures", "company-web");
+    const text = renderClient(productContract([deals, leads, lifecycle]), { product: "crm" })[
+      "customer.ts"
+    ] as string;
+    const file = join(path, "customer.ts");
+    if (process.env.UPDATE_CLIENT_FIXTURE === "1") writeFileSync(file, text);
+    expect(
+      readFileSync(file, "utf8"),
+      `${file} is not the CRM's current customer client: an operation open to customers changed. ` +
+        "Regenerate it on purpose with UPDATE_CLIENT_FIXTURE=1 pnpm --filter @composable-os/client-gen test",
+    ).toBe(text);
   });
 
   it("React Native: runs as ES2019 with only ECMAScript's globals, fetch and setTimeout", async () => {
