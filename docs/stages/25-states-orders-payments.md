@@ -7,7 +7,9 @@ and ADRs 0007, 0018, 0022, 0100, `docs/stages/06-integrations.md`,
 `docs/integrations.md`, `packages/gatekeeper-kit`, `packages/gatekeeper-webhook`,
 `packages/core/src/records/stages.ts`, `packages/sdk/src/behaviour.ts`.
 
-Status: **spec agreed** (interview 2026-11-20). Builds on stages 20 and 22.
+Status: **spec agreed** (interview 2026-11-20). Builds on stages 20 and 22. **First half built**
+(the engine, `states`, `stages` on the engine; ADR 0425), reviewed 2026-11-21 and amended below.
+The second half waits for stage 22.
 
 ## Goal
 
@@ -58,15 +60,18 @@ through approval like any other outside action.
   the approval queue, as stage rules are today.
 - **`states`** is the declared form. An object names the field holding the state (a single
   select), the initial state, the allowed moves, and for each move who may make it (`staff`,
-  `customer`, `host`), the fields it requires, and whether it is final.
+  `customer`, `host`), the fields it requires, and whether it is final. A move is from one state
+  to another; `final` marks the state entered, and nothing leaves a final state. A record created
+  outside the initial state is judged as a move from the initial state.
 - A move not declared is refused with `invalid_input` and details naming the rule, the state and
   the missing field. It holds for every actor and in the approval queue's dry run.
 - A move marked `host` can be made only by platform code (a payment confirmation, an expiry). No
   person, MCP client, extension or import can make it.
 - **`stages`** stays the data-driven form: pipelines and stages are records an admin edits. It
-  keeps its declaration and every rule in ADR 0100, and runs on the same engine.
-- **One history table.** `core_stage_history` becomes the engine's history for both forms, by one
-  migration that keeps every existing row. `rec_stage_history` keeps its name, columns and
+  keeps its declaration and every rule in ADR 0100, and runs on the same engine. A stage move is
+  for `staff` and `host` only: a customer never moves a record through a pipeline.
+- **One history table.** `core_stage_history` becomes `core_transition_history`, the engine's
+  history for both forms, by one migration that keeps every existing row. `rec_stage_history` keeps its name, columns and
   numbers for stage-driven objects, so Deals' `stageMetrics` and its dashboards read as before; a
   `rec_state_history` view serves state-driven objects.
 
@@ -76,7 +81,8 @@ through approval like any other outside action.
   **`core_order_line`**: what is bought (a relation to any record whose object is sellable), the
   quantity, the unit price and the line total.
 - An order's state machine is fixed in core: `pending` → `paid` → `refunded`, `pending` →
-  `cancelled`, `pending` → `expired`. `paid`, `refunded` and `expired` are `host` moves.
+  `cancelled`, `pending` → `expired`, and `expired` → `paid` for a late payment staff choose to
+  honour. `paid`, `refunded` and `expired` are `host` moves. `expired` is therefore not final.
 - Prices are read from the records being bought when the order is created, by the host. A caller
   never sends a price or a total.
 - **One currency per deployment,** set in the product's settings by a human admin. Every order
@@ -152,7 +158,8 @@ through approval like any other outside action.
    with the specified details; allowed moves write history in the same batch.
 2. **Stages on the engine:** Deals' existing tests pass unchanged. On the seeded data,
    `rec_stage_history` returns the same rows and `stageMetrics` the same numbers before and after.
-   Every row that was in `core_stage_history` survives the migration.
+   Every row that was in `core_stage_history` survives the migration. (As built: Deals' tests
+   are unchanged except the table's name in two queries.)
 3. **Prices are the host's:** an order created with a tampered price or total in the input is
    priced from the records, and a test asserts the input schema has no price field.
 4. **Paid only by webhook:** with a fake provider, the return page alone leaves the order
@@ -200,6 +207,18 @@ Migrations 0420 to 0439. ADRs 0425 to 0429.
 
 Steps 1 to 4 are the spine: the engine every later behaviour stands on, the rule that only a
 verified payment marks an order paid, and the first operations open to the public.
+
+## What the second half needs from the engine (from the first half's review)
+- **The author of a move comes from the principal.** The engine reads `ctx.user.id` for
+  `entered_by`. Stage 22 makes `ctx.user` throw for a customer's or the public's call, so a move by
+  one of them is written with no `entered_by` and `entered_as: "customer"`.
+- **A customer mover.** Stage 22's customer principal answers `customer`; until then every caller
+  of an operation is `staff`.
+- **Core objects.** `updateRecordAsHost` handles extension objects only, and state titles come
+  from an extension field's choices. Orders are a base record, so both need a core path.
+- **A hook when a record moves,** for platform code only and in the write's batch, for
+  `order.paid` and stage 27's `sellable`.
+- **Erase.** `core_transition_history` joins the erase stores (ADR 0320).
 
 ## Notes for the build
 - Before taking payment inside a phone app, read Apple's and Google's current rules on which
