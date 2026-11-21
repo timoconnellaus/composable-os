@@ -45,3 +45,9 @@ it now works from a copy outside it, with `zod` (a dependency of the CLI) beside
 - Every release now carries a semver promise for these packages (ADR 0401's consequence).
 - The check needs the npm registry for third-party packages; it is a release-time check, not part
   of `pnpm test`.
+
+## Amended 2026-11-21 (client releases and environments)
+A release now carries every pack in the repository (ADR 0420 as amended), so the
+`@composable-os/pack-<id>` packages published from a release commit and the packs its host can
+install are the same set: every `packs/<id>/`. `npm-packages.ts` already packed every pack folder;
+what changed is that each of them is now also in the release's runner and `packs.json`.

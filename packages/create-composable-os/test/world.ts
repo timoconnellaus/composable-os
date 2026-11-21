@@ -27,6 +27,7 @@ export async function startWorld(): Promise<World> {
     accountId: ACCOUNT,
     sql: nodeSqliteEngine,
     subdomain: "acme",
+    zones: [{ id: "zone00000000000000000000000shop", name: "shop.example" }],
   });
   let github!: FakeGitHub;
   const server = createServer(async (req, res) => {

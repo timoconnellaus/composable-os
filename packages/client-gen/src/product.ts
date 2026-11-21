@@ -1,7 +1,7 @@
 // A product's contract, from its own registry (ADR 0418): the platform's operations, and the tools
 // of the extensions the product ships (its packs and the org's own extensions). An extension the
 // product does not include is not in its contract, so its client does not type it.
-import { buildContract, coreRegistry, toolOperation } from "@composable-os/core";
+import { buildContract, coreRegistry, forPacks, toolOperation } from "@composable-os/core";
 import type { ApiContract } from "@composable-os/core/http-contract";
 import { type Extension, toManifest } from "@composable-os/sdk";
 
@@ -17,7 +17,10 @@ export function releaseContract(
   extensions: readonly Extension[],
 ): ApiContract {
   const merged = new Map<string, ApiContract["operations"][number]>();
-  for (const contract of perAudience) {
+  const own = new Set(extensions.map((e) => toManifest(e).id));
+  // The release's files are the union over every pack it carries, each tool named with its pack:
+  // the host this repo deploys serves the core operations and the product's packs' tools.
+  for (const contract of perAudience.map((c) => forPacks(c, packs))) {
     for (const op of contract.operations) {
       const seen = merged.get(op.name);
       merged.set(
@@ -32,11 +35,10 @@ export function releaseContract(
       );
     }
   }
-  const own = new Set(extensions.map((e) => toManifest(e).id));
-  const listed = new Set(packs);
   for (const name of [...merged.keys()]) {
     const [first, id] = name.split(".");
-    if (first === "x" && id && !listed.has(id) && !own.has(id)) merged.delete(name);
+    // An org extension's tools come from its own source below, never from the release's file.
+    if (first === "x" && id && own.has(id)) merged.delete(name);
   }
   const tools = extensions.flatMap((extension) => {
     const manifest = toManifest(extension);

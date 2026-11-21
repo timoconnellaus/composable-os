@@ -10,6 +10,7 @@ import {
   type AnyInvocationContext,
   audiencesOf,
   coreRegistry,
+  forPacks,
   MAX_BODY_BYTES,
   type OpenOperationsFile,
   openOperations,
@@ -270,11 +271,13 @@ describe("the manifest", () => {
     };
   };
   const generated = committed as OpenOperationsFile;
-  // The committed files also name the open tools of every pack in the release (Ticketing's,
-  // stage 27); a deployment's manifest has those of the packs it installed, none open here.
+  // The packs this test's host installs: none (it loads no extension).
+  const INSTALLED_PACKS: string[] = [];
+  // The committed files are the union over every pack the release carries, each tool named with
+  // its pack; a deployment serves those of the packs it installed: none here.
   const listed = (file: OpenOperationsFile, audience: "customer" | "public") =>
-    file.operations
-      .filter((op) => op.audiences.includes(audience) && !op.toolOnly && !op.name.startsWith("x."))
+    forPacks(file, INSTALLED_PACKS)
+      .operations.filter((op) => op.audiences.includes(audience) && !op.toolOnly)
       .map((op) => op.name)
       .sort();
 
@@ -292,10 +295,9 @@ describe("the manifest", () => {
     )) as never as {
       audience: string;
     };
-    const installed = <C extends { operations: { name: string }[] }>(contract: C): C => ({
-      ...contract,
-      operations: contract.operations.filter((op) => !op.name.startsWith("x.")),
-    });
+    const installed = <C extends { operations: { name: string; pack?: string }[] }>(
+      contract: C,
+    ): C => forPacks(contract, INSTALLED_PACKS);
     expect(forCustomer).toEqual(installed(customerContract));
     const { audience: _b, ...forPublic } = (await manifestOf(core, null)) as never as {
       audience: string;

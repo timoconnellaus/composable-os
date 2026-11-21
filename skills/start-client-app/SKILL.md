@@ -16,11 +16,12 @@ one), or the company already has a site or an app (adopt it, moving nothing).
 
 The host (records, rules, sign-in, the staff admin) is deployed from a verified platform release.
 The client repo holds only the company's apps, its own extensions (`extensions/`), copied blocks
-and `product.ts`. It never holds platform code and never opens a database. One host serves one
-company: every client repo deployed to one Cloudflare account shares that account's host, which
-is named for the company's product at its first install (`<id>-app`, `<id>-runner`, the `<id>`
-database; `names` in `product.ts` overrides them) and shows the product's `label`. A host that
-exists keeps its names: nothing deployed is renamed.
+and `product.ts`. It never holds platform code and never opens a database. The host is named for
+the company's product at its first install (`<id>-app`, `<id>-runner`, the `<id>` database;
+`names` in `product.ts` overrides them) and shows the product's `label`. A host that exists keeps
+its names: nothing deployed is renamed. A product may declare **environments** (a staging host and
+a live host side by side in one account, `environments` in `product.ts`): each is its own host,
+`<id>-staging-app` and so on, while `live` keeps `<id>-app`.
 
 ## The steps
 
@@ -36,12 +37,24 @@ exists keeps its names: nothing deployed is renamed.
      client-repo rules in `AGENTS.md`. It changes no file that exists without showing the diff
      first and applies the diffs only with `--yes`: read them, then run it again with `--yes`. An
      adopted web app keeps its Worker (`web.worker` is its name) and its own deploy
-     (`web.deploy: "own"` in `product.ts`).
+     (`web.deploy: "own"` in `product.ts`). `--packs ticketing` turns packs on; `--envs
+     staging,live` declares environments. It never adds the `HOST` binding to the top level of
+     the site's config: a site that deploys itself (perhaps on every push) would fail its deploy
+     binding to a host that does not exist yet. Under an environment of the site's own config with
+     the same name it shows the binding as a diff; the rest it prints, to add only after
+     `cos deploy --env <name>` has made that host.
 2. **Read `AGENTS.md`.** Its rules hold for everything after this.
-3. **Choose the packs.** `product.ts` lists the release's packs that are on (`packs: ["deals"]`).
-   List only what the request needs; an empty list is base records only (people, organisations,
-   activities, tasks), and each signed-in customer can always read their own Person (`me.get`).
-   `cos deploy` refuses a pack the release does not have.
+3. **Choose the packs.** `product.ts` lists the packs that are on (`packs: ["ticketing"]`). A
+   release carries every pack (its `packs.json`); list only what the request needs. An empty list
+   is base records only (people, organisations, activities, tasks), and each signed-in customer
+   can always read their own Person (`me.get`). `cos deploy` refuses a pack the release does not
+   carry, before it touches the account: that is a gap in the platform (say so), not something to
+   work around.
+   - **Gatekeepers** (outbound email, payments) and their settings go in `product.ts`
+     (`gatekeepers`, or per environment): `"email-send": { ALLOWED_SENDER_DOMAINS: "…" }`,
+     `payments: { STRIPE_ACCOUNT: "…" }`. Secrets never go there: `cos deploy` prints each missing
+     one and the `wrangler secret put` command a person runs. `PAYMENTS_FAKE_PROVIDER: true` only in
+     an environment marked `live: false`. See `docs/deploying.md` (Gatekeepers and their settings).
 4. **Install:** `pnpm install` at the root.
 5. **The web app** reaches the host only through `HOST`, a service binding to the host's
    `ClientApp` entrypoint: already in the template's `apps/web/wrangler.jsonc`, shown as a diff by
@@ -70,13 +83,23 @@ exists keeps its names: nothing deployed is renamed.
    (an app without one is not checked), and builds and checks the web app (a template web app
    must build to `dist/server/`; an adopted one with `web.deploy: "own"` is left to its own
    deploy). It prints `Checked: ...`, then deploys the host with the product's packs and the
-   org's extensions, then the web app with its binding, and prints the web app's address.
+   org's extensions, then the web app with its binding, and prints the web app's address. It sets
+   customer sign-in up on the host (`CUSTOMER_AUTH_URL`, the web app's origin, and a
+   `CUSTOMER_AUTH_SECRET` made once, never printed).
+   - **With environments**, `pnpm cos deploy --env staging` (then `--env live`): with several and
+     no `--env` it refuses and lists them. For an adopted site it prints exactly what the site's
+     Worker config needs in that environment (the `HOST` binding's target and entrypoint).
+   - **A Vite or Astro site picks its wrangler environment when it is built**, from
+     `CLOUDFLARE_ENV`, not with `wrangler deploy --env`: `CLOUDFLARE_ENV=staging pnpm run build`
+     then `wrangler deploy`. Built without it, a staging site binds to the live host.
 9. **A person then does, by hand:**
    - open the host's address `/setup` to create the first staff admin;
    - connect an email-send connection and choose it for customer sign-in codes with the
      `customer.settings.update` operation (`emailConnectionId`; over MCP, as a human admin; the
      admin has no picker yet). Until then code requests answer that sign-in is not set up;
-   - for a custom hostname, `web.hostname` in `product.ts` and its DNS;
+   - for a custom hostname, `web.hostname` in `product.ts` (or `environments.<name>.web.hostname`)
+     and its DNS;
+   - the gatekeepers' secrets `cos deploy` named;
    - before opening the web app to the public, the rate limiting rule `cos` prints, on the web
      app's zone.
 

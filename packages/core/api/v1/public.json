@@ -628,7 +628,8 @@
         "required": ["events"],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [],
+      "pack": "ticketing"
     },
     {
       "name": "x.ticketing.orderStart",
@@ -760,7 +761,8 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": ["x.ticketing.eventsOnSale"]
+      "invalidates": ["x.ticketing.eventsOnSale"],
+      "pack": "ticketing"
     }
   ]
 }
