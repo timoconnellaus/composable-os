@@ -816,6 +816,18 @@ export function createProgramsHooks(
         }),
       );
     },
+    /** The bank's exercises with these ids (a program's own, whatever the size of the bank). */
+    useExercises(ids: readonly string[]) {
+      const sorted = [...new Set(ids)].sort();
+      return useQuery({
+        ...api.query("record.list", {
+          object: EXERCISE,
+          filter: { field: "id", op: "in", value: sorted },
+          limit: 200,
+        }),
+        enabled: sorted.length > 0,
+      });
+    },
     useCreateExercise() {
       return useMutation(api.mutation("record.create"));
     },

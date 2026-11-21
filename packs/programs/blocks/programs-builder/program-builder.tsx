@@ -38,6 +38,8 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 interface Bank {
   byId: Map<string, RecordOut>;
   list: RecordOut[];
+  /** The hooks, for a search of the whole bank on the host. */
+  programs: ProgramsHooks;
 }
 
 type Change = (next: Layout) => void;
@@ -57,15 +59,18 @@ export function ProgramBuilder({
 }) {
   const copy = programs.useWorkingCopy(programId);
   const bankQuery = programs.useBank();
+  // The program's own exercises by id, so a bank larger than one page still names them.
+  const ownQuery = programs.useExercises(copy.layout ? exercisesIn(copy.layout) : []);
   const [week, setWeek] = useState(0);
   if (copy.isPending || bankQuery.isPending) return <p aria-busy="true">Loading the program…</p>;
   if (copy.error || !copy.layout) return <p role="alert">We could not load this program.</p>;
   const list = bankQuery.data?.items ?? [];
-  const bank: Bank = { list, byId: new Map(list.map((e) => [e.id, e])) };
+  const byId = new Map([...list, ...(ownQuery.data?.items ?? [])].map((e) => [e.id, e]));
+  const bank: Bank = { list, byId, programs };
   const layout = copy.layout;
   const current = Math.min(week, layout.weeks.length - 1);
   const summary = layoutSummary(layout);
-  const missing = exercisesIn(layout).filter((id) => !bank.byId.has(id));
+  const missing = ownQuery.isPending ? [] : exercisesIn(layout).filter((id) => !bank.byId.has(id));
 
   return (
     <div className="grid gap-6" data-testid="program-builder">
@@ -1006,14 +1011,17 @@ export function ExercisePicker({
 }) {
   const [search, setSearch] = useState("");
   const words = search.trim().toLowerCase();
+  // The host searches the whole bank; until it answers, the page already loaded is searched.
+  const found = bank.programs.useBank(words);
   const matches = words
-    ? bank.list
-        .filter((e) =>
+    ? (
+        found.data?.items ??
+        bank.list.filter((e) =>
           String(e.values.name ?? "")
             .toLowerCase()
             .includes(words),
         )
-        .slice(0, 8)
+      ).slice(0, 8)
     : [];
   const pick = (id: string) => {
     onPick(id);
