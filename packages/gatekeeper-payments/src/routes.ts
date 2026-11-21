@@ -5,7 +5,6 @@
 //   POST {base}/in/fake         fake provider webhook (fake only)
 //   GET  {base}/fake/pay/:ref   the fake hosted page (fake only)
 //   POST {base}/fake/pay/:ref   pay or cancel on the fake page (fake only)
-//   GET  {base}/fake/state      the fake ledger as JSON (fake only)
 
 import { eventsStub } from "./events.js";
 import { type FakeWebhookBody, fakeLedger, fakePayPage, verifyFakeWebhook } from "./fake.js";
@@ -99,10 +98,9 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     return fakeEnabled(env) ? handleInbound(request, env, "fake") : notFound();
   }
   if (!fakeEnabled(env)) return notFound();
-  if (path === "/fake/state") {
-    if (request.method !== "GET") return methodNotAllowed("GET");
-    return json(200, await fakeLedger(env).state());
-  }
+  // No route reads the ledger: on a staging host on the public internet it would show every
+  // checkout, its return address (a guest's order link, with its token) and its amount. Tests read
+  // it through the ledger's own binding.
   if (path.startsWith("/fake/pay/")) {
     const ref = path.slice("/fake/pay/".length);
     if (!FAKE_REF.test(ref)) return notFound();
@@ -160,20 +158,54 @@ export async function deliverFakeEvent(env: Env, payload: FakeWebhookBody): Prom
   }
 }
 
+/**
+ * The origin a checkout returns the buyer to, as recorded when the host opened it (the host
+ * checks `returnUrl` against the deployment's listed sites, ADR 0429), for the page's
+ * `form-action`: a browser holds a form's redirects to it, so the redirect back after Pay or
+ * Cancel must be allowed, and nothing else.
+ */
+function returnOrigin(returnUrl: string): string | null {
+  try {
+    const url = new URL(returnUrl);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 async function showFakePage(env: Env, ref: string): Promise<Response> {
   const checkout = await fakeLedger(env).getCheckout(ref);
   if (!checkout) return new Response("Not found", { status: 404 });
+  const back = returnOrigin(checkout.returnUrl);
   return new Response(fakePayPage(checkout, formatMinor(checkout.amount, checkout.currency)), {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
-      "content-security-policy":
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+      "x-frame-options": "DENY",
+      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'${back ? ` ${back}` : ""}; frame-ancestors 'none'; base-uri 'none'`,
     },
   });
 }
 
+/**
+ * A POST from another site: a named Origin that is not this page's, or Fetch metadata saying
+ * cross-site or same-site. An `Origin: null` with same-origin metadata is this page's own form
+ * under a withholding referrer policy. A request with neither (a script, a test) is let through:
+ * this page is a development stand-in, and every browser sends one or the other on a form POST.
+ */
+function fromAnotherSite(request: Request): boolean {
+  const own = new URL(request.url).origin;
+  const origin = request.headers.get("origin");
+  const site = request.headers.get("sec-fetch-site");
+  if (origin && origin !== "null" && origin !== own) return true;
+  if (site && site !== "same-origin" && site !== "none") return true;
+  return origin === "null" && site !== "same-origin";
+}
+
 async function submitFakePage(request: Request, env: Env, ref: string): Promise<Response> {
+  if (fromAnotherSite(request)) {
+    return new Response("Pay from the payment page itself", { status: 403 });
+  }
   const raw = await readBounded(request, MAX_FORM_BYTES);
   if (raw === undefined) return new Response("Payload too large", { status: 413 });
   const form = new URLSearchParams(new TextDecoder().decode(raw));
@@ -181,14 +213,7 @@ async function submitFakePage(request: Request, env: Env, ref: string): Promise<
   if (outcome !== "pay" && outcome !== "cancel") {
     return new Response("outcome must be pay or cancel", { status: 400 });
   }
-  const amountField = form.get("amount");
-  let amountOverride: number | null = null;
-  if (amountField !== null && amountField !== "") {
-    if (!/^\d{1,15}$/.test(amountField)) {
-      return new Response("amount must be an integer", { status: 400 });
-    }
-    amountOverride = Number(amountField);
-  }
+  // The amount is the checkout's, as the host priced it: nothing in the form changes it.
 
   const ledger = fakeLedger(env);
   if (outcome === "cancel") {
@@ -196,7 +221,7 @@ async function submitFakePage(request: Request, env: Env, ref: string): Promise<
     if (!checkout) return new Response("Not found", { status: 404 });
     return redirect(checkout.returnUrl);
   }
-  const paid = await ledger.pay(ref, amountOverride);
+  const paid = await ledger.pay(ref, null);
   if (!paid.found) return new Response("Not found", { status: 404 });
   const { checkout } = paid;
   if (paid.newlyPaid) {
