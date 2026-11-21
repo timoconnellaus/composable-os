@@ -84,40 +84,41 @@ describe("plain functions", () => {
   });
 });
 
+// React stand-ins, at module level as hooks are.
+const asked: unknown[] = [];
+const api: TicketingClient = {
+  query: ((name: string, input: unknown) => {
+    asked.push([name, input]);
+    return { queryKey: [name, input], queryFn: async () => ({}) as never };
+  }) as TicketingClient["query"],
+  mutation: ((name: string) => {
+    asked.push([name]);
+    return { mutationKey: [name], mutationFn: async () => ({}) as never };
+  }) as TicketingClient["mutation"],
+};
+const options: unknown[] = [];
+const useQuery: UseQuery = (o) => {
+  options.push(o);
+  return { data: undefined, isPending: true, error: null };
+};
+const useMutation: UseMutation = () => ({
+  mutate() {},
+  mutateAsync: async () => ({}) as never,
+  data: undefined,
+  isPending: false,
+  error: null,
+});
+let box: unknown;
+const useState: UseState = <T>(initial: T) => {
+  if (box === undefined) box = initial;
+  return [
+    box as T,
+    (next: T | ((p: T) => T)) => {
+      box = typeof next === "function" ? (next as (p: T) => T)(box as T) : next;
+    },
+  ];
+};
 describe("the hooks", () => {
-  const asked: unknown[] = [];
-  const api: TicketingClient = {
-    query: ((name: string, input: unknown) => {
-      asked.push([name, input]);
-      return { queryKey: [name, input], queryFn: async () => ({}) as never };
-    }) as TicketingClient["query"],
-    mutation: ((name: string) => {
-      asked.push([name]);
-      return { mutationKey: [name], mutationFn: async () => ({}) as never };
-    }) as TicketingClient["mutation"],
-  };
-  const options: unknown[] = [];
-  const useQuery: UseQuery = (o) => {
-    options.push(o);
-    return { data: undefined, isPending: true, error: null };
-  };
-  const useMutation: UseMutation = () => ({
-    mutate() {},
-    mutateAsync: async () => ({}) as never,
-    data: undefined,
-    isPending: false,
-    error: null,
-  });
-  let box: unknown;
-  const useState: UseState = <T>(initial: T) => {
-    if (box === undefined) box = initial;
-    return [
-      box as T,
-      (next: T | ((p: T) => T)) => {
-        box = typeof next === "function" ? (next as (p: T) => T)(box as T) : next;
-      },
-    ];
-  };
   const hooks = createTicketingHooks({ useQuery, useMutation, useState }, api);
 
   it("each asks for the operation it names", () => {

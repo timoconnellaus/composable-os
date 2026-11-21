@@ -47,7 +47,13 @@
   },
   "overrides": [
     {
-      "includes": ["blocks/web-*/**"],
+      "includes": [
+        "blocks/web-*/**",
+        "packs/ticketing/blocks/ticketing-events/**",
+        "packs/ticketing/blocks/ticketing-checkout/**",
+        "packs/ticketing/blocks/ticketing-order/**",
+        "packs/ticketing/blocks/ticketing-my-tickets/**"
+      ],
       "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
     },
     {
