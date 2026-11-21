@@ -13,6 +13,7 @@ import { createCustomerAuth, createIdentityProvider, customerIdentity } from "@c
 import { coreInvoker, inviteCustomer, loadCustomer } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
+import openOperations from "../../../packages/core/open-operations.json";
 import { type ApiEnv, handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
 import type { McpEnv } from "../src/server/mcp/handler.ts";
 import { runOperation } from "../src/server/operations.ts";
@@ -301,8 +302,15 @@ describe("the caller is the session's", () => {
     };
     const names = (await manifest(customerCookie)).operations.map((o) => o.name);
     expect(names).toContain("me.get");
-    expect(names.every((n) => n.startsWith("me.") || n.startsWith("my."))).toBe(true);
-    expect((await manifest()).operations).toEqual([]);
+    // Exactly the generated list's operations for each audience (tool-only ones are not called
+    // directly), so a newly opened one (stage 26's capacity.get) is expected without naming it.
+    const listed = (audience: "customer" | "public") =>
+      openOperations.operations
+        .filter((op) => (op.audiences as string[]).includes(audience) && !("toolOnly" in op))
+        .map((op) => op.name)
+        .sort();
+    expect([...names].sort()).toEqual(listed("customer"));
+    expect((await manifest()).operations.map((o) => o.name).sort()).toEqual(listed("public"));
     expect((await manifest(admin.cookie)).operations.map((o) => o.name)).toContain(
       "organisation.list",
     );
