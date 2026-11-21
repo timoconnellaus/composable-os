@@ -51553,6 +51553,7 @@
         "user.grantablePermissions",
         "user.invites",
         "user.list",
+        "user.me",
         "user.packRoles"
       ]
     },
@@ -52007,6 +52008,7 @@
         "user.grantablePermissions",
         "user.invites",
         "user.list",
+        "user.me",
         "user.packRoles"
       ]
     },
@@ -52257,6 +52259,7 @@
         "user.grantablePermissions",
         "user.invites",
         "user.list",
+        "user.me",
         "user.packRoles"
       ]
     },

@@ -2,7 +2,7 @@
 import { env } from "cloudflare:workers";
 import { ACCESS_JWT_HEADER, awaitingFirstUser, type IdentityEnv } from "@composable-os/auth";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { authorize } from "../src/server/identity.ts";
+import { authorize, isPublicPath } from "../src/server/identity.ts";
 import { AUD, createAccessKeys, TEAM } from "./access-jwt.ts";
 
 const ORIGIN = "https://crm.example.com";
@@ -154,3 +154,11 @@ async function fetchAuth(identityEnv: IdentityEnv, path: string, body: unknown) 
   if (!response) throw new Error("no auth route");
   return response;
 }
+
+describe("/blocks, a pack's web block mounted on its own (stage 41)", () => {
+  it("is open on a development server only: a production build asks for a sign-in", () => {
+    expect(isPublicPath("/blocks", true)).toBe(true);
+    expect(isPublicPath("/blocks", false)).toBe(false);
+    expect(isPublicPath("/sign-in", false)).toBe(true);
+  });
+});

@@ -9,7 +9,8 @@ import { type SupportEnv, supportPrincipal } from "./support.ts";
 // /blocks: a pack's web block mounted on its own (stage 41), in development only (a production
 // build mounts nothing there); the block's calls go to /api/v1/op as whoever the cookie says.
 const DEV = (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
-const PUBLIC_PATHS = new Set(["/sign-in", "/api/health", "/buy", ...(DEV ? ["/blocks"] : [])]);
+const PUBLIC_PATHS = new Set(["/sign-in", "/api/health", "/buy"]);
+const DEV_PUBLIC_PATHS = new Set(["/blocks"]);
 // /gatekeeper/: OAuth redirects, connect pages and provider pushes (stage 6a); each gatekeeper
 // authenticates its own routes with nonces and signatures. /order/: a guest's order page, opened
 // by the order's token (stage 25); the page shows nothing without it.
@@ -30,9 +31,12 @@ export type AuthorizeResult =
   | { ok: true; principal: Principal | null }
   | { ok: false; response: Response };
 
-export function isPublicPath(pathname: string): boolean {
+/** `dev`: whether this is a development server (Vite's), where `/blocks` is open too. */
+export function isPublicPath(pathname: string, dev = DEV): boolean {
   return (
-    PUBLIC_PATHS.has(pathname) || PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+    PUBLIC_PATHS.has(pathname) ||
+    (dev && DEV_PUBLIC_PATHS.has(pathname)) ||
+    PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))
   );
 }
 
