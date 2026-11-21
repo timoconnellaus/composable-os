@@ -264,7 +264,9 @@ describe("the schema language (ADR 0445)", () => {
       expect.arrayContaining([
         expect.stringMatching(/fields\.body\.schema\.root\.fields\.n\.min: min is above max$/),
         expect.stringMatching(/fields\.body\.paths\.name: "name" is already a field/),
-        expect.stringMatching(/fields\.plain\.schema: Only document and richText fields take schema$/),
+        expect.stringMatching(
+          /fields\.plain\.schema: Only document and richText fields take schema$/,
+        ),
       ]),
     );
   });
