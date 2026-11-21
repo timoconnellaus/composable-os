@@ -28860,10 +28860,124 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "media.findByHash",
         "media.get",
         "media.list",
         "media.serve"
       ]
+    },
+    {
+      "name": "media.findByHash",
+      "description": "Which of these files the media library has already, by the SHA-256 of their bytes (hex): the item for each one it has. An import asks this before uploading, so a re-run uploads nothing twice. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "minItems": 1,
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "required": [
+          "sha256"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "height": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "alt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "createdBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sha256": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "type",
+                "bytes",
+                "width",
+                "height",
+                "alt",
+                "createdAt",
+                "createdBy",
+                "sha256"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "media.get",
@@ -29218,6 +29332,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "media.findByHash",
         "media.get",
         "media.list",
         "media.serve"
@@ -29407,6 +29522,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "media.findByHash",
         "media.get",
         "media.list",
         "media.serve"
@@ -29494,6 +29610,10 @@
               "string",
               "null"
             ]
+          },
+          "existing": {
+            "type": "boolean",
+            "description": "The library had this file already: that item, not a new one"
           }
         },
         "required": [
@@ -29505,11 +29625,13 @@
           "height",
           "alt",
           "createdAt",
-          "createdBy"
+          "createdBy",
+          "existing"
         ],
         "additionalProperties": false
       },
       "invalidates": [
+        "media.findByHash",
         "media.get",
         "media.list",
         "media.serve"
@@ -40711,6 +40833,134 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "record.import",
+      "description": "Import up to 25 records of one extension object from an outside source, each with a key the source gives it (its old id or file name). A key seen before updates its record, but only while the record still holds what the import last wrote: a record someone changed since is reported as a conflict and left alone. A new key creates a record. dryRun checks everything and says what would happen, writing nothing. A person's door: cos content import runs it.",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`)"
+          },
+          "records": {
+            "minItems": 1,
+            "maxItems": 25,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "The record's key in the source"
+                },
+                "values": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "key",
+                "values"
+              ]
+            }
+          },
+          "dryRun": {
+            "default": false,
+            "type": "boolean"
+          },
+          "checkReferences": {
+            "default": true,
+            "description": "Check that relations and pictures name live records (a dry run may not yet)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "object",
+          "records"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": [
+                    "created",
+                    "updated",
+                    "unchanged",
+                    "conflict",
+                    "invalid"
+                  ]
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "problems": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "key",
+                "id",
+                "outcome",
+                "fields",
+                "problems"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
     },
     {
       "name": "record.list",
@@ -60264,7 +60514,7 @@
     },
     {
       "name": "x.content.categories",
-      "description": "Every category of posts, by name: its id, name and address (slug), for a site's menu or a post's label. Read-only. (Extension tool from Content 0.1.0.)",
+      "description": "Every category of posts, by name: its id, name and address (slug), for a site's menu or a post's label. Read-only. (Extension tool from Content 0.2.0.)",
       "risk": "read",
       "audiences": [
         "staff"

@@ -20,7 +20,8 @@ function folder(posts: Record<string, unknown>, pictures: Record<string, Uint8Ar
     writeFileSync(join(dir, name), typeof post === "string" ? post : JSON.stringify(post));
   }
   mkdirSync(join(dir, "pictures"));
-  for (const [name, bytes] of Object.entries(pictures)) writeFileSync(join(dir, "pictures", name), bytes);
+  for (const [name, bytes] of Object.entries(pictures))
+    writeFileSync(join(dir, "pictures", name), bytes);
   return dir;
 }
 
@@ -75,7 +76,9 @@ describe("the interchange format", () => {
     );
     const plan = readFolder(readImportFolder(dir));
     expect(plan.problems).toEqual([]);
-    expect(plan.categories).toEqual([{ key: "category:news", values: { name: "News", slug: "news" } }]);
+    expect(plan.categories).toEqual([
+      { key: "category:news", values: { name: "News", slug: "news" } },
+    ]);
     const [post] = plan.posts;
     expect(post).toMatchObject({ key: "hello", status: "published", category: "category:news" });
     expect(post?.values).toMatchObject({

@@ -73,7 +73,10 @@ function rateLimited(response: Response, withToken: boolean): GitHubRateLimitErr
   const remaining = response.headers.get("x-ratelimit-remaining");
   if (response.status !== 429 && !(response.status === 403 && remaining === "0")) return null;
   const reset = Number(response.headers.get("x-ratelimit-reset"));
-  const at = Number.isFinite(reset) && reset > 0 ? ` It resets at ${new Date(reset * 1000).toISOString()}.` : "";
+  const at =
+    Number.isFinite(reset) && reset > 0
+      ? ` It resets at ${new Date(reset * 1000).toISOString()}.`
+      : "";
   return new GitHubRateLimitError(
     withToken
       ? `GitHub's API rate limit for this token was reached.${at}`
