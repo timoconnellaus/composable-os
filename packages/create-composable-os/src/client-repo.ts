@@ -52,6 +52,7 @@ import {
   upgrade as upgradeHost,
   verified,
 } from "./main.ts";
+import { installAll, movePlatformVersions, staleInstalls } from "./platform-versions.ts";
 
 /** The web app's routes that reach the host: the template's, unless product.ts says others. */
 export function hostRoutes(product?: Pick<ClientProductDefinition, "web">): string[] {
@@ -1340,7 +1341,8 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
     // Compared by content: a kit rebuilt at the same version can still change the host modules.
     io.out(`Already on ${version}. Checking the host modules against its template.`);
     upgradeHostModules(root, product, kit, version, io);
-    return 0;
+    // And the packages: run again after installing, this is where the type check happens.
+    return packagesAndTypes(root, product, version, io);
   }
   io.out(`Moving from ${product.platform.version} to ${version}.`);
   // The updater's preflight for the org's extensions: the new host must speak their contract.
@@ -1365,14 +1367,45 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
   io.out(`Skills: ${writeSkills(root, kit)} replaced.`);
   // The host modules: unedited ones replaced, edited ones shown as a diff (ADR 0451).
   upgradeHostModules(root, moved, kit, version, io);
-  const errors = await typeErrors(root, moved);
+  return packagesAndTypes(root, moved, version, io);
+}
+
+/**
+ * Moves the repo's `@composable-os/*` dependencies to `version`, then type-checks the apps, but
+ * only against packages installed at `version`: against the old ones a check would pass while
+ * copied blocks no longer compile (issue #177). cos never installs; it says what to run.
+ */
+async function packagesAndTypes(
+  root: string,
+  product: ClientProductDefinition,
+  version: string,
+  io: Io,
+): Promise<number> {
+  const { moved, left } = movePlatformVersions(root, product, version);
+  if (moved.length) io.out(`\nPackages moved to ${version}:\n  ${moved.join("\n  ")}`);
+  if (left.length) {
+    io.out(
+      `\nLeft as they are (not a version cos can safely rewrite: a tarball, a path, a workspace, a tag). Point them at ${version} yourself:\n  ${left.join("\n  ")}`,
+    );
+  }
+  const stale = staleInstalls(root, product, version);
+  if (stale.length) {
+    io.out(
+      `\nThe type check was skipped: ${stale.join(", ")} ${stale.length === 1 ? "is" : "are"} not installed at ${version}, so it would check the apps against the old packages. Install, then run cos upgrade again to type-check:\n  ${installAll(root)}\n  pnpm cos upgrade`,
+    );
+    io.out(`\nOn ${version}, not yet type-checked. Nothing is deployed.`);
+    return 0;
+  }
+  const errors = await typeErrors(root, product);
   if (errors.length) {
     io.err(`\nThe apps do not compile against ${version}. Fix these, then cos deploy:`);
     for (const e of errors) io.err(`  ${e}`);
     io.err("Nothing was deployed.");
     return 1;
   }
-  io.out(`\nUpgraded to ${version}. Nothing is deployed yet: run cos deploy.`);
+  io.out(
+    `\nUpgraded to ${version}; the apps type-check against it. Nothing is deployed yet: run cos deploy.`,
+  );
   return 0;
 }
 

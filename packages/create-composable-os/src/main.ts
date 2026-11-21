@@ -97,7 +97,9 @@ A client repo (stage 24)
   cos upgrade [--version X.Y.Z]          in a client repo: move product.ts to a newer platform
                                          version, regenerate the client, replace skills/, report type
                                          errors; deploys nothing
-  cos add <block>, cos diff <block>      copy a block from the release; show its upstream changes
+  cos add <block>, cos diff <block> [--accept]
+                                         copy a block from the release; show its upstream changes
+                                         (--accept: record them as merged by hand)
                                          (cos add with no block lists them, with their skins)
   cos client generate                    in a client repo: each app's typed client, again
 
@@ -194,6 +196,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "skip-build",
       "no-typecheck",
       "rotate-customer-auth-secret",
+      "accept",
       "with-mobile",
     ].includes(key);
     let value: string | boolean = true;

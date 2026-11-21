@@ -104,3 +104,13 @@ could not take a newer template's.
 - Tests in `packages/create-composable-os/test/client-repo.test.ts`: unedited (replaced, recorded),
   edited (left, diff shown), no recorded hash (left, diff shown), a module new in the template
   added to an adopted repo, and a same-version rebuilt kit (host module replaced, block diff shown).
+
+## Amended 2026-11-21 (issue #177): `cos upgrade` moves the platform's packages
+`cos upgrade` moved `platform.version` but not the `@composable-os/*` dependencies, so its type
+check ran against the old installed packages and passed while copied blocks no longer compiled.
+It now moves every `@composable-os/*` dependency in the root's and each app's `package.json` to
+the target version, keeping the range style, and names any it cannot safely rewrite (a tarball, a
+path, a workspace, a tag, an override). It never installs (as `cos create` and `cos init` do not);
+it type-checks only when every moved package is installed at the target version, and otherwise
+says the check was skipped and prints the repo's install command, to run before `cos upgrade`
+again. Tests in `packages/create-composable-os/test/client-repo.test.ts`.
