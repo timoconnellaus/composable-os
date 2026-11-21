@@ -532,7 +532,7 @@ function HostMailCard() {
   const settings = useOp("customer.settings.get", {});
   const connections = useOp("connection.list", { scope: "org", includeDisconnected: false });
   const save = useOpMutation("customer.settings.update", {
-    invalidates: ["customer.settings.get"],
+    invalidates: ["customer.settings.get", "user.emailStatus"],
   });
   const options = (connections.data?.items ?? []).filter(
     (c) =>
@@ -601,7 +601,7 @@ type SignInMail = CoreOutput<"customer.settings.get">["signInMail"];
 function SignInMailState({ state }: { state: SignInMail }) {
   const [confirming, setConfirming] = useState(false);
   const set = useOpMutation("outbound.setAutoApprove", {
-    invalidates: ["customer.settings.get", "outbound.kinds"],
+    invalidates: ["customer.settings.get", "outbound.kinds", "user.emailStatus"],
   });
   const kind = state.kind;
 

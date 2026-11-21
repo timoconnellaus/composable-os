@@ -12,18 +12,27 @@ import {
 } from "@composable-os/ui/components/dialog";
 import { Input } from "@composable-os/ui/components/input";
 import { Label } from "@composable-os/ui/components/label";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 
 /** The signed-in person's address and whether it is confirmed; undefined while unknown. */
 export function useEmailStatus() {
-  const status = useOp("user.emailStatus", {}, { retry: false });
-  return status.data;
+  return useEmailStatusQuery().data;
+}
+
+function useEmailStatusQuery() {
+  return useOp("user.emailStatus", {}, { retry: false });
 }
 
 export function ConfirmEmailDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const status = useEmailStatus();
+  const query = useEmailStatusQuery();
+  const status = query.data;
+  // Read afresh when opened: the host's mail may have been set up since.
+  const { refetch } = query;
+  useEffect(() => {
+    if (open) void refetch();
+  }, [open, refetch]);
   const send = useOpMutation("user.sendEmailConfirmation");
   const confirm = useOpMutation("user.confirmEmail", { invalidates: ["user.emailStatus"] });
   const [sent, setSent] = useState<string | null>(null);
