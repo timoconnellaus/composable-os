@@ -2,16 +2,11 @@
 // rich text picture and an `image` field name one by id; the host checks the id is a live item.
 // No customer or public declaration: outsiders read no media record. A picture reaches them only
 // through `media.serve`, for an item published content references.
+
+import { MEDIA_TYPES, type MediaType } from "@composable-os/sdk";
 import { defineObject } from "./types.ts";
 
-export const MEDIA_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "image/avif",
-] as const;
-export type MediaType = (typeof MEDIA_TYPES)[number];
+export { MEDIA_TYPES, type MediaType };
 
 export const mediaObject = defineObject({
   name: "media",

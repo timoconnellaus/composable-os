@@ -102,6 +102,13 @@ A client repo (stage 24)
                                          (--accept: record them as merged by hand)
                                          (cos add with no block lists them, with their skins)
   cos client generate                    in a client repo: each app's typed client, again
+  cos content import <folder> --host <url> [--email <you>] [--dry-run] [--publish] [--yes]
+                                         load posts and their pictures into the host as you,
+                                         signed in for the run (by code with --email, else in the
+                                         browser); checks everything first and writes nothing on a
+                                         problem; a re-run creates nothing twice; --publish
+                                         publishes (or schedules) them with their own dates
+                                         (docs/importing.md)
 
 Installing a product with no client repo
   cos install [options]                  install, or repair an existing install (idempotent)
@@ -198,6 +205,8 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "rotate-customer-auth-secret",
       "accept",
       "with-mobile",
+      "dry-run",
+      "publish",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {
@@ -1235,8 +1244,45 @@ async function client(argv: string[], deps: Deps): Promise<number> {
   }
 }
 
+/** `cos content import <folder>` (ADR 0470): the import door, as the person running it. */
+async function content(argv: string[], deps: Deps): Promise<number> {
+  if (argv[0] !== "import") {
+    deps.io.err(
+      "Usage: cos content import <folder> --host <url> [--email <you>] [--dry-run] [--publish] [--yes]",
+    );
+    return 2;
+  }
+  const rest = argv.slice(1);
+  const positional = rest[0] && !rest[0].startsWith("-") ? [rest[0]] : [];
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs(["import", ...rest.slice(positional.length)]);
+  } catch (error) {
+    deps.io.err((error as Error).message);
+    return 2;
+  }
+  const { contentImport } = await import("./content-import/run.ts");
+  try {
+    return await contentImport(
+      positional,
+      {
+        ...(str(parsed.flags, "host") ? { host: str(parsed.flags, "host") } : {}),
+        ...(str(parsed.flags, "email") ? { email: str(parsed.flags, "email") } : {}),
+        dryRun: Boolean(parsed.flags["dry-run"]),
+        publish: Boolean(parsed.flags.publish),
+        yes: Boolean(parsed.flags.yes),
+      },
+      deps.io,
+    );
+  } catch (error) {
+    deps.io.err(`Error: ${(error as Error).message}`);
+    return 1;
+  }
+}
+
 export async function runCli(argv: string[], input: Deps): Promise<number> {
   const deps = input;
+  if (argv[0] === "content") return content(argv.slice(1), deps);
   if (argv[0] === "ext") return ext(argv.slice(1), deps);
   if (argv[0] === "client") return client(argv.slice(1), deps);
   // Commands that take one argument before their flags (stage 24).

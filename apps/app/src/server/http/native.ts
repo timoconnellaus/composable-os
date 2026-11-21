@@ -3,7 +3,12 @@
 // signed-out browser is sent to /sign-in first. Signed in, it hands the app a one-time code on
 // its own redirect address, which the app exchanges with its PKCE verifier at
 // /api/v1/auth/staff/exchange. The browser's cookie stays the browser's; the app never sees one.
-import { issueNativeHandoff, parseNativeRedirects, resolveActingUser } from "@composable-os/core";
+import {
+  issueNativeHandoff,
+  nativeRedirectAllowed,
+  parseNativeRedirects,
+  resolveActingUser,
+} from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { authorize } from "../identity.ts";
 import type { ApiEnv } from "./api.ts";
@@ -35,7 +40,7 @@ export async function handleNativeStaffSignIn(request: Request, env: NativeEnv):
   // Checked before anything else, and never redirected to when wrong: a code goes only to an
   // address the deployment lists.
   if (
-    !allowed.includes(redirectUri) ||
+    !nativeRedirectAllowed(allowed, redirectUri) ||
     url.searchParams.get("code_challenge_method") !== "S256" ||
     !CHALLENGE_RE.test(challenge) ||
     !state ||

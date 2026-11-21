@@ -54,6 +54,7 @@ import { policyOperations } from "./policy.ts";
 import { publicReadOperations } from "./public-read.ts";
 import { queryOperations } from "./query.ts";
 import { recordOperations } from "./record.ts";
+import { recordImportOperations } from "./record-import.ts";
 import { recordVersionOperations } from "./record-versions.ts";
 import { retentionOperations } from "./retention.ts";
 import { routineOperations } from "./routine.ts";
@@ -92,6 +93,7 @@ export const coreOperations = [
   ...recordVersionOperations,
   ...contentOperations,
   ...mediaOperations,
+  ...recordImportOperations,
   ...extensionOperations,
   ...extensionAuthoringOperations,
   ...codeOperations,

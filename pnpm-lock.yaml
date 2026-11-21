@@ -753,6 +753,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: 5.20261104.1
         version: 5.20261104.1
+      '@composable-os/client':
+        specifier: workspace:*
+        version: link:../client
       '@composable-os/client-gen':
         specifier: workspace:*
         version: link:../client-gen

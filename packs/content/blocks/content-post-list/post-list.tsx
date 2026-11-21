@@ -61,7 +61,11 @@ export function PostList({
                     {post.values.title}
                   </a>
                 </CardTitle>
-                {postDate(post) ? <CardDescription>{postDate(post)}</CardDescription> : null}
+                {postDate(post) || post.values.byline ? (
+                  <CardDescription>
+                    {[postDate(post), post.values.byline].filter(Boolean).join(" · ")}
+                  </CardDescription>
+                ) : null}
               </CardHeader>
               <CardContent>
                 <p>{summary(post)}</p>

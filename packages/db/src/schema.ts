@@ -1910,10 +1910,23 @@ export interface CoreMediaTable {
   updated_by: string | null;
   deleted_at: Timestamp | null;
   deleted_by: string | null;
+  /** SHA-256 of the file, hex (migration 0501): an upload of the same file returns this item. */
+  sha256: string | null;
 }
 
 /** `rec_media` (migration 0461): the live media items. */
-export type RecMediaView = Omit<CoreMediaTable, "deleted_at" | "deleted_by">;
+export type RecMediaView = Omit<CoreMediaTable, "deleted_at" | "deleted_by" | "sha256">;
+
+/** `core_import_key` (migration 0501): what an import made, and the values it last wrote. */
+export interface CoreImportKeyTable {
+  object_type: string;
+  import_key: string;
+  record_id: string;
+  /** JSON: field name → the value the import wrote. */
+  written: string;
+  imported_at: Timestamp;
+  imported_by: string;
+}
 
 /** `core_published_media` (migration 0461): media a record's current version references. */
 export interface CorePublishedMediaTable {
@@ -2062,6 +2075,7 @@ export interface CoreDatabase {
   core_content_generation: CoreContentGenerationTable;
   core_media: CoreMediaTable;
   core_published_media: CorePublishedMediaTable;
+  core_import_key: CoreImportKeyTable;
   rec_media: RecMediaView;
   rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;

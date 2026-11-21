@@ -8,10 +8,14 @@
 //                                           (or anyone outside) asks the host's own hostname for,
 //                                           bypassed by Cloudflare Access with the rest of /api/v1
 //                                           (issue #181). The admin's pictures stay on /api/media.
+//   POST /api/v1/media?name=&alt=           an upload by a staff device token only, for a script a
+//                                           person signed in to (`cos content import`, ADR 0470):
+//                                           beside the surface, so it works behind Access, and
+//                                           never with a cookie, so no browser page can reach it.
 //
 // What may be served, to whom, is `media.serve`'s answer, through `invoke()`. This module reads
 // R2 only for an item that answer named, and writes it only through `media.upload`.
-import { ValidationError } from "../errors.ts";
+import { ForbiddenError, ValidationError } from "../errors.ts";
 import type { Invoker } from "../invoke.ts";
 import type { AnyInvocationContext } from "../pipeline.ts";
 import { MEDIA_MAX_BYTES, type MediaResizer, type MediaStore } from "../records/media.ts";
@@ -26,6 +30,7 @@ export function isMediaPath(pathname: string): boolean {
   return (
     pathname === MEDIA_ROUTE ||
     pathname.startsWith(`${MEDIA_ROUTE}/`) ||
+    pathname === PUBLIC_MEDIA_ROUTE ||
     pathname.startsWith(`${PUBLIC_MEDIA_ROUTE}/`)
   );
 }
@@ -42,6 +47,11 @@ export interface MediaRouteOptions {
   resizer?: MediaResizer | undefined;
   /** False on the client-app binding: a bound Worker never uploads. */
   uploads: boolean;
+  /**
+   * `POST /api/v1/media` with a staff device token (ADR 0470). Off unless set: the client-app
+   * binding never takes one.
+   */
+  tokenUploads?: boolean;
 }
 
 const ID = /^med_[A-Za-z0-9]{1,60}$/;
@@ -72,6 +82,12 @@ export async function handleMedia(request: Request, options: MediaRouteOptions):
       }
       return await upload(request, url, options);
     }
+    if (url.pathname === PUBLIC_MEDIA_ROUTE) {
+      if (request.method !== "POST" || !options.tokenUploads) {
+        return reply(404, JSON.stringify({ error: { code: "not_found", message: "Not found" } }));
+      }
+      return await tokenUpload(request, url, options);
+    }
     if (request.method !== "GET" && request.method !== "HEAD") {
       throw new ValidationError("Use GET", { httpStatus: 405 });
     }
@@ -81,7 +97,40 @@ export async function handleMedia(request: Request, options: MediaRouteOptions):
   }
 }
 
-async function upload(request: Request, url: URL, options: MediaRouteOptions): Promise<Response> {
+/**
+ * An upload by a person's staff device session (ADR 0470): the bearer token a native sign-in
+ * gave them, and nothing else. A cookie (a browser's) is not taken here, so a page on another
+ * site cannot post to it with the staff member's Access or session cookie. The context the host
+ * builds from a staff device token is a human's (actor `human`); anything else is refused before
+ * the body is read, and `media.upload` itself refuses any actor but a human.
+ */
+async function tokenUpload(
+  request: Request,
+  url: URL,
+  options: MediaRouteOptions,
+): Promise<Response> {
+  if (!/^Bearer\s+cos_at_\S+$/i.test(request.headers.get("authorization") ?? "")) {
+    throw new ForbiddenError("Upload with a staff device token: sign in with cos first", {
+      reason: "token_required",
+      httpStatus: 401,
+    });
+  }
+  const ctx = await options.context(request);
+  if (!("actor" in ctx) || ctx.actor !== "human") {
+    throw new ForbiddenError("Only a person signed in as staff uploads here", {
+      reason: "staff_only",
+      httpStatus: 403,
+    });
+  }
+  return upload(request, url, options, ctx);
+}
+
+async function upload(
+  request: Request,
+  url: URL,
+  options: MediaRouteOptions,
+  given?: AnyInvocationContext,
+): Promise<Response> {
   // A browser may send it only from the host's own pages: the session cookie is the staff's.
   const origin = request.headers.get("origin");
   if (origin && origin !== url.origin) {
@@ -95,7 +144,7 @@ async function upload(request: Request, url: URL, options: MediaRouteOptions): P
     });
   }
   const bytes = await readCapped(request, MEDIA_MAX_BYTES);
-  const ctx = await options.context(request);
+  const ctx = given ?? (await options.context(request));
   const input = {
     name: url.searchParams.get("name") ?? "picture",
     ...(url.searchParams.get("alt") ? { alt: url.searchParams.get("alt") } : {}),

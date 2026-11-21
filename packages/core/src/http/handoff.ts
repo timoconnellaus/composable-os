@@ -23,6 +23,40 @@ export function parseNativeRedirects(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Whether a code may be sent to `redirectUri`: it is one the deployment lists, exactly; or the
+ * deployment lists a loopback address with no port (`http://127.0.0.1/cos-sign-in`) and this is
+ * that address on any port, as a command-line tool listening on a port of its own asks
+ * (RFC 8252, 7.3; ADR 0470). Only the IP literals 127.0.0.1 and [::1] over http, never a name
+ * such as localhost, and the path must be the listed one.
+ */
+export function nativeRedirectAllowed(allowed: readonly string[], redirectUri: string): boolean {
+  if (allowed.includes(redirectUri)) return true;
+  let asked: URL;
+  try {
+    asked = new URL(redirectUri);
+  } catch {
+    return false;
+  }
+  if (asked.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(asked.hostname)) return false;
+  if (asked.username || asked.password || asked.search || asked.hash || !asked.port) return false;
+  return allowed.some((entry) => {
+    try {
+      const listed = new URL(entry);
+      return (
+        listed.protocol === "http:" &&
+        listed.hostname === asked.hostname &&
+        listed.port === "" &&
+        !listed.search &&
+        !listed.hash &&
+        listed.pathname === asked.pathname
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
 function base64url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-")

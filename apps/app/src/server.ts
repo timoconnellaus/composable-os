@@ -91,6 +91,8 @@ export default {
         media: mediaStoreFor(api),
         resizer: mediaResizerFor(api),
         uploads: true,
+        // `cos content import` (ADR 0470): a person's staff device token, beside the surface.
+        tokenUploads: true,
       });
     }
     // The HTTP surface for client apps (stage 23, ADR 0403): /api/v1/*. It resolves its own

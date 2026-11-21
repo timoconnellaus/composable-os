@@ -168,7 +168,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       { id: "ticketing", version: "0.1.0", optional: true, files: ticketing },
       // And Programs (stage 41), the same way, for its e2e specs.
       { id: "programs", version: "0.1.0", optional: true, files: programs },
-      { id: "content", version: "0.1.0", optional: true, files: content },
+      { id: "content", version: "0.2.0", optional: true, files: content },
     ],
   });
   const hash = createHash("sha256").update(text).digest("hex");
