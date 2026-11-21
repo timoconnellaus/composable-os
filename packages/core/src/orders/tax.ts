@@ -13,6 +13,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
+import { orderLineObject } from "../fields/order.ts";
 import type { ObjectDefinition, TaxDefinition } from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
@@ -152,12 +153,23 @@ export async function checkoutTax(
 ): Promise<CheckoutTax | null> {
   if (!(await loadOrderTax(db))) return null;
   const overrides = await loadOrderTaxCodes(db);
-  const rows = await db
-    .selectFrom("core_order_line")
+  // The host's own read of the order's lines, org-wide, through the seam.
+  const lineObject = getObject("orderLine") ?? orderLineObject;
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const rows = (await (db as any)
+    .selectFrom(visibleSource(orgReader(db), lineObject))
     .select(["id", "position", "object_type", "record_id", "title", "quantity", "line_total"])
     .where("order_id", "=", orderId)
     .orderBy("position")
-    .execute();
+    .execute()) as {
+    id: string;
+    position: number;
+    object_type: string;
+    record_id: string;
+    title: string;
+    quantity: number;
+    line_total: number;
+  }[];
   const lines = rows.map((row) => {
     const object = getObject(row.object_type);
     return { row, object, code: taxCodeOf(object, overrides) };
