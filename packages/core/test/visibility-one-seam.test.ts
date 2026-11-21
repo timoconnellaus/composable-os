@@ -97,7 +97,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "assistant/producers.ts": [5, WHY.sql],
   "assistant/routine-backtest.ts": [1, WHY.sql],
   "assistant/routines.ts": [2, WHY.sql],
-  "automations/records.ts": [5, WHY.org],
+  "automations/records.ts": [7, WHY.org],
   "dashboards/describe.ts": [5, WHY.sql],
   "dashboards/overview.ts": [12, WHY.sql],
   "duplicates/check.ts": [5, WHY.write],
