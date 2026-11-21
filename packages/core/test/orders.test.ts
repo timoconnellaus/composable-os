@@ -596,6 +596,17 @@ describe("a customer's own orders (criterion 10, with the isolation suite)", () 
     );
     expect(lines.items.length).toBeGreaterThan(0);
     expect(lines.items.every((line) => line.values.orderId !== theirs.id)).toBe(true);
+    // Staff list orders, filtered, and the list is not a customer's to call.
+    const listed = await run<{ items: OrderOut[] }>(
+      "order.list",
+      { filter: { field: "personId", op: "eq", value: bob.principal.personId }, limit: 200 },
+      staff(),
+    );
+    expect(listed.items.map((o) => o.id)).toContain(theirs.id);
+    expect(listed.items.every((o) => o.personId === bob.principal.personId)).toBe(true);
+    expect((await refusal(run("order.list", {}, outside(alice.principal)))).code).toBe(
+      "unknown_operation",
+    );
     // Staff see whose it is.
     expect(await run<OrderOut>("order.get", { id: theirs.id }, staff())).toMatchObject({
       personId: bob.principal.personId,

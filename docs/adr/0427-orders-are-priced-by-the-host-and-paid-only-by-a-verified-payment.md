@@ -18,9 +18,9 @@ registry (`fields/order.ts`), so the visibility seam, the audit log and the tran
 know them, and both declare a `customer`: a signed-in customer reads their own orders and those
 orders' lines, and nothing is writable by a customer. They are not among the four core objects
 the generic machinery walks (`listObjects`): search, embeddings, summaries, extension fields and
-saved views do not pick them up, and `record.create`, `record.update` and `record.delete` refuse
-them. `record.get` and `record.list` read them for staff, and `my.get` and `my.list` for a
-customer.
+saved views do not pick them up, `record.create`, `record.update` and `record.delete` refuse
+them, and `record.get` answers with none of their fields. Staff read orders with `order.get` and
+`order.list`; a customer reads their own with `order.get`, or `my.get` and `my.list`.
 
 **Money is an integer in the currency's minor unit.** `core_order.total`, `paid`, `deposit` and
 every line amount are whole cents. A record's price is a number in the major unit; the host

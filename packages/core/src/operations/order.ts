@@ -3,6 +3,7 @@
 // Who may call what:
 //   order.start            staff, customers and the public   starts an order, priced by the host
 //   order.get              staff and customers               an order through the visibility seam
+//   order.list             staff                             a page of orders, filtered and sorted
 //   order.view             anyone, with the order's token    a guest's way back to one order
 //   order.cancel           staff; a customer, their own unpaid order
 //   order.extendBalanceDue staff                             a part-paid order's due date
@@ -20,6 +21,8 @@
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { ORDER_STATES } from "../fields/order.ts";
+import { filterSchema } from "../filter.ts";
+import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import {
   hashOrderToken,
@@ -146,6 +149,26 @@ async function linesOf(ctx: HandlerContext, id: string): Promise<Order["lines"]>
 }
 
 const text = (value: unknown) => (value == null ? null : String(value));
+
+/** An order record the seam returned, without its lines. */
+function fromRecord(record: VisibleRecord, staff: boolean): Omit<Order, "lines"> {
+  const v = record.values;
+  return orderSchema.omit({ lines: true }).parse({
+    id: record.id,
+    state: v.state,
+    currency: v.currency,
+    total: v.total,
+    paid: v.paid,
+    balance: v.balance,
+    pay: v.pay,
+    deposit: v.deposit ?? null,
+    balanceDueAt: text(v.balanceDueAt),
+    expiresAt: text(v.expiresAt),
+    paidAt: text(v.paidAt),
+    createdAt: String(v.createdAt),
+    ...(staff ? { personId: text(v.personId), email: text(v.email), placedAs: v.placedAs } : {}),
+  });
+}
 
 /** An order read through the seam: only what the caller's scope returned is in `values`. */
 async function throughSeam(ctx: HandlerContext, id: string): Promise<Order> {
@@ -296,6 +319,35 @@ export const orderGet = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     return throughSeam(ctx, input.id);
+  },
+});
+
+export const orderList = defineOperation({
+  name: "order.list",
+  description:
+    "A page of orders, newest first unless sorted otherwise, without their lines (order.get has " +
+    "them). Filter and sort on an order's fields: state, total, paid, balance, pay, personId, " +
+    "email, createdAt, balanceDueAt. Amounts are in the currency's minor unit. Pass nextCursor " +
+    "back as cursor for the next page. Read-only.",
+  input: z.object({
+    filter: filterSchema.optional(),
+    sort: sortSchema.optional(),
+    cursor: z.string().max(1000).optional(),
+    limit: z.number().int().min(1).max(LIST_MAX_LIMIT).default(50),
+  }),
+  output: z.object({
+    items: z.array(orderSchema.omit({ lines: true })),
+    nextCursor: z.string().nullable(),
+  }),
+  permission: "records:read",
+  risk: "read",
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    const page = await ctx.records.list("order", input);
+    return {
+      items: page.items.map((record) => fromRecord(record, true)),
+      nextCursor: page.nextCursor,
+    };
   },
 });
 
@@ -528,6 +580,7 @@ export const orderSettingsUpdate = defineOperation({
 export const orderOperations = [
   orderStart,
   orderGet,
+  orderList,
   orderView,
   orderCancel,
   orderExtendBalanceDue,
