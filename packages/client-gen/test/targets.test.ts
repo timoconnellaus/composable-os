@@ -9,6 +9,7 @@
 //   without a polyfill, so the app passes `randomKey`). It is not Hermes itself; HERMES_BIN, when
 //   set, runs the same script in a real Hermes binary too.
 import { execFileSync } from "node:child_process";
+import { webcrypto } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -296,7 +297,7 @@ describe("the generated client's targets", () => {
         setTimeout,
         // What the app passes in for the browser sign-in: expo-crypto's digest. Not `crypto`.
         appSha256: async (text: string) =>
-          new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))),
+          new Uint8Array(await webcrypto.subtle.digest("SHA-256", new TextEncoder().encode(text))),
       });
       expect(vm.runInContext("typeof crypto + typeof fetch + typeof document", context)).toBe(
         "undefinedundefinedundefined",
@@ -324,7 +325,7 @@ describe("the generated client's targets", () => {
     // The browser sign-in's challenge is the S256 of the verifier, made with the app's sha256.
     const browser = result.browser as { url: string; verifier: string; state: string };
     const challenge = new URL(browser.url).searchParams.get("code_challenge");
-    const digest = await globalThis.crypto.subtle.digest(
+    const digest = await webcrypto.subtle.digest(
       "SHA-256",
       new TextEncoder().encode(browser.verifier),
     );
