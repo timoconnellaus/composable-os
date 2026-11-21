@@ -26,7 +26,7 @@ import { handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
 import { handleNativeStaffSignIn } from "../src/server/http/native.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv, sentCodes } from "./bound-env.ts";
-import { confirmForm, confirmRequest, signInInBrowser } from "./browser-sign-in.ts";
+import { browserOrigin, confirmForm, confirmRequest, signInInBrowser } from "./browser-sign-in.ts";
 import { ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
 
 const hostEnv = boundTestEnv(env);
@@ -469,7 +469,7 @@ describe("browser-based staff sign-in hands the app a code (system browser)", ()
     expect(answer.headers.get("location")).toBeNull();
     // Nor on the confirming POST.
     const refusedPost = await serve(
-      confirmRequest(start.url, new URL(start.url).searchParams, { cookie: admin.cookie }),
+      confirmRequest(answer, start.url, new URL(start.url).searchParams, { cookie: admin.cookie }),
     );
     expect(refusedPost.status).toBe(400);
     // Unset, the page is not there at all.
@@ -524,16 +524,28 @@ describe("browser-based staff sign-in hands the app a code (system browser)", ()
         randomKey,
         sha256,
       });
-      const form = confirmForm(await (await open(start.url, admin.cookie)).text());
+      const page = await open(start.url, admin.cookie);
+      const form = confirmForm(await page.clone().text());
       const before = await issued();
-      for (const headers of [
-        { cookie: admin.cookie, origin: "https://evil.test" } as Record<string, string>,
-        { cookie: admin.cookie, origin: "", "sec-fetch-site": "cross-site" },
-      ]) {
-        const request = confirmRequest(start.url, form, headers);
-        if (!headers.origin) request.headers.delete("origin");
-        const answer = await serve(request);
-        expect(answer.status).toBe(403);
+      const refusals: Record<string, string | null>[] = [
+        // Another site, named.
+        { origin: "https://evil.test", "sec-fetch-site": "cross-site" },
+        // Another site that withholds its origin: null proves nothing, and Fetch metadata says so.
+        { origin: "null", "sec-fetch-site": "cross-site" },
+        { origin: "null", "sec-fetch-site": "same-site" },
+        // null with no Fetch metadata (an old browser, or a client that is not one): refused.
+        { origin: "null", "sec-fetch-site": null },
+        // No origin and no metadata at all.
+        { origin: null, "sec-fetch-site": null },
+        { origin: null, "sec-fetch-site": "cross-site" },
+        // A named origin that is not the host's, whatever the metadata says.
+        { origin: "https://evil.test", "sec-fetch-site": "same-origin" },
+      ];
+      for (const headers of refusals) {
+        const answer = await serve(
+          confirmRequest(page, start.url, form, { cookie: admin.cookie, ...headers }),
+        );
+        expect(answer.status, JSON.stringify(headers)).toBe(403);
         expect(answer.headers.get("location")).toBeNull();
       }
       expect(await issued()).toBe(before);
@@ -546,7 +558,8 @@ describe("browser-based staff sign-in hands the app a code (system browser)", ()
         randomKey,
         sha256,
       });
-      const form = confirmForm(await (await open(start.url, admin.cookie)).text());
+      const page = await open(start.url, admin.cookie);
+      const form = confirmForm(await page.clone().text());
       const before = await issued();
       const altered = [
         (f: URLSearchParams) => f.set("state", "another-state"),
@@ -556,17 +569,20 @@ describe("browser-based staff sign-in hands the app a code (system browser)", ()
       ];
       for (const alter of altered) {
         // Each attempt needs a fresh page: a confirmation is spent when presented.
-        const fresh = confirmForm(await (await open(start.url, admin.cookie)).text());
+        const freshPage = await open(start.url, admin.cookie);
+        const fresh = confirmForm(await freshPage.clone().text());
         alter(fresh);
-        const answer = await serve(confirmRequest(start.url, fresh, { cookie: admin.cookie }));
+        const answer = await serve(
+          confirmRequest(freshPage, start.url, fresh, { cookie: admin.cookie }),
+        );
         expect(answer.status).toBe(403);
       }
       // Another staff member's session presenting this account's confirmation.
       const member = await signUp(hostEnv as never, "member");
-      const stolen = await serve(confirmRequest(start.url, form, { cookie: member.cookie }));
+      const stolen = await serve(confirmRequest(page, start.url, form, { cookie: member.cookie }));
       expect(stolen.status).toBe(403);
       // Spent by that attempt, so even the right account cannot use it now.
-      const replay = await serve(confirmRequest(start.url, form, { cookie: admin.cookie }));
+      const replay = await serve(confirmRequest(page, start.url, form, { cookie: admin.cookie }));
       expect(replay.status).toBe(403);
       expect(await issued()).toBe(before);
     });
@@ -578,12 +594,47 @@ describe("browser-based staff sign-in hands the app a code (system browser)", ()
         randomKey,
         sha256,
       });
-      const form = confirmForm(await (await open(start.url, admin.cookie)).text());
-      const first = await serve(confirmRequest(start.url, form, { cookie: admin.cookie }));
+      const page = await open(start.url, admin.cookie);
+      const form = confirmForm(await page.clone().text());
+      const first = await serve(confirmRequest(page, start.url, form, { cookie: admin.cookie }));
       expect(first.status).toBe(303);
       expect(first.headers.get("location")?.startsWith(`${REDIRECT}?code=cos_hc_`)).toBe(true);
-      const again = await serve(confirmRequest(start.url, form, { cookie: admin.cookie }));
+      expect(first.headers.get("referrer-policy")).toBe("no-referrer");
+      const again = await serve(confirmRequest(page, start.url, form, { cookie: admin.cookie }));
       expect(again.status).toBe(403);
+    });
+
+    it("accepts the POST as browsers send it: the page's origin, or null with same-origin metadata", async () => {
+      // As a browser sends it from this page (its referrer policy keeps the origin).
+      const sent = async (headers: Record<string, string | null>) => {
+        const start = await startBrowserSignIn({
+          hostUrl: ORIGIN,
+          redirectUri: REDIRECT,
+          randomKey,
+          sha256,
+        });
+        const page = await open(start.url, admin.cookie);
+        const form = confirmForm(await page.clone().text());
+        return serve(confirmRequest(page, start.url, form, { cookie: admin.cookie, ...headers }));
+      };
+      expect((await sent({})).status).toBe(303);
+      // A page whose referrer policy withholds the origin (`no-referrer`, as beta.6 shipped):
+      // Origin null, Sec-Fetch-Site same-origin.
+      expect((await sent({ origin: "null", "sec-fetch-site": "same-origin" })).status).toBe(303);
+      // An older browser without Fetch metadata, under this page's policy: its real Origin.
+      expect((await sent({ "sec-fetch-site": null, "sec-fetch-mode": null })).status).toBe(303);
+    });
+
+    it("serves the page with a policy under which a browser sends its real origin", async () => {
+      const start = await startBrowserSignIn({
+        hostUrl: ORIGIN,
+        redirectUri: REDIRECT,
+        randomKey,
+        sha256,
+      });
+      const page = await open(start.url, admin.cookie);
+      expect(page.headers.get("referrer-policy")).toBe("same-origin");
+      expect(browserOrigin(start.url, page.headers.get("referrer-policy"))).toBe(ORIGIN);
     });
   });
 });

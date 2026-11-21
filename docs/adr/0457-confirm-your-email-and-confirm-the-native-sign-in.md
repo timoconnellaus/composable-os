@@ -102,3 +102,34 @@ The first client ran `cos content import` against a real host and found three th
   Settings → Users, after turning sign-in mail on.
 - Every host `cos deploy` makes accepts the import's browser sign-in; each one asks the person on
   the page first.
+
+## Amended 2026-11-22 (beta.6: Continue answered 403 in a real browser)
+The confirm page was served with `Referrer-Policy: no-referrer`, under which a browser sends
+`Origin: null` on the page's own form POST (with `Sec-Fetch-Site: same-origin`). The same-origin
+check compared any Origin that was present, so `null` was refused and both the import's and the
+app's browser sign-in failed. The tests built the POST with the page's real origin, so they passed.
+- **The rule.** An Origin that names a site must be the host's own. `Origin: null` names no site
+  and proves nothing on its own, so it is treated as no Origin: only `Sec-Fetch-Site:
+  same-origin` passes then, a header no page can set. A named origin that is not the host's is
+  refused whatever the metadata says; `null` or no Origin with `cross-site`, `same-site` or no
+  metadata is refused. This is Better Auth's own rule for its origin check.
+- **The page's policy is `same-origin`**, so a browser sends the page's real Origin on its form
+  POST, including browsers without Fetch metadata (Safari before 16.4, Firefox before 90): they
+  pass by the named-Origin rule. Nothing goes to another site: the 303 with the code keeps
+  `no-referrer`. A browser that sends neither a named Origin nor Fetch metadata is refused; the
+  one-time token, bound to the account and the request, remains the real protection.
+- **The tests send what a browser sends.** `apps/app/test/browser-sign-in.ts` derives the POST's
+  Origin from the page's own Referrer-Policy as the Fetch standard does (`null` under
+  `no-referrer`) and adds `Sec-Fetch-Site: same-origin`; a test that plays another site names its
+  headers. `apps/app/e2e/native-sign-in.spec.ts` presses Continue in Chromium and follows the
+  redirect to a loopback listener, and to an app scheme (the 303 the browser receives), and
+  exchanges the code for tokens. With beta.6's page and rule it fails; with either fix alone it
+  passes.
+- **Every other Origin check was read for the same mistake** (the HTTP surface, the media routes,
+  MCP consent, the assistant's routes and socket, the template web app's operation route and its
+  sign-in forwarding, Better Auth's customer and staff routes): none accepts `null` on its own;
+  each refuses an Origin that is present and not its own, `null` included.
+- **The confirmation email keeps the sign-in code template** ("Your <product> sign-in code"): the
+  sign-in mail kind is given to that one fixed template only (ADR 0456), and a second template
+  would widen what counts as sign-in mail.
+
