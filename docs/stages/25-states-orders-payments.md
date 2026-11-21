@@ -255,6 +255,67 @@ verified payment marks an order paid, and the first operations open to the publi
   `order.paid` and stage 27's `sellable`.
 - **Erase.** `core_transition_history` joins the erase stores (ADR 0320).
 
+## The second half's spine, as built (2026-11-21)
+Orders, the verified-payment rule, deposits and guest checkout are built (ADRs 0426 to 0428,
+migration 0421). Where the build read the spec one way, or decided what it left open:
+
+- **Order and Order line are in the registry but not in the generic object list,** so search,
+  embeddings, summaries and extension fields do not pick them up, and the generic record writes
+  refuse them (ADR 0427).
+- **`order.start` is also open to staff,** with an email address, so the admin can place an order
+  for someone.
+- **A guest's token is random and stored as a hash,** not signed: a handler has no signing
+  secret. `order.view { id, token }` is the guest's read; `order.get` is the seam's (ADR 0428).
+- **A tampered price is ignored, not refused:** unknown input keys are dropped, and the order is
+  priced from the records, as criterion 3 says.
+- **`order.paid` and `order.partPaid` are the order's `updated` record event** whose diff moves
+  `state`. A first-class event name for automations is left to the gatekeeper half if criterion
+  12's fixture needs one.
+- **Who may cancel:** a customer, their own order while nothing is paid on it; staff, also a
+  part-paid one. `expired` is the host's move.
+- **A part payment** is at least a set minimum (`order_min_part_payment`, default 10.00), or the
+  balance when less is owed.
+- **A deposit order's due date** is the earliest of its lines' dates, and its deposit the sum of
+  theirs.
+- **An order is written from a current read** (a version column and a trigger), so two payments
+  at once cannot both be judged against the same read.
+- **An erased Person's orders are kept without the person,** the address or the guest's token.
+- **Holds are not wired.** `createOrder` and `orders/holds.ts` mark where stage 26's claims,
+  confirms and releases go.
+
+The rest was built in the gatekeeper half (below).
+
+## The gatekeeper half, as built (2026-11-21)
+ADR 0429, migration 0422. Where the build read the spec one way, or decided what it left open:
+
+- **`gatekeeper-payments`** has Stripe and a fake provider (its own hosted page, dev and tests only)
+  behind `PaymentProvider`. Keys are its Worker secrets; `STRIPE_ACCOUNT` makes every call on the
+  org's connected account. A Stripe Connect onboarding flow in Settings is not built: the account
+  is set on the gatekeeper (`docs/payments-stripe-runbook.md`).
+- **The webhook handler is `order.applyPaymentEvent { provider, eventId }`**, open to the
+  `automation` actor only, reading the event the host's adapter stored (`core_payment_event`). The
+  order is found by the checkout the host opened (`core_order_checkout`).
+- **`order.refund` is not queued itself** (risk `outbound`, `bookkeeping`): the refund is the
+  gatekeeper's `payments.refund` action, always reviewed, approved only by a person with
+  `orders:refund` (admins by default). A part-paid order is cancelled before its deposit is
+  refunded. A refund of a late payment leaves the order expired and clears the paid-late list.
+- **`order.honourLate`** needs `orders:refund` and a person (`actors: ["human"]`); a late deposit
+  makes the order part paid (`expired → part_paid`, a new `host` move).
+- **`returnUrl`'s allowed origins** are an order setting (`returnOrigins`), https or localhost.
+- **The confirmation email** goes on each applied payment, from a fixed template, through the
+  email channel in Settings → Notification delivery, with a fresh link (`email_link_hash`). It is
+  the host's own message (`callAsHost`) and applies without review unless the floor denies it.
+- **Criterion 12** needed no new trigger: `fieldChanged` on `order.state` to `paid` / `part_paid`
+  reaches an automation once per order.
+- **Daily notices** (late payments, overdue balances) run in cos-app's daily maintenance; the
+  expiry sweep and left-over events in cos-runner's minute cron.
+- **A guest told there are not enough places** gets `{ rule: "capacity" }` only.
+- **The host's pages:** `/orders`, `/orders/<id>`, Settings → Orders, the guest's `/order/<id>`
+  and a plain `/buy` page. Until stage 27's `sellable`, local dev sells Deals
+  (`ORDERS_DEV_SELLABLE`).
+- **Stage 26 is wired** (`orders/holds.ts`).
+- Not checked: a real Stripe run (the runbook), real D1 concurrency beyond workerd's.
+
 ## Notes for the build
 - Before taking payment inside a phone app, read Apple's and Google's current rules on which
   purchases may use an outside payment page. Event tickets and classes are goods and services

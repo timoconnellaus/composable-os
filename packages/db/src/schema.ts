@@ -1355,6 +1355,150 @@ export interface CoreTransitionHistoryTable {
   entered_as: Generated<"staff" | "customer" | "host">;
 }
 
+/** Migration 0421 (ADR 0426): an order. Amounts are integers in the currency's minor unit. */
+export type OrderState = "pending" | "part_paid" | "paid" | "cancelled" | "expired" | "refunded";
+export interface CoreOrderTable {
+  id: string;
+  /** Null when the address matched several people, and after the person is erased. */
+  person_id: string | null;
+  email: string | null;
+  currency: string;
+  total: number;
+  /** The sum of the verified payments applied. */
+  paid: Generated<number>;
+  state: Generated<OrderState>;
+  pay: Generated<"full" | "deposit">;
+  deposit: Defaulted<number | null>;
+  balance_due_at: Defaulted<Timestamp | null>;
+  expires_at: Defaulted<Timestamp | null>;
+  placed_as: "customer" | "public" | "staff";
+  provider: Defaulted<string | null>;
+  provider_ref: Defaulted<string | null>;
+  /** SHA-256 of a guest's token for this one order. */
+  access_hash: Defaulted<string | null>;
+  access_until: Defaulted<Timestamp | null>;
+  paid_at: Defaulted<Timestamp | null>;
+  cancelled_at: Defaulted<Timestamp | null>;
+  refunded_at: Defaulted<Timestamp | null>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  /** Counts updates; a write from a stale read fails (trigger core_order_stale). */
+  version: Generated<number>;
+  /** Migration 0422: what has gone back to the buyer, the sum of the confirmed refunds. */
+  refunded: Generated<number>;
+  /** Migration 0422: SHA-256 of the confirmation email's token for this one order. */
+  email_link_hash: Defaulted<string | null>;
+}
+
+export interface CoreOrderLineTable {
+  id: string;
+  order_id: string;
+  position: number;
+  /** What is bought: a sellable object's registry name and the record's id. */
+  object_type: string;
+  record_id: string;
+  title: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  created_at: Timestamp;
+}
+
+/** A verified payment the provider reported, once per provider event. */
+export interface CoreOrderPaymentTable {
+  provider: string;
+  event_id: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  outcome: "applied" | "mismatch" | "late";
+  payment_ref: Defaulted<string | null>;
+  received_at: Timestamp;
+  /** Migration 0422: a late payment staff honoured, or that was refunded. */
+  resolved: Defaulted<"honoured" | "refunded" | null>;
+  resolved_at: Defaulted<Timestamp | null>;
+}
+
+/** Migration 0422: a checkout the host opened on the provider's page for an order. */
+export interface CoreOrderCheckoutTable {
+  provider: string;
+  ref: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  kind: "full" | "deposit" | "balance" | "part";
+  created_at: Timestamp;
+}
+
+/** Migration 0422: a verified payment or refund event the gatekeeper delivered. */
+export interface CorePaymentEventTable {
+  provider: string;
+  event_id: string;
+  kind: "payment" | "refund";
+  connection_id: Defaulted<string | null>;
+  /** The event as JSON: ids, amounts and the currency. */
+  payload: string;
+  received_at: Timestamp;
+  applied_at: Defaulted<Timestamp | null>;
+  outcome: Defaulted<string | null>;
+  attempts: Generated<number>;
+}
+
+/** Migration 0422: a refund staff asked for, or the provider confirmed. */
+export interface CoreOrderRefundTable {
+  id: string;
+  order_id: string;
+  provider: string;
+  payment_ref: Defaulted<string | null>;
+  amount: number;
+  currency: string;
+  reason: Defaulted<string | null>;
+  status: "requested" | "confirmed";
+  pending_action_id: Defaulted<string | null>;
+  requested_by: Defaulted<string | null>;
+  requested_at: Defaulted<Timestamp | null>;
+  provider_refund_ref: Defaulted<string | null>;
+  event_id: Defaulted<string | null>;
+  confirmed_at: Defaulted<Timestamp | null>;
+  created_at: Timestamp;
+}
+
+export interface CrmOrderView {
+  id: string;
+  person_id: string | null;
+  email: string | null;
+  currency: string;
+  total: number;
+  paid: number;
+  balance: number;
+  refunded: number;
+  state: OrderState;
+  pay: "full" | "deposit";
+  deposit: number | null;
+  balance_due_at: Timestamp | null;
+  expires_at: Timestamp | null;
+  placed_as: "customer" | "public" | "staff";
+  paid_at: Timestamp | null;
+  cancelled_at: Timestamp | null;
+  refunded_at: Timestamp | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface CrmOrderLineView {
+  id: string;
+  order_id: string;
+  person_id: string | null;
+  position: number;
+  object_type: string;
+  record_id: string;
+  title: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  created_at: Timestamp;
+}
+
 export interface CrmStageHistoryView {
   id: string;
   object_type: string;
@@ -1720,6 +1864,12 @@ export interface CoreDatabase {
   core_extension_objects: CoreExtensionObjectsTable;
   core_extension_fields: CoreExtensionFieldsTable;
   core_transition_history: CoreTransitionHistoryTable;
+  core_order: CoreOrderTable;
+  core_order_line: CoreOrderLineTable;
+  core_order_payment: CoreOrderPaymentTable;
+  core_order_checkout: CoreOrderCheckoutTable;
+  core_payment_event: CorePaymentEventTable;
+  core_order_refund: CoreOrderRefundTable;
   core_automations: CoreAutomationsTable;
   core_routine: CoreRoutineTable;
   core_automation_runs: CoreAutomationRunsTable;
@@ -1764,6 +1914,8 @@ export interface CoreDatabase {
   rec_activity: CrmActivitiesView;
   rec_activity_link: CrmActivityLinksView;
   rec_task: CrmTasksView;
+  rec_order: CrmOrderView;
+  rec_order_line: CrmOrderLineView;
   rec_task_link: CrmTaskLinksView;
   rec_record_tag: CrmRecordTagsView;
 }

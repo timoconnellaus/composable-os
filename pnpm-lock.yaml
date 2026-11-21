@@ -1125,6 +1125,34 @@ importers:
         specifier: 5.1.0
         version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.4)(yaml@2.9.1))
 
+  packages/gatekeeper-payments:
+    dependencies:
+      '@composable-os/gatekeeper-configurator-ui':
+        specifier: workspace:*
+        version: link:../gatekeeper-configurator-ui
+      '@composable-os/gatekeeper-interface':
+        specifier: workspace:*
+        version: link:../gatekeeper-interface
+      '@composable-os/gatekeeper-kit':
+        specifier: workspace:*
+        version: link:../gatekeeper-kit
+    devDependencies:
+      '@cloudflare/vitest-plugin':
+        specifier: 1.5.1
+        version: 1.5.1(@cloudflare/workers-types@5.20261104.1)(@types/node@24.19.2)(vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)))
+      '@composable-os/config':
+        specifier: workspace:*
+        version: link:../config
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+      wrangler:
+        specifier: 4.157.0
+        version: 4.157.0(@cloudflare/workers-types@5.20261104.1)(@types/node@24.19.2)
+
   packages/gatekeeper-slack:
     dependencies:
       '@composable-os/gatekeeper-configurator-ui':

@@ -52,6 +52,7 @@ import {
   ValidationError,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
+import { ensureDevSellable } from "../dev-sellable.ts";
 import { integrationRuntimeFor } from "../integrations.ts";
 import {
   automationWiring,
@@ -131,6 +132,8 @@ export async function outsideContext(
   await ensureShippedExtensions(env);
   const extensionHost = extensionHostFor(env);
   const { events } = automationWiring(env);
+  const integrations = integrationRuntimeFor(env);
+  ensureDevSellable(env);
   return {
     principal,
     db,
@@ -140,6 +143,8 @@ export async function outsideContext(
     ...(events ? { events } : {}),
     // A pack's tool open to this caller runs in cos-runner, as them (ADR 0414).
     ...(extensionHost ? { extensionHost } : {}),
+    // Only a hostInternal core operation's handler gets it: order.checkout (stage 25, ADR 0429).
+    ...(integrations ? { integrations } : {}),
   };
 }
 

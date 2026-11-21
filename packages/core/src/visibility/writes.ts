@@ -24,15 +24,25 @@ const SET_BY_HOST = new Set(["id", "createdAt", "updatedAt", "createdBy"]);
  * when the caller named them, and what the host then set beside them (a stage's status, an
  * assigned owner) is the host's doing, so for those only the record itself is checked again.
  *
+ * `byHost` holds the changes a `hostInternal` core operation recorded with `recordHostChange`
+ * (ADR 0428): the host's own writes, made by reviewed core code with the caller's input already
+ * judged (an order the host priced, the Person a guest's order is placed for). They are not the
+ * caller's to be checked against the caller's scope, so they pass. What such an operation
+ * records with `recordChange` is checked like any other. No extension tool is ever
+ * `hostInternal`.
+ *
  * A record the caller may not see is reported as a record that is not there, and a field they
  * may not write as a field that does not exist.
  */
 export async function assertVisibleWrites(
   ctx: Reader,
-  changes: readonly RecordChange[],
+  all: readonly RecordChange[],
   checked: ReadonlySet<RecordChange> = new Set(),
+  byHost: ReadonlySet<RecordChange> = new Set(),
 ): Promise<void> {
-  if (ctx.principal.kind === "staff" || !changes.length) return;
+  if (ctx.principal.kind === "staff" || !all.length) return;
+  const changes = byHost.size ? all.filter((change) => !byHost.has(change)) : all;
+  if (!changes.length) return;
   if (ctx.principal.kind !== "customer") {
     throw new ForbiddenError("This call cannot change records");
   }

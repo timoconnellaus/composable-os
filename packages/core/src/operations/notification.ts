@@ -37,6 +37,12 @@ export function notificationHref(link: NotificationLink | null): string | null {
       if (link.object === "organisation") return `/organisations/${enc(link.id)}`;
       if (link.object === "task") return "/tasks";
       if (link.object === "activity") return "/activity";
+      // An order (stage 25): its page, or one of the orders lists (`overdue`, `paid-late`).
+      if (link.object === "order") {
+        return link.id.startsWith("ord_")
+          ? `/orders/${enc(link.id)}`
+          : `/orders?view=${enc(link.id)}`;
+      }
       return `/x/${enc(link.object)}/${enc(link.id)}`;
     case "approval":
       return `/approvals?set=${enc(link.changeSetId)}`;

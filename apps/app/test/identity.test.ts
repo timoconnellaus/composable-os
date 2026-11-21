@@ -97,7 +97,14 @@ describe("with IDENTITY_PROVIDER=better-auth", () => {
   });
 
   it("lets anyone reach public paths and *.public.ts server functions", async () => {
-    for (const path of ["/sign-in", "/api/health", "/api/auth/get-session"]) {
+    // Stage 25: the guest's order page and the buy page.
+    for (const path of [
+      "/sign-in",
+      "/api/health",
+      "/api/auth/get-session",
+      "/buy",
+      "/order/ord_1",
+    ]) {
       expect(await authorize(get(path), authEnv, page)).toEqual({ ok: true, principal: null });
     }
     const fn = await authorize(get("/_serverFn/x"), authEnv, {

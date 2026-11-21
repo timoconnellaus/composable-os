@@ -979,7 +979,46 @@ engine from its own handler (`updateRecordAsHost`); every caller of an operation
 person, MCP client, extension or import can make one. A stage move is for staff and the host;
 a customer never makes one. Both forms write `core_transition_history`
 (migration 0420), read as `rec_stage_history` and `rec_state_history`. An object has one
-lifecycle. Orders, the first core object with a state machine, are the second half of stage 25.
+lifecycle.
+
+A signed-in customer moves a record as `customer`, whether their own handler writes or the host
+writes for them at the seam, and the public move nothing
+([ADR 0426](adr/0426-who-moves-a-record-and-what-follows-a-move.md)). Platform code can register
+a hook on an object's moves (`onRecordMove`): it runs in the batch of the write that makes the
+move, which is how `capacity` and `sellable` act when an order is paid. Extensions cannot.
+
+### Orders
+
+An **Order** is a base record in core
+([ADR 0427](adr/0427-orders-are-priced-by-the-host-and-paid-only-by-a-verified-payment.md),
+`packages/core/src/orders/`). `order.start` takes records and quantities; the host reads each
+price from the record, in the deployment's one currency, and stores amounts as integers in the
+minor unit. The order's state machine is fixed in core and held by the transition engine. Its
+moves to `paid`, `part_paid`, `expired` and `refunded` are `host` moves: the only code that makes
+an order paid is `applyVerifiedPayment`, a function the payments gatekeeper's verified webhook
+calls, never an operation. It is idempotent by the provider's event id, records a payment that
+does not match or arrives late without moving the order, and tells staff. An order may be paid by
+a deposit and a balance due by a date; nothing is scheduled or charged automatically.
+
+Buying needs no account ([ADR 0428](adr/0428-buying-without-an-account.md)): a guest gives an
+email address, the order belongs to the Person it matches or creates, and the guest reaches that
+one order again with a token of which only the hash is stored. `order.start`, `order.view` and
+`order.checkout` are the only operations open to the public.
+
+Payments ([ADR 0429](adr/0429-payments-gatekeeper-verified-events-and-refunds.md)) go through
+`gatekeeper-payments`, one gatekeeper with Stripe and a fake provider behind a provider-neutral
+interface, on the org's own account; its keys are its own Worker secrets. `order.checkout` opens
+the provider's hosted page for what `chargeFor` says and sends the buyer back to a listed origin;
+coming back changes nothing. The gatekeeper verifies the provider's webhook and delivers a typed
+event to the integration host's `PaymentSink`, which stores it in `core_payment_event` and applies
+it with `order.applyPaymentEvent { provider, eventId }`: the operation reads the event the host
+stored, so no input can describe a payment, and retries on `order_stale`. The minute cron expires
+unpaid orders and applies anything left; the daily maintenance tells admins about late payments
+and overdue balances. A refund is the gatekeeper's outbound action `payments.refund`, always
+reviewed and approved only by a person with `orders:refund`; the order is `refunded` when the
+provider confirms. The host's own calls (a checkout, the confirmation email) use
+`IntegrationRuntime.callAsHost`. An order's move hook confirms and releases its places
+(`orders/holds.ts`), and each move posts on its Person's timeline.
 
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record

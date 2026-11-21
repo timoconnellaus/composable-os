@@ -115,6 +115,13 @@ export interface HandlerContext {
   readonly user: ActingUser;
   /** Who the call is for: staff, a customer or the public. The visibility seam reads it. */
   readonly principal: Principal;
+  /**
+   * Set only on the context the host itself writes with during a customer's or the public's call
+   * (the seam's write helpers): who that call is for. There `principal` is the org's, because
+   * the host's own reads are org-wide, so code that must know who is really acting (who moves a
+   * record through its lifecycle, ADR 0426) reads this first.
+   */
+  readonly onBehalfOf?: Principal | undefined;
   readonly origin: Origin;
   /** The invocation's timestamp (ISO-8601 UTC). Use it for created_at/updated_at. */
   readonly now: string;
@@ -141,6 +148,14 @@ export interface HandlerContext {
    * `track: "timeline"` in the field registry also post a system activity on the record.
    */
   recordChange(change: RecordChange): void;
+  /**
+   * Set only for a `hostInternal` core operation on a customer's or the public's call (ADR 0428):
+   * records a change the host itself made for that caller, which the seam does not judge against
+   * the caller's scope (an order the host priced and started for a guest). `recordChange` there
+   * is still checked in full. Use `recordHostChange(ctx, change)` (below), which falls back to
+   * `recordChange` on a staff call.
+   */
+  readonly recordHostChange?: ((change: RecordChange) => void) | undefined;
   /** Queues a `system` activity linked to `links`. Returns its id. */
   postActivity(activity: SystemActivityInput): string;
   /** Wrap the handler's return value to read the output after the commit (see afterCommit). */
@@ -202,6 +217,16 @@ export interface HandlerContext {
   readonly voice?: VoiceRuntime;
   /** The agents' Durable Objects (ADR 0344). Absent: jobs wait in the queue for the cron. */
   readonly agentJobs?: AgentJobHost;
+}
+
+/**
+ * Records a change the host itself made, in reviewed core code, for whoever is calling (ADR
+ * 0428). On a staff call it is `ctx.recordChange`. On a customer's or the public's call to a
+ * `hostInternal` core operation the seam lets it through; anywhere else outside the org there is
+ * no such thing, and it fails as `recordChange` does.
+ */
+export function recordHostChange(ctx: HandlerContext, change: RecordChange): void {
+  (ctx.recordHostChange ?? ctx.recordChange)(change);
 }
 
 /** The person's message a chat turn answers. */

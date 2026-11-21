@@ -48,8 +48,8 @@ export interface RunnerRpc extends ExtensionHost, AutomationHost {
   /** The IntegrationRuntime port (stage 6a, ADR 0110), one method at a time. */
   integration<K extends keyof IntegrationRuntime>(
     method: K,
-    input: Parameters<IntegrationRuntime[K]>[0],
-  ): ReturnType<IntegrationRuntime[K]>;
+    input: Parameters<NonNullable<IntegrationRuntime[K]>>[0],
+  ): ReturnType<NonNullable<IntegrationRuntime[K]>>;
   /** Proxies a public /gatekeeper/<vendor>/* request to that gatekeeper. */
   gatekeeperFetch(vendor: string, request: Request): Promise<Response>;
 }

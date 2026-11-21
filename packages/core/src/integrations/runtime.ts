@@ -126,6 +126,20 @@ export interface IntegrationRuntime {
     args: unknown[];
     caller: IntegrationCaller;
   }): Promise<IntegrationCallResult>;
+  /**
+   * Calls a session method as the host itself, for platform code only (stage 25, ADR 0429): the
+   * payments gatekeeper's checkout and the order confirmation email. No person or agent is the
+   * caller. An outbound action it submits is a message the host composed from a fixed template,
+   * so it applies at once unless the deploy-time floor denies it (a refund never: it is always
+   * reviewed). Optional: a runtime without it cannot take payments.
+   */
+  callAsHost?(input: {
+    connectionId: string;
+    resource: string;
+    method: string;
+    args: unknown[];
+    purpose: "orders";
+  }): Promise<IntegrationCallResult>;
   /** The TypeScript declarations agents code against for a bound resource. */
   types(input: { connectionId: string; resource: string }): Promise<string>;
   /** Approval: applies a mirrored outbound action on its facet (in order per facet). */

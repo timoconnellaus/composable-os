@@ -70,6 +70,12 @@ export default defineConfig(({ command }) => ({
                       service: "cos-gatekeeper-webhook",
                       entrypoint: "GatekeeperVendor",
                     },
+                    // Stage 25: the payments gatekeeper with its fake provider (no Stripe keys).
+                    {
+                      binding: "GATEKEEPER_PAYMENTS",
+                      service: "cos-gatekeeper-payments",
+                      entrypoint: "GatekeeperVendor",
+                    },
                   ],
                 }),
               },
@@ -90,6 +96,26 @@ export default defineConfig(({ command }) => ({
                         name: "WEBHOOK_ENDPOINT_GATEKEEPER",
                         class_name: "WebhookEndpointGatekeeper",
                       },
+                    ],
+                  },
+                }),
+              },
+              {
+                configPath: "../../packages/gatekeeper-payments/wrangler.jsonc",
+                devOnly: true,
+                config: (payments) => ({
+                  vars: {
+                    ...payments.vars,
+                    BASE_URL: `http://localhost:${PORT}/gatekeeper/payments`,
+                    // Local dev and e2e only: the fake provider's hosted page and webhook.
+                    PAYMENTS_FAKE_PROVIDER: "true",
+                  },
+                  durable_objects: {
+                    bindings: [
+                      ...(payments.durable_objects?.bindings ?? []),
+                      // Reached only as a facet in production; declared so the local runtime
+                      // registers the class.
+                      { name: "PAYMENTS_GATEKEEPER", class_name: "PaymentsGatekeeper" },
                     ],
                   },
                 }),

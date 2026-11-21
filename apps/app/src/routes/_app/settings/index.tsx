@@ -21,6 +21,7 @@ import {
   RepeatIcon,
   ScrollTextIcon,
   ShieldCheckIcon,
+  ShoppingBagIcon,
   SparklesIcon,
   UserCheckIcon,
   UsersIcon,
@@ -61,6 +62,7 @@ function Section({
     | "/settings/general"
     | "/settings/automations"
     | "/settings/duplicates"
+    | "/settings/orders"
     | "/settings/plan"
     | "/settings/support-access";
 }) {
@@ -239,6 +241,14 @@ function SettingsPage() {
               title="Duplicates"
               description="Scan for duplicates now, and when a shared phone number stops counting."
               to="/settings/duplicates"
+            />
+          )}
+          {isAdmin && (
+            <Section
+              icon={<ShoppingBagIcon className="size-5" />}
+              title="Orders"
+              description="The order currency, how long an unpaid order lasts, part payments and where buyers come back to."
+              to="/settings/orders"
             />
           )}
           {isAdmin && (

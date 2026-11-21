@@ -19,6 +19,8 @@ const METHODS = [
   "supportedResources",
   "configure",
   "call",
+  // Stage 25 (ADR 0429): the host's own calls, for order checkouts and confirmation emails.
+  "callAsHost",
   "types",
   "applyOutbound",
   "rejectOutbound",

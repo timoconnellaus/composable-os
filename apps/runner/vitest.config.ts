@@ -10,7 +10,7 @@ const migrationsDir = fileURLToPath(new URL("../../packages/db/migrations", impo
  * run next to the runner as auxiliary Workers, so tests drive the real gatekeepers through the
  * integration host.
  */
-function bundleGatekeeper(name: "webhook" | "email-send"): Promise<string> {
+function bundleGatekeeper(name: "webhook" | "email-send" | "payments"): Promise<string> {
   // Once per run. `workers` below is called again for each test file, and rebuilding in place
   // lets a pool that is starting read a half-written bundle (it then has no GatekeeperVendor).
   let bundle = gatekeeperBundles.get(name);
@@ -23,7 +23,7 @@ function bundleGatekeeper(name: "webhook" | "email-send"): Promise<string> {
 
 const gatekeeperBundles = new Map<string, Promise<string>>();
 
-async function buildGatekeeper(name: "webhook" | "email-send"): Promise<string> {
+async function buildGatekeeper(name: "webhook" | "email-send" | "payments"): Promise<string> {
   const outfile = fileURLToPath(
     new URL(`./.wrangler/test-gatekeepers/${name}.js`, import.meta.url),
   );
@@ -93,6 +93,7 @@ export default defineWorkersTestConfig({
           name: "cos-gatekeeper-email-send",
           entrypoint: "GatekeeperVendor",
         },
+        GATEKEEPER_PAYMENTS: { name: "cos-gatekeeper-payments", entrypoint: "GatekeeperVendor" },
         TEST_EMAIL_OUTBOX: { name: "fake-email-service", entrypoint: "Outbox" },
       },
       workers: [
@@ -122,6 +123,25 @@ export default defineWorkersTestConfig({
           serviceBindings: { EMAIL: { name: "fake-email-service", entrypoint: "FakeEmail" } },
           durableObjects: {
             EMAIL_SEND_GATEKEEPER: { className: "EmailSendGatekeeper", useSQLite: true },
+          },
+        },
+        {
+          name: "cos-gatekeeper-payments",
+          modules: true,
+          scriptPath: await bundleGatekeeper("payments"),
+          compatibilityDate: "2026-09-04",
+          compatibilityFlags: ["allow_irrevocable_stub_storage"],
+          bindings: {
+            BASE_URL: "http://crm.test/gatekeeper/payments",
+            PAYMENTS_FAKE_PROVIDER: "true",
+            FAKE_WEBHOOK_SECRET: "",
+            STRIPE_API_BASE: "",
+            STRIPE_ACCOUNT: "",
+          },
+          durableObjects: {
+            PAYMENTS_EVENTS: { className: "PaymentsEvents", useSQLite: true },
+            FAKE_PAYMENTS: { className: "FakePaymentsLedger", useSQLite: true },
+            PAYMENTS_GATEKEEPER: { className: "PaymentsGatekeeper", useSQLite: true },
           },
         },
         {

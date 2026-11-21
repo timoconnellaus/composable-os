@@ -34,3 +34,7 @@ COS_UPDATE_TOKEN=
 # Local only, never in production: "true" uses stand-in speech (no key, no network), even with
 # the key above. `pnpm dev` adds it when there is no key.
 # AI_FAKE_VOICE=
+
+# Local only, never in production: "<object>:<priceField>" makes one object sellable so the buy
+# page (/buy) can start an order until stage 27's manifest `sellable`. `pnpm dev` adds it.
+# ORDERS_DEV_SELLABLE=deals.deal:value

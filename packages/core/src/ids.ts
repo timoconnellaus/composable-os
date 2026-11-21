@@ -59,6 +59,11 @@ export const ID_PREFIXES = {
   customer: "cus",
   /** A request to erase a Person, made when a customer deletes their account (stage 22). */
   eraseRequest: "erq",
+  /** An order and one of its lines (stage 25, ADR 0426). */
+  order: "ord",
+  orderLine: "orl",
+  /** A refund of an order's payment (stage 25, ADR 0429). */
+  refund: "rfd",
   /** A native app's signed-in session on the HTTP surface (stage 23, ADR 0419). */
   deviceSession: "dvs",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */

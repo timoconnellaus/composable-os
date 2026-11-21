@@ -33,7 +33,11 @@ import {
   ValidationError,
 } from "../errors.ts";
 import { isProvisionalId, newId, replaceIds } from "../ids.ts";
-import { type OutboundInput, outboundAppliedAudit } from "../integrations/outbound.ts";
+import {
+  ALWAYS_REVIEWED_KINDS,
+  type OutboundInput,
+  outboundAppliedAudit,
+} from "../integrations/outbound.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import {
   approvalIntentState,
@@ -911,6 +915,29 @@ async function approveActions(
       `Approving ${privileged.operation} needs an admin (extensions:manage)`,
       { actionId: privileged.id, permission: "extensions:manage" },
     );
+  }
+  // A refund sends money back (ADR 0429): only a person approves one, and only a person who may
+  // refund. No AI actor, under any policy, and not by relaying the person's words.
+  const refund = targets.find(
+    (t) =>
+      t.connection_id !== null &&
+      ALWAYS_REVIEWED_KINDS.has(
+        parse<{ actionKind?: { tag?: string } | null }>(t.input, {}).actionKind?.tag ?? "",
+      ),
+  );
+  if (refund) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A refund is approved by a person, never by an AI actor", {
+        actionId: refund.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!roleHasPermission(ctx.user.role, "orders:refund")) {
+      throw new ForbiddenError("Approving a refund needs the refund permission (orders:refund)", {
+        actionId: refund.id,
+        permission: "orders:refund",
+      });
+    }
   }
   const targetIds = new Set(targets.map((t) => t.id));
   // Out-of-order approval is refused: dependencies must be applied or approved together.

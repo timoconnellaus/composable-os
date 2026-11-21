@@ -1,0 +1,15 @@
+{
+  "$comment": "Secrets this gatekeeper takes, read by scripts/release/manifest-lib.ts into the release manifest (ADR 0160). Values are never committed.",
+  "secrets": [
+    {
+      "name": "STRIPE_SECRET_KEY",
+      "required": false,
+      "description": "Stripe secret API key (sk_live_… or a restricted key with Checkout Sessions and Refunds write). Without it the Stripe payment account is refused."
+    },
+    {
+      "name": "STRIPE_WEBHOOK_SECRET",
+      "required": false,
+      "description": "Signing secret (whsec_…) of the Stripe webhook endpoint that posts to <BASE_URL>/in/stripe."
+    }
+  ]
+}

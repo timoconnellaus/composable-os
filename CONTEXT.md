@@ -1019,8 +1019,41 @@ order is cancelled or expires (stage 26, ADR 0432).
 _Avoid_: reservation (a reservation is a booking a customer keeps), lock
 
 **Order**
-What a customer is buying and its state: `pending`, `paid`, `cancelled`, `refunded`. One order has
-lines; a paid line grants something (a ticket, later a pass). A base record from stage 25.
+What someone is buying and its state: `pending`, `part_paid`, `paid`, `cancelled`, `expired`,
+`refunded`. One order has lines, each a record that is for sale with the price the host read from
+it when the order started. Amounts are integers in the currency's minor unit, and every order is
+in the deployment's one currency. Only a payment the provider confirmed and the gatekeeper
+verified makes an order paid or part paid (ADR 0427); no operation does. A paid line grants
+something (a ticket, later a pass). A base record from stage 25, with its own `order.*`
+operations.
+_Avoid_: purchase, sale, booking (a booking is a place in a class), invoice (stage 35)
+
+**Deposit**
+Paying part of an order now and the balance by a date, when what is bought offers it. The amount
+and the date come from the records, never from the buyer. A part-paid order keeps its place and
+does not expire; past the date staff decide (stage 25, ADR 0427).
+_Avoid_: payment plan, instalments (nothing is scheduled or charged automatically)
+
+**Guest**
+Someone buying without an account. Their order is placed with an email address, belongs to the
+Person that address matches or creates, and is reached again with the order's token. A guest
+never reads a Person (ADR 0428).
+_Avoid_: anonymous buyer (the order always has an address)
+
+**Checkout**
+The provider's own page a buyer pays one payment on, opened by the host for what the order may
+be charged now. Card details are typed there and never reach the platform. Coming back from it
+tells the host nothing: only the provider's verified event does (stage 25, ADR 0429).
+_Avoid_: payment form, cart (there is no cart: an order is what is bought)
+
+**Paid late**
+A payment the provider confirmed for an order that had already expired or been cancelled. It
+never makes the order paid by itself: staff honour it or refund it (ADR 0429).
+
+**Refund**
+Money sent back to the buyer on one of an order's payments. Staff with the refund permission ask;
+a person approves it in the Approvals inbox (never an AI); the order shows it once the provider
+confirms (ADR 0429).
 
 **Allowance**
 What a pass or membership grants: a number of uses, or unlimited uses over a period. A booking

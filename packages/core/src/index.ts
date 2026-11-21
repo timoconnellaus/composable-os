@@ -176,6 +176,7 @@ export * from "./operations/update.ts";
 export * from "./operations/user.ts";
 export * from "./operations/view.ts";
 export * from "./operations/voice.ts";
+export * from "./orders/index.ts";
 export {
   type AnyInvocationContext,
   type BatchOutcome,
@@ -200,7 +201,14 @@ export {
   ERASE_LOG_PREFIX,
   type EraseLogEntry,
 } from "./records/erase-log.ts";
-export { applyTransition, callerMover, type TransitionOptions } from "./records/lifecycle.ts";
+export {
+  applyTransition,
+  callerMover,
+  type MoveHook,
+  onRecordMove,
+  type RecordMove,
+  type TransitionOptions,
+} from "./records/lifecycle.ts";
 export {
   assertLinkTargets,
   LINK_TARGETS,

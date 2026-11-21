@@ -1,11 +1,13 @@
 // The field registry: every core object's fields. Extension objects join this in stage 3.
 import { activityObject } from "./activity.ts";
+import { BASE_OBJECTS } from "./order.ts";
 import { organisationObject } from "./organisation.ts";
 import { personObject } from "./person.ts";
 import { taskObject } from "./task.ts";
 import type { ObjectDefinition } from "./types.ts";
 
 export { activityObject } from "./activity.ts";
+export * from "./order.ts";
 export { organisationObject } from "./organisation.ts";
 export { personObject } from "./person.ts";
 export { taskObject } from "./task.ts";
@@ -35,8 +37,12 @@ export function setExtensionObjects(objects: ReadonlyMap<string, ObjectDefinitio
 export function getObject(name: string): ObjectDefinition | undefined {
   const extended = extensionObjects.get(name);
   if (extended) return extended;
-  return Object.hasOwn(CORE_OBJECTS, name)
-    ? (CORE_OBJECTS as Record<string, ObjectDefinition>)[name]
+  if (Object.hasOwn(CORE_OBJECTS, name)) {
+    return (CORE_OBJECTS as Record<string, ObjectDefinition>)[name];
+  }
+  // Base records with their own operations (orders): known to the registry, not listed.
+  return Object.hasOwn(BASE_OBJECTS, name)
+    ? (BASE_OBJECTS as Record<string, ObjectDefinition>)[name]
     : undefined;
 }
 

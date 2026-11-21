@@ -27,6 +27,7 @@ import { getAgentByName } from "agents";
 import { type AiAppEnv, aiContextFor } from "./ai.ts";
 import { type AssistantAgent, threadName } from "./assistant/agent.ts";
 import { type AgentJob, jobName } from "./assistant/job.ts";
+import { ensureDevSellable } from "./dev-sellable.ts";
 import { blobStoreFor, integrationRuntimeFor } from "./integrations.ts";
 import { deleteGrantTokens } from "./mcp/handler.ts";
 import { runner } from "./runner.ts";
@@ -276,6 +277,7 @@ export async function runOperation(
     return { ok: false, error: { code: "forbidden", message: "Sign in to continue" } };
   }
   try {
+    ensureDevSellable(env);
     const ctx = await staffContext(env, principal, { surface: "ui" }, appOrigin);
     const data = await invokeByName(call.name, call.input, ctx);
     if (call.name === "connectedApp.revoke" && env.OAUTH_KV) {

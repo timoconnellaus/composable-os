@@ -10,7 +10,7 @@ whole thing by hand. Design: [ADR 0007](adr/0007-integrations-are-gatekeepers.md
 
 - **Gatekeepers** are Workers in `packages/gatekeeper-*`. Vendored from Cloudflare OS: `google`,
   `microsoft`, `slack` (read-only), `mcp`, `email` (inbound), `zoominfo`, `websearch`. Ours:
-  `email-send`, `slack-post`, `webhook`. Each has a README with its resources, session API, action
+  `email-send`, `slack-post`, `webhook`, `payments`. Each has a README with its resources, session API, action
   kinds, vars and secrets.
 - **cos-runner** binds each deployed gatekeeper as `GATEKEEPER_<NAME>` (to the Worker's
   `GatekeeperVendor` entrypoint) and runs one **integration host** Durable Object per connection.
@@ -43,6 +43,13 @@ Email sending: verify the sending domain in Cloudflare Email Service, set
 
 Sync needs no extra setup: choose a mailbox and calendar on the connection. Email bodies go to the
 R2 bucket `cos-blobs`, which `wrangler deploy` creates by name.
+
+Payments (stage 25, ADR 0429): deploy `cos-gatekeeper-payments`, set `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET` (and `STRIPE_ACCOUNT` for a connected account), register
+`https://<crm-origin>/gatekeeper/payments/in/stripe` as a Stripe webhook endpoint, bind
+`GATEKEEPER_PAYMENTS`, then enable Payments and bind the Stripe payment account. The test-mode run
+by hand is [`payments-stripe-runbook.md`](payments-stripe-runbook.md). Local dev and e2e run the
+gatekeeper with its fake provider (a hosted page at `/gatekeeper/payments/fake/pay/<ref>`).
 
 ## Automations and connections
 

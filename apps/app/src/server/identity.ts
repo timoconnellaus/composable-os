@@ -5,10 +5,12 @@ import { createIdentityProvider, type IdentityEnv, type Principal } from "@compo
 import { type SupportEnv, supportPrincipal } from "./support.ts";
 
 /** Paths anyone may load. Everything else needs a Principal. */
-const PUBLIC_PATHS = new Set(["/sign-in", "/api/health"]);
+// /buy: the host's plain checkout start (stage 25), for buyers who have no account.
+const PUBLIC_PATHS = new Set(["/sign-in", "/api/health", "/buy"]);
 // /gatekeeper/: OAuth redirects, connect pages and provider pushes (stage 6a); each gatekeeper
-// authenticates its own routes with nonces and signatures.
-const PUBLIC_PREFIXES = ["/api/auth/", "/gatekeeper/"];
+// authenticates its own routes with nonces and signatures. /order/: a guest's order page, opened
+// by the order's token (stage 25); the page shows nothing without it.
+const PUBLIC_PREFIXES = ["/api/auth/", "/gatekeeper/", "/order/"];
 
 /**
  * Server functions callable without a Principal live in files named `*.public.ts`. Every other
