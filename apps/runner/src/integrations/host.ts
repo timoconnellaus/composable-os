@@ -27,6 +27,7 @@ import {
   recordIntegrationEvents,
   revokeBindings,
   SYNC_BATCH_MAX,
+  SYSTEM_USER,
   type SyncConfig,
   syncedInWindow,
   syncKindOf,
@@ -166,6 +167,9 @@ async function toJson(value: unknown, depth = 0): Promise<unknown> {
 }
 
 async function loadUser(env: Env, id: string): Promise<ActingUser> {
+  // The host's own sends (customer sign-in codes, stage 23): the system user, no core_user row.
+  // Only cos-app's and cos-runner's own code names it; no caller can supply it.
+  if (id === SYSTEM_USER.id) return SYSTEM_USER;
   const row = await env.DB.prepare("SELECT id, email, name, role FROM core_user WHERE id = ?")
     .bind(id)
     .first<{ id: string; email: string; name: string; role: string }>();

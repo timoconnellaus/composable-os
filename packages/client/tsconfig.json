@@ -1,0 +1,11 @@
+{
+  "extends": "@composable-os/config/tsconfig.base.json",
+  "compilerOptions": {
+    // No DOM, Node or Workers types: the runtime may use only what ECMAScript itself has, and
+    // what it declares for itself (src/types.ts). A use of `window`, `process` or a Workers API
+    // fails this check (ADR 0418).
+    "lib": ["ES2023"],
+    "types": []
+  },
+  "include": ["src"]
+}

@@ -1,16 +1,18 @@
 // The customer sign-in code email (stage 22, ADR 0402). It goes out through the email-send
-// gatekeeper, as one `send` on the org's email connection (Settings → Notifications), the same
+// gatekeeper, as one `send` on the connection customer.settings names (stage 23), the same
 // path notification emails take (`sendEmail`, ADR 0172). There is no direct outbound.
 import type { CoreDatabase } from "@composable-os/db";
 import { product } from "@composable-os/products/active";
 import type { Kysely } from "kysely";
+import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import {
   type CallIntegration,
   type ChannelTarget,
   resolveChannelTarget,
   sendEmail,
 } from "../notifications/channels.ts";
-import { loadDeliverySettings } from "../notifications/preferences.ts";
+import { SYSTEM_USER } from "../users.ts";
+import { loadCustomerEmailConnection } from "./settings.ts";
 
 /** The subject and text of a sign-in code email. Plain text; the code is the only variable. */
 export function customerCodeEmail(code: string): { subject: string; text: string } {
@@ -23,13 +25,52 @@ export function customerCodeEmail(code: string): { subject: string; text: string
   };
 }
 
-/** Where codes are sent from: the org's email connection, or why there is none. */
+/**
+ * Where customer mail (sign-in codes, a declined erase request) is sent from: the connection
+ * customer.settings names (stage 23), or why there is none.
+ */
 export async function customerCodeTarget(
   db: Kysely<CoreDatabase>,
 ): Promise<{ target: ChannelTarget } | { problem: string }> {
-  const settings = await loadDeliverySettings(db);
-  if (!settings.email) return { problem: "No email connection is set for notifications" };
-  return resolveChannelTarget(db, "email", settings.email);
+  const connectionId = await loadCustomerEmailConnection(db);
+  if (!connectionId) {
+    return {
+      problem:
+        "no email connection is chosen for customer mail (an admin sets it in the customer settings)",
+    };
+  }
+  return resolveChannelTarget(db, "email", connectionId);
+}
+
+/** The system's own caller for customer mail: the host sends it, not a staff member. */
+export const CUSTOMER_MAIL_ORIGIN = {
+  surface: "system",
+  automationId: "system.customer-mail",
+} as const;
+
+/**
+ * Calls the integration host as the host itself (ADR 0419): the system user with actor
+ * `automation`, never a staff member. For customer mail only; cos-runner's integration host
+ * accepts the system user, which has no core_user row.
+ */
+export function hostMailCall(
+  runtime: Pick<IntegrationRuntime, "call">,
+  reason = "A customer asked for a sign-in code",
+): CallIntegration {
+  return async (input) => {
+    const result = await runtime.call({
+      ...input,
+      caller: {
+        actor: "automation",
+        userId: SYSTEM_USER.id,
+        userName: SYSTEM_USER.name,
+        role: SYSTEM_USER.role,
+        origin: { ...CUSTOMER_MAIL_ORIGIN },
+        reason,
+      },
+    });
+    return { value: result.value, pending: result.pending, applied: result.applied };
+  };
 }
 
 /**

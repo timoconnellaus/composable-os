@@ -79,6 +79,24 @@
       "name": "CODE_MODE_RATE_LIMIT",
       "namespace_id": "4103",
       "simple": { "limit": 10, "period": 60 }
+    },
+    // A customer's calls over the HTTP surface, per account and operation (stage 22, 23).
+    {
+      "name": "CUSTOMER_RATE_LIMIT",
+      "namespace_id": "4104",
+      "simple": { "limit": 60, "period": 60 }
+    },
+    // Customer sign-in code requests, per email address asked for (stage 22).
+    {
+      "name": "CUSTOMER_CODE_RATE_LIMIT",
+      "namespace_id": "4105",
+      "simple": { "limit": 3, "period": 60 }
+    },
+    // Customer sign-in code requests, per client address, keyed by a hash of it (stage 23).
+    {
+      "name": "CUSTOMER_CODE_ADDRESS_RATE_LIMIT",
+      "namespace_id": "4106",
+      "simple": { "limit": 10, "period": 60 }
     }
   ],
   "vars": {
@@ -94,6 +112,9 @@
     // MCP rate limits are the `ratelimits` bindings above (ADR 0056).
     // MCP access token lifetime in seconds; refresh tokens last 30 days.
     "MCP_ACCESS_TOKEN_TTL": "3600",
+    // Origins a browser may call the HTTP surface (/api/v1) from, comma separated, e.g. a client
+    // app's site. Phones and servers send no origin and are not affected. Empty: none.
+    "API_ALLOWED_ORIGINS": "",
     // In-app AI (ADRs 0009, 0150-0155). Model roles need an `ai` binding and semantic search a
     // `vectorize` binding; both are optional and added by `pnpm run deploy` (COS_AI, see
     // docs/deploying.md). Without them AI features say AI is not configured.

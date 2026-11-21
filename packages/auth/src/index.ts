@@ -135,6 +135,8 @@ export interface CustomerIdentityEnv {
   CUSTOMER_AUTH_URL?: string;
   /** Code requests per address asked for. Declared with the HTTP surface (stage 23). */
   CUSTOMER_CODE_RATE_LIMIT?: RateLimitBinding;
+  /** Code requests per client address, keyed by a hash of it (stage 23). */
+  CUSTOMER_CODE_ADDRESS_RATE_LIMIT?: RateLimitBinding;
 }
 
 const customerIdentityCache = new WeakMap<object, CustomerIdentity>();
@@ -146,6 +148,8 @@ const customerIdentityCache = new WeakMap<object, CustomerIdentity>();
 export function getCustomerIdentity(
   env: CustomerIdentityEnv,
   sendCode: SendCustomerCode,
+  /** Why codes cannot be sent yet, or null (see CustomerAuthOptions.ready). */
+  ready?: () => Promise<string | null>,
 ): CustomerIdentity {
   let identity = customerIdentityCache.get(env);
   if (!identity) {
@@ -160,6 +164,8 @@ export function getCustomerIdentity(
       baseURL: env.CUSTOMER_AUTH_URL || undefined,
       sendCode,
       codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
+      codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
+      ready,
     });
     identity = customerIdentity(auth, env.DB);
     customerIdentityCache.set(env, identity);

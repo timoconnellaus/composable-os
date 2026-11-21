@@ -23,6 +23,7 @@ import { countOperations } from "./count.ts";
 import { customerOperations } from "./customer.ts";
 import { customerSettingsOperations } from "./customer-settings.ts";
 import { dashboardOperations } from "./dashboard.ts";
+import { deviceSessionOperations } from "./device-session.ts";
 import { duplicateOperations } from "./duplicate.ts";
 import { enrichmentOperations } from "./enrichment.ts";
 import { eraseRequestOperations } from "./erase-request.ts";
@@ -121,6 +122,7 @@ export const coreOperations = [
   ...assignmentOperations,
   ...fieldOptionsOperations,
   ...customerSettingsOperations,
+  ...deviceSessionOperations,
   ...customerOperations,
   ...meOperations,
   ...myOperations,

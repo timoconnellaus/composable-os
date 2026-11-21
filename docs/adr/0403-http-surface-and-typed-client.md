@@ -45,3 +45,21 @@ fails for a user.
   28). One route per operation keeps that possible without changing the surface.
 - Push notifications, uploads from client apps and offline writes queued on a device are also
   left for later.
+
+## As built (stage 23, steps 1 and 2, 2026-11-21)
+- The route, the callers, the envelope, the manifest and cross-origin calls:
+  [ADR 0415](0415-the-http-surface-as-built.md). The surface lives in `packages/core/src/http/`;
+  cos-app's adapter finds the caller from the request's session.
+- Idempotency keys: [ADR 0416](0416-idempotency-keys-as-built.md). The key commits in the
+  write's own batch, through a new pipeline hook (`inBatch`).
+
+## As built (stage 23, steps 3 to 7, 2026-11-21)
+- The contract per audience, its golden files, the served versions and `upgrade_required`:
+  [ADR 0417](0417-the-api-contract-and-versions.md).
+- `@composable-os/client`, `cos client generate`, the customer and staff entry points, and pack
+  hooks with Deals as the example: [ADR 0418](0418-the-typed-client-as-built.md).
+- Native apps' tokens, the idle setting, and customer sign-in served by the host, with codes
+  sent by the host itself: [ADR 0419](0419-native-sessions-and-customer-sign-in.md).
+- Changed from the decision above: "the host serves the current and the previous version" is
+  built as a list of served versions with only v1 in it; serving a previous version needs an
+  adapter that does not exist until there is a v2.

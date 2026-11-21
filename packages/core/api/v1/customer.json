@@ -1,0 +1,577 @@
+{
+  "version": "v1",
+  "operations": [
+    {
+      "name": "capacity.get",
+      "description": "How many places a record of an object with a capacity has left (a ticket type, a class). Staff get places, held (while someone pays), taken (paid), available, and the pool's numbers when the record draws on a parent's places. Customers and the public get only what the object shows: the number left, a low-stock warning, or available / sold out. Read-only; claims nothing.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares a capacity"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["available", "low", "sold_out"],
+            "description": "`low` only when the object shows a low-stock warning and few are left"
+          },
+          "available": {
+            "description": "Places left; null when unlimited. Shown to outsiders only when `show` allows",
+            "type": ["number", "null"]
+          },
+          "places": {
+            "type": ["number", "null"]
+          },
+          "held": {
+            "type": "number"
+          },
+          "taken": {
+            "type": "number"
+          },
+          "show": {
+            "type": "string",
+            "enum": ["exact", "low", "availability"]
+          },
+          "lowAt": {
+            "type": ["number", "null"]
+          },
+          "pool": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "places": {
+                    "type": ["number", "null"]
+                  },
+                  "held": {
+                    "type": "number"
+                  },
+                  "taken": {
+                    "type": "number"
+                  },
+                  "available": {
+                    "type": ["number", "null"]
+                  }
+                },
+                "required": ["object", "id", "places", "held", "taken", "available"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["object", "id", "status"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.deleteAccount",
+      "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "disabled": {
+            "type": "boolean",
+            "const": true
+          },
+          "sessionsEnded": {
+            "type": "number"
+          },
+          "eraseRequest": {
+            "type": "object",
+            "properties": {
+              "requestedAt": {
+                "type": "string"
+              },
+              "dueAt": {
+                "type": "string"
+              }
+            },
+            "required": ["requestedAt", "dueAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["disabled", "sessionsEnded", "eraseRequest"],
+        "additionalProperties": false
+      },
+      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+    },
+    {
+      "name": "me.get",
+      "description": "Your own Person, as a signed-in customer: your name, primary email and primary phone. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "givenName": {
+            "type": ["string", "null"]
+          },
+          "familyName": {
+            "type": ["string", "null"]
+          },
+          "primaryEmail": {
+            "type": ["string", "null"]
+          },
+          "primaryPhone": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "givenName",
+          "familyName",
+          "primaryEmail",
+          "primaryPhone"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.sessions.list",
+      "description": "The places you are signed in, as a signed-in customer: each session's id, whether it is a browser or an app on a device (with the device's name), when it began, when it was last used and when it expires, and which one is this one. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["browser", "device"]
+                },
+                "deviceName": {
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "lastActiveAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": ["string", "null"]
+                },
+                "current": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "deviceName",
+                "createdAt",
+                "lastActiveAt",
+                "expiresAt",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.sessions.revoke",
+      "description": "Sign out one of your sessions, as a signed-in customer, by its id from me.sessions.list. A session that is not yours is not found.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Session id from me.sessions.list"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["id", "revoked"],
+        "additionalProperties": false
+      },
+      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+    },
+    {
+      "name": "me.signOut",
+      "description": "Sign out of this session, as a signed-in customer. Your other sessions stay signed in (end them with me.sessions.revoke).",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "signedOut": {
+            "type": "boolean"
+          }
+        },
+        "required": ["signedOut"],
+        "additionalProperties": false
+      },
+      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+    },
+    {
+      "name": "me.update",
+      "description": "Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here. Returns your Person.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "givenName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "familyName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "primaryPhone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "givenName": {
+            "type": ["string", "null"]
+          },
+          "familyName": {
+            "type": ["string", "null"]
+          },
+          "primaryEmail": {
+            "type": ["string", "null"]
+          },
+          "primaryPhone": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "givenName",
+          "familyName",
+          "primaryEmail",
+          "primaryPhone"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+    },
+    {
+      "name": "my.get",
+      "description": "One of your own records, as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "The object, e.g. `person` or an extension object such as `shop.order`"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["object", "id", "values"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "my.list",
+      "description": "A page of your own records of an object, as a signed-in customer: only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "The object, e.g. `person` or an extension object such as `shop.order`"
+          },
+          "filter": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "direction": {
+                "default": "asc",
+                "type": "string",
+                "enum": ["asc", "desc"]
+              }
+            },
+            "required": ["field"]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["object"],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "neq",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "between",
+                      "in",
+                      "not_in",
+                      "contains",
+                      "not_contains",
+                      "starts_with",
+                      "ends_with",
+                      "is_null",
+                      "is_not_null"
+                    ]
+                  },
+                  "value": {}
+                },
+                "required": ["field", "op"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "and": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["and"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "or": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["or"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": ["object", "id", "values"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    }
+  ]
+}

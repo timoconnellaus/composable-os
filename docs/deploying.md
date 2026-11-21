@@ -31,6 +31,8 @@ there (in your fork) to switch adapter. Everything else is a **secret** on `crm-
 | `AUTH_ALLOW_SIGNUP` | var | Better Auth | `false` (default): only the first user can sign up. `true`: open sign-up |
 | `APPROVAL_FLOOR` | var | optional | Approval-policy floor the org's preset can never loosen (ADR 0011/0018). JSON keyed by actor (`human`, `assistant`, `mcp`, `automation`, `extension` or `*`) then risk class (or `*`), with `auto`, `review`, `deny` or `{"autoUpTo": n, "above": "review"}`. Example: `{"*":{"destructive":"review"}}`. Empty: no floor. Malformed: every operation is refused |
 | `APPROVAL_EXPIRY_DAYS` | var | optional | Days before a pending action (an AI change waiting for approval) expires. Default `7` |
+| `API_ALLOWED_ORIGINS` | var | optional | Origins a browser may call the HTTP surface (`/api/v1`) from, comma separated, such as a client app's site. Phones and servers send no origin and are not affected. Empty (default): none but the app's own |
+| `CUSTOMER_AUTH_SECRET` | secret | for customers | Signs customer sessions (stage 22). Must differ from `BETTER_AUTH_SECRET`. Unset: no customer session exists, and every caller of the HTTP surface who is not staff is the public |
 | `MCP_ACCESS_TOKEN_TTL` | var | optional | MCP access token lifetime in seconds. Default `3600`; refresh tokens last 30 days |
 | `MCP_RESOURCE` | var | optional | The public `/mcp` URL tokens are bound to, e.g. `https://crm.example.com/mcp`. Default: the request's origin + `/mcp`. Set it when the app answers on several hostnames |
 | `BETTER_AUTH_SECRET` | secret, **required** | always | Signs sessions. At least 32 random characters: `openssl rand -hex 32` |
@@ -83,15 +85,44 @@ and it needs Wrangler 4.36.0 or later.
 | `MCP_RATE_LIMIT` | connected app | 120 per 60 s | every `/mcp` request (HTTP 429 with `Retry-After` when over) |
 | `MCP_WRITE_RATE_LIMIT` | connected app | 30 per 60 s | non-read operations over MCP (tool error `rate_limited`) |
 | `CODE_MODE_RATE_LIMIT` | user | 10 per 60 s | Code Mode runs |
+| `CUSTOMER_RATE_LIMIT` | customer account and operation | 60 per 60 s | a customer's calls over the HTTP surface (`rate_limited`, HTTP 429) |
+| `CUSTOMER_CODE_RATE_LIMIT` | email address asked for | 3 per 60 s | customer sign-in code requests |
+| `CUSTOMER_CODE_ADDRESS_RATE_LIMIT` | client address, hashed | 10 per 60 s | customer sign-in code requests |
 
 To change a limit, edit its `simple.limit` (any positive integer) or `simple.period` (`10` or
 `60` seconds only) and redeploy. Limits are **approximate**: Cloudflare counts per location and
 syncs counts eventually, so a client can briefly go over, and a client whose requests reach
 several locations gets roughly the limit in each. That is enough to stop a runaway agent; it is
 not an exact quota. Each `namespace_id` must be an integer that is unique in your account
-(`4101`–`4103` by default): change them if another Worker in the account already uses those ids,
+(`4101`–`4106` by default): change them if another Worker in the account already uses those ids,
 since bindings that share a namespace share counters. If a binding is missing, requests are not
 limited and the Worker logs a warning. Rate-limited requests show up in Workers Logs as 429s.
+
+#### Public calls: a rule at the edge
+
+The host does not limit callers with no account (the public) on the HTTP surface: it has no
+account to key on and keeps no client address. A deployment that sells to the public, or opens any
+operation to it, needs a Cloudflare rate limiting rule on its zone (Security → WAF → Rate limiting
+rules), which counts per IP at the edge and stores nothing in the deployment:
+
+| Setting | Value |
+| --- | --- |
+| Expression | `(starts_with(http.request.uri.path, "/api/v1/op/") or starts_with(http.request.uri.path, "/api/customer-auth/"))` |
+| Counting characteristic | IP (`ip.src`) |
+| Period | 10 seconds |
+| Requests | 30 |
+| Action | Block, for 10 seconds (the client gets 429) |
+
+A deployment on a `workers.dev` hostname has no zone and cannot add the rule: put a custom
+hostname in front before opening anything to the public.
+
+#### Customer sign-in
+
+Customers sign in at `/api/customer-auth/*` with a code sent by email. It needs
+`CUSTOMER_AUTH_SECRET` (a secret, different from `BETTER_AUTH_SECRET`) and an org email-send
+connection chosen for customer mail, which a human admin sets with `customer.settings.update`
+(`emailConnectionId`). The host sends the codes itself, through that connection, as the system
+user. Until both are set, a code request answers that customer sign-in is not set up.
 
 `crm-runner`'s only secrets are the AI ones ([In-app AI](#in-app-ai)). It runs extension code, which calls operations there, so set its
 `APPROVAL_FLOOR` var (in `apps/runner/wrangler.jsonc`) to the same value as crm-app's. Shipped

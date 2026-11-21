@@ -950,11 +950,34 @@ An operation a customer reaches only from inside a pack's tool they called: `my.
 
 **Surface**
 A way an operation is reached from its one definition: server function, MCP tool, host module,
-HTTP (the last from stage 23).
+HTTP (the last from stage 23). The HTTP surface is `POST /api/v1/op/<name>` for staff, customers
+and the public, with the caller taken from the request's session (ADR 0415).
+
+**Idempotency key**
+The `Idempotency-Key` header every write over the HTTP surface carries. The same key and input
+returns the stored response without running the operation again; the key is the caller's own and
+is kept 24 hours (ADR 0416).
 
 **Typed client**
-The package generated from the operations registry: types and TanStack Query option factories for
-each operation, usable in TanStack Start and React Native (stage 23, ADR 0403).
+A product's operations as types and TanStack Query option factories, generated from its own
+registry by `cos client generate` into two entry points, `customer.ts` and `staff.ts`, over the
+`@composable-os/client` runtime. Usable in TanStack Start, a Worker and React Native (stage 23,
+ADRs 0403, 0418).
+
+**API contract**
+What a client may call over the HTTP surface, per audience: each operation's kind, risk, JSON
+Schema and what a mutation makes stale. Served as the manifest, committed as golden files, and the
+generator's input. A change that would break a compiled client is a new API version (ADR 0417).
+
+**Device session**
+A native app's sign-in on the HTTP surface: a short-lived access token and a refresh token that
+rotates on every use, for one audience, named by the device. A reused refresh token ends it, and
+so does a period without use (ADR 0419).
+_Avoid_: token session, API key
+
+**Headless entry**
+A pack's functions and hooks over the typed client, with no markup (`<package>/headless`). Blocks
+render what it returns (ADR 0418).
 
 **Capacity**
 A record's limited number of places (a ticket type's, a class's), declared by its object. The host
