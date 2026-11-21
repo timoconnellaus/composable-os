@@ -152,7 +152,49 @@ they do on the account. Accepting stays the code sign-in, or the first request u
 counting already happens at invite and accept.
 
 ## Proof
-See the tests named in the PR: `packages/auth/test/staff-codes.test.ts`,
-`apps/app/test/staff-invites.test.ts`, `apps/app/test/native-sign-in.test.ts`,
-`packages/client-gen/test/targets.test.ts`, `apps/app/test-node/access-layout.test.ts` and the e2e
-`apps/app/e2e/staff-invite.spec.ts`. Each refusal has a test that fails when its check is removed.
+Tests: `packages/auth/test/staff-codes.test.ts` (the staff code sign-in through the real Better
+Auth configuration), `packages/core/test/staff-invites.test.ts` (the operations, and Access),
+`apps/app/test/native-sign-in.test.ts` (the native routes against the real host, with a phone that
+has no cookie jar), `packages/client-gen/test/targets.test.ts` (the runtime in the stand-in React
+Native context: only ECMAScript's globals, `fetch` and `setTimeout`, no `crypto`),
+`apps/app/test-node/access-layout.test.ts` and the e2e `apps/app/e2e/staff-invite.spec.ts`.
+
+Each refusal was checked by removing its check and running the test:
+
+| Check removed | Test that fails |
+| --- | --- |
+| The pending invite's address condition | another address gets no code and no account from it |
+| `accepted_at IS NULL` in the pending invite | an accepted invite whose account was removed makes no second account |
+| `expires_at` in accepting | an invite that expires after the code makes nothing |
+| `revoked_at` in accepting | a revoked invite makes nothing, even with a code sent before |
+| The verified-account rule for codes | an unverified password account gets no code and keeps its role (no takeover) |
+| The deactivated-account rule | a deactivated account gets no code |
+| The user hook's code-only path | password sign-up is refused for an invited address (sign-up closed) |
+| Making an account only from an invite | the expired and revoked invite tests |
+| One answer for failed sign-ins | nine tests that expect the wrong-code answer |
+| Serving only two code routes | the plugin's other routes answer 404 |
+| `input: false` on the role field | a request cannot set the role itself |
+| `actors: ["human"]` on the invite operations (and `mcp.expose`) | every AI and MCP actor refused per operation |
+| The account-exists refusal in `user.invite` | an address with an account cannot be invited |
+| The invite under Access | the first request makes the account with the invite's role |
+| Deleting device sessions on deactivate | reactivating does not bring an old device session back |
+| Deleting the browser session after a native sign-in | the customer's native sign-in leaves no browser session |
+| Ending the session at `/auth/sign-out` | the door account's access token stops at once |
+| The verifier, the redirect address, spending the handoff code | the browser sign-in test |
+| The redirect allowlist | a code is never sent to an unlisted address |
+| Refusing `Authorization` on native routes | a bearer token is refused |
+
+`acceptInvite`'s own `accepted_at IS NULL` is defence in depth behind the pending check (two code
+sign-ins cannot race on one address: a code is spent once); no test fails without it. "No cookie
+is set" is observed, not removed: the phone in `native-sign-in.test.ts` records every `Set-Cookie`
+the host sends and every cookie the runtime sends, and both lists stay empty.
+
+## Consequences
+- The fake outbox's sends are always reviewed, so in development the admin approves the host's
+  mail in Approvals, and the preview shows the code. A real connection's sends are set to apply
+  without review.
+- Seat limits count accounts, not pending invites.
+- Erasing a person does not delete a staff invite to their address (the erase code is another
+  build's); an invite expires in 7 days.
+- Under Access, two first requests racing for one invited address can leave one of them acting as
+  a member for that one request before the invite's role is written.
