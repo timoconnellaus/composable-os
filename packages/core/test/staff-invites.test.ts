@@ -4,7 +4,14 @@
 // what the invite says on its first request, once.
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type ActingUser, coreRegistry, invoke, resolveActingUser } from "../src/index.ts";
+import {
+  type ActingUser,
+  coreRegistry,
+  customerCodeEmail,
+  invoke,
+  resolveActingUser,
+  staffCodeEmail,
+} from "../src/index.ts";
 import { auditChanges, context, createUser, db, unique } from "./helpers.ts";
 
 let admin: ActingUser;
@@ -216,5 +223,14 @@ describe("under Cloudflare Access, the first request accepts the invite", () => 
     expect((await resolveActingUser(db, { userId: "s3", email: late, name: "L" })).role).toBe(
       "member",
     );
+  });
+});
+
+describe("sign-in code emails", () => {
+  it("keep the code out of the subject, which the audit log keeps as the send's title", () => {
+    for (const mail of [staffCodeEmail("Gym", "482913"), customerCodeEmail("482913")]) {
+      expect(mail.subject).not.toContain("482913");
+      expect(mail.text).toContain("482913");
+    }
   });
 });

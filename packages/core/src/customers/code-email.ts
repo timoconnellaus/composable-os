@@ -19,7 +19,8 @@ import { loadCustomerEmailConnection } from "./settings.ts";
 export function customerCodeEmail(code: string): { subject: string; text: string } {
   const name = productName(product);
   return {
-    subject: `Your ${name} sign-in code: ${code}`,
+    // Not in the subject: a subject is kept in the audit log as the send's title (ADR 0455).
+    subject: `Your ${name} sign-in code`,
     text:
       `Your sign-in code for ${name} is ${code}.\n\n` +
       "It works once and expires in five minutes. If you did not ask for it, ignore this email.",
