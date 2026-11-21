@@ -244,8 +244,9 @@ describe("the host's sign-in mail", () => {
       purpose: "sign-in",
       origin: "system.customer-mail",
     });
-    expect(result?.applied).toEqual([]);
-    expect(await kindOf((result?.pending[0] as { actionId: string }).actionId)).toBe("fake.send");
+    if (!result) throw new Error("no callAsHost");
+    expect(result.applied).toEqual([]);
+    expect(await kindOf((result.pending[0] as { actionId: string }).actionId)).toBe("fake.send");
   });
 
   it("is refused for another method or an origin that is not the host's sign-in mail", async () => {
