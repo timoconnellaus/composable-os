@@ -38648,7 +38648,7 @@
     },
     {
       "name": "query.sql",
-      "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
+      "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of publishable records, without their content), rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -38950,7 +38950,72 @@
         "record.get",
         "record.groups",
         "record.list",
-        "record.similar"
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
+    },
+    {
+      "name": "record.createMany",
+      "description": "Create up to 50 records of one extension object at once, in one batch: all of them or none (a value one record cannot take refuses the whole call, naming its index). Each is validated and recorded exactly as record.create does it. For generated records (the dated sessions of a program); one at a time is record.create. Returns the ids in the order given.",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "records": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "additionalProperties": {}
+            },
+            "description": "Field values by registry field name, one object per record"
+          }
+        },
+        "required": [
+          "object",
+          "records"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
       ]
     },
     {
@@ -39004,7 +39069,9 @@
         "record.get",
         "record.groups",
         "record.list",
-        "record.similar"
+        "record.similar",
+        "record.version",
+        "record.versions"
       ]
     },
     {
@@ -39454,6 +39521,96 @@
       "invalidates": []
     },
     {
+      "name": "record.publish",
+      "description": "Publish a record of a publishable object (see schema.objects): its content fields as they are now become its next version, and the version readers are given. Editing the record afterwards changes no version until it is published again; what follows a version (a program's assignments) keeps the one it pinned. Only a person with the publish permission can do this, never an AI assistant: draft the changes and ask a person to publish. Returns the new version.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "note": {
+            "description": "What changed, for the history",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "current": {
+            "type": "boolean",
+            "description": "The version readers are given"
+          },
+          "publishedAt": {
+            "type": "string"
+          },
+          "publishedBy": {
+            "description": "The staff user who published it",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "version",
+          "current",
+          "publishedAt",
+          "publishedBy",
+          "note",
+          "bytes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
+    },
+    {
       "name": "record.restore",
       "description": "Restore a record of an extension object from Trash (within 30 days of its deletion). Returns the restored record.",
       "risk": "write",
@@ -39533,7 +39690,116 @@
         "record.get",
         "record.groups",
         "record.list",
-        "record.similar"
+        "record.similar",
+        "record.version",
+        "record.versions"
+      ]
+    },
+    {
+      "name": "record.restoreVersion",
+      "description": "Copy a published version's content back into the record's working copy, as an ordinary edit (validated, audited, undoable by editing again). No version changes and nothing is published: publish afterwards to make it what readers are given. A content field the object no longer has is left out and listed in `skipped`. Returns the record.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "version"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "record": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "values": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updatedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "object",
+              "id",
+              "title",
+              "values",
+              "createdAt",
+              "updatedAt"
+            ],
+            "additionalProperties": false
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "record",
+          "skipped"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions"
       ]
     },
     {
@@ -39798,8 +40064,194 @@
         "record.get",
         "record.groups",
         "record.list",
-        "record.similar"
+        "record.similar",
+        "record.version",
+        "record.versions"
       ]
+    },
+    {
+      "name": "record.version",
+      "description": "One published version of a record of a publishable object: its content fields as they were published. Without `version`, the current one (what readers are given). Not found when the record has never been published. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "version": {
+            "description": "Default: the current version",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "current": {
+            "type": "boolean",
+            "description": "The version readers are given"
+          },
+          "publishedAt": {
+            "type": "string"
+          },
+          "publishedBy": {
+            "description": "The staff user who published it",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "version",
+          "current",
+          "publishedAt",
+          "publishedBy",
+          "note",
+          "bytes",
+          "values"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "record.versions",
+      "description": "The published versions of a record of a publishable object, newest first: number, when, who, the note, size, and which one is current (what readers are given). Read one with record.version. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9]*$",
+            "description": "An extension object (`<extension>.<object>`, see schema.objects)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "current": {
+                  "type": "boolean",
+                  "description": "The version readers are given"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "publishedBy": {
+                  "description": "The staff user who published it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "version",
+                "current",
+                "publishedAt",
+                "publishedBy",
+                "note",
+                "bytes"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "routine.backtest",
@@ -50843,9 +51295,56 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.grantablePermissions",
         "user.list",
         "user.packRoles"
       ]
+    },
+    {
+      "name": "user.grantablePermissions",
+      "description": "List the permissions an admin can grant a staff account one by one, on top of its role: publishing versions of programs and other publishable records, refunding orders, and the tool permissions installed packs declare grantable. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "permission": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "permission",
+                "label",
+                "from"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "user.list",
@@ -51012,6 +51511,12 @@
                     "null"
                   ]
                 },
+                "permissions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "image": {
                   "type": [
                     "string",
@@ -51151,6 +51656,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.grantablePermissions",
         "user.list",
         "user.packRoles"
       ]
@@ -51216,6 +51722,12 @@
               "null"
             ]
           },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "image": {
             "type": [
               "string",
@@ -51238,6 +51750,7 @@
           "email",
           "role",
           "packRole",
+          "permissions",
           "image",
           "createdAt",
           "previousPackRole"
@@ -51245,6 +51758,106 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.grantablePermissions",
+        "user.list",
+        "user.packRoles"
+      ]
+    },
+    {
+      "name": "user.setPermissions",
+      "description": "Set the permissions a staff account is granted one by one, on top of its role (user.grantablePermissions lists them; an empty list takes them all away). A member granted records:publish publishes programs; one granted orders:refund approves refunds. A grant never lets an AI assistant or MCP client do what only a person may, and an account with a pack role holds only that role. Admins only, and only a human can call it. Returns the user.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "User id (usr_…)"
+          },
+          "permissions": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        },
+        "required": [
+          "id",
+          "permissions"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "packRole": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "previousPermissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "packRole",
+          "permissions",
+          "image",
+          "createdAt",
+          "previousPermissions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "user.grantablePermissions",
         "user.list",
         "user.packRoles"
       ]
@@ -51306,6 +51919,12 @@
               "null"
             ]
           },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "image": {
             "type": [
               "string",
@@ -51330,6 +51949,7 @@
           "email",
           "role",
           "packRole",
+          "permissions",
           "image",
           "createdAt",
           "previousRole"
@@ -51337,6 +51957,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "user.grantablePermissions",
         "user.list",
         "user.packRoles"
       ]
@@ -57769,6 +58390,1902 @@
       },
       "invalidates": [],
       "pack": "leads"
+    },
+    {
+      "name": "x.programs.assign",
+      "description": "Give a published program to a person or to a class type from a start date: pins the program's current published version and makes one dated session per session of its layout (week w's session on day d is dated start + 7(w-1) + (d-1)). Editing the program later changes none of them; publish a new version and assign again. Refused when the program has never been published. Safe to call again with the same program, person or class type and start date: it finishes what an interrupted call began. (Extension tool from Programs 0.1.0.)",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "programId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A person: a client program"
+          },
+          "classTypeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A class type: a class program"
+          },
+          "startDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "programId",
+          "startDate"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "assignmentId": {
+            "type": "string"
+          },
+          "programVersion": {
+            "type": "number"
+          },
+          "sessions": {
+            "type": "number"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignmentId",
+          "programVersion",
+          "sessions",
+          "startDate",
+          "endDate"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.programs.classToday",
+        "x.programs.history",
+        "x.programs.progress",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.classToday",
+      "description": "A class type's sessions on a date (default today, UTC), with their plans: every level of every item, typed targets, and the bank exercises. What a coach runs a class from and a member reads before it. Notes for coaches only are left out for members. Read-only. (Extension tool from Programs 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "classTypeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "classTypeId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "date": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "week": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "day": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "classType": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "assignment": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "programVersion": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "focus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "plan": {
+                  "anyOf": [
+                    {
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The session of the layout: blocks, items, levels and typed sets"
+                },
+                "exercises": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "video": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "cues": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "measure": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "last": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "date": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reps": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "seconds": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "load": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "rpe": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "level": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "date",
+                            "reps",
+                            "seconds",
+                            "load",
+                            "rpe",
+                            "level"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "description": "The sets of the last time this person did it, before this session"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "video",
+                      "cues",
+                      "measure",
+                      "last"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "date",
+                "week",
+                "day",
+                "kind",
+                "classType",
+                "assignment",
+                "programVersion",
+                "focus",
+                "state",
+                "plan",
+                "exercises"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "date",
+          "sessions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.history",
+      "description": "Every set a person logged of one exercise, oldest first (date, set, level, target and what was done, effort), and their bests at it (heaviest load, most reps, longest time). A member reads their own; staff name the person. At most 2,000 sets; `capped` says when there were more. Read-only. (Extension tool from Programs 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "exerciseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Staff: the person. A member is always themselves."
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "until": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "exerciseId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "exercise": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "item": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "exercise": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "setNumber": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "level": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "target": {
+                  "type": "object",
+                  "properties": {
+                    "reps": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "seconds": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "load": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "reps",
+                    "seconds",
+                    "load"
+                  ],
+                  "additionalProperties": false
+                },
+                "actual": {
+                  "type": "object",
+                  "properties": {
+                    "reps": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "seconds": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "load": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "reps",
+                    "seconds",
+                    "load"
+                  ],
+                  "additionalProperties": false
+                },
+                "rpe": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedAs": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "date": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "item",
+                "exercise",
+                "setNumber",
+                "level",
+                "target",
+                "actual",
+                "rpe",
+                "note",
+                "recordedAs",
+                "recordedByName",
+                "date"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "best": {
+            "type": "object",
+            "properties": {
+              "load": {
+                "description": "Heaviest load in one set",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "reps": {
+                "description": "Most reps in one set",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "seconds": {
+                "description": "Longest time in one set",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "load",
+              "reps",
+              "seconds"
+            ],
+            "additionalProperties": false
+          },
+          "capped": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "exercise",
+          "sets",
+          "best",
+          "capped"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.logAdd",
+      "description": "Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. Returns the set. (Extension tool from Programs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "item": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 6
+          },
+          "exerciseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "level": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "setNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          },
+          "actual": {
+            "type": "object",
+            "properties": {
+              "reps": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 999
+              },
+              "seconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7200
+              },
+              "load": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1000,
+                "description": "Kilograms"
+              }
+            },
+            "additionalProperties": {}
+          },
+          "rpe": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "How hard it felt, 1 to 10 in halves"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Staff: the person. A member is always themselves."
+          }
+        },
+        "required": [
+          "sessionId",
+          "item",
+          "setNumber",
+          "actual"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "item": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exercise": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "setNumber": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "level": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "reps": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "seconds": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "load": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "reps",
+              "seconds",
+              "load"
+            ],
+            "additionalProperties": false
+          },
+          "actual": {
+            "type": "object",
+            "properties": {
+              "reps": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "seconds": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "load": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "reps",
+              "seconds",
+              "load"
+            ],
+            "additionalProperties": false
+          },
+          "rpe": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedAs": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "item",
+          "exercise",
+          "setNumber",
+          "level",
+          "target",
+          "actual",
+          "rpe",
+          "note",
+          "recordedAs",
+          "recordedByName"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.programs.classToday",
+        "x.programs.history",
+        "x.programs.progress",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.logUpdate",
+      "description": "Change a logged set's numbers, effort or note. A member changes their own sets only; staff any. The target, the exercise and who recorded it stay as they were. Returns the set. (Extension tool from Programs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "logId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "actual": {
+            "type": "object",
+            "properties": {
+              "reps": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 999
+              },
+              "seconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7200
+              },
+              "load": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1000,
+                "description": "Kilograms"
+              }
+            },
+            "additionalProperties": {}
+          },
+          "rpe": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "How hard it felt, 1 to 10 in halves"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "logId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "item": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exercise": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "setNumber": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "level": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "reps": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "seconds": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "load": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "reps",
+              "seconds",
+              "load"
+            ],
+            "additionalProperties": false
+          },
+          "actual": {
+            "type": "object",
+            "properties": {
+              "reps": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "seconds": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "load": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "reps",
+              "seconds",
+              "load"
+            ],
+            "additionalProperties": false
+          },
+          "rpe": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedAs": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "item",
+          "exercise",
+          "setNumber",
+          "level",
+          "target",
+          "actual",
+          "rpe",
+          "note",
+          "recordedAs",
+          "recordedByName"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.programs.classToday",
+        "x.programs.history",
+        "x.programs.progress",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.progress",
+      "description": "A person's training at a glance: for each exercise they logged, how many sets, the first and last date, and their bests; and for each of their assignments, sessions planned, done and skipped. Optionally only one assignment. A member reads their own; staff name the person. Worked out over at most 2,000 sets (`capped`). Read-only. (Extension tool from Programs 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Staff: the person. A member is always themselves."
+          },
+          "assignmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "exercises": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sets": {
+                  "type": "number"
+                },
+                "first": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "last": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "best": {
+                  "type": "object",
+                  "properties": {
+                    "load": {
+                      "description": "Heaviest load in one set",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "reps": {
+                      "description": "Most reps in one set",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "seconds": {
+                      "description": "Longest time in one set",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "load",
+                    "reps",
+                    "seconds"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "sets",
+                "first",
+                "last",
+                "best"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "assignments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sessions": {
+                  "type": "number"
+                },
+                "done": {
+                  "type": "number"
+                },
+                "skipped": {
+                  "type": "number"
+                },
+                "planned": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "sessions",
+                "done",
+                "skipped",
+                "planned"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "capped": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "exercises",
+          "assignments",
+          "capped"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.sessionComplete",
+      "description": "Mark one of a person's sessions done or skipped (or back to planned). A member marks their own; staff any personal session. A class type's sessions are not marked by members. Made from the session's current state, so two marks at once count once. Returns the session. (Extension tool from Programs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "state": {
+            "default": "done",
+            "type": "string",
+            "enum": [
+              "done",
+              "skipped",
+              "planned"
+            ]
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean"
+          },
+          "session": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "week": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "day": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "classType": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "assignment": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "programVersion": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "focus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "plan": {
+                "anyOf": [
+                  {
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {}
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The session of the layout: blocks, items, levels and typed sets"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "date",
+              "week",
+              "day",
+              "kind",
+              "classType",
+              "assignment",
+              "programVersion",
+              "focus",
+              "state",
+              "plan"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "changed",
+          "session"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.programs.classToday",
+        "x.programs.history",
+        "x.programs.progress",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.sessionGet",
+      "description": "One session: its plan, the bank exercises it uses with the person's last numbers at each, and the sets logged on it so far. A member reads their own sessions and their class types' (where `personId` is never given); staff read any, and name the person for a class session's logs. Read-only. (Extension tool from Programs 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Staff: the person. A member is always themselves."
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "week": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "day": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "classType": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "assignment": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "programVersion": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "focus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "plan": {
+                "anyOf": [
+                  {
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {}
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The session of the layout: blocks, items, levels and typed sets"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "date",
+              "week",
+              "day",
+              "kind",
+              "classType",
+              "assignment",
+              "programVersion",
+              "focus",
+              "state",
+              "plan"
+            ],
+            "additionalProperties": false
+          },
+          "exercises": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "video": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "cues": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "measure": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "last": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "date": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "reps": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "seconds": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "load": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "rpe": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "level": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "date",
+                      "reps",
+                      "seconds",
+                      "load",
+                      "rpe",
+                      "level"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "The sets of the last time this person did it, before this session"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "video",
+                "cues",
+                "measure",
+                "last"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "logged": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "item": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "exercise": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "setNumber": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "level": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "target": {
+                  "type": "object",
+                  "properties": {
+                    "reps": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "seconds": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "load": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "reps",
+                    "seconds",
+                    "load"
+                  ],
+                  "additionalProperties": false
+                },
+                "actual": {
+                  "type": "object",
+                  "properties": {
+                    "reps": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "seconds": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "load": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "reps",
+                    "seconds",
+                    "load"
+                  ],
+                  "additionalProperties": false
+                },
+                "rpe": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedAs": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "item",
+                "exercise",
+                "setNumber",
+                "level",
+                "target",
+                "actual",
+                "rpe",
+                "note",
+                "recordedAs",
+                "recordedByName"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "session",
+          "exercises",
+          "logged"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.today",
+      "description": "A person's own sessions on a date (default today, UTC: pass the person's local date), each with its plan (blocks, items, levels and typed targets), the bank exercises it uses and the numbers of the last time they did each. A member sees their own; staff name the person. A class type's sessions are programs.classToday. Read-only. (Extension tool from Programs 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Staff: the person. A member is always themselves."
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "date": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "week": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "day": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "classType": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "assignment": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "programVersion": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "focus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "plan": {
+                  "anyOf": [
+                    {
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The session of the layout: blocks, items, levels and typed sets"
+                },
+                "exercises": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "video": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "cues": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "measure": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "last": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "date": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reps": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "seconds": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "load": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "rpe": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "level": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "date",
+                            "reps",
+                            "seconds",
+                            "load",
+                            "rpe",
+                            "level"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "description": "The sets of the last time this person did it, before this session"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "video",
+                      "cues",
+                      "measure",
+                      "last"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "date",
+                "week",
+                "day",
+                "kind",
+                "classType",
+                "assignment",
+                "programVersion",
+                "focus",
+                "state",
+                "plan",
+                "exercises"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "date",
+          "sessions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "programs"
     },
     {
       "name": "x.ticketing.checkIn",

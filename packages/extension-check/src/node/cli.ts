@@ -98,6 +98,7 @@ interface OpensOutside {
     {
       customer?: { field: string; read: string[]; write: string[] };
       public?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
+      signedIn?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       sellable?: { price: string; grants?: { object: string } };
     }
   >;
@@ -130,6 +131,16 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
         ? ` while ${via}${p.when.field} is ${p.when.in.join(" or ")}`
         : ", every record";
       lines.push(`  the public sees ${manifest.id}.${name}${while_}: read ${p.read.join(", ")}`);
+    }
+    const s = object.signedIn;
+    if (s) {
+      const via = s.when?.via ? `its ${s.when.via}'s ` : "";
+      const while_ = s.when
+        ? ` while ${via}${s.when.field} is ${s.when.in.join(" or ")}`
+        : ", every record";
+      lines.push(
+        `  every signed-in customer sees ${manifest.id}.${name}${while_}: read ${s.read.join(", ")}`,
+      );
     }
     const c = object.customer;
     if (!c) continue;

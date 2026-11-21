@@ -165,7 +165,8 @@ export async function queueEraseSync(ctx: HandlerContext, s: StoreSubject): Prom
 
 // --- Extensions --------------------------------------------------------------------------------
 
-const TEXT_TYPES = new Set(["text", "longText", "email", "phone", "url"]);
+// A document (ADR 0445) is scrubbed inside: its strings, never its shape (scrubDocument).
+const TEXT_TYPES = new Set(["text", "longText", "email", "phone", "url", "document"]);
 const IDENT = /^[a-z][a-z0-9_]*$/;
 const q = (name: string) => {
   if (!IDENT.test(name)) throw new Error(`Unexpected identifier ${JSON.stringify(name)}`);
@@ -370,6 +371,26 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
         }
       }
     }
+    // Published versions (ADR 0446) are snapshots of records' content: one that mentions a term
+    // loses it as the record's own fields do, keeping its shape and its number.
+    const versions = await ctx.db
+      .selectFrom("core_publish_version")
+      .select(["object_type", "record_id", "version", "content"])
+      .where(mentionsSql(termsJson, sql`content`))
+      .execute();
+    for (const version of versions) {
+      const content = scrubDocument(version.content, m, termOnly);
+      if (content === version.content) continue;
+      rows += 1;
+      ctx.write(
+        ctx.db
+          .updateTable("core_publish_version")
+          .set({ content, bytes: new TextEncoder().encode(content).length })
+          .where("object_type", "=", version.object_type)
+          .where("record_id", "=", version.record_id)
+          .where("version", "=", version.version),
+      );
+    }
     // Extension records' search entries (titles) follow their scrubbed text.
     // Looked up per extension object (the index's leading column), not across core records.
     const docs = objects.length
@@ -447,11 +468,40 @@ function scrubField(
   m: SubjectMatcher,
   pattern: RegExp | null,
 ): string | null {
+  if (type === "document") return scrubDocument(value, m, pattern);
   if (m.identifies(value)) return null;
   if (!mentions(value, pattern)) return value;
   // A typed value (an address, a URL) that mentions them cannot keep a valid partial form.
   if (type === "email" || type === "phone" || type === "url") return null;
   return pattern ? value.replace(pattern, ERASED) : value;
+}
+
+/**
+ * A stored document (ADR 0445, or a published version's content, ADR 0446) without the subject:
+ * every string in it that is their address, phone or id becomes "[erased]", and every other
+ * string loses their terms and names (`pattern`). Keys, lists, numbers and the document's shape
+ * are kept, so it still reads as the schema it was written to (a text node's `chars` aside).
+ */
+export function scrubDocument(text: string, m: SubjectMatcher, pattern: RegExp | null): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return mentions(text, pattern) ? JSON.stringify(ERASED) : text;
+  }
+  const walk = (v: unknown): unknown => {
+    if (typeof v === "string") {
+      if (m.identifies(v)) return ERASED;
+      return mentions(v, pattern) && pattern ? v.replace(pattern, ERASED) : v;
+    }
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v).map(([key, child]) => [key, walk(child)]));
+    }
+    return v;
+  };
+  const next = JSON.stringify(walk(value));
+  return next === JSON.stringify(value) ? text : next;
 }
 
 /** An error JSON (`{ code, message }`) that mentions the subject keeps its code only. */

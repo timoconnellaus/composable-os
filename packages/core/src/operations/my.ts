@@ -11,11 +11,13 @@ import { defineOperation } from "../operation.ts";
 import { unknownObject } from "../visibility/customer.ts";
 
 /**
- * my.* is a customer's own records only. The seam also lets a customer read what the public may
- * (ADR 0438), but that is reached through a pack's tool (public.*), not here.
+ * my.* is a customer's own records, and the records every signed-in customer may read (ADR
+ * 0447). The seam also lets a customer read what the public may (ADR 0438), but that is reached
+ * through a pack's tool (public.*), not here.
  */
 function ownObject(name: string): string {
-  if (!getObject(name)?.customer) throw unknownObject(name);
+  const object = getObject(name);
+  if (!object?.customer && !object?.signedIn) throw unknownObject(name);
   return name;
 }
 
@@ -35,7 +37,8 @@ const recordSchema = z.object({
 export const myList = defineOperation({
   name: "my.list",
   description:
-    "A page of your own records of an object, as a signed-in customer: only the records that are " +
+    "A page of your own records of an object, as a signed-in customer (and the records every " +
+    "signed-in customer may read, where the object shares some): only the records that are " +
     "yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back " +
     "as cursor for the next page. Read-only.",
   input: z.object({

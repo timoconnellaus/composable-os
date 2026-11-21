@@ -133,6 +133,12 @@ export interface HandlerContext {
   readonly floor: GateFloor;
   /** What the caller's credential allows (MCP token scopes), when it is limited. */
   readonly grantedPermissions?: readonly Permission[] | undefined;
+  /**
+   * Permissions a human admin granted the staff account one by one (ADR 0449), read from the
+   * account on this call. A check a handler makes itself (approving a refund) asks
+   * `holdsPermission(ctx.user, ctx.permissionGrants, …)`.
+   */
+  readonly permissionGrants?: readonly string[] | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
   /**
@@ -340,6 +346,11 @@ export interface OperationDefinition<
    * it. Everyone else is held to `permission`, as for any tool.
    */
   packPermission?: string;
+  /**
+   * The extension declares `packPermission` grantable (ADR 0449): a human admin may grant it to a
+   * staff account by name, which then may call the tool whatever its role.
+   */
+  packPermissionGrantable?: boolean;
   risk: RiskClass;
   /**
    * Core operations only, and only ones open to customers or the public: the handler keeps the

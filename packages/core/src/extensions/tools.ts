@@ -34,7 +34,7 @@ export function toolOperation(
   const audiences = source === "shipped" ? tool.audiences : undefined;
   // Likewise a tool's permission, which a role of the extension can hold (ADR 0436).
   const packPermission = source === "shipped" ? tool.permission : undefined;
-  const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}`;
+  const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}:${(manifest.grantable ?? []).join(",")}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const op = defineOperation({
@@ -46,6 +46,9 @@ export function toolOperation(
     risk: tool.risk,
     ...(audiences ? { audiences } : {}),
     ...(packPermission ? { packPermission } : {}),
+    ...(packPermission && (manifest.grantable ?? []).includes(packPermission)
+      ? { packPermissionGrantable: true }
+      : {}),
     async handler(input, ctx) {
       const row = await ctx.db
         .selectFrom("core_extensions")

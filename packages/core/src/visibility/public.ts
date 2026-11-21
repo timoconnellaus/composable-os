@@ -1,42 +1,71 @@
-// The public scope (stage 27, ADR 0438): what an object says the public may read, and the pure
-// rules the seam derives from it. Nothing here reads the database.
+// The public scope (stage 27, ADR 0438) and the signed-in scope (stage 41, ADR 0447): what an
+// object says the public, or every signed-in customer, may read, and the pure rules the seam
+// derives from it. Nothing here reads the database.
 //
-// An object declares it:
+// An object declares them in the same shape:
 //   public: { read: ["name", "startsAt"], when: { field: "status", in: ["on_sale"] } }
 //   public: { read: ["name", "price"], when: { via: "event", field: "status", in: ["on_sale"] } }
+//   signedIn: { read: ["name", "video", "cues"] }
 // The public (and a signed-in customer, on an object that declares no customer) sees a record
-// only while `when` holds, and of it only the fields in `read`. Nothing is public by default: an
-// object that declares nothing does not exist for the public, and a record that does not meet
-// `when` is not found, as one that does not exist.
+// only while `when` holds, and of it only the fields in `read`. `signedIn` is the same for
+// signed-in customers only, never the public. Nothing is readable by default: an object that
+// declares nothing does not exist for them, and a record that does not meet `when` is not found,
+// as one that does not exist.
 //
 // `when` is one condition today. Stage 28's `publishable` adds "has a published version" as
-// another kind; the source below is where it joins.
+// another kind; the source in index.ts is where it joins.
 import { getObject } from "../fields/index.ts";
 import type { FieldDefinition, ObjectDefinition, PublicDeclaration } from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";
 
+/** The two read declarations of this shape. */
+export type ReadDeclarationKey = "public" | "signedIn";
+
 /** What is wrong with an object's `public` declaration (empty when nothing is). */
 export function publicProblems(object: ObjectDefinition): string[] {
-  const declared = object.public;
+  const problems = readProblems(object, "public");
+  if (object.public && object.customer) {
+    problems.unshift("an object declares customer or public, not both");
+  }
+  return problems;
+}
+
+/** What is wrong with an object's `signedIn` declaration (empty when nothing is). */
+export function signedInProblems(object: ObjectDefinition): string[] {
+  const declared = object.signedIn;
+  if (!declared) return [];
+  const problems = readProblems(object, "signedIn");
+  if (object.public) problems.unshift("an object declares public or signedIn, not both");
+  if (object.customer) {
+    for (const name of declared.read) {
+      if (!object.customer.read.includes(name)) {
+        problems.push(`signedIn.read lists "${name}", which customer.read does not`);
+      }
+    }
+  }
+  return problems;
+}
+
+function readProblems(object: ObjectDefinition, key: ReadDeclarationKey): string[] {
+  const declared = object[key];
   if (!declared) return [];
   const problems: string[] = [];
-  if (object.customer) problems.push("an object declares customer or public, not both");
   const field = (o: ObjectDefinition, name: string) => o.fields.find((f) => f.name === name);
   if (new Set(declared.read).size !== declared.read.length) {
-    problems.push("public.read lists a field twice");
+    problems.push(`${key}.read lists a field twice`);
   }
   for (const name of declared.read) {
     const f = field(object, name);
-    if (!f) problems.push(`public.read lists "${name}", which is not a field`);
-    else if (!viewColumnOf(f)) problems.push(`public.read lists "${name}", which has no column`);
+    if (!f) problems.push(`${key}.read lists "${name}", which is not a field`);
+    else if (!viewColumnOf(f)) problems.push(`${key}.read lists "${name}", which has no column`);
   }
-  const condition = resolveCondition(object, declared);
+  const condition = resolveCondition(object, declared, key);
   if (typeof condition === "string") problems.push(condition);
   return problems;
 }
 
 /** The condition `when` names, resolved to view columns, or why it cannot be. */
-interface Condition {
+export interface Condition {
   /** The column of this object tested, or that points to the record tested. */
   readonly column: string;
   readonly values: readonly string[];
@@ -44,9 +73,10 @@ interface Condition {
   readonly via?: { readonly source: string; readonly column: string };
 }
 
-function resolveCondition(
+export function resolveCondition(
   object: ObjectDefinition,
   declared: PublicDeclaration,
+  key: ReadDeclarationKey = "public",
 ): Condition | null | string {
   const { when } = declared;
   if (!when) return null;
@@ -54,7 +84,7 @@ function resolveCondition(
   if (when.via === undefined) {
     const own = fieldOf(object, when.field);
     if (!own || own.fieldType !== "select" || !own.column) {
-      return `public.when.field "${when.field}" must be a select field`;
+      return `${key}.when.field "${when.field}" must be a select field`;
     }
     return { column: own.column, values: [...when.in] };
   }
@@ -62,11 +92,11 @@ function resolveCondition(
   const to = via?.options?.to;
   const target = to ? getObject(to) : undefined;
   if (!via || via.fieldType !== "relation" || via.options?.many || !via.column || !target) {
-    return `public.when.via "${when.via}" must be a relation to one record`;
+    return `${key}.when.via "${when.via}" must be a relation to one record`;
   }
   const tested = fieldOf(target, when.field);
   if (!tested || tested.fieldType !== "select" || !tested.column) {
-    return `public.when.field "${when.field}" must be a select field of ${target.name}`;
+    return `${key}.when.field "${when.field}" must be a select field of ${target.name}`;
   }
   return {
     column: via.column,
@@ -78,6 +108,8 @@ function resolveCondition(
 /** A valid declaration resolved against the object's fields. */
 export interface PublicScope {
   readonly kind: "public";
+  /** Which declaration it is: the public's, or every signed-in customer's. */
+  readonly from: ReadDeclarationKey;
   /** `id` and the readable fields, in the object's order. */
   readonly fields: readonly FieldDefinition[];
   /** The view columns the source has: `id` and the readable fields' columns. */
@@ -89,21 +121,31 @@ export interface PublicScope {
 
 /** The public scope of `object`, or null when it declares none. */
 export function publicScope(object: ObjectDefinition): PublicScope | null {
-  const declared = object.public;
+  return readScope(object, "public");
+}
+
+/** What every signed-in customer reads of `object` as a read-only scope, or null. */
+export function signedInScope(object: ObjectDefinition): PublicScope | null {
+  return readScope(object, "signedIn");
+}
+
+function readScope(object: ObjectDefinition, key: ReadDeclarationKey): PublicScope | null {
+  const declared = object[key];
   if (!declared) return null;
-  const problems = publicProblems(object);
+  const problems = key === "public" ? publicProblems(object) : signedInProblems(object);
   // A declaration that does not hold together shows nothing, and says so to whoever built it.
   if (problems.length) {
-    throw new Error(`${object.name}: invalid public declaration: ${problems.join("; ")}`);
+    throw new Error(`${object.name}: invalid ${key} declaration: ${problems.join("; ")}`);
   }
   const readable = new Set(["id", ...declared.read]);
   const fields = object.fields.filter((f) => readable.has(f.name));
   const columns = [...new Set(fields.map((f) => viewColumnOf(f) as string))];
   return {
     kind: "public",
+    from: key,
     fields,
     columns,
-    condition: resolveCondition(object, declared) as Condition | null,
+    condition: resolveCondition(object, declared, key) as Condition | null,
     declaration: declared,
   };
 }
@@ -126,6 +168,6 @@ export function publicObject(object: ObjectDefinition, scope: PublicScope): Obje
     ...(object.plural ? { plural: object.plural } : {}),
     ...(object.extension ? { extension: object.extension } : {}),
     ...(object.titleField && names.has(object.titleField) ? { titleField: object.titleField } : {}),
-    public: scope.declaration,
+    ...(scope.from === "public" ? { public: scope.declaration } : { signedIn: scope.declaration }),
   };
 }

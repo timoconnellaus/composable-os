@@ -56,6 +56,7 @@ import {
 import {
   type ActingUser,
   type Actor,
+  holdsPermission,
   type Origin,
   ROLES,
   type Role,
@@ -932,7 +933,7 @@ async function approveActions(
         actor: ctx.actor,
       });
     }
-    if (!roleHasPermission(ctx.user.role, "orders:refund")) {
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "orders:refund")) {
       throw new ForbiddenError("Approving a refund needs the refund permission (orders:refund)", {
         actionId: refund.id,
         permission: "orders:refund",

@@ -42,6 +42,7 @@
     "@composable-os/pack-deals": "workspace:*",
     "@composable-os/pack-leads": "workspace:*",
     "@composable-os/pack-lifecycle": "workspace:*",
+    "@composable-os/pack-programs": "workspace:*",
     "@composable-os/pack-ticketing": "workspace:*",
     "typescript": "6.0.3",
     "vitest": "5.1.0"

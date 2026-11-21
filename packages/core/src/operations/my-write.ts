@@ -50,6 +50,15 @@ export const myUpdate = defineOperation({
     object: objectName,
     id: z.string().min(1).max(64).describe("Record id"),
     values: valuesSchema,
+    from: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe(
+        "Only move the record if it is still in this state, and move it out of it (ADR 0437): " +
+          "refused as a conflict when it has left it.",
+      ),
   }),
   output: recordSchema,
   permission: "records:write",
@@ -57,7 +66,7 @@ export const myUpdate = defineOperation({
   audiences: ["customer"],
   toolOnly: true,
   async handler(input, ctx) {
-    await ctx.records.update(input.object, input.id, input.values);
+    await ctx.records.update(input.object, input.id, input.values, { from: input.from });
     return ctx.afterCommit(() => ctx.records.get(input.object, input.id));
   },
 });

@@ -97,3 +97,10 @@ in the same source; nothing else in the seam changes.
   the parent (Ticketing indexes the event's status).
 - `public.list` and `public.get` are in `open-operations.json` and the API contract, marked
   `toolOnly`.
+
+## Amendment, 2026-11-21 (stage 41, ADR 0447)
+An object may also declare `signedIn`, the same shape, read by every signed-in customer and never
+the public. `my.list` and `my.get` now answer for an object that declares a customer or
+`signedIn`: records shared with every signed-in customer are declared for them on purpose, as
+their own are. `public.*` stays for what the public may read. An object declares `public` or
+`signedIn`, not both. See [ADR 0447](0447-the-signed-in-scope.md).

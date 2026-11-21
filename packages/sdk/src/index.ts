@@ -7,6 +7,7 @@ export * from "./automation.ts";
 export * from "./automation-check.ts";
 export * from "./capacity.ts";
 export * from "./contract.ts";
+export * from "./document.ts";
 export * from "./field-types.ts";
 export * from "./manifest.ts";
 export * from "./permissions.ts";

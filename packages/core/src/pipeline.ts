@@ -82,7 +82,13 @@ import {
   type SystemActivityInput,
 } from "./operation.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
-import { type HeldPackRole, loadPackRole, packRoleAllows, packRoleReaches } from "./pack-roles.ts";
+import {
+  type HeldPackRole,
+  loadStaffRights,
+  packRoleReaches,
+  type StaffRights,
+  staffMayCall,
+} from "./pack-roles.ts";
 import {
   ACTORS,
   type ActingUser,
@@ -92,7 +98,6 @@ import {
   type OutsidePrincipal,
   originSchema,
   type Permission,
-  roleHasPermission,
   staffPrincipal,
 } from "./principals.ts";
 import type { RateLimitBinding } from "./rate-limit.ts";
@@ -622,11 +627,15 @@ async function invokeOnce<O extends AnyOperation>(
   // account on every call, not from what the adapter resolved (beside the registry's own read,
   // so it adds no round trip), and refused whatever the input: such an account learns nothing
   // about any other operation, not even whether its input was valid.
-  const [packRole] = await Promise.all([
-    ctx.user.id === SYSTEM_USER.id ? null : loadPackRole(ctx.db.query, ctx.user.id),
+  // The same statement reads the permissions a human admin granted the account (ADR 0449).
+  const [rights] = await Promise.all([
+    ctx.user.id === SYSTEM_USER.id
+      ? ({ packRole: null, grants: [] } as StaffRights)
+      : loadStaffRights(ctx.db.query, ctx.user.id),
     // Extension objects and fields join the field registry (ADR 0023); cheap when unchanged.
     parsed.success ? refreshSchemaRegistry(ctx.db.query) : null,
   ]);
+  const { packRole, grants } = rights;
   if (packRole && !packRoleReaches(packRole, op)) {
     const error = packRoleRefusal(packRole, op);
     const gate = evaluateGate(
@@ -719,11 +728,7 @@ async function invokeOnce<O extends AnyOperation>(
     }
   }
   // A pack role replaces what the account's own role grants (ADR 0436).
-  if (
-    packRole
-      ? !packRoleAllows(packRole, op, input)
-      : !roleHasPermission(ctx.user.role, op.permission)
-  ) {
+  if (!staffMayCall(ctx.user, rights, op, input)) {
     const error = packRole
       ? packRoleRefusal(packRole, op)
       : new ForbiddenError(`Your role (${ctx.user.role}) cannot ${op.name}`, {
@@ -763,6 +768,7 @@ async function invokeOnce<O extends AnyOperation>(
     db: ctx.db.query,
     floor: ctx.floor ?? {},
     grantedPermissions: ctx.grantedPermissions,
+    permissionGrants: packRole ? [] : grants,
     reason: ctx.reason,
     write: (...statements) => {
       writes.push(...statements);
@@ -1635,7 +1641,7 @@ async function invokeOutside<O extends AnyOperation>(
   };
   const records = recordAccess(reader, {
     create: (object, values) => createVisible(seam, object, values),
-    update: (object, id, values) => updateVisible(seam, object, id, values),
+    update: (object, id, values, options) => updateVisible(seam, object, id, values, options),
   });
   // What the operation's own handler gets. Unless the operation is `hostInternal` (core
   // bookkeeping that is not a record, ADR 0413) it has no database and no write queue: it reads
