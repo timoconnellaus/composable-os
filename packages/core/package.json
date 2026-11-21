@@ -24,7 +24,8 @@
     "./judge-routine-gate": "./src/judge/questions/routine-gate.ts",
     "./adjudicator-agreement": "./src/adjudicator/agreement.ts",
     "./cron": "./src/automations/cron.ts",
-    "./extension-check": "./src/extensions/check.ts"
+    "./extension-check": "./src/extensions/check.ts",
+    "./http-contract": "./src/http/contract.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -36,6 +37,7 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.5.1",
     "@cloudflare/workers-types": "5.20261104.1",
+    "@composable-os/client": "workspace:*",
     "@composable-os/config": "workspace:*",
     "@composable-os/extension-deals": "workspace:*",
     "@composable-os/extension-leads": "workspace:*",

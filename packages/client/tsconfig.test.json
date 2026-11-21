@@ -1,0 +1,8 @@
+{
+  "extends": "@composable-os/config/tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types", "@types/node"],
+    "paths": { "@composable-os/client": ["./src/index.ts"] }
+  },
+  "include": ["test"]
+}
