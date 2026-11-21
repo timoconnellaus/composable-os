@@ -45,3 +45,12 @@ fails for a user.
   28). One route per operation keeps that possible without changing the surface.
 - Push notifications, uploads from client apps and offline writes queued on a device are also
   left for later.
+
+## As built (stage 23, steps 1 and 2, 2026-11-21)
+- The route, the callers, the envelope, the manifest and cross-origin calls:
+  [ADR 0415](0415-the-http-surface-as-built.md). The surface lives in `packages/core/src/http/`;
+  cos-app's adapter finds the caller from the request's session.
+- Idempotency keys: [ADR 0416](0416-idempotency-keys-as-built.md). The key commits in the
+  write's own batch, through a new pipeline hook (`inBatch`).
+- Not built yet: the typed client and its generator, the audience split, native tokens and the
+  session setting, versioning, and the Deals hooks (steps 3 to 7).

@@ -917,6 +917,24 @@ operations over HTTP through one generated package of types and TanStack Query o
 the same package in TanStack Start and in React Native. Calls go through `invoke()` like any other.
 Writes carry idempotency keys.
 
+As built so far (stage 23 steps 1 and 2; ADRs [0415](adr/0415-the-http-surface-as-built.md),
+[0416](adr/0416-idempotency-keys-as-built.md)):
+
+- **The surface** is `packages/core/src/http/`: `POST /api/v1/op/<name>` and
+  `GET /api/v1/manifest`, over an invoker, framework-free. cos-app serves it from
+  `src/server/http/api.ts`, before TanStack Start, and decides only who the caller is: a staff
+  session is staff (the context the UI's server functions build, origin `client`), a customer
+  session is that customer, anything else is the public, and both sessions at once are refused.
+- **One answer for closed and missing:** the operation is looked up for the caller before the body
+  is read, so a customer's session on a staff operation gets exactly what no session gets.
+- **One envelope:** `{ "data": … }`, or `{ "error": { code, message, details } }` with a status
+  from the code. The manifest lists only what the caller may call.
+- **Idempotency keys:** every write needs one. The key row commits in the write's own batch
+  (the pipeline's `inBatch` hook), a claim makes a second call with the same key wait for the
+  first, and the daily cron purges keys after 24 hours.
+- Cross-origin calls only from `API_ALLOWED_ORIGINS`; customers are limited per account and
+  operation by `CUSTOMER_RATE_LIMIT`.
+
 ### Behaviours
 
 Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).

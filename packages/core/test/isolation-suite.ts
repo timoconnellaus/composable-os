@@ -16,6 +16,7 @@ import { z } from "zod";
 import {
   type ActingUser,
   type AnyOperation,
+  audiencesOf,
   encodeCursor,
   getObject,
   type ObjectDefinition,
@@ -386,6 +387,29 @@ export function isolationSuite(how: string, call: CallFn): void {
       const items = (theirs as { value: { items: { values: { text: unknown } }[] } }).value.items;
       expect(items.map((i) => i.values.text)).not.toContain("a gift");
       expect(items).toHaveLength(2);
+    });
+
+    it("every operation not open to a caller does not exist for them (stage 22 criterion 1)", async () => {
+      // Read from the registry: staff operations, customer operations for the public, public
+      // ones for customers, and tool-only ones called directly.
+      const closed = (kind: "customer" | "public") =>
+        fixtureRegistry
+          .list()
+          .filter((op) => !audiencesOf(op).includes(kind) || (kind === "customer" && op.toolOnly));
+      let checked = 0;
+      for (const caller of [a.principal, PUBLIC]) {
+        const ops = closed(caller.kind);
+        expect(ops.length).toBeGreaterThan(100);
+        for (const op of ops) {
+          checked += 1;
+          const outcome = await call(op.name, {}, outside(caller));
+          expect(outcome, `${op.name} as ${caller.kind}`).toEqual({
+            ok: false,
+            error: { code: "unknown_operation", message: `No operation named "${op.name}"` },
+          });
+        }
+      }
+      expect(checked).toBeGreaterThan(200);
     });
 
     it("the public see no object and change no record", async () => {

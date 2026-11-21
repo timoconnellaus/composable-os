@@ -2,13 +2,20 @@
 
 Branch `worktree-agent-a13e44dc43b009383`. Spec: `docs/stages/23-http-surface-and-typed-client.md`.
 
-Scope of this session so far: build-order steps 1 and 2 only (the spine), then stop for review.
+## Done (steps 1 and 2, the spine): stopped here for the coordinator's review
+- `packages/core/src/http/` (surface, envelope, idempotency), `apps/app/src/server/http/api.ts`
+  served in `src/server.ts` before TanStack Start. ADRs 0415, 0416; ADR 0403 amended.
+- `invoke.ts`: `resolveFor`, `listFor`, `coreInvoker` exported. `pipeline.ts`: `inBatch` hook.
+- Migration 0410 (`core_idempotency_key`, `core_idempotency_claim`), `CORE_SCHEMA_VERSION` 410.
+- Tests: core `http-surface`, `http-isolation` (the stage 22 suite, now `isolation-suite.ts`,
+  over HTTP), `http-idempotency`; app `http-surface` (one pipeline, real sessions).
 
-## Plan
-- [ ] Step 1: `packages/core/src/http/` (framework-free surface over an invoker), app adapter
-      `apps/app/src/server/http/`, mounted in `src/server.ts` before TanStack Start. Principals:
-      staff session, customer session, public. Error envelope. Manifest. CORS from env.
-- [ ] Step 1 tests: one-pipeline (HTTP vs server function), isolation over HTTP (stage 22 suite
-      re-run through the HTTP handler), manifest equals open list per audience.
-- [ ] Step 2: idempotency (migration 0410, `inBatch` hook in pipeline), purge in daily cron, tests.
-- [ ] ADR 0415 (HTTP surface as built), 0416 (idempotency as built). Docs.
+## Open questions for the coordinator
+- Customer sign-in routes (`/api/customer-auth/*`) are not mounted: who sends the code (the
+  email-send gatekeeper call needs a staff-side caller)?
+- Public per-address edge rate limiting (Cloudflare rules) not configured.
+
+## Next (only when told): steps 3 to 7
+3. `@composable-os/client` runtime and `cos client generate`; type-break and per-product tests.
+4. Audience split and bundle test. 5. Native tokens and session setting. 6. Versioning.
+7. Deals hooks.

@@ -121,10 +121,11 @@ describe("a write with a key", () => {
     const key = crypto.randomUUID();
     const first = await send("fixture.countedCreate", { text }, outside(a.principal), key);
     const second = await send("fixture.countedCreate", { text }, outside(a.principal), key);
-    expect(first).toMatchObject({ status: 200, replayed: false });
-    expect(second).toEqual({ ...first, replayed: true });
+    // Applied once: the handler ran once and one record exists.
     expect(ran(text)).toBe(1);
     expect(await requestsOf(a, text)).toBe(1);
+    expect(first).toMatchObject({ status: 200, replayed: false });
+    expect(second).toEqual({ ...first, replayed: true });
   });
 
   it("sent twice at once runs the handler once and answers both the same", async () => {
@@ -134,11 +135,11 @@ describe("a write with a key", () => {
       send("fixture.countedCreate", { text }, outside(a.principal), key),
       send("fixture.countedCreate", { text }, outside(a.principal), key),
     ]);
+    expect(ran(text)).toBe(1);
+    expect(await requestsOf(a, text)).toBe(1);
     expect(one?.status).toBe(200);
     expect(two?.text).toBe(one?.text);
     expect([one?.replayed, two?.replayed].sort()).toEqual([false, true]);
-    expect(ran(text)).toBe(1);
-    expect(await requestsOf(a, text)).toBe(1);
   });
 
   it("five at once, still once", async () => {

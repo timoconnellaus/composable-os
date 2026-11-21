@@ -922,7 +922,13 @@ An operation a customer reaches only from inside a pack's tool they called: `my.
 
 **Surface**
 A way an operation is reached from its one definition: server function, MCP tool, host module,
-HTTP (the last from stage 23).
+HTTP (the last from stage 23). The HTTP surface is `POST /api/v1/op/<name>` for staff, customers
+and the public, with the caller taken from the request's session (ADR 0415).
+
+**Idempotency key**
+The `Idempotency-Key` header every write over the HTTP surface carries. The same key and input
+returns the stored response without running the operation again; the key is the caller's own and
+is kept 24 hours (ADR 0416).
 
 **Typed client**
 The package generated from the operations registry: types and TanStack Query option factories for
