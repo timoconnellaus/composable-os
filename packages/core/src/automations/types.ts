@@ -11,7 +11,7 @@
 // consumer dispatches by `kind`, so nothing else changes.
 import type { AutomationManifest, AutomationTestStep, RecordEventType } from "@composable-os/sdk";
 import type { FieldDiff } from "../diff.ts";
-import type { Actor, Origin } from "../principals.ts";
+import type { Actor, Origin, OutsideActor } from "../principals.ts";
 
 /** Automation-caused changes may trigger further automations up to this depth (ADR 0028). */
 export const MAX_CASCADE_DEPTH = 3;
@@ -52,7 +52,9 @@ export const DEFAULT_RAILS = {
  * (cycle detection: an automation never retriggers itself on the same record in one cascade).
  */
 export interface EventOrigin {
-  actor: Actor;
+  /** `customer` and `public`: the change was made by a call from outside the org (ADR 0402). */
+  actor: Actor | OutsideActor;
+  /** The staff user; the customer account for actor `customer`; '' for actor `public`. */
   userId: string;
   surface: Origin["surface"];
   operation: string;

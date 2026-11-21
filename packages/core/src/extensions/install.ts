@@ -10,7 +10,7 @@ import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
-import type { ExtensionHost, SourceIssue } from "./host.ts";
+import type { EvaluateResult, ExtensionHost, SourceIssue } from "./host.ts";
 import { CORE_TARGETS, isCoreTarget } from "./naming.ts";
 import {
   planReconcile,
@@ -80,6 +80,7 @@ export async function checkManifest(
   id: string,
   rawManifest: unknown,
   now: string,
+  options: CheckOptions = {},
 ): Promise<{
   issues: CheckIssue[];
   manifest: ExtensionManifest | null;
@@ -108,6 +109,9 @@ export async function checkManifest(
       }
     }
   }
+  // Who an extension opens the host to is never AI-configurable (ADR 0402): a runtime extension,
+  // written in the workspace, may not open a tool or show an object to anyone but staff.
+  if (manifest && options.source === "runtime") all.push(...outsideDeclarations(manifest));
   if (manifest && manifest.id !== id) {
     all.push({
       stage: "contract",
@@ -121,28 +125,77 @@ export async function checkManifest(
   return { issues: plan.issues.map(fromReconcile), manifest, plan };
 }
 
-/** `extension.check`: typecheck (transpile + imports), contract, formulas, dry-run reconcile. */
-export async function checkExtension(
-  ctx: HandlerContext,
-  input: { id: string; commit: string } | { id: string; files: Record<string, string> },
+/** What kind of extension is being checked. `runtime`: written in the workspace, by AI or by hand. */
+export interface CheckOptions {
+  source?: "shipped" | "runtime";
+}
+
+/** Issues for everything in `manifest` that opens the host to customers or the public. */
+function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
+  const issues: CheckIssue[] = [];
+  const why =
+    "Only a shipped extension, or one in the org's own repository, can do that: it is a " +
+    "reviewed change. Remove it, or move the extension out of the workspace.";
+  for (const [name, tool] of Object.entries(manifest.tools)) {
+    const open = (tool.audiences ?? []).filter((audience) => audience !== "staff");
+    if (open.length || tool.customerFields) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `tools.${name}.audiences`,
+        message: `A runtime extension cannot open a tool to ${open.join(" or ") || "customer"} callers. ${why}`,
+      });
+    }
+  }
+  for (const [name, object] of Object.entries(manifest.objects)) {
+    if (object.customer) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.customer`,
+        message: `A runtime extension cannot make ${name} visible to customers. ${why}`,
+      });
+    }
+  }
+  return issues;
+}
+
+/**
+ * The check itself, given what evaluating the source returned: source issues (typecheck, imports,
+ * syntax) as they are, otherwise contract, formulas, automations and the dry-run reconcile against
+ * `db`. `extension.check` calls it with the sandbox's evaluation and the deployment's database;
+ * `cos ext check` calls it with its own evaluation and an empty local database (ADR 0405). The
+ * field registry must be current for `db` (`refreshSchemaRegistry`).
+ */
+export async function checkEvaluated(
+  db: Kysely<CoreDatabase>,
+  id: string,
+  evaluated: EvaluateResult,
+  now: string,
+  options: CheckOptions = {},
 ): Promise<CheckResult> {
-  const host = requireHost(ctx);
-  const evaluated = await host.evaluate(input);
   if (!evaluated.ok) {
     return { ok: false, issues: evaluated.issues.map(fromSource), manifest: null, plan: null };
   }
-  const { issues, manifest, plan } = await checkManifest(
-    ctx.db,
-    input.id,
-    evaluated.manifest,
-    ctx.now,
-  );
+  const { issues, manifest, plan } = await checkManifest(db, id, evaluated.manifest, now, options);
   return {
     ok: issues.length === 0,
     issues,
     manifest,
     plan: plan ? { ddl: plan.ddl, changes: plan.changes } : null,
   };
+}
+
+/** `extension.check`: typecheck (transpile + imports), contract, formulas, dry-run reconcile. */
+export async function checkExtension(
+  ctx: HandlerContext,
+  input: { id: string; commit: string } | { id: string; files: Record<string, string> },
+): Promise<CheckResult> {
+  const host = requireHost(ctx);
+  // What `extension.check` checks is always workspace source: a runtime extension.
+  return checkEvaluated(ctx.db, input.id, await host.evaluate(input), ctx.now, {
+    source: "runtime",
+  });
 }
 
 export interface InstallResult {
@@ -206,6 +259,7 @@ export async function installExtension(
     input.id,
     evaluated.manifest,
     ctx.now,
+    { source: input.source },
   );
   if (issues.length || !manifest || !plan) {
     throw new ValidationError(`${input.id} failed its check${firstIssue(issues)}`, { issues });

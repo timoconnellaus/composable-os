@@ -7,6 +7,7 @@ import { getObject } from "../fields/index.ts";
 import { compileFilter, filterSchema } from "../filter.ts";
 import { resolveSort, sortSchema } from "../list.ts";
 import { defineOperation } from "../operation.ts";
+import { visibleSource } from "../visibility/index.ts";
 import { toCsv } from "./import.ts";
 import { viewColumnOf } from "./record.ts";
 
@@ -87,7 +88,7 @@ export const exportCsv = defineOperation({
     const where = input.filter ? sql`WHERE ${compileFilter(object, input.filter, alias)}` : sql``;
     const select = sql.join(fields.map((f) => sql.ref(`${alias}.${f.column}`)));
     const result = await sql<Record<string, unknown>>`
-      SELECT ${select} FROM ${sql.table(alias)} ${where} ORDER BY ${order} LIMIT ${input.maxRows + 1}
+      SELECT ${select} FROM ${visibleSource(ctx, object)} ${where} ORDER BY ${order} LIMIT ${input.maxRows + 1}
     `.execute(ctx.db);
 
     const rows = result.rows.slice(0, input.maxRows);

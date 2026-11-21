@@ -2,9 +2,10 @@
 // queue writes with ctx.write, record before/after snapshots with ctx.recordChange, and return
 // the record (reading it after commit where that is simpler). See ../../README.md.
 import type { CoreDatabase } from "@composable-os/db";
-import type { Kysely } from "kysely";
+import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
+import { queueMergeCustomers } from "../customers/merge.ts";
 import { checkPerson } from "../duplicates/check.ts";
 import { personNameKey } from "../duplicates/normalise.ts";
 import { queueClosePairs } from "../duplicates/pairs.ts";
@@ -38,6 +39,8 @@ import { personSubject } from "../records/erase-subject.ts";
 import { countLinks, queueClearTags, queueMoveLinks } from "../records/links.ts";
 import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
+import { type Reader, visibleTable } from "../visibility/index.ts";
+import { setCoreWriter } from "../visibility/writes.ts";
 import {
   type Affiliation,
   affiliationSchema,
@@ -163,11 +166,12 @@ const PERSON_LIST_FIELDS = Object.keys(personListItemSchema.shape);
 
 /** Loads a person with emails, phones, tags and primary affiliation. Null when absent. */
 export async function loadPerson(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   id: string,
   { includeDeleted = false } = {},
 ): Promise<Person | null> {
-  let query = db.selectFrom("core_person").selectAll().where("id", "=", id);
+  const { db } = reader;
+  let query = db.selectFrom(visibleTable(reader, "person")).selectAll().where("id", "=", id);
   if (!includeDeleted) query = query.where("deleted_at", "is", null);
   const row = await query.executeTakeFirst();
   if (!row) return null;
@@ -228,11 +232,11 @@ export async function loadPerson(
 }
 
 async function requirePerson(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   id: string,
   options?: { includeDeleted?: boolean },
 ): Promise<Person> {
-  const person = await loadPerson(db, id, options);
+  const person = await loadPerson(reader, id, options);
   if (!person) throw new NotFoundError("person", id);
   return person;
 }
@@ -528,7 +532,130 @@ export const personGet = defineOperation({
   risk: "read",
   mcp: { curated: true, idempotent: true },
   async handler(input, ctx) {
-    return requirePerson(ctx.db, input.id, { includeDeleted: input.includeDeleted });
+    return requirePerson(ctx, input.id, { includeDeleted: input.includeDeleted });
+  },
+});
+
+// --- Updating ---------------------------------------------------------------------------------
+
+const personUpdateInput = z.object({ id: personId, ...personWritableFields });
+
+/** What `updatePerson` changes: person.update's input without the id. */
+export type PersonChanges = Omit<z.output<typeof personUpdateInput>, "id"> & {
+  /**
+   * The primary phone number alone (a customer's `me.update`): replaces the primary phone's
+   * number, keeping the others; null removes it. Ignored when `phones` is given.
+   */
+  primaryPhone?: string | null | undefined;
+};
+
+/**
+ * The code person.update runs, shared with the visibility seam's Person writer (`me.update`,
+ * ADR 0413): uniqueness, search, the audit diff and timeline tracking behave the same whoever
+ * calls it. It reads `ctx.db`, `ctx.now`, `ctx.write` and `ctx.recordChange` only, never
+ * `ctx.actor` or `ctx.user`, so it also runs in the host context of a customer's call. Nothing
+ * here writes a user id column (core_person has no updated_by; owner and tags, which do check
+ * users, are not a customer's to set).
+ */
+export async function updatePerson(
+  ctx: HandlerContext,
+  id: string,
+  input: PersonChanges,
+): Promise<void> {
+  const before = await requirePerson(ctx, id);
+  const after: Person = { ...before, updatedAt: ctx.now };
+  const set: Record<string, unknown> = {};
+
+  const scalar = <K extends keyof Person & keyof typeof input>(key: K, column: string) => {
+    const value = blankToNull(input[key] as string | null | undefined);
+    if (value === undefined) return;
+    (after as Record<string, unknown>)[key] = value;
+    set[column] = value;
+  };
+  scalar("givenName", "given_name");
+  scalar("familyName", "family_name");
+  scalar("location", "location");
+  scalar("timezone", "timezone");
+  scalar("avatarKey", "avatar_key");
+  scalar("description", "description");
+  if (input.displayName !== undefined) {
+    after.displayName = input.displayName;
+    set.display_name = input.displayName;
+    set.name_key = personNameKey(input.displayName);
+  }
+  if (input.ownerId !== undefined) {
+    await assertUserExists(ctx.db, input.ownerId);
+    after.ownerId = input.ownerId ?? null;
+    set.owner_id = after.ownerId;
+  }
+  if (input.socialProfiles !== undefined) {
+    after.socialProfiles = input.socialProfiles;
+    set.social_profiles = JSON.stringify(input.socialProfiles);
+  }
+
+  ctx.write(
+    ctx.db
+      .updateTable("core_person")
+      .set({ ...set, updated_at: ctx.now })
+      .where("id", "=", id),
+  );
+  if (input.emails !== undefined) {
+    after.emails = normaliseEmails(input.emails);
+    await assertEmailsFree(
+      ctx.db,
+      after.emails.map((e) => e.email),
+      id,
+    );
+    queueEmails(ctx, id, after.emails);
+  }
+  if (input.phones !== undefined) {
+    after.phones = normalisePhones(input.phones);
+    queuePhones(ctx, id, after.phones);
+  } else if (input.primaryPhone !== undefined) {
+    after.phones = withPrimaryPhone(before.phones, blankToNull(input.primaryPhone) ?? null);
+    queuePhones(ctx, id, after.phones);
+  }
+  if (input.tags !== undefined) {
+    after.tags = await queueSetTags(ctx, "person", id, input.tags);
+  }
+
+  ctx.recordChange({
+    object: "person",
+    id: id,
+    action: "update",
+    before: personSnapshot(before),
+    after: personSnapshot(after),
+  });
+}
+
+/** `phones` with the primary phone's number set to `number` (added when none), or removed. */
+function withPrimaryPhone(phones: Person["phones"], number: string | null): Person["phones"] {
+  const primary = phones.findIndex((p) => p.primary);
+  const rest = phones.filter((_, i) => i !== primary);
+  const label = primary >= 0 ? (phones[primary]?.label ?? null) : null;
+  const list = number === null ? rest : [{ number, label, primary: true }, ...rest];
+  return normalisePhones(list.map((p, i) => ({ ...p, primary: i === 0 })));
+}
+
+const personCoreChanges = z
+  .object({
+    givenName: personWritableFields.givenName,
+    familyName: personWritableFields.familyName,
+    displayName: personWritableFields.displayName,
+    primaryPhone: shortText(50).nullish(),
+  })
+  .strict();
+
+// The seam writes a customer's own Person with this code (`me.update` → ctx.records.update).
+// The seam has already checked the caller may set each field; this checks the values.
+setCoreWriter("person", {
+  async update(ctx, _object, id, values) {
+    const parsed = personCoreChanges.safeParse(values);
+    if (!parsed.success) {
+      throw new ValidationError("A value is not allowed", { issues: parsed.error.issues });
+    }
+    await updatePerson(ctx, id, parsed.data);
+    return true;
   },
 });
 
@@ -539,74 +666,15 @@ export const personUpdate = defineOperation({
     "emails, phones, socialProfiles and tags replace the whole list when given. Changing the " +
     "owner posts a system activity on the person's timeline. Fails with a conflict if an email " +
     "belongs to another live person. Returns the updated person.",
-  input: z.object({ id: personId, ...personWritableFields }),
+  input: personUpdateInput,
   output: personSchema,
   permission: "records:write",
   risk: "write",
   mcp: { curated: true },
   async handler(input, ctx) {
-    const before = await requirePerson(ctx.db, input.id);
-    const after: Person = { ...before, updatedAt: ctx.now };
-    const set: Record<string, unknown> = {};
-
-    const scalar = <K extends keyof Person & keyof typeof input>(key: K, column: string) => {
-      const value = blankToNull(input[key] as string | null | undefined);
-      if (value === undefined) return;
-      (after as Record<string, unknown>)[key] = value;
-      set[column] = value;
-    };
-    scalar("givenName", "given_name");
-    scalar("familyName", "family_name");
-    scalar("location", "location");
-    scalar("timezone", "timezone");
-    scalar("avatarKey", "avatar_key");
-    scalar("description", "description");
-    if (input.displayName !== undefined) {
-      after.displayName = input.displayName;
-      set.display_name = input.displayName;
-      set.name_key = personNameKey(input.displayName);
-    }
-    if (input.ownerId !== undefined) {
-      await assertUserExists(ctx.db, input.ownerId);
-      after.ownerId = input.ownerId ?? null;
-      set.owner_id = after.ownerId;
-    }
-    if (input.socialProfiles !== undefined) {
-      after.socialProfiles = input.socialProfiles;
-      set.social_profiles = JSON.stringify(input.socialProfiles);
-    }
-
-    ctx.write(
-      ctx.db
-        .updateTable("core_person")
-        .set({ ...set, updated_at: ctx.now })
-        .where("id", "=", input.id),
-    );
-    if (input.emails !== undefined) {
-      after.emails = normaliseEmails(input.emails);
-      await assertEmailsFree(
-        ctx.db,
-        after.emails.map((e) => e.email),
-        input.id,
-      );
-      queueEmails(ctx, input.id, after.emails);
-    }
-    if (input.phones !== undefined) {
-      after.phones = normalisePhones(input.phones);
-      queuePhones(ctx, input.id, after.phones);
-    }
-    if (input.tags !== undefined) {
-      after.tags = await queueSetTags(ctx, "person", input.id, input.tags);
-    }
-
-    ctx.recordChange({
-      object: "person",
-      id: input.id,
-      action: "update",
-      before: personSnapshot(before),
-      after: personSnapshot(after),
-    });
-    return ctx.afterCommit(() => requirePerson(ctx.db, input.id));
+    const { id, ...changes } = input;
+    await updatePerson(ctx, id, changes);
+    return ctx.afterCommit(() => requirePerson(ctx, input.id));
   },
 });
 
@@ -624,8 +692,8 @@ export const personList = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const page = await runListQuery(
-      ctx.db.selectFrom("rec_person").selectAll(),
+    const page = await runListQuery<Selectable<CoreDatabase["rec_person"]>>(
+      ctx,
       getObject("person") ?? personObject,
       input,
     );
@@ -667,7 +735,7 @@ export const personDelete = defineOperation({
   permission: "records:write",
   risk: "destructive",
   async handler(input, ctx) {
-    await requirePerson(ctx.db, input.id);
+    await requirePerson(ctx, input.id);
     ctx.write(
       ctx.db
         .updateTable("core_person")
@@ -696,7 +764,7 @@ export const personRestore = defineOperation({
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
-    const person = await requirePerson(ctx.db, input.id, { includeDeleted: true });
+    const person = await requirePerson(ctx, input.id, { includeDeleted: true });
     if (!person.deletedAt) throw new ValidationError("This person is not in Trash");
     await assertRecordCapacity(ctx.db, 1);
     await assertEmailsFree(
@@ -721,7 +789,7 @@ export const personRestore = defineOperation({
           : {}),
       },
     });
-    return ctx.afterCommit(() => requirePerson(ctx.db, input.id));
+    return ctx.afterCommit(() => requirePerson(ctx, input.id));
   },
 });
 
@@ -756,7 +824,7 @@ export const personChangeJob = defineOperation({
   risk: "write",
   mcp: { curated: true },
   async handler(input, ctx) {
-    const person = await requirePerson(ctx.db, input.personId);
+    const person = await requirePerson(ctx, input.personId);
     const organisation = await requireLiveOrganisation(ctx.db, input.organisationId);
     const previous = await loadPrimaryAffiliation(ctx.db, person.id);
     const startedOn = input.startedOn ?? today(ctx);
@@ -825,7 +893,7 @@ export const personChangeJob = defineOperation({
     });
 
     return ctx.afterCommit(async () => ({
-      person: await requirePerson(ctx.db, person.id),
+      person: await requirePerson(ctx, person.id),
       ended: previous ? await requireAffiliation(ctx.db, previous.id) : null,
       started: await requireAffiliation(ctx.db, startedId),
       activityId,
@@ -1007,7 +1075,9 @@ export const personMerge = defineOperation({
     "tags are combined, and the duplicate's affiliations, activity links and task links move " +
     "to the survivor (the survivor keeps its primary affiliation if it has one). The " +
     "duplicate goes to Trash pointing at the survivor, and can be restored from there " +
-    "(without what moved). Returns the survivor.",
+    "(without what moved). A customer account moves to the survivor; when both people have " +
+    "one, the merge is refused until staff disable one (the disabled one is then deleted). " +
+    "Returns the survivor.",
   input: z.object({
     survivorId: personId.describe("The person who remains"),
     mergedId: personId.describe("The duplicate that is merged away into Trash"),
@@ -1025,8 +1095,8 @@ export const personMerge = defineOperation({
     if (input.survivorId === input.mergedId) {
       throw new ValidationError("Cannot merge a person into themselves");
     }
-    const survivor = await requirePerson(ctx.db, input.survivorId);
-    const merged = await requirePerson(ctx.db, input.mergedId);
+    const survivor = await requirePerson(ctx, input.survivorId);
+    const merged = await requirePerson(ctx, input.mergedId);
 
     const after: Person = { ...survivor, updatedAt: ctx.now };
     for (const field of PERSON_MERGE_FIELDS) {
@@ -1035,6 +1105,10 @@ export const personMerge = defineOperation({
       if (take) (after as Record<PersonMergeField, unknown>)[field] = merged[field];
     }
     if (after.ownerId) await assertUserExists(ctx.db, after.ownerId);
+    // Customer accounts move to the survivor; refused while both people have an active one.
+    await queueMergeCustomers(ctx, survivor.id, merged.id, [
+      ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),
+    ]);
 
     const emailSet = new Set(survivor.emails.map((e) => e.email));
     after.emails = [
@@ -1157,7 +1231,7 @@ export const personMerge = defineOperation({
       activities: links.activities,
       tasks: links.tasks,
     };
-    return ctx.afterCommit(async () => ({ ...(await requirePerson(ctx.db, survivor.id)), moved }));
+    return ctx.afterCommit(async () => ({ ...(await requirePerson(ctx, survivor.id)), moved }));
   },
 });
 
@@ -1177,7 +1251,9 @@ export const personErase = defineOperation({
     '"[erased]"). Former emails and phones count too. Synced email bodies, suggested contacts, ' +
     "signatures, extension data related to them, automation run history and notifications about " +
     "them are deleted or redacted, and their addresses are added to the erased-address list so " +
-    "mail sync does not collect them again. Cannot be undone; use person.delete for a " +
+    "mail sync does not collect them again. Their customer account, its sessions and sign-in " +
+    "codes, invites for their addresses and their erase requests are deleted (an open request " +
+    "is closed as erased). Cannot be undone; use person.delete for a " +
     "reversible delete.",
   input: z.object({ id: personId }),
   output: z.object({
@@ -1193,7 +1269,7 @@ export const personErase = defineOperation({
   risk: "destructive",
   mcp: { expose: false },
   async handler(input, ctx) {
-    await requirePerson(ctx.db, input.id, { includeDeleted: true });
+    await requirePerson(ctx, input.id, { includeDeleted: true });
     const ids = await withMergedRecords(ctx, "person", input.id);
     const subject = await personSubject(ctx.db, ids);
     const counts = await queueErase(ctx, {

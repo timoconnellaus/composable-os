@@ -169,6 +169,7 @@ export function planFromState(
       ...(object.timelineLinks?.length ? { timelineLinks: object.timelineLinks } : {}),
       ...(object.stages ? { stages: object.stages } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
+      ...(object.customer ? { customer: object.customer } : {}),
       ...(object.navigationOrder !== undefined ? { navigationOrder: object.navigationOrder } : {}),
       ...(object.requireOneOf?.length ? { requireOneOf: object.requireOneOf } : {}),
       ...(object.titleDefault ? { titleDefault: object.titleDefault } : {}),

@@ -1,0 +1,46 @@
+{
+  "badformula": [
+    {
+      "stage": "formula",
+      "code": "formula_unknown_field",
+      "path": "objects.invoice.fields.withTax.expression",
+      "message": "badformula.invoice.withTax: Unknown field \"amout\". Fields on this record: createdAt, updatedAt, name, amount, withTax",
+      "span": {
+        "start": 6,
+        "end": 11
+      }
+    }
+  ],
+  "undeclaredperm": [
+    {
+      "stage": "contract",
+      "code": "contract",
+      "path": "permissions.operations",
+      "message": "Automation remind notifies people: add \"notification.send\" to permissions.operations"
+    }
+  ],
+  "missingrelation": [
+    {
+      "stage": "contract",
+      "code": "contract",
+      "path": "objects.visit.fields.site.to",
+      "message": "Unknown relation target \"premises.site\". Use person, organisation, task or <extension>.<object>"
+    }
+  ],
+  "undeclaredwrite": [
+    {
+      "stage": "contract",
+      "code": "contract",
+      "path": "automations.followUp.steps.0.writes.0.object",
+      "message": "Step writes task: add \"task\" to permissions.write"
+    }
+  ],
+  "stagerule": [
+    {
+      "stage": "contract",
+      "code": "contract",
+      "path": "objects.application.stages.requiredByType.lost",
+      "message": "\"lostReason\" must be a writable field of application"
+    }
+  ]
+}

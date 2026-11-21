@@ -7,6 +7,15 @@ export const personObject = defineObject({
   source: "rec_person",
   defaultSort: { field: "displayName", direction: "asc" },
   ownerField: "ownerId",
+  // A Person is their own customer (stage 22, ADR 0402): signed in, they read their name, primary
+  // email and primary phone (`me.get`) and change their name and phone (`me.update`). The email is
+  // not writable: it would tell a customer whether an address belongs to another person (the
+  // uniqueness conflict), and sign-in uses the account's own address, not this one.
+  customer: {
+    field: "id",
+    read: ["displayName", "givenName", "familyName", "primaryEmail", "primaryPhone"],
+    write: ["displayName", "givenName", "familyName", "primaryPhone"],
+  },
   fields: [
     { name: "id", label: "ID", type: "id", column: "id", filterable: true, sortable: true },
     {

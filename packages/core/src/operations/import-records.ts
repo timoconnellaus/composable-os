@@ -14,8 +14,9 @@ import { ValidationError } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import { getObject, isCoreObject } from "../fields/index.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
-import { defineOperation, type HandlerContext } from "../operation.ts";
+import { defineOperation } from "../operation.ts";
 import type { StageCache } from "../records/stages.ts";
+import { type Reader, visibleSource } from "../visibility/index.ts";
 import { CSV_LIMITS, parseCsv } from "./import.ts";
 import { createRecord } from "./record.ts";
 
@@ -79,7 +80,7 @@ function readTable(csv: string) {
 
 /** Resolves relation and user cells (ids, titles, emails) for every row in a few queries. */
 async function resolveReferences(
-  ctx: Pick<HandlerContext, "db">,
+  ctx: Reader,
   fields: FieldDefinition[],
   rows: ParsedRow[],
 ): Promise<void> {
@@ -120,7 +121,7 @@ async function resolveReferences(
               : undefined;
       if (target && titleColumn) {
         const records = await sql<{ id: string; title: string | null }>`
-          SELECT id, ${sql.ref(titleColumn)} AS title FROM ${sql.table(target.source)}
+          SELECT id, ${sql.ref(titleColumn)} AS title FROM ${visibleSource(ctx, target)}
           WHERE id IN (SELECT value FROM json_each(${list}))
             OR lower(${sql.ref(titleColumn)}) IN (SELECT value FROM json_each(${lower}))
         `.execute(ctx.db);
@@ -151,7 +152,7 @@ async function resolveReferences(
 }
 
 async function parseRows(
-  ctx: Pick<HandlerContext, "db">,
+  ctx: Reader,
   object: ObjectDefinition,
   csv: string,
   given: Record<string, string | null> | undefined,

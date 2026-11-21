@@ -5,7 +5,7 @@ import { z } from "zod";
 import { VERDICT_OPERATION } from "../adjudicator/review.ts";
 import { decodeCursor, encodeCursor, pageSchema } from "../list.ts";
 import { defineOperation } from "../operation.ts";
-import { ACTORS } from "../principals.ts";
+import { ALL_ACTORS } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { recordRefSchema } from "../records/links.ts";
 
@@ -44,6 +44,13 @@ export const auditEntrySchema = z.object({
 
 const parse = (text: string | null): unknown => (text === null ? null : JSON.parse(text));
 
+/**
+ * Who a row is by: a staff user's name, or for a customer's call (whose user_id is the customer
+ * account, stage 22) the account's sign-in address. The public have neither.
+ */
+const customerAccounts = "core_customer as cu" as const;
+const userName = sql<string | null>`coalesce(u.name, cu.email)`.as("user_name");
+
 const AUDIT_SORT = { field: "at", direction: "desc" } as const;
 const HISTORY_SORT = { field: "changeId", direction: "desc" } as const;
 
@@ -52,14 +59,14 @@ export const auditList = defineOperation({
   description:
     "The admin audit log: every write, every refusal and every failed non-human read, newest " +
     "first (successful reads by AI and automations are counted per hour in audit.readCounts). " +
-    "Filter by userId, actor (human, assistant, mcp, automation), operation (exact name, or a " +
+    "Filter by userId, actor (human, assistant, mcp, automation, extension, customer, public), operation (exact name, or a " +
     "prefix ending in '.*' such as 'person.*'), outcome, a record (object + recordId), a pending " +
     "action (pendingActionId: its queued request and applied result) and a date range (from " +
     "inclusive, to exclusive). Each entry includes its field diffs. Admins only. " +
     "Read-only.",
   input: z.object({
     userId: z.string().max(64).optional(),
-    actor: z.enum(ACTORS).optional(),
+    actor: z.enum(ALL_ACTORS).optional(),
     operation: z
       .string()
       .max(100)
@@ -82,8 +89,11 @@ export const auditList = defineOperation({
     let query = ctx.db
       .selectFrom("core_audit as a")
       .leftJoin("core_user as u", "u.id", "a.user_id")
+      .leftJoin(customerAccounts, (join) =>
+        join.onRef("cu.id", "=", "a.user_id").on("a.actor", "=", "customer"),
+      )
       .selectAll("a")
-      .select("u.name as user_name");
+      .select(userName);
     // Policy adjudicator verdicts are for people only (ADR 0204): an admin's MCP client or the
     // assistant never reads them, so the actor whose work was judged cannot learn the verdicts.
     if (ctx.actor !== "human") query = query.where("a.operation", "<>", VERDICT_OPERATION);
@@ -206,6 +216,9 @@ export const auditListForRecord = defineOperation({
       .selectFrom("core_audit_changes as c")
       .innerJoin("core_audit as a", "a.id", "c.audit_id")
       .leftJoin("core_user as u", "u.id", "a.user_id")
+      .leftJoin(customerAccounts, (join) =>
+        join.onRef("cu.id", "=", "a.user_id").on("a.actor", "=", "customer"),
+      )
       .select([
         "c.id",
         "c.audit_id",
@@ -215,7 +228,7 @@ export const auditListForRecord = defineOperation({
         "a.operation",
         "a.actor",
         "a.user_id",
-        "u.name as user_name",
+        userName,
       ])
       .where("c.object_type", "=", input.object)
       .where("c.record_id", "=", input.recordId);

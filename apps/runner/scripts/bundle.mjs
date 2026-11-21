@@ -15,29 +15,22 @@
 // Writes src/generated/{shipped,sdk-types,runtime-meta}.ts, sdk-bundle.txt, checker.txt and
 // typescript.{js,d.ts} (gitignored). Runs before typecheck, test, dev and build (see package.json).
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import ts from "typescript";
+import {
+  buildSdkTypes,
+  sdkBundleOptions,
+} from "../../../packages/extension-check/src/sdk-artifacts.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
 const out = join(here, "..", "src", "generated");
 
-const sdk = await build({
-  entryPoints: [join(root, "packages", "sdk", "src", "index.ts")],
-  bundle: true,
-  format: "esm",
-  platform: "neutral",
-  target: "es2022",
-  minify: true,
-  write: false,
-  legalComments: "none",
-  mainFields: ["module", "main"],
-  conditions: ["import", "default"],
-});
+const sdk = await build(sdkBundleOptions(join(root, "packages", "sdk", "src", "index.ts")));
 const sdkSource = sdk.outputFiles[0].text;
 
 async function sourceFiles(dir, base = dir) {
@@ -88,80 +81,9 @@ for (const entry of (await readdir(extensionsDir, { withFileTypes: true })).sort
 // 3. The declarations the in-Worker type checker needs (src/extensions/typecheck.ts): @composable-os/sdk's
 //    .d.ts (emitted from packages/sdk/src), the zod .d.ts files they reach, and the ES2022 lib
 //    files (no DOM), comments stripped, at virtual paths, plus every import's resolution between
-//    them, so the Worker needs no module resolution of its own for these files.
-const sdkTypes = (() => {
-  const sdkSrc = realpathSync(join(root, "packages", "sdk", "src"));
-  const program = ts.createProgram([join(sdkSrc, "index.ts")], {
-    target: ts.ScriptTarget.ES2022,
-    lib: ["lib.es2022.d.ts"],
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    allowImportingTsExtensions: true,
-    strict: true,
-    skipLibCheck: true,
-    types: [],
-    declaration: true,
-    emitDeclarationOnly: true,
-    removeComments: true,
-  });
-  const errors = ts.getPreEmitDiagnostics(program);
-  if (errors.length) {
-    throw new Error(
-      ts.formatDiagnostics(errors, {
-        getCanonicalFileName: (f) => f,
-        getCurrentDirectory: () => root,
-        getNewLine: () => "\n",
-      }),
-    );
-  }
-  const emitted = {};
-  program.emit(undefined, (fileName, text) => {
-    emitted[fileName] = text;
-  });
-  const printer = ts.createPrinter({ removeComments: true });
-  const strip = (sf) => printer.printFile(sf);
-  const toVirtual = (real) => {
-    if (real.startsWith(`${sdkSrc}/`) && real.endsWith(".ts") && !real.endsWith(".d.ts")) {
-      return `/sdk/${relative(sdkSrc, real).replace(/\.ts$/, ".d.ts")}`;
-    }
-    const zod = real.indexOf("/node_modules/zod/");
-    if (zod !== -1) return real.slice(zod);
-    throw new Error(`typecheck declarations: unexpected file ${real}`);
-  };
-  const files = {};
-  const sources = []; // [virtual path, real path the imports resolve from, text]
-  for (const sf of program.getSourceFiles()) {
-    if (program.isSourceFileDefaultLibrary(sf)) {
-      files[`/lib/${basename(sf.fileName)}`] = strip(sf);
-      continue;
-    }
-    const virtual = toVirtual(sf.fileName);
-    const text = virtual.startsWith("/sdk/")
-      ? emitted[sf.fileName.replace(/\.ts$/, ".d.ts")]
-      : strip(sf);
-    if (text === undefined) throw new Error(`typecheck declarations: no .d.ts for ${sf.fileName}`);
-    files[virtual] = text;
-    sources.push([virtual, sf.fileName, text]);
-  }
-  const resolutions = {};
-  for (const [virtual, real, text] of sources) {
-    const info = ts.preProcessFile(text, true, true);
-    if (info.referencedFiles.length || info.typeReferenceDirectives.length) {
-      throw new Error(`typecheck declarations: ${virtual} has reference directives`);
-    }
-    const map = {};
-    for (const { fileName: specifier } of info.importedFiles) {
-      const resolved = ts.resolveModuleName(specifier, real, program.getCompilerOptions(), ts.sys)
-        .resolvedModule?.resolvedFileName;
-      if (!resolved) throw new Error(`typecheck declarations: ${specifier} from ${real}`);
-      const target = toVirtual(realpathSync(resolved));
-      if (!Object.hasOwn(files, target)) throw new Error(`typecheck declarations: ${target}`);
-      map[specifier] = target;
-    }
-    if (Object.keys(map).length) resolutions[virtual] = map;
-  }
-  return { entry: "/sdk/index.d.ts", files, resolutions };
-})();
+//    them, so the Worker needs no module resolution of its own for these files. Built by the
+//    code `cos ext check` uses (packages/extension-check/src/sdk-artifacts.ts).
+const sdkTypes = buildSdkTypes(ts, join(root, "packages", "sdk", "src"));
 const sdkTypesJson = JSON.stringify(sdkTypes);
 
 // 4. The TypeScript compiler as an ES module for the Worker, minified. typescript.js picks Node's
@@ -250,7 +172,7 @@ const sucraseVersion = pkgVersion("sucrase");
 const runtimeHash = sha(
   sdkSource,
   sucraseVersion,
-  readFileSync(join(here, "..", "src", "extensions", "build.ts"), "utf8"),
+  readFileSync(join(root, "packages", "extension-check", "src", "build.ts"), "utf8"),
   readFileSync(join(here, "..", "src", "executor", "worker-code.ts"), "utf8"),
 );
 await writeFile(

@@ -16,6 +16,7 @@ import {
   coreOperations,
   type EventSink,
   invokeByName,
+  type OutsidePrincipal,
   PendingApprovalError,
   type Permission,
   parseFloor,
@@ -104,6 +105,12 @@ export interface RunState {
   deadline: number;
   logs: RunLog[];
   operations: RunOperation[];
+  /**
+   * Set when a customer or the public called the tool (ADR 0414): the run acts as that
+   * principal. Its operation calls go through the pipeline's outside path, and it has no host
+   * module but `ops`, `storage` and `log`.
+   */
+  outside?: { principal: OutsidePrincipal; tool: string };
 }
 
 type Envelope =
@@ -155,6 +162,11 @@ export class RunHost extends RpcTarget {
       throw new Error(`codemode:${module} has no ${method}`);
     }
     const list = Array.isArray(args) ? args : [];
+    // A tool running for a customer sends nothing out and spends no model budget for them: it
+    // reads and writes that customer's records, and keeps its own state.
+    if (run.outside && module !== "ops" && module !== "storage" && module !== "log") {
+      throw new Error(`codemode:${module} is not available in a tool called by a customer`);
+    }
     switch (module) {
       case "ops":
         if (run.code) return this.#codeCall(run.code, list);
@@ -180,14 +192,24 @@ export class RunHost extends RpcTarget {
     const operation = String(name);
     let reply: Envelope;
     try {
-      const value = await invokeByName(operation, input ?? {}, {
-        actor: "extension",
-        user: run.user,
-        origin: { surface: "extension", extensionId: run.extensionId },
-        db: createCrmDb(this.#env.DB),
-        floor: parseFloor(this.#env.APPROVAL_FLOOR),
-        extension: { id: run.extensionId, permissions: run.permissions },
-      });
+      const value = run.outside
+        ? // As the customer who called the tool, never as the extension: the same principal and
+          // the same seam, so which records the tool reaches is the host's decision.
+          await invokeByName(operation, input ?? {}, {
+            principal: run.outside.principal,
+            tool: { extension: run.extensionId, tool: run.outside.tool },
+            origin: { surface: "extension", extensionId: run.extensionId },
+            db: createCrmDb(this.#env.DB),
+            floor: parseFloor(this.#env.APPROVAL_FLOOR),
+          })
+        : await invokeByName(operation, input ?? {}, {
+            actor: "extension",
+            user: run.user,
+            origin: { surface: "extension", extensionId: run.extensionId },
+            db: createCrmDb(this.#env.DB),
+            floor: parseFloor(this.#env.APPROVAL_FLOOR),
+            extension: { id: run.extensionId, permissions: run.permissions },
+          });
       reply = { ok: true, value };
     } catch (error) {
       reply = errorEnvelope(error);

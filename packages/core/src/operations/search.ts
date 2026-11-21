@@ -1,11 +1,11 @@
 // search.global: Cmd-K search over people, organisations, activities and tasks, using the FTS5
 // index core_search (migration 0006). Every query word is a prefix match, so it works as you type.
-import type { CoreDatabase } from "@composable-os/db";
-import { type Kysely, sql } from "kysely";
+import { sql } from "kysely";
 import { z } from "zod";
 import { getObject, isCoreObject, listObjects } from "../fields/index.ts";
 import { defineOperation } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
+import { type Reader, visibleSource } from "../visibility/index.ts";
 
 export const SEARCH_OBJECTS = ["person", "organisation", "activity", "task"] as const;
 export type SearchObject = (typeof SEARCH_OBJECTS)[number];
@@ -94,9 +94,10 @@ interface Display {
 
 /** Titles and subtitles from the rec_* views (live records only), keyed `object:id`. */
 export async function loadDisplays(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   ids: Map<string, string[]>,
 ): Promise<Map<string, Display>> {
+  const { db } = reader;
   const out = new Map<string, Display>();
   const tasks: Promise<void>[] = [];
   for (const [type, list] of ids) {
@@ -106,7 +107,7 @@ export async function loadDisplays(
     if (!title) continue;
     tasks.push(
       sql<{ id: string; title: string | null }>`
-        SELECT id, ${sql.ref(title)} AS title FROM ${sql.table(object.source)}
+        SELECT id, ${sql.ref(title)} AS title FROM ${visibleSource(reader, object)}
         WHERE id IN ${jsonList(list)}
       `
         .execute(db)
@@ -121,7 +122,7 @@ export async function loadDisplays(
   if (people?.length) {
     tasks.push(
       db
-        .selectFrom("rec_person")
+        .selectFrom(visibleSource(reader, "person"))
         .select(["id", "display_name", "primary_email", "job_title", "organisation_name"])
         .where("id", "in", jsonList(people))
         .execute()
@@ -140,7 +141,7 @@ export async function loadDisplays(
   if (orgs?.length) {
     tasks.push(
       db
-        .selectFrom("rec_organisation")
+        .selectFrom(visibleSource(reader, "organisation"))
         .select(["id", "name", "primary_domain", "industry"])
         .where("id", "in", jsonList(orgs))
         .execute()
@@ -156,7 +157,7 @@ export async function loadDisplays(
   if (activities?.length) {
     tasks.push(
       db
-        .selectFrom("rec_activity")
+        .selectFrom(visibleSource(reader, "activity"))
         .select(["id", "type", "subject", "body", "occurred_at"])
         .where("id", "in", jsonList(activities))
         .execute()
@@ -176,7 +177,7 @@ export async function loadDisplays(
   if (taskIds?.length) {
     tasks.push(
       db
-        .selectFrom("rec_task")
+        .selectFrom(visibleSource(reader, "task"))
         .select(["id", "title", "status", "due_at"])
         .where("id", "in", jsonList(taskIds))
         .execute()
@@ -241,7 +242,7 @@ export const searchGlobal = defineOperation({
     const ids = new Map<string, string[]>();
     for (const m of matches.rows)
       ids.set(m.object_type, [...(ids.get(m.object_type) ?? []), m.record_id]);
-    const displays = await loadDisplays(ctx.db, ids);
+    const displays = await loadDisplays(ctx, ids);
 
     const hits: SearchHit[] = [];
     for (const m of matches.rows) {

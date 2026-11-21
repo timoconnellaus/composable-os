@@ -71,3 +71,11 @@ Option 4.
 - Vector search may return fewer than `topK` results for very restricted users.
 - Extension objects need a declared owner field to be restrictable; the contract gains `owner`.
 - Automations act org-wide; their notifications are filtered by recipient.
+
+## Note, 2026-11-20: the first door is built (stage 22)
+Stage 22 built `packages/core/src/visibility/` with door 1 (`visibleSource`), ahead of stage 14a,
+because customers need it ([ADR 0402](0402-staff-and-customers.md)). The views are now `rec_*`,
+not `crm_*`. Staff have the scope `all`, so nothing changed for them. What was built, what moved
+onto the seam and what is still listed as outside it is in
+[ADR 0410](0410-the-seams-first-door-as-built.md). Doors 2 and 3, staff scopes and the
+registry-wide test for staff are still stage 14a's, on the same seam.

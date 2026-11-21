@@ -1,6 +1,6 @@
 // The invocation pipeline (ADR 0016, ADR 0011, ADR 0017, ADR 0018, ADR 0022):
 //
-//   validate input → actor + role (+ token scope) check → gate → handler → timeline → audit
+//   audience → validate input → actor + role (+ token scope) check → gate → handler → timeline → audit
 //
 // The handler's queued writes, the timeline activities and the audit rows commit together in one
 // D1 batch (one transaction). Refusals (role, actor, gate) and failures are audited separately.
@@ -26,6 +26,7 @@ import { isAssignmentConflict } from "./assignment/index.ts";
 import type { AgentJobHost } from "./assistant/agent-jobs.ts";
 import { type GrantGuard, outsideSession } from "./assistant/grants.ts";
 import type { AssistantThreadStore } from "./assistant/threads.ts";
+import { allowsAudience, OUTSIDE_RISK_CLASSES } from "./audiences.ts";
 import { eventOriginOf, isBulkOperation, recordEventMessages } from "./automations/events.ts";
 import {
   deliverOutbox,
@@ -35,6 +36,7 @@ import {
 } from "./automations/outbox.ts";
 import type { TestSimulation } from "./automations/simulate.ts";
 import type { AutomationHost, EventSink } from "./automations/types.ts";
+import { checkOutsideRateLimit } from "./customers/limits.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
 import { diffRecords, type FieldDiff } from "./diff.ts";
 import {
@@ -49,8 +51,15 @@ import {
 } from "./errors.ts";
 import type { ExtensionHost } from "./extensions/host.ts";
 import { refreshSchemaRegistry } from "./extensions/schema.ts";
+import { loadOpenTool } from "./extensions/tools.ts";
 import { getObject, isCoreObject } from "./fields/index.ts";
-import { evaluateGate, type GateDecision, type GateFloor, type GateResult } from "./gate.ts";
+import {
+  evaluateGate,
+  evaluateOutsideGate,
+  type GateDecision,
+  type GateFloor,
+  type GateResult,
+} from "./gate.ts";
 import { findProvisionalIds, newId } from "./ids.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
 import type { Judge } from "./judge/types.ts";
@@ -65,6 +74,7 @@ import {
   type ExtensionCaller,
   type HandlerContext,
   isAfterCommit,
+  isHostTool,
   type OperationOutput,
   type RecordChange,
   runAfterCommit,
@@ -72,19 +82,34 @@ import {
 } from "./operation.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
 import {
+  ACTORS,
   type ActingUser,
   type Actor,
   type Origin,
+  type OutsideActor,
+  type OutsidePrincipal,
   originSchema,
   type Permission,
   roleHasPermission,
+  staffPrincipal,
 } from "./principals.ts";
+import type { RateLimitBinding } from "./rate-limit.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { loadApprovalPolicy } from "./settings.ts";
 import type { UpdaterRuntime } from "./updates.ts";
+import { orgReader } from "./visibility/index.ts";
+import { recordAccess } from "./visibility/records.ts";
+import {
+  assertVisibleWrites,
+  createVisible,
+  type SeamWriter,
+  updateVisible,
+} from "./visibility/writes.ts";
 
 /** Everything an adapter supplies for one call. */
 export interface InvocationContext {
+  /** Never set on a staff call: a customer's or the public's call is an OutsideInvocationContext. */
+  principal?: undefined;
   actor: Actor;
   /** The CRM user the call acts for (see resolveActingUser). */
   user: ActingUser;
@@ -214,7 +239,7 @@ async function loadExtensionCaller(db: CrmDb, userId: string): Promise<Extension
 
 /** The object an operation reads or writes, for extension permission checks. */
 export function operationObject(op: AnyOperation, input: unknown): string | null {
-  if (op.name.startsWith("record.")) {
+  if (op.name.startsWith("record.") || op.name.startsWith("my.")) {
     const object = (input as { object?: unknown } | null)?.object;
     return typeof object === "string" ? object : null;
   }
@@ -405,7 +430,7 @@ async function auditAlone(row: AuditRow): Promise<void> {
 
 function activityStatements(
   db: CrmDb,
-  ctx: InvocationContext,
+  author: { userId: string | null; actor: Actor | OutsideActor },
   now: string,
   id: string,
   activity: SystemActivityInput,
@@ -418,9 +443,13 @@ function activityStatements(
       body: activity.body ?? null,
       payload: JSON.stringify(activity.payload),
       occurred_at: activity.occurredAt ?? now,
-      author_user_id: ctx.user.id,
-      // core_activity.author_actor predates the extension actor; extension posts are `system`.
-      author_actor: ctx.actor === "extension" ? "system" : ctx.actor,
+      author_user_id: author.userId,
+      // core_activity.author_actor predates the extension actor; extension posts are `system`,
+      // and so are posts from a customer's or the public's call (no staff user wrote them).
+      author_actor:
+        author.actor === "extension" || author.actor === "customer" || author.actor === "public"
+          ? "system"
+          : author.actor,
       created_at: now,
       updated_at: now,
     }),
@@ -531,8 +560,15 @@ class AssignmentRetry extends Error {
 export async function invokeOperation<O extends AnyOperation>(
   op: O,
   rawInput: unknown,
-  ctx: InvocationContext,
+  ctx: AnyInvocationContext,
 ): Promise<OperationOutput<O>> {
+  // A call for a customer or the public takes its own short path: no role, no queue, no
+  // staff capabilities (invokeOutside below). Which path is decided by the context's shape,
+  // set by the adapter from the session it verified, never by anything in the input.
+  if (isOutside(ctx)) return invokeOutside(op, rawInput, ctx);
+  if ((ctx as { principal?: unknown }).principal !== undefined || !ctx.user) {
+    throw new OperationError("internal", "An invocation is for staff or for a principal, not both");
+  }
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await invokeOnce(op, rawInput, ctx, attempt);
@@ -549,6 +585,13 @@ async function invokeOnce<O extends AnyOperation>(
   attempt: number,
 ): Promise<OperationOutput<O>> {
   const now = (ctx.clock?.() ?? new Date()).toISOString();
+  // Audience first (ADR 0402, ADR 0411): a caller the operation is not open to gets the answer
+  // an unknown name gets, before the input is looked at, so nothing tells them it exists.
+  // The audit log holds any text as its actor since migration 0400: it is checked here instead.
+  if (!(ACTORS as readonly string[]).includes(ctx.actor)) {
+    throw new OperationError("internal", "Unknown actor");
+  }
+  if (!allowsAudience(op, staffPrincipal(ctx.user))) throw new UnknownOperationError(op.name);
   const parsed = op.input.safeParse(rawInput);
   if (!parsed.success) {
     throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });
@@ -653,6 +696,8 @@ async function invokeOnce<O extends AnyOperation>(
     operation: op.name,
     actor: ctx.actor,
     user: ctx.user,
+    principal: staffPrincipal(ctx.user),
+    records: recordAccess({ db: ctx.db.query, principal: staffPrincipal(ctx.user) }),
     origin: ctx.origin,
     now,
     auditId,
@@ -668,7 +713,9 @@ async function invokeOnce<O extends AnyOperation>(
     },
     postActivity: (activity) => {
       const id = newId("activity");
-      activities.push(...activityStatements(ctx.db, ctx, now, id, activity));
+      activities.push(
+        ...activityStatements(ctx.db, { userId: ctx.user.id, actor: ctx.actor }, now, id, activity),
+      );
       return id;
     },
     afterCommit,
@@ -1220,5 +1267,477 @@ async function pendingApprovalNotice(
   } catch (error) {
     console.error("pending approval notice failed", error);
     return [];
+  }
+}
+
+// --- Calls from outside the org (ADR 0402, ADR 0412) ----------------------------------------------
+
+/**
+ * Everything an adapter supplies for one call by a customer or the public. It has no `user` and
+ * no `actor`: the principal is the whole identity, resolved by the adapter from a customer
+ * session (or the lack of one), and it carries no role and no staff capability.
+ */
+export interface OutsideInvocationContext {
+  principal: OutsidePrincipal;
+  db: CrmDb;
+  /** Where the call came from. Default `{ surface: "client" }`. */
+  origin?: Origin;
+  /** The deploy-time floor. It can only refuse: a floor that asks for review refuses. */
+  floor?: GateFloor;
+  clock?: () => Date;
+  /** As for staff calls: committed changes become automation events and embeddings. */
+  events?: EventSink;
+  embedViaEvents?: boolean;
+  onCommitted?: (event: CommitEvent) => void;
+  /**
+   * Set by the runner, and only by it, when the call is made by a pack's tool that this
+   * principal called (ADR 0414). The tool's operation calls are then the caller's own: the same
+   * principal, the same seam. The host reads what the tool may do from its installed manifest.
+   */
+  tool?: { extension: string; tool: string };
+  /** The extension runtime, so a tool open to this caller can run. */
+  extensionHost?: ExtensionHost;
+  /**
+   * The Workers Rate Limiting binding for calls from outside the org: a customer is limited per
+   * account and per operation (customers/limits.ts). Absent: not limited here.
+   */
+  rateLimit?: RateLimitBinding;
+  /** Never set: these make a context a staff one. */
+  user?: undefined;
+  actor?: undefined;
+}
+
+export type AnyInvocationContext = InvocationContext | OutsideInvocationContext;
+
+/** The plain members of a host context, without its throwing getters. */
+function pick(host: HandlerContext) {
+  const { origin, now, auditId, db, floor, grantedPermissions, write, recordChange, postActivity } =
+    host;
+  return {
+    operation: host.operation,
+    origin,
+    now,
+    auditId,
+    db,
+    floor,
+    grantedPermissions,
+    write,
+    recordChange,
+    postActivity,
+    afterCommit,
+  };
+}
+
+function isOutside(ctx: AnyInvocationContext): ctx is OutsideInvocationContext {
+  const c = ctx as { principal?: unknown; user?: unknown; actor?: unknown };
+  if (c.principal === undefined) return false;
+  // Fail closed on a context that claims both: it is never treated as staff.
+  if (c.user !== undefined || c.actor !== undefined) {
+    throw new OperationError("internal", "An invocation is for staff or for a principal, not both");
+  }
+  return true;
+}
+
+const ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** The principal as a plain, frozen value of a known kind, or a refusal. */
+function outsidePrincipal(value: unknown): OutsidePrincipal {
+  const p = (value ?? {}) as { kind?: unknown; customerId?: unknown; personId?: unknown };
+  if (p.kind === "public") return Object.freeze({ kind: "public" });
+  if (
+    p.kind === "customer" &&
+    typeof p.customerId === "string" &&
+    typeof p.personId === "string" &&
+    ID.test(p.customerId) &&
+    ID.test(p.personId)
+  ) {
+    return Object.freeze({ kind: "customer", customerId: p.customerId, personId: p.personId });
+  }
+  throw new OperationError("internal", "Not a customer or public principal");
+}
+
+/**
+ * What a caller outside the org is told when something fails. An error an operation raised on
+ * purpose goes out as it is. Anything else (a database error, a bug) goes out with its code and
+ * nothing more: no SQL, no column or constraint names.
+ */
+function outsideError(error: unknown): OperationError {
+  const internal = () => new OperationError("internal", "Internal error");
+  if (error instanceof OperationError) {
+    // Even one the host raised itself: an internal error's words are for the log, not the caller.
+    if (error.code !== "internal" && error.code !== "invalid_output") return error;
+    console.error("outside call failed", error.message);
+    return internal();
+  }
+  console.error("outside call failed", errorForLog(error));
+  const typed = toOperationError(error);
+  if (typed.code === "conflict")
+    return new ConflictError("A record with that value already exists");
+  if (typed.code === "invalid_input") return new ValidationError("A value is not allowed");
+  if (typed.code === "plan_limit") return typed;
+  return internal();
+}
+
+interface OutsideAudit {
+  id: string;
+  op: AnyOperation;
+  actor: OutsideActor;
+  /** The customer account, or null for the public. */
+  subjectId: string | null;
+  origin: Origin;
+  input: unknown;
+  at: string;
+  gate: GateDecision;
+  outcome: AuditOutcome;
+  result?: unknown;
+  error?: OperationError;
+}
+
+function outsideAuditInsert(db: CrmDb, row: OutsideAudit): Compilable {
+  return db.query.insertInto("core_audit").values({
+    id: row.id,
+    at: row.at,
+    operation: row.op.name,
+    risk: row.op.risk,
+    actor: row.actor,
+    user_id: row.subjectId,
+    origin: JSON.stringify(row.origin),
+    input: JSON.stringify(redactInput(row.input, row.op.redact) ?? null),
+    result: row.result === undefined ? null : JSON.stringify(row.result),
+    gate_decision: row.gate,
+    outcome: row.outcome,
+    error: row.error ? JSON.stringify(row.error.toJSON()) : null,
+    pending_action_id: null,
+  });
+}
+
+/**
+ * Runs one operation for a customer or the public:
+ *
+ *   audience → validate → gate (allow or refuse) → handler → write check at the seam → audit
+ *
+ * What it leaves out is the point. There is no role check, because a customer has no role: the
+ * audience is the permission, and the visibility seam decides which records. Nothing is queued
+ * for review. The handler gets no staff user, no staff actor, no nested invocation, and none of
+ * the model, integration or extension capabilities.
+ *
+ * Writes are audited with field diffs like any write. Successful reads are counted, not audited
+ * row by row (ADR 0090). A read that fails writes nothing: anyone can cause one.
+ */
+async function invokeOutside<O extends AnyOperation>(
+  op: O,
+  rawInput: unknown,
+  ctx: OutsideInvocationContext,
+): Promise<OperationOutput<O>> {
+  const principal = outsidePrincipal(ctx.principal);
+  const now = (ctx.clock?.() ?? new Date()).toISOString();
+  // The same answer as a name that is not registered, before the input is looked at.
+  if (!allowsAudience(op, principal)) throw new UnknownOperationError(op.name);
+  // Some operations exist for a customer only inside a tool they called (ADR 0414).
+  if (op.toolOnly && !ctx.tool) throw new UnknownOperationError(op.name);
+  // A call made by a pack's tool: what the tool may do comes from its installed manifest. A tool
+  // that is not installed, not shipped or not open to this caller can make no call at all, and a
+  // tool does not start another tool.
+  const tool = ctx.tool
+    ? await loadOpenTool(ctx.db.query, ctx.tool.extension, ctx.tool.tool)
+    : null;
+  if (ctx.tool && (!tool?.audiences.includes(principal.kind) || isHostTool(op))) {
+    throw new UnknownOperationError(op.name);
+  }
+  // Counted once the call is one this caller may make at all, and before any work is done for it.
+  // A tool's own calls are part of the one call that started the tool.
+  if (!ctx.tool) await checkOutsideRateLimit(ctx.rateLimit, principal, op.name);
+  const parsed = op.input.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });
+  }
+  if (ctx.tool && tool) {
+    // And only within the extension's own declared permissions, as for any of its calls.
+    const grant = checkGrant(ctx.tool.extension, tool.permissions, {
+      operation: op.name,
+      risk: op.risk,
+      object: operationObject(op, parsed.data),
+    });
+    if (!grant.ok) throw new ForbiddenError(grant.reason, { operation: op.name });
+  }
+  const actor: OutsideActor = principal.kind;
+  const subjectId = principal.kind === "customer" ? principal.customerId : null;
+  const origin = originSchema.parse(ctx.origin ?? { surface: "client" });
+  // `{ $relative: "me" }` in a customer's filter is their own Person.
+  const me = principal.kind === "customer" ? principal.personId : "";
+  const input: unknown = resolveInputFilter(op.name, parsed.data, me, now);
+  await refreshSchemaRegistry(ctx.db.query);
+
+  const isRead = op.risk === "read";
+  const auditId = newId("audit");
+  const base = { id: auditId, op, actor, subjectId, origin, input, at: now } as const;
+  const auditAloneOutside = async (row: OutsideAudit): Promise<void> => {
+    // Failed reads are not written down: a caller with no account could make any number.
+    if (isRead) return;
+    try {
+      await ctx.db.batch([outsideAuditInsert(ctx.db, row)]);
+    } catch (error) {
+      console.error("failed to write audit row", op.name, errorForLog(error));
+    }
+  };
+
+  // The gate allows or refuses (ADR 0402). The registry already refuses to load an operation
+  // above the risk floor that is open to these callers; this holds even if one got through.
+  const decision = evaluateOutsideGate(op.risk, ctx.floor);
+  if (decision !== "auto" || !OUTSIDE_RISK_CLASSES.includes(op.risk) || op.alwaysReview) {
+    const error = new GateDeniedError(`${op.name} is not available`);
+    await auditAloneOutside({ ...base, gate: "deny", outcome: "denied", error });
+    throw error;
+  }
+
+  const writes: (Compilable | CompiledQuery)[] = [];
+  const changes: RecordChange[] = [];
+  const activities: Compilable[] = [];
+  const staffOnly = (what: string): never => {
+    throw new OperationError(
+      "internal",
+      `${op.name} read ctx.${what}, which a call by a ${actor} caller does not have`,
+    );
+  };
+  const reader = { db: ctx.db.query, principal };
+  // What the host itself writes with, on the caller's behalf: the real database and write queue.
+  // It is given to the seam's write helpers and to `hostInternal` operations, and to nothing else.
+  const checkedBySeam = new Set<RecordChange>();
+  const host: HandlerContext = {
+    operation: op.name,
+    get actor() {
+      return staffOnly("actor");
+    },
+    get pipeline() {
+      return staffOnly("pipeline");
+    },
+    // Record code stamps who wrote a row: the customer account, or `public`.
+    user: { id: subjectId ?? "public", email: "", name: actor, role: "viewer" },
+    // The host's own reads while it writes (the row before, a relation's target) are org-wide.
+    principal: orgReader(ctx.db.query).principal,
+    origin,
+    now,
+    auditId,
+    db: ctx.db.query,
+    floor: ctx.floor ?? {},
+    grantedPermissions: [],
+    records: recordAccess(orgReader(ctx.db.query)),
+    write: (...statements) => {
+      writes.push(...statements);
+    },
+    recordChange: (change) => {
+      changes.push(change);
+    },
+    postActivity: (activity) => {
+      const id = newId("activity");
+      activities.push(...activityStatements(ctx.db, { userId: null, actor }, now, id, activity));
+      return id;
+    },
+    afterCommit,
+  };
+  const seam: SeamWriter = {
+    reader,
+    host,
+    widened: tool?.widened,
+    mark: (change) => {
+      checkedBySeam.add(change);
+    },
+  };
+  const records = recordAccess(reader, {
+    create: (object, values) => createVisible(seam, object, values),
+    update: (object, id, values) => updateVisible(seam, object, id, values),
+  });
+  // What the operation's own handler gets. Unless the operation is `hostInternal` (core
+  // bookkeeping that is not a record, ADR 0413) it has no database and no write queue: it reads
+  // and writes records through `ctx.records`, so it cannot read past the seam or write unseen.
+  const closed = (what: string): never => {
+    throw new OperationError(
+      "internal",
+      `${op.name} used ctx.${what} on a call by a ${actor} caller: use ctx.records, or mark a ` +
+        "core bookkeeping operation hostInternal",
+    );
+  };
+  // Host code keeps the database: a core bookkeeping operation, and the operation the host
+  // itself builds to start an extension tool (the tool's own code runs in the sandbox and calls
+  // back through this same path).
+  const hostTool = isHostTool(op);
+  const hostInternal = (op.hostInternal === true && !op.name.startsWith("x.")) || hostTool;
+  const handlerCtx: HandlerContext = hostInternal
+    ? {
+        ...pick(host),
+        ...(hostTool && ctx.extensionHost ? { extensionHost: ctx.extensionHost } : {}),
+        get actor() {
+          return staffOnly("actor");
+        },
+        get user() {
+          return staffOnly("user");
+        },
+        get pipeline() {
+          return staffOnly("pipeline");
+        },
+        principal,
+        records,
+      }
+    : {
+        operation: op.name,
+        get actor() {
+          return staffOnly("actor");
+        },
+        get user() {
+          return staffOnly("user");
+        },
+        get pipeline() {
+          return staffOnly("pipeline");
+        },
+        get db() {
+          return closed("db");
+        },
+        principal,
+        origin,
+        now,
+        auditId,
+        floor: ctx.floor ?? {},
+        grantedPermissions: [],
+        records,
+        write: () => closed("write"),
+        recordChange: () => closed("recordChange"),
+        postActivity: () => closed("postActivity"),
+        afterCommit,
+      };
+
+  const fail = async (error: unknown): Promise<never> => {
+    const typed = outsideError(error);
+    await auditAloneOutside({ ...base, gate: "auto", outcome: "error", error: typed });
+    throw typed;
+  };
+
+  let result: unknown;
+  try {
+    result = await op.handler(input, handlerCtx);
+    if (isRead && (writes.length || changes.length || activities.length)) {
+      throw new OperationError("internal", `${op.name} is a read but queued writes`);
+    }
+    // The seam has the last word on every record the call would change.
+    await assertVisibleWrites(reader, changes, checkedBySeam);
+  } catch (error) {
+    return fail(error);
+  }
+
+  const deferred = isAfterCommit(result) ? result : null;
+  let output: unknown;
+  if (!deferred) {
+    const checked = op.output.safeParse(result);
+    if (!checked.success) return fail(new OperationError("invalid_output", "Internal error"));
+    output = checked.data;
+  }
+
+  const statements: (Compilable | CompiledQuery)[] = [...writes];
+  const changeRows: { o: string; r: string; a: string; d: string }[] = [];
+  for (const change of changes) {
+    const diff = change.diff ?? diffRecords(change.before, change.after);
+    const timeline = timelineActivity(op.name, change, diff);
+    if (timeline) host.postActivity(timeline);
+    changeRows.push({ o: change.object, r: change.id, a: change.action, d: JSON.stringify(diff) });
+  }
+  statements.push(...activities);
+  const embedding =
+    isRead || SELF_ENQUEUEING.has(op.name) || (ctx.events && ctx.embedViaEvents)
+      ? null
+      : embeddingQueueStatement(ctx.db.query, changes, now);
+  if (embedding) statements.push(embedding);
+
+  if (!isRead) {
+    const summary =
+      op.auditSummary && !deferred
+        ? op.auditSummary(output, input)
+        : defaultSummary(output, changes);
+    statements.push(
+      outsideAuditInsert(ctx.db, { ...base, gate: "auto", outcome: "ok", result: summary ?? null }),
+      ...auditChangeInserts(ctx.db, auditId, now, changeRows),
+    );
+  }
+
+  let outbox: OutboxEntry[] = [];
+  if (ctx.events && changes.length) {
+    const eventOrigin = eventOriginOf({
+      actor,
+      userId: subjectId ?? "",
+      origin,
+      operation: op.name,
+      auditId,
+      bulk: false,
+    });
+    outbox = outboxEntries(recordEventMessages(auditId, now, eventOrigin, changes));
+    statements.push(...outboxInserts(ctx.db, outbox, now));
+  }
+
+  if (statements.length) {
+    try {
+      await ctx.db.batch(statements);
+    } catch (error) {
+      return fail(error);
+    }
+  }
+  if (isRead) await countOutsideRead(ctx.db, op, actor, subjectId, now);
+
+  if (statements.length && ctx.onCommitted) {
+    try {
+      ctx.onCommitted({
+        operation: op.name,
+        changes: changes.map(({ object, id, action }) => ({ object, id, action })),
+        embeddingsQueued: Boolean(embedding),
+      });
+    } catch (error) {
+      console.error("post-commit hook failed", op.name, errorForLog(error));
+    }
+  }
+  if (ctx.events && outbox.length) await deliverOutbox(ctx.db, ctx.events, outbox);
+
+  if (deferred) {
+    let late: unknown;
+    try {
+      late = await runAfterCommit(deferred);
+    } catch (error) {
+      throw outsideError(error);
+    }
+    const checked = op.output.safeParse(late);
+    if (!checked.success) throw new OperationError("invalid_output", "Internal error");
+    output = checked.data;
+  }
+  return output as OperationOutput<O>;
+}
+
+/** Counts one successful read by a customer or the public (ADR 0090). Never throws. */
+async function countOutsideRead(
+  db: CrmDb,
+  op: AnyOperation,
+  actor: OutsideActor,
+  subjectId: string | null,
+  at: string,
+): Promise<void> {
+  try {
+    await db.batch([
+      db.query
+        .insertInto("core_audit_read_counts")
+        .values({
+          hour: readCountHour(at),
+          actor,
+          user_id: subjectId ?? "",
+          caller: "",
+          operation: op.name,
+          count: 1,
+          simulated: 0,
+          first_at: at,
+          last_at: at,
+        })
+        .onConflict((oc) =>
+          oc.columns(["hour", "actor", "user_id", "caller", "operation"]).doUpdateSet((eb) => ({
+            count: eb("core_audit_read_counts.count", "+", 1),
+            last_at: sql<string>`max(core_audit_read_counts.last_at, excluded.last_at)`,
+          })),
+        ),
+    ]);
+  } catch (error) {
+    console.error("failed to count read", op.name, errorForLog(error));
   }
 }

@@ -34,6 +34,7 @@ import {
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { roleHasPermission } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
+import { type Reader, visibleSource } from "../visibility/index.ts";
 
 const recordId = z
   .string()
@@ -188,12 +189,13 @@ function groupPairs(pairs: PairRow[]): PairRow[][] {
 type Member = z.infer<typeof memberSchema>;
 
 async function loadMembers(
-  db: Kysely<CoreDatabase>,
+  reader: Reader,
   object: DuplicateObject,
   ids: string[],
 ): Promise<Map<string, Member>> {
   const out = new Map<string, Member>();
   if (!ids.length) return out;
+  const { db } = reader;
   const list = jsonList(ids);
   const counts = await db
     .selectFrom("core_activity_links")
@@ -205,7 +207,7 @@ async function loadMembers(
   const activity = new Map(counts.map((c) => [c.record_id, Number(c.n)]));
   if (object === "person") {
     const rows = await db
-      .selectFrom("rec_person")
+      .selectFrom(visibleSource(reader, "person"))
       .select([
         "id",
         "display_name",
@@ -240,7 +242,7 @@ async function loadMembers(
     }
   } else {
     const rows = await db
-      .selectFrom("rec_organisation")
+      .selectFrom(visibleSource(reader, "organisation"))
       .select([
         "id",
         "name",
@@ -337,7 +339,7 @@ export const duplicateList = defineOperation({
     ];
     const page = all.slice(0, input.limit);
     const ids = [...new Set(page.flatMap(({ g }) => g.flatMap((p) => [p.a_id, p.b_id])))];
-    const members = await loadMembers(ctx.db, input.object, ids);
+    const members = await loadMembers(ctx, input.object, ids);
     const groups = page.flatMap(({ kind, g }) => {
       const memberIds = [...new Set(g.flatMap((p) => [p.a_id, p.b_id]))].sort();
       const list = memberIds.map((id) => members.get(id)).filter((m): m is Member => !!m);

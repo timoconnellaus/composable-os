@@ -36,6 +36,7 @@ import { EmptyState } from "#/components/empty-state";
 import { ExtensionFieldsCards } from "#/components/fields/fields-card";
 import { useEnrichAction } from "#/components/integrations/enrich-action";
 import { useMergeAction } from "#/components/merge/merge-action";
+import { CustomerAccountCard } from "#/components/people/customer-account-card";
 import { PersonDetailsCard } from "#/components/people/person-details-card";
 import {
   type ActivityType,
@@ -135,6 +136,8 @@ function PersonRecord({
   onTabChange: (tab: string) => void;
 }) {
   const deleted = Boolean(person.deletedAt);
+  // customer.list is admins only: other users never see the customer account card.
+  const { isAdmin } = Route.useRouteContext();
   const [types, setTypes] = useState<ActivityType[]>([]);
   const timeline = useTimeline("person", person.id, { types });
   const recordViews = useRecordViews("person", person.id);
@@ -296,6 +299,7 @@ function PersonRecord({
         side={
           <>
             <PersonDetailsCard person={person} readOnly={deleted} />
+            {isAdmin && <CustomerAccountCard personId={person.id} />}
             <RecordSummaryCard object="person" id={person.id} />
             {recordViews.panels}
             <RecordAutomationsCard object={"person"} id={person.id} />

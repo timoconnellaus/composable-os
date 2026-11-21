@@ -533,7 +533,9 @@ never loses an event.
 
 **Principal**
 The authenticated caller of a request: `{ userId, email, name, roles }`, resolved by the identity
-adapter for every route and server function.
+adapter for every route and server function. In the operation layer the principal is one of three
+kinds, one per audience: `staff` (a user and their role), `customer` (a customer account and its
+Person) or `public` (no account). A handler reads it as `ctx.principal` (stage 22, ADR 0412).
 _Avoid_: user (when you mean the caller of a request), session
 
 **Identity adapter**
@@ -867,7 +869,23 @@ The repository holding one product's client apps, its own extensions and its pro
 Started from the template, not a fork of the platform (stage 24).
 
 **Audience**
-Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402).
+Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402). An operation
+lists its audiences, staff only when it lists none. A caller outside them gets the answer an
+unknown operation gets (ADR 0411).
+
+**Open operation**
+An operation that lists `customer` or `public`. It is a `read` or a `write`, never more, and is
+named in the generated `packages/core/open-operations.json` (ADR 0411).
+
+**Visibility seam**
+`packages/core/src/visibility/`: the one place that decides which records, and which fields of
+them, a caller may read or change. Every read of a record takes its source from it
+(`visibleSource`). Staff see everything; a customer sees the rows whose customer field is their
+own Person and the fields the object lists (ADRs 0244, 0410, 0412).
+_Avoid_: row-level security (the database has none; the seam is in the host)
+
+**Scope**
+What the visibility seam gives one caller of one object: `all`, `customer` or `none`.
 
 **Staff**
 A signed-in user of the org with a role. Every user of the existing code is staff.
@@ -882,6 +900,25 @@ repo a client is the company a product is built for)
 
 **Public**
 A caller with no account: a visitor reading a published page or starting a checkout (stage 22).
+
+**Customer account**
+What a customer signs in to: a row of `core_customer` linked to exactly one Person, with sessions
+of its own. Never a `core_user`, never a role. A human who is both staff and a customer has two
+accounts and nothing links them (stage 22).
+_Avoid_: user (a user is staff), login
+
+**Erase request**
+What deleting a customer account leaves for staff: the Person, when it was asked and when it is
+due. Staff erase the person or decline with a reason; either closes it (stage 22).
+
+**Host-internal operation**
+A core operation open to customers or the public whose handler keeps the raw database, for
+account and session bookkeeping that is not a record. Marked `hostInternal`, shown in the
+generated list (ADR 0413).
+
+**Tool-only operation**
+An operation a customer reaches only from inside a pack's tool they called: `my.create` and
+`my.update` (ADR 0414).
 
 **Surface**
 A way an operation is reached from its one definition: server function, MCP tool, host module,
@@ -905,6 +942,18 @@ spends one (later; ADR 0404).
 _Avoid_: entitlement (a hosted plan's limits, ADR 0211), credit (account credit is money)
 
 **Skill**
-Installable instructions for an agent building on the platform, in `skills/`, versioned with the
-contract and ending in a checker (stage 21, ADR 0405). Not the skills a plugin bundles for the
-in-app assistant (ADR 0347).
+Instructions for an agent building on the platform: a folder in `skills/` with a `SKILL.md` (plain
+Markdown, linked into `.claude/skills/` and pointed at from `AGENTS.md`), in four parts: when to
+use it, the steps, the rules, the check command. It points at code and at Deals and does not copy
+them. The two there are `write-extension` and `add-automations-tools-dashboards`. Skills carry the
+contract version they describe (`skills/CONTRACT_VERSION`), and `pnpm lint` fails when the SDK's
+differs (stage 21, ADR 0405). Not the skills a plugin bundles for the in-app assistant (ADR 0347).
+
+**Extension check (`cos ext check`)**
+`cos ext check <dir>` runs on a directory, outside a deployment, what `extension.check` runs
+inside one: allowed imports, the type check against the SDK, the contract, formulas, automations
+and a dry-run reconcile, here against an empty local database with the core schema. Both call the
+same code (`@composable-os/extension-check` for source, `checkEvaluated` in core for the
+manifest), so the same source gives the same issues. `cos ext test <dir>` runs the extension's
+tests and first refuses an extension with a tool or automation that no test names. In the
+repository: `pnpm cos ext check extensions/<id>`.
