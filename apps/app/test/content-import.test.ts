@@ -29,7 +29,7 @@ import {
   runImport,
 } from "../../../packages/create-composable-os/src/content-import/engine.ts";
 import { readFolder } from "../../../packages/create-composable-os/src/content-import/format.ts";
-import { sessionHost } from "../../../packages/create-composable-os/src/content-import/run.ts";
+import { sessionHost } from "../../../packages/create-composable-os/src/content-import/host.ts";
 import content from "../../../packs/content/index.ts";
 import { apiContext, handleApi } from "../src/server/http/api.ts";
 import { mediaStoreFor } from "../src/server/media.ts";
@@ -347,7 +347,7 @@ describe("the upload route takes a person's staff device token only (ADR 0470)",
       new Request(`${ORIGIN}/api/v1/media?name=x.png`, {
         method: "POST",
         headers: { "content-type": "application/octet-stream", ...headers },
-        body: bytes,
+        body: new Blob([new Uint8Array(bytes)]),
       }),
     );
 
