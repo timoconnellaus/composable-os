@@ -1,0 +1,11 @@
+{
+  "name": "content-native-rich-text",
+  "pack": "content",
+  "skin": "native",
+  "operations": [],
+  "files": ["rich-text-view.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-content": "*"
+  }
+}
