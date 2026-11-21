@@ -42,3 +42,13 @@ approve will call are described in [ADR 0040](0040-extension-runtime-build.md).
   stable id per extension, commit and host-module set). Run state lives only in the per-run host.
 - **Code Mode** needs `records:write`. It runs one script per user at a time, and is rate limited
   per user.
+
+## Amendment, 2026-11-21 (stage 27): what counts towards quarantine
+A failed tool run counts towards the 3 consecutive failures only when it is the extension's
+doing: a crash, a timeout, an output that does not match its schema, a build failure, or an
+error the host does not recognise as the caller's. An operation error the tool lets escape that
+is the caller's or the data's doing (`invalid_input`, `not_found`, `conflict`, `forbidden`,
+`rate_limited`, and an unknown tool) does not: it says nothing about the code, and counting it
+would let any caller, the public included, quarantine a pack by asking for what is not there
+(`CALLER_ERRORS` in `apps/runner/src/executor/executor.ts`). A run that ends in one does not
+reset the counter either. Automation runs are unchanged.
