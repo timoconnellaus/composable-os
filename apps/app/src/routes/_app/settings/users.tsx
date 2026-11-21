@@ -4,7 +4,18 @@
 // connection the host's own mail goes out from (sign-in codes and invite notices). The last
 // admin cannot be demoted; that refusal is shown inline on the row.
 
+import type { CoreOutput } from "@composable-os/core";
 import { CHANNEL_RESOURCE_PATTERNS, CHANNEL_VENDORS } from "@composable-os/core/client";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@composable-os/ui/components/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@composable-os/ui/components/avatar";
 import { Badge } from "@composable-os/ui/components/badge";
 import { Button } from "@composable-os/ui/components/button";
@@ -34,6 +45,7 @@ import {
   SelectValue,
 } from "@composable-os/ui/components/select";
 import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { Switch } from "@composable-os/ui/components/switch";
 import { createFileRoute } from "@tanstack/react-router";
 import { LockIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
@@ -165,7 +177,9 @@ function InviteCard() {
           ? `${result.email} is invited. Add them to the Cloudflare Access policy to let them in.`
           : result.invitationEmail === "sent"
             ? `${result.email} is invited and has an email saying how to sign in.`
-            : `${result.email} is invited. No email went out: tell them to sign in with “Email me a code”.`,
+            : result.invitationEmail === "pending"
+              ? `${result.email} is invited. The invite email waits in Approvals; they can sign in with “Email me a code” now.`
+              : `${result.email} is invited. No email went out: tell them to sign in with “Email me a code”.`,
       );
       setEmail("");
       setPermissions([]);
@@ -531,8 +545,8 @@ function HostMailCard() {
       <CardHeader>
         <CardTitle>The host's mail</CardTitle>
         <CardDescription>
-          Sign-in codes and invite emails, for staff and customers, go out from this org email
-          connection, sent by the host itself. Until one is chosen, nobody can sign in by code.
+          Sign-in codes, for staff and customers, and invite emails go out from this org email
+          connection, sent by the host itself. This is also customer sign-in's mail.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-1.5">
@@ -569,7 +583,87 @@ function HostMailCard() {
         {!options.length && (
           <p className="text-xs text-muted-foreground">No org connection can send email yet.</p>
         )}
+        {settings.data && <SignInMailState state={settings.data.signInMail} />}
       </CardContent>
     </Card>
+  );
+}
+
+type SignInMail = CoreOutput<"customer.settings.get">["signInMail"];
+
+/**
+ * Whether sign-in codes go out now (ADR 0456), and the one switch that lets them: the sign-in
+ * kind applying without review. It loosens the approval policy for that kind only, so it asks
+ * first; it is a human admin's (outbound.setAutoApprove).
+ */
+function SignInMailState({ state }: { state: SignInMail }) {
+  const [confirming, setConfirming] = useState(false);
+  const set = useOpMutation("outbound.setAutoApprove", {
+    invalidates: ["customer.settings.get", "outbound.kinds"],
+  });
+  const kind = state.kind;
+
+  async function apply(enabled: boolean) {
+    if (!kind) return;
+    try {
+      await set.mutateAsync({ tag: kind.tag, enabled });
+      setConfirming(false);
+      toast.success(
+        enabled ? "Sign-in codes now go out without review" : "Sign-in codes need review again",
+      );
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+
+  return (
+    <div className="mt-2 grid gap-2" data-testid="sign-in-mail" data-ready={String(state.ready)}>
+      <p className={state.ready ? "text-sm" : "text-sm text-destructive"} role="status">
+        {state.ready
+          ? "Sign-in codes go out at once, for staff and customers."
+          : `Nobody can sign in by code yet: ${state.problem}.`}
+      </p>
+      {kind && (
+        <div className="flex items-center gap-2 text-sm">
+          <Switch
+            id="sign-in-mail-auto"
+            checked={state.autoApproved}
+            disabled={set.isPending}
+            onCheckedChange={(checked) => {
+              if (checked) setConfirming(true);
+              else void apply(false);
+            }}
+          />
+          <Label htmlFor="sign-in-mail-auto" className="font-normal">
+            Send sign-in codes without review
+          </Label>
+        </div>
+      )}
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send sign-in codes without review?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Only the host's own sign-in code email, word for word, goes out this way, to the
+              address that asked for it. Every other email still follows the approval policy. A code
+              that waited for review could be read by whoever approves it, so codes that would wait
+              are never sent. The change is audited, and you can turn it off at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void apply(true);
+              }}
+              disabled={set.isPending}
+            >
+              Send without review
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }

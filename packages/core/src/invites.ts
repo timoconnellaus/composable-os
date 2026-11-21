@@ -130,8 +130,11 @@ export async function recordInviteAccount(
 export interface HostMail {
   /** How staff sign in here: by an emailed code (Better Auth) or through Cloudflare Access. */
   readonly staffSignIn: "code" | "access";
-  /** Sends the invite notice, which holds no secret. Never throws. */
-  sendStaffInvite(message: { to: string; invitedBy: string }): Promise<"sent" | "not_sent">;
+  /** Sends the invite notice, which holds no secret: sent, waiting for review, or not. Never throws. */
+  sendStaffInvite(message: {
+    to: string;
+    invitedBy: string;
+  }): Promise<"sent" | "pending" | "not_sent">;
 }
 
 /** The invite notice: who invited them and where to sign in. Plain text, nothing secret. */

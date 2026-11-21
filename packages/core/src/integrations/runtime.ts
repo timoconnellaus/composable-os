@@ -138,7 +138,13 @@ export interface IntegrationRuntime {
     resource: string;
     method: string;
     args: unknown[];
-    purpose: "orders";
+    /**
+     * `orders`: an order's checkout and confirmation (ADR 0429). `sign-in`: a sign-in code, sent
+     * by the host for `origin` (ADR 0456); the queue tells the gatekeeper it is the host's
+     * sign-in mail, which no other caller can say.
+     */
+    purpose: "orders" | "sign-in";
+    origin?: "system.customer-mail" | "system.staff-mail";
   }): Promise<IntegrationCallResult>;
   /** The TypeScript declarations agents code against for a bound resource. */
   types(input: { connectionId: string; resource: string }): Promise<string>;

@@ -6,3 +6,4 @@ export * from "./erase-requests.ts";
 export * from "./limits.ts";
 export * from "./merge.ts";
 export * from "./settings.ts";
+export * from "./sign-in-mail.ts";

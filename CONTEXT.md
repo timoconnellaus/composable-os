@@ -1020,6 +1020,13 @@ Mail the host sends as itself (the system user) through the one email connection
 chose: customer and staff sign-in codes, invite notices, a declined erase request (ADRs 0419,
 0455). No staff member is its sender.
 
+**Sign-in mail**
+The host's sign-in code email, its own outbound kind (`email.signin`): given only when the
+integration host says the send is its own (`callAsHost`, purpose `sign-in`) and the message is the
+fixed code template. A human admin lets it apply without review; until then sign-in by code is not
+set up (ADR 0456).
+_Avoid_: system email, transactional email
+
 **Headless entry**
 A pack's functions and hooks over the typed client, with no markup (`<package>/headless`). Blocks
 render what it returns (ADR 0418).

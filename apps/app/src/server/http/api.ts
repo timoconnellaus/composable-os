@@ -36,12 +36,10 @@ import {
   type CustomerPrincipal,
   coreInvoker,
   createHttpSurface,
-  customerCodeTarget,
   dataReply,
   errorReply,
   ForbiddenError,
   type HttpReply,
-  hostMailCall,
   invalidCode,
   issueDeviceSession,
   loadCustomer,
@@ -57,11 +55,11 @@ import {
   refreshDeviceSession,
   resolveAccessToken,
   resolveActingUser,
-  sendCustomerCode,
   signOutDeviceSession,
   ValidationError,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
+import { sendSignInCode, signInMailProblem } from "../host-mail.ts";
 import { integrationRuntimeFor } from "../integrations.ts";
 import {
   automationWiring,
@@ -82,29 +80,16 @@ export interface ApiEnv extends OperationsEnv, IdentityEnv, CustomerIdentityEnv 
 
 const PUBLIC: PublicPrincipal = Object.freeze({ kind: "public" });
 
-/**
- * Sends a sign-in code as the host itself (ADR 0419): through the email-send connection the
- * customer settings name, called by the system user with actor `automation`, never by a staff
- * member.
- */
-function hostSendsCodes(env: ApiEnv) {
-  return async (message: { to: string; code: string }) => {
-    const db = createCrmDb(env.DB);
-    const target = await customerCodeTarget(db.query);
-    if ("problem" in target) throw new Error(target.problem);
-    const runtime = integrationRuntimeFor(env);
-    if (!runtime) throw new Error("The integration host is not bound");
-    await sendCustomerCode(hostMailCall(runtime), target.target, message);
-  };
-}
-
 /** Customer sign-in for this env, or null when CUSTOMER_AUTH_SECRET is not set. */
 export function customers(env: ApiEnv): CustomerIdentity | null {
   if (!env.CUSTOMER_AUTH_SECRET) return null;
-  return getCustomerIdentity(env, hostSendsCodes(env), async () => {
-    const target = await customerCodeTarget(createCrmDb(env.DB).query);
-    return "problem" in target ? target.problem : null;
-  });
+  // The host sends the codes itself, as its sign-in mail (ADRs 0419, 0456): ready only while
+  // that kind applies at once on the host's mail connection.
+  return getCustomerIdentity(
+    env,
+    (message) => sendSignInCode(env, "customer", message),
+    () => signInMailProblem(env),
+  );
 }
 
 /** The staff session a request carries, if any. */
