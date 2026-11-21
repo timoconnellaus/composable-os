@@ -702,8 +702,12 @@ describe("the confirmation email (criterion 7)", () => {
 
 // --- Criterion 11 ----------------------------------------------------------------------------------
 
-/** 13 to 19 digits, allowing spaces or dashes between them: anything shaped like a card number. */
-const CARD = /(?:\d[ -]?){13,19}/;
+/**
+ * 13 to 19 digits, allowing spaces or dashes between them, standing on their own: anything shaped
+ * like a card number. A run of digits inside a longer token (a hex hash, an id) is not one: a
+ * random SHA-256 has a Luhn-valid run of 13 or more digits often enough to make the scan flaky.
+ */
+const CARD = /(?<![0-9A-Za-z])(?:\d[ -]?){12,18}\d(?![0-9A-Za-z])/;
 async function cardNumbersIn(tables: readonly string[]): Promise<string[]> {
   const found: string[] = [];
   for (const table of tables) {

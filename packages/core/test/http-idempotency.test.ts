@@ -274,18 +274,8 @@ describe("a write with a key", () => {
       origin: { surface: "client" },
       floor: { "*": { write: "review" } },
     });
-    const q1 = await send(
-      "fixture.countedPerson",
-      { text: queuedText },
-      reviewed,
-      queuedKey,
-    );
-    const q2 = await send(
-      "fixture.countedPerson",
-      { text: queuedText },
-      reviewed,
-      queuedKey,
-    );
+    const q1 = await send("fixture.countedPerson", { text: queuedText }, reviewed, queuedKey);
+    const q2 = await send("fixture.countedPerson", { text: queuedText }, reviewed, queuedKey);
     expect(q1.status).toBe(202);
     expect(JSON.parse(q1.text).error.code).toBe("pending_approval");
     expect(q2).toEqual({ ...q1, replayed: true });
