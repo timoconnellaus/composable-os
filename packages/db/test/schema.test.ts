@@ -363,7 +363,16 @@ describe("rec_* read views", () => {
     }>();
     expect(results.map((r) => r.name).sort()).toEqual(
       // pack_role: the fixed role a pack declares (migration 0451, ADR 0436).
-      ["created_at", "email", "granted_permissions", "id", "image", "name", "pack_role", "role"].sort(),
+      [
+        "created_at",
+        "email",
+        "granted_permissions",
+        "id",
+        "image",
+        "name",
+        "pack_role",
+        "role",
+      ].sort(),
     );
   });
 });
