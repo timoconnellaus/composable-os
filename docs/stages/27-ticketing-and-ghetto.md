@@ -7,7 +7,7 @@ to [26](26-capacity-and-holds.md), the Deals pack as the model for a pack, and i
 `~/repos/ghetto`: `README.md`, `src/pages/events/`, `src/config/booking.ts`, `src/pages/api/app/`,
 `mobile/` (`src/api.ts`, `src/SignIn.tsx`, `src/screens/`), `src/pages/staff/`, `src/connector/`.
 
-Status: spec proposed. Builds on stages 24, 25 and 26. This is the first product that is not a
+Status: **spec agreed** (interview 2026-11-21). Builds on stages 24, 25 and 26. This is the first product that is not a
 CRM. Expect it to send changes back to the stages it builds on.
 
 ## Goal
@@ -18,6 +18,23 @@ with a code. At the door a coach scans the code with the staff app and the ticke
 Liam can ask Claude how sales are going or to add a ticket type, and sees every buyer as a person
 in the same system as the gym's leads. All of it is the Ticketing pack, which any other product
 can turn on.
+
+## Decided at the interview (2026-11-21)
+
+| Question | Decision |
+| --- | --- |
+| The first event | **The next Gains in the Ghetto,** some months away. It sets the shape: several packages, a deposit, no fixed date yet |
+| Packages | Ticket types, each with its own places (for a camp: room types). One ticket is one person, in a shared room too |
+| Paying | In full, or **a deposit with the balance due by a date** (stage 25, "Paying by deposit"). No stored card, no scheduled instalments |
+| A balance unpaid at the due date | Staff are told and decide: chase, extend, or cancel and release the place |
+| Fees | **No fee line.** The price is the price; the gym sets prices to cover card costs |
+| The app's existing accounts | **The platform becomes the sign-in for the app's customers.** Existing members are linked by their verified email the next time they sign in |
+| Coaches at the door | **Staff accounts with a door-only role:** check tickets in and see the event's ticket list, nothing else. One fixed role, built here; full roles and teams stay with stage 14a |
+| Where money goes | The gym's own Stripe account, which exists |
+| Guest checkout, refunds | As stage 25 decided: buying needs no account; staff with the refund permission refund, and a refund returns the place unless the object says no (stage 26) |
+| `sellable` | Stays in this stage |
+| Left out | Free tickets given by staff; member prices and promo codes; transferring a ticket or naming other attendees; scanning without a connection; wallet passes; seat or table selection. Each is an issue labelled `later` |
+| After tickets | The gym's online program moves next, before bookings. It needs Programs (an exercise bank and programs built from it, shared by the online program, private and semi-private training and classes) and Courses; both are on the roadmap, not specced |
 
 ## What exists today (from the code)
 
@@ -37,9 +54,10 @@ can turn on.
 The last piece ticketing needs from the host (ADR 0404).
 
 - An object declares `sellable`: its price field and currency; optionally the fields for when it is
-  on sale (`from`, `until`) and the most one order may hold (`maxPerOrder`); and **what a paid
-  line grants**: records the host creates when the order is paid, in the same batch as the `paid`
-  move, with fields set from the line, the item and the order.
+  on sale (`from`, `until`), the most one order may hold (`maxPerOrder`), and a deposit (the
+  fields holding the deposit amount and the date the balance is due, stage 25); and **what a paid
+  line grants**: records the host creates when the order is first paid, in the same batch as the move to
+  `paid` or, for a deposit, to `part_paid`, with fields set from the line, the item and the order.
 - An order line may point only at a record whose object is sellable. The host refuses a line
   outside the sale window or over `maxPerOrder`, with details naming the rule.
 - When an order is refunded in full, what it granted is moved to a declared state (`void`), in
@@ -68,14 +86,24 @@ The last piece ticketing needs from the host (ADR 0404).
   order through the host, which prices it, holds the places and returns the order. The buyer then
   calls stage 25's `order.checkout`.
 - `ticketing.myTickets` (customer): the caller's tickets, through the seam.
-- `ticketing.checkIn { code }` (staff, risk `write`): finds the ticket, refuses one that is used
-  or void with who and when, and otherwise moves it to `used`. Safe to call twice: the second call
+- `ticketing.checkIn { code }` (staff, risk `write`, permission `ticketing:checkin`): finds the
+  ticket, refuses one that is used or void with who and when, and otherwise moves it to `used`.
+  When the ticket's order still has a balance owing, the result says so and how much; it does not
+  refuse. Safe to call twice: the second call
   reports the first.
 - `ticketing.undoCheckIn { ticketId }` (staff).
 - `ticketing.salesSummary { eventId }` (staff, read): sold, held, remaining and revenue per ticket
   type, for the dashboard and for Claude.
 
+### The door role
+- One fixed staff role, `door`, holding `ticketing:checkin` and read access to events, ticket
+  types and tickets, and nothing else: no people, orders, leads or settings. An admin gives it to
+  a staff account. It is declared by the pack and enforced by the host's permission check on
+  every operation; it is not a general roles feature (stage 14a).
+
 ### Automations
+- **Balance reminders:** to the buyer of a `part_paid` order, a week and a day before the balance
+  is due, with the link to pay.
 - **Tickets by email:** on `order.paid`, send the buyer their tickets through the email-send
   gatekeeper.
 - **Reminder:** the day before an event, to holders of valid tickets.
@@ -112,6 +140,10 @@ The last piece ticketing needs from the host (ADR 0404).
   scanner. It must feel native: a tab, native stack screens, sheets, haptics on a scan.
 - **Staff** use the host's admin for events and sales. The gym's connector to Claude gains the
   host's MCP surface, so Claude can create an event, add a ticket type and report sales.
+- **The app signs in through the platform.** The host is the sign-in for the app's customers, by
+  emailed code. A member's existing account is linked to their Person by verified email the first
+  time they sign in this way; nothing is copied in bulk and no password moves. The app's other
+  features keep working against the site's own API with the same person.
 - **Buyers are people.** Every buyer is a Person on the host, with their orders and tickets.
 - **One real event is sold end to end** in the provider's test mode, then live.
 
@@ -119,6 +151,7 @@ The last piece ticketing needs from the host (ADR 0404).
 - Seat selection, tables, or any ticket for a named place.
 - Transferring a ticket to someone else. Named attendees other than the buyer.
 - Discounts, promo codes, member prices, free tickets given by staff.
+- Stored cards, scheduled instalments, a fee line at checkout.
 - Scanning without a connection.
 - Apple and Google wallet passes.
 - Moving Ghetto's site to TanStack Start, its blog (stage 28), or its programmes, workouts and chat
@@ -139,6 +172,12 @@ The last piece ticketing needs from the host (ADR 0404).
    ticket type inside an event pool.
 5. **Abandoned:** an unpaid order expires, its places return, and no ticket was granted.
 6. **Refund:** a full refund voids the order's tickets and, by default, returns the places.
+6a. **Deposit:** a ticket type with a deposit is bought by deposit; the ticket is granted at the
+    first payment; the order shows the balance and its due date; paying the rest in two parts
+    makes it paid; check-in on a ticket with a balance owing succeeds and reports the balance; an
+    order cancelled by staff after the due date voids its ticket and returns the place.
+6b. **The door role:** a staff account with only `door` can check in and list an event's tickets,
+    and is refused every other operation, tested over the whole registry.
 7. **Check-in:** a valid code is accepted once; a second scan reports who used it and when; a void
    ticket and an unknown code are refused with different, clear reasons; two scanners scanning the
    same code at once accept it once.
@@ -171,18 +210,3 @@ from the reconciler). ADRs 0435 to 0439.
 5. Hooks, then the web blocks, then the native blocks.
 6. Ghetto: the deployment, the site's event page, the app's tab and scanner, a test-mode sale.
 7. The live sale.
-
-## To settle at the interview
-- **How Ghetto's existing accounts meet the platform's customers.** The app's members are in
-  Ghetto's own Better Auth. Three ways: the app signs in to the host as well (two sign-ins, poor);
-  the host becomes the sign-in for the app's customers, with existing users linked by verified
-  email at their next sign-in (proposed, and the first step of moving Ghetto onto the platform);
-  or tickets are shown on the web only for now. This is the largest open question in the stage.
-- **Coaches as staff.** The door scanner is a staff operation. Coaches need staff accounts on the
-  host, and a role that can check in and little else, which leans on stage 14a's roles.
-- **Which event is sold first,** and when it needs to be on sale. That date sets the pace of
-  stages 22 to 26.
-- **Guest checkout or an account first** (with stage 25's question).
-- **Who can refund,** and whether a refund always returns the place.
-- **Is `sellable` this stage's or stage 25's.** It is here because ticketing is the first thing
-  sold; it could move earlier.
