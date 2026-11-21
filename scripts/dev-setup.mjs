@@ -148,14 +148,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
     ],
     { cwd: join(root, "apps/app"), stdio: "inherit", env: { ...process.env, CI: "true" } },
   );
-  if (existsSync(runnerVars)) {
-    const vars = readFileSync(runnerVars, "utf8");
-    const line = `COS_ORG_EXTENSIONS=${hash}`;
-    writeFileSync(
-      runnerVars,
-      /^COS_ORG_EXTENSIONS=/m.test(vars)
-        ? vars.replace(/^COS_ORG_EXTENSIONS=.*$/m, line)
-        : `${vars.trimEnd()}\n# Local only: the box office fixture, for the buy page (stage 27).\n${line}\n`,
-    );
-  }
+  // apps/app/vite.config.ts pins it on the local runner (not .dev.vars, which `wrangler types`
+  // reads).
+  writeFileSync(join(root, "apps/app/.wrangler/org-extensions.sha256"), hash);
 }
