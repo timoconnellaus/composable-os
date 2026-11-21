@@ -28,6 +28,7 @@ import {
   type Customer,
   createClass,
   createCustomer,
+  createPosts,
   createShows,
   createSupplier,
   DECLARATIONS,
@@ -40,6 +41,7 @@ import {
   ORDER,
   type Outcome,
   outside,
+  POST,
   PUBLIC,
   REQUEST,
   SESSION,
@@ -61,6 +63,7 @@ export function isolationSuite(how: string, call: CallFn): void {
   let supplier: { id: string; secrets: string[] };
   let shows: Awaited<ReturnType<typeof createShows>>;
   let classes: Awaited<ReturnType<typeof createClass>>;
+  let posts: Awaited<ReturnType<typeof createPosts>>;
 
   const GUESS = "rec_01GUESSED00000000000000000";
   const GUESS_PERSON = "per_01GUESSED00000000000000000";
@@ -75,6 +78,8 @@ export function isolationSuite(how: string, call: CallFn): void {
     shows = await createShows(admin);
     // Stage 41 (ADR 0447): a class every signed-in customer reads, beside each one's own.
     classes = await createClass(admin);
+    // Stage 28 (ADR 0442): a post the public reads, its draft working copy, a draft, a taken-down one.
+    posts = await createPosts(admin);
     // Stage 25, criterion 10: real orders and their lines, for both customers.
     await giveOrders(admin, a);
     await giveOrders(admin, b);
@@ -91,6 +96,8 @@ export function isolationSuite(how: string, call: CallFn): void {
     // Readable by the public (and customers) while on sale, and only their listed fields.
     SHOW,
     TIER,
+    // A published post, read by its slug (stage 28): only its published version's declared fields.
+    POST,
     // A program's assignments, sessions and logged sets (stage 41): one's own, and a class's.
     ASSIGNMENT,
     SESSION,
@@ -210,6 +217,19 @@ export function isolationSuite(how: string, call: CallFn): void {
       ];
     }
     if (name === "limit") return [200];
+    // A record's address (stage 28): the hidden posts', the live one's, and nonsense.
+    if (name === "slug") {
+      return [
+        ...posts.hidden.slugs,
+        posts.live.slug,
+        "' OR 1=1 --",
+        "%",
+        "live-%",
+        "x".repeat(200),
+      ];
+    }
+    // A preview link's token: made up, and malformed.
+    if (name === "token") return [`pv_${"A".repeat(43)}`, "pv_", "%", "' OR 1=1 --"];
     return [];
   }
 
@@ -264,6 +284,10 @@ export function isolationSuite(how: string, call: CallFn): void {
       [supplier.id, `${GUESS.slice(0, -2)}S1`],
       // A record the public may not read now answers as one that does not exist.
       ...shows.hidden.ids.map((id, i): [string, string] => [id, `${GUESS.slice(0, -2)}H${i}`]),
+      // A post the public may not read answers as one that does not exist: a draft, an
+      // unpublished one, by id or by slug.
+      ...posts.hidden.ids.map((id, i): [string, string] => [id, `${GUESS.slice(0, -2)}P${i}`]),
+      ...posts.hidden.slugs.map((slug, i): [string, string] => [slug, `guessed-slug-${i}`]),
     ];
     let text = JSON.stringify(input);
     const before = text;
@@ -352,6 +376,7 @@ export function isolationSuite(how: string, call: CallFn): void {
         ...supplier.secrets,
         ...shows.hidden.secrets,
         ...classes.hidden,
+        ...posts.hidden.secrets,
       ];
       const problems: string[] = [];
       let calls = 0;
@@ -568,6 +593,31 @@ export function isolationSuite(how: string, call: CallFn): void {
       }
     });
 
+    it("the public read a post's published version by its slug, and nothing else of it (ADR 0442)", async () => {
+      for (const caller of [PUBLIC, a.principal]) {
+        const live = await call(
+          "content.get",
+          { object: POST, slug: posts.live.slug },
+          outside(caller),
+        );
+        expect(live).toMatchObject({
+          ok: true,
+          value: { kind: "record", id: posts.live.id, values: { name: posts.live.name } },
+        });
+        const values = (live as { value: { values: Record<string, unknown> } }).value.values;
+        expect(Object.keys(values).sort()).toEqual(["body", "date", "name", "slug", "teaser"]);
+        const page = await call("content.list", { object: POST }, outside(caller));
+        const ids = (page as { value: { items: { id: string }[] } }).value.items.map((i) => i.id);
+        expect(ids).toContain(posts.live.id);
+        for (const id of posts.hidden.ids) expect(ids).not.toContain(id);
+        for (const slug of posts.hidden.slugs) {
+          expect(await call("content.get", { object: POST, slug }, outside(caller))).toEqual(
+            await call("content.get", { object: POST, slug: "never-was-a-post" }, outside(caller)),
+          );
+        }
+      }
+    });
+
     it("a sellable object's records come with the currency their prices are in, from the host", async () => {
       // Stage 25: one currency per deployment, a setting. A client never states it itself.
       const items = await call("fixture.publicPeek", { object: ITEM }, outside(PUBLIC));
@@ -580,7 +630,7 @@ export function isolationSuite(how: string, call: CallFn): void {
     });
 
     it("the public see no other object and change no record", async () => {
-      for (const object of OBJECTS.filter((o) => o !== SHOW && o !== TIER)) {
+      for (const object of OBJECTS.filter((o) => o !== SHOW && o !== TIER && o !== POST)) {
         const peek = await call("fixture.publicPeek", { object }, outside(PUBLIC));
         expect(peek).toEqual({
           ok: false,
