@@ -717,6 +717,12 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
   if (customerAuthUrl !== undefined) {
     vars[app.name] = { ...vars[app.name], CUSTOMER_AUTH_URL: customerAuthUrl };
   }
+  // The mobile app staff sign in to through the system browser (ADR 0451): the one redirect a
+  // sign-in code may be sent to, set by cos deploy from product.ts.
+  const staffRedirects = str(flags, "staff-app-redirects");
+  if (staffRedirects !== undefined) {
+    vars[app.name] = { ...vars[app.name], STAFF_APP_REDIRECTS: staffRedirects };
+  }
   // A client product's label (issue #155): every surface that shows the product's name reads it.
   const label = str(flags, "label");
   if (label !== undefined) {
@@ -1183,7 +1189,15 @@ async function client(argv: string[], deps: Deps): Promise<number> {
     const repo = await import("./client-repo.ts");
     const parsed = parseArgs(["client", ...argv.slice(1)]);
     const dir = str(parsed.flags, "dir") ?? process.cwd();
-    if (repo.isClientRepo(dir)) return repo.regenerate(parsed.flags, deps);
+    if (repo.isClientRepo(dir)) {
+      try {
+        return await repo.regenerate(parsed.flags, deps);
+      } catch (error) {
+        if (!(error instanceof CliError)) throw error;
+        deps.io.err(error.message);
+        return 1;
+      }
+    }
   }
   try {
     const { runClient } = await import("@composable-os/client-gen/cli");

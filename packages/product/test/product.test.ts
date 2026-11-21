@@ -5,9 +5,9 @@ import {
   clientWeb,
   defineClientProduct,
   defineProduct,
-  environmentNames,
   deployedName,
   deployedNameList,
+  environmentNames,
   LOCAL_PREFIX,
   type ProductDefinition,
 } from "../src/index.ts";

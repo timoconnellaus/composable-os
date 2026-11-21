@@ -331,6 +331,50 @@ function setEnvironments(dir: string, environments: Record<string, unknown>) {
 
 const secretOf = (worker: string, name: string) => world.cf.scripts.get(worker)?.secrets.get(name);
 
+describe("a pack role's client in the mobile app (ADR 0451)", () => {
+  it("cos client generate writes only the role's operations; cos deploy names the app's redirect", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    setPacks(dir, ["ticketing"]);
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(
+        /(\n\s*web: \{[^\n]*\},)/,
+        '$1\n  mobile: { dir: "apps/mobile", roles: ["ticketing.door"] },',
+      ),
+    );
+    const generated = await cos("client", "generate");
+    expect(generated.code, generated.output).toBe(0);
+    const door = read(dir, "apps/mobile/src/client/roles/ticketing.door.ts");
+    expect(door).toContain("createTicketingDoorClient");
+    expect(door).toContain('"x.ticketing.checkIn"');
+    expect(door).not.toContain('"person.list"');
+    expect(door).not.toContain('"x.ticketing.salesSummary"');
+    // The customer client is still the customer's only.
+    expect(read(dir, "apps/mobile/src/client/customer.ts")).not.toContain("x.ticketing.checkIn");
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    expect(world.cf.liveBinding("shop-app", "STAFF_APP_REDIRECTS")?.text).toBe(
+      "shop://staff-sign-in",
+    );
+  });
+
+  it("refuses a role of a pack the product does not list", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(
+        /(\n\s*web: \{[^\n]*\},)/,
+        '$1\n  mobile: { dir: "apps/mobile", roles: ["ticketing.door"] },',
+      ),
+    );
+    const generated = await cos("client", "generate");
+    expect(generated.code).toBe(1);
+    expect(generated.output).toContain("a role of ticketing, which packs does not list");
+  });
+});
+
 describe("environments (ADR 0450)", () => {
   it("staging and live deploy side by side, each its own host, and one never touches the other", async () => {
     await publish("1.0.0");

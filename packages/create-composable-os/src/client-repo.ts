@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { ApiContract, PackRolesFile } from "@composable-os/core/http-contract";
 import {
   type ClientProductDefinition,
   clientNameMaps,
@@ -215,6 +216,35 @@ export async function generateClients(
     mkdirSync(join(root, dir), { recursive: true });
     writeFileSync(join(root, dir, "customer.ts"), files["customer.ts"] as string);
     written.push(join(dir, "customer.ts"));
+  }
+  // A client per pack role the mobile app's staff sign in with (ADR 0451): only that role's
+  // operations, from the release's roles.json and its staff contract. Never the staff client.
+  const roles = product.mobile?.roles ?? [];
+  if (roles.length && product.mobile) {
+    const { renderRoleClient } = await import("@composable-os/client-gen");
+    const rolesFile = kit.get(`${KIT.contract}roles.json`);
+    if (!rolesFile) {
+      throw new CliError(
+        "The release's client kit has no roles.json: it is older than role clients. Upgrade the platform version first.",
+      );
+    }
+    const declared = (JSON.parse(decode(rolesFile)) as PackRolesFile).roles;
+    const staff = perAudience[2] as ApiContract;
+    const dir = join(product.mobile.dir, product.mobile.clientDir ?? "src/client", "roles");
+    mkdirSync(join(root, dir), { recursive: true });
+    for (const name of roles) {
+      const role = declared.find((r) => r.name === name);
+      if (!role) {
+        throw new CliError(
+          `The release has no pack role ${name}. Its roles: ${declared.map((r) => r.name).join(", ") || "none"}.`,
+        );
+      }
+      writeFileSync(
+        join(root, dir, `${name}.ts`),
+        renderRoleClient(staff, role, { product: product.id }),
+      );
+      written.push(join(dir, `${name}.ts`));
+    }
   }
   if (written.length) io.out(`Typed client: ${written.join(", ")}`);
   return written;
@@ -918,6 +948,11 @@ export function chooseEnvironment(
   );
 }
 
+/** Where the host sends a staff member's sign-in back to the mobile app: `<scheme>://staff-sign-in`. */
+export function staffAppRedirect(product: ClientProductDefinition): string {
+  return `${product.mobile?.scheme ?? product.id}://staff-sign-in`;
+}
+
 /** The HOST binding an adopted site's own Worker config needs in an environment, as text. */
 export function hostBindingText(host: string, environment: string | undefined): string {
   const entry = `{ "binding": "HOST", "service": "${host}", "entrypoint": "ClientApp" }`;
@@ -1038,6 +1073,12 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
       ? `https://${web.hostname}`
       : `https://${web.worker}.${(await api.workersSubdomain(accountId)) ?? "<subdomain>"}.workers.dev`;
     hostFlags["customer-auth-url"] = webOrigin;
+  }
+
+  // Staff sign in to the mobile app through the system browser when it has a pack role's client
+  // (ADR 0451): the host sends their sign-in only to the app's own redirect.
+  if (product.mobile?.roles?.length) {
+    hostFlags["staff-app-redirects"] = staffAppRedirect(product);
   }
 
   // The host: install, upgrade to the product's version, or repair; vars set for the product.

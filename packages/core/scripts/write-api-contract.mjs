@@ -25,7 +25,7 @@ const run = spawnSync(
 );
 const marker = "API_CONTRACT ";
 const lines = `${run.stdout}\n${run.stderr}`.split("\n").filter((l) => l.includes(marker));
-if (lines.length !== 3) {
+if (lines.length !== 4) {
   process.stderr.write(`${run.stdout}\n${run.stderr}\nCould not read the contract.\n`);
   process.exit(1);
 }

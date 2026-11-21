@@ -7,11 +7,14 @@
 // To update the files after changing the API on purpose:
 //   pnpm --filter @composable-os/core api-contract
 import { env } from "cloudflare:workers";
+import { toManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import customer from "../api/v1/customer.json";
 import publicContract from "../api/v1/public.json";
+import roles from "../api/v1/roles.json";
 import staff from "../api/v1/staff.json";
+import { audiencesOf } from "../src/audiences.ts";
 import {
   API_VERSION,
   type ApiContract,
@@ -21,9 +24,11 @@ import {
   coreRegistry,
   defineOperation,
   forPacks,
+  type PackRolesFile,
+  packRoleReaches,
   withPacks,
 } from "../src/index.ts";
-import { releasePackIds, releasePackTools } from "./release-packs.ts";
+import { releasePackExtensions, releasePackIds, releasePackTools } from "./release-packs.ts";
 
 // Every pack the release carries (packs/*), each tool named with its pack in the files.
 const shippedTools = releasePackTools;
@@ -34,17 +39,79 @@ const computed = {
   customer: withPacks(contractFor(contract, "customer"), releasePackIds),
   public: withPacks(contractFor(contract, "public"), releasePackIds),
 };
+// Each carried pack's roles (ADR 0436) and the operations a holder may call: the tools whose
+// permission the role holds, and the generic reads (record.get, record.list) of the objects it
+// reads. `cos client generate` writes a role's client from this and the staff contract, so a
+// customer-facing app that needs a role names no other staff operation (ADR 0451).
+const computedRoles: PackRolesFile = {
+  version: API_VERSION,
+  roles: releasePackExtensions.flatMap((extension) => {
+    const manifest = toManifest(extension);
+    const ops = [
+      ...coreRegistry.list(),
+      ...releasePackTools.filter((op) => op.name.startsWith(`x.${manifest.id}.`)),
+    ];
+    return Object.entries(manifest.roles ?? {})
+      .map(([local, role]) => {
+        const held = {
+          name: `${manifest.id}.${local}`,
+          extension: manifest.id,
+          label: role.label,
+          permissions: role.permissions,
+          read: role.read,
+        };
+        return {
+          name: held.name,
+          pack: manifest.id,
+          label: role.label,
+          description: role.description,
+          read: [...role.read].sort(),
+          operations: ops
+            .filter((op) => audiencesOf(op).includes("staff") && packRoleReaches(held, op))
+            .map((op) => op.name)
+            .sort(),
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }),
+};
+
 // scripts/write-api-contract.mjs reads these lines (only it asks for them: they are large).
-if ((env as { PRINT_API_CONTRACT?: string }).PRINT_API_CONTRACT === "1")
+if ((env as { PRINT_API_CONTRACT?: string }).PRINT_API_CONTRACT === "1") {
   for (const [audience, value] of Object.entries(computed)) {
     console.log(`API_CONTRACT ${audience} ${JSON.stringify(value)}`);
   }
+  console.log(`API_CONTRACT roles ${JSON.stringify(computedRoles)}`);
+}
 
 const committed = {
   staff: staff as ApiContract,
   customer: customer as ApiContract,
   public: publicContract as ApiContract,
 };
+
+describe("the committed roles file", () => {
+  it("is every carried pack's roles, with the operations each may call", () => {
+    expect(
+      computedRoles,
+      "api/v1/roles.json differs: run `pnpm --filter @composable-os/core api-contract`.",
+    ).toEqual(roles);
+  });
+
+  it("gives the door role its tools and its reads, and nothing else", () => {
+    const door = computedRoles.roles.find((r) => r.name === "ticketing.door");
+    expect(door?.operations).toEqual([
+      "record.get",
+      "record.list",
+      "x.ticketing.checkIn",
+      "x.ticketing.undoCheckIn",
+    ]);
+    // Every operation it names is in the staff contract.
+    const names = new Set(committed.staff.operations.map((op) => op.name));
+    for (const role of computedRoles.roles)
+      for (const op of role.operations) expect(names.has(op), op).toBe(true);
+  });
+});
 
 describe("the committed API contract", () => {
   for (const audience of ["staff", "customer", "public"] as const) {

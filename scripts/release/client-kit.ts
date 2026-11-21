@@ -6,6 +6,7 @@
 //   skills/<name>/SKILL.md  skills/, as a client repo reads them (clientSkill below)
 //   blocks/<name>/**        every folder with a block.json: packs/*/blocks/* and blocks/*
 //   packs.json              the ids of every pack the release carries
+//   contract/roles.json     the carried packs' roles and the operations each may call
 //   contract/<audience>.json  packages/core/api/v1: the union of what a host of this release can
 //                           serve: core operations, and every carried pack's tools, each named
 //                           with its `pack` (a deployment serves those of the packs it installs)
@@ -87,8 +88,9 @@ export function collectClientKit(root: string, packs: readonly string[]): Map<st
     kit.set(`blocks/${name}/LICENSE`, readFileSync(licence));
   }
   const api = join(root, "packages", "core", "api", "v1");
-  for (const audience of ["customer", "public", "staff"]) {
-    kit.set(`contract/${audience}.json`, readFileSync(join(api, `${audience}.json`)));
+  // The contract per audience, and the carried packs' roles with what each may call (ADR 0451).
+  for (const file of ["customer", "public", "staff", "roles"]) {
+    kit.set(`contract/${file}.json`, readFileSync(join(api, `${file}.json`)));
   }
   return new Map([...kit].sort(([a], [b]) => a.localeCompare(b)));
 }

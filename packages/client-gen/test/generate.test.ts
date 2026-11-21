@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildContract, defineOperation } from "@composable-os/core";
+import type { ApiContract, PackRolesFile } from "@composable-os/core/http-contract";
 import deals from "@composable-os/pack-deals";
 import leads from "@composable-os/pack-leads";
 import lifecycle from "@composable-os/pack-lifecycle";
@@ -15,7 +16,7 @@ import { build } from "esbuild";
 import ts from "typescript";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { operationsFor, productContract, renderClient } from "../src/index.ts";
+import { operationsFor, productContract, renderClient, renderRoleClient } from "../src/index.ts";
 import { runClient } from "../src/node/cli.ts";
 import greeter from "./fixtures/greeter/index.ts";
 
@@ -217,5 +218,57 @@ describe("the bundle split (criterion 7)", () => {
     ).toEqual([]);
     // Not vacuous: the customer operations are in it.
     for (const name of customerNames) expect(built).toContain(name);
+  });
+});
+
+describe("a pack role's client (ADR 0451)", () => {
+  const api = join(here, "..", "..", "core", "api", "v1");
+  const staff = JSON.parse(readFileSync(join(api, "staff.json"), "utf8")) as ApiContract;
+  const roles = JSON.parse(readFileSync(join(api, "roles.json"), "utf8")) as PackRolesFile;
+  const door = roles.roles.find((r) => r.name === "ticketing.door") as PackRolesFile["roles"][0];
+
+  it("an app with the door role's client names no other staff operation", async () => {
+    const dir = scratch();
+    writeFileSync(join(dir, "door.ts"), renderRoleClient(staff, door, { product: "gym" }));
+    writeFileSync(
+      join(dir, "app.ts"),
+      'import { createTicketingDoorClient } from "./door.ts";\nexport const door = (fetch: never) => createTicketingDoorClient({ baseUrl: "https://admin.gym.example", fetch });\n',
+    );
+    const outfile = join(dir, "app.bundle.js");
+    await build({
+      entryPoints: [join(dir, "app.ts")],
+      outfile,
+      bundle: true,
+      format: "esm",
+      platform: "neutral",
+      minify: true,
+      alias: { "@composable-os/client": runtime },
+      logLevel: "error",
+    });
+    const built = readFileSync(outfile, "utf8");
+    const others = staff.operations
+      .map((op) => op.name)
+      .filter((n) => !door.operations.includes(n));
+    expect(others.length).toBeGreaterThan(200);
+    expect(others.filter((n) => built.includes(`"${n}"`) || built.includes(`'${n}'`))).toEqual([]);
+    for (const name of door.operations) expect(built).toContain(name);
+  });
+
+  it("types the role's calls, and its reads take only the role's objects", () => {
+    const dir = scratch();
+    const errors = typecheck(dir, {
+      "door.ts": renderRoleClient(staff, door, { product: "gym" }),
+      "scan.ts": [
+        'import { createTicketingDoorClient } from "./door.ts";',
+        'const door = createTicketingDoorClient({ baseUrl: "https://admin.gym.example" });',
+        'export const ok = () => door.call("x.ticketing.checkIn", { code: "TCK-1" });',
+        'export const tickets = () => door.call("record.list", { object: "ticketing.ticket" });',
+        'export const people = () => door.call("record.list", { object: "person" });',
+        'export const other = () => door.call("person.list", {});',
+      ].join("\n"),
+    });
+    expect(errors.some((e) => e.startsWith("scan.ts:5"))).toBe(true);
+    expect(errors.some((e) => e.startsWith("scan.ts:6"))).toBe(true);
+    expect(errors.filter((e) => /scan\.ts:[34]/.test(e))).toEqual([]);
   });
 });

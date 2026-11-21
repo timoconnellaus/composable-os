@@ -41,6 +41,26 @@ export interface ApiContract {
   operations: ContractOperation[];
 }
 
+/**
+ * A release's pack roles (ADR 0436), committed as `api/<version>/roles.json` beside the contract
+ * and carried in the client kit: for each, the staff operations a holder may call. `cos client
+ * generate` writes a role's own client from it (ADR 0451).
+ */
+export interface PackRolesFile {
+  version: string;
+  roles: {
+    /** `<pack>.<role>`, as an account holds it. */
+    name: string;
+    pack: string;
+    label: string;
+    description: string;
+    /** The objects whose records the role reads (record.get and record.list take only these). */
+    read: string[];
+    /** Every operation a holder may call: its tools and the generic reads. */
+    operations: string[];
+  }[];
+}
+
 function jsonSchema(schema: z.ZodType, io: "input" | "output"): JsonSchema {
   try {
     const out = z.toJSONSchema(schema, { unrepresentable: "any", io }) as JsonSchema;
