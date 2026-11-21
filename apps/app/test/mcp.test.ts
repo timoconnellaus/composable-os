@@ -1,5 +1,6 @@
 // /mcp end to end in workerd (stage 2 AC2): OAuth discovery, and MCP tools generated from the
 // registry, read with the MCP TypeScript client. mcp-flows.test.ts covers AC3-7 and 9.
+import { env } from "cloudflare:workers";
 import { coreRegistry } from "@composable-os/core";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { toolInputSchema } from "../src/server/mcp/tools.ts";
@@ -106,6 +107,23 @@ describe("tools from the registry (AC2)", () => {
       risk: "bulk-write",
     });
     expect(client.getInstructions()).toMatch(/Search before you create/);
+  });
+
+  it("shows an account with a pack role only the tools the role could allow (ADR 0436)", async () => {
+    const coach = await signUp(mcpEnv, "viewer");
+    const tokens = await connect(fetchApp, coach);
+    // The door role of a pack this deployment does not have: it holds nothing, so nothing is
+    // listed and every call is refused (the role itself is tested in apps/runner).
+    await env.DB.prepare("UPDATE core_user SET pack_role = 'ticketing.door' WHERE id = ?")
+      .bind(coach.id)
+      .run();
+    const client = await mcpClient(fetchApp, tokens.access_token);
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names.filter((n) => n !== "describe_operations" && n !== "call_operation")).toEqual([]);
+    const described = await call(client, "describe_operations", { includeSchemas: false });
+    expect(described.data.operations).toEqual([]);
+    const attempt = await call(client, "call_operation", { name: "person.list", input: {} });
+    expect(attempt.data).toMatchObject({ error: { code: "forbidden" } });
   });
 
   it("person_create tells the client about possible duplicates", async () => {

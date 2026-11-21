@@ -8,6 +8,7 @@ import {
   coreRegistry,
   errorForLog,
   type FieldDefinition,
+  type HeldPackRole,
   type InvocationContext,
   invokeByName,
   listObjects,
@@ -15,6 +16,7 @@ import {
   OperationError,
   PendingApprovalError,
   type Permission,
+  packRoleReaches,
   RateLimitedError,
   refreshSchemaRegistry,
   resolveExtensionOperation,
@@ -180,6 +182,11 @@ function passthroughSchema(json: JsonSchema): StandardSchemaWithJSON<Args, Args>
 export interface McpCaller {
   /** The invocation context for this request (actor mcp, user, origin, scopes). */
   context: InvocationContext;
+  /**
+   * The account's pack role (ADR 0436), read when the request was authenticated. While one is
+   * held only the tools it could allow are listed; the pipeline still decides every call.
+   */
+  packRole?: HeldPackRole | null;
   /** Counts one write against the per-token limit; throws RateLimitedError when over. */
   consumeWrite(): Promise<void>;
 }
@@ -229,15 +236,26 @@ export async function callForMcp(
   }
 }
 
-function allowedFor(op: AnyOperation, context: InvocationContext): boolean {
+function allowedFor(
+  op: AnyOperation,
+  context: InvocationContext,
+  packRole?: HeldPackRole | null,
+): boolean {
   if (op.actors && !op.actors.includes(context.actor)) return false;
-  if (!roleHasPermission(context.user.role, op.permission)) return false;
+  // A pack role replaces what the account's role grants (ADR 0436).
+  if (
+    packRole ? !packRoleReaches(packRole, op) : !roleHasPermission(context.user.role, op.permission)
+  ) {
+    return false;
+  }
   return !context.grantedPermissions || context.grantedPermissions.includes(op.permission);
 }
 
 /** The crm://schema resource: objects and fields, operations and their risk classes. */
-export async function schemaDocument(context: InvocationContext) {
-  const operations = await mcpOperations(context.db);
+export async function schemaDocument(context: InvocationContext, packRole?: HeldPackRole | null) {
+  const operations = (await mcpOperations(context.db)).filter(
+    (op) => !packRole || packRoleReaches(packRole, op),
+  );
   await refreshSchemaRegistry(context.db.query);
   return {
     objects: listObjects().map((o) => ({
@@ -260,7 +278,7 @@ export async function schemaDocument(context: InvocationContext) {
       risk: op.risk,
       permission: op.permission as Permission,
       requiresReason: requiresReason(op),
-      allowed: allowedFor(op, context),
+      allowed: allowedFor(op, context, packRole),
     })),
     riskClasses: {
       read: "never changes anything",
@@ -307,8 +325,11 @@ export function createCrmMcpServer(caller: McpCaller, version: string): McpServe
   );
 
   // A tool the caller's actor can never call is not listed: an external client sees no agent tools.
+  // An account with a pack role is shown only what the role could allow (ADR 0436).
   const listed = (o: AnyOperation) =>
-    o.mcp?.curated && (!o.actors || o.actors.includes(caller.context.actor));
+    o.mcp?.curated &&
+    (!o.actors || o.actors.includes(caller.context.actor)) &&
+    (!caller.packRole || packRoleReaches(caller.packRole, o));
   for (const op of coreMcpOperations().filter(listed)) {
     const reviewable = requiresReason(op);
     server.registerTool(
@@ -347,6 +368,7 @@ export function createCrmMcpServer(caller: McpCaller, version: string): McpServe
     async (args) => {
       const words = (args.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
       const ops = (await mcpOperations(caller.context.db)).filter((op) => {
+        if (caller.packRole && !packRoleReaches(caller.packRole, op)) return false;
         if (args.names && !args.names.includes(op.name)) return false;
         if (args.object && !op.name.startsWith(`${args.object}.`)) return false;
         const hay = `${op.name} ${op.description}`.toLowerCase();
@@ -360,7 +382,7 @@ export function createCrmMcpServer(caller: McpCaller, version: string): McpServe
           risk: op.risk,
           permission: op.permission,
           requiresReason: requiresReason(op),
-          allowed: allowedFor(op, caller.context),
+          allowed: allowedFor(op, caller.context, caller.packRole),
           ...(args.includeSchemas
             ? { inputSchema: z.toJSONSchema(op.input, { io: "input", unrepresentable: "any" }) }
             : {}),
@@ -402,7 +424,7 @@ export function createCrmMcpServer(caller: McpCaller, version: string): McpServe
         {
           uri: uri.href,
           mimeType: "application/json",
-          text: JSON.stringify(await schemaDocument(caller.context), null, 2),
+          text: JSON.stringify(await schemaDocument(caller.context, caller.packRole), null, 2),
         },
       ],
     }),
