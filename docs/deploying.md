@@ -244,10 +244,20 @@ npm create composable-os shop -- --label "Shop" [--with-mobile]
 cd shop && pnpm install
 CLOUDFLARE_API_TOKEN=... pnpm cos deploy     # checks extensions/ and the apps first, then deploys
 pnpm cos add web-sign-in                     # copies a block; pnpm cos diff web-sign-in later
+pnpm cos diff web-sign-in --accept           # after merging its upstream changes by hand
 pnpm cos upgrade                             # moves to a newer platform version; deploys nothing
                                              # (also replaces unedited host modules, and shows the
                                              # diff of edited ones: composable-os.lock.json)
+pnpm install && pnpm cos upgrade             # then: install the new versions, and type-check
 ```
+
+**`cos upgrade` in two steps.** It moves `platform.version`, the generated clients, the skills,
+the host modules and every `@composable-os/*` dependency in the root's and each app's
+`package.json` to the new version (keeping `^` or `~`; a tarball, path, workspace or override it
+cannot safely rewrite is left and named). It never installs, and it type-checks the apps only
+against packages installed at the new version: until they are, it says the type check was skipped
+and prints the install command for the repo's package manager. Install, then run `cos upgrade`
+again: on the version the repo is already on, it type-checks (and checks the host modules again).
 
 `cos deploy` installs (or upgrades, or repairs) the host from the release in `product.ts` with the
 product's packs (`COS_PACKS` on the runner) and the org's own extensions, which it checks with
