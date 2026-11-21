@@ -41,6 +41,12 @@ importers:
       '@composable-os/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@composable-os/pack-programs':
+        specifier: workspace:*
+        version: link:../../packs/programs
+      '@composable-os/pack-ticketing':
+        specifier: workspace:*
+        version: link:../../packs/ticketing
       '@composable-os/product':
         specifier: workspace:*
         version: link:../../packages/product

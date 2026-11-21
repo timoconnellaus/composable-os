@@ -6,7 +6,10 @@ import { type SupportEnv, supportPrincipal } from "./support.ts";
 
 /** Paths anyone may load. Everything else needs a Principal. */
 // /buy: the host's plain checkout start (stage 25), for buyers who have no account.
-const PUBLIC_PATHS = new Set(["/sign-in", "/api/health", "/buy"]);
+// /blocks: a pack's web block mounted on its own (stage 41), in development only (a production
+// build mounts nothing there); the block's calls go to /api/v1/op as whoever the cookie says.
+const DEV = (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
+const PUBLIC_PATHS = new Set(["/sign-in", "/api/health", "/buy", ...(DEV ? ["/blocks"] : [])]);
 // /gatekeeper/: OAuth redirects, connect pages and provider pushes (stage 6a); each gatekeeper
 // authenticates its own routes with nonces and signatures. /order/: a guest's order page, opened
 // by the order's token (stage 25); the page shows nothing without it.

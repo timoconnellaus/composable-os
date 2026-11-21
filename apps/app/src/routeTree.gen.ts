@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as BlocksRouteImport } from './routes/blocks'
 import { Route as BuyRouteImport } from './routes/buy'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
@@ -74,6 +75,11 @@ import { Route as ApiAssistantThreadStreamRouteImport } from './routes/api/assis
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlocksRoute = BlocksRouteImport.update({
+  id: '/blocks',
+  path: '/blocks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BuyRoute = BuyRouteImport.update({
@@ -394,6 +400,7 @@ const ApiAssistantThreadStreamRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/blocks': typeof BlocksRoute
   '/buy': typeof BuyRoute
   '/sign-in': typeof SignInRoute
   '/activity': typeof AppActivityRoute
@@ -456,6 +463,7 @@ export interface FileRoutesByFullPath {
   '/x/$object/': typeof AppXObjectIndexRoute
 }
 export interface FileRoutesByTo {
+  '/blocks': typeof BlocksRoute
   '/buy': typeof BuyRoute
   '/sign-in': typeof SignInRoute
   '/activity': typeof AppActivityRoute
@@ -521,6 +529,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/blocks': typeof BlocksRoute
   '/buy': typeof BuyRoute
   '/sign-in': typeof SignInRoute
   '/_app/activity': typeof AppActivityRoute
@@ -587,6 +596,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/blocks'
     | '/buy'
     | '/sign-in'
     | '/activity'
@@ -649,6 +659,7 @@ export interface FileRouteTypes {
     | '/x/$object/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/blocks'
     | '/buy'
     | '/sign-in'
     | '/activity'
@@ -713,6 +724,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
+    | '/blocks'
     | '/buy'
     | '/sign-in'
     | '/_app/activity'
@@ -778,6 +790,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  BlocksRoute: typeof BlocksRoute
   BuyRoute: typeof BuyRoute
   SignInRoute: typeof SignInRoute
   ApiHealthRoute: typeof ApiHealthRoute
@@ -796,6 +809,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blocks': {
+      id: '/blocks'
+      path: '/blocks'
+      fullPath: '/blocks'
+      preLoaderRoute: typeof BlocksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/buy': {
@@ -1351,6 +1371,7 @@ const ApiAssistantThreadRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  BlocksRoute: BlocksRoute,
   BuyRoute: BuyRoute,
   SignInRoute: SignInRoute,
   ApiHealthRoute: ApiHealthRoute,
