@@ -38,10 +38,9 @@ beforeAll(async () => {
   b = await createCustomer(admin, "B");
 }, 60_000);
 
-// capacity.get (stage 26, ADR 0433) is open to customers and the public too: places left, as
-// the object's `show` allows.
+// capacity.get (stage 26) and the order.* operations (stage 25) are open too; their own tests
+// list them (customer-pipeline.test.ts).
 const OPENED = [
-  "capacity.get",
   "me.deleteAccount",
   "me.get",
   "me.sessions.list",
