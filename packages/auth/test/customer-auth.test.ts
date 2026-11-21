@@ -182,7 +182,7 @@ describe("invite only (criterion 11)", () => {
           db,
         },
       ),
-    ).toEqual({ signup: "invite_only", eraseDueDays: 30 });
+    ).toEqual({ signup: "invite_only", eraseDueDays: 30, emailConnectionId: null });
   });
 
   it("answers an uninvited address exactly as an invited one, and sends it nothing", async () => {
@@ -553,5 +553,75 @@ describe("code requests are limited per address asked for (criterion 14)", () =>
     expect((await ask(stranger)).status).toBe(200);
     expect((await ask(stranger)).status).toBe(200);
     expect(await ask(stranger)).toEqual({ status: 429, sent: 0 });
+  });
+});
+
+describe("stage 23: per client address, and not set up", () => {
+  const keys: string[] = [];
+  const counting = memoryRateLimit(2);
+  const byAddress = customerIdentity(
+    createCustomerAuth({
+      db: env.DB,
+      secret: CUSTOMER_SECRET,
+      baseURL: ORIGIN,
+      sendCode: (message) => sendCustomerCode(fakeCall, TARGET, message),
+      codeAddressRateLimit: {
+        limit: (options: { key: string }) => {
+          keys.push(options.key);
+          return counting.limit(options);
+        },
+      },
+    }),
+    env.DB,
+  );
+  const ask = async (identity: typeof byAddress, email: string, ip: string) => {
+    const response = await identity.handle(
+      post(
+        "/api/customer-auth/email-otp/send-verification-otp",
+        { email, type: "sign-in" },
+        { "cf-connecting-ip": ip },
+      ),
+    );
+    if (!response) throw new Error("not a customer route");
+    return { status: response.status, body: await response.text() };
+  };
+
+  it("limits one client address across every email asked for, keyed by a hash of it", async () => {
+    const ip = "203.0.113.77";
+    expect((await ask(byAddress, address("a1"), ip)).status).toBe(200);
+    expect((await ask(byAddress, address("a2"), ip)).status).toBe(200);
+    expect((await ask(byAddress, address("a3"), ip)).status).toBe(429);
+    expect((await ask(byAddress, address("a4"), "203.0.113.78")).status).toBe(200);
+    // The address itself is never the key.
+    expect(keys.length).toBe(4);
+    expect(keys.some((k) => k.includes(ip))).toBe(false);
+  });
+
+  it("answers that sign-in is not set up, before any code is made, for every address", async () => {
+    const notSetUp = customerIdentity(
+      createCustomerAuth({
+        db: env.DB,
+        secret: CUSTOMER_SECRET,
+        baseURL: ORIGIN,
+        sendCode: async () => {
+          throw new Error("must not be called");
+        },
+        ready: async () => "no email connection is chosen for customer mail",
+      }),
+      env.DB,
+    );
+    const email = address("not-set-up");
+    await inviteCustomer(db, email, admin.id);
+    const invited = await ask(notSetUp, email, "203.0.113.90");
+    const stranger = await ask(notSetUp, address("nobody"), "203.0.113.91");
+    expect(invited.status).toBe(503);
+    expect(invited.body).toContain("Customer sign-in is not set up");
+    expect(stranger).toEqual(invited);
+    const { results } = await env.DB.prepare(
+      "SELECT id FROM core_customer_verification WHERE identifier = ?",
+    )
+      .bind(`sign-in-otp-${email}`)
+      .all();
+    expect(results).toEqual([]);
   });
 });
