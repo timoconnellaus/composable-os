@@ -51316,6 +51316,7 @@
       },
       "invalidates": [
         "user.grantablePermissions",
+        "user.invites",
         "user.list",
         "user.packRoles"
       ]
@@ -51354,6 +51355,230 @@
                 "permission",
                 "label",
                 "from"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "user.invite",
+      "description": "Invite a person to a staff account by email, with the role, and optionally the pack role and permissions, the account will hold from the start. With the built-in sign-in they accept by signing in with a code emailed to that address; under Cloudflare Access, by their first visit once Access lets them in. Sign-up stays closed to everyone else. An address with an account cannot be invited; inviting an address again replaces its pending invite. Expires in 7 days. Admins only, and only a human can call it.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 254,
+            "description": "Their email address"
+          },
+          "role": {
+            "default": "member",
+            "description": "The account's role: admin, member or viewer",
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "packRole": {
+            "default": null,
+            "description": "A pack's fixed role (`ticketing.door`), or null. Makes the role viewer.",
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permissions": {
+            "default": [],
+            "description": "Permissions granted one by one (user.grantablePermissions lists them)",
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "packRole": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "expired"
+            ]
+          },
+          "signIn": {
+            "type": "string",
+            "enum": [
+              "code",
+              "access"
+            ]
+          },
+          "invitationEmail": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "not_sent",
+              "not_needed"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "packRole",
+          "permissions",
+          "invitedBy",
+          "createdAt",
+          "expiresAt",
+          "status",
+          "signIn",
+          "invitationEmail"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "user.grantablePermissions",
+        "user.invites",
+        "user.list",
+        "user.packRoles"
+      ]
+    },
+    {
+      "name": "user.invites",
+      "description": "List the invites for staff accounts that have not been accepted or revoked, with the role, pack role and permissions each will give, and whether it has expired. Admins only. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "admin",
+                    "member",
+                    "viewer"
+                  ]
+                },
+                "packRole": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "permissions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "invitedBy": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "expired"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "email",
+                "role",
+                "packRole",
+                "permissions",
+                "invitedBy",
+                "createdAt",
+                "expiresAt",
+                "status"
               ],
               "additionalProperties": false
             }
@@ -51677,6 +51902,52 @@
       },
       "invalidates": [
         "user.grantablePermissions",
+        "user.invites",
+        "user.list",
+        "user.packRoles"
+      ]
+    },
+    {
+      "name": "user.revokeInvite",
+      "description": "Revoke a pending staff invite: its address can no longer get a sign-in code or an account from it. Admins only, and only a human can call it.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Invite id (uin_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "revokedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "user.grantablePermissions",
+        "user.invites",
         "user.list",
         "user.packRoles"
       ]
@@ -51779,6 +52050,7 @@
       },
       "invalidates": [
         "user.grantablePermissions",
+        "user.invites",
         "user.list",
         "user.packRoles"
       ]
@@ -51878,6 +52150,129 @@
       },
       "invalidates": [
         "user.grantablePermissions",
+        "user.invites",
+        "user.list",
+        "user.packRoles"
+      ]
+    },
+    {
+      "name": "user.updateInvite",
+      "description": "Change what a pending staff invite will give: its role, pack role and permissions (checked as user.setPackRole and user.setPermissions check them). Admins only, and only a human can call it. Returns the invite.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Invite id (uin_…)"
+          },
+          "role": {
+            "default": "member",
+            "description": "The account's role: admin, member or viewer",
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "packRole": {
+            "default": null,
+            "description": "A pack's fixed role (`ticketing.door`), or null. Makes the role viewer.",
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permissions": {
+            "default": [],
+            "description": "Permissions granted one by one (user.grantablePermissions lists them)",
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "packRole": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "expired"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "packRole",
+          "permissions",
+          "invitedBy",
+          "createdAt",
+          "expiresAt",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "user.grantablePermissions",
+        "user.invites",
         "user.list",
         "user.packRoles"
       ]
@@ -51978,6 +52373,7 @@
       },
       "invalidates": [
         "user.grantablePermissions",
+        "user.invites",
         "user.list",
         "user.packRoles"
       ]

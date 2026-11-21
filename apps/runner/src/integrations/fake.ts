@@ -759,6 +759,13 @@ export class FakeGatekeeper extends DurableObject<
     const subject = String(message?.subject ?? "").slice(0, 500);
     const text = String(message?.text ?? "").slice(0, 20_000);
     if (!to.length || !subject) throw new Error("send needs `to` and a `subject`");
+    // Colleagues, as the email-send gatekeeper decides it from its internal domains: every
+    // recipient at the outbox's own domain (ADR 0455). Such a send is `fake.internal`, which an
+    // admin may let apply without review.
+    const ownDomain = this.#props.address.split("@")[1]?.toLowerCase() ?? "";
+    const internal =
+      message.internal === true ||
+      (ownDomain !== "" && to.every((a) => a.split("@")[1]?.toLowerCase() === ownDomain));
     const journal = this.#journal();
     const id = journal.next;
     journal.next += 1;
@@ -777,8 +784,8 @@ export class FakeGatekeeper extends DurableObject<
       ],
       descriptionIsComplete: true,
       implementsRevert: false,
-      autoApprovable: message.internal === true,
-      actionKind: message.internal
+      autoApprovable: internal,
+      actionKind: internal
         ? { tag: "fake.internal", label: "Send internal mail" }
         : { tag: "fake.send", label: "Send mail" },
     });

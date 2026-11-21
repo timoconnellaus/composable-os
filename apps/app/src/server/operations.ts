@@ -27,6 +27,7 @@ import { getAgentByName } from "agents";
 import { type AiAppEnv, aiContextFor } from "./ai.ts";
 import { type AssistantAgent, threadName } from "./assistant/agent.ts";
 import { type AgentJob, jobName } from "./assistant/job.ts";
+import { hostMailFor } from "./host-mail.ts";
 import { blobStoreFor, integrationRuntimeFor } from "./integrations.ts";
 import { deleteGrantTokens } from "./mcp/handler.ts";
 import { runner } from "./runner.ts";
@@ -259,6 +260,8 @@ export async function staffContext(
     ...(assistantThreads ? { assistantThreads } : {}),
     ...(agentJobs ? { agentJobs } : {}),
     updater: updaterRuntimeFor(env),
+    // The host's own mail for staff (ADR 0455): the invite notice.
+    hostMail: hostMailFor(env, appOrigin),
     ...aiContextFor(env, db),
     approvalExpiryDays: Number.parseInt(env.APPROVAL_EXPIRY_DAYS ?? "", 10) || undefined,
   };

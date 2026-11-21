@@ -9,6 +9,7 @@
 //   without a polyfill, so the app passes `randomKey`). It is not Hermes itself; HERMES_BIN, when
 //   set, runs the same script in a real Hermes binary too.
 import { execFileSync } from "node:child_process";
+import { webcrypto } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -91,6 +92,78 @@ export async function scenario() {
   }
   return { greeting, key: query.queryKey, saved, sent, upgrade };
 }
+`;
+
+/**
+ * Native sign-in in the stand-in runtime (ADR 0455): a customer and a staff member sign in with a
+ * code, call, and sign out, against a host stub that answers as the real routes do and never sets
+ * a cookie; the phone's fetch cannot read one anyway. It reports every path, any cookie the
+ * runtime sent, and what was kept.
+ */
+const SIGN_IN_SCENARIO = `import { tokenSession, startBrowserSignIn } from "@composable-os/client";
+
+async function run() {
+  const paths = [];
+  const cookiesSent = [];
+  const signedOutWith = [];
+  let bearer = null;
+  const fetch = async (url, init) => {
+    const path = url.replace("https://host.example", "");
+    paths.push(path);
+    for (const name of Object.keys(init.headers)) if (name.toLowerCase() === "cookie") cookiesSent.push(name);
+    const body = init.body ? JSON.parse(init.body) : {};
+    let status = 200;
+    let answer;
+    if (path.endsWith("/code")) answer = { data: { ok: true } };
+    else if (path.endsWith("/sign-in")) {
+      const who = path.indexOf("/staff/") >= 0 ? "staff" : "customer";
+      if (body.code !== "123456") {
+        status = 401;
+        answer = { error: { code: "forbidden", message: "That code is not valid", details: { reason: "invalid_code" } } };
+      } else {
+        answer = { data: { accessToken: "cos_at_" + who, refreshToken: "cos_rt_" + who, accessExpiresAt: "2999-01-01T00:00:00.000Z", sessionId: "dvs_" + who, account: who === "customer" ? "ready" : undefined } };
+      }
+    } else if (path.endsWith("/auth/sign-out")) {
+      signedOutWith.push(body.refreshToken);
+      if (body.refreshToken === "cos_rt_staff") throw new TypeError("offline");
+      answer = { data: { ok: true } };
+    } else {
+      bearer = init.headers.authorization;
+      answer = { data: { id: "per_1" } };
+    }
+    // The phone cannot read set-cookie; this host never sends one.
+    return { status: status, headers: { get: () => null }, text: async () => JSON.stringify(answer) };
+  };
+  let saved = null;
+  const store = { load: async () => saved, save: async (t) => { saved = t; } };
+  const customer = tokenSession({ baseUrl: "https://host.example", store, fetch });
+  await customer.requestCode("ada@example.com");
+  let refused = null;
+  try { await customer.signInWithCode("ada@example.com", "000000", "Phone"); } catch (e) { refused = { code: e.code, status: e.status }; }
+  paths.length = 0;
+  await customer.requestCode("ada@example.com");
+  await customer.signInWithCode("ada@example.com", "123456", "Ada's phone");
+  const headers = await customer.headers();
+  const me = { data: { id: "per_1" } };
+  await fetch("https://host.example/api/v1/op/me.get", { method: "POST", headers, body: "{}" });
+  await customer.signOut();
+  const storeAfter = [saved];
+  const staff = tokenSession({ baseUrl: "https://host.example", store, fetch });
+  await staff.requestCode("coach@example.com", "staff");
+  await staff.signInWithCode("coach@example.com", "123456", "Door phone", "staff");
+  // The host cannot be reached: the phone forgets the session anyway.
+  await staff.signOut();
+  storeAfter.push(saved);
+  let n = 0;
+  const browser = await startBrowserSignIn({
+    hostUrl: "https://host.example",
+    redirectUri: "gymapp://signed-in",
+    randomKey: () => "k" + ++n + "abcdefghijklmnopqrstuvwxyz0123456789",
+    sha256: appSha256,
+  });
+  return { paths, cookiesSent, signedOutWith, bearer, me, storeAfter, refused, browser };
+}
+run().then((r) => report(JSON.stringify(r)), (e) => report(JSON.stringify({ error: String(e && e.stack || e) })));
 `;
 
 async function bundle(format: "esm" | "iife", target: string): Promise<string> {
@@ -197,6 +270,67 @@ describe("the generated client's targets", () => {
     });
     await done;
     expectScenario(JSON.parse(reported) as Record<string, unknown>);
+  });
+
+  it("React Native: signs in for tokens with no cookie, and signs out with the refresh token (ADR 0455)", async () => {
+    const dir = mkdtempSync(join(scratchRoot, "s-"));
+    writeFileSync(join(dir, "entry.ts"), SIGN_IN_SCENARIO);
+    const out = await build({
+      entryPoints: [join(dir, "entry.ts")],
+      bundle: true,
+      write: false,
+      format: "iife",
+      target: "es2019",
+      platform: "neutral",
+      alias: { "@composable-os/client": runtime },
+      logLevel: "error",
+    });
+    const script = out.outputFiles[0]?.text ?? "";
+    expect(script).not.toMatch(/\?\.|\?\?/);
+    let reported = "";
+    const done = new Promise<void>((resolve) => {
+      const context = vm.createContext({
+        report: (text: string) => {
+          reported = text;
+          resolve();
+        },
+        setTimeout,
+        // What the app passes in for the browser sign-in: expo-crypto's digest. Not `crypto`.
+        appSha256: async (text: string) =>
+          new Uint8Array(await webcrypto.subtle.digest("SHA-256", new TextEncoder().encode(text))),
+      });
+      expect(vm.runInContext("typeof crypto + typeof fetch + typeof document", context)).toBe(
+        "undefinedundefinedundefined",
+      );
+      vm.runInContext(script, context);
+    });
+    await done;
+    const result = JSON.parse(reported) as Record<string, unknown>;
+    expect(result.error).toBeUndefined();
+    expect(result.cookiesSent).toEqual([]);
+    expect(result.paths).toEqual([
+      "/api/v1/auth/customer/code",
+      "/api/v1/auth/customer/sign-in",
+      "/api/v1/op/me.get",
+      "/api/v1/auth/sign-out",
+      "/api/v1/auth/staff/code",
+      "/api/v1/auth/staff/sign-in",
+      "/api/v1/auth/sign-out",
+    ]);
+    expect(result.me).toEqual({ data: { id: "per_1" } });
+    expect(result.bearer).toBe("Bearer cos_at_customer");
+    expect(result.signedOutWith).toEqual(["cos_rt_customer", "cos_rt_staff"]);
+    expect(result.storeAfter).toEqual([null, null]);
+    expect(result.refused).toMatchObject({ code: "forbidden", status: 401 });
+    // The browser sign-in's challenge is the S256 of the verifier, made with the app's sha256.
+    const browser = result.browser as { url: string; verifier: string; state: string };
+    const challenge = new URL(browser.url).searchParams.get("code_challenge");
+    const digest = await webcrypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(browser.verifier),
+    );
+    expect(challenge).toBe(Buffer.from(digest).toString("base64url"));
+    expect(new URL(browser.url).pathname).toBe("/native/staff-sign-in");
   });
 
   it.skipIf(!process.env.HERMES_BIN)("Hermes: the same script in a Hermes binary", async () => {
