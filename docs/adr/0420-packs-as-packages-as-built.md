@@ -66,3 +66,30 @@ had only the CRM's packs, and dropped the unknown one without a word.
   skipped `x.*` when comparing a deployment with the files now compare with `forPacks`. The client
   generator types a client repo's packs with it.
 - The runner's main module with four packs: see `apps/runner/scripts/bundle-budget.mjs`.
+
+## Amended 2026-11-22: a pack a product lists is installed
+Found from the first client: Content and Programs carry `composableOs.optional` (so that the CRM's
+local dev could offer them to an admin), and the runner's boot install
+(`installOne`, `packages/core/src/extensions/shipped.ts`) left an optional shipped extension
+`available` unless an admin installed it. Since `COS_PACKS` passed `optional` through, a client
+product listing Content or Programs got a host where neither was installed, although each pack
+says "Installed in every deployment of a product that lists it". Ticketing, not optional, was
+installed.
+- **A pack the deployment's product lists is installed at boot:** `listedPacks`
+  (`apps/runner/src/extensions/shipped-list.ts`) drops `optional` for every pack an explicit
+  `COS_PACKS` names (what `cos deploy` writes from `product.ts`). `optional` holds only for `*`,
+  the release product's own catalogue, where an admin chooses (lifecycle in the CRM, ADR 0246,
+  unchanged). The boot install itself is unchanged.
+- **A product that adds a pack** in a later deploy gets it installed by the next boot; the others
+  are left `unchanged`.
+- **A product that drops a pack** stops listing it, so releases no longer update it, and nothing
+  is deleted: it stays installed and active with its records; an admin may disable it
+  (`extension.disable`), which stops its tools and keeps its records.
+- **Local dev:** `COS_DEV_PACKS=<packs> pnpm dev` gives the local runner that `COS_PACKS`, and
+  `scripts/dev-setup.mjs` then does not deliver those packs as org extensions (a pack and an org
+  extension may not share an id). Without it, local dev stays the CRM's, with Ticketing, Programs
+  and Content as optional org extensions.
+- Tests: `apps/runner/test/listed-packs.test.ts` runs the real list and the real boot install for a
+  product listing Content, Programs and Ticketing (all installed, their objects there, Ticketing's
+  and Content's public reads answering; before the fix Content and Programs were `available`), a
+  pack added later, a pack dropped (still active), and the CRM's `*` (lifecycle `available`).

@@ -283,6 +283,22 @@ install a pack it does not carry fails loudly: it logs it at start-up and its pi
 host's `/api/health` answers 503 with the reason, and nothing is installed from that list. A CRM
 install (`COS_PACKS` `*`) installs the CRM's own packs, as before.
 
+**A pack the product lists is installed in every deployment of it**, at the first boot after a
+deploy, and on a later deploy that adds it; its objects, tools and public reads are there with no
+admin step. A pack's `optional` (in its `package.json`) applies only to the release product's own
+catalogue (`COS_PACKS` `*`), where an admin chooses: the CRM's lifecycle stage. **A product that
+drops a pack** stops installing and updating it, and deletes nothing: the pack stays installed
+with its records and keeps working at the version it last had. An admin who wants it gone
+disables it (Settings → Extensions, `extension.disable`): its tools stop and its records stay.
+No deploy deletes a pack's data.
+
+**Locally,** `pnpm dev` runs the CRM (`COS_PACKS` `*`), with Ticketing, Programs and Content as
+optional org extensions an admin installs (`extension.install { id, shipped: true }`, as their
+e2e specs do). For a client-shaped host, list the packs:
+`COS_DEV_PACKS=ticketing,content pnpm dev`. The local runner then has that `COS_PACKS`, installs
+them at boot as a client's host does, and does not deliver them as org extensions: a pack and an
+org extension cannot share an id. The CRM's own packs are not installed then unless listed.
+
 ### Environments
 A product can declare environments (ADR 0450): a staging host and a live host, side by side in one
 account, each with its own Workers, database, deployment state, secrets and addresses.

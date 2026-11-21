@@ -298,6 +298,14 @@ describe("cos deploy", () => {
     // The release carries it (its runner bundles every pack: apps/runner/test/shipped-list.test.ts,
     // where COS_PACKS=ticketing installs exactly Ticketing), and the runner is told to install it.
     expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("ticketing");
+    // Content and Programs too, though their packages say optional: the runner installs every
+    // pack an explicit COS_PACKS names (apps/runner/test/listed-packs.test.ts, ADR 0420).
+    setPacks(dir, ["ticketing", "content", "programs"]);
+    const again = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(again.code, again.output).toBe(0);
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe(
+      "ticketing,content,programs",
+    );
   });
 
   it("trusts only packs.json: a tool in the contract does not make a pack carried", async () => {

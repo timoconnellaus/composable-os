@@ -157,6 +157,24 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       readFileSync(join(root, "packs/content", file), "utf8"),
     ]),
   );
+  // Two ways to have a pack locally, which do not mix (a pack and an org extension may not share
+  // an id, shipped-list.ts):
+  // - The default, the CRM's local dev: the runner's COS_PACKS is "*" (the CRM's packs), and
+  //   Ticketing, Programs and Content come as optional org extensions, which an admin (or an e2e
+  //   spec) installs with extension.install { id, shipped: true }.
+  // - Client-shaped (COS_DEV_PACKS=ticketing,content pnpm dev): the runner's COS_PACKS is that
+  //   list, as `cos deploy` sets it for a product that lists those packs, so they install at boot
+  //   from the release's bundle (ADR 0420, amended 2026-11-22); they are then not delivered as
+  //   org extensions. Packs not listed (the CRM's too) are not installed.
+  const devPacks = (process.env.COS_DEV_PACKS ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const packsFile = join(root, "apps/app/.wrangler/cos-packs");
+  mkdirSync(dirname(packsFile), { recursive: true });
+  writeFileSync(packsFile, devPacks.join(","));
+  if (devPacks.length) console.log(`local runner: COS_PACKS=${devPacks.join(",")} (COS_DEV_PACKS)`);
+  const asOrgExtension = (id) => !devPacks.includes(id);
   const text = JSON.stringify({
     extensions: [
       {
@@ -169,7 +187,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       // And Programs (stage 41), the same way, for its e2e specs.
       { id: "programs", version: "0.1.0", optional: true, files: programs },
       { id: "content", version: "0.2.0", optional: true, files: content },
-    ],
+    ].filter((extension) => asOrgExtension(extension.id)),
   });
   const hash = createHash("sha256").update(text).digest("hex");
   const blob = join(root, "apps/app/.wrangler/org-extensions.json");
