@@ -95,7 +95,11 @@ describe("the hooks against the host", () => {
     let layout = layoutEdits.addSession(emptyLayout(), 0);
     layout = layoutEdits.setSession(layout, { week: 0, session: 0 }, { day: 9 });
     const refused = await refusal(
-      run("record.update", { object: "programs.program", id: program.id, values: { layout } }, staff(coach)),
+      run(
+        "record.update",
+        { object: "programs.program", id: program.id, values: { layout } },
+        staff(coach),
+      ),
     );
     expect([...faultsOf({ message: refused.message, details: refused.details })]).toEqual([
       ["weeks.0.sessions.0.day", "At most 7"],
@@ -103,17 +107,34 @@ describe("the hooks against the host", () => {
     layout = layoutEdits.setSession(layout, { week: 0, session: 0 }, { day: 1 });
     layout = layoutEdits.addBlock(layout, { week: 0, session: 0 });
     layout = layoutEdits.addItem(layout, { week: 0, session: 0, block: 0 }, row, "weight_reps");
-    await run("record.update", { object: "programs.program", id: program.id, values: { layout } }, staff(coach));
+    await run(
+      "record.update",
+      { object: "programs.program", id: program.id, values: { layout } },
+      staff(coach),
+    );
     // Publishing is offered only to an account that holds the permission, and the host decides.
     c.hooks.usePublishOffered();
-    expect((await c.last<{ permissions: string[] }>()).permissions).not.toContain("records:publish");
-    expect(await refusal(c.hooks.usePublish().mutateAsync({ object: "programs.program", id: program.id }))).toMatchObject({
+    expect((await c.last<{ permissions: string[] }>()).permissions).not.toContain(
+      "records:publish",
+    );
+    expect(
+      await refusal(
+        c.hooks.usePublish().mutateAsync({ object: "programs.program", id: program.id }),
+      ),
+    ).toMatchObject({
       code: "forbidden",
     });
-    await run("user.setPermissions", { id: coach.id, permissions: ["records:publish"] }, staff(admin));
+    await run(
+      "user.setPermissions",
+      { id: coach.id, permissions: ["records:publish"] },
+      staff(admin),
+    );
     c.hooks.usePublishOffered();
     expect((await c.last<{ permissions: string[] }>()).permissions).toContain("records:publish");
-    expect((await c.hooks.usePublish().mutateAsync({ object: "programs.program", id: program.id })).version).toBe(1);
+    expect(
+      (await c.hooks.usePublish().mutateAsync({ object: "programs.program", id: program.id }))
+        .version,
+    ).toBe(1);
     c.hooks.useVersions(program.id);
     expect((await c.last<{ items: unknown[] }>()).items).toHaveLength(1);
     const assigned = await c.hooks.useAssign().mutateAsync({
@@ -135,7 +156,9 @@ describe("the hooks against the host", () => {
     m.hooks.useSession({ sessionId });
     const detail = await m.last<{ exercises: { name: string | null }[] }>();
     expect(detail.exercises.map((e) => e.name)).toEqual(["Ring row"]);
-    const set = await m.hooks.useLogSet().mutateAsync({ sessionId, item: "A1", setNumber: 1, actual: { reps: 8, load: 20 }, rpe: 7 });
+    const set = await m.hooks
+      .useLogSet()
+      .mutateAsync({ sessionId, item: "A1", setNumber: 1, actual: { reps: 8, load: 20 }, rpe: 7 });
     expect(set).toMatchObject({ exerciseName: "Ring row", target: { reps: 8 } });
     await m.hooks.useMarkSession().mutateAsync({ sessionId, state: "done" });
     m.hooks.useProgress();

@@ -138,9 +138,15 @@ function UsersPage() {
                   >
                     {grantable.data.items.map((g) => {
                       const held = u.permissions ?? [];
+                      const control = `grant-${u.id}-${g.permission}`;
                       return (
-                        <label key={g.permission} className="flex items-center gap-1.5">
+                        <label
+                          key={g.permission}
+                          htmlFor={control}
+                          className="flex items-center gap-1.5"
+                        >
                           <Checkbox
+                            id={control}
                             checked={held.includes(g.permission)}
                             disabled={setPermissions.isPending}
                             onCheckedChange={() => void toggleGrant(u.id, name, held, g.permission)}

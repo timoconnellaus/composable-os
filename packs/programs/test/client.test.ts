@@ -4,11 +4,11 @@ import { validateDocument } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import {
   describeSets,
+  layoutEdits as e,
   emptyLayout,
   exercisesIn,
   faultsOf,
   faultsUnder,
-  layoutEdits as e,
   layoutSummary,
   move,
   pathOf,
@@ -34,8 +34,16 @@ describe("building a program with the editing functions", () => {
     l = e.addLevel(l, a2, pike, "reps", 5);
     l = e.addExercise(l, { ...a2, level: 1 }, hollow, "hold");
     l = e.setLevelMode(l, { ...a2, level: 1 }, "alternatives");
-    l = e.setSet(l, { ...a2, level: 1, exercise: 1, set: 0 }, { kind: "hold", seconds: 20, holds: 3 });
-    l = e.setSet(l, { ...monday, block: 0, item: 0, exercise: 0, set: 0 }, { load: 20, tempo: "32X1", rest: 90 });
+    l = e.setSet(
+      l,
+      { ...a2, level: 1, exercise: 1, set: 0 },
+      { kind: "hold", seconds: 20, holds: 3 },
+    );
+    l = e.setSet(
+      l,
+      { ...monday, block: 0, item: 0, exercise: 0, set: 0 },
+      { load: 20, tempo: "32X1", rest: 90 },
+    );
     l = e.addNote(l, a2, "Watch the knees");
     l = e.addNote(l, a2, "Breathe out", true);
     // Every other session as Monday's, then eleven more weeks as the first.
@@ -49,7 +57,10 @@ describe("building a program with the editing functions", () => {
       [1, "one"],
       [5, "alternatives"],
     ]);
-    expect(item?.notes).toEqual([{ text: "Watch the knees" }, { text: "Breathe out", members: true }]);
+    expect(item?.notes).toEqual([
+      { text: "Watch the knees" },
+      { text: "Breathe out", members: true },
+    ]);
     const first = l.weeks[0]?.sessions[0]?.blocks[0]?.items[0];
     expect(first?.kind === "all" && describeSets(first.exercises[0]?.sets ?? [])).toBe(
       "8 reps @ 20 kg, 32X1, rest 90 s, then 2 × 8 reps",
@@ -74,11 +85,22 @@ describe("building a program with the editing functions", () => {
     l = e.addItem(l, { ...at, block: 0 }, row);
     l = e.addItem(l, { ...at, block: 0 }, pike);
     l = e.moveItem(l, { ...at, block: 0, item: 1 }, { block: 1, item: 0 });
-    expect(l.weeks[0]?.sessions[0]?.blocks.map((b) => b.items.map((i) => i.label))).toEqual([["A1"], ["A2"]]);
-    l = e.setSet(l, { ...at, block: 0, item: 0, exercise: 0, set: 0 }, { kind: "reps", reps: 5, load: 40, tempo: "2020" });
+    expect(l.weeks[0]?.sessions[0]?.blocks.map((b) => b.items.map((i) => i.label))).toEqual([
+      ["A1"],
+      ["A2"],
+    ]);
+    l = e.setSet(
+      l,
+      { ...at, block: 0, item: 0, exercise: 0, set: 0 },
+      { kind: "reps", reps: 5, load: 40, tempo: "2020" },
+    );
     l = e.setSet(l, { ...at, block: 0, item: 0, exercise: 0, set: 0 }, { kind: "time" });
     const set = l.weeks[0]?.sessions[0]?.blocks[0]?.items[0];
-    expect(set?.kind === "all" && set.exercises[0]?.sets[0]).toEqual({ kind: "time", seconds: 30, load: 40 });
+    expect(set?.kind === "all" && set.exercises[0]?.sets[0]).toEqual({
+      kind: "time",
+      seconds: 30,
+      load: 40,
+    });
     expect(move(["a", "b", "c"], 0, 2)).toEqual(["b", "c", "a"]);
   });
 });
@@ -87,12 +109,16 @@ describe("faults from the host", () => {
   it("land on the part they name, and on what holds it", () => {
     const error = {
       code: "invalid_input",
-      message: "Invalid value for programs.program.layout: layout.weeks.1.sessions.0.day: At most 7",
+      message:
+        "Invalid value for programs.program.layout: layout.weeks.1.sessions.0.day: At most 7",
       details: {
         field: "layout",
         issues: [
           { path: ["weeks", 1, "sessions", 0, "day"], message: "At most 7" },
-          { path: ["weeks", 1, "sessions", 0, "blocks", 0, "items", 2, "label"], message: "Required" },
+          {
+            path: ["weeks", 1, "sessions", 0, "blocks", 0, "items", 2, "label"],
+            message: "Required",
+          },
         ],
       },
     };
@@ -102,8 +128,12 @@ describe("faults from the host", () => {
     expect(faultsUnder(faults, pathOf({ week: 1, session: 0 }))).toEqual(["At most 7", "Required"]);
     expect(faultsUnder(faults, pathOf({ week: 0 }))).toEqual([]);
     const ref = faultsOf({
-      message: "layout.weeks.0.sessions.0.blocks.0.items.0.exercises.0.exercise: no live programs.exercise with id x",
-      details: { field: "layout", path: ["weeks", 0, "sessions", 0, "blocks", 0, "items", 0, "exercises", 0, "exercise"] },
+      message:
+        "layout.weeks.0.sessions.0.blocks.0.items.0.exercises.0.exercise: no live programs.exercise with id x",
+      details: {
+        field: "layout",
+        path: ["weeks", 0, "sessions", 0, "blocks", 0, "items", 0, "exercises", 0, "exercise"],
+      },
     });
     expect([...ref.values()]).toEqual(["no live programs.exercise with id x"]);
   });
