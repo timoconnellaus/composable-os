@@ -36,6 +36,7 @@ import {
 } from "./automations/outbox.ts";
 import type { TestSimulation } from "./automations/simulate.ts";
 import type { AutomationHost, EventSink } from "./automations/types.ts";
+import { contentGenerationWrites } from "./content/cache.ts";
 import { loadCustomerSignIn } from "./customers/accounts.ts";
 import { checkOutsideRateLimit } from "./customers/limits.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
@@ -1075,6 +1076,9 @@ async function invokeOnce<O extends AnyOperation>(
       ? null
       : embeddingQueueStatement(ctx.db.query, changes, now);
   if (embedding) statements.push(embedding);
+  // What the public reads of content moved on (stage 28, ADR 0442): a cached public read is
+  // keyed by its object's generation, bumped here in the change's own batch.
+  if (op.risk !== "read") statements.push(...contentGenerationWrites(changes, now));
 
   const summary =
     op.auditSummary && !deferred ? op.auditSummary(output, input) : defaultSummary(output, changes);
@@ -1770,6 +1774,7 @@ async function invokeOutside<O extends AnyOperation>(
       ? null
       : embeddingQueueStatement(ctx.db.query, changes, now);
   if (embedding) statements.push(embedding);
+  if (!isRead) statements.push(...contentGenerationWrites(changes, now));
 
   if (!isRead) {
     const summary =

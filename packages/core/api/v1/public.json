@@ -97,6 +97,283 @@
       "invalidates": []
     },
     {
+      "name": "content.get",
+      "description": "Read one published record of a content object (a blog post) by its slug, as the public reads it: its published version, with only the fields the object lets the public read. An old slug of a record whose slug changed answers `redirect` with the slug it has now. A draft, an unpublished record and an unknown slug are all not found. Read-only.",
+      "risk": "read",
+      "audiences": ["public"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object the public reads, e.g. `content.post`"
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The record's address, e.g. `summer-launch`"
+          }
+        },
+        "required": ["object", "slug"]
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "values": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "kind": {
+                "type": "string",
+                "const": "record"
+              }
+            },
+            "required": ["object", "id", "values", "kind"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "redirect"
+              },
+              "object": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string",
+                "description": "Where the record is now: read it by this slug"
+              }
+            },
+            "required": ["kind", "object", "slug"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": []
+    },
+    {
+      "name": "content.list",
+      "description": "A page of the published records of a content object (blog posts), as the public reads them: published versions only, with only the fields the object lets the public read. Newest first by default (the object's date, else when each was published). Filter and sort on those fields; pass nextCursor back as cursor. Read-only.",
+      "risk": "read",
+      "audiences": ["public"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object the public reads, e.g. `content.post`"
+          },
+          "filter": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "direction": {
+                "default": "asc",
+                "type": "string",
+                "enum": ["asc", "desc"]
+              }
+            },
+            "required": ["field"]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["object"],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "neq",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "between",
+                      "in",
+                      "not_in",
+                      "contains",
+                      "not_contains",
+                      "starts_with",
+                      "ends_with",
+                      "is_null",
+                      "is_not_null"
+                    ]
+                  },
+                  "value": {}
+                },
+                "required": ["field", "op"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "and": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["and"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "or": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["or"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": ["object", "id", "values"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "content.preview",
+      "description": "Read the working copy of one record of a content object with a preview link's token: what staff are editing, before it is published, with only the fields the public would read. The token names one record and works until it expires; for any other record, or after, it is not found. Read-only.",
+      "risk": "read",
+      "audiences": ["public"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object the public reads, e.g. `content.post`"
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The record's address, e.g. `summer-launch`"
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "The token of a preview link"
+          }
+        },
+        "required": ["object", "slug", "token"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "kind": {
+            "type": "string",
+            "const": "preview"
+          }
+        },
+        "required": ["object", "id", "values", "kind"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "order.checkout",
       "description": "Open the payment provider's own page to pay for an order, and get its address to send the buyer to. The host says what is charged: the whole price or the deposit for an order with nothing paid (no amount may be given), or, for a part-paid order, the balance or a part of it of at least the set minimum (`amount`, in the currency's minor unit). The buyer comes back to `returnUrl`, which must be on one of the deployment's listed sites; coming back does not mark anything paid. Only the provider's confirmation does. A guest passes the order's token; a signed-in customer pays their own orders.",
       "risk": "write",

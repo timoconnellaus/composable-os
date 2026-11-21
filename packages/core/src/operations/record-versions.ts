@@ -1,25 +1,42 @@
-// Versions of a publishable record's content (stage 41, ADR 0446), and creating many records of
-// one object in one batch (stage 41, ADR 0448).
+// Versions of a publishable record's content (stage 41, ADR 0446; completed by stage 28, ADR
+// 0441), and creating many records of one object in one batch (stage 41, ADR 0448).
 //
-//   record.publish        a person with records:publish   snapshot the working copy as a version
-//   record.versions       staff                           the versions, newest first
-//   record.version        staff                           one version's content (default: current)
-//   record.restoreVersion staff (records:write)           copy a version into the working copy
-//   record.createMany     staff, extensions (bulk-write)  up to 50 records of one object at once
+//   record.publish         a person with records:publish  snapshot the working copy as a version
+//   record.schedulePublish a person with records:publish  snapshot it now, publish it at a time
+//   record.cancelSchedule  a person with records:publish  drop a scheduled publish
+//   record.unpublish       a person with records:publish  no version is read; versions are kept
+//   record.publishDue      the minute cron (automation)   publish what a person scheduled, when due
+//   record.versions        staff                          the versions, newest first
+//   record.version         staff                          one version's content (default: current)
+//   record.compareVersions staff                          what changed between two versions
+//   record.restoreVersion  staff (records:write)          copy a version into the working copy
+//   record.createMany      staff, extensions (bulk-write) up to 50 records of one object at once
 //
 // A publishable object's records are the working copy, which staff edit with record.update like
 // any record. Publishing copies the object's content fields into the next row of
-// core_publish_version and makes it current; nothing else ever changes a version. What follows a
-// version (a program's assignments) pins its number. Restoring is an ordinary write to the
-// working copy, through record.update's own code. Stage 28 adds the public half: slugs, the
-// public reading the current version through the public scope, scheduling, unpublishing and
-// preview links.
-import { documentBytes } from "@composable-os/sdk";
-import { CompiledQuery, sql } from "kysely";
+// core_publish_version and makes it current; only records/publish.ts writes there. What follows a
+// version (a program's assignments) pins its number; the public reads the current one (stage 28,
+// operations/content.ts). Restoring is an ordinary write to the working copy, through
+// record.update's own code. A record's state (draft, scheduled, published, unpublished) is read
+// from its versions and its schedule, never kept beside them.
+import { sql } from "kysely";
 import { z } from "zod";
 import { NotFoundError, ValidationError } from "../errors.ts";
+import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import {
+  clearScheduleWrite,
+  currentVersion,
+  dueSchedules,
+  nextVersion,
+  type PublishableObject,
+  publishWrites,
+  scheduleOf,
+  scheduleWrite,
+  snapshotOf,
+  unpublishWrites,
+} from "../records/publish.ts";
 import type { StageCache } from "../records/stages.ts";
 import {
   createRecord,
@@ -37,8 +54,7 @@ const objectName = z
   .describe("An extension object (`<extension>.<object>`, see schema.objects)");
 const recordId = z.string().min(1).max(64).describe("Record id");
 
-/** The most a version's content may be, in bytes of its JSON (a D1 row holds 2 MB). */
-export const VERSION_MAX_BYTES = 1_048_576;
+export { VERSION_MAX_BYTES } from "../records/publish.ts";
 /** The most records one record.createMany makes: see ADR 0448 for the statements each costs. */
 export const CREATE_MANY_MAX = 50;
 
@@ -51,20 +67,14 @@ const versionSummary = z.object({
   bytes: z.number().int(),
 });
 
-function requirePublishable(name: string): ObjectDefinition & {
-  titleField: string;
-  publishable: NonNullable<ObjectDefinition["publishable"]>;
-} {
+function requirePublishable(name: string): PublishableObject {
   const object = requireExtensionObject(name);
   if (!object.publishable) {
     throw new ValidationError(`${object.label} is not publishable: it has no versions`, {
       object: name,
     });
   }
-  return object as ObjectDefinition & {
-    titleField: string;
-    publishable: NonNullable<ObjectDefinition["publishable"]>;
-  };
+  return object as PublishableObject;
 }
 
 async function requireRecord(ctx: HandlerContext, object: ObjectDefinition, id: string) {
@@ -114,58 +124,222 @@ export const recordPublish = defineOperation({
   async handler(input, ctx) {
     const object = requirePublishable(input.object);
     const record = await requireRecord(ctx, object, input.id);
-    const content = Object.fromEntries(
-      object.publishable.content.map((field) => [field, record.values[field] ?? null]),
-    );
-    const bytes = documentBytes(content);
-    if (bytes > VERSION_MAX_BYTES) {
-      throw new ValidationError(
-        `The content is ${bytes} bytes; a version holds at most ${VERSION_MAX_BYTES}`,
-        { bytes, max: VERSION_MAX_BYTES },
-      );
-    }
-    const latest = await sql<{ version: number | null }>`
-      SELECT max(version) AS version FROM core_publish_version
-      WHERE object_type = ${object.name} AND record_id = ${input.id}
-    `.execute(ctx.db);
-    const previous = latest.rows[0]?.version ?? null;
-    const version = Number(previous ?? 0) + 1;
-    const published = record.values.publishedVersion ?? null;
+    const snapshot = snapshotOf(object, record, ctx.now);
+    // An empty date is the day it goes live, in the working copy too (ADR 0441).
+    if (Object.keys(snapshot.fill).length) await updateRecord(ctx, object, input.id, snapshot.fill);
+    const version = await nextVersion(ctx, object.name, input.id);
+    const note = input.note ?? null;
     // Racing publishes take the same number: the second batch fails on the key, as a conflict.
     ctx.write(
-      CompiledQuery.raw(
-        "UPDATE core_publish_version SET current = 0 WHERE object_type = ? AND record_id = ? AND current = 1",
-        [object.name, input.id],
-      ),
-      CompiledQuery.raw(
-        "INSERT INTO core_publish_version (object_type, record_id, version, content, bytes, current, published_at, published_by, note) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)",
-        [
-          object.name,
-          input.id,
-          version,
-          JSON.stringify(content),
-          bytes,
-          ctx.now,
-          ctx.user.id,
-          input.note ?? null,
-        ],
-      ),
+      ...publishWrites(object.name, input.id, version, snapshot, {
+        at: ctx.now,
+        user: ctx.user.id,
+        note,
+      }),
     );
     ctx.recordChange({
       object: object.name,
       id: input.id,
       action: "update",
-      before: { publishedVersion: published },
-      after: { publishedVersion: version },
+      before: {
+        publishedVersion: record.values.publishedVersion ?? null,
+        publishAt: record.values.publishAt ?? null,
+      },
+      after: { publishedVersion: version, publishAt: null },
     });
     return {
       version,
       current: true,
       publishedAt: ctx.now,
       publishedBy: ctx.user.id,
-      note: input.note ?? null,
-      bytes,
+      note,
+      bytes: snapshot.bytes,
     };
+  },
+});
+
+/** The furthest ahead a publish may be scheduled. */
+export const SCHEDULE_MAX_DAYS = 366;
+/** Scheduled publishes the cron publishes in one call; the rest wait a minute. */
+export const PUBLISH_DUE_BATCH = 20;
+
+const scheduleSummary = z.object({
+  publishAt: z.string().describe("When it goes live (ISO-8601 UTC)"),
+  scheduledBy: z.string(),
+  note: z.string().nullable(),
+  bytes: z.number().int(),
+});
+
+export const recordSchedulePublish = defineOperation({
+  name: "record.schedulePublish",
+  description:
+    "Schedule a record of a publishable object to be published at a time: its content fields " +
+    "as they are now are what goes live then (a later edit waits for the next publish). " +
+    "Replaces any earlier schedule; publishing now or unpublishing drops it. Only a person with " +
+    "the publish permission can do this, never an AI assistant. Returns the schedule.",
+  input: z.object({
+    object: objectName,
+    id: recordId,
+    at: z.iso.datetime({ offset: true }).describe("When to publish it (ISO-8601, in the future)"),
+    note: z.string().trim().min(1).max(500).optional().describe("What changed, for the history"),
+  }),
+  output: scheduleSummary,
+  permission: "records:publish",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const object = requirePublishable(input.object);
+    const at = new Date(input.at);
+    const now = new Date(ctx.now);
+    if (at.getTime() <= now.getTime()) {
+      throw new ValidationError("A scheduled publish is in the future: publish it now instead", {
+        field: "at",
+      });
+    }
+    if (at.getTime() > now.getTime() + SCHEDULE_MAX_DAYS * 86_400_000) {
+      throw new ValidationError(`A publish is scheduled at most ${SCHEDULE_MAX_DAYS} days ahead`, {
+        field: "at",
+      });
+    }
+    const record = await requireRecord(ctx, object, input.id);
+    const publishAt = at.toISOString();
+    const snapshot = snapshotOf(object, record, publishAt);
+    if (Object.keys(snapshot.fill).length) await updateRecord(ctx, object, input.id, snapshot.fill);
+    const note = input.note ?? null;
+    ctx.write(
+      scheduleWrite(object.name, input.id, publishAt, snapshot, {
+        now: ctx.now,
+        user: ctx.user.id,
+        note,
+      }),
+    );
+    ctx.recordChange({
+      object: object.name,
+      id: input.id,
+      action: "update",
+      before: { publishAt: record.values.publishAt ?? null },
+      after: { publishAt },
+    });
+    return { publishAt, scheduledBy: ctx.user.id, note, bytes: snapshot.bytes };
+  },
+});
+
+export const recordCancelSchedule = defineOperation({
+  name: "record.cancelSchedule",
+  description:
+    "Drop the scheduled publish of a record of a publishable object. What is live stays live. " +
+    "Not found when nothing is scheduled.",
+  input: z.object({ object: objectName, id: recordId }),
+  output: z.object({ cancelled: z.string().describe("The time it was scheduled for") }),
+  permission: "records:publish",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const object = requirePublishable(input.object);
+    await requireRecord(ctx, object, input.id);
+    const schedule = await scheduleOf(ctx, object.name, input.id);
+    if (!schedule) throw new NotFoundError(`${object.name} schedule`, input.id);
+    ctx.write(clearScheduleWrite(object.name, input.id));
+    ctx.recordChange({
+      object: object.name,
+      id: input.id,
+      action: "update",
+      before: { publishAt: schedule.publish_at },
+      after: { publishAt: null },
+    });
+    return { cancelled: schedule.publish_at };
+  },
+});
+
+export const recordUnpublish = defineOperation({
+  name: "record.unpublish",
+  description:
+    "Unpublish a record of a publishable object: the public no longer reads it (it answers as " +
+    "a record that does not exist) and any scheduled publish is dropped. Its versions are kept " +
+    "and it can be published again. Only a person with the publish permission can do this.",
+  input: z.object({ object: objectName, id: recordId }),
+  output: z.object({ unpublished: z.number().int().describe("The version that was live") }),
+  permission: "records:publish",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const object = requirePublishable(input.object);
+    const record = await requireRecord(ctx, object, input.id);
+    const version = await currentVersion(ctx, object.name, input.id);
+    if (version === null) {
+      throw new ValidationError(`This ${object.label.toLowerCase()} is not published`, {
+        reason: "not_published",
+      });
+    }
+    ctx.write(...unpublishWrites(object.name, input.id));
+    ctx.recordChange({
+      object: object.name,
+      id: input.id,
+      action: "update",
+      before: {
+        publishedVersion: version,
+        publishAt: record.values.publishAt ?? null,
+      },
+      after: { publishedVersion: null, publishAt: null },
+    });
+    return { unpublished: version };
+  },
+});
+
+export const recordPublishDue = defineOperation({
+  name: "record.publishDue",
+  description:
+    "Platform use only: publish the scheduled publishes whose time has come (the minute cron), " +
+    "each as the snapshot the person who scheduled it took, in their name. A record deleted " +
+    "meanwhile loses its schedule. Returns the records published.",
+  input: z.object({
+    limit: z.number().int().min(1).max(PUBLISH_DUE_BATCH).default(PUBLISH_DUE_BATCH),
+  }),
+  output: z.object({
+    published: z.array(z.object({ object: z.string(), id: z.string(), version: z.number() })),
+    dropped: z.number().int(),
+  }),
+  permission: "records:write",
+  risk: "write",
+  // Only what a person scheduled is published here: no input names a record or its content.
+  actors: ["automation"],
+  mcp: { expose: false },
+  auditSummary: (output) => ({ count: output.published.length, dropped: output.dropped }),
+  async handler(input, ctx) {
+    const published: { object: string; id: string; version: number }[] = [];
+    let dropped = 0;
+    for (const due of await dueSchedules(ctx, ctx.now, input.limit)) {
+      const object = getObject(due.object_type);
+      const record = object?.publishable ? await loadRecord(ctx, object, due.record_id) : undefined;
+      if (!object?.publishable || !record) {
+        dropped += 1;
+        ctx.write(clearScheduleWrite(due.object_type, due.record_id));
+        continue;
+      }
+      const version = await nextVersion(ctx, object.name, due.record_id);
+      ctx.write(
+        ...publishWrites(object.name, due.record_id, version, due, {
+          at: ctx.now,
+          user: due.scheduled_by,
+          note: due.note,
+        }),
+      );
+      ctx.recordChange({
+        object: object.name,
+        id: due.record_id,
+        action: "update",
+        before: {
+          publishedVersion: record.values.publishedVersion ?? null,
+          publishAt: due.publish_at,
+        },
+        after: { publishedVersion: version, publishAt: null },
+      });
+      published.push({ object: object.name, id: due.record_id, version });
+    }
+    return { published, dropped };
   },
 });
 
@@ -243,6 +417,46 @@ async function readVersion(
   return row;
 }
 
+export const recordCompareVersions = defineOperation({
+  name: "record.compareVersions",
+  description:
+    "Compare two versions of a record of a publishable object, or a version and the working " +
+    "copy: each content field that differs, with its value in both. `to` left out is the " +
+    "working copy (what would be published now). Read-only.",
+  input: z.object({
+    object: objectName,
+    id: recordId,
+    from: z.number().int().min(1).describe("A version number"),
+    to: z.number().int().min(1).optional().describe("A version number. Default: the working copy"),
+  }),
+  output: z.object({
+    from: z.number().int(),
+    to: z.number().int().nullable().describe("Null: the working copy"),
+    changes: z.array(z.object({ field: z.string(), before: z.unknown(), after: z.unknown() })),
+  }),
+  permission: "records:read",
+  risk: "read",
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    const object = requirePublishable(input.object);
+    const record = await requireRecord(ctx, object, input.id);
+    const from = JSON.parse(
+      (await readVersion(ctx, object.name, input.id, input.from)).content ?? "{}",
+    ) as Record<string, unknown>;
+    const to =
+      input.to === undefined
+        ? Object.fromEntries(object.publishable.content.map((f) => [f, record.values[f] ?? null]))
+        : (JSON.parse(
+            (await readVersion(ctx, object.name, input.id, input.to)).content ?? "{}",
+          ) as Record<string, unknown>);
+    const fields = [...new Set([...object.publishable.content, ...Object.keys(from)])];
+    const changes = fields
+      .filter((f) => JSON.stringify(from[f] ?? null) !== JSON.stringify(to[f] ?? null))
+      .map((field) => ({ field, before: from[field] ?? null, after: to[field] ?? null }));
+    return { from: input.from, to: input.to ?? null, changes };
+  },
+});
+
 export const recordRestoreVersion = defineOperation({
   name: "record.restoreVersion",
   description:
@@ -314,8 +528,13 @@ export const recordCreateMany = defineOperation({
 
 export const recordVersionOperations = [
   recordPublish,
+  recordSchedulePublish,
+  recordCancelSchedule,
+  recordUnpublish,
+  recordPublishDue,
   recordVersions,
   recordVersion,
+  recordCompareVersions,
   recordRestoreVersion,
   recordCreateMany,
 ] as const;

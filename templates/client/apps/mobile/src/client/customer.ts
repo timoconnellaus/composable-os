@@ -13,6 +13,30 @@ export type Operations = {
     output: { object: string; id: string; status: ("available") | ("low") | ("sold_out"); available?: (number) | (null); places?: (number) | (null); held?: number; taken?: number; show?: ("exact") | ("low") | ("availability"); lowAt?: (number) | (null); pool?: ({ object: string; id: string; places: (number) | (null); held: number; taken: number; available: (number) | (null) }) | (null) };
   };
   /**
+   * Read one published record of a content object (a blog post) by its slug, as the public reads it: its published version, with only the fields the object lets the public read. An old slug of a record whose slug changed answers `redirect` with the slug it has now. A draft, an unpublished record and an unknown slug are all not found. Read-only.
+   */
+  "content.get": {
+    kind: "query";
+    input: { object: string; slug: string };
+    output: ({ object: string; id: string; values: Record<string, unknown>; kind: "record" }) | ({ kind: "redirect"; object: string; slug: string });
+  };
+  /**
+   * A page of the published records of a content object (blog posts), as the public reads them: published versions only, with only the fields the object lets the public read. Newest first by default (the object's date, else when each was published). Filter and sort on those fields; pass nextCursor back as cursor. Read-only.
+   */
+  "content.list": {
+    kind: "query";
+    input: { object: string; filter?: ({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }) | ({ or: (({ field: string; op: ("eq") | ("neq") | ("lt") | ("lte") | ("gt") | ("gte") | ("between") | ("in") | ("not_in") | ("contains") | ("not_contains") | ("starts_with") | ("ends_with") | ("is_null") | ("is_not_null"); value?: unknown }) | ({ and: unknown[] }) | ({ or: unknown[] }))[] }))[] }); sort?: { field: string; direction?: ("asc") | ("desc") }; cursor?: string; limit?: number };
+    output: { items: { object: string; id: string; values: Record<string, unknown> }[]; nextCursor: (string) | (null) };
+  };
+  /**
+   * Read the working copy of one record of a content object with a preview link's token: what staff are editing, before it is published, with only the fields the public would read. The token names one record and works until it expires; for any other record, or after, it is not found. Read-only.
+   */
+  "content.preview": {
+    kind: "query";
+    input: { object: string; slug: string; token: string };
+    output: { object: string; id: string; values: Record<string, unknown>; kind: "preview" };
+  };
+  /**
    * Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.
    */
   "me.deleteAccount": {
@@ -121,6 +145,9 @@ export type Operations = {
 /** What the runtime needs: each operation's kind, and what a mutation makes stale. */
 export const operations = {
   "capacity.get": { kind: "query", invalidates: [] },
+  "content.get": { kind: "query", invalidates: [] },
+  "content.list": { kind: "query", invalidates: [] },
+  "content.preview": { kind: "query", invalidates: [] },
   "me.deleteAccount": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
   "me.get": { kind: "query", invalidates: [] },
   "me.sessions.list": { kind: "query", invalidates: [] },

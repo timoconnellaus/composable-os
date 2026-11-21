@@ -29,10 +29,11 @@ import {
   notificationInput,
 } from "./automation.ts";
 import { type AiModule, type Extension, GATEKEEPER_MODULES, type StartedBy } from "./contract.ts";
-import { type DocumentSchema, validateDocument } from "./document.ts";
+import { validateDocument } from "./document.ts";
 import type { ExtensionManifest, ManifestIssue, ValidateOptions } from "./manifest.ts";
 import { CORE_OBJECT_NAMES, toManifest, validateManifest } from "./manifest.ts";
 import { checkGrant } from "./permissions.ts";
+import { documentMaxBytesOf, documentSchemaOf } from "./rich-text.ts";
 import { buildContext, type RawHostModules, runExtension } from "./runtime.ts";
 
 type Values = Record<string, unknown> & { id: string };
@@ -293,12 +294,13 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
   const checkDocuments = (object: string, values: Record<string, unknown>) => {
     const local = object.startsWith(`${manifest.id}.`) ? object.slice(manifest.id.length + 1) : "";
     for (const [name, field] of Object.entries(manifest.objects[local]?.fields ?? {})) {
-      if (field.type !== "document" || values[name] === undefined || values[name] === null)
-        continue;
+      const schema = documentSchemaOf(field);
+      if (!schema || values[name] === undefined || values[name] === null) continue;
+      const maxBytes = documentMaxBytesOf(field);
       const result = validateDocument(
-        field.schema as unknown as DocumentSchema,
+        schema,
         values[name],
-        field.maxBytes === undefined ? {} : { maxBytes: field.maxBytes },
+        maxBytes === undefined ? {} : { maxBytes },
       );
       if (!result.ok) {
         const first = result.issues[0];

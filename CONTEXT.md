@@ -1203,6 +1203,43 @@ restoring copies a version back into it. (An extension's working copy is its fil
 workspace: a different thing.)
 _Avoid_: revision (the audit log's diffs are history, not versions), draft
 
+**Publish** (a record)
+Make a snapshot of a publishable record's working copy its current version: what readers are
+given (ADR 0446). Only a person with `records:publish` publishes, never an AI actor. Stage 28 adds
+**scheduling** (the snapshot is taken when a person schedules, and the minute cron makes it
+current at the set time) and **unpublishing** (no version is current; the versions are kept). A
+record's **publish state** is read from its versions and its schedule: `draft` (never
+published), `scheduled`, `published`, `unpublished` (ADR 0441).
+_Avoid_: go live (as a verb in code), release (a release is the platform's)
+
+**Content** (stage 28)
+Records of a publishable object the public reads: a blog post, an event page. The public reads
+only the current version, by the record's **slug**, with `content.get` and `content.list`; a
+draft, an unpublished record and an unknown slug are one not-found (ADR 0442). Its prose is
+**rich text**.
+_Avoid_: page (pages are code), CMS entry
+
+**Rich text**
+A `richText` field: a document with the platform's one schema of blocks (paragraph, heading,
+list, quote, image, divider, embed, callout, button) and inline runs with marks (bold, italic,
+code, a link). Never HTML: markup and unsafe links are refused on every write (ADR 0440). Each
+client renders it block by block with its own components.
+_Avoid_: HTML, markdown, body (a field's name, not a type)
+
+**Slug**
+A record's address in its object (`summer-launch`): lowercase words joined by hyphens, unique
+among the object's live records, made from the title when left empty. When a published record's
+slug changes, the old one **redirects**: `content.get` answers with the slug it has now (ADR
+0442). A deleted record's slug can be taken again.
+_Avoid_: permalink, path, handle
+
+**Preview** (link)
+A token that lets whoever holds it read one record's working copy (the fields the public would
+read) with `content.preview`, until it expires (at most 7 days). Made by staff with
+`content.previewLink`; only its hash is kept; for any other record, or after its expiry, it is
+not found (ADR 0443).
+_Avoid_: share link, draft link
+
 **Exercise** (Programs)
 One exercise of a gym's bank: a name, a demo video, cues, theme, level, equipment, body areas,
 how a set of it is measured (weight and reps, reps, time, hold), and easier and harder versions.

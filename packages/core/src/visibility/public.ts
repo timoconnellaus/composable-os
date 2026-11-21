@@ -12,8 +12,12 @@
 // declares nothing does not exist for them, and a record that does not meet `when` is not found,
 // as one that does not exist.
 //
-// `when` is one condition today. Stage 28's `publishable` adds "has a published version" as
-// another kind; the source in index.ts is where it joins.
+// On a publishable object (stage 28, ADR 0442) the public reads only the published version: the
+// source is the object's live view (`pub_x_<ext>_<object>`, extensions/schema.ts), whose rows are
+// the live records with a current version and whose content columns are that version's values.
+// `when`, if declared, holds beside it. A draft, an unpublished record and a deleted one are not
+// in the source, so each is not found exactly as a record that never existed.
+import { liveViewOf } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
 import type { FieldDefinition, ObjectDefinition, PublicDeclaration } from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";
@@ -26,6 +30,39 @@ export function publicProblems(object: ObjectDefinition): string[] {
   const problems = readProblems(object, "public");
   if (object.public && object.customer) {
     problems.unshift("an object declares customer or public, not both");
+  }
+  if (object.public && object.publishable) problems.push(...contentProblems(object));
+  return problems;
+}
+
+/**
+ * What the public may read of a publishable object (ADR 0442): its address among the fields, and
+ * nothing computed from the working copy (a formula, a path of a document that is not content).
+ * Outsiders read it only as published, so it declares no customer of its own.
+ */
+function contentProblems(object: ObjectDefinition): string[] {
+  const declared = object.public;
+  const publishable = object.publishable;
+  if (!declared || !publishable) return [];
+  const problems: string[] = [];
+  if (!publishable.slug) {
+    problems.push("a publishable object the public reads names its slug (publishable.slug)");
+  } else if (!declared.read.includes(publishable.slug)) {
+    problems.push(`public.read lists the slug "${publishable.slug}": it is how the public reads`);
+  }
+  const content = new Set(publishable.content);
+  for (const name of declared.read) {
+    const field = object.fields.find((f) => f.name === name);
+    if (field?.fieldType === "formula") {
+      problems.push(`public.read lists "${name}", a formula of the working copy`);
+    }
+    const path = field?.options?.documentPath;
+    if (path && !content.has(path.field)) {
+      problems.push(`public.read lists "${name}", a path of a document that is not content`);
+    }
+  }
+  if (object.customer || object.customerVia) {
+    problems.push("a publishable object the public reads declares no customer or customerVia");
   }
   return problems;
 }
@@ -117,6 +154,11 @@ export interface PublicScope {
   /** Null: every live record (no `when`). */
   readonly condition: Condition | null;
   readonly declaration: PublicDeclaration;
+  /**
+   * The view the rows come from: the object's rec_* view, or for the public's scope on a
+   * publishable object its live view, the published versions only (ADR 0442).
+   */
+  readonly source: string;
 }
 
 /** The public scope of `object`, or null when it declares none. */
@@ -147,6 +189,7 @@ function readScope(object: ObjectDefinition, key: ReadDeclarationKey): PublicSco
     columns,
     condition: resolveCondition(object, declared, key) as Condition | null,
     declaration: declared,
+    source: key === "public" && object.publishable ? liveViewOf(object.name) : object.source,
   };
 }
 

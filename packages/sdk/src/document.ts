@@ -46,6 +46,33 @@ const OBJECT_RE = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)?$/;
 // Control characters other than tab and newline (and a lone carriage return) are refused.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it finds.
 const CONTROL_RE = /[\u0000-\u0008\u000b-\u001f\u007f]/;
+// Markup a text node with `noMarkup` refuses (ADR 0440): the start of a tag, closing tag, comment
+// or processing instruction, and any character reference, named or numeric.
+const MARKUP_RE = /<[A-Za-z!/?]|&(?:#[0-9]+|#[xX][0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]*);/;
+// What a link may be. No quote, angle bracket, backslash, backtick or space anywhere.
+const URL_TAIL = "[^\\s<>\"'`\\\\]*";
+const WEB_RE = new RegExp(
+  `^https?://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:[/?#]${URL_TAIL})?$`,
+  "i",
+);
+const MAILTO_RE = /^mailto:[^\s<>"'`\\:/][^\s<>"'`\\]*$/i;
+const TEL_RE = /^tel:[+0-9 ().-]{3,40}$/i;
+const PATH_RE = new RegExp(`^/(?![/\\\\])${URL_TAIL}$`);
+const ANCHOR_RE = /^#[A-Za-z0-9_-]{1,100}$/;
+
+/** Whether `value` is a link of the given kind (a text node's `href`). */
+export function isDocumentHref(value: string, kind: "web" | "link"): boolean {
+  if (WEB_RE.test(value)) return true;
+  if (kind === "web") return false;
+  return (
+    MAILTO_RE.test(value) || TEL_RE.test(value) || PATH_RE.test(value) || ANCHOR_RE.test(value)
+  );
+}
+
+/** Whether `value` holds markup a `noMarkup` text node refuses. */
+export function hasMarkup(value: string): boolean {
+  return MARKUP_RE.test(value);
+}
 
 interface NodeBase {
   /** For people and models: what the node holds. */
@@ -80,6 +107,18 @@ export interface DocumentTextNode extends NodeBase {
   multiline?: boolean;
   /** The only characters allowed, e.g. "0123456789X" for a tempo. */
   chars?: string;
+  /**
+   * Refuses markup (stage 28, ADR 0440): an HTML tag, closing tag, comment or processing
+   * instruction (`<b`, `</`, `<!`, `<?`) and a character reference (`&amp;`, `&#60;`). A lone
+   * `<` before a space or a digit is text. Rich text's text is always this.
+   */
+  noMarkup?: boolean;
+  /**
+   * The text is a link (stage 28, ADR 0440). `web`: an absolute `http:` or `https:` URL.
+   * `link`: that, or `mailto:`, `tel:`, a path on the site (`/about`, never `//host`) or an
+   * anchor (`#top`). Any other scheme (`javascript:`, `data:`, `vbscript:`) is refused.
+   */
+  href?: "web" | "link";
 }
 export interface DocumentNumberNode extends NodeBase {
   type: "number";
@@ -268,7 +307,13 @@ export function checkDocumentSchema(
         break;
       }
       case "text": {
-        expect("max", "min", "multiline", "chars");
+        expect("max", "min", "multiline", "chars", "noMarkup", "href");
+        if (value.noMarkup !== undefined && typeof value.noMarkup !== "boolean") {
+          add(`${path}.noMarkup`, "noMarkup is true or false");
+        }
+        if (value.href !== undefined && value.href !== "web" && value.href !== "link") {
+          add(`${path}.href`, "href is web or link");
+        }
         const max = num("max", { int: true, min: 1, max: DOCUMENT_MAX_TEXT });
         const min = num("min", { int: true, min: 0 });
         if (min !== undefined && (max ?? DOCUMENT_DEFAULT_TEXT) < min)
@@ -572,6 +617,17 @@ export function validateDocument(
           const allowed = new Set(node.chars);
           const bad = [...v].find((c) => !allowed.has(c));
           if (bad !== undefined) fault(path, `"${bad}" is not allowed here (only ${node.chars})`);
+        }
+        if (node.noMarkup && MARKUP_RE.test(v)) {
+          fault(path, "Markup is not allowed: rich text is data, not HTML");
+        }
+        if (node.href && !isDocumentHref(v, node.href)) {
+          fault(
+            path,
+            node.href === "web"
+              ? "Expected an http or https address"
+              : "Expected an http, https, mailto or tel address, a path on the site or an anchor",
+          );
         }
         return;
       }

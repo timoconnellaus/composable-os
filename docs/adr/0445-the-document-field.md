@@ -91,3 +91,8 @@ HTML in text, which is a `text` node option stage 28 adds (`noMarkup`), not a ne
   existing record until it is fixed. The check reports which path.
 - Reading a ref's records is one read per object named, per write of the field.
 - The SDK is type-checked without a runtime library, so `documentBytes` counts UTF-8 by hand.
+
+## Amendment, 2026-11-22 (stage 28, ADR 0440)
+`richText` is built as this section said, with one addition: besides `noMarkup`, a text node takes
+`href: "web" | "link"`, which checks a link by its form and scheme, because a `javascript:`
+address is script with no markup in it. See [ADR 0440](0440-rich-text-is-data.md).

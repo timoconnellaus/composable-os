@@ -81,3 +81,13 @@ None of these changes the table, the four operations or the fields above.
   most 1 MB; a program's layout is at most 512 KB (ADR 0445).
 - Versions are kept when a record is deleted (Trash), as stage history is. Purging extension
   records is not built yet; when it is, a record's versions go with it.
+
+## Amendment, 2026-11-22 (stage 28, ADRs 0441 to 0443)
+The public half is built. `publishable` also takes `slug` and `date`. Records also get
+`publishState` and `publishAt`, read from the versions and a new `core_publish_schedule` table
+(migration 0460), so "nothing but `record.publish` writes there" now reads: only
+`records/publish.ts` writes there, for `record.publish`, `record.publishDue` (the minute cron,
+publishing what a person scheduled) and `record.unpublish`. The table, the four operations above
+and the two fields are unchanged. `record.publish` fills an empty `date` and refuses a record with
+no slug. See [ADR 0441](0441-publishable-states-schedules-and-versions.md),
+[ADR 0442](0442-what-the-public-reads-of-content.md) and [ADR 0443](0443-preview-links.md).

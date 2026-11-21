@@ -460,6 +460,10 @@
       "sha256": "70f437c166822ea8e4e59f77ad14be1024cf9615282fd200b8b2acaf5818fc05"
     },
     {
+      "name": "0460_content.sql",
+      "sha256": "016ae923a5881f58b12df5b78cec001864f5a0d7a3dee1e1964daec04888c835"
+    },
+    {
       "name": "0470_publish_versions.sql",
       "sha256": "3bb42f7ee27de56e86643b2e1e538e2221ef519886d657241ef8dc6d3a68ec99"
     },

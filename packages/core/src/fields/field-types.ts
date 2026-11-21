@@ -2,10 +2,12 @@
 // storage, zod validation, filter semantics (and so its filter operators), CSV mapping and the UI
 // widgets that display and edit it. Browser-safe: the UI renders widgets from `widget`.
 import {
-  type DocumentSchema,
+  documentMaxBytesOf,
+  documentSchemaOf,
   type FieldManifest,
   type FieldTypeName,
   onStep,
+  SLUG_RE,
   validateDocument,
 } from "@composable-os/sdk";
 import { z } from "zod";
@@ -95,18 +97,16 @@ const choices = (field: FieldManifest) => (field.options ?? []).map((o) => o.val
  * record operations, the CSV import, seeds, the host's own writes and the approval dry run.
  */
 function documentValueSchema(field: FieldManifest): z.ZodType {
-  const schema = field.schema as DocumentSchema | undefined;
+  // A richText field's schema is the platform's one (ADR 0440); a document's is its own.
+  const schema = documentSchemaOf(field);
+  const maxBytes = documentMaxBytesOf(field);
   return z.unknown().superRefine((value, ctx) => {
     if (value === null) return;
     if (!schema) {
       ctx.addIssue({ code: "custom", message: "This document field has no schema" });
       return;
     }
-    const result = validateDocument(
-      schema,
-      value,
-      field.maxBytes === undefined ? {} : { maxBytes: field.maxBytes },
-    );
+    const result = validateDocument(schema, value, maxBytes === undefined ? {} : { maxBytes });
     if (result.ok) return;
     for (const issue of result.issues) {
       ctx.addIssue({ code: "custom", path: issue.path, message: issue.message });
@@ -165,6 +165,30 @@ export function isTimeZoneName(name: string): boolean {
   return zones.has(name);
 }
 let zones: Set<string> | undefined;
+
+/** A document-valued type (ADR 0445): stored as its JSON, read whole, never filtered. */
+const documentType: FieldTypeSpec = {
+  storage: "TEXT",
+  filterType: () => "json",
+  multi: () => false,
+  sortable: () => false,
+  schema: (field) => nullable(documentValueSchema(field)),
+  toStorage: (value) => (value == null ? null : JSON.stringify(value)),
+  fromStorage: (value) =>
+    typeof value === "string" ? (JSON.parse(value) as unknown) : (value ?? null),
+  csv: {
+    parse: (cell) => {
+      if (cell.trim() === "") return null;
+      try {
+        return JSON.parse(cell) as unknown;
+      } catch {
+        throw new Error("is not a JSON document");
+      }
+    },
+    format: (value) => (value == null ? "" : JSON.stringify(value)),
+  },
+  widget: { display: "document", edit: null },
+};
 
 export const FIELD_TYPE_REGISTRY: Record<FieldTypeName, FieldTypeSpec> = {
   // A time zone (ADR 0460): text, but only a name from the runtime's list of zones.
@@ -292,28 +316,18 @@ export const FIELD_TYPE_REGISTRY: Record<FieldTypeName, FieldTypeSpec> = {
   },
   // One JSON document checked against the field's schema (stage 41, ADR 0445). Not filtered or
   // sorted itself: its declared paths are columns of their own (schema.ts).
-  document: {
-    storage: "TEXT",
-    filterType: () => "json",
-    multi: () => false,
-    sortable: () => false,
-    schema: (field) => nullable(documentValueSchema(field)),
-    toStorage: (value) => (value == null ? null : JSON.stringify(value)),
-    fromStorage: (value) =>
-      typeof value === "string" ? (JSON.parse(value) as unknown) : (value ?? null),
-    csv: {
-      parse: (cell) => {
-        if (cell.trim() === "") return null;
-        try {
-          return JSON.parse(cell) as unknown;
-        } catch {
-          throw new Error("is not a JSON document");
-        }
-      },
-      format: (value) => (value == null ? "" : JSON.stringify(value)),
-    },
-    widget: { display: "document", edit: null },
-  },
+  document: documentType,
+  // Rich text (stage 28, ADR 0440): a document with the platform's one schema. The admin shows
+  // its JSON until the editor (stage 28, step 5) edits it.
+  richText: documentType,
+  // A record's address (stage 28, ADR 0442). Unique among live records by an index the
+  // reconciler makes; made from the title when left empty (records/slug.ts).
+  slug: textType(
+    120,
+    "text",
+    "text",
+    z.string().max(120).regex(SLUG_RE, "Lowercase letters and digits in words joined by hyphens"),
+  ),
   formula: {
     storage: null,
     // Replaced by the formula's result type when the registry is built.

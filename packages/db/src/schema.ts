@@ -1854,6 +1854,46 @@ export interface CorePublishVersionTable {
   note: string | null;
 }
 
+/** `core_publish_schedule` (migration 0460): a publish a person scheduled (ADR 0441). */
+export interface CorePublishScheduleTable {
+  object_type: string;
+  record_id: string;
+  publish_at: Timestamp;
+  /** JSON: the content fields' values when it was scheduled. */
+  content: string;
+  bytes: number;
+  note: string | null;
+  scheduled_by: string;
+  scheduled_at: Timestamp;
+}
+
+/** `core_slug_redirect` (migration 0460): an old slug of a published record (ADR 0442). */
+export interface CoreSlugRedirectTable {
+  object_type: string;
+  slug: string;
+  record_id: string;
+  created_at: Timestamp;
+}
+
+/** `core_preview_link` (migration 0460): a link to one record's working copy (ADR 0443). */
+export interface CorePreviewLinkTable {
+  /** SHA-256 of the token, hex. The token itself is never stored. */
+  token_hash: string;
+  object_type: string;
+  record_id: string;
+  expires_at: Timestamp;
+  created_by: string;
+  created_at: Timestamp;
+}
+
+/** `core_content_generation` (migration 0460): bumped by every change the public reads (ADR 0442). */
+export interface CoreContentGenerationTable {
+  object_type: string;
+  generation: Generated<number>;
+  epoch: string;
+  changed_at: Timestamp;
+}
+
 /** `rec_publish_version` (migration 0470): every version, without its content. */
 export interface RecPublishVersionView {
   object_type: string;
@@ -1986,6 +2026,10 @@ export interface CoreDatabase {
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
   core_publish_version: CorePublishVersionTable;
+  core_publish_schedule: CorePublishScheduleTable;
+  core_slug_redirect: CoreSlugRedirectTable;
+  core_preview_link: CorePreviewLinkTable;
+  core_content_generation: CoreContentGenerationTable;
   rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;
   rec_state_history: RecStateHistoryView;

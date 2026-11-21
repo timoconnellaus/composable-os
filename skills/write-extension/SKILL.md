@@ -177,8 +177,17 @@ extension declares it; it never implements it. Each behaviour the platform has i
   reads one (the current by default), `record.versions` lists them, `record.restoreVersion`
   copies one back. Records get read-only `publishedVersion` and `publishedAt`, so don't declare
   fields with those names. What follows a version (an assignment) stores its number and reads
-  `record.version`, never the working copy. Public reads of a version are stage 28's. See
-  Programs: `objects.program`.
+  `record.version`, never the working copy. See Programs: `objects.program`.
+- **Content the public reads** (a post, an event page; stage 28, ADRs 0440 to 0443): prose is a
+  **`richText`** field (`{ type: "richText" }`, the platform's one schema, `RICH_TEXT_SCHEMA`:
+  never HTML, never a `longText` of markup); its address is a **`slug`** field, unique among live
+  records and made from the title when left empty. Declare `publishable: { content, slug, date? }`
+  (the slug is not content; `date`, a content date field, is filled when it goes live) and
+  `public: { read: [...] }` listing the slug. The public then reads only the published version,
+  with `content.get { object, slug }` and `content.list`, and a draft is not found. Records also
+  get `publishState` (draft, scheduled, published, unpublished) and `publishAt`, for views.
+  Publishing, scheduling (`record.schedulePublish`) and unpublishing are a person's; your code and
+  the assistant write the working copy only.
 
 ### Roles
 

@@ -5,10 +5,13 @@ import {
   type CapacityManifest,
   type DocumentSchema,
   documentJsonPath,
+  documentMaxBytesOf,
   documentPathNode,
   type FieldManifest,
   type FieldTypeName,
   formulaTypeOf,
+  isDocumentType,
+  RICH_TEXT_SCHEMA,
   type SellableManifest,
   type StagesManifest,
   type StatesManifest,
@@ -67,7 +70,7 @@ export interface ObjectDefinitionJson {
   /** What a customer reads of a record their own record points to (ADR 0439), as declared. */
   customerVia?: { from: string; field: string; read: string[] };
   /** Versions of the content fields (ADR 0446), as declared. */
-  publishable?: { content: string[] };
+  publishable?: { content: string[]; slug?: string | undefined; date?: string | undefined };
   navigationOrder?: number;
   requireOneOf?: string[][];
   titleDefault?: { from: string[]; suffix?: string | undefined };
@@ -355,9 +358,80 @@ export function buildViews(state: SchemaState): ViewBuild {
     build.creates.push(
       `CREATE VIEW ${view} AS SELECT ${columns.join(", ")} FROM ${ident(object.tableName)} t${joins.length ? ` ${joins.join(" ")}` : ""} WHERE t.deleted_at IS NULL`,
     );
+    if (object.definition.publishable) {
+      build.creates.push(liveViewSql(object, own, object.definition.capacity !== undefined));
+    }
+  }
+  // The live views of objects that are no longer publishable (or gone) go with the rest.
+  for (const object of state.objects) {
+    build.drops.push(`DROP VIEW IF EXISTS ${liveViewOf(object.name)}`);
   }
   return build;
 }
+
+/**
+ * The live view of a publishable object (stage 28, ADR 0442): `pub_x_<ext>_<object>`, what the
+ * public reads. One row per live record that has a current version, with the columns of its
+ * rec_* view: a content field's value (and a declared path of a content document) from the
+ * current version, never the working copy; any other field of the object's own from the record,
+ * as the host keeps it (its slug, a state the public's `when` tests); formulas and other
+ * extensions' fields absent (NULL), since they read the working copy. `updated_at` is when the
+ * version was published. Not a rec_* view: `query.sql` does not read it, and nothing but the
+ * visibility seam's public source does (visibility/public.ts).
+ */
+function liveViewSql(object: ObjectState, own: FieldState[], capacity: boolean): string {
+  const publishable = object.definition.publishable as NonNullable<
+    ObjectDefinitionJson["publishable"]
+  >;
+  const content = new Set(publishable.content);
+  const columns = ["t.id", "t.created_at", "pub.published_at AS updated_at", "t.created_by"];
+  for (const field of own) {
+    const as = viewColumnName(object.extensionId, object.name, field.localName);
+    if (field.type === "formula" || !field.columnName) {
+      columns.push(`NULL AS ${as}`);
+      continue;
+    }
+    if (!content.has(field.localName)) {
+      columns.push(`t.${ident(field.columnName)} AS ${as}`);
+      columns.push(...documentPathColumns(field, "t", object.name));
+      continue;
+    }
+    columns.push(`json_extract(pub.content, '${documentJsonPath(field.localName)}') AS ${as}`);
+    if (field.type === "document") {
+      for (const [name, spec] of Object.entries(field.definition.paths ?? {})) {
+        const json = `'${documentJsonPath(`${field.localName}.${spec.path}`)}'`;
+        const read = spec.count
+          ? `json_array_length(pub.content, ${json})`
+          : `json_extract(pub.content, ${json})`;
+        columns.push(`${read} AS ${viewColumnName(field.extensionId, object.name, name)}`);
+      }
+    }
+  }
+  const joins = [
+    `JOIN core_publish_version pub ON pub.object_type = ${sqlString(object.name)} AND pub.record_id = t.id AND pub.current = 1`,
+  ];
+  if (capacity) {
+    const view = capacityView(object.name);
+    columns.push(...view.columns);
+    joins.push(...view.joins);
+  }
+  columns.push(
+    `pub.version AS ${PUBLISHED_COLUMNS.publishedVersion}`,
+    `pub.published_at AS ${PUBLISHED_COLUMNS.publishedAt}`,
+    `'published' AS ${PUBLISHED_COLUMNS.publishState}`,
+    `NULL AS ${PUBLISHED_COLUMNS.publishAt}`,
+  );
+  return `CREATE VIEW ${liveViewOf(object.name)} AS SELECT ${columns.join(", ")} FROM ${ident(object.tableName)} t ${joins.join(" ")} WHERE t.deleted_at IS NULL`;
+}
+
+/** The live view of a publishable object: `pub_x_<ext>_<object>` (ADR 0442). */
+export function liveViewOf(objectName: string): string {
+  const parts = splitObjectName(objectName);
+  if (!parts) throw new Error(`Not an extension object: ${objectName}`);
+  return ident(`pub_x_${parts.extension}_${parts.object}`);
+}
+
+const sqlString = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
 /**
  * The capacity values of an object's view (stage 26, ADR 0431): its counter and its pool's
@@ -430,14 +504,19 @@ function documentPathFields(field: FieldState, object: string): FieldDefinition[
  * `core_publish_version`, joined by its primary key's prefix and the one-current-row index.
  */
 function publishedView(object: string): { joins: string[]; columns: string[] } {
-  const name = `'${object.replaceAll("'", "''")}'`;
+  const name = sqlString(object);
   return {
     joins: [
       `LEFT JOIN core_publish_version pub ON pub.object_type = ${name} AND pub.record_id = t.id AND pub.current = 1`,
+      `LEFT JOIN core_publish_schedule sch ON sch.object_type = ${name} AND sch.record_id = t.id`,
     ],
     columns: [
       `pub.version AS ${PUBLISHED_COLUMNS.publishedVersion}`,
       `pub.published_at AS ${PUBLISHED_COLUMNS.publishedAt}`,
+      // Stage 28 (ADR 0441): the state is read from the versions and the schedule, never kept
+      // beside them, so it cannot disagree with what the public is given.
+      `CASE WHEN pub.version IS NOT NULL THEN 'published' WHEN sch.record_id IS NOT NULL THEN 'scheduled' WHEN EXISTS (SELECT 1 FROM core_publish_version v WHERE v.object_type = ${name} AND v.record_id = t.id) THEN 'unpublished' ELSE 'draft' END AS ${PUBLISHED_COLUMNS.publishState}`,
+      `sch.publish_at AS ${PUBLISHED_COLUMNS.publishAt}`,
     ],
   };
 }
@@ -446,7 +525,13 @@ function publishedView(object: string): { joins: string[]; columns: string[] } {
 export const PUBLISHED_COLUMNS = {
   publishedVersion: "_pub_version",
   publishedAt: "_pub_at",
+  publishState: "_pub_state",
+  publishAt: "_pub_due",
 } as const;
+
+/** Where a publishable record is (ADR 0441). */
+export const PUBLISH_STATES = ["draft", "scheduled", "published", "unpublished"] as const;
+export type PublishState = (typeof PUBLISH_STATES)[number];
 
 /** The read-only published values on every record of a publishable object (ADR 0446). */
 export const PUBLISHED_FIELDS: readonly FieldDefinition[] = [
@@ -469,6 +554,29 @@ export const PUBLISHED_FIELDS: readonly FieldDefinition[] = [
     sortable: true,
     readOnly: true,
     description: "When that version was published.",
+  },
+  {
+    name: "publishState",
+    label: "Publishing",
+    type: "enum",
+    enumValues: PUBLISH_STATES,
+    column: PUBLISHED_COLUMNS.publishState,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description:
+      "draft (never published), scheduled (to be published at publishAt), published (the public " +
+      "reads its current version) or unpublished (versions kept, none read).",
+  },
+  {
+    name: "publishAt",
+    label: "Scheduled for",
+    type: "datetime",
+    column: PUBLISHED_COLUMNS.publishAt,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "When a scheduled publish goes live. Empty: nothing is scheduled.",
   },
 ];
 
@@ -602,6 +710,15 @@ function registryField(field: FieldState, object: string): FieldDefinition {
     ...(field.type === "document" && def.schema
       ? { document: { schema: def.schema, maxBytes: def.maxBytes } }
       : {}),
+    // Rich text is a document with the platform's schema (ADR 0440).
+    ...(field.type === "richText"
+      ? {
+          document: {
+            schema: RICH_TEXT_SCHEMA as unknown as Record<string, unknown>,
+            maxBytes: documentMaxBytesOf(def),
+          },
+        }
+      : {}),
   };
   return {
     name: field.name,
@@ -618,7 +735,7 @@ function registryField(field: FieldState, object: string): FieldDefinition {
         }
       : { column }),
     // A document is read whole; its declared paths are what lists filter by.
-    filterable: field.type !== "document",
+    filterable: !isDocumentType(field.type),
     sortable: !multi && spec.sortable(def),
     ...(def.track ? { track: "timeline" as const } : {}),
     extension: field.extensionId,
@@ -716,7 +833,15 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.public ? { public: object.definition.public } : {}),
       ...(object.definition.signedIn ? { signedIn: object.definition.signedIn } : {}),
       ...(object.definition.customerVia ? { customerVia: object.definition.customerVia } : {}),
-      ...(publishable ? { publishable: { content: [...publishable.content] } } : {}),
+      ...(publishable
+        ? {
+            publishable: {
+              content: [...publishable.content],
+              ...(publishable.slug ? { slug: publishable.slug } : {}),
+              ...(publishable.date ? { date: publishable.date } : {}),
+            },
+          }
+        : {}),
       ...(object.definition.navigationOrder !== undefined
         ? { navigationOrder: object.definition.navigationOrder }
         : {}),

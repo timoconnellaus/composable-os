@@ -239,9 +239,11 @@ function sourceOf(
       );
     }
     case "public": {
-      // Only the records meeting `when`, and only the listed columns (ADR 0438).
+      // Only the records meeting `when`, and only the listed columns (ADR 0438). On a
+      // publishable object, only its published versions (ADR 0442): the scope's source is the
+      // live view.
       const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
-      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${conditionSql(scope.condition)})`.as(
+      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(scope.source)} WHERE ${conditionSql(scope.condition)})`.as(
         name,
       );
     }
@@ -267,6 +269,22 @@ function sourceOf(
     case "none":
       throw unknownObject(definition.name);
   }
+}
+
+/**
+ * A preview of one record's working copy (stage 28, ADR 0443): the fields the public may read of
+ * the object, from the record as staff are editing it, whatever its state. Only for a record a
+ * preview link names, which the caller has already checked (operations/content.ts); `id` is
+ * bound. An object the public reads nothing of has no preview.
+ */
+export function previewSource(object: ObjectDefinition, id: string): VisibleSource<AnyRow, string> {
+  const definition = getObject(object.name) ?? object;
+  const scope = publicScope(definition);
+  if (!scope || !definition.publishable) throw unknownObject(definition.name);
+  const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
+  return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE id = ${id})`.as(
+    definition.source,
+  );
 }
 
 /** A `when` condition as SQL over the object's view: values bound, columns trusted. */

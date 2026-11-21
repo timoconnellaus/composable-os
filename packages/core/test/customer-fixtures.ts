@@ -54,6 +54,11 @@ export const TIER = `${SHOP}.tier`;
 export const ASSIGNMENT = `${SHOP}.assignment`;
 export const SESSION = `${SHOP}.session`;
 export const LOG = `${SHOP}.log`;
+/**
+ * Stage 28 (ADR 0442): a post, publishable, that the public reads by its slug: only its published
+ * version, only the declared fields. Its working copy, a draft and an unpublished one are hidden.
+ */
+export const POST = `${SHOP}.post`;
 /** The shapes of programs.* the isolation suite aims at. */
 export const PROGRAM_OBJECTS = [ASSIGNMENT, SESSION, LOG] as const;
 
@@ -206,6 +211,21 @@ export async function installShop(): Promise<void> {
             read: ["name", "show", "price"],
             when: { via: "show", field: "status", in: ["on_sale"] },
           },
+        },
+        post: {
+          label: "Post",
+          plural: "Posts",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Title", required: true },
+            slug: { type: "slug", label: "Slug" },
+            teaser: { type: "text", label: "Teaser" },
+            body: { type: "richText", label: "Body" },
+            date: { type: "datetime", label: "Date" },
+            staffNote: { type: "text", label: "Staff note" },
+          },
+          publishable: { content: ["name", "teaser", "body", "date"], slug: "slug", date: "date" },
+          public: { read: ["name", "slug", "teaser", "body", "date"] },
         },
         supplier: {
           label: "Supplier",
@@ -596,6 +616,71 @@ export async function createShows(admin: ActingUser): Promise<{
         `DraftBackstage-${tag}`,
         `DraftTier-${tag}`,
         String(draftPrice),
+      ],
+    },
+  };
+}
+
+const prose = (text: string) => ({
+  blocks: [{ type: "paragraph", content: [{ type: "text", text }] }],
+});
+
+/**
+ * Stage 28 (ADR 0442): one post the public reads, whose working copy has since moved on; a draft;
+ * an unpublished one. Everything but the live post's published version is a secret.
+ */
+export async function createPosts(admin: ActingUser): Promise<{
+  live: { id: string; slug: string; name: string };
+  hidden: { ids: string[]; slugs: string[]; secrets: string[] };
+}> {
+  const tag = unique("post")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  const make = async (values: Record<string, unknown>) =>
+    (await invoke("record.create", { object: POST, values }, context(admin))).id;
+  const live = await make({
+    name: `LivePost-${tag}`,
+    slug: `live-${tag}`,
+    body: prose(`LiveBody-${tag}`),
+    staffNote: `LiveStaff-${tag}`,
+  });
+  await invoke("record.publish", { object: POST, id: live }, context(admin));
+  await invoke(
+    "record.update",
+    {
+      object: POST,
+      id: live,
+      values: {
+        name: `LiveEdit-${tag}`,
+        teaser: `LiveTeaser-${tag}`,
+        body: prose(`LiveDraft-${tag}`),
+      },
+    },
+    context(admin),
+  );
+  const draft = await make({
+    name: `DraftPost-${tag}`,
+    slug: `draft-${tag}`,
+    body: prose(`DraftBody-${tag}`),
+  });
+  const gone = await make({ name: `GonePost-${tag}`, slug: `gone-${tag}` });
+  await invoke("record.publish", { object: POST, id: gone }, context(admin));
+  await invoke("record.unpublish", { object: POST, id: gone }, context(admin));
+  return {
+    live: { id: live, slug: `live-${tag}`, name: `LivePost-${tag}` },
+    hidden: {
+      ids: [draft, gone],
+      slugs: [`draft-${tag}`, `gone-${tag}`],
+      secrets: [
+        `LiveStaff-${tag}`,
+        `LiveEdit-${tag}`,
+        `LiveTeaser-${tag}`,
+        `LiveDraft-${tag}`,
+        `DraftPost-${tag}`,
+        `DraftBody-${tag}`,
+        `GonePost-${tag}`,
+        draft,
+        gone,
       ],
     },
   };

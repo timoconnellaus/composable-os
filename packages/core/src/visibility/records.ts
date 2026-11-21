@@ -2,7 +2,7 @@
 // object the caller may see, or one of them, with only the fields the caller may see. This is
 // what `my.list` and `my.get` are made of. Nothing here knows who the caller is: the seam does.
 
-import { type DocumentSchema, redactDocument } from "@composable-os/sdk";
+import { type DocumentSchema, isDocumentType, redactDocument } from "@composable-os/sdk";
 import { sql } from "kysely";
 import { NotFoundError, OperationError } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
@@ -13,7 +13,14 @@ import { type ListInput, runListQuery } from "../list.ts";
 import { loadOrderCurrency } from "../orders/settings.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type CapacityView, readCapacity } from "./capacity.ts";
-import { type AnyRow, type Reader, type Viewer, visibleObject, visibleSource } from "./index.ts";
+import {
+  type AnyRow,
+  previewSource,
+  type Reader,
+  type Viewer,
+  visibleObject,
+  visibleSource,
+} from "./index.ts";
 
 /** A record as its caller may see it: only the fields their scope allows. */
 export interface VisibleRecord {
@@ -63,7 +70,7 @@ function toRecord(object: ObjectDefinition, row: AnyRow, viewer: Viewer): Visibl
     const value = fieldValue(field, row);
     const schema = field.options?.document?.schema as DocumentSchema | undefined;
     values[field.name] =
-      outsider && field.fieldType === "document"
+      outsider && isDocumentType(field.fieldType)
         ? schema
           ? redactDocument(schema, value)
           : null
@@ -102,6 +109,25 @@ export async function getVisible(
     .executeTakeFirst();
   if (!row) throw new NotFoundError(visible.name, id);
   return { ...toRecord(visible, row as AnyRow, ctx), ...(await currencyOf(ctx, visible)) };
+}
+
+/**
+ * A preview of one record's working copy (stage 28, ADR 0443): the fields the public may read of
+ * it, as the reader (an outsider) is shown them, whatever its state; null when it is not a live
+ * record. Only for a record a preview link names: the caller checks the link first.
+ */
+export async function previewVisible(
+  ctx: Reader,
+  object: ObjectDefinition,
+  id: string,
+): Promise<VisibleRecord | null> {
+  const visible = visibleObject(ctx, object);
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const row = await (ctx.db as any)
+    .selectFrom(previewSource(object, id))
+    .selectAll()
+    .executeTakeFirst();
+  return row ? toRecord(visible, row as AnyRow, ctx) : null;
 }
 
 /** The most rows one count reads (as record.count). */

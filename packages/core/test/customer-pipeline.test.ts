@@ -63,6 +63,10 @@ describe("default closed (criterion 1)", () => {
       new Set(listed.filter((e) => e.audiences.includes(kind) && !e.toolOnly).map((e) => e.name));
     expect([...openTo("customer")].sort()).toEqual([
       "capacity.get",
+      // Stage 28 (ADR 0442): what the public reads of content, a customer reads too.
+      "content.get",
+      "content.list",
+      "content.preview",
       "me.deleteAccount",
       "me.get",
       "me.sessions.list",
@@ -81,6 +85,10 @@ describe("default closed (criterion 1)", () => {
     // Stage 25: a guest starts, opens and pays an order. Stage 26: places left (ADR 0433).
     expect([...openTo("public")].sort()).toEqual([
       "capacity.get",
+      // Stage 28 (ADR 0442): published content by slug, and a preview link's working copy.
+      "content.get",
+      "content.list",
+      "content.preview",
       "order.checkout",
       "order.start",
       "order.view",
@@ -353,6 +361,10 @@ describe("the closed handler context (ADR 0413)", () => {
   it("the generated list shows which open operations keep the raw database", () => {
     const listed = openOperations(fixtureRegistry.list()).operations;
     expect(listed.filter((op) => op.hostInternal).map((op) => op.name)).toEqual([
+      // Stage 28 (ADR 0442): they read redirects, preview links and the cache's generation.
+      "content.get",
+      "content.list",
+      "content.preview",
       "fixture.bookkeeping",
       "me.deleteAccount",
       "me.sessions.list",
