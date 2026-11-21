@@ -56,7 +56,12 @@ export function listedPacks(value: string | undefined): readonly ShippedSource[]
   const wanted = wantedPacks(value);
   const missing = wanted.filter((id) => !SHIPPED_EXTENSIONS.some((pack) => pack.id === id));
   if (missing.length) throw new UnknownPackError(missing);
-  return SHIPPED_EXTENSIONS.filter((pack) => wanted.includes(pack.id));
+  const listed = SHIPPED_EXTENSIONS.filter((pack) => wanted.includes(pack.id));
+  if ((value ?? "*").trim() === "*") return listed;
+  // A pack the deployment's product names (`cos deploy` writes its packs here) is installed in
+  // every deployment of it: `optional` is only for the release product's own catalogue ("*"),
+  // where an admin chooses (lifecycle in the CRM, ADR 0246). ADR 0420, amended 2026-11-22.
+  return listed.map(({ optional: _optional, ...pack }) => pack);
 }
 
 /** What is wrong with this deployment's COS_PACKS, or null. Read at boot and by ping. */

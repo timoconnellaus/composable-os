@@ -43,6 +43,15 @@ function devOrgExtensions(): string {
   }
 }
 
+/** The packs a client-shaped local runner installs (COS_DEV_PACKS), or "" for the CRM's "*". */
+function devPacks(): string {
+  try {
+    return readFileSync(new URL("./.wrangler/cos-packs", import.meta.url), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
 export default defineConfig(({ command }) => ({
   // `#/…` is src/ (tsconfig paths), as in `import { callOp } from "#/lib/operations"`.
   // COS_PRODUCT builds for another product: the active product module becomes its definition.
@@ -82,7 +91,12 @@ export default defineConfig(({ command }) => ({
                 // Local dev and e2e also run our inbound webhook gatekeeper (ADR 0113), bound
                 // as a deployment would bind it, so webhook-triggered automations run locally.
                 config: (runner) => ({
-                  vars: { ...runner.vars, COS_ORG_EXTENSIONS: devOrgExtensions() },
+                  vars: {
+                    ...runner.vars,
+                    COS_ORG_EXTENSIONS: devOrgExtensions(),
+                    // A client-shaped local runner (COS_DEV_PACKS, scripts/dev-setup.mjs).
+                    ...(devPacks() ? { COS_PACKS: devPacks() } : {}),
+                  },
                   services: [
                     ...(runner.services ?? []),
                     {

@@ -51,6 +51,17 @@ describe("the packs a deployment installs", () => {
     expect(listedPacks("")).toEqual([]);
   });
 
+  it('a listed pack is installed at boot: `optional` holds only for the release product\'s "*"', () => {
+    const optional = (value: string, id: string) =>
+      listedPacks(value).find((p) => p.id === id)?.optional;
+    // The CRM's own catalogue: lifecycle stays an admin's choice (ADR 0246).
+    expect(optional("*", "lifecycle")).toBe(true);
+    // A product that names it, or Content and Programs, gets them installed.
+    expect(optional("lifecycle", "lifecycle")).toBeUndefined();
+    expect(optional("content,programs", "content")).toBeUndefined();
+    expect(optional("content,programs", "programs")).toBeUndefined();
+  });
+
   it("a pack the release does not carry is a loud failure, never dropped", async () => {
     expect(() => listedPacks("deals, tickets")).toThrow(UnknownPackError);
     expect(() => listedPacks("tickets")).toThrow(
