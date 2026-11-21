@@ -782,3 +782,60 @@ describe("the views", () => {
     expect(out.rows).toEqual([{ places: 6, held: 2, available: 4, claims: 1 }]);
   });
 });
+
+describe("with states", () => {
+  it("an object may declare both: the state machine and the counter hold in one write", async () => {
+    const id = extId("caps");
+    await reconcile(
+      manifest(id, {
+        objects: {
+          session: {
+            label: "Session",
+            plural: "Sessions",
+            titleField: "name",
+            fields: {
+              name: { type: "text", label: "Name", required: true },
+              seats: { type: "number", label: "Seats" },
+              state: {
+                type: "select",
+                label: "State",
+                options: [
+                  { value: "draft", label: "Draft" },
+                  { value: "open", label: "Open" },
+                ],
+              },
+            },
+            states: {
+              field: "state",
+              initial: "draft",
+              moves: [{ from: "draft", to: "open", by: ["staff"] }],
+            },
+            capacity: { places: "seats" },
+          },
+        },
+      } as never),
+    );
+    const object = `${id}.session`;
+    const session = (
+      await invoke("record.create", { object, values: { name: "Morning", seats: 3 } }, staff())
+    ).id;
+    await hold(unique("o"), [{ object, record: session, quantity: 2 }]);
+    // One write moves the state and lowers the places: refused whole, the state unmoved.
+    await refusal(
+      invoke(
+        "record.update",
+        { object, id: session, values: { state: "open", seats: 1 } },
+        staff(),
+      ),
+    );
+    const before = await invoke("record.get", { object, id: session }, staff());
+    expect(before.values).toMatchObject({ state: "draft", seats: 3, held: 2, available: 1 });
+    await invoke(
+      "record.update",
+      { object, id: session, values: { state: "open", seats: 2 } },
+      staff(),
+    );
+    const after = await invoke("record.get", { object, id: session }, staff());
+    expect(after.values).toMatchObject({ state: "open", seats: 2, held: 2, available: 0 });
+  });
+});
