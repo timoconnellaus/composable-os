@@ -1,0 +1,13 @@
+{
+  "version": "v1",
+  "roles": [
+    {
+      "name": "ticketing.door",
+      "pack": "ticketing",
+      "label": "Door",
+      "description": "Checks tickets in at the door and sees events, ticket types and tickets. Nothing else: no people, orders, leads or settings.",
+      "read": ["ticketing.event", "ticketing.ticket", "ticketing.tickettype"],
+      "operations": ["record.get", "record.list", "x.ticketing.checkIn", "x.ticketing.undoCheckIn"]
+    }
+  ]
+}

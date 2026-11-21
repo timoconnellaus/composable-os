@@ -1,7 +1,7 @@
 // Stage 24, acceptance criterion 5: the template's mobile app signs in against a local host and
 // shows the same record the web app does, with the same client package. Its host module
 // (templates/client/apps/mobile/src/host.ts) runs here as the app runs it, over HTTP to the host's
-// public routes (/api/customer-auth/*, /api/v1/*); only the secure store is a test's memory. The
+// native sign-in routes (/api/v1/auth/customer/*, ADR 0455) and the surface (/api/v1/*); only the secure store is a test's memory. The
 // screens (App.tsx) and Expo itself are not run here: there is no simulator in this suite.
 import { env } from "cloudflare:workers";
 import { createIdentityProvider } from "@composable-os/auth";
@@ -9,8 +9,8 @@ import type { FetchLike, Tokens } from "@composable-os/client";
 import { inviteCustomer } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
-import { hostSession } from "../../../templates/client/apps/mobile/src/host.ts";
-import { handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
+import { hostSession, type SecureRandom } from "../../../templates/client/apps/mobile/src/host.ts";
+import { handleApi } from "../src/server/http/api.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv, sentCodes } from "./bound-env.ts";
 import { ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
@@ -19,12 +19,28 @@ const hostEnv = boundTestEnv(env);
 const db = createCrmDb(env.DB);
 let admin: TestUser;
 
-/** The host's public address, as the phone reaches it: sign-in and the HTTP surface. */
+const random: SecureRandom = {
+  bytes: (n) => crypto.getRandomValues(new Uint8Array(n)),
+  sha256: async (text) =>
+    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))),
+};
+
+/** Every cookie the phone sent or an answer set: both must stay empty (ADR 0455). */
+const cookies: string[] = [];
+
+/**
+ * The host's public address, as the phone reaches it: the HTTP surface, whose native sign-in
+ * routes (`/api/v1/auth/customer/*`, `/api/v1/auth/sign-out`) answer with tokens and no cookie.
+ */
 const host: FetchLike = async (url, init) => {
-  const request = new Request(url, init);
-  const { pathname } = new URL(url);
-  if (pathname.startsWith("/api/customer-auth/")) return handleCustomerAuth(request, hostEnv);
-  return (await handleApi(request, hostEnv)) ?? new Response("Not found", { status: 404 });
+  for (const [name, value] of Object.entries(init.headers)) {
+    if (name.toLowerCase() === "cookie") cookies.push(`sent ${value}`);
+  }
+  const response =
+    (await handleApi(new Request(url, init), hostEnv)) ??
+    new Response("Not found", { status: 404 });
+  for (const set of response.headers.getSetCookie()) cookies.push(`set ${set}`);
+  return response;
 };
 
 function memoryStore() {
@@ -56,7 +72,13 @@ describe("the template's mobile app against a local host", () => {
     await inviteCustomer(db, email, admin.id, new Date().toISOString());
 
     const store = memoryStore();
-    const app = hostSession({ hostUrl: ORIGIN, store, deviceName: "Ada's phone", fetch: host });
+    const app = hostSession({
+      hostUrl: ORIGIN,
+      store,
+      deviceName: "Ada's phone",
+      random,
+      fetch: host,
+    });
     expect(await app.signedIn()).toBe(false);
     expect(await app.requestCode(email)).toBe(true);
     const code = sentCodes.get(email.toLowerCase());
@@ -84,11 +106,13 @@ describe("the template's mobile app against a local host", () => {
       body: "{}",
     });
     expect(after.status).toBe(401);
+    // No cookie, sent or set, at any step.
+    expect(cookies).toEqual([]);
   });
 
   it("refuses a wrong code and keeps nothing", async () => {
     const store = memoryStore();
-    const app = hostSession({ hostUrl: ORIGIN, store, deviceName: "Phone", fetch: host });
+    const app = hostSession({ hostUrl: ORIGIN, store, deviceName: "Phone", random, fetch: host });
     expect(await app.signIn(`${unique("nobody")}@example.com`, "000000")).toBe(false);
     expect(store.peek()).toBeNull();
   });

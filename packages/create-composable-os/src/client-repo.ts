@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { ApiContract, PackRolesFile } from "@composable-os/core/http-contract";
 import {
   type ClientProductDefinition,
   clientNameMaps,
@@ -51,12 +52,30 @@ import {
   verified,
 } from "./main.ts";
 
-/** The edge rule a web app open to the public needs (ADR 0415, ADR 0421), as a step to do. */
-export const EDGE_RULE_STEP = `Before you open the web app to the public, add a rate limiting rule on its zone
+/** The web app's routes that reach the host: the template's, unless product.ts says others. */
+export function hostRoutes(product?: Pick<ClientProductDefinition, "web">): string[] {
+  return [
+    product?.web?.routes?.signIn ?? "/auth/",
+    product?.web?.routes?.operations ?? "/api/v1/op/",
+  ];
+}
+
+/**
+ * The edge rule a web app open to the public needs (ADR 0415, ADR 0421), as a step to do. It names
+ * only the routes that reach the host (the sign-in route and the operation route), so on a site
+ * with its own API it does not throttle the site's own routes for everyone behind one address.
+ */
+export function edgeRuleStep(product?: Pick<ClientProductDefinition, "web">): string {
+  const expression = hostRoutes(product)
+    .map((route) => `starts_with(http.request.uri.path, "${route}")`)
+    .join(" or ");
+  return `Before you open the web app to the public, add a rate limiting rule on its zone
 (Security > WAF > Rate limiting rules). Calls over the binding do not pass the host's zone, so the
-host's own rule does not cover them:
-  Expression:  (starts_with(http.request.uri.path, "/auth/") or starts_with(http.request.uri.path, "/api/"))
+host's own rule does not cover them. It names only the routes that reach the host (web.routes in
+product.ts), so the site's own pages and API are not limited by it:
+  Expression:  (${expression})
   Counting:    IP (ip.src), 30 requests per 10 seconds; action Block for 10 seconds`;
+}
 
 /** Where the client kit's files are inside it. */
 const KIT = { template: "template/", skills: "skills/", blocks: "blocks/", contract: "contract/" };
@@ -217,6 +236,35 @@ export async function generateClients(
     mkdirSync(join(root, dir), { recursive: true });
     writeFileSync(join(root, dir, "customer.ts"), files["customer.ts"] as string);
     written.push(join(dir, "customer.ts"));
+  }
+  // A client per pack role the mobile app's staff sign in with (ADR 0451): only that role's
+  // operations, from the release's roles.json and its staff contract. Never the staff client.
+  const roles = product.mobile?.roles ?? [];
+  if (roles.length && product.mobile) {
+    const { renderRoleClient } = await import("@composable-os/client-gen");
+    const rolesFile = kit.get(`${KIT.contract}roles.json`);
+    if (!rolesFile) {
+      throw new CliError(
+        "The release's client kit has no roles.json: it is older than role clients. Upgrade the platform version first.",
+      );
+    }
+    const declared = (JSON.parse(decode(rolesFile)) as PackRolesFile).roles;
+    const staff = perAudience[2] as ApiContract;
+    const dir = join(product.mobile.dir, product.mobile.clientDir ?? "src/client", "roles");
+    mkdirSync(join(root, dir), { recursive: true });
+    for (const name of roles) {
+      const role = declared.find((r) => r.name === name);
+      if (!role) {
+        throw new CliError(
+          `The release has no pack role ${name}. Its roles: ${declared.map((r) => r.name).join(", ") || "none"}.`,
+        );
+      }
+      writeFileSync(
+        join(root, dir, `${name}.ts`),
+        renderRoleClient(staff, role, { product: product.id }),
+      );
+      written.push(join(dir, `${name}.ts`));
+    }
   }
   if (written.length) io.out(`Typed client: ${written.join(", ")}`);
   return written;
@@ -405,7 +453,7 @@ export async function create(argv: string[], flags: Flags, deps: Deps): Promise<
   io.out(
     `Created ${values.label} in ${target}: ${files.size} files and ${skills} skills from ${release.label} ${version}.`,
   );
-  io.out(`\nNext:\n  cd ${target}\n  pnpm install\n  pnpm cos deploy\n\n${EDGE_RULE_STEP}`);
+  io.out(`\nNext:\n  cd ${target}\n  pnpm install\n  pnpm cos deploy\n\n${edgeRuleStep(product)}`);
   return 0;
 }
 
@@ -437,6 +485,24 @@ function withDependencies(text: string, key: string, entries: Record<string, str
   pkg[key] = Object.fromEntries(Object.entries(deps).sort(([a], [b]) => a.localeCompare(b)));
   const indent = /^\s+/m.exec(text.split("\n")[1] ?? "  ")?.[0] ?? "  ";
   return `${JSON.stringify(pkg, null, indent)}\n`;
+}
+
+/**
+ * A tsconfig that lets the app import `.ts` files by name (`allowImportingTsExtensions`, which
+ * needs `noEmit`), keeping the rest. Unchanged when it already does, or is not plain JSON.
+ */
+export function withTsExtensions(text: string): string {
+  let config: { compilerOptions?: Record<string, unknown> };
+  try {
+    config = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  const options = config.compilerOptions ?? {};
+  if (options.allowImportingTsExtensions === true && options.noEmit === true) return text;
+  config.compilerOptions = { ...options, allowImportingTsExtensions: true, noEmit: true };
+  const indent = /^\s+/m.exec(text.split("\n")[1] ?? "  ")?.[0] ?? "  ";
+  return `${JSON.stringify(config, null, indent)}\n`;
 }
 
 /** The index of the `}` that closes the `{` at `open`, skipping strings and comments. */
@@ -566,6 +632,17 @@ export async function init(flags: Flags, deps: Deps): Promise<number> {
             worker: existingName ?? `${id}-web`,
             clientDir,
             deploy: "own" as const,
+            // The routes the site serves to reach the host: what the edge rule names.
+            ...(str(flags, "sign-in-route") || str(flags, "operation-route")
+              ? {
+                  routes: {
+                    ...(str(flags, "sign-in-route") ? { signIn: str(flags, "sign-in-route") } : {}),
+                    ...(str(flags, "operation-route")
+                      ? { operations: str(flags, "operation-route") }
+                      : {}),
+                  },
+                }
+              : {}),
           },
         }
       : {}),
@@ -586,7 +663,7 @@ export const product = defineClientProduct(${JSON.stringify(product, null, 2)});
   // HTTPS sign-in, and keeps a signed-in customer signed in. New files only.
   const hostModules: [string | undefined, string, string[]][] = [
     [webDir, "web", ["host.ts"]],
-    [mobileDir, "mobile", ["host.ts", "secure-store.ts"]],
+    [mobileDir, "mobile", ["host.ts", "secure-store.ts", "secure-random.ts"]],
   ];
   for (const [app, kind, files] of hostModules) {
     if (!app) continue;
@@ -625,13 +702,19 @@ export const product = defineClientProduct(${JSON.stringify(product, null, 2)});
     }),
   );
   const mobileTemplate = kit.get(`${KIT.template}apps/mobile/package.json`);
-  const secureStore = mobileTemplate
-    ? (JSON.parse(decode(mobileTemplate)).dependencies?.["expo-secure-store"] as string | undefined)
-    : undefined;
+  // The native modules the mobile host module uses: the secure store and the secure random source.
+  const mobileDeps = mobileTemplate
+    ? ((JSON.parse(decode(mobileTemplate)).dependencies ?? {}) as Record<string, string>)
+    : {};
   for (const app of [webDir, mobileDir].filter((d): d is string => Boolean(d))) {
     if (!existsSync(join(root, app, "package.json"))) continue;
     const needs: Record<string, string> = { "@composable-os/client": version };
-    if (app === mobileDir && secureStore) needs["expo-secure-store"] = secureStore;
+    if (app === mobileDir) {
+      for (const name of ["expo-secure-store", "expo-crypto"]) {
+        const range = mobileDeps[name];
+        if (range) needs[name] = range;
+      }
+    }
     if (app === ".") {
       // The root package.json is also the web app's: one change for both.
       const index = changes.findIndex((c) => c.path === "package.json");
@@ -649,6 +732,11 @@ export const product = defineClientProduct(${JSON.stringify(product, null, 2)});
     consider(join(app, "package.json"), (before) =>
       withDependencies(before as string, "dependencies", needs),
     );
+  }
+  // The host module and the native blocks import with `.ts`/`.tsx` extensions, which an app on
+  // expo/tsconfig.base refuses (TS5097) until it allows them: shown as a diff like the others.
+  if (mobileDir && existsSync(join(root, mobileDir, "tsconfig.json"))) {
+    consider(join(mobileDir, "tsconfig.json"), (before) => withTsExtensions(before as string));
   }
   // Apps in folders of their own install with the root's pnpm install.
   const members = [webDir, mobileDir].filter((d): d is string => Boolean(d) && d !== ".");
@@ -719,7 +807,7 @@ export const product = defineClientProduct(${JSON.stringify(product, null, 2)});
       io.out("\nNot changed. Apply the diffs above by hand, or run cos init again with --yes.");
     }
   }
-  io.out(`\nNext: pnpm install, then pnpm cos deploy.\n\n${EDGE_RULE_STEP}`);
+  io.out(`\nNext: pnpm install, then pnpm cos deploy.\n\n${edgeRuleStep(product)}`);
   return 0;
 }
 
@@ -918,6 +1006,21 @@ export function chooseEnvironment(
   throw new CliError(
     `product.ts has ${envs.length} environments: say which with --env (${envs.join(", ")}). Nothing was deployed.`,
   );
+}
+
+/**
+ * Where the host sends a staff member's browser sign-in back to the mobile app in an environment:
+ * `<scheme>://staff-sign-in`, the scheme as product.ts declares it for that environment.
+ */
+export function nativeRedirectUri(
+  product: ClientProductDefinition,
+  environment: string | undefined,
+): string {
+  const scheme =
+    (environment ? product.environments?.[environment]?.mobile?.scheme : undefined) ??
+    product.mobile?.scheme ??
+    product.id;
+  return `${scheme}://staff-sign-in`;
 }
 
 type ManifestWorker = ReleaseManifest["workers"][number];
@@ -1149,6 +1252,12 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     hostFlags["customer-auth-url"] = webOrigin;
   }
 
+  // Staff sign in to the mobile app through the system browser (ADR 0451, ADR 0455): the host
+  // sends a sign-in back only to this environment's app redirect.
+  if (product.mobile) {
+    hostFlags["native-redirect-uris"] = nativeRedirectUri(product, environment);
+  }
+
   // The host: install, upgrade to the product's version, or repair; vars set for the product.
   const found = ownHost?.state ? ownHost : legacyHost;
   if (found?.state && found.state.version !== product.platform.version) {
@@ -1196,9 +1305,9 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
     );
   }
   io.out(
-    `\nThe host's staff admin${envLabel}: ${hostWorker}'s address (printed above); open /setup there to create the first admin, and, as a human admin, choose the email connection customer codes go out from (customer.settings.update, emailConnectionId).`,
+    `\nThe host's staff admin${envLabel}: ${hostWorker}'s address (printed above); open /setup there to create the first admin. Then a human admin, in Settings → Users, chooses the host's mail connection and turns on "Send sign-in codes without review" for it: until then sign-in by code (customers and staff) answers that it is not set up. cos deploy does not do this step.`,
   );
-  io.out(`\n${EDGE_RULE_STEP}`);
+  io.out(`\n${edgeRuleStep(product)}`);
   return 0;
 }
 

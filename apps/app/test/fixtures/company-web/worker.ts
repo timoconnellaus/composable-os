@@ -11,6 +11,7 @@
 import {
   authRoute,
   type HostEnv,
+  operationRoute,
   signedInCustomer,
   withSessionKept,
 } from "../../../../../templates/client/apps/web/src/host.ts";
@@ -19,6 +20,9 @@ export default {
   async fetch(request: Request, env: HostEnv): Promise<Response> {
     const auth = await authRoute(request, env);
     if (auth) return auth;
+    // The browser's typed-client calls (ADR 0451): these two only.
+    const call = await operationRoute(request, env, { allow: ["me.get", "me.update"] });
+    if (call) return call;
     const { pathname } = new URL(request.url);
     if (pathname === "/account") {
       const me = await signedInCustomer(env, request);

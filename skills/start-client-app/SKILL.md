@@ -69,13 +69,31 @@ a live host side by side in one account, `environments` in `product.ts`): each i
    - **An adopted site with data of its own** (its own D1, KV or R2): it keeps them and keeps
      deploying itself. Customers' records live in the host. What moves into the host, and when, is
      the company's decision: say so and do not move data or remove a binding yourself.
-   - **A framework other than React** (an Astro site): call the host from its server code with the
-     host module; the web blocks are React and do not fit it.
+   - **Calls from the browser** (a block running in the page): the host module's
+     `operationRoute(request, env, { allow: ["me.get", …] })`, served before the pages (the
+     template's `src/server.ts` does). Same origin only, JSON only, only the operations `allow`
+     names; it forwards the customer's cookie and the `Idempotency-Key` and nothing else. In the
+     browser, `createCustomerClient({ baseUrl: location.origin })`.
+   - **Astro with React islands** is a supported way to host web blocks: the page's server code
+     uses the host module, and the islands call `operationRoute`. A site in a framework with no
+     React at all calls the host from its server code only.
 6. **The mobile app** (Expo) calls the host's public address over HTTPS with the same typed
    client. Its host module (`apps/mobile/src/host.ts`, or `src/composable-os/host.ts` when adopted)
-   has `hostSession({ hostUrl, store, deviceName })` with `requestCode`, `signIn` (the emailed code
-   is exchanged at once for a device session in the secure store), `api` and `signOut`. The host's
-   address is `expo.extra.hostUrl` in `app.json`.
+   has `hostSession({ hostUrl, store, deviceName, random })` with `requestCode`, `signIn` (the host
+   answers the emailed code with a device session's tokens, kept in the secure store, never a
+   cookie), `api` and `signOut`. `random` is the app's secure random source
+   (`src/secure-random.ts`, expo-crypto): React Native has no `crypto`, and the module refuses to
+   start without it. The host's address is `expo.extra.hostUrl` in `app.json`.
+   - **Staff with a pack role** (a coach at the door): list the role in `product.ts`
+     (`mobile: { dir, roles: ["ticketing.door"] }`) and run `pnpm cos client generate`: it writes
+     `src/client/roles/ticketing.door.ts`, with only that role's operations. Never put the staff
+     client in the app. Staff sign in with `staffSession({ hostUrl, store: staffSecureStore,
+     deviceName, random })` (`requestCode` and `signIn` by code, or `signInWithBrowser` with
+     `redirectUri: "<scheme>://staff-sign-in"` and expo-web-browser's `openAuthSessionAsync` when
+     staff sign in with Google or Cloudflare Access), then `staff.client(createTicketingDoorClient)`.
+     The staff session has its own slot; a staff token goes only to the host.
+   - **An adopted Expo app** on `expo/tsconfig.base` needs `allowImportingTsExtensions` and
+     `noEmit` for the host module's `.ts` imports: `cos init` shows that change as a diff.
 7. **Regenerate the clients** after changing `packs` or `extensions/`: `pnpm cos client generate`.
    `cos deploy` and `cos upgrade` do it too.
 8. **Deploy:** `CLOUDFLARE_API_TOKEN=... pnpm cos deploy`. Before anything in the account changes
@@ -94,9 +112,11 @@ a live host side by side in one account, `environments` in `product.ts`): each i
      then `wrangler deploy`. Built without it, a staging site binds to the live host.
 9. **A person then does, by hand:**
    - open the host's address `/setup` to create the first staff admin;
-   - connect an email-send connection and choose it for customer sign-in codes with the
-     `customer.settings.update` operation (`emailConnectionId`; over MCP, as a human admin; the
-     admin has no picker yet). Until then code requests answer that sign-in is not set up;
+   - connect an email-send connection (Settings → Integrations), then, as a human admin, in
+     Settings → Users choose it as the host's mail connection and turn on "Send sign-in codes
+     without review". Until then code requests (customers and staff) answer that sign-in is not
+     set up. `cos deploy` does not do this, in any environment;
+   - invite staff (Settings → Users), with a pack role for a coach at the door;
    - for a custom hostname, `web.hostname` in `product.ts` (or `environments.<name>.web.hostname`)
      and its DNS;
    - the gatekeepers' secrets `cos deploy` named;

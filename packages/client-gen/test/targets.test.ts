@@ -333,6 +333,97 @@ describe("the generated client's targets", () => {
     expect(new URL(browser.url).pathname).toBe("/native/staff-sign-in");
   });
 
+  it("React Native: the template's mobile host module signs in by tokens and writes with no crypto (ADR 0451)", async () => {
+    // The template's own host module, against a stand-in of the host's token routes (ADR 0455)
+    // and its HTTP surface, in the same bare context: no crypto, so writes need the app's random.
+    const root = join(here, "..", "..", "..");
+    const dir = mkdtempSync(join(scratchRoot, "m-"));
+    writeFileSync(
+      join(dir, "entry.ts"),
+      `import { hostSession } from ${JSON.stringify(join(root, "templates", "client", "apps", "mobile", "src", "host.ts"))};
+const sent = [];
+const answer = (data, status = 200) => ({ status, headers: { get: () => null }, text: async () => JSON.stringify(status === 200 ? { data } : { error: data }) });
+const fetch = async (url, init) => {
+  sent.push({ url, headers: init.headers, body: init.body });
+  if (url.endsWith("/api/v1/auth/customer/code")) return answer({ ok: true });
+  if (url.endsWith("/api/v1/auth/customer/sign-in")) {
+    const body = JSON.parse(init.body);
+    if (body.code !== "123456") return answer({ code: "forbidden", message: "That code did not work", details: { reason: "invalid_code" } }, 401);
+    return answer({ accessToken: "cos_at_1", refreshToken: "cos_rt_1", accessExpiresAt: "2999-01-01T00:00:00.000Z", sessionId: "dvs_1", account: "ready" });
+  }
+  if (url.endsWith("/api/v1/op/me.update")) return answer({ id: "per_1" });
+  return answer({ code: "unknown_operation", message: "no" }, 404);
+};
+let saved = null;
+const store = { load: async () => saved, save: async (t) => { saved = t; } };
+let n = 0;
+const random = { bytes: (k) => { const out = new Uint8Array(k); for (let i = 0; i < k; i++) out[i] = (n++ * 7) & 255; return out; }, sha256: async () => new Uint8Array(32) };
+async function run() {
+  let refused = "";
+  try { hostSession({ hostUrl: "https://admin.gym.example", store, deviceName: "Phone", fetch }); } catch (e) { refused = String(e.message); }
+  const app = hostSession({ hostUrl: "https://admin.gym.example", store, deviceName: "Phone", fetch, random });
+  await app.requestCode("ada@example.com");
+  const wrong = await app.signIn("ada@example.com", "000000");
+  const right = await app.signIn("ada@example.com", "123456");
+  const updated = await app.api.call("me.update", { givenName: "Ada" });
+  return { refused, wrong, right, saved, updated, sent };
+}
+run().then((r) => report(JSON.stringify(r)), (e) => report(JSON.stringify({ error: String(e && e.stack || e) })));
+`,
+    );
+    const out = await build({
+      entryPoints: [join(dir, "entry.ts")],
+      bundle: true,
+      write: false,
+      format: "iife",
+      target: "es2019",
+      platform: "neutral",
+      alias: { "@composable-os/client": runtime },
+      logLevel: "error",
+    });
+    let reported = "";
+    await new Promise<void>((resolve) => {
+      const context = vm.createContext({
+        report: (text: string) => {
+          reported = text;
+          resolve();
+        },
+        setTimeout,
+      });
+      expect(vm.runInContext("typeof crypto", context)).toBe("undefined");
+      vm.runInContext(out.outputFiles[0]?.text ?? "", context);
+    });
+    const result = JSON.parse(reported) as {
+      error?: string;
+      refused: string;
+      wrong: boolean;
+      right: boolean;
+      saved: Record<string, string>;
+      updated: unknown;
+      sent: { url: string; headers: Record<string, string>; body: string }[];
+    };
+    expect(result.error).toBeUndefined();
+    // Said at start-up, not at the first write.
+    expect(result.refused).toMatch(/needs the app's secure random source/);
+    expect(result.wrong).toBe(false);
+    expect(result.right).toBe(true);
+    // Tokens, never a cookie; the account flag is not kept.
+    expect(result.saved).toEqual({
+      accessToken: "cos_at_1",
+      refreshToken: "cos_rt_1",
+      accessExpiresAt: "2999-01-01T00:00:00.000Z",
+      sessionId: "dvs_1",
+    });
+    expect(JSON.parse(result.sent[1]?.body ?? "{}")).toMatchObject({ deviceName: "Phone" });
+    // The write carried the access token and a key from the app's random source.
+    const write = result.sent.find((s) => s.url.endsWith("/op/me.update"));
+    expect(write?.headers.authorization).toBe("Bearer cos_at_1");
+    expect(write?.headers["idempotency-key"]).toMatch(/^[0-9a-f]{32}$/);
+    expect(
+      result.sent.some((s) => JSON.stringify(s.headers).toLowerCase().includes("cookie")),
+    ).toBe(false);
+  });
+
   it.skipIf(!process.env.HERMES_BIN)("Hermes: the same script in a Hermes binary", async () => {
     const script = await bundle("iife", "es2019");
     const file = join(mkdtempSync(join(scratchRoot, "h-")), "scenario.js");

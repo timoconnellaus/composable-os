@@ -717,6 +717,12 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
   if (customerAuthUrl !== undefined) {
     vars[app.name] = { ...vars[app.name], CUSTOMER_AUTH_URL: customerAuthUrl };
   }
+  // The mobile app staff sign in to through the system browser (ADR 0451, ADR 0455): the
+  // redirects a sign-in may be sent back to, set by cos deploy from product.ts.
+  const nativeRedirects = str(flags, "native-redirect-uris");
+  if (nativeRedirects !== undefined) {
+    vars[app.name] = { ...vars[app.name], NATIVE_REDIRECT_URIS: nativeRedirects };
+  }
   // A client product's gatekeeper settings (ADR 0452): plain vars the gatekeeper declares, by
   // the release's Worker name, checked by cos deploy against the manifest. Kept by upgrades.
   const gatekeeperVars = str(flags, "gatekeeper-vars");
@@ -1201,7 +1207,15 @@ async function client(argv: string[], deps: Deps): Promise<number> {
     const repo = await import("./client-repo.ts");
     const parsed = parseArgs(["client", ...argv.slice(1)]);
     const dir = str(parsed.flags, "dir") ?? process.cwd();
-    if (repo.isClientRepo(dir)) return repo.regenerate(parsed.flags, deps);
+    if (repo.isClientRepo(dir)) {
+      try {
+        return await repo.regenerate(parsed.flags, deps);
+      } catch (error) {
+        if (!(error instanceof CliError)) throw error;
+        deps.io.err(error.message);
+        return 1;
+      }
+    }
   }
   try {
     const { runClient } = await import("@composable-os/client-gen/cli");

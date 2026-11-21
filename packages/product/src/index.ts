@@ -105,9 +105,26 @@ export interface ClientProductDefinition {
      * adopted site does today, and `cos deploy` only checks it; its wrangler config binds HOST.
      */
     deploy?: "cos" | "own";
+    /**
+     * The web app's routes that reach the host, for the edge rate-limit rule `cos` prints (so it
+     * names only those): the sign-in route (default `/auth/`) and the operation route
+     * (`operationRoute`, default `/api/v1/op/`).
+     */
+    routes?: { signIn?: string; operations?: string };
   };
-  /** The mobile app, if the repo has one: its folder, and where its generated client is. */
-  mobile?: { dir: string; clientDir?: string };
+  /**
+   * The mobile app, if the repo has one: its folder, where its generated client is, and the pack
+   * roles (ADR 0436) its staff may sign in with: `cos client generate` writes a client for each
+   * (`roles/<pack>.<role>.ts`) with only that role's operations, never the whole staff client
+   * (ADR 0451). The web app has none: its binding never serves staff (ADR 0421).
+   */
+  mobile?: {
+    dir: string;
+    clientDir?: string;
+    roles?: string[];
+    /** The app's URL scheme (app.json `expo.scheme`), default the product's id. */
+    scheme?: string;
+  };
   /**
    * The host's names, when they are not the ones derived from `id` (`clientNames`). With
    * environments, these are the live environment's (the one that keeps `<id>-app`).
@@ -143,6 +160,12 @@ export interface ClientEnvironment {
   gatekeepers?: GatekeeperSettings;
   /** The web app in this environment: its hostname (else workers.dev) and its Worker's name. */
   web?: { hostname?: string; worker?: string };
+  /**
+   * The mobile app's build for this environment: its URL scheme, when it differs from the
+   * product's (a staging build of the app installed beside the live one), for staff sign-in's
+   * redirect (`<scheme>://staff-sign-in`, NATIVE_REDIRECT_URIS on the host).
+   */
+  mobile?: { scheme?: string };
   /** The host's names here, when they are not the derived ones. */
   names?: Partial<ProductDefinition["names"]>;
 }
@@ -323,6 +346,15 @@ export function defineClientProduct(definition: ClientProductDefinition): Client
   for (const pack of definition.packs) if (!NAME.test(pack)) fail(`pack ${pack} is not an id`);
   if (new Set(definition.packs).size !== definition.packs.length) fail("a pack is listed twice");
   if (definition.web && !NAME.test(definition.web.worker)) fail("web.worker must be a Worker name");
+  for (const role of definition.mobile?.roles ?? []) {
+    const [pack, local] = role.split(".");
+    if (!pack || !local || role.split(".").length !== 2) {
+      fail(`mobile.roles: ${role} is not <pack>.<role>`);
+    }
+    if (!definition.packs.includes(pack as string)) {
+      fail(`mobile.roles: ${role} is a role of ${pack}, which packs does not list`);
+    }
+  }
   const names = clientNames(definition);
   for (const key of ["app", "runner", "database"] as const) {
     if (!NAME.test(names[key])) fail(`names.${key} must be lowercase letters, digits and hyphens`);

@@ -170,9 +170,17 @@ may be a subdomain (`admin.example.com`), and staff sign in there.
    init)` and `headers: () => customerSession(request.headers.get("cookie"))` from
    `@composable-os/client`, which forwards the customer cookie and no other.
 4. Put the [edge rule for public calls](#public-calls-a-rule-at-the-edge) on the web app's zone
-   too, over the web app's own sign-in and API paths: calls over a binding do not pass the host's
-   zone, so the host's rule does not see them. Signed-in customers are still limited per account
-   by the host.
+   too: calls over a binding do not pass the host's zone, so the host's rule does not see them.
+   Signed-in customers are still limited per account by the host. **Scope it to the routes that
+   reach the host** (the sign-in route, `/auth/` in the template, and the operation route,
+   `/api/v1/op/` by default; `web.routes` in `product.ts` names others), which is the rule `cos`
+   prints. A rule over the whole of `/api/` would, on a site with its own API, throttle the site's
+   own routes for everyone behind one address (an office, a school, a phone network).
+5. **Calls from the browser** (a web block in a page, an Astro site's React island) go to the web
+   app's own `operationRoute(request, env, { allow })` (the template's host module): same origin
+   only, JSON only, only the operations `allow` names, forwarding the customer's cookie and the
+   `Idempotency-Key` and never an `Authorization` header (ADR 0451). In the browser,
+   `createCustomerClient({ baseUrl: location.origin })` calls it.
 
 #### Who a customer is, from the company's own server
 
@@ -307,7 +315,13 @@ export const product = defineClientProduct({
   refuses and lists them; with one it deploys it; with none declared it behaves as before, and
   `--env` is refused. Redeploying one never changes the other.
 - **Each web app's `HOST`** points at its own environment's host, and each host's
-  `CUSTOMER_AUTH_URL` at its own web app.
+  `CUSTOMER_AUTH_URL` at its own web app, and its `NATIVE_REDIRECT_URIS` at its own app build.
+- **Under [Cloudflare Access](#cloudflare-access)** each environment's host is its own hostname,
+  so each needs its own pair of Access applications: the one in front of the host, and the Bypass
+  one over the paths in [What stays behind Access](#what-stays-behind-access-and-what-is-bypassed).
+  The fake payment provider's page (`/gatekeeper/payments/fake/pay/*`) belongs only in an
+  environment marked `live: false`; `cos deploy` refuses the fake provider anywhere else. Staff are
+  invited per environment: an account on staging is not one on live.
 
 **An adopted site** (`web.deploy: "own"`) keeps its own Worker and its own deploy. `cos deploy
 --env <name>` deploys that environment's host and prints what the site's Worker config needs
@@ -341,10 +355,28 @@ environment's web app origin (`https://<web.hostname>`, else its workers.dev add
 secret, never printed and never written to disk or the repository. A later deploy never changes it.
 A product with no web app gets neither.
 
+**What `cos deploy` does not do: sending the codes.** Sign-in codes (customers' and staff's, on the
+web app and in the mobile app) go out only through the host's mail connection, and only once a
+human admin of that environment's host has chosen it and turned on **Send sign-in codes without
+review** for it in Settings → Users. Until then a code request answers `503`
+(`sign_in_not_set_up`). It is a human admin's decision, per environment, and no deploy makes it.
+
 **Rotating it** signs every customer out of that environment (their sessions no longer verify):
 `pnpm cos deploy --env <name> --rotate-customer-auth-secret`, or by hand
 `npx wrangler secret put CUSTOMER_AUTH_SECRET --name <id>-app` with a new random value
 (`openssl rand -hex 32`). Do it when the secret may have leaked.
+
+### Staff in the company's mobile app
+A pack role (the door role, ADR 0436) can be used from the company's own app (ADR 0451):
+`mobile: { dir, roles: ["ticketing.door"] }` in `product.ts` makes `cos client generate` write
+`roles/ticketing.door.ts`, a client with only that role's operations, never the whole staff client.
+Staff sign in with the template's `staffSession`, by an emailed code or in the system browser.
+For the browser, `cos deploy` sets the host's `NATIVE_REDIRECT_URIS` to `<scheme>://staff-sign-in`,
+the scheme being `mobile.scheme` (default the product's id; per environment,
+`environments.<name>.mobile.scheme`), which must match `expo.scheme` in the app's `app.json`. The
+native sign-in routes the app uses are ADR 0455's (`/api/v1/auth/{customer,staff}/code` and
+`/sign-in`, `/api/v1/auth/staff/exchange`, `/api/v1/auth/sign-out`); they answer with tokens and
+never a cookie. Staff need an invite with the role first (Settings → Users).
 
 ### Gatekeepers and their settings
 `product.ts` names the gatekeepers a host installs and their settings, for the whole product
@@ -374,7 +406,8 @@ environment not marked `live: false`, or a product without environments).
 4. As a human admin on the host, Settings → Integrations: enable email sending, create the org
    connection, then on Settings → Users choose it as the host's mail and turn on "Send sign-in
    codes without review" (ADR 0456). Staff and customer sign-in codes go out from it, to any
-   address; until it is on, sign-in by code says it is not set up.
+   address; until it is on, sign-in by code says it is not set up. `cos deploy` never does
+   this step, in any environment.
 
 #### Stripe (payments), in a client repo
 The design is ADR 0429; the platform's own test-mode run is

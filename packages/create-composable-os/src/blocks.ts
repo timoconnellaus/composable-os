@@ -75,6 +75,29 @@ export function blockManifest(kit: ClientKit, name: string): BlockManifest {
   return JSON.parse(decode(bytes)) as BlockManifest;
 }
 
+/**
+ * The install command that fits the app: `npx expo install` in an Expo app (it picks native
+ * modules' versions for the app's SDK), else the package manager the repo's lockfile names.
+ */
+export function installCommand(root: string, app: string, packages: string[]): string {
+  const cd = app && app !== "." ? `cd ${app} && ` : "";
+  const appJson = join(root, app, "app.json");
+  if (existsSync(appJson) && /"expo"\s*:/.test(readFileSync(appJson, "utf8"))) {
+    return `${cd}npx expo install ${packages.join(" ")}`;
+  }
+  const at = (file: string) => existsSync(join(root, file)) || existsSync(join(root, app, file));
+  const manager = at("pnpm-lock.yaml")
+    ? "pnpm add"
+    : at("yarn.lock")
+      ? "yarn add"
+      : at("bun.lock") || at("bun.lockb")
+        ? "bun add"
+        : at("package-lock.json")
+          ? "npm install"
+          : "pnpm add";
+  return `${cd}${manager} ${packages.join(" ")}`;
+}
+
 /** Where a block's files go: `<app>/src/blocks/<name>/`. */
 const blockDir = (app: string, name: string) => join(app, "src", "blocks", name);
 
@@ -125,13 +148,23 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
     }
     lock[block] = { version, app, files };
     added.push(block);
-    for (const [pkg, range] of Object.entries(manifest.packages ?? {})) needs.set(pkg, range);
+    for (const [pkg, range] of Object.entries(manifest.packages ?? {})) {
+      // The platform's own packages at this release's version, never `*`.
+      needs.set(pkg, pkg.startsWith("@composable-os/") ? version : range);
+    }
+    if (!apps.includes(app)) apps.push(app);
   };
+  const apps: string[] = [];
   visit(name, []);
   writeLock(root, lock);
   if (needs.size) {
+    const app = apps[0] as string;
     deps.io.out(
-      `They import ${[...needs.keys()].join(", ")}: pnpm add ${[...needs].map(([p, v]) => `${p}@${v}`).join(" ")} in the app.`,
+      `They import ${[...needs.keys()].join(", ")}. Install them in ${app}:\n  ${installCommand(
+        root,
+        app,
+        [...needs].map(([p, v]) => `${p}@${v}`),
+      )}`,
     );
   }
   deps.io.out(
