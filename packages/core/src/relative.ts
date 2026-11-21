@@ -7,6 +7,9 @@ export const RELATIVE_TOKENS = [
   "now",
   "today",
   "tomorrow",
+  // Weeks start on Monday (ISO 8601), in UTC like every other token (stage 27).
+  "startOfWeek",
+  "startOfNextWeek",
   "startOfMonth",
   "startOfNextMonth",
   "startOfQuarter",
@@ -34,6 +37,13 @@ export function relativeValue(token: RelativeToken, userId: string, now: string)
       return now.slice(0, 10);
     case "tomorrow":
       return new Date(date.getTime() + 86_400_000).toISOString().slice(0, 10);
+    case "startOfWeek":
+    case "startOfNextWeek": {
+      const sinceMonday = (date.getUTCDay() + 6) % 7;
+      const monday = Date.UTC(y, m, date.getUTCDate() - sinceMonday);
+      const start = token === "startOfWeek" ? monday : monday + 7 * 86_400_000;
+      return new Date(start).toISOString().slice(0, 10);
+    }
     case "startOfMonth":
       return day(y, m);
     case "startOfNextMonth":

@@ -13,6 +13,8 @@
 //     tickets, and nothing else.
 // The tools in tools.ts compose the host's operations and add no rules of their own.
 import { defineExtension } from "@composable-os/sdk";
+import { ticketingAutomations } from "./automations.ts";
+import { ticketingDashboards } from "./dashboards.ts";
 import {
   checkIn,
   eventsOnSale,
@@ -36,8 +38,16 @@ export default defineExtension({
     // sales summary. person.get (read person): the holder's name a check-in reports.
     read: ["person"],
     // public.list and capacity.get: the events on sale and their places, for the public.
-    operations: ["order.start", "order.get", "query.sql", "public.list", "capacity.get"],
-    modules: ["ops"],
+    // extensionSettings.list: the pages the buyer's emails link to. email-send: the buyer's mail.
+    operations: [
+      "order.start",
+      "order.get",
+      "query.sql",
+      "public.list",
+      "capacity.get",
+      "extensionSettings.list",
+    ],
+    modules: ["ops", "email-send"],
   },
   objects: {
     event: {
@@ -222,6 +232,68 @@ export default defineExtension({
       indexes: [["code"], ["event", "state"], ["holder"], ["order"]],
     },
   },
+  views: {
+    onSale: {
+      label: "On sale",
+      object: "ticketing.event",
+      filter: { field: "status", op: "eq", value: "on_sale" },
+      sort: { field: "startsAt", direction: "asc" },
+      columns: ["name", "startsAt", "venue", "places", "taken", "available"],
+    },
+    thisWeek: {
+      label: "This week's events",
+      object: "ticketing.event",
+      filter: {
+        and: [
+          { field: "startsAt", op: "gte", value: { $relative: "startOfWeek" } },
+          { field: "startsAt", op: "lt", value: { $relative: "startOfNextWeek" } },
+        ],
+      },
+      sort: { field: "startsAt", direction: "asc" },
+      columns: ["name", "startsAt", "venue", "status", "taken"],
+    },
+    unusedTickets: {
+      label: "Unused tickets",
+      object: "ticketing.ticket",
+      filter: { field: "state", op: "eq", value: "valid" },
+      sort: { field: "createdAt", direction: "desc" },
+      columns: ["name", "event", "tickettype", "holder", "code", "createdAt"],
+    },
+  },
+  dashboards: ticketingDashboards,
+  // A buyer's tickets on their Person page; check-ins post to their timeline through the
+  // ticket's tracked state and its holder link, and orders through the host (ADR 0429).
+  recordTabs: {
+    personTickets: {
+      label: "Tickets",
+      on: "person",
+      view: {
+        type: "table",
+        object: "ticketing.ticket",
+        relation: "holder",
+        columns: ["name", "event", "tickettype", "state", "usedAt", "code"],
+        sort: { field: "createdAt", direction: "desc" },
+      },
+      order: 30,
+    },
+  },
+  settings: {
+    ticketsUrl: {
+      type: "text",
+      label: "Where buyers see their tickets",
+      description:
+        "The page on your site or app where a signed-in buyer sees their tickets. Linked from the " +
+        "tickets email, with ?order=<id>.",
+    },
+    payUrl: {
+      type: "text",
+      label: "Where buyers pay a balance",
+      description:
+        "The page where a signed-in buyer pays what is owed on an order. Linked from the balance " +
+        "reminders, with ?order=<id>.",
+    },
+  },
+  automations: ticketingAutomations,
   roles: {
     door: {
       label: "Door",

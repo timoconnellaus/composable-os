@@ -28,7 +28,7 @@ import {
   type NotificationSendInput,
   notificationInput,
 } from "./automation.ts";
-import type { AiModule, Extension, StartedBy } from "./contract.ts";
+import { type AiModule, type Extension, GATEKEEPER_MODULES, type StartedBy } from "./contract.ts";
 import type { ExtensionManifest, ManifestIssue, ValidateOptions } from "./manifest.ts";
 import { CORE_OBJECT_NAMES, toManifest, validateManifest } from "./manifest.ts";
 import { checkGrant } from "./permissions.ts";
@@ -51,6 +51,27 @@ export interface TestHostOptions {
    * `usr_admin`.
    */
   users?: { id: string; role: "admin" | "member" | "viewer" }[];
+  /**
+   * Fakes for the gatekeepers the extension declares in `permissions.modules`, by name: what a
+   * session method returns for `call(connectionId, resource, method, ...args)`. Every call is
+   * recorded in `gatekeeperCalls`. A declared gatekeeper with no fake answers `{ status: "pending" }`
+   * (a person would approve it), with one connection per declared automation connection.
+   */
+  gatekeepers?: Record<
+    string,
+    (call: { connectionId: string; resource: string; method: string; args: unknown[] }) => unknown
+  >;
+}
+
+/** A call a tool or automation made through `ctx.gatekeeper(name).call(...)`. */
+export interface GatekeeperCall {
+  gatekeeper: string;
+  connectionId: string;
+  resource: string;
+  method: string;
+  args: unknown[];
+  /** The step it was made in (null: outside a step, or a tool). */
+  step: string | null;
 }
 
 /** A notification the in-memory `notification.send` delivered. */
@@ -127,6 +148,8 @@ export interface TestHost {
   records: Map<string, Map<string, Values>>;
   /** Every notification sent through the in-memory `notification.send`. */
   notifications: SentNotification[];
+  /** Every call through a gatekeeper module, in order. */
+  gatekeeperCalls: GatekeeperCall[];
   /**
    * Runs automation `name` in memory, start to finish: conditions checked on the trigger
    * record, waits skipped (and recorded), steps held to the declarations.
@@ -451,6 +474,42 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
       },
     };
   }
+  const gatekeeperCalls: GatekeeperCall[] = [];
+  for (const name of manifest.permissions.modules) {
+    if (!(GATEKEEPER_MODULES as readonly string[]).includes(name)) continue;
+    const declared = Object.values(manifest.automations).flatMap((a) =>
+      (a.connections ?? []).filter((c) => c.gatekeeper === name).map((c) => c.id),
+    );
+    (raw as Record<string, unknown>)[name] = {
+      connections: async () =>
+        [...new Set(declared.length ? declared : ["default"])].map((id) => ({
+          id,
+          title: id,
+          resources: [{ key: `${id}-resource`, bindingName: "RESOURCE", tsType: "unknown" }],
+        })),
+      call: async (connectionId: unknown, resource: unknown, method: unknown, args: unknown) => {
+        const call = {
+          connectionId: String(connectionId),
+          resource: String(resource),
+          method: String(method),
+          args: (args as unknown[]) ?? [],
+        };
+        gatekeeperCalls.push({ gatekeeper: name, ...call, step: currentStep });
+        try {
+          const fake = options.gatekeepers?.[name];
+          const value = fake ? await fake(call) : { status: "pending" };
+          return { ok: true, value: { value: structuredClone(value), pending: [], applied: [] } };
+        } catch (error) {
+          const e = error as { code?: string; message?: string };
+          return {
+            ok: false,
+            error: { code: e.code ?? "internal", message: e.message ?? String(error) },
+          };
+        }
+      },
+      types: async () => "",
+    };
+  }
   if (has("ai")) {
     const ai: AiModule = {
       summarise: async (text) => String(text).slice(0, 100),
@@ -659,6 +718,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     storage,
     records,
     notifications,
+    gatekeeperCalls,
     runAutomation,
     async runTool<T>(
       tool: string,

@@ -16,10 +16,12 @@ import {
   type CustomerPrincipal,
   coreRegistry,
   type ExtensionHost,
+  extensionDashboardId,
   getObject,
   type InvocationContext,
   invokeByName,
   loadExtensionOperations,
+  memoryWidgetCache,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
 } from "@composable-os/core";
@@ -449,6 +451,80 @@ describe("the sales summary", () => {
       revenue: 12000,
     });
     expect(summary.totals).toEqual({ sold: 3, held: 1, remaining: 16, revenue: 21000 });
+  });
+});
+
+// --- Step 4: the staff side --------------------------------------------------------------------
+
+describe("the staff side (step 4)", () => {
+  it("the Ticket sales dashboard's every widget runs over real sales, and its counts click through", async () => {
+    const { event, types } = await eventWith([{ price: 30 }]);
+    const order = await run<Order>(
+      "x.ticketing.orderStart",
+      { lines: [{ ticketTypeId: types[0], quantity: 2 }], email: buyerEmail() },
+      guest,
+    );
+    await checkoutAndPay(order, guest);
+    await waitForState(order.id, "paid");
+    const dashboardId = extensionDashboardId("ticketing", "ticketSales");
+    const dashboard = await run<{ widgets: { id: string }[] }>(
+      "dashboard.get",
+      { id: dashboardId },
+      staff(admin),
+    );
+    expect(dashboard.widgets.map((w) => w.id)).toEqual([
+      "revenue",
+      "sold",
+      "unused",
+      "by-event",
+      "by-day",
+      "places",
+    ]);
+    const today = new Date().toISOString().slice(0, 10);
+    const results: Record<string, { rows: Record<string, unknown>[] }> = {};
+    for (const { id } of dashboard.widgets) {
+      results[id] = await run(
+        "widget.run",
+        {
+          dashboardId,
+          widgetId: id,
+          filters: { paid: { from: "2020-01-01", to: `${Number(today.slice(0, 4)) + 1}-01-01` } },
+          refresh: true,
+        },
+        staff(admin, { widgetCache: memoryWidgetCache() }),
+      );
+    }
+    expect(Number(results.sold?.rows[0]?.value)).toBeGreaterThanOrEqual(2);
+    const mine = results["by-event"]?.rows.find((r) => r.event_id === event);
+    expect(Number(mine?.tickets)).toBe(2);
+    const places = results.places?.rows.find((r) => r.id === event);
+    expect(places).toMatchObject({ taken: 2, held: 0 });
+  });
+
+  it("ships its views, the Person page's Tickets tab and the automations", async () => {
+    const row = await env.DB.prepare(
+      "SELECT manifest FROM core_extensions WHERE id = 'ticketing'",
+    ).first<{ manifest: string }>();
+    const manifest = JSON.parse(row?.manifest ?? "{}");
+    expect(Object.values(manifest.views).map((v) => (v as { label: string }).label)).toEqual([
+      "On sale",
+      "This week's events",
+      "Unused tickets",
+    ]);
+    expect(manifest.recordTabs.personTickets).toMatchObject({
+      on: "person",
+      view: { relation: "holder" },
+    });
+    expect(Object.keys(manifest.automations)).toEqual([
+      "ticketsByEmail",
+      "eventReminder",
+      "eventEnded",
+      "balanceReminders",
+    ]);
+    // Each view's filter runs as a list.
+    for (const view of Object.values(manifest.views) as { object: string; filter: unknown }[]) {
+      await run("record.list", { object: view.object, filter: view.filter }, staff(admin));
+    }
   });
 });
 

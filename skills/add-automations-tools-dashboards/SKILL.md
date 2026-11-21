@@ -86,11 +86,20 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    parameters (a dateRange `date` binds `:date_from` and `:date_to`; a user filter `owner` binds
    `:owner`); `:now`, `:today` and `:me` are always there. Each data widget is one read-only
    `SELECT` over the `rec_*` views (`rec_x_<id>_<object>`, columns in snake_case: `closedAt` is
-   `closed_at`). `mapping` names the result columns the chart uses (`value` for a kpi, `x` and
+   `closed_at`). An object's places (`capacity`) are not columns of its view: join
+   `rec_capacity` on `object_type` and `record_id` for `places`, `held`, `taken` and
+   `available` (Ticketing: `ticketSales`). `mapping` names the result columns the chart uses (`value` for a kpi, `x` and
    `y` for bar and line, `label` and `value` for donut and leaderboard, `columns` for a table).
    `clickThrough` opens exactly the records the widget counted: `{ object, filter }` with
    `{ $row: "<column>" }` and `{ $param: "<name>" }` placeholders; one that resolves to null drops
    its condition. See Leads: `leadsDashboard` (the smallest), then Deals: `salesOverview`.
+   An automation that mails someone outside the org (a buyer) goes through the `email-send`
+   gatekeeper: declare `connections: [{ id, gatekeeper: "email-send", purpose }]` and the module,
+   and call `ctx.gatekeeper("email-send").call(id, resource, "send", message)` in a step; a person
+   binds the connection, and each send is an outbound action the approval policy decides.
+   Besides your own objects and the core ones, an automation may be started by an `order`
+   (`fieldChanged` on `state`, from `{ in: ["pending", "expired"] }` to the first payment),
+   with `order.get` in `permissions.operations` (Ticketing: `ticketsByEmail`).
 9. **Test every tool and automation** in `test/` with `createTestHost(extension, { records,
    users, operations })` from `@composable-os/sdk/testing`. `host.runTool(name, input, { caller })` returns
    the output (`caller` defaults to the staff user `usr_admin`); pass `operations: {
@@ -99,7 +108,9 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    `person.get` yourself when a tool reads `displayName` (Ticketing's test).
    `host.runAutomation(name, { record, period, ... })` runs it start to finish: assert
    `run.undeclared` is empty, then `run.steps`, `run.writes` and `run.notifications`. Test the
-   case where the conditions do not hold too. The test host does not evaluate the trigger: assert
+   case where the conditions do not hold too. A gatekeeper the extension declares is faked in
+   memory: pass `gatekeepers: { "email-send": (call) => ... }` for its answers, and assert
+   `host.gatekeeperCalls` (each with its step). The test host does not evaluate the trigger: assert
    its declared shape (the sign of `offsetDays`), and pass `period` for `schedule` and
    `dateRelative` runs and assert the dates taken from it. See Deals: `test/automations.test.ts`.
 10. **A headless entry, for client apps (optional, stage 23, ADR 0418).** A pack whose tools a
