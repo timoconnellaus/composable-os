@@ -90,7 +90,8 @@ window applies to both).
   a customer's or the public's call now gets the integration runtime (`order.checkout`).
 - New hostInternal operation: `order.checkout` (in open-operations.json).
 - The deployment's own guest page (`/order/<id>?token=`) and a plain buy page (`/buy`) are in the
-  host. Until stage 27's `sellable`, local development sells Deals through `ORDERS_DEV_SELLABLE`.
+  host. They call the public HTTP surface (`/api/v1/op/*`, stage 23) from the browser, like any
+  client app. Until stage 27's `sellable`, local development sells Deals through `ORDERS_DEV_SELLABLE`.
 - Stripe has been checked by hand only through its documentation: `docs/payments-stripe-runbook.md`
   is the test-mode run a person makes.
 - `core_payment_event` keeps applied events; their retention joins the purge later.
