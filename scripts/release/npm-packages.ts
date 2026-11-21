@@ -184,6 +184,9 @@ function packageJson(name: string, spec: Spec, version: string): Record<string, 
         esbuild: source.devDependencies.esbuild,
         typescript: source.devDependencies.typescript,
         "@composable-os/sdk": version,
+        // The SDK's own dependency, which the type check of an extension resolves from the CLI.
+        zod: JSON.parse(readFileSync(join(ROOT, "packages", "sdk", "package.json"), "utf8"))
+          .dependencies.zod,
       },
     };
   }
