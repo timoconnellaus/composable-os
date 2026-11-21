@@ -61,3 +61,13 @@ written per client.
   built.
 - Left for later: preview deployments per branch, a TV app in the template, any way to change
   screens without code.
+
+## As built (stage 24, steps 1 and 2 and the sign-in part of step 5, 2026-11-21)
+- Packs live in `packs/<id>/` (the extension, `client/`, `blocks/`) as `@composable-os/pack-<id>`;
+  a product lists its packs, and only those are in its release:
+  [ADR 0420](0420-packs-as-packages-as-built.md).
+- The web app's service binding is to cos-app's `ClientApp` entrypoint, which serves customer
+  sign-in and the HTTP surface for customers and the public only, reads only the customer's
+  verified session cookie, and never a staff session or a token. Customers sign in on the web
+  app's hostname; the host's cookie is passed through, host-only, and `CUSTOMER_AUTH_URL` names the
+  web app: [ADR 0421](0421-the-client-app-binding-and-customer-sign-in.md).

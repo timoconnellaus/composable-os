@@ -892,7 +892,9 @@ _Avoid_: component (too general), widget (a widget is a dashboard tile), templat
 
 **Client app**
 A company's own code that its customers or staff use, in the company's repository: a web app, a
-mobile app, a TV app. It reaches the host only through the typed client (stage 24).
+mobile app, a TV app. It reaches the host only through the typed client (stage 24): a web app over
+its service binding to the host's `ClientApp` entrypoint, as the signed-in customer or the public
+and never as staff (ADR 0421); a phone over HTTPS.
 _Avoid_: frontend, site (a site is one kind of client app)
 
 **Client repo**

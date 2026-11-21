@@ -1021,6 +1021,20 @@ One repository per company, started from a template: `apps/web` (TanStack Start)
 definition. The web app is its own Worker with a service binding to the host. It never opens D1.
 The staff admin and the MCP surface are the host's and are not rebuilt per client.
 
+As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
+[0421](adr/0421-the-client-app-binding-and-customer-sign-in.md)):
+
+- **The binding.** The web app binds to cos-app's `ClientApp` entrypoint
+  (`apps/app/src/server/http/bound.ts`). It serves customer sign-in (`/api/customer-auth/*`) and
+  the HTTP surface, through `invoke()`, and nothing else. The caller is the customer whose session
+  cookie the web app forwards, verified by the host, or the public: never staff (no staff session
+  is read, and a bearer token is refused), and never a caller the web app names.
+- **Sign-in on the company's hostname.** The web app forwards the address and the code; the host
+  answers with a host-only customer cookie, which the web app passes through, so the browser keeps
+  it for the web app's hostname. `CUSTOMER_AUTH_URL` is the web app's origin. Staff cookies stay on
+  the host's address. `customerSession` in `@composable-os/client` forwards the customer cookie
+  and no other.
+
 ### Skills
 
 Stage 21; [ADR 0405](adr/0405-skills-ship-with-the-platform.md).
@@ -1063,7 +1077,7 @@ checkout of the repository (`pnpm cos ext ...`); how a client repo gets it is st
 | Platform | Host Workers | Everything, by release only |
 | Shipped extension (pack) | Runner, as `extension:<id>` | What its manifest's permissions grant |
 | Runtime extension | Runner, as `extension:<id>` | The same, after approval as a diff |
-| Client app, server side | The client's Worker | Call operations for the signed-in audience |
+| Client app, server side | The client's Worker | Call operations as the signed-in customer, or the public, over the `ClientApp` binding; never as staff |
 | Client app, on a device | Phone, browser, TV | The same, with the user's session |
 
 No row of this table can loosen identity or approval policy. Only a human admin can.

@@ -124,9 +124,38 @@ connection chosen for customer mail, which a human admin sets with `customer.set
 (`emailConnectionId`). The host sends the codes itself, through that connection, as the system
 user. Until both are set, a code request answers that customer sign-in is not set up.
 
+#### A company's web app on its own hostname (stage 24, by hand)
+
+Until `cos deploy` does it, a company's web app is wired to the host by hand. The web app is its
+own Worker on the company's hostname (`shop.example.com`); the host keeps its own address, which
+may be a subdomain (`admin.example.com`), and staff sign in there.
+
+1. In the web app's wrangler config, one service binding to the host's app Worker and its
+   `ClientApp` entrypoint, and no D1, R2, KV or secret of its own:
+   ```jsonc
+   "services": [{ "binding": "HOST", "service": "crm-app", "entrypoint": "ClientApp" }]
+   ```
+   The binding serves customer sign-in (`/api/customer-auth/*`) and the HTTP surface
+   (`/api/v1/op/*`, `/api/v1/manifest`) for customers and the public only. It never reads a staff
+   session and refuses a bearer token (ADR 0421).
+2. On the host, set `CUSTOMER_AUTH_URL` to the web app's origin (`https://shop.example.com`).
+   Customer cookies are then for that origin (`__Secure-` and `Secure` on https), and Better Auth
+   refuses a sign-in posted from any other page, the host's own included. `CUSTOMER_AUTH_SECRET`
+   and the customer mail connection are set as in [Customer sign-in](#customer-sign-in).
+3. The web app forwards its sign-in form to `HOST.fetch("https://host/api/customer-auth/...")`
+   with the browser's `Origin` and `cf-connecting-ip`, and passes the `Set-Cookie` it gets back to
+   the browser unchanged: the cookie is host-only, so it is kept for the web app's hostname. Its
+   operation calls go through the typed client with `fetch: (url, init) => env.HOST.fetch(url,
+   init)` and `headers: () => customerSession(request.headers.get("cookie"))` from
+   `@composable-os/client`, which forwards the customer cookie and no other.
+4. Put the [edge rule for public calls](#public-calls-a-rule-at-the-edge) on the web app's zone
+   too, over the web app's own sign-in and API paths: calls over a binding do not pass the host's
+   zone, so the host's rule does not see them. Signed-in customers are still limited per account
+   by the host.
+
 `crm-runner`'s only secrets are the AI ones ([In-app AI](#in-app-ai)). It runs extension code, which calls operations there, so set its
 `APPROVAL_FLOOR` var (in `apps/runner/wrangler.jsonc`) to the same value as crm-app's. Shipped
-extensions (`extensions/`) are installed through `extension.install` on the first request after a
+extensions (packs, `packs/`) are installed through `extension.install` on the first request after a
 deploy. AI (model roles for `codemode:ai`, "Describe a widget", summaries and semantic search) is
 described in [In-app AI](#in-app-ai) below.
 
