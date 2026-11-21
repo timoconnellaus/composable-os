@@ -119,3 +119,9 @@ declares, and audited; the role holds nothing while the pack is disabled.
   scanner (step 5).
 - A door account reads the ticket's holder relation, so it sees holders' names on the ticket list.
   That is the list the door needs; nothing else about a person is reachable.
+
+## Amendment, 2026-11-21 (stage 41, ADR 0449)
+The pipeline's read of `pack_role` also reads the permissions a human admin granted the account
+one by one (`granted_permissions`, same row, same statement: no extra row read). A pack role still
+replaces everything: while one is held, grants count for nothing. A pack may declare some of its
+tool permissions `grantable`. See [ADR 0449](0449-permissions-granted-one-by-one.md).

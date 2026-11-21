@@ -46,6 +46,37 @@ export const ITEM = `${SHOP}.item`;
 export const SHOW = `${SHOP}.show`;
 /** Readable by the public while its show is on sale: `public` through a relation. */
 export const TIER = `${SHOP}.tier`;
+/**
+ * Stage 41 (ADR 0447): a program's assignment, its sessions and the sets logged on them. A
+ * customer's own, and a class's, which every signed-in customer reads; a session's plan is a
+ * document whose coach's notes no customer reads (ADR 0445).
+ */
+export const ASSIGNMENT = `${SHOP}.assignment`;
+export const SESSION = `${SHOP}.session`;
+export const LOG = `${SHOP}.log`;
+/** The shapes of programs.* the isolation suite aims at. */
+export const PROGRAM_OBJECTS = [ASSIGNMENT, SESSION, LOG] as const;
+
+const PLAN_SCHEMA = {
+  root: {
+    type: "object",
+    fields: {
+      label: { type: "text", max: 60 },
+      notes: {
+        type: "array",
+        max: 5,
+        of: {
+          type: "object",
+          fields: {
+            text: { type: "text", max: 200 },
+            members: { type: "boolean", optional: true },
+          },
+          private: { unless: "members" },
+        },
+      },
+    },
+  },
+};
 
 export const DECLARATIONS: Record<string, CustomerDeclaration> = {
   [ORDER]: { field: "buyer", read: ["title", "status", "total", "note"], write: ["note"] },
@@ -183,6 +214,74 @@ export async function installShop(): Promise<void> {
           fields: {
             name: { type: "text", label: "Name", required: true },
             terms: { type: "text", label: "Terms" },
+          },
+        },
+        assignment: {
+          label: "Assignment",
+          plural: "Assignments",
+          titleField: "title",
+          fields: {
+            title: { type: "text", label: "Title", required: true },
+            kind: {
+              type: "select",
+              label: "For",
+              options: [
+                { value: "personal", label: "Personal" },
+                { value: "class", label: "Class" },
+              ],
+            },
+            person: { type: "relation", label: "Person", to: "person" },
+            goal: { type: "text", label: "Goal" },
+            staffNote: { type: "text", label: "Staff note" },
+          },
+          customer: { field: "person", read: ["title", "kind", "goal"], write: [] },
+          signedIn: { read: ["title", "kind"], when: { field: "kind", in: ["class"] } },
+        },
+        session: {
+          label: "Session",
+          plural: "Sessions",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name", required: true },
+            kind: {
+              type: "select",
+              label: "For",
+              options: [
+                { value: "personal", label: "Personal" },
+                { value: "class", label: "Class" },
+              ],
+            },
+            assignment: { type: "relation", label: "Assignment", to: `${SHOP}.assignment` },
+            person: { type: "relation", label: "Person", to: "person" },
+            plan: { type: "document", label: "Plan", schema: PLAN_SCHEMA },
+            note: { type: "text", label: "Member's note" },
+            staffNote: { type: "text", label: "Staff note" },
+          },
+          customer: {
+            field: "person",
+            read: ["name", "kind", "assignment", "plan", "note"],
+            write: ["note"],
+          },
+          signedIn: {
+            read: ["name", "kind", "assignment", "plan"],
+            when: { via: "assignment", field: "kind", in: ["class"] },
+          },
+        },
+        log: {
+          label: "Logged set",
+          plural: "Logged sets",
+          titleField: "label",
+          fields: {
+            label: { type: "text", label: "Set" },
+            session: { type: "relation", label: "Session", to: `${SHOP}.session` },
+            person: { type: "relation", label: "Person", to: "person" },
+            reps: { type: "number", label: "Reps" },
+            coachNote: { type: "text", label: "Coach's note" },
+          },
+          customer: {
+            field: "person",
+            read: ["label", "session", "reps"],
+            write: ["label", "session", "reps"],
           },
         },
       },
@@ -350,7 +449,105 @@ export async function createCustomer(admin: ActingUser, label: string): Promise<
       }
     }
   }
+  await givePrograms(admin, customer, person.id, tag);
   return customer;
+}
+
+/**
+ * Stage 41: an assignment of the customer's own, a session of it whose plan has a coach's note
+ * and a note shown to them, and a set they logged on it. Every value is the customer's secret,
+ * the note shown to them included (it is theirs, not another customer's).
+ */
+async function givePrograms(
+  admin: ActingUser,
+  customer: Customer,
+  personId: string,
+  tag: string,
+): Promise<void> {
+  const make = async (object: string, values: Record<string, unknown>) => {
+    const created = await invoke("record.create", { object, values }, context(admin));
+    customer.records[object] = [...(customer.records[object] ?? []), created.id];
+    customer.secrets.push(created.id);
+    customer.values[object] = values;
+    return created.id;
+  };
+  const assignment = await make(ASSIGNMENT, {
+    title: `Assignment-${tag}`,
+    kind: "personal",
+    person: personId,
+    goal: `Goal-${tag}`,
+    staffNote: `AssignmentStaff-${tag}`,
+  });
+  const session = await make(SESSION, {
+    name: `Session-${tag}`,
+    kind: "personal",
+    assignment,
+    person: personId,
+    plan: {
+      label: `Plan-${tag}`,
+      notes: [{ text: `CoachNote-${tag}` }, { text: `MemberNote-${tag}`, members: true }],
+    },
+    note: `SessionNote-${tag}`,
+    staffNote: `SessionStaff-${tag}`,
+  });
+  await make(LOG, {
+    label: `Set-${tag}`,
+    session,
+    person: personId,
+    reps: secretNumber(),
+    coachNote: `LogCoach-${tag}`,
+  });
+  customer.secrets.push(
+    `Assignment-${tag}`,
+    `Goal-${tag}`,
+    `AssignmentStaff-${tag}`,
+    `Session-${tag}`,
+    `Plan-${tag}`,
+    `CoachNote-${tag}`,
+    `MemberNote-${tag}`,
+    `SessionNote-${tag}`,
+    `SessionStaff-${tag}`,
+    `Set-${tag}`,
+    String(customer.values[LOG]?.reps),
+    `LogCoach-${tag}`,
+  );
+}
+
+/**
+ * A class's assignment and session (stage 41, ADR 0447): read by every signed-in customer, with
+ * the fields `signedIn` lists. `hidden` is what none of them may learn: the staff notes and the
+ * coach's note in the plan.
+ */
+export async function createClass(admin: ActingUser): Promise<{
+  assignment: string;
+  session: string;
+  memberNote: string;
+  hidden: string[];
+}> {
+  const tag = unique("class");
+  const make = async (object: string, values: Record<string, unknown>) =>
+    (await invoke("record.create", { object, values }, context(admin))).id;
+  const assignment = await make(ASSIGNMENT, {
+    title: `Class-${tag}`,
+    kind: "class",
+    staffNote: `ClassStaff-${tag}`,
+  });
+  const session = await make(SESSION, {
+    name: `ClassSession-${tag}`,
+    kind: "class",
+    assignment,
+    plan: {
+      label: `ClassPlan-${tag}`,
+      notes: [{ text: `ClassCoachNote-${tag}` }, { text: `ClassMemberNote-${tag}`, members: true }],
+    },
+    staffNote: `ClassSessionStaff-${tag}`,
+  });
+  return {
+    assignment,
+    session,
+    memberNote: `ClassMemberNote-${tag}`,
+    hidden: [`ClassStaff-${tag}`, `ClassCoachNote-${tag}`, `ClassSessionStaff-${tag}`],
+  };
 }
 
 /**

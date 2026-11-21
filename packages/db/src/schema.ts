@@ -39,6 +39,8 @@ export interface CoreUserTable {
    * account may do only what the role lists.
    */
   pack_role: ColumnType<string | null, string | null | undefined, string | null>;
+  /** JSON list of permissions a human admin granted (migration 0471, ADR 0449). */
+  granted_permissions: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 export type UserKind = "human" | "extension";
@@ -402,6 +404,7 @@ export interface CrmUsersView {
   email: string;
   role: UserRole;
   pack_role: string | null;
+  granted_permissions: string | null;
   image: string | null;
   created_at: string;
 }
@@ -1807,6 +1810,33 @@ export interface CoreJudgeUsageTable {
   input_tokens: number;
 }
 
+/** A published version of a record's content (migration 0470, ADR 0446). */
+export interface CorePublishVersionTable {
+  object_type: string;
+  record_id: string;
+  version: number;
+  /** JSON: the content fields' values when it was published. */
+  content: string;
+  bytes: number;
+  /** 1 for the version readers are given; at most one per record. */
+  current: number;
+  published_at: Timestamp;
+  published_by: string | null;
+  note: string | null;
+}
+
+/** `rec_publish_version` (migration 0470): every version, without its content. */
+export interface RecPublishVersionView {
+  object_type: string;
+  record_id: string;
+  version: number;
+  current: number;
+  bytes: number;
+  published_at: string;
+  published_by: string | null;
+  note: string | null;
+}
+
 export interface CoreDatabase {
   core_ai_usage: CoreAiUsageTable;
   core_ai_cache_observation: CoreAiCacheObservationTable;
@@ -1924,6 +1954,8 @@ export interface CoreDatabase {
   core_device_session: CoreDeviceSessionTable;
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
+  core_publish_version: CorePublishVersionTable;
+  rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;
   rec_state_history: RecStateHistoryView;
   rec_user: CrmUsersView;

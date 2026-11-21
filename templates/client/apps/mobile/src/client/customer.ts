@@ -69,7 +69,7 @@ export type Operations = {
     output: { object: string; id: string; values: Record<string, unknown>; currency?: (string) | (null) };
   };
   /**
-   * A page of your own records of an object, as a signed-in customer: only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.
+   * A page of your own records of an object, as a signed-in customer (and the records every signed-in customer may read, where the object shares some): only the records that are yours and only the fields you may see. Filter and sort on those fields; pass nextCursor back as cursor for the next page. Read-only.
    */
   "my.list": {
     kind: "query";

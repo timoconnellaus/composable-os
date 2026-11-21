@@ -77,6 +77,14 @@ export interface ExtensionFieldOptions {
   /** Formula source (shown in the UI tooltip) and its result type. */
   expression?: string;
   resultType?: string;
+  /** Number, currency and percent fields: the bounds a value is checked against (stage 41). */
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Document fields (ADR 0445): the schema its value is checked against, and its size limit. */
+  document?: { schema: Record<string, unknown>; maxBytes?: number | undefined };
+  /** A declared path of a document field (ADR 0445): the field and the path it reads. */
+  documentPath?: { field: string; path: string; count?: boolean | undefined };
 }
 
 export interface ObjectDefinition {
@@ -133,6 +141,14 @@ export interface ObjectDefinition {
    */
   public?: PublicDeclaration;
   /**
+   * What every signed-in customer may read (ADR 0447): fields, of the records meeting a
+   * condition, whoever's they are. Beside `customer` it shares those records; alone it opens
+   * them to read. Enforced only at the visibility seam.
+   */
+  signedIn?: PublicDeclaration;
+  /** Versions of the content fields (ADR 0446), with registry field names. */
+  publishable?: PublishableDefinition;
+  /**
    * What a customer may read of a record one of their own records points to (ADR 0439). Left
    * out, a customer reads nothing of the object that way. Enforced only at the visibility seam.
    */
@@ -148,6 +164,12 @@ export interface CustomerViaDeclaration {
   readonly from: string;
   readonly field: string;
   readonly read: readonly string[];
+}
+
+/** The publishable behaviour as the host enforces it (the SDK's PublishableSpec, validated). */
+export interface PublishableDefinition {
+  /** The fields a version keeps. */
+  readonly content: readonly string[];
 }
 
 /**

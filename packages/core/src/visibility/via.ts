@@ -9,13 +9,13 @@
 // name and date whatever state the event is in: ended, or no longer on sale. Nothing by default:
 // an object that declares nothing is read this way by no one.
 //
-// An object may also declare `public`. A customer then reads both: the fields in `read` of the
-// records their own records point to, and the public's fields of the public records. A column
+// An object may also declare `public` or `signedIn` (ADR 0447). A customer then reads both: the fields in `read` of the
+// records their own records point to, and that declaration's fields of the records it covers. A column
 // that only one of the two lists is shown only on the records that one covers.
 import { getObject } from "../fields/index.ts";
 import type { CustomerViaDeclaration, FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";
-import { type PublicScope, publicScope } from "./public.ts";
+import { type PublicScope, publicScope, signedInScope } from "./public.ts";
 
 /** What is wrong with an object's `customerVia` declaration (empty when nothing is). */
 export function customerViaProblems(object: ObjectDefinition): string[] {
@@ -89,7 +89,7 @@ export interface ViaScope {
   readonly columns: readonly { readonly column: string; readonly shownOn: ShownOn }[];
   /** How the caller's own records point here. */
   readonly link: Link;
-  /** What the public may read of the object too, when it declares that. */
+  /** What every signed-in customer or the public may read of the object too, when declared. */
   readonly public: PublicScope | null;
   readonly declaration: CustomerViaDeclaration;
 }
@@ -103,7 +103,8 @@ export function customerViaScope(object: ObjectDefinition, personId: string): Vi
   if (problems.length) {
     throw new Error(`${object.name}: invalid customerVia declaration: ${problems.join("; ")}`);
   }
-  const shared = publicScope(object);
+  // What every signed-in customer (ADR 0447) or the public may read of it: one or the other.
+  const shared = signedInScope(object) ?? publicScope(object);
   const reached = new Set(["id", ...declared.read]);
   const open = new Set(shared ? ["id", ...shared.declaration.read] : []);
   const fields = object.fields.filter((f) => reached.has(f.name) || open.has(f.name));
@@ -150,6 +151,5 @@ export function viaObject(object: ObjectDefinition, scope: ViaScope): ObjectDefi
     ...(object.extension ? { extension: object.extension } : {}),
     ...(object.titleField && names.has(object.titleField) ? { titleField: object.titleField } : {}),
     customerVia: scope.declaration,
-    ...(scope.public ? { public: scope.public.declaration } : {}),
   };
 }

@@ -22,11 +22,17 @@ import { BASE_TABLES, type CoreObjectName, getObject, isCoreObject } from "../fi
 import type { ObjectDefinition } from "../fields/types.ts";
 import { type Principal, staffPrincipal } from "../principals.ts";
 import { type CustomerScope, customerObject, customerScope, unknownObject } from "./customer.ts";
-import { type PublicScope, publicObject, publicScope } from "./public.ts";
+import {
+  type Condition,
+  type PublicScope,
+  publicObject,
+  publicScope,
+  signedInScope,
+} from "./public.ts";
 import { customerViaScope, type ViaScope, viaObject } from "./via.ts";
 
 export { type CustomerScope, customerProblems } from "./customer.ts";
-export { type PublicScope, publicProblems } from "./public.ts";
+export { type PublicScope, publicProblems, signedInProblems } from "./public.ts";
 export { customerViaProblems, type ViaScope } from "./via.ts";
 
 /** Who is reading. A handler's context is one. */
@@ -73,11 +79,14 @@ export function scopeOf(
     case "staff":
       return { kind: "all" };
     case "customer":
-      // A customer reads at least what the public may: an object declares one or the other.
-      // Through their own records they may read more of an object that declares `customerVia`.
+      // Their own records (with any shared beside them); else, through their own records, the
+      // ones those point to (ADR 0439, with what every signed-in customer or the public may read
+      // of the object beside them); else what every signed-in customer may read (ADR 0447); else
+      // at least what the public may.
       return (
         customerScope(object, principal.personId) ??
         (throughOwnRecords ? customerViaScope(object, principal.personId) : null) ??
+        signedInScope(object) ??
         publicScope(object) ??
         NONE
       );
@@ -186,17 +195,6 @@ export function buyableSource(
   return sourceOf(scopeOf(ctx.principal, definition, false), definition, definition.source);
 }
 
-/** The predicate of a public scope: the records meeting `when` (ADR 0438). */
-function publicWhere(scope: PublicScope): RawBuilder<unknown> {
-  const { condition } = scope;
-  if (!condition) return sql`1 = 1`;
-  const values = sql.join(condition.values.map((value) => sql`${value}`));
-  // With `via`, the record it points to must meet it: a ticket type while its event is on sale.
-  return condition.via
-    ? sql`${sql.ref(condition.column)} IN (SELECT id FROM ${sql.table(condition.via.source)} WHERE ${sql.ref(condition.via.column)} IN (${values}))`
-    : sql`${sql.ref(condition.column)} IN (${values})`;
-}
-
 /**
  * The predicate of a `via` scope: the records one of the caller's own records points to
  * (ADR 0439). Their own records are the `from` object's rows whose customer column is their
@@ -219,15 +217,31 @@ function sourceOf(
       // Only the caller's rows, and only the listed columns: a column that is not listed is not
       // in the source at all, so no filter, sort or select can reach it. Registry columns are
       // trusted identifiers (fields/types.ts); the person id is a bound parameter.
-      const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
-      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${sql.ref(scope.column)} = ${scope.personId})`.as(
+      const own = sql`${sql.ref(scope.column)} = ${scope.personId}`;
+      if (!scope.shared) {
+        const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
+        return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${own})`.as(
+          name,
+        );
+      }
+      // With records shared with every signed-in customer (ADR 0447): those too, showing only
+      // the columns `signedIn.read` lists unless the row is also the caller's own.
+      const { shared } = scope;
+      const columns = sql.join(
+        scope.columns.map((column) =>
+          shared.columns.has(column)
+            ? sql.ref(column)
+            : sql`CASE WHEN ${own} THEN ${sql.ref(column)} END AS ${sql.ref(column)}`,
+        ),
+      );
+      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${own} OR ${conditionSql(shared.condition)})`.as(
         name,
       );
     }
     case "public": {
       // Only the records meeting `when`, and only the listed columns (ADR 0438).
       const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
-      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${publicWhere(scope)})`.as(
+      return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${conditionSql(scope.condition)})`.as(
         name,
       );
     }
@@ -237,7 +251,7 @@ function sourceOf(
       // only one of the two lists carries its value only on the records that one covers: a
       // column that neither lists is not in the source at all (ADR 0439).
       const reached = reachedWhere(scope);
-      const shared = scope.public ? publicWhere(scope.public) : null;
+      const shared = scope.public ? conditionSql(scope.public.condition) : null;
       const columns = sql.join(
         scope.columns.map(({ column, shownOn }) =>
           shownOn === "both" || !shared
@@ -252,6 +266,40 @@ function sourceOf(
     }
     case "none":
       throw unknownObject(definition.name);
+  }
+}
+
+/** A `when` condition as SQL over the object's view: values bound, columns trusted. */
+function conditionSql(condition: Condition | null) {
+  if (!condition) return sql`1 = 1`;
+  const values = sql.join(condition.values.map((value) => sql`${value}`));
+  return condition.via
+    ? sql`${sql.ref(condition.column)} IN (SELECT id FROM ${sql.table(condition.via.source)} WHERE ${sql.ref(condition.via.column)} IN (${values}))`
+    : sql`${sql.ref(condition.column)} IN (${values})`;
+}
+
+/**
+ * The ids of the records of `object` that are the caller's own: for a customer, the rows whose
+ * customer field is their Person, without what is shared with them (ADR 0447); for staff, every
+ * live row. What a customer may change is read from here, never from what they may only read.
+ * Anyone else has none.
+ */
+export function ownedSource(
+  ctx: Viewer,
+  object: ObjectDefinition,
+  alias?: string,
+): VisibleSource<AnyRow, string> {
+  const scope = scopeOf(ctx.principal, object);
+  const name = alias ?? object.source;
+  switch (scope.kind) {
+    case "all":
+      return sql<AnyRow>`${sql.table(object.source)}`.as(name);
+    case "customer":
+      return sql<AnyRow>`(SELECT id FROM ${sql.table(object.source)} WHERE ${sql.ref(scope.column)} = ${scope.personId})`.as(
+        name,
+      );
+    default:
+      throw unknownObject(object.name);
   }
 }
 

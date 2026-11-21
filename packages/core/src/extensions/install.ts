@@ -159,6 +159,14 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       });
     }
   }
+  if (manifest.grantable?.length) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: "grantable",
+      message: `A runtime extension cannot declare a permission an admin grants. ${why}`,
+    });
+  }
   for (const name of Object.keys(manifest.roles ?? {})) {
     issues.push({
       stage: "contract",
@@ -192,6 +200,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         code: "outside_audience",
         path: `objects.${name}.customerVia`,
         message: `A runtime extension cannot make ${name} readable by customers through their own records. ${why}`,
+      });
+    }
+    // Records every signed-in customer may read (ADR 0447): a reviewed change, as a customer is.
+    if (object.signedIn) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.signedIn`,
+        message: `A runtime extension cannot make ${name} readable by signed-in customers. ${why}`,
       });
     }
     // Selling to the public opens order.start to its records (ADR 0435): a reviewed change too.

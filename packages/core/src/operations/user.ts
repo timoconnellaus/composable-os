@@ -6,8 +6,8 @@ import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { defineObject } from "../fields/types.ts";
 import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts";
 import { defineOperation } from "../operation.ts";
-import { availablePackRoles, PACK_ROLE_NAME_RE } from "../pack-roles.ts";
-import { ROLES } from "../principals.ts";
+import { availablePackRoles, PACK_ROLE_NAME_RE, parseGrants } from "../pack-roles.ts";
+import { GRANTABLE_PERMISSIONS, ROLES } from "../principals.ts";
 
 /** Users are not a record object (no tags, links or timeline); this only drives user.list. */
 export const userObject = defineObject({
@@ -61,6 +61,8 @@ export const userSchema = z.object({
   role: z.enum(ROLES),
   /** A pack's fixed role (`ticketing.door`, ADR 0436): while set, it is all the user may do. */
   packRole: z.string().nullable(),
+  /** Permissions a human admin granted one by one, on top of the role (ADR 0449). */
+  permissions: z.array(z.string()),
   image: z.string().nullable(),
   createdAt: z.string(),
 });
@@ -73,6 +75,7 @@ type UserRow = {
   email: string;
   role: (typeof ROLES)[number];
   pack_role: string | null;
+  granted_permissions: string | null;
   image: string | null;
   created_at: string;
 };
@@ -83,6 +86,7 @@ const toUser = (row: UserRow): User => ({
   email: row.email,
   role: row.role,
   packRole: row.pack_role,
+  permissions: parseGrants(row.granted_permissions),
   image: row.image,
   createdAt: String(row.created_at),
 });
@@ -277,4 +281,131 @@ export const userSetPackRole = defineOperation({
   },
 });
 
-export const userOperations = [userList, userUpdateRole, userPackRoles, userSetPackRole] as const;
+/** What an admin may grant now: the core list and the grantable permissions of installed packs. */
+async function grantable(
+  ctx: Parameters<typeof userPackRoles.handler>[1],
+): Promise<{ permission: string; label: string; from: string }[]> {
+  const rows = await ctx.db
+    .selectFrom("core_extensions")
+    .select(["id", "manifest"])
+    .where("status", "=", "active")
+    .where("source", "=", "shipped")
+    .orderBy("id")
+    .execute();
+  const packs = rows.flatMap((row) => {
+    const manifest = JSON.parse(row.manifest ?? "{}") as {
+      label?: string;
+      grantable?: string[];
+      tools?: Record<string, { permission?: string; description?: string }>;
+    };
+    return (manifest.grantable ?? []).map((permission) => {
+      const tools = Object.entries(manifest.tools ?? {})
+        .filter(([, tool]) => tool.permission === permission)
+        .map(([name]) => name);
+      return {
+        permission,
+        label: `${manifest.label ?? row.id}: ${tools.join(", ") || permission}`,
+        from: row.id,
+      };
+    });
+  });
+  const labels: Record<(typeof GRANTABLE_PERMISSIONS)[number], string> = {
+    "records:publish": "Publish versions of publishable records (programs)",
+    "orders:refund": "Refund orders and keep late payments",
+  };
+  return [
+    ...GRANTABLE_PERMISSIONS.map((permission) => ({
+      permission,
+      label: labels[permission],
+      from: "core",
+    })),
+    ...packs,
+  ];
+}
+
+export const userGrantablePermissions = defineOperation({
+  name: "user.grantablePermissions",
+  description:
+    "List the permissions an admin can grant a staff account one by one, on top of its role: " +
+    "publishing versions of programs and other publishable records, refunding orders, and the " +
+    "tool permissions installed packs declare grantable. Read-only.",
+  input: z.object({}),
+  output: z.object({
+    items: z.array(z.object({ permission: z.string(), label: z.string(), from: z.string() })),
+  }),
+  permission: "users:manage",
+  risk: "read",
+  mcp: { expose: false },
+  async handler(_input, ctx) {
+    return { items: await grantable(ctx) };
+  },
+});
+
+export const userSetPermissions = defineOperation({
+  name: "user.setPermissions",
+  description:
+    "Set the permissions a staff account is granted one by one, on top of its role " +
+    "(user.grantablePermissions lists them; an empty list takes them all away). A member granted " +
+    "records:publish publishes programs; one granted orders:refund approves refunds. A grant never " +
+    "lets an AI assistant or MCP client do what only a person may, and an account with a pack " +
+    "role holds only that role. Admins only, and only a human can call it. Returns the user.",
+  input: z.object({
+    id: z.string().min(1).max(64).describe("User id (usr_…)"),
+    permissions: z.array(z.string().min(1).max(80)).max(20),
+  }),
+  output: userSchema.extend({ previousPermissions: z.array(z.string()) }),
+  permission: "users:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const before = await ctx.db
+      .selectFrom("rec_user")
+      .selectAll()
+      .where("id", "=", input.id)
+      .executeTakeFirst();
+    if (!before) throw new NotFoundError("user", input.id);
+    const available = new Set((await grantable(ctx)).map((g) => g.permission));
+    const unknown = input.permissions.filter((p) => !available.has(p));
+    if (unknown.length) {
+      throw new ValidationError(
+        `${unknown.join(", ")} cannot be granted. user.grantablePermissions lists what can.`,
+        { field: "permissions", unknown, available: [...available] },
+      );
+    }
+    const permissions = [...new Set(input.permissions)].sort();
+    const previous = parseGrants(before.granted_permissions);
+    ctx.write(
+      ctx.db
+        .updateTable("core_user")
+        .set({
+          granted_permissions: permissions.length ? JSON.stringify(permissions) : null,
+          updated_at: ctx.now,
+        })
+        .where("id", "=", input.id),
+    );
+    ctx.recordChange({
+      object: "user",
+      id: input.id,
+      action: "update",
+      before: { permissions: previous },
+      after: { permissions },
+    });
+    return {
+      ...toUser({
+        ...before,
+        granted_permissions: permissions.length ? JSON.stringify(permissions) : null,
+      }),
+      previousPermissions: previous,
+    };
+  },
+});
+
+export const userOperations = [
+  userList,
+  userUpdateRole,
+  userPackRoles,
+  userSetPackRole,
+  userGrantablePermissions,
+  userSetPermissions,
+] as const;

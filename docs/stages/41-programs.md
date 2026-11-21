@@ -179,3 +179,32 @@ data lands in.
   extensions never ship staff UI (ADR 0401).
 - **Every staff member sees every client's training** until stage 14a's roles and teams.
 - **Programs can be built before stage 28** by bringing `publishable` forward.
+
+## As built (steps 1 to 3, 2026-11-21)
+- **The document field** ([ADR 0445](../adr/0445-the-document-field.md)): `type: "document"`
+  with a declared `schema`, `maxBytes` and `paths`; a fault refused with its path for every actor,
+  in the import and in the dry run; refs checked; paths are view columns; `private` parts removed
+  for customers and the public.
+- **`publishable` without its public half** ([ADR 0446](../adr/0446-publishable-without-its-public-half.md)):
+  `core_publish_version` (migration 0470); `record.publish` (`records:publish`, admins by default,
+  a person only), `record.versions`, `record.version`, `record.restoreVersion`. What stage 28 adds
+  is listed in the ADR.
+- **The signed-in scope** ([ADR 0447](../adr/0447-the-signed-in-scope.md)): "class assignments are
+  read by any signed-in member" needed a scope the platform did not have. `signedIn` on an object;
+  a customer's write may point a relation only at what they can see; `my.update` takes `from`.
+  This answers the scope's third bullet: a customer's own writes needed two things new.
+- **The pack** ([ADR 0448](../adr/0448-programs-the-layout-assignments-and-the-log.md)): objects
+  `programs.exercise`, `program`, `classtype` (lowercase, as object names are), `assignment`,
+  `session`, `log`; the layout schema; `record.createMany` for the dated sessions (4 statements a
+  session, batches of 50). Tools are camelCase, so `programs.session.get` is
+  `x.programs.sessionGet`, `programs.class.today` is `x.programs.classToday`, and so on.
+- **Changed from the spec:** customers read the whole exercise bank (`signedIn` on every live
+  exercise), not only "what a program of theirs uses": that narrower rule would be a scope through
+  a document's refs, which the bank's contents (names, videos, cues) do not warrant. A session
+  carries its own plan, copied from the assigned version, rather than reading the version. Load is
+  in kilograms.
+- **Added at review** ([ADR 0449](../adr/0449-permissions-granted-one-by-one.md)): a human admin grants
+  `records:publish` (or `orders:refund`, or a pack tool's grantable permission) to a staff account,
+  so a coach who is a member publishes. Number fields gained `min`, `max` and `step`, and the log
+  uses them (RPE 1 to 10 in halves). Erasing a person deletes their logged sets and keeps their
+  assignments and sessions with no person, documents and versions scrubbed inside (ADR 0448).

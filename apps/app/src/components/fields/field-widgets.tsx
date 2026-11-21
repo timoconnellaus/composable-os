@@ -162,6 +162,13 @@ export function FieldDisplay({ field, value }: { field: FieldInfo; value: unknow
       );
     case "textarea":
       return <span className="whitespace-pre-wrap">{String(value)}</span>;
+    case "document":
+      // A structured document (ADR 0445): shown as its JSON here; a pack's block edits it.
+      return (
+        <pre className="max-h-64 overflow-auto rounded bg-muted p-2 text-xs">
+          {JSON.stringify(value, null, 2)}
+        </pre>
+      );
     default:
       return <>{String(value)}</>;
   }

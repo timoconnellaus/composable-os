@@ -3,6 +3,9 @@
 import type { CoreDatabase } from "@composable-os/db";
 import {
   type CapacityManifest,
+  type DocumentSchema,
+  documentJsonPath,
+  documentPathNode,
   type FieldManifest,
   type FieldTypeName,
   formulaTypeOf,
@@ -26,6 +29,7 @@ import {
   ident,
   isCoreTarget,
   objectView,
+  registryFieldName,
   splitObjectName,
   viewColumnName,
   viewOf,
@@ -55,8 +59,15 @@ export interface ObjectDefinitionJson {
     read: string[];
     when?: { via?: string | undefined; field: string; in: string[] } | undefined;
   };
+  /** What every signed-in customer may read (ADR 0447), as declared. */
+  signedIn?: {
+    read: string[];
+    when?: { via?: string | undefined; field: string; in: string[] } | undefined;
+  };
   /** What a customer reads of a record their own record points to (ADR 0439), as declared. */
   customerVia?: { from: string; field: string; read: string[] };
+  /** Versions of the content fields (ADR 0446), as declared. */
+  publishable?: { content: string[] };
   navigationOrder?: number;
   requireOneOf?: string[][];
   titleDefault?: { from: string[]; suffix?: string | undefined };
@@ -289,6 +300,7 @@ function foreignColumns(
         columns.push(`${compiled ? compiled.sql : "NULL"} AS ${as}`);
       } else if (field.columnName && table) {
         columns.push(`${alias}.${ident(field.columnName)} AS ${as}`);
+        columns.push(...documentPathColumns(field, alias, object));
       }
     }
   }
@@ -324,6 +336,7 @@ export function buildViews(state: SchemaState): ViewBuild {
         columns.push(`${compiled ? compiled.sql : "NULL"} AS ${as}`);
       } else if (field.columnName) {
         columns.push(`t.${ident(field.columnName)} AS ${as}`);
+        columns.push(...documentPathColumns(field, "t", object.name));
       }
     }
     const foreign = foreignColumns(state, object.name, object.extensionId, "t.id", build);
@@ -333,6 +346,11 @@ export function buildViews(state: SchemaState): ViewBuild {
       const capacity = capacityView(object.name);
       columns.push(...capacity.columns);
       joins.push(...capacity.joins);
+    }
+    if (object.definition.publishable) {
+      const published = publishedView(object.name);
+      columns.push(...published.columns);
+      joins.push(...published.joins);
     }
     build.creates.push(
       `CREATE VIEW ${view} AS SELECT ${columns.join(", ")} FROM ${ident(object.tableName)} t${joins.length ? ` ${joins.join(" ")}` : ""} WHERE t.deleted_at IS NULL`,
@@ -361,6 +379,98 @@ function capacityView(object: string): { joins: string[]; columns: string[] } {
     ],
   };
 }
+
+/**
+ * The declared paths of a document field (ADR 0445) as view columns: `json_extract` of the path,
+ * or `json_array_length` for a count. Paths are checked keys (`documentJsonPath`), quoted as a
+ * SQL string; their column names are made like a field's.
+ */
+function documentPathColumns(field: FieldState, alias: string, object: string): string[] {
+  if (field.type !== "document" || !field.columnName) return [];
+  const column = `${alias}.${ident(field.columnName)}`;
+  return Object.entries(field.definition.paths ?? {}).map(([name, spec]) => {
+    const json = `'${documentJsonPath(spec.path)}'`;
+    const read = spec.count
+      ? `json_array_length(${column}, ${json})`
+      : `json_extract(${column}, ${json})`;
+    return `${read} AS ${viewColumnName(field.extensionId, object, name)}`;
+  });
+}
+
+/** The registry fields of a document field's declared paths: read-only, filterable, sortable. */
+function documentPathFields(field: FieldState, object: string): FieldDefinition[] {
+  if (field.type !== "document") return [];
+  const schema = field.definition.schema as unknown as DocumentSchema | undefined;
+  if (!schema) return [];
+  return Object.entries(field.definition.paths ?? {}).flatMap(([local, spec]) => {
+    const reached = documentPathNode(schema, spec);
+    if (typeof reached === "string") return [];
+    const fieldType =
+      reached.type === "boolean" ? "boolean" : reached.type === "number" ? "number" : "text";
+    return [
+      {
+        name: registryFieldName(field.extensionId, object, local),
+        label: spec.label,
+        type: reached.type,
+        column: viewColumnName(field.extensionId, object, local),
+        filterable: true,
+        sortable: true,
+        readOnly: true,
+        extension: field.extensionId,
+        fieldType,
+        options: { documentPath: { field: field.name, path: spec.path, count: spec.count } },
+        ...(spec.description ? { description: spec.description } : {}),
+      } satisfies FieldDefinition,
+    ];
+  });
+}
+
+/**
+ * The published version of a publishable object's records (ADR 0446): the current row of
+ * `core_publish_version`, joined by its primary key's prefix and the one-current-row index.
+ */
+function publishedView(object: string): { joins: string[]; columns: string[] } {
+  const name = `'${object.replaceAll("'", "''")}'`;
+  return {
+    joins: [
+      `LEFT JOIN core_publish_version pub ON pub.object_type = ${name} AND pub.record_id = t.id AND pub.current = 1`,
+    ],
+    columns: [
+      `pub.version AS ${PUBLISHED_COLUMNS.publishedVersion}`,
+      `pub.published_at AS ${PUBLISHED_COLUMNS.publishedAt}`,
+    ],
+  };
+}
+
+/** View columns of the published version: no declared field's column can start with `_`. */
+export const PUBLISHED_COLUMNS = {
+  publishedVersion: "_pub_version",
+  publishedAt: "_pub_at",
+} as const;
+
+/** The read-only published values on every record of a publishable object (ADR 0446). */
+export const PUBLISHED_FIELDS: readonly FieldDefinition[] = [
+  {
+    name: "publishedVersion",
+    label: "Published version",
+    type: "number",
+    column: PUBLISHED_COLUMNS.publishedVersion,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "The version readers are given. Empty: never published.",
+  },
+  {
+    name: "publishedAt",
+    label: "Published",
+    type: "datetime",
+    column: PUBLISHED_COLUMNS.publishedAt,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "When that version was published.",
+  },
+];
 
 /** View columns of the capacity values: no declared field's column can start with `_`. */
 export const CAPACITY_COLUMNS = {
@@ -486,6 +596,12 @@ function registryField(field: FieldState, object: string): FieldDefinition {
     ...(field.type === "formula"
       ? { expression: def.expression ?? "", resultType: def.resultType ?? "text" }
       : {}),
+    ...(def.min !== undefined ? { min: def.min } : {}),
+    ...(def.max !== undefined ? { max: def.max } : {}),
+    ...(def.step !== undefined ? { step: def.step } : {}),
+    ...(field.type === "document" && def.schema
+      ? { document: { schema: def.schema, maxBytes: def.maxBytes } }
+      : {}),
   };
   return {
     name: field.name,
@@ -501,7 +617,8 @@ function registryField(field: FieldState, object: string): FieldDefinition {
           },
         }
       : { column }),
-    filterable: true,
+    // A document is read whole; its declared paths are what lists filter by.
+    filterable: field.type !== "document",
     sortable: !multi && spec.sortable(def),
     ...(def.track ? { track: "timeline" as const } : {}),
     extension: field.extensionId,
@@ -549,7 +666,9 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
   const map = new Map<string, ObjectDefinition>();
   const active = state.fields.filter((f) => f.status === "active");
   for (const [name, core] of Object.entries(CORE_OBJECTS)) {
-    const extra = active.filter((f) => f.object === name).map((f) => registryField(f, name));
+    const extra = active
+      .filter((f) => f.object === name)
+      .flatMap((f) => [registryField(f, name), ...documentPathFields(f, name)]);
     if (extra.length) map.set(name, { ...core, fields: [...core.fields, ...extra] });
   }
   for (const object of state.objects) {
@@ -564,11 +683,14 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     );
     const capacity = capacityDefinition(object, own);
     const sellable = sellableDefinition(object, own);
+    const publishable = object.definition.publishable;
     const fields = [
       ...SYSTEM_FIELDS,
       ...own.map((f) => registryField(f, object.name)),
       ...foreign.map((f) => registryField(f, object.name)),
+      ...[...own, ...foreign].flatMap((f) => documentPathFields(f, object.name)),
       ...(capacity ? CAPACITY_FIELDS : []),
+      ...(publishable ? PUBLISHED_FIELDS : []),
     ];
     map.set(object.name, {
       name: object.name,
@@ -592,7 +714,9 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
       ...(object.definition.public ? { public: object.definition.public } : {}),
+      ...(object.definition.signedIn ? { signedIn: object.definition.signedIn } : {}),
       ...(object.definition.customerVia ? { customerVia: object.definition.customerVia } : {}),
+      ...(publishable ? { publishable: { content: [...publishable.content] } } : {}),
       ...(object.definition.navigationOrder !== undefined
         ? { navigationOrder: object.definition.navigationOrder }
         : {}),

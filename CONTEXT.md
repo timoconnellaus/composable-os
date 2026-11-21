@@ -874,7 +874,8 @@ A declarative rule set an object opts into in its manifest, enforced by the host
 as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**) and `states` (the
 **state machine**), which exist and share the **transition engine**; `capacity` (places, holds
 and claims, ADRs 0430 to 0433) and `sellable` (prices, sale rules and what a paid line grants,
-ADR 0435), which exist; `publishable`, `recurring` and `allowance`, which are designed.
+ADR 0435), which exist; `publishable` (a working copy and published versions, ADR 0446), whose
+half without a public exists; `recurring` and `allowance`, which are designed.
 _Avoid_: hook, trigger (a trigger starts an automation), plugin
 
 **Pack**
@@ -935,7 +936,9 @@ own Person and the fields the object lists (ADRs 0244, 0410, 0412).
 _Avoid_: row-level security (the database has none; the seam is in the host)
 
 **Scope**
-What the visibility seam gives one caller of one object: `all`, `customer` or `none`.
+What the visibility seam gives one caller of one object: `all`, `customer` (their own records,
+and any the object shares with every signed-in customer), `public` (what the public, or every
+signed-in customer, may read) or `none`.
 
 **Staff**
 A signed-in user of the org with a role. Every user of the existing code is staff.
@@ -1120,6 +1123,66 @@ _Avoid_: role (alone, it means admin, member or viewer), team, scope
 Ticketing's pack role (`ticketing.door`): check tickets in, and read events, ticket types and
 tickets. No people, orders, leads or settings.
 _Avoid_: scanner role, coach role
+
+**Permission grant**
+A named permission a human admin grants one staff account on top of its role (ADR 0449):
+`records:publish` (a coach who is a member publishes programs), `orders:refund`, or a pack tool's
+permission the pack declares grantable. Read from the account on every call; a pack role replaces
+it; it never lets an AI actor do what only a person may.
+_Avoid_: role (a role is admin, member or viewer), scope (an MCP token's)
+
+**Signed-in scope** (`signedIn`)
+What an object declares every signed-in customer may read, whoever's record it is (ADR 0447):
+fields, of the records meeting a condition (a class's sessions), or of every live record (the
+exercise bank). Beside a `customer` declaration it shares those records next to each customer's
+own, which they still alone change; alone it opens records to read. Never the public. Read with
+`my.list` and `my.get`.
+_Avoid_: members (a gym's word), shared (alone, it says nothing about who)
+
+**Document field**
+A field whose value is one JSON document checked against a schema its object declares, on every
+write by every actor (stage 41, ADR 0445): objects, lists, text, numbers, choices, refs to records,
+tagged unions. A fault is refused with its path (`layout.weeks.1.sessions.0.day`). Declared paths
+are columns of the `rec_*` view; `private` parts are not read by customers or the public. Stage
+28's rich text is one fixed schema of it.
+_Avoid_: JSON field (any column can hold JSON), blob
+
+**Version** (of a record)
+A snapshot of a publishable record's content fields, taken when a person with `records:publish`
+publishes it (ADR 0446), kept in `core_publish_version`. At most one is current: what readers are
+given. The record itself is its **working copy**, which staff edit without changing any version;
+restoring copies a version back into it. (An extension's working copy is its files in the
+workspace: a different thing.)
+_Avoid_: revision (the audit log's diffs are history, not versions), draft
+
+**Exercise** (Programs)
+One exercise of a gym's bank: a name, a demo video, cues, theme, level, equipment, body areas,
+how a set of it is measured (weight and reps, reps, time, hold), and easier and harder versions.
+Every program is built from the bank; every signed-in member reads it.
+
+**Program** (Programs)
+A plan of weeks of sessions of blocks of items, stored as one layout document: a class program
+(items with up to five levels), a client's own (typed sets) or an online course's sessions, all
+the same object and the same schema. Publishable: coaches edit the working copy, people are given
+a version.
+_Avoid_: programme, plan (alone), workout
+
+**Assignment** (Programs)
+A published version of a program given to a person or to a class type from a start date. It pins
+the version and has one dated session per session of the layout. Repeating a cycle is a new
+assignment. A person's are theirs; a class type's are read by every signed-in member.
+_Avoid_: enrolment (stage 42), subscription
+
+**Session** (Programs)
+One dated session of an assignment, carrying its plan as the assigned version had it (blocks,
+items, levels, typed targets) and whether it was done or skipped.
+_Avoid_: workout, class (a class is the timetable's, stage 31)
+
+**Log** (Programs; a **logged set**)
+One set someone did: the exercise, the item and level taken, the target from the plan and what
+was done (load, reps, seconds), effort (RPE), and who recorded it (the person, or a coach for
+them). One row per set: the table a gym's training data comes from.
+_Avoid_: entry, result
 
 **Allowance**
 What a pass or membership grants: a number of uses, or unlimited uses over a period. A booking
