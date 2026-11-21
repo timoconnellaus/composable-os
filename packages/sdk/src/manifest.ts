@@ -6,6 +6,7 @@ import { z } from "zod";
 import { automationManifestSchema } from "./automation.ts";
 import { checkAutomation } from "./automation-check.ts";
 import { checkObjectBehaviour } from "./behaviour.ts";
+import { capacityManifestSchema, checkObjectCapacity } from "./capacity.ts";
 import {
   type Extension,
   HOST_MODULES,
@@ -130,6 +131,7 @@ export const objectManifestSchema = z.object({
     .optional(),
   timelineLinks: z.array(z.string().max(40)).max(8).optional(),
   stages: stagesManifestSchema.optional(),
+  capacity: capacityManifestSchema.optional(),
   owner: z.string().max(40).optional(),
   customer: z
     .object({
@@ -708,6 +710,7 @@ export function validateManifest(
     };
     checkFields(`${path}.fields`, `${m.id}.${name}`, object.fields, env);
     checkObjectBehaviour(m, name, object, contract);
+    checkObjectCapacity(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
       for (const field of group) {
         if (!object.fields[field]) {
