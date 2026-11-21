@@ -26,8 +26,8 @@ import {
   type ValidationError,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { opRequest, outcomeOf, surfaceOver } from "./http-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
+import { opRequest, outcomeOf, surfaceOver } from "./http-helpers.ts";
 import { CURRENCY, outside, PUBLIC, refusal, run } from "./order-fixtures.ts";
 
 const SHOP = extId("shop");
@@ -684,7 +684,7 @@ describe("the confirmation email (criterion 7)", () => {
 
 /** 13 to 19 digits, allowing spaces or dashes between them: anything shaped like a card number. */
 const CARD = /(?:\d[ -]?){13,19}/;
-export async function cardNumbersIn(tables: readonly string[]): Promise<string[]> {
+async function cardNumbersIn(tables: readonly string[]): Promise<string[]> {
   const found: string[] = [];
   for (const table of tables) {
     const { results } = await env.DB.prepare(`SELECT * FROM ${table}`).all();
