@@ -3,11 +3,10 @@
 // viewer on Settings → Users; that person asks for a code on the sign-in page, signs in with the
 // code the host emailed, and lands in the app as a viewer; the same code a second time is refused.
 //
-// The invitee is a colleague (at the outbox's own domain), so the host's mail to them is the fake
-// outbox's "Send internal mail" kind, which the admin lets apply without review, as an admin does
-// for email-send's "Send email to colleagues". A code whose send is queued for review is deleted
-// at once (ADR 0455), so approving it in Approvals would not sign anyone in.
-import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
+// Sign-in codes go out as the host's sign-in mail (ADR 0456), which the admin lets apply without
+// review on the same screen; the invitee is an outside address. The invite notice is an ordinary
+// send: it waits in Approvals, and does not hold back the code.
+import { expect, test } from "@playwright/test";
 import { open } from "./helpers.ts";
 import {
   addFakeResource,
@@ -19,37 +18,6 @@ import {
 
 const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** Lets the fake outbox's mail to colleagues apply without review, or not. */
-async function autoApproveColleagueMail(request: APIRequestContext, enabled: boolean) {
-  const response = await request.post("/api/v1/op/outbound.setAutoApprove", {
-    data: { tag: "fake.internal", enabled },
-    headers: { "idempotency-key": crypto.randomUUID() },
-  });
-  expect(response.status(), await response.text()).toBe(200);
-}
-
-/**
- * Approves the invite notice to `to` if it waits for review (it does on a fresh database, where the
- * colleague kind is only known once the notice was submitted). It holds no secret.
- */
-async function approveInviteNotice(page: Page, to: string): Promise<void> {
-  await open(page, "/approvals");
-  await expect(page.getByRole("heading", { level: 1, name: "Approvals" })).toBeVisible();
-  const action = page
-    .getByTestId("pending-action")
-    .filter({ has: page.getByTestId("outbound-preview").filter({ hasText: to }) });
-  // The page loads its queue after the heading: give the notice time to show, if it waits.
-  const waiting = await action
-    .first()
-    .waitFor({ timeout: 10_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!waiting) return;
-  const set = page.getByTestId("change-set").filter({ has: action.first() });
-  await set.getByRole("button", { name: /^Approve( \d+)?$/ }).click();
-  await expect(set.getByTestId("decision-result")).toContainText("Applied");
-}
-
 test("an admin invites a person, who signs in once with the emailed code as a viewer", async ({
   page,
   browser,
@@ -57,7 +25,7 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
 }) => {
   test.setTimeout(120_000);
   const outbox = fakeAddress("hostmail");
-  const invitee = fakeAddress("coach");
+  const invitee = `coach-${crypto.randomUUID().slice(0, 8)}@outside.test`;
 
   // The host's mail goes out from an org outbox chosen on Settings → Users.
   await openIntegrations(page);
@@ -69,7 +37,13 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
   await page.getByRole("option", { name: new RegExp(escapeRe(outbox)) }).click();
   await expect(page.getByText("The host's mail connection is saved")).toBeVisible();
 
-  let autoApproved = false;
+  // Until the host's sign-in mail may go out without review, nobody can sign in by code.
+  const signInMail = page.getByTestId("sign-in-mail");
+  await expect(signInMail).toHaveAttribute("data-ready", "false");
+  await expect(signInMail).toContainText("Send sign-in codes");
+  await signInMail.getByRole("switch").click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Send without review" }).click();
+  await expect(signInMail).toHaveAttribute("data-ready", "true");
   try {
     // The invite.
     const form = page.getByRole("form", { name: "Invite someone" });
@@ -80,12 +54,6 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
     const row = page.getByTestId("invite-row").filter({ hasText: invitee });
     await expect(row).toBeVisible();
     await expect(row).toContainText("Viewer");
-    // The host's mail to colleagues applies without review from now on. A send still waiting for
-    // review holds back every later one on the same outbox (the gatekeeper applies them in
-    // order), so the invite notice, if it waits, is approved first.
-    await autoApproveColleagueMail(page.request, true);
-    autoApproved = true;
-    await approveInviteNotice(page, invitee);
     // The invited person, in a browser with no session, asks for a code.
     const guest = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
     const person = await guest.newPage();
@@ -147,7 +115,10 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
     await other.close();
     await guest.close();
   } finally {
-    // Other specs expect the fake outbox's mail to wait for review.
-    if (autoApproved) await autoApproveColleagueMail(page.request, false);
+    // Leave the fake outbox's sign-in mail reviewed again for the other specs.
+    await page.request.post("/api/v1/op/outbound.setAutoApprove", {
+      data: { tag: "fake.signin", enabled: false },
+      headers: { "idempotency-key": crypto.randomUUID() },
+    });
   }
 });

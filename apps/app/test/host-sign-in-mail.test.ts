@@ -5,10 +5,11 @@
 // (apps/runner/test/sign-in-mail.test.ts); this suite's runner is a stub, so the code it would
 // send is then deleted as an unsent one (ADR 0455).
 import { env } from "cloudflare:workers";
-import { createIdentityProvider } from "@composable-os/auth";
+import { createIdentityProvider, provideStaffCodes } from "@composable-os/auth";
 import { inviteCustomer, newId } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
+import { staffCodesFor } from "../src/server/host-mail.ts";
 import { type ApiEnv, handleApi } from "../src/server/http/api.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { ORIGIN, signUp, type TestUser, testEnv, unique } from "./mcp-helpers.ts";
@@ -20,6 +21,8 @@ const hostEnv = {
   CUSTOMER_AUTH_SECRET: "customer-secret-for-host-mail-0123",
   CUSTOMER_AUTH_URL: ORIGIN,
 } as unknown as ApiEnv;
+// As src/server.ts gives it on every request.
+provideStaffCodes(hostEnv, staffCodesFor(hostEnv));
 const db = createCrmDb(env.DB);
 let admin: TestUser;
 

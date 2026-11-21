@@ -81,7 +81,7 @@ ADR 0114). They have no `UPSTREAM.md`, are linted normally, and use no capnweb-v
 
 | Package | Worker | What it does |
 | --- | --- | --- |
-| [`@composable-os/gatekeeper-email-send`](packages/gatekeeper-email-send/README.md) | `cos-gatekeeper-email-send` | Sends email with Cloudflare Email Service (`email.send`, `email.internal`) |
+| [`@composable-os/gatekeeper-email-send`](packages/gatekeeper-email-send/README.md) | `cos-gatekeeper-email-send` | Sends email with Cloudflare Email Service (`email.send`, `email.internal`, and the host's `email.signin`, ADR 0456) |
 | [`@composable-os/gatekeeper-slack-post`](packages/gatekeeper-slack-post/README.md) | `cos-gatekeeper-slack-post` | Posts to Slack and sends DMs as the bot of the same Slack app as the vendored read-only gatekeeper (`slack.post`, `slack.dm`, and `slack.dm.member`, auto-approvable for DMs to workspace members) |
 | [`@composable-os/gatekeeper-webhook`](packages/gatekeeper-webhook/README.md) | `cos-gatekeeper-webhook` | Receives signed webhooks and delivers typed events (ADR 0113) |
 | [`@composable-os/gatekeeper-payments`](packages/gatekeeper-payments/README.md) | `cos-gatekeeper-payments` | Takes payments on Stripe's (or the fake provider's) hosted page, verifies its webhooks and refunds through approval (`payments.refund`, ADR 0429) |

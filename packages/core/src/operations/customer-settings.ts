@@ -40,6 +40,7 @@ const customerSettings = z.object({ signup, eraseDueDays, emailConnectionId });
 /** Whether sign-in codes go out at once through that connection now (ADR 0456). */
 const signInMail = z.object({
   kind: z.object({ tag: z.string(), label: z.string() }).nullable(),
+  autoApproved: z.boolean(),
   ready: z.boolean(),
   problem: z.string().nullable(),
 });

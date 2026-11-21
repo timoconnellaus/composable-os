@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 490,
+  "coreSchemaVersion": 491,
   "extensionContract": {
     "supported": [
       1
@@ -470,6 +470,10 @@
     {
       "name": "0490_staff_invites.sql",
       "sha256": "8e4561362b0345f7df5762dd405ff208ccbb923f5e79f17633b7ab6e9af858b8"
+    },
+    {
+      "name": "0491_sign_in_mail_kind.sql",
+      "sha256": "cea152e845c00dd79eccb81fdbe3c84d2e982f756b2312fa010d87c91b15a798"
     }
   ],
   "product": "crm",

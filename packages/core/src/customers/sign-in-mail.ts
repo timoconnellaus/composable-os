@@ -29,6 +29,8 @@ export type SignInMailOrigin = (typeof SIGN_IN_MAIL_ORIGINS)[number];
 export interface SignInMailState {
   /** The chosen connection's sign-in kind, or null when there is none to send through. */
   kind: { tag: string; label: string } | null;
+  /** Whether a human admin let the kind apply without review. */
+  autoApproved: boolean;
   /** Whether a code would go out at once now. */
   ready: boolean;
   /** Why not, in words an admin can act on; null when ready. */
@@ -47,13 +49,15 @@ export async function signInMailState(
   if (!connectionId) {
     return {
       kind: null,
+      autoApproved: false,
       ready: false,
       problem:
         "no email connection is chosen for the host's mail (an admin chooses it on Settings → Users)",
     };
   }
   const target = await resolveChannelTarget(db, "email", connectionId);
-  if ("problem" in target) return { kind: null, ready: false, problem: target.problem };
+  if ("problem" in target)
+    return { kind: null, autoApproved: false, ready: false, problem: target.problem };
   const connection = await db
     .selectFrom("core_integration_connection")
     .select("vendor")
@@ -63,6 +67,7 @@ export async function signInMailState(
   if (!kind) {
     return {
       kind: null,
+      autoApproved: false,
       ready: false,
       problem: "the host's mail connection cannot send sign-in codes (use an Email sending one)",
     };
@@ -79,7 +84,7 @@ export async function signInMailState(
     policy,
     floor,
   );
-  if (gate.decision === "auto") return { kind, ready: true, problem: null };
+  if (gate.decision === "auto") return { kind, autoApproved: enabled, ready: true, problem: null };
   const problem = !enabled
     ? `sign-in codes would wait for review: an admin turns on "${kind.label}" (${kind.tag}) on ` +
       "Settings → Users, or its auto-approval on Settings → Integrations"
@@ -88,7 +93,7 @@ export async function signInMailState(
         `"${kind.label}" applies without review only under Balanced`
       : "sign-in codes would wait for review: the deployment's approval floor (APPROVAL_FLOOR) " +
         "reviews automations' outbound sends";
-  return { kind, ready: false, problem };
+  return { kind, autoApproved: enabled, ready: false, problem };
 }
 
 /** The statement that makes a vendor's sign-in kind known (auto-approvable, not auto-approved). */
