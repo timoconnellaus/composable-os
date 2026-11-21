@@ -39734,6 +39734,12 @@
             },
             "additionalProperties": {},
             "description": "Field values by registry field name (see schema.objects)"
+          },
+          "from": {
+            "description": "Only move the record if it is still in this state (or stage id), and move it out of it: for a write two people may make at once, such as checking a ticket in. Refused as a conflict (reason not_in_position or moved_meanwhile) when the record has left it.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           }
         },
         "required": [
@@ -50837,7 +50843,8 @@
         "additionalProperties": false
       },
       "invalidates": [
-        "user.list"
+        "user.list",
+        "user.packRoles"
       ]
     },
     {
@@ -50999,6 +51006,12 @@
                     "viewer"
                   ]
                 },
+                "packRole": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "image": {
                   "type": [
                     "string",
@@ -51025,6 +51038,66 @@
         "required": [
           "items",
           "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "user.packRoles",
+      "description": "List the fixed staff roles the installed packs declare that an admin can give to a staff account (for example Ticketing's door role: check tickets in and read events, ticket types and tickets, nothing else), with what each holds. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "permissions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "read": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "label",
+                "description",
+                "permissions",
+                "read"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
         ],
         "additionalProperties": false
       },
@@ -51078,7 +51151,102 @@
         "additionalProperties": false
       },
       "invalidates": [
-        "user.list"
+        "user.list",
+        "user.packRoles"
+      ]
+    },
+    {
+      "name": "user.setPackRole",
+      "description": "Give a staff account one fixed role a pack declares (user.packRoles lists them), or take it away with role null. While an account holds one, it may do exactly what the role lists and nothing else, whatever its own role, and its role is set to viewer. An admin cannot be given one (change their role first). Admins only, and only a human can call it. Returns the user.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "User id (usr_…)"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The pack role, `<pack>.<role>` (`ticketing.door`), or null to remove it"
+          }
+        },
+        "required": [
+          "id",
+          "role"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "packRole": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "previousPackRole": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "packRole",
+          "image",
+          "createdAt",
+          "previousPackRole"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "user.list",
+        "user.packRoles"
       ]
     },
     {
@@ -51132,6 +51300,12 @@
               "viewer"
             ]
           },
+          "packRole": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "image": {
             "type": [
               "string",
@@ -51155,6 +51329,7 @@
           "name",
           "email",
           "role",
+          "packRole",
           "image",
           "createdAt",
           "previousRole"
@@ -51162,7 +51337,8 @@
         "additionalProperties": false
       },
       "invalidates": [
-        "user.list"
+        "user.list",
+        "user.packRoles"
       ]
     },
     {
@@ -57590,6 +57766,482 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "x.ticketing.checkIn",
+      "description": "Check a ticket in at the door by its code. A valid ticket is marked used and accepted; a used one is refused with who checked it in and when; a void (cancelled or refunded) one and an unknown code are refused with their own reasons. A ticket whose order still has a balance owing is accepted, and the result says how much. Safe to call twice: the second scan reports the first. Two scanners at once: one is accepted, the other told. (Extension tool from Ticketing 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The code on the ticket, as scanned"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "already_used",
+              "void",
+              "unknown"
+            ],
+            "description": "accepted: let them in. already_used: this code was checked in before (see usedAt and usedBy). void: the ticket was cancelled or refunded. unknown: no ticket has this code."
+          },
+          "accepted": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ticket": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "event": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "ticketType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "holder": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "state": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "usedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "usedBy": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "event",
+                  "ticketType",
+                  "holder",
+                  "state",
+                  "usedAt",
+                  "usedBy"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "balanceOwing": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "amount": {
+                    "type": "number",
+                    "description": "In the currency's minor unit"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "dueAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "amount",
+                  "currency",
+                  "dueAt"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the ticket's order still has a balance to pay. It does not refuse entry."
+          }
+        },
+        "required": [
+          "result",
+          "accepted",
+          "message",
+          "ticket",
+          "balanceOwing"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.ticketing.salesSummary"
+      ]
+    },
+    {
+      "name": "x.ticketing.salesSummary",
+      "description": "How one event is selling, per ticket type: places sold (taken), held by orders being paid, remaining (null when unlimited), and revenue (the line totals of orders paid in full or by deposit, in the currency's minor unit), with the event's totals. For the dashboard and for questions such as 'how are sales going'. Read-only. (Extension tool from Ticketing 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "eventId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "status"
+            ],
+            "additionalProperties": false
+          },
+          "ticketTypes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "price": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "sold": {
+                  "type": "number"
+                },
+                "held": {
+                  "type": "number"
+                },
+                "remaining": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "revenue": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "price",
+                "sold",
+                "held",
+                "remaining",
+                "revenue"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "sold": {
+                "type": "number"
+              },
+              "held": {
+                "type": "number"
+              },
+              "remaining": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "revenue": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "sold",
+              "held",
+              "remaining",
+              "revenue"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "event",
+          "ticketTypes",
+          "totals"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "x.ticketing.undoCheckIn",
+      "description": "Undo a check-in made by mistake: a used ticket becomes valid again and its check-in time and person are cleared. A ticket that is not used is left as it is and the result says why. (Extension tool from Ticketing 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ticketId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "ticketId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "undone": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ticket": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "event": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ticketType": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "holder": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usedBy": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "event",
+              "ticketType",
+              "holder",
+              "state",
+              "usedAt",
+              "usedBy"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "undone",
+          "message",
+          "ticket"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.ticketing.salesSummary"
+      ]
     }
   ]
 }

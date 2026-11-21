@@ -7,6 +7,7 @@
 import deals from "@composable-os/pack-deals";
 import leads from "@composable-os/pack-leads";
 import lifecycle from "@composable-os/pack-lifecycle";
+import ticketing from "@composable-os/pack-ticketing";
 import { toManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -16,7 +17,7 @@ import { coreRegistry, createRegistry, defineOperation, openOperations } from ".
 
 // Tools of the shipped extensions are operations too (`x.<extension>.<tool>`): one that a
 // shipped extension opens to customers or the public is listed with the core operations.
-const shippedTools = [deals, leads, lifecycle].flatMap((extension) => {
+const shippedTools = [deals, leads, lifecycle, ticketing].flatMap((extension) => {
   const manifest = toManifest(extension);
   return Object.entries(manifest.tools).map(([name, tool]) =>
     toolOperation(manifest, name, tool, "shipped"),

@@ -86,12 +86,7 @@ beforeAll(async () => {
 const create = async (object: string, values: Record<string, unknown>) =>
   ((await invokeByName("record.create", { object, values }, context(admin))) as { id: string }).id;
 
-const update = (
-  object: string,
-  id: string,
-  values: Record<string, unknown>,
-  from?: string,
-) =>
+const update = (object: string, id: string, values: Record<string, unknown>, from?: string) =>
   invokeByName("record.update", { object, id, values, from }, context(admin)).then(
     () => ({ ok: true as const }),
     (error: { code?: string; details?: { reason?: string } }) => ({

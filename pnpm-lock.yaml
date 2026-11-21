@@ -714,6 +714,9 @@ importers:
       '@composable-os/pack-lifecycle':
         specifier: workspace:*
         version: link:../../packs/lifecycle
+      '@composable-os/pack-ticketing':
+        specifier: workspace:*
+        version: link:../../packs/ticketing
       typescript:
         specifier: 6.0.3
         version: 6.0.3
