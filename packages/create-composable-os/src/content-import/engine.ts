@@ -11,6 +11,15 @@
 //      would happen to each (created, updated, unchanged, a conflict);
 //   3. only then, unless dryRun: the pictures the library lacks (by SHA-256), the categories, the
 //      posts; and with `publish`, publishing (or scheduling) each as its file says.
+import type { ImportHost } from "../import-door/host.ts";
+import {
+  chunks,
+  type ImportResult,
+  importRecords,
+  type Outcome,
+  outcomeLines,
+  sha256,
+} from "../import-door/records.ts";
 import {
   CATEGORY_OBJECT,
   type ImportPlan,
@@ -22,25 +31,7 @@ import {
   withPictures,
 } from "./format.ts";
 
-/** How the import reaches the host: the person's session. */
-export interface ImportHost {
-  /** Calls an operation; a refusal throws with the host's `code`, `message` and `details`. */
-  call<T>(name: string, input: unknown): Promise<T>;
-  /** Uploads one picture over the token upload route (`POST /api/v1/media`). */
-  upload(bytes: Uint8Array, name: string): Promise<{ id: string; existing: boolean }>;
-}
-
-export type Outcome = "created" | "updated" | "unchanged" | "conflict" | "invalid";
-
-export interface ImportResult {
-  key: string;
-  file: string | null;
-  object: string;
-  id: string | null;
-  outcome: Outcome;
-  fields: string[];
-  problems: string[];
-}
+export type { ImportHost, ImportResult, Outcome };
 
 export interface ImportReport {
   /** Problems that stopped the import before anything was written. */
@@ -62,28 +53,6 @@ export interface ImportOptions {
   now?: () => Date;
 }
 
-interface ImportCall {
-  results: {
-    key: string;
-    id: string | null;
-    outcome: Outcome;
-    fields: string[];
-    problems: string[];
-  }[];
-}
-
-const BATCH = 25;
-
-const chunks = <T>(list: T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(list.length / size) }, (_, i) =>
-    list.slice(i * size, (i + 1) * size),
-  );
-
-async function sha256(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 /** The values a post is written with, its pictures and category resolved. */
 function resolved(
   post: PlannedPost,
@@ -96,28 +65,6 @@ function resolved(
     if (id) values.category = id;
   }
   return values;
-}
-
-async function importRecords(
-  host: ImportHost,
-  object: string,
-  records: { key: string; file: string | null; values: Record<string, unknown> }[],
-  options: { dryRun: boolean; checkReferences: boolean },
-): Promise<ImportResult[]> {
-  const out: ImportResult[] = [];
-  for (const part of chunks(records, BATCH)) {
-    const answer = await host.call<ImportCall>("record.import", {
-      object,
-      records: part.map(({ key, values }) => ({ key, values })),
-      dryRun: options.dryRun,
-      checkReferences: options.checkReferences,
-    });
-    for (const result of answer.results) {
-      const file = part.find((r) => r.key === result.key)?.file ?? null;
-      out.push({ ...result, object, file });
-    }
-  }
-  return out;
 }
 
 /**
@@ -354,22 +301,7 @@ export function reportLines(report: ImportReport, dryRun: boolean): string[] {
     for (const p of report.problems) lines.push(`  ${p.file}: ${p.message}`);
     return lines;
   }
-  const by = (outcome: Outcome) => report.records.filter((r) => r.outcome === outcome);
-  const verb = dryRun ? "would be" : "were";
-  for (const [outcome, label] of [
-    ["created", "created"],
-    ["updated", "updated"],
-    ["unchanged", "unchanged"],
-  ] as const) {
-    const list = by(outcome);
-    if (list.length)
-      lines.push(`${list.length} record(s) ${outcome === "unchanged" ? "are" : verb} ${label}.`);
-  }
-  const conflicts = by("conflict");
-  if (conflicts.length) {
-    lines.push(`${conflicts.length} conflict(s), left as they are:`);
-    for (const c of conflicts) lines.push(`  ${c.file ?? c.key}: ${c.problems.join("; ")}`);
-  }
+  lines.push(...outcomeLines(report.records, dryRun));
   if (!dryRun) {
     lines.push(
       `Pictures: ${report.pictures.uploaded} uploaded, ${report.pictures.already} already in the library.`,

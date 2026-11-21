@@ -1310,7 +1310,9 @@ _Avoid_: class (a class is the timetable's), program (a program is Programs')
 **Lesson** (Courses)
 One part of a course's outline: a video and notes, a page of text, a training session from
 Programs to follow, or a download. Its key names it for good (progress is kept by it); its title,
-minutes and whether it is a free preview are for everyone, its material for holders only.
+minutes and whether it is a free preview are for everyone, its material for holders only. Its
+`sourceId` is the id it had on the old course platform. `cos courses import` matches a progress
+row to the lesson by it (ADR 0495). It is not an import key, which names a whole record.
 _Avoid_: unit, module, activity
 
 **Bundle** (Courses)

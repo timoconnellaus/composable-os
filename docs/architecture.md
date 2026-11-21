@@ -1158,7 +1158,17 @@ loopback redirect), uploads the folder's pictures over `POST /api/v1/media` (a s
 only; de-duplicated by SHA-256) and writes the posts with `record.import`: each named by an import
 key (`core_import_key`, migration 0501), checked in a dry run first, created once, updated only
 while it holds what the import last wrote, a person's edit reported as a conflict. `--publish`
-publishes or schedules them with their own dates.
+publishes or schedules them with their own dates. The door's generic half (the session, the
+sign-in, `record.import` in batches, media by hash) is `src/import-door/`.
+
+`cos courses import <folder>` ([ADR 0495](adr/0495-the-courses-import.md),
+`src/courses-import/`) is the same door for a course platform. It uploads videos to Stream
+(`media.videoUpload`, tus chunks resumed from Stream's offset) or has Stream copy them from a
+link (`media.videoFromUrl`), each kept with a SHA-256 so a re-run finds it. Captions go over
+`POST /api/v1/media/<id>/captions` (a staff device token only). The command waits for Stream and
+writes only the courses whose videos are ready. It writes access as `courses.enrolment` records
+with source `import` (never orders), finding each student by email, and progress by the lesson's
+`sourceId`. A student's own progress is reported as a conflict and kept.
 
 **The editor** (`apps/app/src/components/fields/rich-text-editor.tsx`). Rich text fields are
 edited with Tiptap, whose schema is the platform's blocks and marks; `toRichText`

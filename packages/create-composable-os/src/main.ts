@@ -109,6 +109,13 @@ A client repo (stage 24)
                                          problem; a re-run creates nothing twice; --publish
                                          publishes (or schedules) them with their own dates
                                          (docs/importing.md)
+  cos courses import <folder> --host <url> [--email <you>] [--dry-run] [--publish] [--yes]
+                     [--wait <minutes>]
+                                         load courses, bundles, their videos (to Stream) and the
+                                         students' access, completions and lesson progress from an
+                                         old course platform, as you; checks first, uploads nothing
+                                         twice on a re-run, keeps a student's own progress
+                                         (docs/importing.md)
 
 Installing a product with no client repo
   cos install [options]                  install, or repair an existing install (idempotent)
@@ -1296,9 +1303,52 @@ async function content(argv: string[], deps: Deps): Promise<number> {
   }
 }
 
+/** `cos courses import <folder>` (stage 42, ADR 0495): the import door for a course platform. */
+async function courses(argv: string[], deps: Deps): Promise<number> {
+  const usage =
+    "Usage: cos courses import <folder> --host <url> [--email <you>] [--dry-run] [--publish] [--yes] [--wait <minutes>]";
+  if (argv[0] !== "import") {
+    deps.io.err(usage);
+    return 2;
+  }
+  const rest = argv.slice(1);
+  const positional = rest[0] && !rest[0].startsWith("-") ? [rest[0]] : [];
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs(["import", ...rest.slice(positional.length)]);
+  } catch (error) {
+    deps.io.err((error as Error).message);
+    return 2;
+  }
+  const wait = str(parsed.flags, "wait");
+  if (wait !== undefined && !/^\d{1,4}$/.test(wait)) {
+    deps.io.err("--wait is minutes, a whole number");
+    return 2;
+  }
+  const { coursesImport } = await import("./courses-import/run.ts");
+  try {
+    return await coursesImport(
+      positional,
+      {
+        ...(str(parsed.flags, "host") ? { host: str(parsed.flags, "host") } : {}),
+        ...(str(parsed.flags, "email") ? { email: str(parsed.flags, "email") } : {}),
+        dryRun: Boolean(parsed.flags["dry-run"]),
+        publish: Boolean(parsed.flags.publish),
+        yes: Boolean(parsed.flags.yes),
+        ...(wait !== undefined ? { wait: Number(wait) } : {}),
+      },
+      deps.io,
+    );
+  } catch (error) {
+    deps.io.err(`Error: ${(error as Error).message}`);
+    return 1;
+  }
+}
+
 export async function runCli(argv: string[], input: Deps): Promise<number> {
   const deps = input;
   if (argv[0] === "content") return content(argv.slice(1), deps);
+  if (argv[0] === "courses") return courses(argv.slice(1), deps);
   if (argv[0] === "ext") return ext(argv.slice(1), deps);
   if (argv[0] === "client") return client(argv.slice(1), deps);
   // Commands that take one argument before their flags (stage 24).

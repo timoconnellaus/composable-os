@@ -30,6 +30,8 @@ Read the skill in full before starting the work it names.
 - Adding tools, automations or dashboards to an extension:
   [`skills/add-automations-tools-dashboards/SKILL.md`](skills/add-automations-tools-dashboards/SKILL.md).
 - Loading a company's existing posts into its host: [`skills/import-content/SKILL.md`](skills/import-content/SKILL.md).
+- Moving a studio's courses, videos and students from a course platform:
+  [`skills/import-courses/SKILL.md`](skills/import-courses/SKILL.md).
 
 - Any work on the site (`apps/marketing`): the `landing-page-generator` skill
   ([`.claude/skills/landing-page-generator/SKILL.md`](.claude/skills/landing-page-generator/SKILL.md),

@@ -85,6 +85,17 @@ async function captionsOf(ctx: HandlerContext, id: string) {
   }));
 }
 
+/**
+ * A video's name in the library for a re-run (stage 42's import, ADR 0495): the SHA-256 the
+ * uploader worked out from the file's bytes, or of the address Stream copies from. The host keeps
+ * it to find the same video again (`media.findByHash`); it never trusts it as the file's type or
+ * size, which are Stream's to say.
+ */
+const sha256Input = z
+  .string()
+  .regex(/^[0-9a-f]{64}$/)
+  .describe("SHA-256 (hex) of the file's bytes, or of the address it is copied from");
+
 export const mediaVideoUpload = defineOperation({
   name: "media.videoUpload",
   description:
@@ -101,6 +112,7 @@ export const mediaVideoUpload = defineOperation({
       .min(1)
       .max(MEDIA_VIDEO_MAX_BYTES)
       .describe("The file's size in bytes (under 30 GB): Stream takes no more than this"),
+    sha256: sha256Input.optional(),
   }),
   output: z.object({
     item: mediaOut,
@@ -152,6 +164,7 @@ export const mediaVideoUpload = defineOperation({
       created_by: ctx.user.id,
       updated_at: ctx.now,
       updated_by: ctx.user.id,
+      sha256: input.sha256 ?? null,
     };
     ctx.write(ctx.db.insertInto("core_media").values(row));
     const item = out(row);
@@ -163,6 +176,65 @@ export const mediaVideoUpload = defineOperation({
         ? { url: upload.url, protocol: upload.protocol, chunkBytes: upload.chunkBytes, expiresAt }
         : null,
     };
+  },
+});
+
+export const mediaVideoFromUrl = defineOperation({
+  name: "media.videoFromUrl",
+  description:
+    "Add a video to the media library by Stream copying it from an address (https only): a file " +
+    "the old platform or a Vimeo or Wistia account serves. Stream fetches it; the item is " +
+    "`processing` until Stream says ready (media.videoRefresh). Every video needs a token to " +
+    "play. A person only: an import runs it (cos courses import).",
+  input: z.object({
+    name: z.string().trim().min(1).max(200),
+    url: z
+      .string()
+      .url()
+      .max(2000)
+      .refine((u) => u.startsWith("https://"), { message: "An https address" }),
+    sha256: sha256Input.optional(),
+  }),
+  output: z.object({ item: mediaOut }),
+  permission: "records:write",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const host = requireVideoHost();
+    const id = newId("media");
+    const copied = ctx.simulation
+      ? { uid: `simulated_${id}` }
+      : await host.provider.copyFromUrl({
+          url: input.url,
+          name: input.name,
+          allowedOrigins: host.allowedOrigins,
+        });
+    const row = {
+      id,
+      kind: "video" as const,
+      key: null,
+      name: input.name,
+      type: MEDIA_VIDEO_TYPE as "video/stream",
+      // Stream does not say the size of a copy before it has it: one byte stands for unknown.
+      bytes: 1,
+      width: null,
+      height: null,
+      alt: null,
+      stream_uid: copied.uid,
+      state: "processing" as const,
+      state_reason: null,
+      duration: null,
+      created_at: ctx.now,
+      created_by: ctx.user.id,
+      updated_at: ctx.now,
+      updated_by: ctx.user.id,
+      sha256: input.sha256 ?? null,
+    };
+    ctx.write(ctx.db.insertInto("core_media").values(row));
+    const item = out(row);
+    ctx.recordChange({ object: "media", id, action: "create", after: { ...item } });
+    return { item };
   },
 });
 
@@ -531,6 +603,7 @@ export const mediaPlay = defineOperation({
 
 export const mediaVideoOperations = [
   mediaVideoUpload,
+  mediaVideoFromUrl,
   mediaVideoRefresh,
   mediaCaptionUpload,
   mediaCaptionGenerate,
