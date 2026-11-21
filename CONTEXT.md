@@ -381,7 +381,33 @@ Deals uses it; AI-written extensions can too.
 
 **Stage history**
 One row per stage a record has been in, with entered and left times (`rec_stage_history`). It powers
-time in stage and velocity.
+time in stage and velocity. State-driven objects have the same in `rec_state_history`; both are
+the transition engine's one history table.
+
+**State machine** (`states`)
+The contract's declarative `states` key (ADR 0425): a select field whose options are the states,
+an initial state, and the allowed **moves**. Each move says who may make it, the fields it
+requires and whether it is final. The set is fixed in code, where stages are records an admin
+edits.
+
+**Move**
+One allowed change of state, from one state to another. A write that makes a move not declared, or
+makes one as someone the move does not list, is refused.
+
+**Mover**
+Who makes a move: `staff` (everyone who calls an operation today), `customer` (stage 22) or
+`host`.
+
+**Host move**
+A move only platform code can make (an order becomes paid when the payment provider confirms it).
+No person, MCP client, extension or import can make one, because no operation passes on who is
+moving.
+
+**Transition engine**
+The one place in the host that decides whether a record's move is allowed, which fields it
+requires and who may make it, and writes its history with the write (ADR 0425). `stages` and
+`states` are two declarations it runs.
+_Avoid_: workflow, state hook
 
 **Base currency**
 The deployment's one currency (Settings → General). Currency fields without their own currency
@@ -845,9 +871,10 @@ behaviour, an automation, a view, a dashboard, a gatekeeper capability, or a bas
 
 **Behaviour**
 A declarative rule set an object opts into in its manifest, enforced by the host in the same batch
-as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**, which exists),
-`states`, `capacity` (exists: places, holds and claims, ADRs 0430 to 0433), `sellable`,
-`publishable`, `recurring`, `allowance`.
+as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**) and `states` (the
+**state machine**), which exist and share the **transition engine**; `capacity` (places, holds
+and claims, ADRs 0430 to 0433), which exists; `sellable`, `publishable`, `recurring` and
+`allowance`, which are designed.
 _Avoid_: hook, trigger (a trigger starts an automation), plugin
 
 **Pack**

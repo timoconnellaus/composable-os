@@ -71,7 +71,7 @@ function updateDeal(id: string, values: Record<string, unknown>, at?: string) {
 
 async function history(id: string) {
   const { results } = await env.DB.prepare(
-    "SELECT stage_id, group_id, stage_type, entered_at, left_at FROM core_stage_history WHERE object_type = 'deals.deal' AND record_id = ? ORDER BY entered_at",
+    "SELECT position_id AS stage_id, group_id, position_type AS stage_type, entered_at, left_at FROM core_transition_history WHERE object_type = 'deals.deal' AND record_id = ? ORDER BY entered_at",
   )
     .bind(id)
     .all<{

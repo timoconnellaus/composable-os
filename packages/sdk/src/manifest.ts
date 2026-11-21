@@ -19,6 +19,7 @@ import {
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
 import { renamedMessage } from "./renamed.ts";
+import { checkObjectStates, statesManifestSchema } from "./states.ts";
 
 export const EXTENSION_ID_RE = /^[a-z][a-z0-9]{1,29}$/;
 export const OBJECT_NAME_RE = /^[a-z][a-z0-9]{0,29}$/;
@@ -132,6 +133,7 @@ export const objectManifestSchema = z.object({
   timelineLinks: z.array(z.string().max(40)).max(8).optional(),
   stages: stagesManifestSchema.optional(),
   capacity: capacityManifestSchema.optional(),
+  states: statesManifestSchema.optional(),
   owner: z.string().max(40).optional(),
   customer: z
     .object({
@@ -711,6 +713,7 @@ export function validateManifest(
     checkFields(`${path}.fields`, `${m.id}.${name}`, object.fields, env);
     checkObjectBehaviour(m, name, object, contract);
     checkObjectCapacity(m, name, object, contract);
+    checkObjectStates(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
       for (const field of group) {
         if (!object.fields[field]) {

@@ -72,3 +72,20 @@ issues, so AI-written extensions can declare their own stage-like objects.
 - Deleting a deal leaves its stage history; queries join the live `crm_x_deals_deal` view.
 - 4a's `recordTabs`, `recordPanels` and `settings` are separate additions on the same contract
   version.
+
+## Amended 2026-11-20 (stage 25, ADR 0425)
+`stages` now runs on the transition engine it shares with `states`
+([ADR 0425](0425-one-transition-engine-for-stages-and-states.md)). The declaration and every rule
+above are unchanged, and Deals' tests pass without edits. What moved:
+
+- The rules are `stagesLifecycle` in `packages/core/src/records/stages.ts`; the required-field
+  check, the history statements and the "Moved to" name are the engine's
+  (`records/transitions.ts`).
+- `core_stage_history` became `core_transition_history`, the engine's history for both forms
+  (migration 0420): `stage_id` and `stage_type` are `position_id` and `position_type`, and it
+  gains `form` (`stages` for these rows) and `entered_as`. Every earlier row was kept. The view is
+  `rec_stage_history` (renamed from `crm_stage_history` by migration 0380) and returns stage rows
+  with the names and columns it had.
+- "Every actor" above means everyone who works for the organisation. Stage moves are for `staff`
+  and the `host`; a customer (stage 22) is refused with `stage_move_not_permitted`.
+- `StageRuleError` is a `TransitionRuleError`. Its code and details are as described above.

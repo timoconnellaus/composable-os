@@ -5,6 +5,7 @@ import type { z } from "zod";
 import type { AutomationSpec } from "./automation.ts";
 import type { CapacitySpec } from "./capacity.ts";
 import type { FieldTypeName } from "./field-types.ts";
+import type { StatesSpec } from "./states.ts";
 
 /** The contract version this SDK writes. The host accepts this and the previous version. */
 export const CONTRACT_VERSION = 1;
@@ -169,6 +170,8 @@ export interface ObjectSpec {
   stages?: StagesSpec;
   /** A limited number of places, never given out twice (see CapacitySpec, ADR 0430). */
   capacity?: CapacitySpec;
+  /** A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both. */
+  states?: StatesSpec;
   /**
    * The record's owner: a `user` field of this object (ADR 0246, stage 14). Assignment rules set
    * it when a record is created without one, and stage 14's visibility policies read it.

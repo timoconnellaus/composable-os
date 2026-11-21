@@ -7,6 +7,7 @@ import {
   type FieldTypeName,
   formulaTypeOf,
   type StagesManifest,
+  type StatesManifest,
 } from "@composable-os/sdk";
 import {
   compileFormula,
@@ -43,6 +44,7 @@ export interface ObjectDefinitionJson {
   timelineLinks?: string[];
   stages?: StagesManifest;
   capacity?: CapacityManifest;
+  states?: StatesManifest;
   owner?: string;
   /** The object's customer (ADR 0402), as declared. */
   customer?: { field: string; read: string[]; write: string[] };
@@ -532,6 +534,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
         : {}),
       ...(object.definition.stages ? { stages: object.definition.stages } : {}),
       ...(capacity ? { capacity } : {}),
+      ...(object.definition.states ? { states: object.definition.states } : {}),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
       ...(object.definition.navigationOrder !== undefined
