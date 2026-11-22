@@ -180,7 +180,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
   );
   // And Memberships (stage 32b), which requires Programs, the same way, for its e2e spec.
   const memberships = Object.fromEntries(
-    ["index.ts", "tools.ts"].map((file) => [
+    ["index.ts", "tools.ts", "dashboards.ts"].map((file) => [
       file,
       readFileSync(join(root, "packs/memberships", file), "utf8"),
     ]),

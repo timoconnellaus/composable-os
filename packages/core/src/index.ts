@@ -109,6 +109,7 @@ export * from "./integrations/catalogue.ts";
 export * from "./integrations/events.ts";
 export * from "./integrations/outbound.ts";
 export * from "./integrations/outbound-check.ts";
+export * from "./integrations/outcome.ts";
 export * from "./integrations/runtime.ts";
 export * from "./invites.ts";
 export * from "./invoke.ts";

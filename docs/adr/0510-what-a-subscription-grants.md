@@ -70,3 +70,10 @@ holder) allows a customer to name a dependant the link shows, and nothing else c
 ## Not done
 - Plan changes and pauses (the next build step) will update the granted record's terms and its
   `paused` state through the same function.
+
+## Note (2026-11-22, stage 32b plan changes and pauses)
+Built as said: a plan change that takes effect writes every field the grant fills from the plan
+again (`followSubscriptionGrant`'s `planChanged`, [ADR 0530](0530-plan-changes-upgrade-now-downgrade-next-period.md)),
+and a pause is the subscription's `paused` state mapped as before ([ADR
+0531](0531-staff-pause-a-membership-for-a-set-time.md)). "The plan's terms are copied at the
+start" now reads: at the start, and again when a plan change takes effect.

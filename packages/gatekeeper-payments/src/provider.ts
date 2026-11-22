@@ -5,8 +5,10 @@
 import { stripTrailingSlashes } from "@composable-os/gatekeeper-interface/gatekeeper";
 import type {
   PaymentsCancelSubscriptionInput,
+  PaymentsChangeSubscriptionInput,
   PaymentsCheckoutInput,
   PaymentsEvent,
+  PaymentsPauseSubscriptionInput,
   PaymentsPayment,
   PaymentsPortalInput,
   PaymentsProviderName,
@@ -15,6 +17,8 @@ import type {
   PaymentsSubscription,
   PaymentsSubscriptionCheckoutInput,
   PaymentsSubscriptionTrigger,
+  PaymentsUnpauseSubscriptionInput,
+  PaymentsVoidUpdateInput,
 } from "./types.js";
 
 export type CheckoutInput = PaymentsCheckoutInput;
@@ -64,6 +68,17 @@ export interface PaymentProvider {
   cancelSubscription(input: PaymentsCancelSubscriptionInput): Promise<void>;
   /** Undoes a cancellation at the period's end. Throws as `cancelSubscription` does. */
   resumeSubscription(input: PaymentsResumeSubscriptionInput): Promise<void>;
+  /**
+   * A new price (stage 32b, ADR 0530): now, applied only once its prorated charge is paid, or from
+   * the next invoice with nothing prorated. Throws as `cancelSubscription` does.
+   */
+  changeSubscription(input: PaymentsChangeSubscriptionInput): Promise<void>;
+  /** The provider's own pause, from now or a moment, until a moment (ADR 0531). */
+  pauseSubscription(input: PaymentsPauseSubscriptionInput): Promise<void>;
+  /** Ends a pause now, or withdraws one that has not started. */
+  unpauseSubscription(input: PaymentsUnpauseSubscriptionInput): Promise<void>;
+  /** Cancels an upgrade's pending update (voids its open invoice). Refused when none is pending. */
+  voidPendingUpdate(input: PaymentsVoidUpdateInput): Promise<void>;
   /** Opens the customer portal for one customer: card, billing details and invoices only. */
   openPortal(input: PaymentsPortalInput): Promise<{ url: string }>;
   /** Verifies a webhook delivery; returns the typed events it carries (possibly none), or a rejection reason. */

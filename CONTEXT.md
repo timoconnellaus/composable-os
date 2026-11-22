@@ -1210,9 +1210,26 @@ What a subscription to a membership plan grants its holder (stage 32b, ADR 0510)
 host makes when the provider first reports the subscription running, and moves with it, in each
 verified event's batch: on trial, active, past due (for at most 30 days of failing), unpaid,
 paused, ended. Its `until` is when it stops giving (the end of its last period when it is set to
-end). What it allows is its plan's as it was at the start. An allowance holder: unlimited, or N a
-week or a month, of the class types and times its plan allows.
+end). What it allows is its plan's as it was at the start, and the new plan's once a **plan
+change** takes effect. An allowance holder: unlimited, or N a week or a month, of the class types
+and times its plan allows. A **pause** stops it giving anything.
 _Avoid_: subscription (what is paid for; the membership is what it gives), member (a Person)
+
+**Plan change**
+Moving a subscription to another plan of the same object (stage 32b, ADR 0530): dearer is an
+**upgrade**, which takes effect at once, the rest of the period charged prorated and the new plan
+applied only once that is paid; the same or cheaper is a **downgrade**, from the next period, with
+nothing refunded. The host asks the provider and follows its verified reads; what the subscription
+grants follows the plan when the change takes effect. One open change at a time.
+_Avoid_: switch, swap, migration
+
+**Pause**
+Staff stopping a subscription for a set time (stage 32b, ADR 0531): the provider's own pause (no
+invoices, status `paused`), within the shortest and longest pause its plan allows
+(`sellable.recurring.pause`); what it grants gives and spends nothing meanwhile; the provider
+resumes it on its date and charges a new period. Members ask staff. Never Stripe's
+`pause_collection`, which keeps a subscription active.
+_Avoid_: freeze (the gym's word for it; say pause), suspend, hold (a hold is capacity's)
 
 **Pass** (and **pass type**)
 What a paid order line of a pass type grants (stage 32b, ADR 0511): a number of uses in all, of

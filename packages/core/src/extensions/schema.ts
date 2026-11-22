@@ -905,6 +905,14 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
           recurring: {
             interval: declared.recurring.interval,
             trialDays: opt(declared.recurring.trialDays),
+            ...(declared.recurring.pause
+              ? {
+                  pause: {
+                    minDays: opt(declared.recurring.pause.minDays),
+                    maxDays: opt(declared.recurring.pause.maxDays),
+                  },
+                }
+              : {}),
             ...(declared.recurring.grants
               ? {
                   grants: {

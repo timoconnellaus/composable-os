@@ -4,8 +4,9 @@
 //
 // Nothing here decides a price, a trial, whether an intro offer may be bought, or how many classes
 // are left: the host does (`sellable`, the one-trial rule, `onePerPerson`, `allowance.get`). The
-// billing actions (subscribe, cancel, resume, the provider's portal, buying a pass) are the web's;
-// a native block reads only (the block lint).
+// billing actions (subscribe, cancel, resume, change plan, the provider's portal, buying a pass)
+// are the web's; a native block reads only (the block lint). Pausing is staff's (decision 10).
+// Whether a change is an upgrade (now, prorated) or a downgrade (next period) is the host's.
 import { type ClientHolding, type PackClient, packHooks } from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import type { buy, givePass, holdings, mine, passTypes, plans, voidPass } from "../tools.ts";
@@ -45,6 +46,41 @@ export interface MembershipSubscription {
   endedAt: string | null;
   actionUrl: string | null;
   createdAt: string;
+  /** A plan change or a pause asked for and not over, or the pause it is in (stage 32b). */
+  change?: SubscriptionChange | null;
+  holderPersonId?: string | null;
+}
+
+/** A plan change or a pause, as the host shows it on the subscription (ADRs 0530, 0531). */
+export interface SubscriptionChange {
+  id: string;
+  kind: "upgrade" | "downgrade" | "pause";
+  state: "requested" | "waiting" | "applied" | "lapsed" | "withdrawn";
+  toPlanId: string | null;
+  toPlanTitle: string | null;
+  toAmount: number | null;
+  pauseFrom: string | null;
+  pauseUntil: string | null;
+  effectiveAt: string | null;
+  requestedAt: string;
+  /** What came of asking the provider; `unknown`: its next event decides. */
+  callOutcome?: "sent" | "pending" | "unknown" | "refused" | null;
+  /** The provider's page to confirm an upgrade's charge (3D Secure), while it waits. */
+  actionUrl?: string | null;
+  /** What came of ending a pause early: refused or unknown, staff ask again. */
+  endOutcome?: "sent" | "pending" | "unknown" | "refused" | null;
+}
+
+/** What subscription.change answers. */
+export interface RequestedChange {
+  id: string;
+  changeId: string;
+  kind: "upgrade" | "downgrade";
+  effectiveAt: string | null;
+  amount: number;
+  currency: string;
+  asked: "sent" | "pending" | "unknown" | "not_needed";
+  requested: true;
 }
 
 /** Why the host gave no free trial (subscription.start's `noTrial`). */
@@ -107,6 +143,29 @@ export type MembershipsOperations = {
     kind: "mutation";
     input: { returnUrl: string };
     output: { url: string };
+  };
+  // Stage 32b: another plan (a member's own, on the web; staff any) and a pause (staff only).
+  "subscription.change": {
+    kind: "mutation";
+    input: { id: string; planId: string; reason?: string };
+    output: RequestedChange;
+  };
+  "subscription.pause": {
+    kind: "mutation";
+    input: { id: string; from?: string; until: string; reason: string };
+    output: {
+      id: string;
+      changeId: string;
+      from: string | null;
+      until: string;
+      asked: "sent" | "pending" | "unknown";
+      requested: true;
+    };
+  };
+  "subscription.unpause": {
+    kind: "mutation";
+    input: { id: string; reason?: string };
+    output: { id: string; asked: "sent" | "pending" | "unknown"; requested: true };
   };
 };
 
@@ -211,13 +270,66 @@ export function subscriptionStatus(sub: MembershipSubscription): string {
     case "unpaid":
       return "Unpaid: update your card to keep booking";
     case "paused":
-      return "Paused";
+      return sub.change?.kind === "pause" && sub.change.pauseUntil
+        ? `Paused until ${day(sub.change.pauseUntil)}: nothing is charged meanwhile`
+        : "Paused";
     case "incomplete":
       return "Waiting for its first payment";
     case "expired":
       return "Never started: its first payment did not go through";
     case "ended":
       return `Ended${sub.endedAt ? ` on ${day(sub.endedAt)}` : ""}`;
+  }
+}
+
+/**
+ * A plan change or a pause waiting, in words, from the host's record: `Changing to Unlimited once
+ * its charge is paid`, `Changes to One a week on 3 Dec 2026`, `Paused from 1 Dec to 21 Dec`.
+ * Display only: null when nothing waits.
+ */
+export function changeWords(sub: MembershipSubscription): string | null {
+  const c = sub.change;
+  if (!c) return null;
+  if (c.kind === "pause") {
+    if (c.endOutcome === "refused" || c.endOutcome === "unknown") {
+      return "Ending the pause did not finish: ask again";
+    }
+    if (c.state === "applied") return null;
+    return `Pause asked: ${c.pauseFrom ? `from ${day(c.pauseFrom)}` : "from now"} until ${day(c.pauseUntil)}`;
+  }
+  if (c.state === "lapsed")
+    return `The change to ${c.toPlanTitle} was not paid, so it did not happen`;
+  if (c.endOutcome === "refused" || c.endOutcome === "unknown") {
+    return `Withdrawing the change to ${c.toPlanTitle} did not finish: staff are asking again`;
+  }
+  if (c.kind === "upgrade") {
+    return c.actionUrl
+      ? `Changing to ${c.toPlanTitle}: confirm its payment to finish`
+      : `Changing to ${c.toPlanTitle} once its charge is paid`;
+  }
+  return `Changes to ${c.toPlanTitle} on ${day(c.effectiveAt)}`;
+}
+
+/** Whether the payer may ask for a plan change now: active, not ending, nothing else waiting. */
+export const canChangePlan = (sub: MembershipSubscription) =>
+  sub.state === "active" &&
+  !sub.cancelAtPeriodEnd &&
+  sub.cancelAt === null &&
+  (!sub.change || sub.change.state === "lapsed" || sub.change.state === "applied");
+
+/** What a member is told when the host refuses a plan change (its `rule`). Display only. */
+export function changeRefusalWords(details: { rule?: unknown } | undefined): string {
+  switch (details?.rule) {
+    case "change_open":
+      return "A change is already waiting on your membership.";
+    case "ending":
+      return "Your membership is set to end: keep it going first.";
+    case "state":
+      return "Your membership cannot be changed just now.";
+    case "same_plan":
+      return "That is the plan you are on.";
+    default:
+      return "We could not change your plan.";
   }
 }
 
@@ -286,6 +398,12 @@ export const MEMBERSHIPS_HOOKS_CALL = {
   useCancelSubscription: ["subscription.cancel"],
   useResumeSubscription: ["subscription.resume"],
   useBillingPortal: ["subscription.portal"],
+  // Stage 32b (ADRs 0530, 0531): a member's plan change (web only); staff pause and end a pause,
+  // and read a person's membership subscriptions.
+  useChangePlan: ["subscription.change"],
+  usePauseSubscription: ["subscription.pause"],
+  useUnpauseSubscription: ["subscription.unpause"],
+  useSubscriptionsOf: ["subscription.list"],
 } as const;
 
 /**
@@ -363,6 +481,35 @@ function allMembershipsHooks(
     /** The provider's portal for their card and past invoices (web only, never in a frame). */
     useBillingPortal() {
       return useMutation(api.mutation("subscription.portal"));
+    },
+    /**
+     * Move their own membership to another plan (web only): the host decides an upgrade (now,
+     * prorated, applied once paid) or a downgrade (from the next period).
+     */
+    useChangePlan() {
+      return useMutation(api.mutation("subscription.change"));
+    },
+    /** Staff (a person): pause a membership from now or a date until a date, with a reason. */
+    usePauseSubscription() {
+      return useMutation(api.mutation("subscription.pause"));
+    },
+    /** Staff (a person): end a pause now, or withdraw one not yet started. */
+    useUnpauseSubscription() {
+      return useMutation(api.mutation("subscription.unpause"));
+    },
+    /** Staff: the membership subscriptions one person holds. */
+    useSubscriptionsOf(personId: string) {
+      return useQuery(
+        api.query("subscription.list", {
+          filter: {
+            and: [
+              { field: "planObject", op: "eq", value: PLAN },
+              { field: "holderPersonId", op: "eq", value: personId },
+            ],
+          },
+          limit: 20,
+        }),
+      );
     },
   };
 }
