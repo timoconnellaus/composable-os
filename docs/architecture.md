@@ -1062,6 +1062,20 @@ claim made, whatever the move spends spent), passes over a waiter whose spend is
 its batch; an erase hands on the places it gives back; a waiter cannot change its record, and may
 take a free place itself where its object declares that customer move (never a hold). `waitlist.position` reads a waiter's place (a customer's own only).
 
+**Timed moves** ([ADR 0550](adr/0550-timed-moves-and-a-cancel-that-races-a-booking.md),
+`packages/core/src/operations/timed-moves.ts`). `states.after: [{ from, to, at, minutesAfter?,
+ifAnyIn? }]`: once `at` (a datetime of the record or one relation away) plus `minutesAfter` has
+passed, the minute cron's `runTimedMovesDue` moves each record still in `from` to `to` as the host,
+one batch each, through `state.after` (system origin only, a host step), within a 14-day look-back;
+`ifAnyIn` requires another record on the same related record in one of those states. Bookings'
+no-shows. The cascade (`states.follows`) guards the parent's counter at commit, and a create judged
+against `create.closed` guards that the record it reads has not moved (migration 0670), so a class
+cancel and a booking racing it never leave a booking on a cancelled class. A window may sit on a move
+staff alone make when it binds staff, and a spender's `movedFrom.state` is entered only inside the
+new record's create ([ADR 0551](adr/0551-staff-bound-windows-and-a-move-only-by-its-new-record.md)).
+A tool may declare `personApproves`: anyone but a person is queued for one, whatever the preset, and
+such a tool may be named in a move's `tools` ([ADR 0552](adr/0552-a-tool-a-person-approves.md)).
+
 **Declared uniqueness** ([ADR 0502](adr/0502-declared-uniqueness.md),
 `packages/core/src/records/unique.ts`). `unique: [{ fields, states? }]` is a partial unique index
 the reconciler builds on the extension's table: no two live records in those states share the
@@ -1299,8 +1313,13 @@ desk, [ADR 0506](adr/0506-a-spender-paid-another-way.md)). It requires Programs.
 `cancel` (with `state.resolve`'s preview), `leaveWaitlist`, `mine` (with a waiter's position)
 (customers), `bookFor`, `cancelFor`, `day`, `classList` (staff). Hooks, web blocks (the timetable,
 the desk) and a native timetable marked `noPurchase`. The booking declares its waitlist
-(`claims.waitlist`, ADR 0520): joined by a member or staff, promoted by the host. The family link,
-attendance, moving people, staff cancelling a class, drop-ins and messages are steps 6 to 9; the
+(`claims.waitlist`, ADR 0520): joined by a member or staff, promoted by the host. Step 7
+([ADR 0553](adr/0553-attendance-the-coach-role-moves-and-cancelling-a-class.md)): the coach role
+(`bookings.coach`: `day`, `roster`, `markAttended`, `undoAttended`, `markNoShow`, `markAll`, and
+reading classes), ticking from an hour before the class, no-shows by `states.after` 30 minutes
+after the end where the list was taken, `move` (the new booking's create with `movedFrom`) and
+`cancelClass` (a tool a person approves, the class's only staff way into `cancelled`), and a web
+`bookings-class-list` block. The family link, drop-ins and messages are steps 6, 8 and 9; the
 states they use are declared, with no customer move into them. After the review ([ADR 0507](adr/0507-what-the-bookings-review-needed-of-the-platform.md)):
 a class the host cancels moves its live bookings to `cancelled_by_us` in its batch
 (`states.follows`, the state cascade), a closed class binds staff (`create.closed`), a member's

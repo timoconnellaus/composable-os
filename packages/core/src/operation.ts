@@ -148,6 +148,11 @@ export interface HandlerContext {
    * `holdsPermission(ctx.user, ctx.permissionGrants, …)`.
    */
   readonly permissionGrants?: readonly string[] | undefined;
+  /**
+   * The objects the staff caller's pack role reaches only on today (ADR 0553), read from the
+   * account on this call; absent when it holds no such role. A tool's run carries it on.
+   */
+  readonly roleToday?: import("./pack-role-today.ts").TodayLimits | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
   /**
@@ -284,7 +289,14 @@ export interface ExtensionCaller {
    * from input): its name, whether only a person may call it, and the permission it declares.
    * A move only named tools may make (ADR 0513), and a holder's terms (ADR 0513), read it.
    */
-  tool?: { name: string; humanOnly: boolean; permission: string | null; startedBy?: string };
+  tool?: {
+    name: string;
+    humanOnly: boolean;
+    /** A person approves anyone else's call (ADR 0552). */
+    personApproves?: boolean;
+    permission: string | null;
+    startedBy?: string;
+  };
 }
 
 /**
@@ -299,7 +311,7 @@ export function personsTool(
   const caller = ctx.extension;
   if (!caller || !extensionId || caller.id !== extensionId) return null;
   const tool = caller.tool;
-  return tool?.humanOnly && tool.permission ? tool.name : null;
+  return (tool?.humanOnly || tool?.personApproves) && tool.permission ? tool.name : null;
 }
 
 /** A record as a session's pending actions would leave it (ADR 0022). */

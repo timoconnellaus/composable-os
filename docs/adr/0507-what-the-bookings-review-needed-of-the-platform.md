@@ -99,3 +99,12 @@ ended cancelling bookings with uses back and `mine` showing it, staff refused a 
 walk-ins in one batch with duplicates offered, `cancelFor` by the clock, `returnUse` queued for the
 assistant and applied for a person, booking rules held for the assistant and MCP, a trashed class
 type, places required); the pack's own tests (17).
+
+## Amended 2026-11-23 (stage 31a step 7)
+- The cascade now holds at commit: it reads the parent's claims before its followers and guards the
+  counter, and a create judged against `create.closed` guards that the record it is for has not
+  moved ([ADR 0550](0550-timed-moves-and-a-cancel-that-races-a-booking.md)).
+- Staff cancel a class through `cancelClass`, a tool a person approves
+  ([ADR 0552](0552-a-tool-a-person-approves.md)); the class's move is the host's and that tool's.
+- The `moved` state is entered only by the new booking's create (`movedFrom`), and before the old
+  class starts ([ADR 0551](0551-staff-bound-windows-and-a-move-only-by-its-new-record.md)).

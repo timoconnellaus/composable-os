@@ -27,6 +27,13 @@ export interface ToolCaller {
    * extension, so which records it reaches stays the host's decision.
    */
   principal?: OutsidePrincipal;
+  /**
+   * The staff caller's pack role limit to today (ADR 0553), from the pipeline's read of the
+   * account: the run's record reads and writes of these objects reach today's records only.
+   */
+  roleToday?: import("../pack-role-today.ts").TodayLimits;
+  /** The person who approved this call, when another actor's call was approved (ADR 0552). */
+  approvedBy?: string;
 }
 
 export interface RunToolInput {

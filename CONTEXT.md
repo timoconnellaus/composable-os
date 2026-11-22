@@ -1125,6 +1125,37 @@ paused) is **passed over**: they stay waiting, first in line, with the reason re
 next is tried. A hold nobody can take goes back to everyone (ADR 0520).
 _Avoid_: upgrade, moving up
 
+**Class list** (Bookings)
+A class's bookings as its coach sees them (`roster`): each person's name, booked, **ticked**
+(attended), not come or waiting, and who marked it. A coach **ticks** a name from an hour before
+the class; of two ticks at once one is made and the other is told who was first. Nothing on it says
+what anyone paid with (stage 31, ADR 0553).
+_Avoid_: roll call, register, check-in (Ticketing's word)
+
+**No-show** (Bookings)
+A booking still booked 30 minutes after its class ends, on a class whose list was taken (someone on
+it ticked or marked as not come): the host moves it to `no_show`. It keeps its place and its use;
+nothing else follows. A class whose list nobody took has no no-shows (stage 31, ADR 0550).
+_Avoid_: absence, missed class
+
+**Coach** (the Bookings role)
+The pack role `bookings.coach`: the day's classes, a class list and ticking names, nothing else (no
+money, no other people, no booking or cancelling). An account holds one pack role (ADR 0436).
+
+**Moved** (a booking)
+A booking staff moved to another class: the new booking is made naming it (`movedFrom`), and in the
+same batch the old one is `moved`, its place given back and its use spent again on the new one, or
+nothing happens. Only before the old class starts (ADR 0551).
+
+**Cancelled by the gym** (a class)
+Staff cancel a class with a reason (`cancelClass`): every booked, waiting and held booking is
+cancelled with it, places and uses given back. A person's act: an AI may ask, and a person approves
+(ADR 0552).
+
+**Timed move** (`states.after`)
+A move the host makes by itself once a moment has passed (a booking after its class, a no-show),
+found by the minute cron and made from where the record was read or not at all (ADR 0550).
+
 **Guardian** and **Dependant** (the family link)
 A **guardian** (a parent) is a Person a person on the staff linked, with `people:link`, to a
 **dependant** (a child) they may act for: a **family link** (`core_person_link`, ADR 0540). While

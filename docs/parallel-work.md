@@ -48,6 +48,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | AK | 0600–0609 | — | The dry run causes no real effect (`fix/tool-dry-run-executes`, ADR 0022 amended): migration 0600 marks tool actions queued before it; no ADRs | in flight |
 | AL | 0610–0629 | 0520–0529 | Stage 31a steps 4 and 5, spending and the waitlist (`feat/stage-31a-spending-waitlist`) | in flight |
 | AM | 0630–0649 | 0530–0539 | Stage 32b, plan changes, pauses and the Memberships dashboard, views and blocks (`feat/stage-32b-memberships-changes`, build steps 6 and 7): migration 0630, ADRs 0530 to 0532 | in flight |
+| AO | 0670–0689 | 0550–0559 | Stage 31a step 7, attendance, the coach role, no-shows, moves and cancelling a class (`feat/stage-31a-attendance`): migration 0670, ADRs 0550 to 0553 (AM and AN are claimed on their branches) | in flight |
 | AN | 0650–0669 | 0540–0549 | Stage 31a step 6, the family link (`feat/stage-31a-family-link`): `core_person_link`, the seam's guardian scope, booking for a dependant | in flight |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;

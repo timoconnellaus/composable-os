@@ -125,3 +125,12 @@ The pipeline's read of `pack_role` also reads the permissions a human admin gran
 one by one (`granted_permissions`, same row, same statement: no extra row read). A pack role still
 replaces everything: while one is held, grants count for nothing. A pack may declare some of its
 tool permissions `grantable`. See [ADR 0449](0449-permissions-granted-one-by-one.md).
+
+## Amendment, 2026-11-23 (stage 31a step 7, ADR 0553)
+Bookings declares a second role, `bookings.coach` (the day's classes, a class's list and ticking
+names). Spec 31 asked whether a coach who also scans event tickets can hold both: they cannot. An
+account still holds one pack role; such a person uses an ordinary staff role, or one account per
+role. Roles that combine remain stage 14a's.
+A role may also declare `today: { <object>: <datetime path> }`: its holder reaches those objects'
+records only on the organisation's local today, on the role's reads and inside its tools
+([ADR 0553](0553-attendance-the-coach-role-moves-and-cancelling-a-class.md)). The coach role does.

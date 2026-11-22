@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 650,
+  "coreSchemaVersion": 670,
   "extensionContract": {
     "supported": [
       1
@@ -550,6 +550,10 @@
     {
       "name": "0650_person_links.sql",
       "sha256": "0182c92b505bce3df7c3e8af2a2e43c415de47ac612619c6dbcb8867b9bb9bdf"
+    },
+    {
+      "name": "0670_unmoved_guard.sql",
+      "sha256": "ffd07c3937959ab1b217ff636545eefff55ace9e296e0b29c67fa02599787c6e"
     }
   ],
   "product": "crm",

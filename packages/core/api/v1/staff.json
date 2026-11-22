@@ -49896,6 +49896,65 @@
       "invalidates": []
     },
     {
+      "name": "state.after",
+      "description": "Platform use only (the minute cron, as the host): make one record's timed move (a declaration's `states.after`, such as a booking still booked after its class becoming a no-show), from the state it was read in or not at all, once it is due.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "rule": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3,
+            "description": "Which of the object's timed moves"
+          },
+          "from": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "The state it was read in"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "rule",
+          "from"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "storage.refresh",
       "description": "Measure the database again now (size and row counts of the largest tables) instead of waiting for the daily measurement. Counting reads every row of those tables, so a refresh within 10 minutes of the last returns that one. Admins only.",
       "risk": "write",
@@ -65878,7 +65937,66 @@
       "invalidates": [
         "x.bookings.classList",
         "x.bookings.day",
-        "x.bookings.findPeople"
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.cancelClass",
+      "description": "Cancel a scheduled class that has not ended, with a reason: in the same batch every booking of it holding a place or a use (booked, waiting, held while paying, ticked as come, marked not come, cancelled late) is cancelled by the gym, each place given back and each use returned once. A person's act: the assistant, MCP clients and automations may ask, and it waits for a person to approve it. When it cannot be done (no such class, not scheduled, already ended, or it changed twice while being done) it fails with the reason, so an approved request shows it did not apply. (Emails to the members, and refunds of paid drop-ins, come in a later release.) (Extension tool from Bookings 0.1.0.)",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "classId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "const": "cancelled"
+          },
+          "classId": {
+            "type": "string"
+          },
+          "bookingsCancelled": {
+            "type": "number",
+            "description": "Bookings cancelled with the class"
+          }
+        },
+        "required": [
+          "result",
+          "classId",
+          "bookingsCancelled"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
       ],
       "pack": "bookings"
     },
@@ -66030,7 +66148,8 @@
       "invalidates": [
         "x.bookings.classList",
         "x.bookings.day",
-        "x.bookings.findPeople"
+        "x.bookings.findPeople",
+        "x.bookings.roster"
       ],
       "pack": "bookings"
     },
@@ -66498,6 +66617,644 @@
       "pack": "bookings"
     },
     {
+      "name": "x.bookings.markAll",
+      "description": "Tick everyone still booked on a class's list at once (from an hour before the class). Each name is ticked from where it is or not at all, so a name another coach ticked meanwhile is counted as already ticked, not twice. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "classId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "marked"
+              },
+              "classId": {
+                "type": "string"
+              },
+              "ticked": {
+                "type": "number",
+                "description": "Names ticked now"
+              },
+              "already": {
+                "type": "number",
+                "description": "Names someone else ticked meanwhile"
+              },
+              "skipped": {
+                "type": "number",
+                "description": "Names that changed meanwhile (cancelled, moved…)"
+              }
+            },
+            "required": [
+              "result",
+              "classId",
+              "ticked",
+              "already",
+              "skipped"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "not_started",
+                  "not_booked",
+                  "changed"
+                ],
+                "description": "not_started: the list opens an hour before the class (see opensAt). not_booked: the booking is not one that can be marked (cancelled, waiting, moved…; see state). changed: it changed meanwhile; look again."
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opensAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "state",
+              "opensAt",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.markAttended",
+      "description": "Tick a booking on a class's list: they came. From an hour before the class, and any time after it (a late correction: a no-show ticked becomes attended). Of two coaches ticking one name at once, one tick is made and the other is told who was first. A booking that is cancelled, waiting or moved cannot be ticked. The use it spent stays spent. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "bookingId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": [
+                  "attended",
+                  "no_show",
+                  "booked"
+                ]
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "already"
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "state": {
+                "description": "What the booking is now",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "markedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "markedBy": {
+                "description": "The name of who marked it first",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "state",
+              "markedAt",
+              "markedBy",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "not_started",
+                  "not_booked",
+                  "changed"
+                ],
+                "description": "not_started: the list opens an hour before the class (see opensAt). not_booked: the booking is not one that can be marked (cancelled, waiting, moved…; see state). changed: it changed meanwhile; look again."
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opensAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "state",
+              "opensAt",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.markNoShow",
+      "description": "Mark a booked booking as not come (a no-show), once the class has started. The class stays used (no money, nothing else follows). The host does this itself for everyone still booked 30 minutes after the class ends, if anyone on the list was marked. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "bookingId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": [
+                  "attended",
+                  "no_show",
+                  "booked"
+                ]
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "already"
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "state": {
+                "description": "What the booking is now",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "markedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "markedBy": {
+                "description": "The name of who marked it first",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "state",
+              "markedAt",
+              "markedBy",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "not_started",
+                  "not_booked",
+                  "changed"
+                ],
+                "description": "not_started: the list opens an hour before the class (see opensAt). not_booked: the booking is not one that can be marked (cancelled, waiting, moved…; see state). changed: it changed meanwhile; look again."
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opensAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "state",
+              "opensAt",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.move",
+      "description": "Staff move a member's booking to another class, with the use it spent, in one batch: the old booking is moved (its place given back, to the waitlist first before its cut-off), a new booking is made on the other class, and the use is spent again on it from the same membership or pass. Refused whole, with nothing changed, when the other class is full (places held for its waitlist included: raise its places first), was cancelled or is over, they are already booked on it, or the use cannot be spent in that class's week or period. Only a booked booking, before its class starts. A booking paid at the desk moves paid at the desk. Audited. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "toClassId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "bookingId",
+          "toClassId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "moved"
+              },
+              "fromBookingId": {
+                "type": "string"
+              },
+              "bookingId": {
+                "type": "string",
+                "description": "The new booking"
+              },
+              "classId": {
+                "type": "string"
+              },
+              "holderId": {
+                "description": "The membership or pass the use is spent from",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "fromBookingId",
+              "bookingId",
+              "classId",
+              "holderId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_open",
+                  "closed",
+                  "staff_only",
+                  "no_use",
+                  "already_booked",
+                  "full",
+                  "too_late",
+                  "not_found",
+                  "changed",
+                  "not_running",
+                  "person_exists",
+                  "possible_duplicates",
+                  "waitlist_closed"
+                ],
+                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, ended, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opensAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "closesAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "reasons"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "For person_exists and possible_duplicates: who is already on file"
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "opensAt",
+              "closesAt"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_booked",
+                  "same_class",
+                  "started"
+                ],
+                "description": "not_booked: only a booked booking moves. same_class: it is already on that class. started: its class has started; giving its use back is returnUse's."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, ended, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opensAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "closesAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "reasons"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "For person_exists and possible_duplicates: who is already on file"
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "opensAt",
+              "closesAt"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
       "name": "x.bookings.returnUse",
       "description": "A person on the staff cancels a booking and gives its use back whatever the time: after the late-cancel point, or after the class (a member who was ill, a class the coach missed). A person's own act: the assistant, MCP clients, automations and other code cannot call it. The reason is kept on the booking and in the audit log. Only a booked booking. (Extension tool from Bookings 0.1.0.)",
       "risk": "destructive",
@@ -66640,7 +67397,377 @@
       "invalidates": [
         "x.bookings.classList",
         "x.bookings.day",
-        "x.bookings.findPeople"
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.roster",
+      "description": "A class's list for its coach: the class (as on the day view) and every booking of it with the person's name and its state (booked, ticked, not come, waiting in the order they joined, cancelled…), who marked it and when. Nothing about what anyone paid with. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "classId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "class": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "classType": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "startsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "timeZone": {
+                "description": "The class's IANA time zone: show its times in this zone.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "coach": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "room": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "places": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "booked": {
+                "type": "number",
+                "description": "Places taken"
+              },
+              "held": {
+                "type": "number"
+              },
+              "available": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "staffOnly": {
+                "type": "boolean",
+                "description": "Its class type is booked by staff only"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "classType",
+              "startsAt",
+              "endsAt",
+              "timeZone",
+              "coach",
+              "room",
+              "places",
+              "booked",
+              "held",
+              "available",
+              "state",
+              "staffOnly"
+            ],
+            "additionalProperties": false
+          },
+          "bookings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "person": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "markedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "markedBy": {
+                  "description": "The name of who marked it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "promotedAt": {
+                  "description": "When they were moved in from the waitlist",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "person",
+                "state",
+                "markedAt",
+                "markedBy",
+                "promotedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "class",
+          "bookings"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.undoAttended",
+      "description": "Untick a booking ticked by mistake: it is booked again (and, once the class is 30 minutes over with others ticked, the host makes it a no-show). Who ticked it and when are cleared. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "bookingId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": [
+                  "attended",
+                  "no_show",
+                  "booked"
+                ]
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "already"
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "state": {
+                "description": "What the booking is now",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "markedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "markedBy": {
+                "description": "The name of who marked it first",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "state",
+              "markedAt",
+              "markedBy",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "not_started",
+                  "not_booked",
+                  "changed"
+                ],
+                "description": "not_started: the list opens an hour before the class (see opensAt). not_booked: the booking is not one that can be marked (cancelled, waiting, moved…; see state). changed: it changed meanwhile; look again."
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opensAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "state",
+              "opensAt",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
       ],
       "pack": "bookings"
     },

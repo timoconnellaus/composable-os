@@ -443,6 +443,16 @@ export interface StatesDefinition {
         from: readonly string[];
       }
     | undefined;
+  /** Moves the host makes once a moment has passed (ADR 0550). */
+  after?:
+    | readonly {
+        from: string | readonly string[];
+        to: string;
+        at: string;
+        minutesAfter?: number | undefined;
+        ifAnyIn?: readonly string[] | undefined;
+      }[]
+    | undefined;
 }
 
 /** A number a window is worked out from (the SDK's WindowNumber, ADR 0505). */

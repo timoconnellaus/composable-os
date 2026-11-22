@@ -29,6 +29,8 @@ export interface HeldPackRole {
   readonly permissions: readonly string[];
   /** Objects (`<extension>.<object>`) whose records the role may read. */
   readonly read: readonly string[];
+  /** Objects reached only on the organisation's local today, by the datetime path (ADR 0553). */
+  readonly today?: import("./pack-role-today.ts").TodayLimits;
 }
 
 /** The reads a pack role's `read` opens, on the objects it lists. Nothing else reads for it. */
@@ -55,6 +57,7 @@ function held(name: string, role: RoleManifest | undefined): HeldPackRole {
     label: role?.label ?? name,
     permissions: Object.freeze([...(role?.permissions ?? [])]),
     read: Object.freeze([...(role?.read ?? [])]),
+    ...(role?.today ? { today: Object.freeze({ ...role.today }) } : {}),
   });
 }
 
