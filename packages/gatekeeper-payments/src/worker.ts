@@ -32,6 +32,7 @@ import { buildDescription, sanitizeTitle } from "@composable-os/gatekeeper-kit/a
 import {
   ActionApplyError,
   ActionJournal,
+  ActionOutcomeUnknownError,
   defineActions,
   type TaggedAction,
 } from "@composable-os/gatekeeper-kit/actions";
@@ -54,10 +55,12 @@ import { deliverFakeEvent, handleRequest } from "./routes.js";
 import { StripeProvider, type TaxLocationCache } from "./stripe.js";
 import type {
   PaymentsCancelSubscriptionInput,
+  PaymentsChangeSubscriptionInput,
   PaymentsCheckout,
   PaymentsCheckoutInput,
   PaymentsEvent,
   PaymentsEventHook,
+  PaymentsPauseSubscriptionInput,
   PaymentsPayment,
   PaymentsPortal,
   PaymentsPortalInput,
@@ -70,6 +73,8 @@ import type {
   PaymentsSubscriptionChangeReceipt,
   PaymentsSubscriptionCheckoutInput,
   PaymentsSubscriptionCheckoutStatus,
+  PaymentsUnpauseSubscriptionInput,
+  PaymentsVoidUpdateInput,
 } from "./types.js";
 import TYPES_CODE from "./types.txt";
 import {
@@ -79,11 +84,15 @@ import {
   merchantUrl,
   PROVIDER_NAMES,
   parseCancelSubscriptionInput,
+  parseChangeSubscriptionInput,
   parseCheckoutInput,
+  parsePauseSubscriptionInput,
   parsePortalInput,
   parseRefundInput,
   parseResumeSubscriptionInput,
   parseSubscriptionCheckoutInput,
+  parseUnpauseSubscriptionInput,
+  parseVoidUpdateInput,
   providerFromUrl,
   validInstant,
 } from "./validate.js";
@@ -169,7 +178,20 @@ type StoredRefund = { provider: PaymentsProviderName; input: PaymentsRefundInput
 /** A subscription change (ADR 0485): the provider at submit time and the validated input. */
 type StoredCancel = { provider: PaymentsProviderName; input: PaymentsCancelSubscriptionInput };
 type StoredResume = { provider: PaymentsProviderName; input: PaymentsResumeSubscriptionInput };
-type Actions = { refund: StoredRefund; cancel: StoredCancel; resume: StoredResume };
+/** A plan change, a pause and its end (stage 32b, ADRs 0530 and 0531). */
+type StoredChange = { provider: PaymentsProviderName; input: PaymentsChangeSubscriptionInput };
+type StoredPause = { provider: PaymentsProviderName; input: PaymentsPauseSubscriptionInput };
+type StoredUnpause = { provider: PaymentsProviderName; input: PaymentsUnpauseSubscriptionInput };
+type StoredVoid = { provider: PaymentsProviderName; input: PaymentsVoidUpdateInput };
+type Actions = {
+  refund: StoredRefund;
+  cancel: StoredCancel;
+  resume: StoredResume;
+  change: StoredChange;
+  pause: StoredPause;
+  unpause: StoredUnpause;
+  void_update: StoredVoid;
+};
 
 const REFUND_KIND: ActionKind = { tag: "payments.refund", label: "Refund a payment" };
 const CANCEL_KIND: ActionKind = {
@@ -180,12 +202,32 @@ const RESUME_KIND: ActionKind = {
   tag: "payments.subscription.resume",
   label: "Keep a subscription going",
 };
+const CHANGE_KIND: ActionKind = {
+  tag: "payments.subscription.change",
+  label: "Change a subscription's plan",
+};
+const PAUSE_KIND: ActionKind = {
+  tag: "payments.subscription.pause",
+  label: "Pause a subscription",
+};
+const VOID_UPDATE_KIND: ActionKind = {
+  tag: "payments.subscription.void_update",
+  label: "Withdraw a subscription's upgrade",
+};
+const UNPAUSE_KIND: ActionKind = {
+  tag: "payments.subscription.unpause",
+  label: "End a subscription's pause",
+};
 
 /** What the action handlers may do. Not the Durable Object: provider calls live behind approval. */
 type PaymentsHost = {
   sendRefund(refund: StoredRefund): Promise<void>;
   sendCancel(change: StoredCancel): Promise<void>;
   sendResume(change: StoredResume): Promise<void>;
+  sendChange(change: StoredChange): Promise<void>;
+  sendPause(change: StoredPause): Promise<void>;
+  sendUnpause(change: StoredUnpause): Promise<void>;
+  sendVoid(change: StoredVoid): Promise<void>;
 };
 
 function describeCancel(change: StoredCancel) {
@@ -221,6 +263,87 @@ function describeResume(change: StoredResume) {
     .inline("Provider's reference", input.subscriptionRef);
   return {
     title: sanitizeTitle(`Keep subscription ${input.subscriptionId} going`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
+function describeChange(change: StoredChange) {
+  const { input } = change;
+  const amount = formatMinor(input.amount, input.currency);
+  const when =
+    input.when === "now"
+      ? `now: the rest of the current period is charged at once, prorated, and the change applies only once that is paid`
+      : "from the next period: nothing is prorated or refunded";
+  const builder = buildDescription(
+    `Changes subscription ${input.subscriptionId} through ${PROVIDER_TITLES[change.provider]} to ` +
+      `${amount} every ${input.interval}, ${when}. Money moves on the payer's card.`,
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Subscription", input.subscriptionId)
+    .inline("Provider's reference", input.subscriptionRef)
+    .verbatim("New plan", input.description)
+    .inline("New price", `${amount} (${input.amount} minor units) every ${input.interval}`)
+    .inline("When", input.when === "now" ? "Now, prorated" : "From the next period")
+    .verbatim("Reason", input.reason);
+  return {
+    title: sanitizeTitle(`Change subscription ${input.subscriptionId} to ${amount}`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
+function describePause(change: StoredPause) {
+  const { input } = change;
+  const builder = buildDescription(
+    `Pauses subscription ${input.subscriptionId} through ${PROVIDER_TITLES[change.provider]} ` +
+      `from ${input.from ?? "now"} until ${input.until}: nothing is charged and nothing is given ` +
+      "while it is paused; the provider resumes it then and charges a new period.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Subscription", input.subscriptionId)
+    .inline("Provider's reference", input.subscriptionRef)
+    .inline("From", input.from ?? "Now")
+    .inline("Until", input.until)
+    .verbatim("Reason", input.reason);
+  return {
+    title: sanitizeTitle(`Pause subscription ${input.subscriptionId}`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
+function describeUnpause(change: StoredUnpause) {
+  const { input } = change;
+  const builder = buildDescription(
+    `Ends the pause of subscription ${input.subscriptionId} through ` +
+      `${PROVIDER_TITLES[change.provider]} now (or withdraws one not yet started): the provider ` +
+      "charges a new period from today.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Subscription", input.subscriptionId)
+    .inline("Provider's reference", input.subscriptionRef)
+    .verbatim("Reason", input.reason);
+  return {
+    title: sanitizeTitle(`End the pause of subscription ${input.subscriptionId}`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
+function describeVoid(change: StoredVoid) {
+  const { input } = change;
+  const builder = buildDescription(
+    `Withdraws the upgrade of subscription ${input.subscriptionId} through ` +
+      `${PROVIDER_TITLES[change.provider]}: voids the open invoice its pending update made, so it ` +
+      "can no longer be paid and the subscription stays on its plan.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Subscription", input.subscriptionId)
+    .inline("Provider's reference", input.subscriptionRef)
+    .verbatim("Reason", input.reason);
+  return {
+    title: sanitizeTitle(`Withdraw the upgrade of subscription ${input.subscriptionId}`),
     ...builder.finish(),
     implementsRevert: false,
   };
@@ -288,6 +411,52 @@ const actions = defineActions<PaymentsHost, Actions>(
       },
       reject: async () => {},
     },
+    // A plan change and a pause change what the payer is charged (stage 32b): never
+    // auto-approvable, as a cancel is; the host's own call is applied at once by the host.
+    change: {
+      kind: CHANGE_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeChange(change),
+      apply: async (change, host) => {
+        await host.sendChange(change);
+      },
+      reject: async () => {},
+    },
+    pause: {
+      kind: PAUSE_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describePause(change),
+      apply: async (change, host) => {
+        await host.sendPause(change);
+      },
+      reject: async () => {},
+    },
+    void_update: {
+      kind: VOID_UPDATE_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeVoid(change),
+      apply: async (change, host) => {
+        await host.sendVoid(change);
+      },
+      reject: async () => {},
+    },
+    unpause: {
+      kind: UNPAUSE_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeUnpause(change),
+      apply: async (change, host) => {
+        await host.sendUnpause(change);
+      },
+      reject: async () => {},
+    },
   },
   // The provider's keys are this Worker's own, not a user's connection: nothing to fence on.
   { fence: "none", vendorId: "payments" },
@@ -303,6 +472,10 @@ type SessionBackend = {
   submitRefund(queue: RpcStub<ApprovalQueue>, refund: StoredRefund): Promise<number>;
   submitCancel(queue: RpcStub<ApprovalQueue>, change: StoredCancel): Promise<number>;
   submitResume(queue: RpcStub<ApprovalQueue>, change: StoredResume): Promise<number>;
+  submitChange(queue: RpcStub<ApprovalQueue>, change: StoredChange): Promise<number>;
+  submitPause(queue: RpcStub<ApprovalQueue>, change: StoredPause): Promise<number>;
+  submitUnpause(queue: RpcStub<ApprovalQueue>, change: StoredUnpause): Promise<number>;
+  submitVoid(queue: RpcStub<ApprovalQueue>, change: StoredVoid): Promise<number>;
   wasApplied(id: number): boolean;
   subscribe(queue: RpcStub<ApprovalQueue>, hook: RpcStub<PaymentsHookTarget>): Promise<void>;
 };
@@ -319,6 +492,30 @@ async function isHostOrdersQueue(queue: unknown): Promise<boolean> {
     return (await target.isHostOrders()) === true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * The tag an apply failure's message starts with (stage 32b review): `[apply-outcome:refused] `.
+ * Core reads it (`packages/core/src/integrations/outcome.ts`, the same text): the one place the two
+ * agree, since RPC carries an error's message and not its class.
+ */
+const APPLY_OUTCOME_TAG = "[apply-outcome:";
+function applyOutcomeTag(outcome: "refused" | "unknown" | "retryable"): string {
+  return `${APPLY_OUTCOME_TAG}${outcome}] `;
+}
+
+/**
+ * A plan change, a pause and its end are asked only by the host (stage 32b review), as the portal
+ * is: the host writes the change it asks for before asking, and follows it from verified reads, so
+ * one asked another way (Code Mode, an extension's tool, MCP, the assistant) would be a change the
+ * host never asked for. Cancel and resume stay open to a session that waits for a person.
+ */
+async function requireHostQueue(queue: unknown): Promise<void> {
+  if (!(await isHostOrdersQueue(queue))) {
+    throw new Error(
+      "Plan changes and pauses are asked only by the host, through its own subscription operations.",
+    );
   }
 }
 
@@ -479,6 +676,58 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
     return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
   }
 
+  async changeSubscription(
+    input: PaymentsChangeSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt> {
+    const parsed = parseChangeSubscriptionInput(input);
+    await requireHostQueue(this.#queue);
+    this.#backend.open();
+    const id = await this.#backend.submitChange(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
+  async pauseSubscription(
+    input: PaymentsPauseSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt> {
+    const parsed = parsePauseSubscriptionInput(input);
+    await requireHostQueue(this.#queue);
+    this.#backend.open();
+    const id = await this.#backend.submitPause(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
+  async unpauseSubscription(
+    input: PaymentsUnpauseSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt> {
+    const parsed = parseUnpauseSubscriptionInput(input);
+    await requireHostQueue(this.#queue);
+    this.#backend.open();
+    const id = await this.#backend.submitUnpause(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
+  async voidPendingUpdate(
+    input: PaymentsVoidUpdateInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt> {
+    const parsed = parseVoidUpdateInput(input);
+    await requireHostQueue(this.#queue);
+    this.#backend.open();
+    const id = await this.#backend.submitVoid(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
   async openPortal(input: PaymentsPortalInput): Promise<PaymentsPortal> {
     const parsed = parsePortalInput(input);
     // A portal address shows a customer's invoices and lets their card and email be changed: it
@@ -529,6 +778,14 @@ export class PaymentsGatekeeper
       (await this.#openForApply(change.provider)).cancelSubscription(change.input),
     sendResume: async (change) =>
       (await this.#openForApply(change.provider)).resumeSubscription(change.input),
+    sendChange: async (change) =>
+      (await this.#openForApply(change.provider)).changeSubscription(change.input),
+    sendPause: async (change) =>
+      (await this.#openForApply(change.provider)).pauseSubscription(change.input),
+    sendUnpause: async (change) =>
+      (await this.#openForApply(change.provider)).unpauseSubscription(change.input),
+    sendVoid: async (change) =>
+      (await this.#openForApply(change.provider)).voidPendingUpdate(change.input),
   };
 
   /** The provider an approved action is sent through; a provider not set up sends nothing. */
@@ -599,6 +856,10 @@ export class PaymentsGatekeeper
       submitRefund: (queue, refund) => this.#actions().submit(queue, "refund", refund),
       submitCancel: (queue, change) => this.#actions().submit(queue, "cancel", change),
       submitResume: (queue, change) => this.#actions().submit(queue, "resume", change),
+      submitChange: (queue, change) => this.#actions().submit(queue, "change", change),
+      submitPause: (queue, change) => this.#actions().submit(queue, "pause", change),
+      submitUnpause: (queue, change) => this.#actions().submit(queue, "unpause", change),
+      submitVoid: (queue, change) => this.#actions().submit(queue, "void_update", change),
       wasApplied: (id) => this.#journal.wasApplied(id),
       subscribe: (queue, hook) => this.#subscribe(queue, hook),
     };
@@ -645,8 +906,27 @@ export class PaymentsGatekeeper
   }
 
   /** Sends an approved refund, exactly once. */
+  /**
+   * Applies an action. A failure is thrown with what came of it in front of its message
+   * (`APPLY_OUTCOME_TAG`): RPC carries an error's message only, not its class, so the host's own
+   * call reads the outcome from this tag, never from the wording (review of 32b): `refused`
+   * (`ActionApplyError`: nothing changed), `unknown` (`ActionOutcomeUnknownError`: it may have),
+   * `retryable` (anything else: the action is pending again, nothing was sent).
+   */
   async applyAction(action: number): Promise<void> {
-    await this.#actions().apply(requireActionId(action));
+    try {
+      await this.#actions().apply(requireActionId(action));
+    } catch (error) {
+      const outcome =
+        error instanceof ActionApplyError
+          ? "refused"
+          : error instanceof ActionOutcomeUnknownError
+            ? "unknown"
+            : "retryable";
+      throw new Error(
+        `${applyOutcomeTag(outcome)}${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /** Drops a rejected refund; nothing is sent. */

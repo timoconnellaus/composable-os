@@ -2,7 +2,14 @@
   "name": "memberships-staff-holdings",
   "pack": "memberships",
   "skin": "web",
-  "operations": ["x.memberships.holdings", "x.memberships.givePass", "x.memberships.voidPass"],
+  "operations": [
+    "x.memberships.holdings",
+    "x.memberships.givePass",
+    "x.memberships.voidPass",
+    "subscription.list",
+    "subscription.pause",
+    "subscription.unpause"
+  ],
   "files": ["holdings.tsx", "LICENSE"],
   "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],
   "packages": {

@@ -141,6 +141,14 @@ export interface RecurringSpec {
    * `sellable.recurring`, and its `grants` is what the subscription gives while it runs.
    */
   grants?: RecurringGrantSpec;
+  /**
+   * Whether staff may pause a subscription to the plan (stage 32b, decision 10, ADR 0531), and
+   * for how long: `minDays` and `maxDays` name number fields of the plan holding the shortest and
+   * longest pause the company allows (empty: 1 day, and 366 days, the most the host asks the
+   * provider for). Left out, a subscription to the plan is never paused. Only staff pause, with
+   * `subscriptions:manage`, as a person; while paused nothing is charged, granted or spent.
+   */
+  pause?: { minDays?: string; maxDays?: string };
 }
 
 /** Where a field of what a subscription grants gets its value (see RecurringSpec.grants). */
@@ -277,6 +285,10 @@ export const sellableManifestSchema = z
       .object({
         interval: z.enum(["week", "month", "year"]),
         trialDays: fieldName.optional(),
+        pause: z
+          .object({ minDays: fieldName.optional(), maxDays: fieldName.optional() })
+          .strict()
+          .optional(),
         grants: z
           .object({
             object: z.string().max(40),
@@ -365,6 +377,12 @@ export function checkObjectSellable(
     const trial = sellable.recurring.trialDays;
     if (trial !== undefined && !single(trial, new Set(["number"]))) {
       contract(`${path}.recurring.trialDays`, `"${trial}" must be a number field of ${name}`);
+    }
+    for (const key of ["minDays", "maxDays"] as const) {
+      const days = sellable.recurring.pause?.[key];
+      if (days !== undefined && !single(days, new Set(["number"]))) {
+        contract(`${path}.recurring.pause.${key}`, `"${days}" must be a number field of ${name}`);
+      }
     }
     if (sellable.onePerPerson !== undefined) {
       contract(

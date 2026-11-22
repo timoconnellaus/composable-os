@@ -2110,6 +2110,90 @@
       ]
     },
     {
+      "name": "subscription.change",
+      "description": "Move a subscription to another plan of the same kind (a membership from 3 a week to unlimited). A dearer plan is an upgrade: it takes effect now, and the payment provider charges the rest of the current period at once, prorated; the new plan applies only once that charge is paid, so nothing is given that was not paid for. A cheaper (or same-priced) plan is a downgrade: nothing is refunded or prorated, the member keeps the current plan until its period ends, and the new price is charged from the next period. What the subscription grants (a membership's classes) follows the plan when it takes effect. Only an active subscription not set to end, with no other change waiting. A signed-in customer changes their own, to a plan on sale; staff any, with subscriptions:manage. Asked of the payment provider: the subscription shows the change once the provider confirms it. A person decides, not an AI assistant.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Subscription id (sbs_…)"
+          },
+          "planId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The plan to move to (a record of the same object)"
+          },
+          "reason": {
+            "default": "Changed by the payer",
+            "description": "Why",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": ["id", "planId"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "changeId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["upgrade", "downgrade"]
+          },
+          "effectiveAt": {
+            "description": "When a downgrade takes effect (the period's end); null for an upgrade: once paid",
+            "type": ["string", "null"]
+          },
+          "amount": {
+            "type": "number",
+            "description": "The new plan's price per period, minor units, tax included"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "asked": {
+            "type": "string",
+            "enum": ["sent", "pending", "unknown", "not_needed"],
+            "description": "sent: the provider was asked; unknown: it may or may not have been (its next event decides); not_needed: the same price, nothing to ask"
+          },
+          "requested": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "id",
+          "changeId",
+          "kind",
+          "effectiveAt",
+          "amount",
+          "currency",
+          "asked",
+          "requested"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "subscription.get",
+        "subscription.list",
+        "subscription.offer.mine",
+        "subscription.portal"
+      ]
+    },
+    {
       "name": "subscription.get",
       "description": "Get one subscription: its plan, price per period, state (trial, active, past due, ended…), the current period and whether it ends when that period does. A signed-in customer gets the subscriptions they pay for only; anyone else's is not found. Read-only.",
       "risk": "read",
@@ -2214,6 +2298,98 @@
           },
           "failingSince": {
             "type": ["string", "null"]
+          },
+          "change": {
+            "description": "A plan change or a pause asked for and not yet over, or the pause it is in",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["upgrade", "downgrade", "pause"]
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": ["requested", "waiting", "applied", "lapsed", "withdrawn"],
+                    "description": "requested: asked of the provider (an upgrade waits for its charge to be paid); waiting: a downgrade from the next period, or a pause not yet started; applied: the pause it is in; lapsed: an upgrade whose charge was never paid"
+                  },
+                  "toPlanId": {
+                    "type": ["string", "null"]
+                  },
+                  "toPlanTitle": {
+                    "type": ["string", "null"]
+                  },
+                  "toAmount": {
+                    "type": ["number", "null"]
+                  },
+                  "pauseFrom": {
+                    "type": ["string", "null"]
+                  },
+                  "pauseUntil": {
+                    "description": "When a pause ends and the provider charges again",
+                    "type": ["string", "null"]
+                  },
+                  "effectiveAt": {
+                    "description": "When a downgrade takes effect (its period's end)",
+                    "type": ["string", "null"]
+                  },
+                  "requestedAt": {
+                    "type": "string"
+                  },
+                  "callOutcome": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["sent", "pending", "unknown", "refused"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "What came of asking the provider: unknown means it may or may not have reached it, and the provider's next event decides; staff can withdraw it"
+                  },
+                  "actionUrl": {
+                    "description": "The provider's page to confirm an upgrade's charge, while it waits",
+                    "type": ["string", "null"]
+                  },
+                  "endOutcome": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["sent", "pending", "unknown", "refused"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "What came of ending a pause early: refused or unknown, ask again"
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind",
+                  "state",
+                  "toPlanId",
+                  "toPlanTitle",
+                  "toAmount",
+                  "pauseFrom",
+                  "pauseUntil",
+                  "effectiveAt",
+                  "requestedAt",
+                  "callOutcome",
+                  "actionUrl",
+                  "endOutcome"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2243,7 +2419,7 @@
     },
     {
       "name": "subscription.list",
-      "description": "A page of subscriptions, newest first unless sorted otherwise. Filter on state, planObject, planId, payerPersonId, holderPersonId, cancelAtPeriodEnd, currentPeriodEnd, failingSince. A signed-in customer sees the ones they pay for only. Pass nextCursor back as cursor for the next page. Read-only.",
+      "description": "A page of subscriptions, newest first unless sorted otherwise. Filter on state, planObject, planId, payerPersonId, holderPersonId, cancelAtPeriodEnd, currentPeriodEnd, failingSince, changeKind, changeState, pauseUntil. Each shows its plan change or pause (`change`). A signed-in customer sees the ones they pay for only. Pass nextCursor back as cursor for the next page. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -2440,6 +2616,98 @@
                 },
                 "failingSince": {
                   "type": ["string", "null"]
+                },
+                "change": {
+                  "description": "A plan change or a pause asked for and not yet over, or the pause it is in",
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": ["upgrade", "downgrade", "pause"]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": ["requested", "waiting", "applied", "lapsed", "withdrawn"],
+                          "description": "requested: asked of the provider (an upgrade waits for its charge to be paid); waiting: a downgrade from the next period, or a pause not yet started; applied: the pause it is in; lapsed: an upgrade whose charge was never paid"
+                        },
+                        "toPlanId": {
+                          "type": ["string", "null"]
+                        },
+                        "toPlanTitle": {
+                          "type": ["string", "null"]
+                        },
+                        "toAmount": {
+                          "type": ["number", "null"]
+                        },
+                        "pauseFrom": {
+                          "type": ["string", "null"]
+                        },
+                        "pauseUntil": {
+                          "description": "When a pause ends and the provider charges again",
+                          "type": ["string", "null"]
+                        },
+                        "effectiveAt": {
+                          "description": "When a downgrade takes effect (its period's end)",
+                          "type": ["string", "null"]
+                        },
+                        "requestedAt": {
+                          "type": "string"
+                        },
+                        "callOutcome": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["sent", "pending", "unknown", "refused"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "What came of asking the provider: unknown means it may or may not have reached it, and the provider's next event decides; staff can withdraw it"
+                        },
+                        "actionUrl": {
+                          "description": "The provider's page to confirm an upgrade's charge, while it waits",
+                          "type": ["string", "null"]
+                        },
+                        "endOutcome": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["sent", "pending", "unknown", "refused"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "What came of ending a pause early: refused or unknown, ask again"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "kind",
+                        "state",
+                        "toPlanId",
+                        "toPlanTitle",
+                        "toAmount",
+                        "pauseFrom",
+                        "pauseUntil",
+                        "effectiveAt",
+                        "requestedAt",
+                        "callOutcome",
+                        "actionUrl",
+                        "endOutcome"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [

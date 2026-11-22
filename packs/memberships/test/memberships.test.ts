@@ -9,8 +9,12 @@ import { createTestHost, type TestHost } from "@composable-os/sdk/testing";
 import { describe, expect, it } from "vitest";
 import {
   allowsWords,
+  canChangePlan,
+  changeRefusalWords,
+  changeWords,
   type Holding,
   leftWords,
+  type MembershipSubscription,
   refusalWords,
   subscriptionStatus,
 } from "../client/index.ts";
@@ -375,5 +379,99 @@ describe("display helpers", () => {
         createdAt: "x",
       }),
     ).toContain("then it ends");
+  });
+});
+
+describe("plan changes, pauses and the dashboard (stage 32b, ADRs 0530 to 0532)", () => {
+  const sub = (over: Partial<MembershipSubscription> = {}): MembershipSubscription => ({
+    id: "s",
+    state: "active",
+    planObject: "memberships.plan",
+    planId: "p",
+    planTitle: "Three a week",
+    amount: 3000,
+    currency: "AUD",
+    interval: "month",
+    trialEnd: null,
+    currentPeriodEnd: "2026-12-24T00:00:00.000Z",
+    cancelAtPeriodEnd: false,
+    cancelAt: null,
+    endedAt: null,
+    actionUrl: null,
+    createdAt: "x",
+    change: null,
+    ...over,
+  });
+  const change = (over: Partial<NonNullable<MembershipSubscription["change"]>>) => ({
+    id: "sbc_1",
+    kind: "downgrade" as const,
+    state: "waiting" as const,
+    toPlanId: "q",
+    toPlanTitle: "One a week",
+    toAmount: 1500,
+    pauseFrom: null,
+    pauseUntil: null,
+    effectiveAt: "2026-12-24T00:00:00.000Z",
+    requestedAt: "2026-11-22T00:00:00.000Z",
+    ...over,
+  });
+
+  it("declares the plan's pause bounds and ships the Memberships dashboard and views", () => {
+    const host = createTestHost(memberships, { validate: KNOWN });
+    expect(host.issues).toEqual([]);
+    // biome-ignore lint/suspicious/noExplicitAny: reading the declaration's shape in a test.
+    const plan = (host.manifest.objects as Record<string, any>).plan;
+    expect(plan.sellable.recurring.pause).toEqual({
+      minDays: "pauseMinDays",
+      maxDays: "pauseMaxDays",
+    });
+    const dashboard = host.manifest.dashboards.memberships;
+    expect(dashboard?.widgets.map((w) => w.id)).toEqual([
+      "active",
+      "trialing",
+      "paused",
+      "failing",
+      "trials-ended",
+      "trials-paid",
+      "revenue",
+      "uses",
+      "revenue-by-month",
+      "cancellations-by-month",
+      "uses-by-week",
+      "failing-members",
+    ]);
+    expect(Object.keys(host.manifest.views)).toEqual(
+      expect.arrayContaining(["paused", "passesExpiringThisWeek"]),
+    );
+  });
+
+  it("say what waits on a subscription and whether its plan may be changed, in words", () => {
+    expect(changeWords(sub())).toBeNull();
+    expect(changeWords(sub({ change: change({}) }))).toMatch(/^Changes to One a week on /);
+    expect(
+      changeWords(
+        sub({ change: change({ kind: "upgrade", state: "requested", effectiveAt: null }) }),
+      ),
+    ).toContain("once its charge is paid");
+    expect(changeWords(sub({ change: change({ kind: "upgrade", state: "lapsed" }) }))).toContain(
+      "was not paid",
+    );
+    expect(canChangePlan(sub())).toBe(true);
+    expect(canChangePlan(sub({ change: change({}) }))).toBe(false);
+    expect(canChangePlan(sub({ cancelAtPeriodEnd: true }))).toBe(false);
+    expect(canChangePlan(sub({ state: "paused" }))).toBe(false);
+    expect(
+      subscriptionStatus(
+        sub({
+          state: "paused",
+          change: change({
+            kind: "pause",
+            state: "applied",
+            pauseUntil: "2027-01-10T00:00:00.000Z",
+          }),
+        }),
+      ),
+    ).toContain("Paused until");
+    expect(changeRefusalWords({ rule: "change_open" })).toContain("already waiting");
   });
 });

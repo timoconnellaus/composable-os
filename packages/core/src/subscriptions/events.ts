@@ -22,6 +22,17 @@ import { type HandlerContext, recordHostChange } from "../operation.ts";
 import type { PaymentsEvent, ProviderSubscription } from "../orders/gateway.ts";
 import { formatMoney } from "../orders/orders.ts";
 import { applyTransition } from "../records/lifecycle.ts";
+import {
+  alsoAgreed,
+  type ChangeRow,
+  closeStale,
+  declinedUpgradeWords,
+  expectedPart,
+  followChange,
+  lateChange,
+  openChange,
+  upgradeNeedsAction,
+} from "./changes.ts";
 import { followSubscriptionGrant } from "./grants.ts";
 import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
 import { useTrial } from "./trial.ts";
@@ -102,11 +113,18 @@ export function reductionsOnly(
   };
 }
 
-/** Whether a read's price, currency or interval is not what the subscription was agreed at. */
-function termsDiffer(row: SubscriptionRow, read: ProviderSubscription): boolean {
+/**
+ * Whether a read's price, currency or interval is not what the subscription was agreed at. `other`:
+ * a price also agreed, a plan change the host asked for (stage 32b, ADR 0530).
+ */
+function termsDiffer(
+  row: SubscriptionRow,
+  read: ProviderSubscription,
+  other: number | null = null,
+): boolean {
   return (
     read.currency !== row.currency ||
-    read.amount !== row.amount ||
+    (read.amount !== row.amount && read.amount !== other) ||
     (read.interval !== null && read.interval !== row.interval)
   );
 }
@@ -226,6 +244,7 @@ export async function applySubscriptionEvent(
   let row: SubscriptionRow;
   let moved = false;
   let terms = false;
+  let change: ChangeRow | null = null;
   if (!existing) {
     const made = await createFromCheckout(ctx, event);
     if ("refused" in made) {
@@ -259,9 +278,27 @@ export async function applySubscriptionEvent(
       return nothing("subscription_mismatch");
     }
     row = existing;
+    // A plan change or a pause the host asked for (ADRs 0530, 0531): a read at its new price is
+    // the change asked for, not one made at the provider.
+    // Only an open change is trusted (one definition, `openChange`); one past its life is closed
+    // as lapsed in this batch, and a read at its price is a change at the provider.
+    const found = await openChange(ctx.db, existing.id, ctx.now);
+    change = found.open;
+    // A late read (second review) that shows a change which lapsed meanwhile is that change: the
+    // provider took it in time and its event came after. Otherwise a stale one is closed.
+    if (!change && read.observedAt >= existing.observed_at && !FINAL.has(existing.state)) {
+      change = await lateChange(
+        ctx,
+        existing,
+        read,
+        event.invoice,
+        event.trigger === "invoice_paid" && event.invoice?.status === "paid",
+      );
+    }
+    if (!change) closeStale(ctx, found.stale);
     // Its price, currency or interval changed at the provider (its dashboard): staff are told
     // once for the subscription, and only what reduces what the member holds is applied.
-    terms = termsDiffer(existing, read);
+    terms = termsDiffer(existing, read, alsoAgreed(change));
     if (terms) {
       await tellStaff(
         ctx,
@@ -280,7 +317,11 @@ export async function applySubscriptionEvent(
     if (read.observedAt >= existing.observed_at && !FINAL.has(existing.state)) {
       const applied = terms ? reductionsOnly(existing, read) : read;
       if (applied) {
-        row = await moveFromRead(ctx, existing, applied);
+        // The plan the member holds after this read: a change asked for, once the read shows it.
+        const followed = terms
+          ? { row: existing, planChanged: false }
+          : followChange(ctx, existing, read, change);
+        row = await moveFromRead(ctx, existing, applied, followed.row, followed.planChanged);
         moved = true;
       }
     }
@@ -294,7 +335,25 @@ export async function applySubscriptionEvent(
   switch (event.trigger) {
     case "invoice_paid": {
       if (!invoice) break;
-      const period = await recordPaidPeriod(ctx, row, event, invoice, terms);
+      // Part of a period the host asked for (an upgrade's prorated charge, the first period after
+      // a pause) is not flagged.
+      const part = terms ? null : await expectedPart(ctx.db, row, invoice, ctx.now, change);
+      const period = await recordPaidPeriod(ctx, row, event, invoice, terms, part);
+      // A subscription update's charge paid with no upgrade open to take it (its pending update
+      // expired, or it was withdrawn): money was taken and nothing here moved. Staff are told for
+      // each such invoice, never once per subscription.
+      if (!part && invoice.billingReason === "subscription_update" && invoice.amountPaid > 0) {
+        await tellStaff(
+          ctx,
+          "An upgrade's charge was paid, and no upgrade is waiting for it",
+          `Invoice ${invoice.ref} of subscription ${row.id} (${row.plan_title}), raised by the ` +
+            `provider for a change of plan, was paid ${formatMoney(invoice.amountPaid, invoice.currency)}, ` +
+            "and no upgrade the host asked for is open to take it. It is recorded as an order. " +
+            "Check the subscription's price with the provider, and refund the order if no upgrade applies.",
+          row.id,
+          `subscription.update_paid:${event.provider}:${invoice.ref}`,
+        );
+      }
       outcome = period.outcome;
       orderId = period.orderId;
       orderState = period.orderId ? "paid" : null;
@@ -303,6 +362,24 @@ export async function applySubscriptionEvent(
     }
     case "invoice_payment_failed":
       if (!invoice) break;
+      // An upgrade's charge declined: the subscription keeps its plan and runs on (a pending
+      // update), so this is not a failing renewal.
+      if (
+        change?.kind === "upgrade" &&
+        change.state === "requested" &&
+        invoice.billingReason === "subscription_update" &&
+        read.status === "active"
+      ) {
+        await tellStaff(
+          ctx,
+          "A plan upgrade's charge failed",
+          `Subscription ${row.id}: ${declinedUpgradeWords(change, invoice.amountDue, invoice.currency)}`,
+          row.id,
+          `subscription.upgrade_failed:${event.provider}:${invoice.ref}`,
+        );
+        outcome = "upgrade_failed";
+        break;
+      }
       await tellStaff(
         ctx,
         "A subscription's payment failed",
@@ -316,6 +393,12 @@ export async function applySubscriptionEvent(
       outcome = "payment_failed";
       break;
     case "invoice_action_required":
+      // An open upgrade's charge waiting on the payer (3D Secure): the subscription stays active
+      // under its pending update, so the link is the change's, shown with it (review of 32b).
+      if (invoice && moved && upgradeNeedsAction(ctx, change, invoice)) {
+        outcome = "action_required";
+        break;
+      }
       // Only from a read applied now (not a stale one), for an invoice still open, on a
       // subscription still owing: the payer's "confirm your payment" link.
       if (!invoice?.hostedUrl || !moved || invoice.status !== "open" || !OWING.has(row.state)) {
@@ -343,6 +426,25 @@ export async function applySubscriptionEvent(
       break;
     default:
       break;
+  }
+  // Paused with no pause of the host's open to explain it (round three): one made at the provider
+  // (its dashboard). Mirrored, as every move is, and staff are told.
+  if (
+    moved &&
+    existing &&
+    row.state === "paused" &&
+    existing.state !== "paused" &&
+    change?.kind !== "pause"
+  ) {
+    await tellStaff(
+      ctx,
+      "A subscription was changed at the provider",
+      `The ${event.provider} subscription ${read.ref} was paused, and no pause the host asked for ` +
+        `explains it. Subscription ${row.id} (${row.plan_title}) is mirrored as paused. Pause and ` +
+        "end pauses in the host, never in the provider's dashboard.",
+      row.id,
+      `subscription.paused_at_provider:${event.provider}:${row.id}:${read.observedAt}`,
+    );
   }
   if (moved && row.state === "ended" && row.end_reason === "payment_failed") {
     await tellStaff(
@@ -548,8 +650,11 @@ async function moveFromRead(
   ctx: HandlerContext,
   row: SubscriptionRow,
   read: ProviderSubscription,
+  /** The row with the plan it holds after this read (a plan change applied), else `row`. */
+  planned: SubscriptionRow = row,
+  planChanged = false,
 ): Promise<SubscriptionRow> {
-  const next = fromRead(row, read, ctx.now);
+  const next = fromRead(planned, read, ctx.now);
   const before = subscriptionSnapshot(row);
   const outcome = await applyTransition(
     ctx,
@@ -573,7 +678,7 @@ async function moveFromRead(
     after: subscriptionSnapshot(next),
   });
   if (next.state !== row.state) postSubscriptionMove(ctx, next, row.state);
-  await followSubscriptionGrant(ctx, next);
+  await followSubscriptionGrant(ctx, next, { planChanged });
   if (next.trial_end && !row.trial_end) await trialConfirmed(ctx, next);
   return next;
 }

@@ -28,7 +28,11 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
+<<<<<<< HEAD
   "coreSchemaVersion": 650,
+=======
+  "coreSchemaVersion": 630,
+>>>>>>> origin/main
   "extensionContract": {
     "supported": [
       1
@@ -544,8 +548,13 @@
       "sha256": "79889a3b2942c2235449fd270bdcda7913b7ab32ada36f9cb4e2c2c911ac0612"
     },
     {
+<<<<<<< HEAD
       "name": "0650_person_links.sql",
       "sha256": "8088ec8d6754563eb88d0b864abd5a2eaae900949c1ab772a9aa2687aae25e4b"
+=======
+      "name": "0630_subscription_changes.sql",
+      "sha256": "3d436fe1b4f120c46756ff2e546db02d5f7109aa1ea8870b17c9edbc71bebb19"
+>>>>>>> origin/main
     }
   ],
   "product": "crm",

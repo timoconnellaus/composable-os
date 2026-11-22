@@ -1343,8 +1343,24 @@ plans and pass types (public), start a pass's order (`buy`), give a member their
 move only `voidPass` and the host make, `states.moves[].tools`, and a holder's terms are written only
 by the host or such a tool, ADR [0513](adr/0513-a-granted-holder-keeps-what-it-was-granted.md)). Web blocks
 (plans with the trial and the code sign-in, passes, the member's holdings with their
-subscription's cancel, resume and portal, a Person's holdings for staff) and a native block that
-only reads.
+subscription's cancel, resume, plan change and portal, a Person's holdings for staff with pausing
+their membership) and a native block that only reads.
+
+**Plan changes and pauses** (stage 32b; ADRs
+[0530](adr/0530-plan-changes-upgrade-now-downgrade-next-period.md) and
+[0531](adr/0531-staff-pause-a-membership-for-a-set-time.md); `subscriptions/changes.ts`,
+`core_subscription_change`, migration 0630). `subscription.change` (staff; a customer, their own)
+moves a subscription to another plan of the same object: dearer is an upgrade, asked of the
+provider now (a pending update, prorated, applied only once paid), the same or cheaper a downgrade
+from the next period (`proration_behavior=none`). `subscription.pause` and `.unpause` (staff only)
+use the provider's pause through a pause schedule, within the plan's
+`sellable.recurring.pause` bounds. The row is written in the operation's batch and the gatekeeper
+is called after the commit (`afterCommit`), so a refused batch or a dry run asks nothing; the
+gatekeeper's actions `payments.subscription.change`, `.pause` and `.unpause` are never
+auto-approvable. The host moves nothing until a verified read shows the change: then the
+subscription's plan, and what it grants (`followSubscriptionGrant`'s `planChanged`), follow. The
+Memberships dashboard ([ADR 0532](adr/0532-the-memberships-dashboard-and-staff-side.md)) reads
+`rec_x_memberships_membership`, `rec_subscription`, `rec_order` and `rec_allowance_use`.
 
 **Ticketing** (`packs/ticketing`, stage 27) is the first pack that is not about a CRM: events,
 ticket types and tickets, built from these behaviours alone, with tools that compose the host's
@@ -1536,7 +1552,7 @@ calculates a price, checks a capacity or checks a permission.
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); steps 7 to 10 to come |
-| Memberships | `allowance` (holders), recurring billing | stage 32b: the behaviour built; the pack in progress |
+| Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos
 

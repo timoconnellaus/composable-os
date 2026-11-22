@@ -256,6 +256,68 @@ export interface PaymentsResumeSubscriptionInput {
   subscriptionRef: string;
 }
 
+/**
+ * What `changeSubscription()` takes (stage 32b, ADR 0530): a new price for the subscription's one
+ * item, from the plan the host priced. The interval and currency stay the subscription's.
+ */
+export interface PaymentsChangeSubscriptionInput {
+  subscriptionId: string;
+  subscriptionRef: string;
+  /** The host's id for this change (`sbc_…`): one change is sent once, whatever retries. */
+  changeId: string;
+  /** The new price of one period, a positive safe integer of minor units, tax included. */
+  amount: number;
+  currency: string;
+  interval: PaymentsInterval;
+  /** The new plan's title, 1 to 200 characters, for the approver. */
+  description: string;
+  /**
+   * `now`: an upgrade. The rest of the period is charged at once, prorated, and the change is
+   * applied only once that charge is paid (a pending update); a charge that fails changes
+   * nothing. `next_period`: a downgrade. Nothing is prorated or refunded; the new price is
+   * charged from the next invoice.
+   */
+  when: "now" | "next_period";
+  /** Whether the subscription was opened with tax: the new price is then tax-inclusive. */
+  taxed: boolean;
+  /** 1 to 500 characters, shown to the approver. */
+  reason: string;
+}
+
+/**
+ * What `pauseSubscription()` takes (stage 32b, ADR 0531): the provider's own pause (status
+ * `paused`: no invoices, no access), from a moment (or now) until a moment, when the provider
+ * resumes it and charges a new period. Never `pause_collection`, which keeps it active.
+ */
+export interface PaymentsPauseSubscriptionInput {
+  subscriptionId: string;
+  subscriptionRef: string;
+  /** The host's id for this pause (`sbc_…`). */
+  pauseId: string;
+  /** When it starts (ISO 8601, ahead of now), or null: now. */
+  from: string | null;
+  /** When the provider resumes it (ISO 8601): after `from`, at most 366 days after it. */
+  until: string;
+  reason: string;
+}
+
+/** What `unpauseSubscription()` takes: end a pause now (or withdraw one not yet started). */
+export interface PaymentsUnpauseSubscriptionInput {
+  subscriptionId: string;
+  subscriptionRef: string;
+  pauseId: string;
+  reason: string;
+}
+
+/** What `voidPendingUpdate()` takes: cancel an upgrade not yet paid (its pending update). */
+export interface PaymentsVoidUpdateInput {
+  subscriptionId: string;
+  subscriptionRef: string;
+  /** The host's id of the upgrade withdrawn (`sbc_…`). */
+  changeId: string;
+  reason: string;
+}
+
 /** A submitted change to a subscription: `pending` until the host applies it. */
 export interface PaymentsSubscriptionChangeReceipt {
   status: "pending" | "sent";
@@ -394,6 +456,27 @@ export interface PaymentsSession {
   resumeSubscription(
     input: PaymentsResumeSubscriptionInput,
   ): Promise<PaymentsSubscriptionChangeReceipt>;
+  /**
+   * Submits `payments.subscription.change` (never auto-approvable): a new price, now (an upgrade,
+   * applied only once its prorated charge is paid) or from the next period (a downgrade). The
+   * host's own call only (as `openPortal`): any other session is refused. So are the two below.
+   */
+  changeSubscription(
+    input: PaymentsChangeSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt>;
+  /** Submits `payments.subscription.pause` (never auto-approvable): the provider's pause. */
+  pauseSubscription(
+    input: PaymentsPauseSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt>;
+  /** Submits `payments.subscription.unpause`: ends a pause now, or withdraws one not started. */
+  unpauseSubscription(
+    input: PaymentsUnpauseSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt>;
+  /**
+   * Submits `payments.subscription.void_update`: cancels an upgrade's pending update by voiding the
+   * open invoice it made. The host's own call only.
+   */
+  voidPendingUpdate(input: PaymentsVoidUpdateInput): Promise<PaymentsSubscriptionChangeReceipt>;
   /**
    * Opens the provider's customer portal for one customer, with only the card, billing details and
    * past invoices on (no cancelling or plan changes there). Records an observation first.

@@ -16,10 +16,16 @@
 //   - a membership and a pass hold an `allowance` (ADRs 0493, 0494): uses per week, month or in
 //     all, the class types, weekdays and times of day they pay for, spent by a booking of their own
 //     Person, refused past the limit by the database for every actor;
+//   - a member changes plan on the web (an upgrade now, prorated, applied once paid; a downgrade from
+//     the next period) and staff pause a membership for a set time within the plan's bounds
+//     (`recurring.pause`): the host's `subscription.change` and `subscription.pause`, asked of the
+//     provider, followed from its verified events (ADRs 0530, 0531). The membership's terms follow
+//     the plan when the change takes effect; while paused it gives and spends nothing;
 //   - every term of a membership or a pass is read-only: only the host (and this pack's own staff
 //     tools, which a person calls) writes it, never a caller of the generic record operations.
 // The tools in tools.ts compose the host's operations and hold no rule of their own.
 import { defineExtension } from "@composable-os/sdk";
+import { membershipsDashboards } from "./dashboards.ts";
 import { buy, givePass, holdings, mine, passTypes, plans, voidPass } from "./tools.ts";
 
 /** Weekdays as the host's local time numbers them (ISO: 1 is Monday), for an off-peak limit. */
@@ -183,6 +189,22 @@ export default defineExtension({
           step: 1,
           description: "Empty or 0: charged from the start. A person gets one trial on any plan.",
         },
+        pauseMinDays: {
+          type: "number",
+          label: "Shortest pause (days)",
+          min: 1,
+          max: 366,
+          step: 1,
+          description: "Staff pause a membership for at least this long. Empty: 1 day.",
+        },
+        pauseMaxDays: {
+          type: "number",
+          label: "Longest pause (days)",
+          min: 1,
+          max: 366,
+          step: 1,
+          description: "And at most this long. Empty: a year.",
+        },
         status: { type: "select", label: "Status", default: "draft", options: ON_SALE },
       },
       public: {
@@ -210,6 +232,9 @@ export default defineExtension({
         recurring: {
           interval: "month",
           trialDays: "trialDays",
+          // Staff pause a membership for a set time (decision 10, ADR 0531): nothing charged, no
+          // classes, until the provider resumes it on its date.
+          pause: { minDays: "pauseMinDays", maxDays: "pauseMaxDays" },
           // What a subscription to it gives its holder, kept in step by the host (ADR 0510).
           grants: {
             object: "membership",
@@ -523,6 +548,13 @@ export default defineExtension({
       sort: { field: "until", direction: "asc" },
       columns: ["person", "title", "payer", "until"],
     },
+    paused: {
+      label: "Paused",
+      object: "memberships.membership",
+      filter: { field: "status", op: "eq", value: "paused" },
+      sort: { field: "from", direction: "desc" },
+      columns: ["person", "title", "payer", "from"],
+    },
     endingThisMonth: {
       label: "Ending this month",
       object: "memberships.membership",
@@ -534,6 +566,19 @@ export default defineExtension({
       },
       sort: { field: "until", direction: "asc" },
       columns: ["person", "title", "status", "until"],
+    },
+    passesExpiringThisWeek: {
+      label: "Passes expiring this week",
+      object: "memberships.pass",
+      filter: {
+        and: [
+          { field: "status", op: "eq", value: "active" },
+          { field: "until", op: "gte", value: { $relative: "now" } },
+          { field: "until", op: "lt", value: { $relative: "startOfNextWeek" } },
+        ],
+      },
+      sort: { field: "until", direction: "asc" },
+      columns: ["person", "title", "uses", "until"],
     },
     passesExpiringThisMonth: {
       label: "Passes expiring this month",
@@ -579,4 +624,5 @@ export default defineExtension({
   // and members hold and a human admin may grant to anyone else (ADR 0449).
   grantable: ["memberships:passes"],
   tools: { plans, passTypes, buy, mine, holdings, givePass, voidPass },
+  dashboards: membershipsDashboards,
 });

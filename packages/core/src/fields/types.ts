@@ -336,6 +336,8 @@ export interface SellableDefinition {
         trialDays?: string | undefined;
         /** What a subscription to it grants, kept in step with it (ADR 0510). */
         grants?: RecurringGrantDefinition | undefined;
+        /** Staff may pause one, within these number fields' days (ADR 0531). */
+        pause?: { minDays?: string | undefined; maxDays?: string | undefined } | undefined;
       }
     | undefined;
   /** A boolean field: while true, a Person buys the record once across the object (ADR 0512). */
