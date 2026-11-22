@@ -17,9 +17,13 @@ The wall-clock-to-instant conversion that survives a clock change existed only p
 ## Decision
 - **The wall-clock helper is shared**, `packages/core/src/time/local.ts`: `zoneOffset` and
   `realWallClock` moved from `offers.ts` unchanged (offers.ts imports them; stage 32b's session
-  moves the same two functions to the same file), and on top of them `localInstant(date,
-  minutes, zone)`, `localParts`, `localDaysBefore`, `addDays`, `isoWeekday`, `parseLocalTime`.
-  No Temporal (workerd's is not there yet); dates are `YYYY-MM-DD` strings.
+  moved the same two functions to the same file). One implementation of each job: stage 32b's
+  `wallClockToInstant`, `localParts` and `addLocalDays` (ADR 0493) are the conversions, and this
+  stage adds only date-text helpers on top (`parseLocalDate`, `parseLocalTime`, `wallClockOf`,
+  `isoWeekday`, `localDaysBefore`; adding days to a date string is `automations/cron.ts`'s
+  `addDaysToDate`). No Temporal (workerd's is not there yet); occurrence dates are `YYYY-MM-DD`
+  strings. (Merged with 32b on 2026-11-22: this stage's first `localInstant` and `localParts`
+  were the same jobs and were folded into 32b's.)
 - **The rule is weekly, in local wall-clock time** (spec's guess kept): weekdays (a multiSelect
   whose values are `mon`…`sun`), a local time (`HH:MM`, a text field), a length in minutes, a
   first and an optional last date, and a zone (the organisation's when empty). Not RFC 5545.
