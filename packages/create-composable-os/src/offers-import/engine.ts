@@ -294,8 +294,9 @@ export function offersReportLines(report: OffersReport, name = "offers.csv"): st
   if (cannot) {
     lines.push(
       `${cannot} of these people have no customer account and no invite. They can sign in to take ` +
-        "their offer only while customer sign-up is open; or run again with --invite (users:manage) " +
-        "to invite them, which works under every sign-up setting.",
+        'their offer while customer sign-up is open, or while the setting "anyone starting a ' +
+        'subscription" is on and the plan is on sale (Settings → Users); otherwise run again with ' +
+        "--invite (users:manage) to invite them, which works under every sign-up setting.",
     );
   }
   if (!report.dryRun) {

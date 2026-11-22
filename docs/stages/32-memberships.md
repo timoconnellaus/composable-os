@@ -628,9 +628,9 @@ check above. Where the build read the spec one way, or decided what it left open
 - **Sign-in:** the spec's "sign-up mode `buyers` or an invite lets them" is half right: `buyers`
   does not (an imported person has bought nothing here). `open` does, or an invite: the import's
   `--invite` invites each address (`users:manage`), so `invite_only` and `buyers` work too. No
-  sign-in change was made here. With the separate (unmerged) sign-in setting "anyone starting a
-  subscription" on, any address may get a code while a plan is on sale, so imported subscribers
-  sign in without invites; nothing here depends on it.
+  sign-in change was made here. With the sign-in setting "anyone starting a subscription" on
+  (ADR 0459) and a plan on sale, any address may get a code, so imported subscribers sign in
+  without invites, by the subscribe block's code step, and then see their offer.
 - **Free time and the trial (decision 7 and the owner's):** the continuation replaces the trial, is
   not the trial (no trial row). No trial while the holder has an offer they can still take or a
   subscription from one that has not ended (`noTrial: "continuation"`); after it has ended, or the

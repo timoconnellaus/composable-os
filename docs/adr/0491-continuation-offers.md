@@ -87,10 +87,11 @@ signed in for the run, a device session held in memory only):
   `--invite` (`invite: true`) invites each matched address in the import's batch, as
   `customer.invite` does, and needs `users:manage` as it does; the report says how many people can
   sign in only while sign-up is open. Nothing is emailed to anyone: the company tells its people.
-  A separate change (not merged when this was built) adds the customer sign-in setting "anyone
-  starting a subscription": any address may get a code while a plan is on sale, people already in
-  the records included. With it on, imported subscribers sign in without invites. Nothing here
-  depends on it, and taking an offer still needs the address proved by its code.
+  With the customer sign-in setting "anyone starting a subscription" on
+  ([ADR 0459](0459-anyone-starting-a-subscription.md)) and a plan on sale, any address may get a
+  code, people already in the records included, so imported subscribers sign in without invites,
+  on the plan by the subscribe block's code step; a visitor who confirms a code and has an offer
+  is shown the offer, not the trial. Taking an offer still needs the address proved by its code.
 
 **The report.** `subscription.offer.list` (staff with `subscriptions:manage`, which its handler checks: a read carries a read permission, `records:read`) lists offers by
 address with their status (taken, open, expired, withdrawn), a page held open, the subscription

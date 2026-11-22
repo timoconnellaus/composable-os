@@ -5,6 +5,8 @@
 // on to the provider's (fake) page with the trial, pays, and holds every course. The subscribe
 // block is the Courses pack's own web block, mounted at `/blocks` (development only), with the
 // host's customer sign-in by code (`"signIn": "customer"`).
+// And (stage 32a, ADR 0491) a subscriber imported from another platform, with no account, signs in
+// the same way under the switch and is shown their continuation offer, not the trial.
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 import { open, unique } from "./helpers.ts";
 import {
@@ -312,6 +314,111 @@ test("a visitor whose record waits for staff is not stranded: they subscribe as 
         (n) => n.title === "A customer account needs a merge" && Boolean(n.body?.includes(second)),
       ),
     ).toBe(true);
+  } finally {
+    await visitor.close();
+    await op(page.request, "record.delete", { object: "courses.plan", id: created.id }, false);
+    await op(
+      page.request,
+      "outbound.setAutoApprove",
+      { tag: "fake.signin", enabled: false },
+      false,
+    );
+    await op(
+      page.request,
+      "customer.settings.update",
+      { signup: "invite_only", startingSubscription: false },
+      false,
+    );
+  }
+});
+
+test("an imported subscriber with no account confirms a code on the plan and is shown their continuation offer, not the trial", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(300_000);
+  const origin = new URL(baseURL ?? "").origin;
+  const outbox = await setUp(page, origin);
+  const course = await op<{ id: string }>(page.request, "record.create", {
+    object: "courses.course",
+    values: { title: unique("Strength "), price: 39 },
+  });
+  await op(page.request, "record.publish", { object: "courses.course", id: course.id });
+  const title = unique("Every class ");
+  const created = await op<{ id: string }>(page.request, "record.create", {
+    object: "courses.plan",
+    values: { title, price: 29, trialDays: 7 },
+  });
+  // Moving from another platform: the person comes first, then their offer, with no invite.
+  const email = `${unique("moving")}@visitors.test`.toLowerCase();
+  await op(page.request, "person.create", { givenName: "Moving", emails: [{ email }] });
+  const paidUpTo = new Date(Date.now() + 21 * 86_400_000).toISOString().slice(0, 10);
+  const imported = await op<{
+    results: { outcome: string; signIn: string | null; freeUntil: string }[];
+  }>(page.request, "subscription.offer.import", {
+    plan: { object: "courses.plan", id: created.id },
+    rows: [{ email, freeUntil: paidUpTo }],
+  });
+  expect(imported.results[0]).toMatchObject({ outcome: "created", signIn: null });
+  const freeUntil = imported.results[0]?.freeUntil as string;
+  // With the switch on, an address already in the records may get a code: no invite needed.
+  await op(page.request, "customer.settings.update", { startingSubscription: true });
+  const visitor = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+  try {
+    const tab = await visitor.newPage();
+    await tab.goto(
+      block("courses-subscribe", "Subscribe", {
+        returnUrl: `${origin}/blocks`,
+        signedIn: false,
+        signIn: "customer",
+      }),
+    );
+    const card = tab.getByRole("region", { name: "Subscribe" });
+    const plan = card.locator('[data-slot="card"]').filter({ hasText: title });
+    await plan.getByLabel("Your email").fill(email);
+    await plan.getByRole("button", { name: "Subscribe" }).click();
+    await expect(card.getByRole("status")).toContainText("The free trial is for signed-in members");
+    await card.getByRole("button", { name: "Email me a code for the free trial" }).click();
+    const code = await codeFor(page, outbox, email, 1);
+    await card.getByLabel("The code we emailed you").fill(code);
+    await card.getByRole("button", { name: "Confirm and start my free trial" }).click();
+
+    // Signed in, they are shown their offer in place of the trial, never sent on to a trial.
+    const offered = tab
+      .getByRole("region", { name: "Subscribe" })
+      .locator('[data-slot="card"]')
+      .filter({ hasText: title });
+    await expect(offered.getByTestId("continuation-offer")).toContainText("Continue it here");
+    await expect(tab.getByRole("button", { name: /free trial/ })).toHaveCount(0);
+    await offered.getByRole("button", { name: /^Continue, free until/ }).click();
+    await expect(tab.getByRole("heading", { name: /Fake payment page/i })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(tab.getByText(`Nothing is charged until ${freeUntil.slice(0, 10)}`)).toBeVisible();
+    await tab.getByRole("button", { name: "Pay", exact: true }).click();
+
+    await expect
+      .poll(
+        async () =>
+          (
+            await op<{ courses: { id: string; why: string }[] }>(
+              visitor.request,
+              "x.courses.myCourses",
+              {},
+            )
+          ).courses.find((c) => c.id === course.id)?.why,
+        { timeout: 30_000 },
+      )
+      .toBe("subscription");
+    const mine = await op<{ items: { state: string; trialEnd: string }[] }>(
+      visitor.request,
+      "subscription.list",
+      {},
+    );
+    expect(mine.items).toEqual([
+      expect.objectContaining({ state: "trialing", trialEnd: freeUntil }),
+    ]);
   } finally {
     await visitor.close();
     await op(page.request, "record.delete", { object: "courses.plan", id: created.id }, false);

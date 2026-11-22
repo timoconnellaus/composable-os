@@ -155,7 +155,8 @@ The run that the course subscribers' move depends on. Use your second address.
    Continuation offers is empty); the import says 1 created and 1 invited; running it again says 1
    unchanged.
 3. Set customer sign-up to **invite only** (Settings → Customers; with the setting "anyone starting
-   a subscription", where the deployment has it, invites are not needed), sign in as the second address
+   a subscription" on, invites are not needed: try that too, a third person signing in by the
+   subscribe block's code step on the plan, who must see the offer, not the trial), sign in as the second address
    in a private window, and open the subscribe block. **Check 22:** the plan says the
    subscription is paid up to that date and offers "Continue, free until <date>"; no trial is
    offered on any plan.

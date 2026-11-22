@@ -382,9 +382,10 @@ A CSV with a header row; its columns may come in any order, and extra ones are i
   types it, never staff for them. An imported person has no customer account yet. With customer
   sign-up `open` they can sign up; with `invite_only` or `buyers` they cannot unless invited.
   `--invite` invites each address (it needs the `users:manage` permission, as inviting does), which
-  works under every setting. A separate change, not yet merged, adds a customer sign-in setting
-  "anyone starting a subscription" (any address may get a code while a plan is on sale, people
-  already in the records included); with it on, imported subscribers can sign in without invites.
+  works under every setting. With the customer sign-in setting "anyone starting a subscription"
+  on (Settings → Users, ADR 0459) and the plan on sale, any address may get a code, people already
+  in the records included, so imported subscribers sign in without invites: on the plan itself, by
+  the subscribe block's code step, which then shows them their offer, not the trial.
   Nothing is emailed: tell your people to sign in on the site with that address and continue their
   subscription there.
 - **What they see.** The subscribe block shows a signed-in member their offer ("Continue, free

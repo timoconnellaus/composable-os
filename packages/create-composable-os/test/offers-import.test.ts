@@ -139,7 +139,9 @@ describe("the import", () => {
       true,
     );
     // The one with no account and no invite: what the company must set, said once.
-    expect(lines.some((l) => l.includes("only while customer sign-up is open"))).toBe(true);
+    expect(lines.some((l) => l.includes("anyone starting a subsc") && l.includes("--invite"))).toBe(
+      true,
+    );
   });
 
   it("writes nothing on --dry-run", async () => {
