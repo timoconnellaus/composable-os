@@ -23,6 +23,8 @@ export function boundTestEnv(base: object): ApiEnv {
     AUTH_ALLOW_SIGNUP: "true",
     MCP_RATE_LIMIT: memoryRateLimit(10_000),
     MCP_WRITE_RATE_LIMIT: memoryRateLimit(10_000),
+    // Codes to new addresses (ADR 0459): without the binding none is sent, so the tests bind one.
+    CUSTOMER_CODE_NEW_RATE_LIMIT: memoryRateLimit(10_000),
     CUSTOMER_AUTH_SECRET: BOUND_CUSTOMER_SECRET,
     CUSTOMER_AUTH_URL: WEB_ORIGIN,
   } as unknown as ApiEnv;

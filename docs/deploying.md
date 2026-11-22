@@ -98,9 +98,9 @@ and it needs Wrangler 4.36.0 or later.
 | `MCP_WRITE_RATE_LIMIT` | connected app | 30 per 60 s | non-read operations over MCP (tool error `rate_limited`) |
 | `CODE_MODE_RATE_LIMIT` | user | 10 per 60 s | Code Mode runs |
 | `CUSTOMER_RATE_LIMIT` | customer account and operation | 60 per 60 s | a customer's calls over the HTTP surface (`rate_limited`, HTTP 429) |
-| `CUSTOMER_CODE_RATE_LIMIT` | email address asked for | 3 per 60 s | customer sign-in code requests |
-| `CUSTOMER_CODE_ADDRESS_RATE_LIMIT` | client address, hashed | 10 per 60 s | customer sign-in code requests |
-| `CUSTOMER_CODE_NEW_RATE_LIMIT` | one key for the whole host | 20 per 60 s | codes sent to new addresses that only "anyone starting a subscription" lets sign in (ADR 0459); over it, nothing is sent and the answer is unchanged |
+| `CUSTOMER_CODE_RATE_LIMIT` | mailbox asked for (a `+tag`, and Gmail's dots, folded away) | 3 per 60 s | customer sign-in code requests |
+| `CUSTOMER_CODE_ADDRESS_RATE_LIMIT` | client address, hashed (an IPv6 address by its /64) | 10 per 60 s | customer sign-in code requests |
+| `CUSTOMER_CODE_NEW_RATE_LIMIT` | one key for the whole host | 20 per 60 s | codes sent to addresses that only "anyone starting a subscription" lets sign in (ADR 0459); over it, nothing is sent, the answer is unchanged and admins are told once an hour. **Unlike the others, a missing binding sends no such code** (shut, not open) |
 
 To change a limit, edit its `simple.limit` (any positive integer) or `simple.period` (`10` or
 `60` seconds only) and redeploy. Limits are **approximate**: Cloudflare counts per location and
@@ -152,7 +152,12 @@ middle one. On top of any of them, **also anyone starting a subscription**
 (`startingSubscription`, ADR 0459): while a plan is on sale to the public, any new address may get
 a code, so a new visitor confirms their address and starts the plan signed in, with its free
 trial. In effect anyone can make a customer account while a plan is on sale; codes this sends are
-also limited for the whole host (`CUSTOMER_CODE_NEW_RATE_LIMIT`). Every address is answered the
+also limited for the whole host (`CUSTOMER_CODE_NEW_RATE_LIMIT`). It includes people already in
+the records (a contact, a past buyer): confirming the address signs them in to that Person and its
+own orders, tickets and subscriptions. Sign-up opens the moment a plan goes on sale, whoever
+publishes or prices it; admins are told when it does. The limit's binding is part of the release,
+so an existing host gets it at its next update; until then, no code goes out by this switch.
+Every address is answered the
 same whichever is chosen. `cos deploy` and `product.ts` never set any of it.
 
 #### A company's web app on its own hostname (stage 24)

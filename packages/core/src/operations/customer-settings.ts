@@ -4,7 +4,7 @@
 // only: no assistant, MCP client, automation or extension may open or close sign-up or give staff
 // longer to erase someone.
 import { z } from "zod";
-import { hasPlanOnSale } from "../customers/plan-on-sale.ts";
+import { findPlanOnSale, forgetPlanOnSale, hasPlanOnSale } from "../customers/plan-on-sale.ts";
 import {
   CUSTOMER_EMAIL_CONNECTION_SETTING,
   CUSTOMER_ERASE_DUE_SETTING,
@@ -18,6 +18,7 @@ import {
   loadEraseDueDays,
 } from "../customers/settings.ts";
 import { signInKindStatement, signInMailState } from "../customers/sign-in-mail.ts";
+import { signupStateStatement } from "../customers/subscriber-signup.ts";
 import { ValidationError } from "../errors.ts";
 import { resolveChannelTarget } from "../notifications/channels.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
@@ -33,7 +34,11 @@ const startingSubscription = z
     "On top of signup: anyone starting a subscription (default false). While the host has a " +
       "subscription plan on sale to the public, any address with no account may get a sign-in " +
       "code and so a customer account, to start the plan signed in with its free trial. In " +
-      "effect, anyone can make an account while a plan is on sale. No effect when signup is open.",
+      "effect, anyone can make an account while a plan is on sale, including people already in " +
+      "the records (a contact, a past buyer), who then see their own orders, tickets and " +
+      "subscriptions. Sign-up opens the moment a plan goes on sale, whoever publishes or prices " +
+      "it; admins are told when it does. Kept when signup is open, and applies again if the " +
+      "mode changes back.",
   );
 const eraseDueDays = eraseDueDaysSchema.describe(
   "Days staff have to erase the person or decline, after a customer deletes their account " +
@@ -175,6 +180,23 @@ export const customerSettingsUpdate = defineOperation({
     if (input.signup !== undefined) store(CUSTOMER_SIGNUP_SETTING, "signup");
     if (input.startingSubscription !== undefined) {
       store(CUSTOMER_SIGNUP_SUBSCRIBERS_SETTING, "startingSubscription");
+      forgetPlanOnSale();
+      // Turned on: what is on sale now is the starting point, so only a plan going on sale
+      // later is reported to admins as opening sign-up (subscriber-signup.ts).
+      if (input.startingSubscription && !previous.startingSubscription) {
+        const found = await findPlanOnSale(ctx.db, ctx.now);
+        ctx.write(
+          signupStateStatement(
+            ctx.db,
+            {
+              onSale: found.state === "on_sale",
+              plan: found.state === "on_sale" ? found.plan : null,
+              at: ctx.now,
+            },
+            ctx.user.id,
+          ),
+        );
+      }
     }
     if (input.eraseDueDays !== undefined) store(CUSTOMER_ERASE_DUE_SETTING, "eraseDueDays");
     if (input.emailConnectionId !== undefined) {

@@ -31,6 +31,22 @@ async function op<T>(
   return (ok ? body.data : body.error) as T;
 }
 
+/** The code in the `count`th sign-in mail to `email`, once it has arrived. */
+async function codeFor(page: Page, outbox: string, email: string, count: number) {
+  let code = "";
+  await expect
+    .poll(
+      async () => {
+        const sent = (await sentMail(page.request, outbox)).filter((m) => m.to.includes(email));
+        code = sent.length >= count ? (/\b(\d{6})\b/.exec(sent.at(-1)?.text ?? "")?.[1] ?? "") : "";
+        return code;
+      },
+      { timeout: 30_000 },
+    )
+    .toMatch(/^\d{6}$/);
+  return code;
+}
+
 const block = (name: string, component: string, props: Record<string, unknown> = {}) =>
   `/blocks?block=${name}&component=${component}&props=${encodeURIComponent(JSON.stringify(props))}`;
 
@@ -153,17 +169,13 @@ test("a new visitor confirms their address with a code and starts a course plan 
 
     // They confirm their address with the emailed code, on the plan, and go on with the trial.
     await card.getByRole("button", { name: "Email me a code for the free trial" }).click();
-    let code = "";
-    await expect
-      .poll(
-        async () => {
-          const sent = (await sentMail(page.request, outbox)).filter((m) => m.to.includes(email));
-          code = /\b(\d{6})\b/.exec(sent.at(-1)?.text ?? "")?.[1] ?? "";
-          return code;
-        },
-        { timeout: 30_000 },
-      )
-      .toMatch(/^\d{6}$/);
+    await codeFor(page, outbox, email, 1);
+    // A wrong code is refused, and a new one can be asked for there, without reloading.
+    await card.getByLabel("The code we emailed you").fill("000000");
+    await card.getByRole("button", { name: "Confirm and start my free trial" }).click();
+    await expect(card.getByRole("alert")).toContainText("That code did not work");
+    await card.getByRole("button", { name: "Send me a new code" }).click();
+    const code = await codeFor(page, outbox, email, 2);
     await card.getByLabel("The code we emailed you").fill(code);
     await card.getByRole("button", { name: "Confirm and start my free trial" }).click();
     await expect(tab.getByRole("heading", { name: /Fake payment page/i })).toBeVisible({
@@ -186,9 +198,122 @@ test("a new visitor confirms their address with a code and starts a course plan 
         { timeout: 30_000 },
       )
       .toBe("subscription");
+
+    // With sign-up open to anyone, the stored switch is shown on and kept for later.
+    await op(page.request, "customer.settings.update", { signup: "open" });
+    await open(page, "/settings/users");
+    await expect(page.getByTestId("starting-subscription-kept")).toContainText(
+      "applies again if you change who can sign in back",
+    );
+    await expect(
+      page.getByRole("checkbox", { name: /Also anyone starting a subscription/ }),
+    ).toBeChecked();
   } finally {
     await visitor.close();
     // The plan goes to the Trash, so a later spec on this database offers only its own.
+    await op(page.request, "record.delete", { object: "courses.plan", id: created.id }, false);
+    await op(
+      page.request,
+      "outbound.setAutoApprove",
+      { tag: "fake.signin", enabled: false },
+      false,
+    );
+    await op(
+      page.request,
+      "customer.settings.update",
+      { signup: "invite_only", startingSubscription: false },
+      false,
+    );
+  }
+});
+
+test("a visitor whose record waits for staff is not stranded: they subscribe as a guest, and staff are told", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(300_000);
+  const origin = new URL(baseURL ?? "").origin;
+  const outbox = await setUp(page, origin);
+  const title = unique("Every class ");
+  const created = await op<{ id: string }>(page.request, "record.create", {
+    object: "courses.plan",
+    values: { title, price: 29, trialDays: 7 },
+  });
+  // On once the plan is on sale: a code request may reuse "is a plan on sale" for up to a minute,
+  // so turning it on first, then putting a plan on sale, could keep codes back for that minute.
+  await op(page.request, "customer.settings.update", { startingSubscription: true });
+  expect(
+    await op<{ startingSubscription: boolean; planOnSale: boolean }>(
+      page.request,
+      "customer.settings.get",
+      {},
+    ),
+  ).toMatchObject({ startingSubscription: true, planOnSale: true });
+  // One Person with two addresses, already signed in as a customer with the first: an account
+  // for the second has to wait for staff (the Person has another account).
+  const first = `${unique("known")}@visitors.test`.toLowerCase();
+  const second = `${unique("known-too")}@visitors.test`.toLowerCase();
+  await op(page.request, "person.create", {
+    givenName: "Known",
+    emails: [{ email: first, primary: true }, { email: second }],
+  });
+  const visitor = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+  try {
+    const member = await browser.newContext({
+      baseURL,
+      storageState: { cookies: [], origins: [] },
+    });
+    const asked = await member.request.post("/api/customer-auth/email-otp/send-verification-otp", {
+      data: { email: first, type: "sign-in" },
+      headers: { origin },
+    });
+    expect(asked.status(), await asked.text()).toBe(200);
+    const signedIn = await member.request.post("/api/customer-auth/sign-in/email-otp", {
+      data: { email: first, otp: await codeFor(page, outbox, first, 1) },
+      headers: { origin },
+    });
+    expect(signedIn.status()).toBe(200);
+    await member.close();
+
+    const tab = await visitor.newPage();
+    await tab.goto(
+      block("courses-subscribe", "Subscribe", {
+        returnUrl: `${origin}/blocks`,
+        signedIn: false,
+        signIn: "customer",
+      }),
+    );
+    const card = tab.getByRole("region", { name: "Subscribe" });
+    const plan = card.locator('[data-slot="card"]').filter({ hasText: title });
+    await plan.getByLabel("Your email").fill(second);
+    await plan.getByRole("button", { name: "Subscribe" }).click();
+    await card.getByRole("button", { name: "Email me a code for the free trial" }).click();
+    await card.getByLabel("The code we emailed you").fill(await codeFor(page, outbox, second, 1));
+    await card.getByRole("button", { name: "Confirm and start my free trial" }).click();
+
+    // Not stranded: told why, the email field back, and they can pay from today as a guest.
+    await expect(card.getByRole("status")).toContainText("we need to sort out your record");
+    await expect(plan.getByLabel("Your email")).toHaveValue(second);
+    await plan.getByRole("button", { name: "Subscribe" }).click();
+    await expect(tab.getByRole("heading", { name: /Fake payment page/i })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(tab.getByText(/Nothing is charged until/)).toHaveCount(0);
+
+    // Staff are told the account needs a merge.
+    const notices = await op<{ items: { title: string; body: string | null }[] }>(
+      page.request,
+      "notification.list",
+      { limit: 50 },
+    );
+    expect(
+      notices.items.some(
+        (n) => n.title === "A customer account needs a merge" && Boolean(n.body?.includes(second)),
+      ),
+    ).toBe(true);
+  } finally {
+    await visitor.close();
     await op(page.request, "record.delete", { object: "courses.plan", id: created.id }, false);
     await op(
       page.request,

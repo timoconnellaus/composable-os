@@ -32,6 +32,7 @@ import {
   type WorkingCopyOptions,
   type WorkspaceEntry,
   type WorkspaceWrite,
+  watchSubscriberSignup,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
@@ -302,6 +303,7 @@ export async function minuteTick(env: Env, at: Date) {
       duplicates: null,
       orders: null,
       publishing: null,
+      customerSignup: null,
     };
   }
   const schedules = await minuteStep("schedules", () => runAutomationCron(env, at));
@@ -335,6 +337,12 @@ export async function minuteTick(env: Env, at: Date) {
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
     }),
   );
+  // Customer sign-in (ADR 0459): admins hear within a minute when a plan going on sale opened
+  // sign-up to anyone ("anyone starting a subscription" on). Nothing while the switch is off.
+  const customerSignup = await minuteStep("customer sign-up", async () => {
+    const { opened } = await watchSubscriberSignup(createCrmDb(env.DB), at);
+    return { opened };
+  });
   return {
     paused: false,
     schedules,
@@ -344,6 +352,7 @@ export async function minuteTick(env: Env, at: Date) {
     duplicates,
     orders,
     publishing,
+    customerSignup,
   };
 }
 

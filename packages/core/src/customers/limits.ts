@@ -2,8 +2,9 @@
 // binding (rate-limit.ts, ADR 0091):
 //
 // - A customer's calls are limited per account and per operation: `customer:<id>:<operation>`.
-// - A request for a sign-in code is limited per address asked for: `code:<address>`, the
-//   normalised email address. So nobody can flood one person's inbox, whoever asks.
+// - A request for a sign-in code is limited per address asked for: `code:<mailbox>`, the
+//   normalised email address with a `+tag` (and Gmail's dots) folded away (ADR 0459). So nobody can
+//   flood one person's inbox, whoever asks, nor get round the limit with tags.
 // - Public calls and code requests are also limited per client address, by Cloudflare's rate
 //   limiting rules at the HTTP surface (stage 23). That limit is the edge's: no client address is
 //   ever passed here, stored or logged.
@@ -35,9 +36,36 @@ export async function checkOutsideRateLimit(
   if (!result.ok) refuse("calls", result.retryAfterSeconds);
 }
 
+const DOTLESS_DOMAINS: Readonly<Record<string, string>> = {
+  "gmail.com": "gmail.com",
+  "googlemail.com": "gmail.com",
+};
+
 /**
- * Counts one request for a sign-in code to `email`, keyed by the normalised address. An address
- * that is not one is not counted (nothing will be sent to it). Over the limit: RateLimitedError.
+ * The mailbox an address most likely reaches, for counting requests only (ADR 0459): a `+tag`
+ * dropped on every domain, and on Gmail the dots too (`googlemail.com` is `gmail.com`). So
+ * `a+1@x.com` and `a+2@x.com` share one allowance. Never an identity: the account, the Person and
+ * the address mailed stay as typed.
+ */
+export function mailboxKey(address: string): string {
+  const at = address.lastIndexOf("@");
+  if (at <= 0) return address;
+  let local = address.slice(0, at);
+  let domain = address.slice(at + 1);
+  const plus = local.indexOf("+");
+  if (plus > 0) local = local.slice(0, plus);
+  const dotless = DOTLESS_DOMAINS[domain];
+  if (dotless) {
+    domain = dotless;
+    local = local.replaceAll(".", "") || local;
+  }
+  return `${local}@${domain}`;
+}
+
+/**
+ * Counts one request for a sign-in code to `email`, keyed by the mailbox it reaches
+ * (`mailboxKey` of the normalised address). An address that is not one is not counted (nothing
+ * will be sent to it). Over the limit: RateLimitedError.
  */
 export async function checkCodeRequestLimit(
   binding: RateLimitBinding | undefined,
@@ -45,6 +73,6 @@ export async function checkCodeRequestLimit(
 ): Promise<void> {
   const address = normaliseCustomerEmail(email);
   if (!address) return;
-  const result = await rateLimit(binding, `code:${address}`);
+  const result = await rateLimit(binding, `code:${mailboxKey(address)}`);
   if (!result.ok) refuse("sign-in code requests", result.retryAfterSeconds);
 }

@@ -18145,7 +18145,7 @@
           },
           "startingSubscription": {
             "type": "boolean",
-            "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale. No effect when signup is open."
+            "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale, including people already in the records (a contact, a past buyer), who then see their own orders, tickets and subscriptions. Sign-up opens the moment a plan goes on sale, whoever publishes or prices it; admins are told when it does. Kept when signup is open, and applies again if the mode changes back."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18252,7 +18252,7 @@
           },
           "startingSubscription": {
             "type": "boolean",
-            "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale. No effect when signup is open."
+            "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale, including people already in the records (a contact, a past buyer), who then see their own orders, tickets and subscriptions. Sign-up opens the moment a plan goes on sale, whoever publishes or prices it; admins are told when it does. Kept when signup is open, and applies again if the mode changes back."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18289,7 +18289,7 @@
           },
           "startingSubscription": {
             "type": "boolean",
-            "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale. No effect when signup is open."
+            "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale, including people already in the records (a contact, a past buyer), who then see their own orders, tickets and subscriptions. Sign-up opens the moment a plan goes on sale, whoever publishes or prices it; admins are told when it does. Kept when signup is open, and applies again if the mode changes back."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18324,7 +18324,7 @@
               },
               "startingSubscription": {
                 "type": "boolean",
-                "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale. No effect when signup is open."
+                "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale, including people already in the records (a contact, a past buyer), who then see their own orders, tickets and subscriptions. Sign-up opens the moment a plan goes on sale, whoever publishes or prices it; admins are told when it does. Kept when signup is open, and applies again if the mode changes back."
               },
               "eraseDueDays": {
                 "type": "integer",

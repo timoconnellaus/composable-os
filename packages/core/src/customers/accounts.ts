@@ -112,9 +112,12 @@ async function isErased(db: Kysely<CoreDatabase>, address: string): Promise<bool
  * - `open`: sign-up is open to anyone;
  * - `invite`: staff invited it;
  * - `buyer`: sign-up is `buyers` and it bought (ADR 0458);
- * - `subscription`: "anyone starting a subscription" is on and a plan is on sale (ADR 0459). The
- *   only reason that a stranger can bring about for an address with no account and no history,
- *   so sign-in limits how many codes go out for it host-wide (`CUSTOMER_CODE_NEW_RATE_LIMIT`).
+ * - `subscription`: "anyone starting a subscription" is on and a plan is on sale (ADR 0459), for
+ *   any address with no account: a stranger's, and also one that already belongs to a Person in
+ *   the records (a contact staff entered, a past guest buyer), who after confirming the address
+ *   is linked to that Person and sees their own orders, tickets and subscriptions. The only
+ *   reason a stranger can bring about for any address, so sign-in also limits how many codes go
+ *   out for it host-wide (`CUSTOMER_CODE_NEW_RATE_LIMIT`).
  */
 export type CustomerCodeReason = "account" | "open" | "invite" | "buyer" | "subscription";
 
@@ -134,6 +137,8 @@ export async function customerCodeReason(
   db: Kysely<CoreDatabase>,
   email: string,
   now: string = new Date().toISOString(),
+  /** `memo`: a code request may reuse a recent "is a plan on sale" (never at account creation). */
+  options: { memo?: boolean } = {},
 ): Promise<CustomerCodeReason | null> {
   const address = normaliseCustomerEmail(email);
   if (!address) return null;
@@ -151,21 +156,18 @@ export async function customerCodeReason(
   if (signup === "buyers" && (await hasBought(db, address))) return "buyer";
   if (await loadCustomerSignupSubscribers(db)) {
     // Loaded lazily: it prices plans through the orders module, which reaches this one.
-    const { hasPlanOnSale } = await import("./plan-on-sale.ts");
-    try {
-      if (await hasPlanOnSale(db, now)) return "subscription";
-    } catch (error) {
-      // A plan that cannot be read or priced now gives no new address a code: shut, not open.
-      console.error(
-        "customer sign-in: could not tell whether a plan is on sale",
-        error instanceof Error ? error.message : error,
-      );
-    }
+    // A plan that cannot be read or priced now (`unknown`) gives no new address a code: shut.
+    const { findPlanOnSale } = await import("./plan-on-sale.ts");
+    const found = await findPlanOnSale(db, now, options);
+    if (found.state === "on_sale") return "subscription";
   }
   return null;
 }
 
-/** Whether a sign-in code may be sent to `email` (`customerCodeReason` is not null). */
+/**
+ * Whether a sign-in code may be sent to `email` (`customerCodeReason` is not null), worked out
+ * afresh: the second check when Better Auth creates the account.
+ */
 export async function customerMayGetCode(
   db: Kysely<CoreDatabase>,
   email: string,

@@ -19,11 +19,11 @@ import { resolveBuyer } from "../orders/guests.ts";
 import { priceLines } from "../orders/orders.ts";
 import {
   isAllowedReturnUrl,
-  loadOrderCurrency,
   loadOrderTax,
   loadOrderTaxCodes,
   loadReturnOrigins,
 } from "../orders/settings.ts";
+import { subscriptionSetup } from "../orders/subscription-setup.ts";
 import { taxCodeOf } from "../orders/tax.ts";
 import { holdsPermission } from "../principals.ts";
 import { callerOf } from "../records/transitions.ts";
@@ -64,7 +64,9 @@ export async function startSubscription(
   ctx: HandlerContext,
   input: { plan: { object: string; id: string }; returnUrl: string; email?: string | undefined },
 ): Promise<StartedSubscription> {
-  requireReturnUrl(input.returnUrl, await loadReturnOrigins(ctx.db));
+  // The same setup "a plan is on sale" reads (ADR 0459), so the two cannot drift.
+  const setup = await subscriptionSetup(ctx.db);
+  requireReturnUrl(input.returnUrl, setup.returnOrigins);
   const caller = ctx.principal;
   let personId: string | null;
   let email: string;
@@ -99,7 +101,7 @@ export async function startSubscription(
       { rule: "payer" },
     );
   }
-  const currency = await loadOrderCurrency(ctx.db);
+  const { currency } = setup;
   if (!currency) {
     throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
   }
@@ -122,7 +124,8 @@ export async function startSubscription(
   // staff. A guest only typed an address; reusing that address's customer would attach the
   // guest's card and invoices to someone else's billing (review of 32a). A guest always gets a
   // new provider customer from the address (ADR 0487 says which one the portal then opens).
-  const target = await paymentsTarget(ctx.db);
+  // Not connected: paymentsTarget says so, as before.
+  const target = setup.target ?? (await paymentsTarget(ctx.db));
   const proved = caller.kind === "customer" || caller.kind === "staff";
   const earlier = proved ? await latestCustomerRef(ctx, personId, target.provider) : null;
   // Tax on every period (ADR 0479): only when a human admin turned it on and the plan has a code.

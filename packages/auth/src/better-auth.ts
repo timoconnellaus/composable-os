@@ -79,9 +79,35 @@ export function randomId(): string {
   return Array.from(bytes, (byte) => ID_ALPHABET[byte % ID_ALPHABET.length]).join("");
 }
 
-/** A client address as a rate-limit key: hashed with a secret, so no address is passed on. */
+/**
+ * What one client is, for a per-client limit (ADR 0459): an IPv4 address as it is; an IPv6
+ * address as its /64, the block one subscriber is usually given, so a client cannot step through
+ * the addresses of its own network to get round the limit. Anything unreadable is kept as given.
+ */
+export function clientAddressBucket(address: string): string {
+  const ip = address.trim().toLowerCase().split("%")[0] ?? "";
+  if (!ip.includes(":")) return ip;
+  const [head = "", tail, extra] = ip.split("::");
+  if (extra !== undefined) return ip; // more than one "::": not an address
+  const groups = (part: string) => (part ? part.split(":") : []);
+  const left = groups(head);
+  const right = groups(tail ?? "");
+  // An embedded IPv4 tail (::ffff:192.0.2.1) is in the low 64 bits, which are dropped anyway.
+  const all =
+    tail === undefined
+      ? left
+      : [...left, ...Array(Math.max(8 - left.length - right.length, 0)).fill("0"), ...right];
+  const prefix = all.slice(0, 4);
+  if (prefix.length < 4 || prefix.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return ip;
+  return `${prefix.map((g) => Number.parseInt(g, 16).toString(16)).join(":")}::/64`;
+}
+
+/**
+ * A client address as a rate-limit key: its bucket (an IPv6 address's /64), hashed with a
+ * secret, so no address is passed on.
+ */
 export async function addressKey(address: string, secret: string): Promise<string> {
-  const data = new TextEncoder().encode(`${secret}\n${address}`);
+  const data = new TextEncoder().encode(`${secret}\n${clientAddressBucket(address)}`);
   const digest = await crypto.subtle.digest("SHA-256", data);
   return [...new Uint8Array(digest).slice(0, 16)]
     .map((b) => b.toString(16).padStart(2, "0"))

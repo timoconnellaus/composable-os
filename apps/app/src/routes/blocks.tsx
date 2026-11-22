@@ -124,21 +124,26 @@ function browserClient<C>(calls: Record<string, readonly string[]>): C {
 // biome-ignore lint/suspicious/noExplicitAny: the hooks are typed by each pack; this passes them through.
 type AnyHooks = any;
 
-async function customerAuth(path: string, body: unknown): Promise<boolean> {
-  const response = await fetch(`/api/customer-auth${path}`, {
+function customerAuth(path: string, body: unknown): Promise<Response> {
+  return fetch(`/api/customer-auth${path}`, {
     method: "POST",
     credentials: "same-origin",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  return response.ok;
 }
 
 /** The host's customer sign-in by code, from the browser (it sets the customer's cookie). */
 const customerSignIn = {
-  requestCode: (email: string) =>
-    customerAuth("/email-otp/send-verification-otp", { email, type: "sign-in" }),
-  confirm: (email: string, otp: string) => customerAuth("/sign-in/email-otp", { email, otp }),
+  requestCode: async (email: string) =>
+    (await customerAuth("/email-otp/send-verification-otp", { email, type: "sign-in" })).ok,
+  // The host's answer says whether the account is ready or waits for staff to merge people.
+  confirm: async (email: string, otp: string) => {
+    const response = await customerAuth("/sign-in/email-otp", { email, otp });
+    if (!response.ok) return null;
+    const { account } = (await response.json()) as { account?: unknown };
+    return account === "ready" ? ("ready" as const) : ("needs_attention" as const);
+  },
 };
 
 function usePackHooks(pack: string): AnyHooks {

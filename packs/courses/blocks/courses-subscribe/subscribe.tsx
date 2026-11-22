@@ -17,12 +17,14 @@ import { Label } from "../ui-label/label.tsx";
 
 /**
  * Signing a guest in by an emailed code, as the app does it (the web sign-in block's two calls:
- * the template's `/auth/code` and `/auth/sign-in`). Each says whether the host accepted it; the
- * host answers a code request the same for every address.
+ * the template's `/auth/code` and `/auth/sign-in`). `requestCode` says whether the host took the
+ * request (it answers every address the same). `confirm` gives the `account` the host's sign-in
+ * answer carries: `ready`, or `needs_attention` while staff sort out the person's record (the
+ * session is then not yet a customer's); null when the code was refused.
  */
 export interface SubscribeSignIn {
   requestCode: (email: string) => Promise<boolean>;
-  confirm: (email: string, code: string) => Promise<boolean>;
+  confirm: (email: string, code: string) => Promise<"ready" | "needs_attention" | null>;
 }
 
 export function Subscribe({
@@ -62,6 +64,8 @@ export function Subscribe({
   const [codeSent, setCodeSent] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  // Confirmed, but the account waits for staff to merge people: subscribe as a guest meanwhile.
+  const [waiting, setWaiting] = useState(false);
   const asCustomer = signedIn || confirmed;
   if (isPending) return <p aria-busy="true">Loading the plans…</p>;
   if (error || !data) return <p role="alert">We could not load the plans.</p>;
@@ -93,12 +97,37 @@ export function Subscribe({
       if (!codeSent) {
         if (await signIn.requestCode(email)) setCodeSent(true);
         else setProblem("We could not send a code. Try again in a moment.");
-      } else if (await signIn.confirm(email, code)) {
-        setConfirmed(true);
-        // Back to the same plan, now as the customer: the host gives the trial or says why not.
-        await onSubscribe(planId, true, true);
       } else {
-        setProblem("That code did not work. Check it, or ask for a new one.");
+        const account = await signIn.confirm(email, code);
+        if (account === "ready") {
+          setConfirmed(true);
+          // Back to the same plan, now as the customer: the host gives the trial or says why not.
+          await onSubscribe(planId, true, true);
+        } else if (account === "needs_attention") {
+          // Signed in, but not yet as a customer: staff are told (the host's merge notice). Back
+          // to the plans, where they can subscribe as a guest and pay from today.
+          setWaiting(true);
+          setCodeSent(false);
+          setCode("");
+          setNoTrial(null);
+        } else {
+          setProblem("That code did not work. Check it, or ask for a new one.");
+        }
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** A new code, after a wrong or expired one, without leaving the plan. */
+  async function onNewCode() {
+    if (!signIn) return;
+    setBusy(true);
+    setProblem(null);
+    setCode("");
+    try {
+      if (!(await signIn.requestCode(email))) {
+        setProblem("We could not send a code. Try again in a moment.");
       }
     } finally {
       setBusy(false);
@@ -132,6 +161,16 @@ export function Subscribe({
             <Button type="submit" disabled={busy || subscribe.isPending}>
               {codeSent ? "Confirm and start my free trial" : "Email me a code for the free trial"}
             </Button>
+            {codeSent ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void onNewCode()}
+              >
+                Send me a new code
+              </Button>
+            ) : null}
             {problem ? <p role="alert">{problem}</p> : null}
           </form>
         ) : reason === "sign_in" && (onSignInForTrial || signInUrl) ? (
@@ -152,6 +191,12 @@ export function Subscribe({
 
   return (
     <section className="grid gap-4" aria-label="Subscribe">
+      {waiting ? (
+        <p role="status">
+          Your address is confirmed, but we need to sort out your record before you can have the
+          free trial, and we have told the team. You can subscribe now and pay from today.
+        </p>
+      ) : null}
       {data.plans.map((plan) => {
         const trial = plan.trialDays && plan.trialDays > 0 ? plan.trialDays : null;
         return (
@@ -168,12 +213,13 @@ export function Subscribe({
                 className="grid max-w-sm gap-2"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  void onSubscribe(plan.id, trial !== null);
+                  // While the record waits for staff, no trial can be given: straight to paying.
+                  void onSubscribe(plan.id, trial !== null && !waiting);
                 }}
               >
                 {asCustomer ? null : (
                   <>
-                    {trial ? (
+                    {trial && !waiting ? (
                       <p>
                         {signInUrl ? (
                           <a href={signInUrl} className="underline">

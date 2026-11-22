@@ -5,16 +5,25 @@
 // new address is a new Person and a new trial, and the same Person never gets a second.
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { hasPlanOnSale } from "../src/customers/plan-on-sale.ts";
+import {
+  findPlanOnSale,
+  forgetPlanOnSale,
+  hasPlanOnSale,
+  PLANS_LOOKED_AT,
+} from "../src/customers/plan-on-sale.ts";
 import {
   type ActingUser,
+  checkCodeRequestLimit,
   customerCodeReason,
   customerMayGetCode,
   invoke,
   linkCustomer,
+  mailboxKey,
   memoryEventSink,
+  memoryRateLimit,
   newId,
   type ProviderSubscription,
+  watchSubscriberSignup,
 } from "../src/index.ts";
 import { erasedAddressHash } from "../src/records/erase-subject.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
@@ -287,5 +296,173 @@ describe("changing it", () => {
     const op = coreRegistry.get("customer.settings.update");
     expect(op?.mcp?.expose).toBe(false);
     expect(op?.actors).toEqual(["human"]);
+  });
+});
+
+describe("people already in the records (review of ADR 0459)", () => {
+  it("an address that already has a Person with history gets a code, links to that Person and sees its orders", async () => {
+    await update({ signup: "invite_only", startingSubscription: true });
+    const email = address("contact");
+    const person = await invoke(
+      "person.create",
+      { givenName: "Known", emails: [{ email }] },
+      context(admin),
+    );
+    const orderId = newId("order");
+    const at = new Date().toISOString();
+    await env.DB.prepare(
+      `INSERT INTO core_order (id, person_id, email, currency, total, paid, state, placed_as, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 5000, 5000, 'paid', 'staff', ?, ?)`,
+    )
+      .bind(orderId, person.id, email, CURRENCY, at, at)
+      .run();
+    // Not a buyer by the mode (invite only), not invited: the switch alone lets them in.
+    expect(await customerCodeReason(db.query, email)).toBe("subscription");
+    const customer = await signIn(email);
+    expect(customer.personId).toBe(person.id);
+    const mine = await run<{ id: string; state: string }>(
+      "order.get",
+      { id: orderId },
+      outside(customer),
+    );
+    expect(mine).toMatchObject({ id: orderId, state: "paid" });
+  });
+});
+
+describe("the per-address limit counts the mailbox", () => {
+  it("folds plus tags on every domain, and Gmail's dots, for the key only", async () => {
+    expect(mailboxKey("a+1@example.com")).toBe("a@example.com");
+    expect(mailboxKey("first.last+x@googlemail.com")).toBe("firstlast@gmail.com");
+    expect(mailboxKey("first.last@example.com")).toBe("first.last@example.com");
+    const limit = memoryRateLimit(2);
+    await checkCodeRequestLimit(limit, "a+1@example.com");
+    await checkCodeRequestLimit(limit, "a+2@example.com");
+    await expect(checkCodeRequestLimit(limit, "A+3@Example.com")).rejects.toMatchObject({
+      code: "rate_limited",
+    });
+    // Another mailbox has its own allowance.
+    await checkCodeRequestLimit(limit, "b+1@example.com");
+    const gmail = memoryRateLimit(1);
+    await checkCodeRequestLimit(gmail, "pat.lee@gmail.com");
+    await expect(checkCodeRequestLimit(gmail, "patlee+t@googlemail.com")).rejects.toMatchObject({
+      code: "rate_limited",
+    });
+  });
+});
+
+describe("what is on sale, worked out", () => {
+  it("needs the return origins subscription.start needs", async () => {
+    forgetPlanOnSale();
+    expect(await hasPlanOnSale(db.query)).toBe(true);
+    await run("order.settings.update", { returnOrigins: [] }, context(admin));
+    expect(await hasPlanOnSale(db.query)).toBe(false);
+    await run(
+      "order.settings.update",
+      { returnOrigins: ["https://shop.example.com"] },
+      context(admin),
+    );
+    expect(await hasPlanOnSale(db.query)).toBe(true);
+  });
+
+  it("a code request may reuse the answer for a minute; the account-creation check never does", async () => {
+    await update({ startingSubscription: true });
+    forgetPlanOnSale();
+    expect(await findPlanOnSale(db.query, undefined, { memo: true })).toMatchObject({
+      state: "on_sale",
+      plan: { object: PLAN, id: plan, title: "Every class" },
+    });
+    await invoke("record.delete", { object: PLAN, id: plan }, context(admin));
+    expect((await findPlanOnSale(db.query, undefined, { memo: true })).state).toBe("on_sale");
+    const email = address("memo");
+    expect(await customerCodeReason(db.query, email, undefined, { memo: true })).toBe(
+      "subscription",
+    );
+    // Better Auth's second check, when the account would be made: worked out again.
+    expect(await customerMayGetCode(db.query, email)).toBe(false);
+    await invoke("record.restore", { object: PLAN, id: plan }, context(admin));
+    forgetPlanOnSale();
+  });
+});
+
+describe("a plan going on sale while the switch is on", () => {
+  const opened = async () => {
+    const { results } = await env.DB.prepare(
+      "SELECT body FROM core_notifications WHERE user_id = ? AND title = 'Customer sign-up is now open to anyone'",
+    )
+      .bind(admin.id)
+      .all<{ body: string }>();
+    return results;
+  };
+
+  it("is reported to admins once, with who changed the plan, and audited; turning it on is not", async () => {
+    // Turned on while a plan is on sale: the admin did that themselves, nothing to report.
+    await update({ startingSubscription: false });
+    await update({ startingSubscription: true });
+    expect(await watchSubscriberSignup(db)).toMatchObject({ opened: false });
+    expect(await opened()).toHaveLength(0);
+    // The plan leaves sale, then comes back (restored by a member of staff).
+    await invoke("record.delete", { object: PLAN, id: plan }, context(admin));
+    expect(await watchSubscriberSignup(db)).toMatchObject({ opened: false });
+    await invoke("record.restore", { object: PLAN, id: plan }, context(admin));
+    expect(await watchSubscriberSignup(db)).toMatchObject({ opened: true });
+    expect(await watchSubscriberSignup(db)).toMatchObject({ opened: false });
+    const notices = await opened();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.body).toContain("Every class went on sale (last changed by admin user)");
+    expect(notices[0]?.body).toContain("including people already in your records");
+    const audit = await env.DB.prepare(
+      "SELECT actor, result FROM core_audit WHERE operation = 'customer.signupOpened'",
+    ).all<{ actor: string; result: string }>();
+    expect(audit.results).toHaveLength(1);
+    expect(JSON.parse(audit.results[0]?.result ?? "{}")).toMatchObject({
+      plan: { object: PLAN, id: plan },
+      changedBy: { userId: admin.id, actor: "human" },
+    });
+  });
+
+  it("is not looked at while the switch is off", async () => {
+    await update({ startingSubscription: false });
+    expect(await watchSubscriberSignup(db)).toEqual({ found: null, opened: false });
+    await update({ startingSubscription: true });
+  });
+});
+
+describe("when it cannot be answered", () => {
+  it("gives no code and tells admins once that the switch is doing nothing", async () => {
+    // Plans priced in another currency pass the SQL narrowing but none can be sold: more of them
+    // than are looked at, and none on sale, is no answer.
+    const OTHER = extId("aaa");
+    await reconcile(
+      manifest(OTHER, {
+        objects: {
+          plan: {
+            label: "Plan",
+            plural: "Plans",
+            titleField: "name",
+            fields: {
+              name: { type: "text", label: "Name", required: true },
+              price: { type: "currency", label: "Price", currency: "EUR" },
+            },
+            sellable: { price: "price", recurring: { interval: "month" } },
+            public: { read: ["name", "price"] },
+          },
+        },
+      }),
+    );
+    await invoke("record.delete", { object: PLAN, id: plan }, context(admin));
+    for (let i = 0; i <= PLANS_LOOKED_AT; i += 1) {
+      await create(`${OTHER}.plan`, { name: `Euro ${i}`, price: 10 });
+    }
+    forgetPlanOnSale();
+    expect(await findPlanOnSale(db.query)).toMatchObject({ state: "unknown" });
+    expect(await customerCodeReason(db.query, address("unknown"))).toBeNull();
+    await watchSubscriberSignup(db);
+    await watchSubscriberSignup(db);
+    const { results } = await env.DB.prepare(
+      "SELECT title FROM core_notifications WHERE user_id = ? AND title = 'Anyone starting a subscription is doing nothing'",
+    )
+      .bind(admin.id)
+      .all();
+    expect(results).toHaveLength(1);
   });
 });

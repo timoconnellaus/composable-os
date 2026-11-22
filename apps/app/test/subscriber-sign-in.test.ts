@@ -7,6 +7,7 @@ import { env } from "cloudflare:workers";
 import { createCustomerAuth, createIdentityProvider, customerIdentity } from "@composable-os/auth";
 import {
   applyPlan,
+  forgetPlanOnSale,
   inviteCustomer,
   memoryRateLimit,
   planReconcile,
@@ -192,6 +193,9 @@ describe("anyone starting a subscription", () => {
     const code = sentCodes.get(early);
     expect(code).toMatch(/^\d{6}$/);
     await asAdmin("record.delete", { object: PLAN, id: plan });
+    // A code request may reuse the answer for a minute in this isolate: forgotten here, as a
+    // minute passing would. The account check below never reuses it.
+    forgetPlanOnSale();
     const late = address("late");
     await ask(late);
     expect(sentCodes.has(late)).toBe(false);
@@ -246,5 +250,45 @@ describe("codes to new addresses are limited for the whole host", () => {
     expect(two).toEqual(one);
     expect(three).toEqual(one);
     expect(sent).toEqual([first, invited]);
+    // Admins are told, once an hour while it lasts.
+    await request(address("third"));
+    const told = await db.query
+      .selectFrom("core_notifications")
+      .select("body")
+      .where("user_id", "=", admin.id)
+      .where("title", "=", "New visitors are not getting sign-in codes")
+      .execute();
+    expect(told).toHaveLength(1);
+  });
+
+  it("without the limit's binding, a new address gets no code (shut, not open); others still do", async () => {
+    await asAdmin("customer.settings.update", { startingSubscription: true });
+    const unbound: string[] = [];
+    const identity = customerIdentity(
+      createCustomerAuth({
+        db: env.DB,
+        secret: "customer-secret-for-the-unbound-test-654",
+        baseURL: WEB_ORIGIN,
+        sendCode: async ({ to }) => {
+          unbound.push(to.toLowerCase());
+        },
+      }),
+      env.DB,
+    );
+    const ask = async (email: string) => {
+      const response = await identity.handle(
+        new Request(`${WEB_ORIGIN}/api/customer-auth/email-otp/send-verification-otp`, {
+          method: "POST",
+          headers: { "content-type": "application/json", origin: WEB_ORIGIN },
+          body: JSON.stringify({ email, type: "sign-in" }),
+        }),
+      );
+      return { status: response?.status, body: await response?.text() };
+    };
+    const stranger = address("unbound");
+    const invited = address("unbound-member");
+    await inviteCustomer(db, invited, admin.id);
+    expect(await ask(stranger)).toEqual(await ask(invited));
+    expect(unbound).toEqual([invited]);
   });
 });
