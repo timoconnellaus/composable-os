@@ -159,8 +159,9 @@ export const subscriptionStart = defineOperation({
           "trial), used (one trial per person per plan, had already), permission (staff without " +
           "subscriptions:manage), held (another page with the trial is open for this person), " +
           "unconfirmed (the payment provider could not say whether an earlier page was " +
-          "completed; try again later for the trial), continuation (this person has a " +
-          "continuation offer on this plan: they get its free time, never the trial). Null otherwise",
+          "completed; try again later for the trial), continuation (this person has an open " +
+          "continuation offer on this plan, or a subscription from one still running: no trial on " +
+          "top of it). Null otherwise",
       ),
     expiresAt: z.string().nullable(),
   }),

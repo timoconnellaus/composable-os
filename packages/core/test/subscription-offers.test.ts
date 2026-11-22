@@ -423,13 +423,33 @@ describe("taking an offer", () => {
         buyer.principal.personId,
       ),
     ).toBe(0);
-    // Used once; and never the plan's trial after it.
+    // Used once; and no trial while the subscription from it runs (no cancel-and-restart onto a
+    // trial during the continuation).
     expect((await refusal(take(buyer, offerId))).details).toMatchObject({ rule: "offer_taken" });
+    expect(await subscribe(buyer)).toMatchObject({ trialDays: null, noTrial: "continuation" });
+    await deliver(
+      "updated",
+      read(started.subscriptionId, {
+        status: "trialing",
+        trialEnd: started.freeUntil,
+        cancelAtPeriodEnd: true,
+      }),
+    );
     expect(await subscribe(buyer)).toMatchObject({ trialDays: null, noTrial: "continuation" });
     // Not offered to them any more.
     expect(
       (await run<{ offers: unknown[] }>("subscription.offer.mine", {}, as(buyer))).offers,
     ).toEqual([]);
+    // Once it has ended, the continuation was not the trial: a returning subscriber gets it once.
+    await deliver(
+      "deleted",
+      read(started.subscriptionId, {
+        status: "canceled",
+        trialEnd: started.freeUntil,
+        endedAt: new Date().toISOString(),
+      }),
+    );
+    expect(await subscribe(buyer)).toMatchObject({ trialDays: 7, noTrial: null });
   });
 
   it("is the address's: the same Person signed in under another address cannot take it", async () => {
@@ -502,14 +522,18 @@ describe("taking an offer", () => {
       charged_from_start: 1,
     });
 
-    // Past: imported as it is (the report says so), never taken, and no trial instead.
+    // Taken charged at once: no trial while that subscription runs.
+    expect(await subscribe(soon)).toMatchObject({ trialDays: null, noTrial: "continuation" });
+
+    // Past: imported as it is (the report says so) and never taken; the offer expired untaken,
+    // so the one-trial rule alone applies (a continuation is not the trial).
     const late = await createBuyer(admin, "late");
     const past = await importOffers([{ email: late.email, freeUntil: dateIn(-3) }]);
     expect(past.results[0]).toMatchObject({ outcome: "created", note: "past" });
     expect((await refusal(take(late, String(past.results[0]?.offerId)))).details).toMatchObject({
       rule: "offer_expired",
     });
-    expect(await subscribe(late)).toMatchObject({ trialDays: null, noTrial: "continuation" });
+    expect(await subscribe(late)).toMatchObject({ trialDays: 7, noTrial: null });
   });
 
   it("is withdrawn by staff, a person, and then cannot be taken; a taken one cannot be withdrawn", async () => {
@@ -523,6 +547,8 @@ describe("taking an offer", () => {
         ).code,
       ).toBe("forbidden");
     }
+    // While it can be taken, starting without it gives no trial (the offer is their free time).
+    expect(await subscribe(buyer)).toMatchObject({ trialDays: null, noTrial: "continuation" });
     await run("subscription.offer.withdraw", { id: offerId, reason: "Not a subscriber" }, staff());
     expect((await refusal(take(buyer, offerId))).details).toMatchObject({
       rule: "offer_withdrawn",
