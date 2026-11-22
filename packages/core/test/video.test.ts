@@ -30,8 +30,24 @@ import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db } from "./helpers.ts";
 
 const BASE = "https://host.test/api/v1/media/fake-stream";
+// The fake Stream's clock. A test of a token's expiry fixes it and signs on the same clock
+// (`signAt`), so the host's `exp` and the fake's check never read two different wall clocks.
 let clock = Date.now();
 const stream = createFakeStream({ baseUrl: BASE, autoReady: false, now: () => clock });
+
+/** `media.play` as staff, signed at the fake's clock, not the wall clock. */
+const playAt = (id: string, extra: Record<string, unknown> = {}) =>
+  invoke("media.play", { id, ...extra }, context(admin, { clock: () => new Date(clock) }));
+
+/** Run `body` with the fake's clock fixed at `at`, then give the wall clock back. */
+async function atClock<T>(at: number, body: () => Promise<T>): Promise<T> {
+  clock = at;
+  try {
+    return await body();
+  } finally {
+    clock = Date.now();
+  }
+}
 
 const bucket = (env as unknown as { MEDIA_TEST: R2Bucket }).MEDIA_TEST;
 const store: MediaStore = {
@@ -345,30 +361,47 @@ describe("downloadable files (step 1)", () => {
 describe("signed playback (criterion 3)", () => {
   it("staff get a token for any ready video; it plays, for that video only, and stops at its expiry", async () => {
     const { id, uid } = await readyVideo("staff.mp4");
-    const played = await invoke("media.play", { id }, context(admin));
-    const claims = tokenClaims(played.token);
-    expect(claims).toMatchObject({ sub: uid });
-    expect(Number(claims?.exp) - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(3600);
-    expect(claims).not.toHaveProperty("downloadable");
-    expect(played.hls).toBe(`${BASE}/${played.token}/manifest/video.m3u8`);
-    expect((await fetchFake(played.hls)).status).toBe(200);
-    // The id with no token does not play; nor does a download, with or without a token.
-    expect((await fetchFake(`${BASE}/${uid}/manifest/video.m3u8`)).status).toBe(401);
-    expect((await fetchFake(`${BASE}/${played.token}/downloads/default.mp4`)).status).toBe(401);
-    // A token changed to name another video no longer verifies.
     const other = await readyVideo("other.mp4");
-    const [h, , s] = played.token.split(".");
-    const forged = `${h}.${btoa(JSON.stringify({ ...claims, sub: other.uid })).replace(/=+$/, "")}.${s}`;
-    expect((await fetchFake(`${BASE}/${forged}/manifest/video.m3u8`)).status).toBe(401);
-    // A short token, then past its expiry.
-    const short = await invoke("media.play", { id, seconds: 60 }, context(admin));
-    expect((await fetchFake(short.hls)).status).toBe(200);
-    clock += 61_000;
-    expect((await fetchFake(short.hls)).status).toBe(401);
-    clock = Date.now();
-    // No token lives past an hour, whatever is asked.
-    const long = await attempt(invoke("media.play", { id, seconds: 7200 }, context(admin)));
-    expect(long.ok).toBe(false);
+    // A fixed instant, part-way through a second, for the signer and the fake alike (in the past,
+    // so no upload address the wall clock made is expired by it).
+    await atClock(Date.parse("2024-03-01T10:00:00.250Z"), async () => {
+      const played = await playAt(id);
+      const claims = tokenClaims(played.token);
+      expect(claims).toMatchObject({ sub: uid });
+      expect(Number(claims?.exp) - Math.floor(clock / 1000)).toBe(3600);
+      expect(claims).not.toHaveProperty("downloadable");
+      expect(played.hls).toBe(`${BASE}/${played.token}/manifest/video.m3u8`);
+      expect((await fetchFake(played.hls)).status).toBe(200);
+      // The id with no token does not play; nor does a download, with or without a token.
+      expect((await fetchFake(`${BASE}/${uid}/manifest/video.m3u8`)).status).toBe(401);
+      expect((await fetchFake(`${BASE}/${played.token}/downloads/default.mp4`)).status).toBe(401);
+      // A token changed to name another video no longer verifies.
+      const [h, , s] = played.token.split(".");
+      const forged = `${h}.${btoa(JSON.stringify({ ...claims, sub: other.uid })).replace(/=+$/, "")}.${s}`;
+      expect((await fetchFake(`${BASE}/${forged}/manifest/video.m3u8`)).status).toBe(401);
+      // A short token, then past its expiry.
+      const short = await playAt(id, { seconds: 60 });
+      expect((await fetchFake(short.hls)).status).toBe(200);
+      clock += 61_000;
+      expect((await fetchFake(short.hls)).status).toBe(401);
+      // No token lives past an hour, whatever is asked.
+      const long = await attempt(playAt(id, { seconds: 7200 }));
+      expect(long.ok).toBe(false);
+    });
+  });
+
+  it("a token's expiry is to the second: it plays up to its exp second and not from it", async () => {
+    const { id } = await readyVideo("boundary.mp4");
+    const signedAt = Date.parse("2024-03-01T10:00:00.750Z");
+    const short = await atClock(signedAt, () => playAt(id, { seconds: 60 }));
+    // `exp` is whole seconds, rounded down: the token never outlives what was asked.
+    const exp = Number(tokenClaims(short.token)?.exp);
+    expect(exp).toBe(Math.floor((signedAt + 60_000) / 1000));
+    const statusAt = (at: number) => atClock(at, async () => (await fetchFake(short.hls)).status);
+    expect(await statusAt(exp * 1000 - 1000)).toBe(200); // one second before
+    expect(await statusAt(exp * 1000 - 1)).toBe(200); // the last moment before it
+    expect(await statusAt(exp * 1000)).toBe(401); // exactly at expiry
+    expect(await statusAt(exp * 1000 + 1000)).toBe(401); // one second after
   });
 
   it("the public: a published trailer plays for anyone; a staff-only field's video, a draft's and a made-up id are the one not-found", async () => {
