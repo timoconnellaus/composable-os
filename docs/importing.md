@@ -4,7 +4,9 @@
 host, as the person who runs it. It is the platform's door for writing content from a script
 ([ADR 0470](adr/0470-the-import-door.md)): every write is an operation that person's session calls,
 checked and audited as theirs. `cos courses import` is the same door for a course platform's
-courses, videos and students' access ([below](#courses-cos-courses-import), ADR 0495).
+courses, videos and students' access ([below](#courses-cos-courses-import), ADR 0495), and `cos
+subscriptions offers import` for subscribers moving from another platform
+([below](#subscribers-cos-subscriptions-offers-import), ADR 0491).
 
 ```bash
 cos content import ./export --host https://admin.example.com              # by the browser
@@ -321,3 +323,71 @@ ignored:
 - You are staff. `--publish` needs the publish permission.
 - Stream configured on the host ([docs/stream-runbook.md](stream-runbook.md)). Behind Cloudflare
   Access nothing else is needed, as for content.
+
+## Subscribers: `cos subscriptions offers import`
+
+People subscribed on another platform cannot have their cards moved here (stage 32's "Moving
+members' billing"). Instead each subscribes again, free until the date they have already paid up
+to there, and the company ends the old subscription at its period's end. Each person's
+**continuation offer** is imported with this command ([ADR 0491](adr/0491-continuation-offers.md),
+[ADR 0492](adr/0492-a-continuation-replaces-the-trial.md), stage 32a). It goes through the same
+door: the file is checked before anyone signs in, the sign-in lasts for the run, and the host
+checks every row in a dry run before anything is written.
+
+```bash
+cos subscriptions offers import offers.csv --host https://admin.example.com --plan courses.plan --dry-run
+cos subscriptions offers import offers.csv --host https://admin.example.com --plan courses.plan --invite
+cos subscriptions offers report --host https://admin.example.com --status taken --out taken.csv
+```
+
+`--plan` is the plan's object; when it has more than one record, `--plan courses.plan:<id>` (the
+command lists them). `--email` works as for content. The command exits 0 when every row is in, 1
+when some rows were not written (listed with their line) or on a problem in the file (nothing
+sent), and 2 on a wrong command line.
+
+### The file
+
+A CSV with a header row; its columns may come in any order, and extra ones are ignored:
+
+| Column | | What |
+| --- | --- | --- |
+| `email` | required | The person's address, as on the other platform. |
+| `paid_up_to` (or `free_until`) | required | The date they have paid up to (`2026-12-15`): 00:00 that day in the organisation's time zone, the day the old platform would charge next. Or a moment with its zone (`2026-12-15T09:00:00+10:00`). |
+| `reference` | optional | The other platform's reference for the old subscription, shown in the report so you can find it there. |
+
+### What it does
+
+- **People come first.** Import them as people (the CSV import) before their offers. An address is
+  matched to the one live person who has it; an address nobody has is listed with its line
+  (`offers.csv:7`) and nobody is created; one that two people share is listed until they are
+  merged.
+- **The address is the key.** A re-run changes nothing. A changed date updates an offer not yet
+  taken. An offer taken or withdrawn since, or holding an open checkout on the old date, is a
+  conflict: reported, never overwritten.
+- **Dates too close, or past.** With under 48 hours to the date (the payment provider's floor for
+  free time), taking the offer is charged at once. A date that has passed is imported, so the
+  person gets no free trial instead, but cannot be taken: they subscribe as anyone does, charged at
+  once. The report notes both.
+- **Signing in.** Only the person signed in as the offer's address can take it: never a guest who
+  types it, never staff for them. An imported person has no customer account yet. With customer
+  sign-up `open` they can sign up; with `invite_only` or `buyers` they cannot unless invited.
+  `--invite` invites each address (it needs the `users:manage` permission, as inviting does), which
+  works under every setting. Nothing is emailed: tell your people to sign in on the site with that
+  address and continue their subscription there.
+- **What they see.** The subscribe block shows a signed-in member their offer ("Continue, free
+  until 15 Dec 2026") in place of the free trial. The provider's page takes the card now and
+  charges it first on that date. No free trial is ever added.
+
+### The report
+
+Subscriptions → Continuation offers in the admin (and `cos subscriptions offers report`): who has
+taken their offer, with the date their new subscription starts charging; who has not; which
+expired or were withdrawn; and Download CSV. **End the old subscription of everyone taken, at its
+period's end**, and chase the rest before their date. Withdraw an offer made in error there.
+
+### What the host needs
+
+- A plan (for courses, a course plan) and the people already imported.
+- You are staff with `subscriptions:manage` (admins have it), and `users:manage` for `--invite`.
+- Payments with the company's own provider account, set up and tried in test mode first
+  ([docs/subscriptions-stripe-runbook.md](subscriptions-stripe-runbook.md)).

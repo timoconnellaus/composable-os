@@ -105,6 +105,11 @@ export const SOLUTIONS: readonly Solution[] = [
           status: "built",
         },
         {
+          title: "Moving your course subscribers",
+          body: "Your current subscribers sign in on your site and continue, free until the date they have already paid up to, then charged. A list shows who has moved, so you end exactly those old subscriptions.",
+          status: "built",
+        },
+        {
           title: "Training programs",
           body: "Programs built from your exercise bank, given to a member or a whole class, with every set logged against its target.",
           status: "built",
@@ -116,11 +121,6 @@ export const SOLUTIONS: readonly Solution[] = [
         },
       ],
       notYet: [
-        {
-          title: "Moving your course subscribers",
-          body: "Your current subscribers join again on your site, free until the date they have already paid up to, and their old subscriptions end at the end of what they paid for.",
-          status: "design",
-        },
         {
           title: "Class bookings",
           body: "Classes from a timetable, appointments, waitlists and late-cancel rules.",

@@ -7,6 +7,9 @@ Design: [ADR 0429](adr/0429-payments-gatekeeper-verified-events-and-refunds.md).
 
 Take a screenshot at each numbered check into `docs/stages/assets/stage-25-stripe/`.
 
+Subscriptions (stage 32a: trials, renewals, the portal, continuation offers) have their own run,
+which starts from this one's part 3: [`subscriptions-stripe-runbook.md`](subscriptions-stripe-runbook.md).
+
 ## You need
 - A Stripe account in **test mode** (the toggle top right of the Stripe Dashboard). Never use live
   keys for this run.

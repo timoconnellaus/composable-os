@@ -59,8 +59,8 @@ describe("solutions", () => {
     expect(status("Class bookings")).toBe("planned");
     expect(status("Memberships and passes")).toBe("design");
     expect(status("Moving from your booking system")).toBe("planned");
-    // Stage 32a step 3: the subscription is built; moving the current subscribers is step 4.
+    // Stage 32a: the subscription (step 3) and moving the current subscribers (step 4) are built.
     expect(status("Course subscriptions")).toBe("built");
-    expect(status("Moving your course subscribers")).toBe("design");
+    expect(status("Moving your course subscribers")).toBe("built");
   });
 });

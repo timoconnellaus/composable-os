@@ -48,6 +48,15 @@ the format. This skill is the order to do it in.
 8. **Publish:** `--publish` publishes the courses and bundles that were published on the old
    platform. It asks first (`--yes` in a script). Publishing is a person's decision: run it as the
    person who decides, never from an AI's own credential.
+9. **Monthly subscribers, if the studio has them**, move by continuation offers, not as access
+   rows: their cards cannot be moved. Read "Subscribers" in `docs/importing.md`. After the course
+   plan exists and Stripe's test-mode run (`docs/subscriptions-stripe-runbook.md`) is done, write
+   `offers.csv` (`email`, `paid_up_to`, `reference`) from the old platform's subscription export,
+   then `pnpm cos subscriptions offers import offers.csv --host <url> --plan courses.plan --dry-run`,
+   then without `--dry-run` (with `--invite` unless customer sign-up is open). The studio tells its
+   subscribers to sign in and continue; the admin's Continuation offers report says who has, so the
+   studio ends exactly those old subscriptions. Running the import is a person's act: never from an
+   AI's own credential.
 
 ## The rules
 

@@ -90,3 +90,11 @@ test that fails without it (`packages/core/test/subscription-access.test.ts`).
   until a date (`trialEnd`, step 4) writes no trial row, uses nothing and tells no one of a second
   trial. Tested with a checkout as step 4 will write it. The Consequences above saying any
   confirmed trial end counts are superseded.
+
+## Amended (2026-11-22, build step 4)
+Continuation offers are built ([ADR 0491](0491-continuation-offers.md),
+[ADR 0492](0492-a-continuation-replaces-the-trial.md)). As decided above, taking one writes no
+trial row and uses nothing. One more reason a trial is not given: `continuation`, for a holder with
+an offer on the plan object that staff have not withdrawn (open, taken or expired): they are
+continuing a subscription from elsewhere, so they get its free time and never the trial on top or
+afterwards.

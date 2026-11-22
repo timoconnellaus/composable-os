@@ -1206,10 +1206,11 @@ host (`access.check`, `public.*`, `my.*`, `order.start`); a lesson names its vid
 player, my courses, the course builder) and native blocks marked `noPurchase` (no price, no buy).
 Its course plan (`courses.plan`, stage 32a, [ADR 0490](adr/0490-the-course-plan-self-service-and-the-staff-side.md))
 is a sellable that recurs; `courses.course` declares the `subscription` access source on it, so a
-subscription to it gives every course. Web blocks subscribe (`courses-subscribe`) and manage the
-member's own (`courses-subscription`: cancel, resume, the provider's portal); the native one
-(`courses-native-subscription`) only reads, and the block lint refuses a subscription's billing
-operations in every native block.
+subscription to it gives every course. Web blocks subscribe (`courses-subscribe`, which shows a
+signed-in member's continuation offer in place of the trial) and manage the member's own
+(`courses-subscription`: cancel, resume, the provider's portal); the native one
+(`courses-native-subscription`) only reads (the offer too, in words), and the block lint refuses a
+subscription's billing operations in every native block.
 
 **Ticketing** (`packs/ticketing`, stage 27) is the first pack that is not about a CRM: events,
 ticket types and tickets, built from these behaviours alone, with tools that compose the host's
@@ -1310,7 +1311,19 @@ merge moves subscriptions and trials to the survivor. With no event, past due gi
 days of failing, and an active one past its period keeps access while staff are told the events
 are not arriving (the minute cron, `subscriptions/sweep.ts`). Staff end one at once
 (`subscription.cancel` with `now`) and see subscriptions in the admin's Subscriptions section
-(all, trials, failing, ending) and on a Person's page.
+(all, trials, failing, ending) and on a Person's page. **Continuation offers**
+([ADR 0491](adr/0491-continuation-offers.md), [ADR 0492](adr/0492-a-continuation-replaces-the-trial.md),
+`subscriptions/offers.ts`, migration 0532) move subscribers from another platform:
+`subscription.offer.import` (a person with `subscriptions:manage`, `cos subscriptions offers
+import` on the import door) writes `core_subscription_offer` rows (an address matched to its one
+live Person, a plan, the paid-up date) with a dry run, the address as the key and conflicts kept;
+`subscription.start { offerId }` takes one only for the customer signed in as that address, opening
+the provider's page free until the date (`trialEnd`) and never with the plan's trial; the offer
+holds that page (a trigger refusing a second, so two takes open one) until the provider says it
+expired, and the verified event that makes the subscription marks it taken. A holder with an
+offer on a plan object gets no trial on it (`noTrial: "continuation"`). The report
+(`subscription.offer.list`, `.export`; the Subscriptions section's Continuation offers) lists who
+took theirs and when they are charged from.
 
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record

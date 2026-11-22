@@ -3,8 +3,8 @@
 // word means what apps/marketing/SITE.md says it means: "Customers and sales" is the base records
 // plus the Deals and Leads packs, ready today; Ticketing, Content, Programs and Courses are packs
 // that are built and merged (stages 27, 28, 41 and 42) but have not run for a customer yet, and
-// say so. Courses' monthly subscription (stage 32a step 3) is built too, with the rest of the
-// card; moving subscribers from another platform (step 4) is still to come. The last card is the
+// say so. Courses' monthly subscription (stage 32a step 3) and moving subscribers from another
+// platform (continuation offers, step 4) are built too, with the rest of the card. The last card is the
 // piece built only for this business.
 import { STATUS } from "../status.ts";
 import Icon from "./Icon.astro";
@@ -35,7 +35,7 @@ const pieces = [
   {
     soon: BUILT,
     title: "Courses",
-    body: "Video lessons sold one at a time, in bundles or by a monthly subscription with a free trial, with progress, and only those who hold them can play them. Members cancel and update their card on the web. Moving subscribers from another platform is still to come.",
+    body: "Video lessons sold one at a time, in bundles or by a monthly subscription with a free trial, with progress, and only those who hold them can play them. Members cancel and update their card on the web. Subscribers moving from another platform continue free until the date they have already paid up to.",
   },
 ];
 ---
