@@ -12,6 +12,9 @@ const CTA = "Book a call";
 // The Worker rate limits form posts per client IP; give each test its own address.
 test.beforeEach(async ({ page }) => {
   await page.setExtraHTTPHeaders({ "cf-connecting-ip": `10.${randomUUID()}` });
+  // MARKETING_E2E_NO_FONTS=1 runs the spec as a visitor whose font requests fail: the page must
+  // hold in its fallback font.
+  if (process.env.MARKETING_E2E_NO_FONTS) await page.route("**/*.woff2", (route) => route.abort());
 });
 
 test.describe("the page", () => {
@@ -306,7 +309,23 @@ test.describe("on a phone", () => {
             await page.addStyleTag({
               content: ':root { --font: Verdana, "DejaVu Sans", sans-serif; }',
             });
-          await page.evaluate(() => document.fonts.ready);
+          // Wait for the name's face itself (fonts.ready can settle before a swap face is asked
+          // for), then see what is actually drawing the name: Poppins only if its face loaded and
+          // the name's computed font starts with it.
+          const poppins = await page.evaluate(async () => {
+            const name = document.querySelector("header .logo-name");
+            if (!name) return false;
+            const style = getComputedStyle(name);
+            const spec = `${style.fontWeight} ${style.fontSize} "Poppins"`;
+            const faces = await document.fonts.load(spec).catch(() => []);
+            await document.fonts.ready;
+            return (
+              faces.length > 0 &&
+              document.fonts.check(spec) &&
+              /^"?Poppins"?\b/.test(getComputedStyle(name).fontFamily)
+            );
+          });
+          if (font === "Poppins" && !process.env.MARKETING_E2E_NO_FONTS) expect(poppins).toBe(true);
           const header = page.locator("header.site");
           const box = async (locator: Locator) => {
             const found = await locator.boundingBox();
@@ -316,7 +335,8 @@ test.describe("on a phone", () => {
           const logo = await box(header.locator(".logo"));
           const action = await box(header.getByRole("link", { name: CTA }));
           const menu = await box(header.getByRole("button", { name: "Open menu" }));
-          // The logo's box can shrink while its name spills under the action, so check both.
+          // In every font: nothing spills out of the logo or under the action, and both of the
+          // bar's controls are thumb-sized.
           expect(
             await header.locator(".logo").evaluate((el) => el.scrollWidth <= el.clientWidth),
           ).toBe(true);
@@ -325,11 +345,15 @@ test.describe("on a phone", () => {
           expect(menu.x + menu.width).toBeLessThanOrEqual(width);
           expect(action.height).toBeGreaterThanOrEqual(44);
           expect(menu.height).toBeGreaterThanOrEqual(44);
-          // In Poppins the whole name shows; a wide fallback may end it in an ellipsis.
-          if (font === "Poppins")
-            expect(
-              await header.locator(".logo-name").evaluate((el) => el.scrollWidth <= el.clientWidth),
-            ).toBe(true);
+          const name = header.locator(".logo-name");
+          if (poppins) {
+            // In Poppins the whole name shows, with room to spare for wider text rendering.
+            expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+          } else {
+            // In a fallback the name may be cut, but only with an ellipsis, never clipped bare.
+            await expect(name).toHaveCSS("text-overflow", "ellipsis");
+            await expect(name).toHaveCSS("overflow-x", "hidden");
+          }
         });
       }
 
