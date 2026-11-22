@@ -41,7 +41,9 @@ export const ORDER_MACHINE: StatesDefinition = {
     // A late deposit staff honour (ADR 0429) makes an expired order part paid.
     { from: ["pending", "expired"], to: "part_paid", by: ["host"] },
     // A buyer may give up an order they have paid nothing on. Once money is on it, staff cancel.
-    { from: "pending", to: "cancelled", by: ["staff", "customer"], final: true },
+    // The host too (ADR 0560): a drop-in booking that leaves its held place another way (its
+    // class cancelled) cancels its unpaid order in the same batch.
+    { from: "pending", to: "cancelled", by: ["staff", "customer", "host"], final: true },
     { from: "part_paid", to: "cancelled", by: ["staff"], final: true },
     // Not final: a late payment staff choose to honour makes it paid.
     { from: "pending", to: "expired", by: ["host"] },

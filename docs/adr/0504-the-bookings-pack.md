@@ -175,3 +175,11 @@ The booking opens to guardians ([ADR 0540](0540-the-family-link.md)): `customer.
 customer read over `me.family`) lists who they may book for; `permissions.operations` lists
 `me.family`. A child's booking spends the child's holder only. The web and native timetables show
 a "Booking for" choice when the member has a child linked.
+
+## Note (2026-11-23, stage 31a step 8)
+The booking declares `sellable.moves` ([ADR 0560](0560-a-paid-line-moves-a-record-that-exists.md)):
+a drop-in is made `pending` with its order by the host through `buy` (customers and the public),
+priced by the class type's `dropInPrice`, else the organisation's (both a person's to change),
+booked when the payment is verified, released when the order expires; a paid one cancelled in
+time, given back or cancelled by the gym owes its money back, which a person approves.
+`paidOtherwise` is now labelled "Paid another way" (a desk payment or a drop-in).

@@ -14,7 +14,8 @@
 //   order.honourLate       staff (a person, orders:refund)   keep a late payment
 //   order.refund           staff (orders:refund)             ask for a refund; a person approves
 //   order.payments         staff                             checkouts, payments and refunds
-//   order.applyPaymentEvent, order.expireDue                  the host's own (actor automation)
+//   order.startHeld        a pack's tool: staff, customers, the public   a record made with its order
+//   order.applyPaymentEvent, order.expireDue, order.refundDue the host's own (actor automation)
 //   order.settings.*       staff; changed by a human admin only
 //
 // No operation here takes a price, a total or an amount paid, and none makes an order paid: that
@@ -42,6 +43,7 @@ import {
   resolveBuyer,
 } from "../orders/guests.ts";
 import { EXPIRE_BATCH, expireDueOrders, honourLatePayment, paidLate } from "../orders/late.ts";
+import { movesFollowPerson, releaseUnsettledGuest, startHeld } from "../orders/moves.ts";
 import {
   changeOrder,
   createOrder,
@@ -53,6 +55,7 @@ import {
   type PricedLine,
   requireState,
 } from "../orders/orders.ts";
+import { requestDueRefund } from "../orders/refund-due.ts";
 import { refundablePayments, requestRefund } from "../orders/refunds.ts";
 import {
   currencySchema,
@@ -511,8 +514,10 @@ export const orderSetPerson = defineOperation({
       { person_id: input.personId },
       callerMover(ctx),
     );
-    // What the order already granted to its buyer (a ticket's holder) follows, in this batch.
+    // What the order already granted to its buyer (a ticket's holder) follows, in this batch; so
+    // does a paid guest drop-in still held for it (ADR 0560).
     await grantsFollowPerson(ctx, row.id, input.personId);
+    await movesFollowPerson(ctx, row.id, input.personId);
     return fromRow(next, await linesOf(ctx, row.id), true);
   },
 });
@@ -1033,8 +1038,118 @@ export const orderSettingsUpdate = defineOperation({
   },
 });
 
+// --- A record made with its order (ADR 0560) ------------------------------------------------------
+
+export const orderStartHeld = defineOperation({
+  name: "order.startHeld",
+  description:
+    "From a pack's tool: make a record that is bought when it is made (a drop-in booking for a " +
+    "class) and start its order, in one step. The record is held for the order (a place in the " +
+    "class) while it is unpaid, and the host prices it: a caller never sends a price. Paying on " +
+    "the provider's page (order.checkout) moves it on; the order expiring unpaid releases it. " +
+    "`values` are the record's fields a customer may set (its class); whose it is is the caller, " +
+    "or with forPersonId a child staff linked to them. A guest gives their email address and is " +
+    "matched to no one until the payment is verified (the answer is the same whatever it matches). The " +
+    "record's own rules apply as for the caller's own booking (when booking opens and closes, " +
+    "booked by staff only, places left, one per person). Returns the order; a guest also gets " +
+    "`token`, shown once.",
+  input: z.object({
+    object: z
+      .string()
+      .min(1)
+      .max(80)
+      .describe("The object to make a record of, e.g. bookings.booking"),
+    values: z
+      .record(z.string().max(80), z.unknown())
+      .default({})
+      .describe("The record's fields a customer may set, e.g. { class: <id> }"),
+    forPersonId: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe("A child linked to the signed-in customer to make it for (ADR 0540)"),
+    email: z
+      .string()
+      .trim()
+      .max(320)
+      .optional()
+      .describe("The buyer's address: required for a guest; a signed-in customer passes none"),
+  }),
+  output: orderSchema.extend({
+    recordId: z.string().describe("The record made and held for the order"),
+    token: z.string().nullable().describe("A guest's key to this order. Null for everyone else."),
+  }),
+  permission: "records:write",
+  risk: "write",
+  audiences: ["staff", "customer", "public"],
+  hostInternal: true,
+  toolOnly: true,
+  mcp: { expose: false },
+  auditSummary: (output) => ({ id: output.id, recordId: output.recordId }),
+  async handler(input, ctx) {
+    const started = await startHeld(ctx, input);
+    return {
+      ...fromRow(started.row, started.lines.map(toLine), isStaff(ctx)),
+      recordId: started.recordId,
+      token: started.token,
+    };
+  },
+});
+
+export const orderReleaseUnsettled = defineOperation({
+  name: "order.releaseUnsettled",
+  description:
+    "Platform use only (the minute cron): release one paid guest drop-in still held for no one " +
+    "(an address several People share, not settled by staff) once booking for it has closed: " +
+    "its place goes back and its refund is owed, for a person to approve. One record per call.",
+  input: z.object({ object: z.string().min(1).max(80), recordId: z.string().min(1).max(64) }),
+  output: z.object({ released: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  actors: ["automation"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    return { released: await releaseUnsettledGuest(ctx, input.object, input.recordId) };
+  },
+});
+
+export const orderRefundDue = defineOperation({
+  name: "order.refundDue",
+  description:
+    "Platform use only (the minute cron): ask for a refund the host owes, recorded when a record " +
+    "bought with its order (a drop-in booking) was cancelled in time or by the gym. Asks as " +
+    "order.refund does: nothing is sent; each refund waits in the Approvals inbox for a person " +
+    "with the refund permission (an AI can never approve one).",
+  input: z.object({ id: z.string().min(1).max(64) }),
+  output: z.object({
+    state: z.enum(["asked", "skipped"]),
+    refunds: z.array(
+      z.object({
+        id: z.string(),
+        paymentRef: z.string(),
+        amount: z.number(),
+        pendingActionId: z.string().nullable(),
+      }),
+    ),
+    note: z.string().nullable(),
+  }),
+  permission: "orders:refund",
+  // As order.refund: the refund is the gatekeeper's outbound action, reviewed on its own, always.
+  risk: "outbound",
+  bookkeeping: true,
+  actors: ["automation"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    return requestDueRefund(ctx, input.id);
+  },
+});
+
 export const orderOperations = [
   orderStart,
+  orderStartHeld,
+  orderRefundDue,
+  orderReleaseUnsettled,
   orderGet,
   orderList,
   orderView,

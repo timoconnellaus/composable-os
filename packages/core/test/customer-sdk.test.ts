@@ -205,6 +205,8 @@ describe("the generic writes are for tools only", () => {
       "access.check",
       "my.create",
       "my.update",
+      // Stage 31a step 8 (ADR 0560): a drop-in booking made with its order, from a pack's tool.
+      "order.startHeld",
       "public.get",
       "public.list",
       // Stage 31a (ADR 0504): the dry run of a requested move (a member's cancel).

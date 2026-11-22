@@ -123,6 +123,9 @@ export class RunsOnApprovalError extends OperationError {
 }
 
 /** Too many calls for this token in the current window. */
+/** What a buyer is told when unpaid holds are limited (ADR 0560), whatever the cause. */
+export const TRY_LATER = "Too many places are being held for payment just now: try again shortly";
+
 export class RateLimitedError extends OperationError {
   override name = "RateLimitedError";
   constructor(message: string, details?: unknown) {
@@ -305,6 +308,11 @@ export function toOperationError(error: unknown): OperationError {
       "What this is for changed while it was being made (it may have been cancelled), so nothing was changed. Look again.",
       { rule: "state_closed", reason: "moved_meanwhile" },
     );
+  }
+  // A class carrying as many unpaid drop-in holds as it may (migration 0690, ADR 0560): the same
+  // answer as a buyer over their own limit, whatever the cause.
+  if (message.includes("core_holds_capped")) {
+    return new RateLimitedError(TRY_LATER, { rule: "try_later" });
   }
   // A waiter joining a waitlist after a place came free (migration 0610, ADR 0520).
   if (message.includes("core_waitlist_not_full")) {

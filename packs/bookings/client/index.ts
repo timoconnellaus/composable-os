@@ -13,6 +13,7 @@ import type { z } from "@composable-os/sdk";
 import type {
   book,
   bookFor,
+  buy,
   cancel,
   cancelClass,
   cancelFor,
@@ -53,6 +54,13 @@ export type BookingsOperations = {
   "x.bookings.cancelFor": { kind: "mutation" } & Io<typeof cancelFor>;
   "x.bookings.returnUse": { kind: "mutation" } & Io<typeof returnUse>;
   "x.bookings.findPeople": { kind: "query" } & Io<typeof findPeople>;
+  // A drop-in (ADR 0560): the booking held with its order, then the provider's page (web only).
+  "x.bookings.buy": { kind: "mutation" } & Io<typeof buy>;
+  "order.checkout": {
+    kind: "mutation";
+    input: { id: string; token?: string; returnUrl: string };
+    output: { url: string };
+  };
   "x.bookings.roster": { kind: "query" } & Io<typeof roster>;
   "x.bookings.markAttended": { kind: "mutation" } & Io<typeof markAttended>;
   "x.bookings.undoAttended": { kind: "mutation" } & Io<typeof undoAttended>;
@@ -79,6 +87,7 @@ export type ClassListView = Out<"x.bookings.classList">;
 export type RosterView = Out<"x.bookings.roster">;
 export type MarkResult = Out<"x.bookings.markAttended">;
 export type BookForResult = Out<"x.bookings.bookFor">;
+export type BuyResult = Out<"x.bookings.buy">;
 export type FoundPeople = Out<"x.bookings.findPeople">;
 
 /** The client of every operation this entry calls (ADR 0453). */
@@ -137,6 +146,24 @@ export function refusalMessage(
   return result.message;
 }
 
+/** The digits of a currency's minor unit (2 for AUD, 0 for JPY). */
+function currencyDigits(currency: string): number {
+  try {
+    return (
+      new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
+        .maximumFractionDigits ?? 2
+    );
+  } catch {
+    return 2;
+  }
+}
+
+/** An amount the host gave in the minor unit, as a buyer reads it: `25.00 AUD`. Display only. */
+export function formatAmount(minor: number, currency: string): string {
+  const digits = currencyDigits(currency);
+  return `${(minor / 10 ** digits).toFixed(digits)} ${currency}`;
+}
+
 /** The member's live booking of a class, if any (to show Cancel instead of Book). */
 export function bookingFor(
   classId: string,
@@ -185,6 +212,8 @@ export const BOOKINGS_HOOKS_CALL = {
   useCancelFor: ["x.bookings.cancelFor"],
   useReturnUse: ["x.bookings.returnUse"],
   useFindPeople: ["x.bookings.findPeople"],
+  // Paying for one class (a drop-in): a purchase, so web only (native blocks are noPurchase).
+  useBuy: ["x.bookings.buy", "order.checkout"],
   useRoster: ["x.bookings.roster"],
   useMarkAttended: ["x.bookings.markAttended"],
   useUndoAttended: ["x.bookings.undoAttended"],
@@ -261,6 +290,16 @@ function allBookingsHooks(
     /** A person on the staff: give a booking's use back after the late point (destructive). */
     useReturnUse() {
       return useMutation(api.mutation("x.bookings.returnUse"));
+    },
+    /**
+     * Pay for one class (a drop-in, web only): `start` has the host hold the place and start the
+     * order; `checkout` opens the provider's page for it.
+     */
+    useBuy() {
+      return {
+        start: useMutation(api.mutation("x.bookings.buy")),
+        checkout: useMutation(api.mutation("order.checkout")),
+      };
     },
     /** Staff: People on file matching a name or email (at least two letters). */
     useFindPeople(input: In<"x.bookings.findPeople">) {

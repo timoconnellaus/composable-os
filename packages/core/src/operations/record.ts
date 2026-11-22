@@ -894,6 +894,8 @@ export async function updateRecord(
     recurringFrom?: string | undefined;
     /** The record this one moves into, made in this batch (`movedFrom`, ADR 0551). */
     movedInto?: string | undefined;
+    /** Platform code only: a value names a record made in this same batch (ADR 0560). */
+    checkReferences?: boolean;
   } = {},
 ): Promise<boolean> {
   const before = await loadRecord(ctx, object, id);

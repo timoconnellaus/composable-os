@@ -105,7 +105,17 @@ interface OpensOutside {
       public?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       signedIn?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       customerVia?: { from: string; field: string; read: string[] };
-      sellable?: { price: string; grants?: { object: string } };
+      sellable?: {
+        price: string;
+        grants?: { object: string };
+        moves?: {
+          held: string;
+          paid: string;
+          expired: string;
+          refund?: readonly string[];
+          price?: { field?: string; setting?: string };
+        };
+      };
       publishable?: { content: string[]; slug?: string };
     }
   >;
@@ -126,9 +136,12 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
   for (const [name, object] of Object.entries(manifest.objects)) {
     if (object.sellable) {
       const grants = object.sellable.grants;
+      const moves = object.sellable.moves;
       lines.push(
-        `  anyone can buy ${manifest.id}.${name} (priced by ${object.sellable.price})` +
-          (grants ? `; a paid line grants ${grants.object}` : ""),
+        moves
+          ? `  anyone can have the host make ${manifest.id}.${name} held ("${moves.held}") while its order is unpaid, priced by ${moves.price?.field ?? object.sellable.price}${moves.price?.setting ? ` else the setting ${moves.price.setting}` : ""}; paid: "${moves.paid}"; unpaid: "${moves.expired}"${moves.refund?.length ? `; a refund a person approves on ${moves.refund.join(", ")}` : ""}`
+          : `  anyone can buy ${manifest.id}.${name} (priced by ${object.sellable.price})` +
+              (grants ? `; a paid line grants ${grants.object}` : ""),
       );
     }
     const p = object.public;

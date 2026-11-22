@@ -1856,6 +1856,13 @@ function outsideError(error: unknown): OperationError {
   // A guardian's write whose link ended before it committed (migration 0650's guard, ADR 0540):
   // the Person is not there for them, as the seam would have said a moment later.
   if (typed.code === "not_found") return typed;
+  // A class a booking was for cancelled while it was being made (migration 0670), and a class
+  // carrying as many unpaid holds as it may (migration 0690, ADR 0560): what the caller is told
+  // is the class's own state, or "try again shortly", the same whatever the cause.
+  if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "state_closed") {
+    return typed;
+  }
+  if (typed.code === "rate_limited") return typed;
   console.error("outside call failed", errorForLog(error));
   if (typed.code === "conflict")
     return new ConflictError("A record with that value already exists");

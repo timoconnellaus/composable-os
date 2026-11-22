@@ -148,10 +148,19 @@ export async function applyVerifiedPayment(
 
   if (row.state !== "pending" && row.state !== "part_paid") {
     record("late");
+    // A drop-in's place went back when its order closed (ADR 0560): the payment is owed back,
+    // asked for by the host and approved by a person, never honoured.
+    const owed = await (await import("./moves.ts")).oweLateRefund(ctx, row.id, {
+      paymentRef: payment.paymentRef ?? null,
+      amount: payment.amount,
+      orderState: row.state,
+    });
     await tellStaff(
       "A payment arrived for an order that had closed",
       `Order ${row.id} is ${row.state}, and ${money(payment.amount, currency)} was paid on it. ` +
-        "Honour it or refund it.",
+        (owed
+          ? "What it paid for was no longer held: its refund is being asked for, for a person to approve."
+          : "Honour it or refund it."),
       "late_payment",
     );
     return { outcome: "late", orderId: row.id };

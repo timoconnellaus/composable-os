@@ -92,7 +92,17 @@ export interface RequestedRefund {
 export async function requestRefund(
   ctx: HandlerContext,
   row: OrderRow,
-  input: { amount?: number | undefined; reason: string },
+  input: {
+    amount?: number | undefined;
+    reason: string;
+    /**
+     * The id of the n-th refund asked for, when the caller needs it known in advance (the host's
+     * owed refunds, ADR 0560): the provider's idempotency key, so one asked twice is one refund.
+     */
+    refundId?: ((n: number) => string) | undefined;
+    /** Only this payment (a duplicate or late one owed back on its own, ADR 0560). */
+    paymentRef?: string | undefined;
+  },
 ): Promise<{ refunds: RequestedRefund[]; pending: PendingApproval[] }> {
   if (row.state === "pending" || row.state === "part_paid") {
     throw new ConflictError(
@@ -102,7 +112,10 @@ export async function requestRefund(
       { order: row.id, state: row.state },
     );
   }
-  const payments = (await refundablePayments(ctx, row.id)).filter((p) => p.refundable > 0);
+  const payments = (await refundablePayments(ctx, row.id)).filter(
+    (p) =>
+      p.refundable > 0 && (input.paymentRef === undefined || p.paymentRef === input.paymentRef),
+  );
   const available = payments.reduce((sum, p) => sum + p.refundable, 0);
   if (available <= 0) {
     throw new ConflictError("Everything paid on this order has been refunded or asked for", {
@@ -124,7 +137,7 @@ export async function requestRefund(
     if (left <= 0) break;
     const amount = Math.min(left, payment.refundable);
     left -= amount;
-    const id = newId("refund");
+    const id = input.refundId ? input.refundId(refunds.length) : newId("refund");
     const result = await requestProviderRefund(
       ctx.integrations,
       target,

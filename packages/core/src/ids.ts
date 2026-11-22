@@ -84,6 +84,7 @@ export const ID_PREFIXES = {
   media: "med",
   /** A family link: a guardian and a dependant (stage 31a, ADR 0540). */
   personLink: "pln",
+  refundDue: "rdu",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

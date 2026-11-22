@@ -35603,6 +35603,140 @@
       ]
     },
     {
+      "name": "order.refundDue",
+      "description": "Platform use only (the minute cron): ask for a refund the host owes, recorded when a record bought with its order (a drop-in booking) was cancelled in time or by the gym. Asks as order.refund does: nothing is sent; each refund waits in the Approvals inbox for a person with the refund permission (an AI can never approve one).",
+      "risk": "outbound",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "asked",
+              "skipped"
+            ]
+          },
+          "refunds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "paymentRef": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "pendingActionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "paymentRef",
+                "amount",
+                "pendingActionId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "state",
+          "refunds",
+          "note"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.releaseUnsettled",
+      "description": "Platform use only (the minute cron): release one paid guest drop-in still held for no one (an address several People share, not settled by staff) once booking for it has closed: its place goes back and its refund is owed, for a person to approve. One record per call.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "recordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "object",
+          "recordId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "released": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "released"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
       "name": "order.setPerson",
       "description": "Say whose order it is, for an order that belongs to no one yet because the address it was placed with matched several people. Merge those people first, then pass the one that remains. An order that already has a person is refused. Returns the order.",
       "risk": "write",
@@ -65868,9 +66002,12 @@
                   "not_running",
                   "person_exists",
                   "possible_duplicates",
-                  "waitlist_closed"
+                  "waitlist_closed",
+                  "no_drop_in",
+                  "ask_desk",
+                  "try_later"
                 ],
-                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "no_drop_in: the class cannot be paid for online (no drop-in price). ask_desk: the address given cannot be used. try_later: too many places are held for payment just now. waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -66079,9 +66216,12 @@
                   "not_running",
                   "person_exists",
                   "possible_duplicates",
-                  "waitlist_closed"
+                  "waitlist_closed",
+                  "no_drop_in",
+                  "ask_desk",
+                  "try_later"
                 ],
-                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "no_drop_in: the class cannot be paid for online (no drop-in price). ask_desk: the address given cannot be used. try_later: too many places are held for payment just now. waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -67104,9 +67244,12 @@
                   "not_running",
                   "person_exists",
                   "possible_duplicates",
-                  "waitlist_closed"
+                  "waitlist_closed",
+                  "no_drop_in",
+                  "ask_desk",
+                  "try_later"
                 ],
-                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "no_drop_in: the class cannot be paid for online (no drop-in price). ask_desk: the address given cannot be used. try_later: too many places are held for payment just now. waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -67328,9 +67471,12 @@
                   "not_running",
                   "person_exists",
                   "possible_duplicates",
-                  "waitlist_closed"
+                  "waitlist_closed",
+                  "no_drop_in",
+                  "ask_desk",
+                  "try_later"
                 ],
-                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "no_drop_in: the class cannot be paid for online (no drop-in price). ask_desk: the address given cannot be used. try_later: too many places are held for payment just now. waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"

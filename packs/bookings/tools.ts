@@ -140,9 +140,14 @@ const refusalReason = z
     "person_exists",
     "possible_duplicates",
     "waitlist_closed",
+    "no_drop_in",
+    "ask_desk",
+    "try_later",
   ])
   .describe(
-    "waitlist_closed: the class is full and it is too close to the start to wait for a place " +
+    "no_drop_in: the class cannot be paid for online (no drop-in price). ask_desk: the address " +
+      "given cannot be used. try_later: too many places are held for payment just now. " +
+      "waitlist_closed: the class is full and it is too close to the start to wait for a place " +
       "(nobody is moved in from the waitlist then). " +
       "not_open: booking has not opened yet (see opensAt). closed: booking has closed. " +
       "not_running: the class was cancelled or is over. person_exists: someone on file has that " +
@@ -601,6 +606,104 @@ export const book = defineTool({
   },
 });
 
+// --- A drop-in: one class paid for on the website (decision 8, ADR 0560) --------------------------
+
+export const buy = defineTool({
+  description:
+    "Pay for one class (a drop-in), on the website: for a visitor, or a member with nothing to " +
+    "spend on it. The host makes the booking held while it is paid for (a place kept), prices it " +
+    "from the class's drop-in price, and starts its order; nothing is paid here. The buyer then " +
+    "calls order.checkout with the order's id (and a guest's token) to pay on the provider's " +
+    "page: the verified payment books them; an order left unpaid expires after a few minutes and " +
+    "the place goes back. The same rules as booking hold (when booking opens and closes, booked " +
+    "by the gym only, one booking per person per class); a full class is refused (only members " +
+    "with a membership or pass wait for a place). A signed-in member buys as themselves, or for a " +
+    "child the gym linked to them (forPersonId; they pay, it is the child's booking); a guest " +
+    "gives their email address. Cancelled in time, or by the gym, the money goes back to the " +
+    "card once a member of staff approves the refund; cancelled late, it is kept. Amounts in the " +
+    "currency's minor unit.",
+  input: z.object({
+    classId: z.string().min(1).max(64),
+    forPersonId: forPerson,
+    email: z.string().trim().max(320).optional().describe("A guest's email address"),
+  }),
+  output: z.union([
+    z.object({
+      result: z.literal("pending"),
+      bookingId: z.string(),
+      classId: z.string(),
+      orderId: z.string(),
+      total: z.number(),
+      currency: z.string(),
+      expiresAt: z.string().nullable().describe("When the held place goes back if unpaid"),
+      token: z.string().nullable().describe("A guest's key to this order, shown once"),
+    }),
+    refused,
+  ]),
+  risk: "write",
+  audiences: ["customer", "public"],
+  async handler(input, ctx) {
+    try {
+      // The host makes the booking, held, as the caller's own (or their child's), prices it, and
+      // holds every rule: the class's windows and staff-only rule, its places, one per person.
+      const order = await ctx.ops.call<{
+        id: string;
+        total: number;
+        currency: string;
+        expiresAt: string | null;
+        recordId: string;
+        token: string | null;
+      }>("order.startHeld", {
+        object: BOOKING,
+        values: { class: input.classId },
+        ...(input.forPersonId ? { forPersonId: input.forPersonId } : {}),
+        ...(input.email === undefined ? {} : { email: input.email }),
+      });
+      return {
+        result: "pending" as const,
+        bookingId: order.recordId,
+        classId: input.classId,
+        orderId: order.id,
+        total: order.total,
+        currency: order.currency,
+        expiresAt: order.expiresAt,
+        token: order.token ?? null,
+      };
+    } catch (error) {
+      if (error instanceof OpsCallError) {
+        const rule = (error.details as { rule?: unknown } | undefined)?.rule;
+        const out = (reason: Refused["reason"], message: string) => ({
+          result: "refused" as const,
+          reason,
+          message,
+          detail: null,
+          opensAt: null,
+          closesAt: null,
+        });
+        if (rule === "no_price" || rule === "not_for_sale") {
+          return out("no_drop_in", "This class cannot be paid for online. Ask at the desk.");
+        }
+        if (rule === "try_later" || error.code === "rate_limited") {
+          return out(
+            "try_later",
+            "Too many places are being held for payment just now: try again shortly.",
+          );
+        }
+        if (rule === "buyer_unclear") {
+          return out(
+            "ask_desk",
+            "We could not tell who you are from that address. Ask at the desk.",
+          );
+        }
+        if ((error.details as { field?: unknown } | undefined)?.field === "email") {
+          return out("ask_desk", error.message);
+        }
+      }
+      return refusalOf(error, "book");
+    }
+  },
+});
+
 export const leaveWaitlist = defineTool({
   description:
     "Take the signed-in member off a class's waitlist (one of their bookings that is waiting). " +
@@ -658,6 +761,9 @@ export const cancel = defineTool({
       result: z.enum(["preview", "cancelled", "late_cancelled"]),
       state: z.enum(["cancelled", "late_cancelled"]),
       late: z.boolean().describe("A late cancel keeps the use the booking spent"),
+      dropIn: z
+        .boolean()
+        .describe("Paid for on its own: in time, the money goes back once staff approve it"),
       message: z.string(),
     }),
     refused,
@@ -665,12 +771,22 @@ export const cancel = defineTool({
   risk: "write",
   audiences: ["customer"],
   async handler(input, ctx) {
+    // A drop-in (ADR 0560) gets its money back, not a use: read which this booking is.
+    let dropIn = false;
     const say = (state: "cancelled" | "late_cancelled", done: boolean) => ({
       result: done ? state : ("preview" as const),
       state,
       late: state === "late_cancelled",
-      message:
-        state === "cancelled"
+      dropIn,
+      message: dropIn
+        ? state === "cancelled"
+          ? done
+            ? "Cancelled. Your payment is refunded to your card once the gym approves it."
+            : "Cancelling now is in time: your payment is refunded to your card once the gym approves it."
+          : done
+            ? "Cancelled late. The payment is kept."
+            : "Cancelling now is late: the payment is kept."
+        : state === "cancelled"
           ? done
             ? "Cancelled. The class is back on your membership or pass."
             : "Cancelling now is in time: the class goes back on your membership or pass."
@@ -679,6 +795,11 @@ export const cancel = defineTool({
             : "Cancelling now is late: the class stays used.",
     });
     try {
+      const own = await ctx.ops.call<RecordShape>("my.get", {
+        object: BOOKING,
+        id: input.bookingId,
+      });
+      dropIn = text(own.values.dropInOrder) !== null;
       if (!input.confirm) {
         // The host's dry run: the state "cancel" would enter now (ADR 0503).
         const resolved = await ctx.ops.call<{ state: string }>("state.resolve", {
@@ -726,7 +847,9 @@ export const mine = defineTool({
       .max(64)
       .optional()
       .describe("A child of theirs (see family); left out, their own"),
-    state: z.enum(["booked", "waiting", "cancelled", "late_cancelled", "left"]).optional(),
+    state: z
+      .enum(["booked", "pending", "waiting", "cancelled", "late_cancelled", "left"])
+      .optional(),
     upcoming: z.boolean().default(true).describe("Only classes that have not started"),
     limit: z.number().int().min(1).max(100).default(50),
   }),
@@ -741,6 +864,10 @@ export const mine = defineTool({
           .nullable()
           .describe("While waiting: their place on the waitlist (1 is next); otherwise null"),
         holderId: z.string().nullable(),
+        dropInOrderId: z
+          .string()
+          .nullable()
+          .describe("A drop-in's order (pending: pay it with order.checkout); null otherwise"),
         classId: z.string().nullable(),
         title: z.string().nullable(),
         startsAt: z.string().nullable(),
@@ -806,6 +933,7 @@ export const mine = defineTool({
           state: text(booking.values.state),
           position: positions.get(booking.id) ?? null,
           holderId: text(booking.values.holder),
+          dropInOrderId: text(booking.values.dropInOrder),
           classId,
           title: text(klass.title),
           startsAt: text(klass.startsAt),

@@ -102,10 +102,22 @@ test("every native bookings block is marked noPurchase, and none can buy a drop-
   for (const dir of natives) {
     assert.equal(JSON.parse(readFileSync(join(dir, "block.json"), "utf8")).noPurchase, true, dir);
   }
-  // Booking with a use already held is not a purchase; paying for a drop-in (x.bookings.buy, a
-  // later step) is, and a noPurchase block may not name it.
+  // Booking with a use already held is not a purchase; paying for a drop-in (x.bookings.buy, step
+  // 8) is, and a noPurchase block may not name it, in its code or its operations.
   assert.deepEqual(lintNoPurchase('call("x.bookings.book")'), []);
   assert.equal(lintNoPurchase("const go = bookings.useBuy();")[0]?.rule, "no-purchase");
+  for (const dir of natives) {
+    const ops = JSON.parse(readFileSync(join(dir, "block.json"), "utf8")).operations ?? [];
+    assert.ok(!ops.includes("x.bookings.buy") && !ops.includes("order.checkout"), dir);
+  }
+  // The web drop-in block is the one that buys.
+  const dropIn = blockFolders(root).find((dir) => /bookings-drop-in$/.test(dir));
+  assert.ok(dropIn);
+  assert.ok(
+    JSON.parse(readFileSync(join(dropIn, "block.json"), "utf8")).operations.includes(
+      "x.bookings.buy",
+    ),
+  );
 });
 
 test("every native courses block is marked noPurchase", async () => {

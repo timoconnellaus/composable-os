@@ -144,6 +144,37 @@ provider only. Take screenshots into `docs/stages/assets/stage-42-tax/`.
 8. Turn tax off. **Check 19:** a new checkout is exactly as before (Stripe's page asks for no
    address unless Stripe needs one for the card).
 
+## 9. A drop-in class (stage 31a step 8; ADR 0560)
+Proved only against the fake provider so far. Needs Programs and Bookings installed, a class type
+with a drop-in price (or the organisation's Bookings setting "Drop-in price"), and a one-off class
+a few hours ahead with 1 place. The site's `bookings-drop-in` block (or `x.bookings.buy` then
+`order.checkout`) opens Stripe's page.
+1. In a private window, pay for the class as a visitor. **Check 20:** the class shows 1 held
+   before you pay; after Stripe's `checkout.session.completed` arrives the booking is Booked, the
+   class shows 1 taken, and the order line's title is the class's.
+2. With tax on (part 8), pay for another class. **Check 21:** the line carries
+   `txcd_50021003` (or the code the admin set for `bookings.booking`), Stripe's page shows the tax
+   inside the price, and the order's tax is Stripe's figure.
+3. Start a drop-in, open Stripe's page, do not pay; wait for the order to expire. **Check 22:** the
+   booking is Expired and the place is free. Pay on the page you kept open: the order stays
+   Expired, appears under Paid late, Honour is refused, and within a minute its refund waits in
+   Approvals, requested by the host; approve it.
+7. As a visitor (not signed in), start a drop-in with the address of a member who already booked
+   that class, and pay. **Check 26:** the visitor was told nothing different before paying; after
+   Stripe's event the drop-in is Expired, not a second booking, and its refund waits in Approvals.
+8. Reject one of these refunds in Approvals. **Check 27:** within a minute admins are told it was
+   not approved; Refund on the order asks again.
+4. Pay for a class, then cancel the booking in time from the member's account (or as staff).
+   **Check 23:** within a minute a refund of the whole amount waits in Approvals, requested by the
+   host; an AI assistant cannot approve it; a person with the refund permission approves it and
+   Stripe → Payments shows the refund to the card.
+5. Pay for a class, then cancel the class (a closure over its date, or staff cancelling it).
+   **Check 24:** the booking is Cancelled by the gym and the refund waits in Approvals as in 4. A
+   drop-in left unpaid on that class has its order Cancelled; paying on its Stripe page afterwards
+   is a late payment, refunded by hand.
+6. Cancel a paid drop-in late (inside the class type's late-cancel time). **Check 25:** nothing is
+   asked for; the payment is kept.
+
 ## Afterwards
 Uninstall the box office extension if you installed it for this run, and delete the test-mode
 webhook endpoint if you do not need it again. Record the date, who ran it and any differences in this file's status line.

@@ -877,6 +877,23 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
         }
       : {}),
     ...(declared.onePerPerson ? { onePerPerson: nameOf(declared.onePerPerson) } : {}),
+    // Paths (`class.classType.dropInPrice`) stay as declared: the host's path reader names each
+    // part as the declaring extension's (ADR 0505); a field of the object is named here.
+    ...(declared.moves
+      ? {
+          moves: {
+            held: declared.moves.held,
+            paid: declared.moves.paid,
+            expired: declared.moves.expired,
+            refund: [...(declared.moves.refund ?? [])],
+            ...(declared.moves.price ? { price: { ...declared.moves.price } } : {}),
+            ...(declared.moves.title ? { title: declared.moves.title } : {}),
+            ...(declared.moves.order ? { order: nameOf(declared.moves.order) } : {}),
+            ...(declared.moves.guest ? { guest: true } : {}),
+            ...(declared.moves.holdCap ? { holdCap: { ...declared.moves.holdCap } } : {}),
+          },
+        }
+      : {}),
     ...(declared.tax
       ? {
           tax: {

@@ -411,6 +411,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "order.cancel",
       "order.checkout",
       "order.start",
+      // Stage 31a step 8 (ADR 0560): the host makes a drop-in booking held with its order.
+      "order.startHeld",
       "order.view",
       // Stage 31a (ADR 0504): it reads a booking whole and its class's rules, as the write does.
       "state.resolve",

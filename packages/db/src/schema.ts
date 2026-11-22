@@ -1042,6 +1042,26 @@ export interface CorePersonLinkTable {
   end_reason: Defaulted<string | null>;
 }
 
+/**
+ * Migration 0690 (ADR 0560): a refund the host owes on a record bought through `sellable.moves`
+ * (a drop-in booking cancelled in time, or its class cancelled). The minute cron asks for it.
+ */
+export interface CoreSellableRefundDueTable {
+  id: string;
+  order_id: string;
+  object_type: string;
+  record_id: string;
+  payment_ref: Defaulted<string | null>;
+  amount: Defaulted<number | null>;
+  entered: string;
+  reason: string;
+  state: Defaulted<"due" | "asking" | "asked" | "done" | "lapsed" | "skipped">;
+  attempt: Defaulted<number>;
+  note: Defaulted<string | null>;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Migration 0650: a guardian's write's guard; its trigger stores nothing. */
 export interface CorePersonLinkGuardTable {
   guardian_id: string;
@@ -2473,6 +2493,7 @@ export interface CoreDatabase {
   core_capacity_claim: CoreCapacityClaimTable;
   core_person_link: CorePersonLinkTable;
   core_person_link_guard: CorePersonLinkGuardTable;
+  core_sellable_refund_due: CoreSellableRefundDueTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
   core_write_guard: CoreWriteGuardTable;

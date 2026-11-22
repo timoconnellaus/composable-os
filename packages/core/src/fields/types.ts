@@ -342,6 +342,26 @@ export interface SellableDefinition {
     | undefined;
   /** A boolean field: while true, a Person buys the record once across the object (ADR 0512). */
   onePerPerson?: string | undefined;
+  /** A paid line moves the record it was started for (ADR 0560): the SDK's MovesSpec. */
+  moves?: MovesDefinition | undefined;
+}
+
+/** What an order does to the record it was started for (ADR 0560), with registry names. */
+export interface MovesDefinition {
+  held: string;
+  paid: string;
+  expired: string;
+  refund: readonly string[];
+  /** A number path (up to two relations) and the extension's setting when it is empty. */
+  price?: { field?: string | undefined; setting?: string | undefined } | undefined;
+  /** A text path: the order line's title. */
+  title?: string | undefined;
+  /** A read-only text field: the order's id. */
+  order?: string | undefined;
+  /** A guest's record is held with no Person until its order is paid (ADR 0560). */
+  guest?: boolean | undefined;
+  /** The extension's number setting: the percent of the claimed record's places guests may hold. */
+  holdCap?: { setting: string } | undefined;
 }
 
 /** The SDK's RecurringGrantSpec with the granted object's registry name (ADR 0510). */
