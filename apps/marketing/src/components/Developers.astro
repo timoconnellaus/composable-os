@@ -4,11 +4,26 @@
 // commands) and the start-client-app, add-block and import-content skills. Update them together.
 import { REPO_URL } from "../links.ts";
 import Icon from "./Icon.astro";
+import Text from "./Text.astro";
 
 const checks = [
   "Source available, free to self-host",
   "Skills that teach your coding agent to write extensions",
   "Workers, D1 and R2 on Cloudflare, with no servers to manage",
+];
+
+// One line each; a "#" line is a comment. Each is its own block, so on a phone a long command
+// wraps between words (never inside "--label"), with a hanging indent, instead of scrolling out
+// of sight.
+const lines = [
+  "# start a company's own product",
+  'npm create composable-os harbour -- --label "Harbour Roasters"',
+  "cd harbour",
+  "pnpm cos add web-sign-in",
+  "pnpm cos deploy",
+  "# the host and the web app, in a Cloudflare account",
+  "pnpm cos content import ./old-blog --host https://admin.example.com",
+  "# posts and pictures from the old blog; cos courses import and cos subscriptions offers import do the same for courses and subscribers",
 ];
 ---
 
@@ -26,20 +41,16 @@ const checks = [
           checks.map((check) => (
             <li>
               <Icon name="check" />
-              {check}
+              <span>
+                <Text text={check} />
+              </span>
             </li>
           ))
         }
       </ul>
       <a class="textlink" href={REPO_URL}>Read the docs on GitHub</a>
     </div>
-    <pre class="term reveal" tabindex="0" role="region" aria-label="Commands to start a product"><code><span class="c"># start a company's own product</span>
-<span class="p">$ </span>npm create composable-os harbour -- --label "Harbour Roasters"
-<span class="p">$ </span>cd harbour
-<span class="p">$ </span>pnpm cos add web-sign-in
-<span class="p">$ </span>pnpm cos deploy
-<span class="c"># the host and the web app, in a Cloudflare account</span>
-<span class="p">$ </span>pnpm cos content import ./old-blog --host https://admin.example.com
-<span class="c"># posts and pictures from the old blog; cos courses import and cos subscriptions offers import do the same for courses and subscribers</span></code></pre>
+    {/* Inside <pre> every space and newline shows, so the lines are written without any. */}
+    <pre class="term reveal" tabindex="0" role="region" aria-label="Commands to start a product"><code>{lines.map((line) => line.startsWith("#") ? <span class="l c">{line}</span> : <span class="l"><span class="p">$ </span>{line.split(" ").map((word, i) => <>{i > 0 && " "}<span class="w">{word}</span></>)}</span>)}</code></pre>
   </div>
 </section>

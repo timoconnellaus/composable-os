@@ -10,7 +10,7 @@ import Icon from "./Icon.astro";
   <input type="hidden" name="kind" value="sales" />
   <div>
     <label class="sr" for="call-name">Your name</label>
-    <input id="call-name" name="name" type="text" autocomplete="name" placeholder="Your name" maxlength="200" />
+    <input id="call-name" name="name" type="text" autocomplete="name" autocapitalize="words" enterkeyhint="next" placeholder="Your name" maxlength="200" />
   </div>
   <div>
     <label class="sr" for="call-email">Work email</label>
@@ -19,6 +19,9 @@ import Icon from "./Icon.astro";
       name="email"
       type="email"
       autocomplete="email"
+      autocapitalize="off"
+      spellcheck="false"
+      enterkeyhint="next"
       placeholder="you@company.com"
       maxlength="254"
       required
@@ -31,6 +34,7 @@ import Icon from "./Icon.astro";
       name="company"
       type="text"
       autocomplete="organization"
+      enterkeyhint="next"
       placeholder="Company"
       maxlength="200"
     />
