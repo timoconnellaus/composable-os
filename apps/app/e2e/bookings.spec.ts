@@ -158,10 +158,12 @@ test("a member books a class from the timetable and cancels it in time", async (
     givenName: unique("Member"),
     emails: [{ email }],
   });
-  // Their pass: 3 classes a week (in the Memberships pack this is a membership or a pass).
+  // Their pass: 3 classes in all (in the Memberships pack this is a membership or a pass). Not
+  // "a week": a class three hours ahead late on a Sunday is in next week, and `left` reads this
+  // week's, so a weekly pass made the test fail at that hour.
   const pass = await op<{ id: string }>(page.request, "record.create", {
     object: "bkfixture.pass",
-    values: { name: unique("Pass "), person: person.id, uses: 3, per: "week" },
+    values: { name: unique("Pass "), person: person.id, uses: 3, per: "total" },
   });
   // In 3 hours: open (7 days before, the organisation's default) and in time to cancel (late
   // from an hour before).
@@ -301,7 +303,8 @@ test("staff link a parent to their child, and the parent books the child a class
   const child = await op<{ id: string }>(page.request, "person.create", { givenName: childName });
   const pass = await op<{ id: string }>(page.request, "record.create", {
     object: "bkfixture.pass",
-    values: { name: unique("Kids pass "), person: child.id, uses: 3, per: "week" },
+    // In all, not a week: as above, a class booked late on a Sunday counts in next week.
+    values: { name: unique("Kids pass "), person: child.id, uses: 3, per: "total" },
   });
   const klass = await oneOff(page, 3 * HOUR);
   const left = async () =>
