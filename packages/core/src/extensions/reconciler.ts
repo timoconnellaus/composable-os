@@ -23,8 +23,10 @@ import { CompiledQuery, type Kysely, sql } from "kysely";
 import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
+import { getObject } from "../fields/index.ts";
 import { dropRecurringStatements } from "../recurring/bookkeeping.ts";
 import { ORG_TIMEZONE_SETTING } from "../settings.ts";
+import { orgReader, visibleSource } from "../visibility/index.ts";
 import {
   columnName,
   ident,
@@ -195,38 +197,48 @@ async function dataIssues(
   ext: string,
 ): Promise<ReconcileIssue[]> {
   const issues: ReconcileIssue[] = [];
+  // Org-wide, through the seam: the installed object's view as the registry has it now.
+  const reader = orgReader(db);
+  // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
+  const anyDb = db as unknown as Kysely<any>;
   for (const object of next.objects) {
     if (object.extensionId !== ext || object.status !== "active") continue;
     const before = current.objects.find(
       (o) => o.name === object.name && o.tableName === object.tableName && o.status === "active",
     );
-    if (!before) continue; // A new table has no records.
-    const table = ident(object.tableName);
+    const installed = getObject(object.name);
+    if (!before || !installed) continue; // A new object has no records.
+    const columnOf = (name: string | undefined) =>
+      name ? installed.fields.find((f) => f.name === name)?.column : undefined;
     for (const index of uniqueIndexes(next, object, ext)) {
       if ((current.indexes ?? []).some((i) => i.name === index.name)) continue;
-      const clash = await sql<{ ids: string }>`
-        SELECT group_concat(id, ', ') AS ids FROM ${sql.raw(table)} WHERE ${sql.raw(index.where)}
-        GROUP BY ${sql.raw(index.columns.join(", "))} HAVING count(*) > 1 LIMIT 5
-      `.execute(db);
-      if (clash.rows.length) {
+      const rule = object.definition.unique?.[index.rule];
+      const columns = (rule?.fields ?? []).map(columnOf);
+      if (!rule || columns.some((c) => !c)) continue; // A new field: no record has a value yet.
+      const stateColumn = rule.states ? columnOf(object.definition.states?.field) : undefined;
+      if (rule.states && !stateColumn) continue;
+      let query = anyDb
+        .selectFrom(visibleSource(reader, installed))
+        .select(sql<string>`group_concat(id, ', ')`.as("ids"));
+      for (const column of columns) query = query.where(column as string, "is not", null);
+      if (rule.states && stateColumn) query = query.where(stateColumn, "in", [...rule.states]);
+      const clash = (await query
+        .groupBy(columns as string[])
+        .having(sql`count(*)`, ">", 1)
+        .limit(5)
+        .execute()) as { ids: string }[];
+      if (clash.length) {
         issues.push({
           code: "unique_conflict",
           path: `objects.${object.localName}.unique.${index.rule}`,
-          message: `${object.name}: live records already share these values: ${clash.rows.map((r) => r.ids).join("; ")}. Change or delete them first.`,
+          message: `${object.name}: live records already share these values: ${clash.map((r) => r.ids).join("; ")}. Change or delete them first.`,
         });
       }
     }
     const was = before.definition.claims;
     const now = object.definition.claims;
     if (JSON.stringify(was ?? null) === JSON.stringify(now ?? null)) continue;
-    const stateField = object.definition.states?.field ?? before.definition.states?.field;
-    const column = next.fields.find(
-      (f) =>
-        f.object === object.name &&
-        f.extensionId === ext &&
-        f.localName === stateField &&
-        f.tableName === object.tableName,
-    )?.columnName;
+    const column = columnOf(object.definition.states?.field ?? before.definition.states?.field);
     const states = [
       ...new Set([
         ...(was?.held ?? []),
@@ -236,15 +248,17 @@ async function dataIssues(
       ]),
     ];
     if (!column || !states.length) continue;
-    const live = await sql<{ id: string }>`
-      SELECT id FROM ${sql.raw(table)} WHERE deleted_at IS NULL
-        AND ${sql.raw(ident(column))} IN (${sql.join(states)}) LIMIT 10
-    `.execute(db);
-    if (live.rows.length) {
+    const live = (await anyDb
+      .selectFrom(visibleSource(reader, installed))
+      .select("id")
+      .where(column, "in", states)
+      .limit(10)
+      .execute()) as { id: string }[];
+    if (live.length) {
       issues.push({
         code: "claims_conflict",
         path: `objects.${object.localName}.claims`,
-        message: `${object.name}: claims cannot change while records are in a state it names (${states.join(", ")}): ${live.rows.map((r) => r.id).join(", ")}. Move them out of those states first.`,
+        message: `${object.name}: claims cannot change while records are in a state it names (${states.join(", ")}): ${live.map((r) => r.id).join(", ")}. Move them out of those states first.`,
       });
     }
   }
