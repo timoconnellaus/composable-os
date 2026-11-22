@@ -1169,6 +1169,45 @@ link stops it at once; a merge re-points links, an erase deletes them. Decided a
 seam alone.
 _Avoid_: parent account, family account, sub-account, linked member
 
+**Practitioner** (stage 43, proposed)
+An outside person the business invited (a physiotherapist, a dietitian), with a **discipline** (a
+label) and a **practice** (the outside business they work for). A fourth kind of caller beside
+staff, customers and the public, with their own account and sign-in: they reach only their live
+clients, and of those only what they wrote. Never a staff role or a grant on a Person. One human may
+also hold a staff account and a customer account; the three never combine.
+_Avoid_: external staff, partner, provider, therapist account
+
+**Care link** and **Consent** (stage 43, proposed)
+A client's agreement that one practitioner may work with them (`core_care_link`), asked by the
+practitioner and agreed by the client themselves on the website or in the app; the consent records
+the words shown, when and how. Live until the client, the practitioner or staff end it, and then it
+stops at once. **Sharing** is the client's choice that one practitioner may read another's work for
+them, one way, read only.
+_Avoid_: referral, permission, access grant
+
+**Practitioner work** (authored rows, stage 43, proposed)
+Records a practitioner wrote, marked by the host with their **author**. Never in the `rec_*` views,
+so never in SQL, dashboards, exports, search or the assistant; staff see on screen only what the
+object says (restrictions, the rehab exercise list without notes) and cannot change it.
+
+**Restriction** (Care, stage 43, proposed)
+Something the coach must avoid or know about a client, from a practitioner: "no overhead pressing
+for 6 weeks", or, as a **note for the coach**, "cutting weight for a competition". Coaches see it
+and are told when one is added or lifted.
+
+**Rehab program** and **Habits program** (Programs kinds, stage 43, proposed)
+A practitioner's program for their clients, logged like training: exercises with sets, or habits and
+check-ins ticked off or given an amount. Coaches see a rehab program's exercise list; a habits
+program is the practitioner's and the client's only.
+
+**Nutrition plan** (Care, stage 43, proposed)
+A dietitian's targets, meals and guidance for one client, published for the client to read. Not seen
+by staff.
+
+**Practitioner note** (Care, stage 43, proposed)
+A practitioner's own working note about a client. Read by its author only: not the client's screen,
+not shared, never staff.
+
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
