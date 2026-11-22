@@ -148,6 +148,12 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       if (before === null && write.by === "customer" && states.create) {
         await customerRules(write, states.create, `Creating ${o.label.toLowerCase()}`, to, null);
       }
+      // A state a record may be created in is not a move from the initial state (ADR 0503).
+      const createdIn =
+        before === null && toId !== states.initial ? states.create?.in?.[toId] : undefined;
+      if (createdIn) {
+        return { ...base, by: createdIn, requires: held(toId) };
+      }
       // Staying where it is: nothing to allow, and what the state holds stays filled.
       if (toId === fromId) return { ...base, by: ALL_MOVERS, requires: held(toId) };
       // A record with no state yet (a new one) stands in the initial state.
@@ -278,7 +284,7 @@ export async function resolveStateRequest(
   let refused: { rule: StateRuleDetails["rule"]; message: string; times: object } | null = null;
   for (const to of requests[asked] ?? []) {
     const move = states.moves.find((m) => m.to === to && moveOrigins(m).includes(origin));
-    if (!move || !move.by.includes(by)) continue;
+    if (!move?.by.includes(by)) continue;
     if (by === "customer") {
       const refusal = await customerRefusal(
         ctx,

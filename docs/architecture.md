@@ -985,9 +985,9 @@ Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).
 
 The rules products share, declared in a manifest and enforced by the host in the write's own batch.
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
-half, and the media library beside it, since stage 28).
-`recurring` and `allowance` are added as stages need them. Behaviours stack: an event is
-publishable, sellable and has a capacity.
+half, and the media library beside it, since stage 28); `recurring`, capacity claimants and
+declared uniqueness since stage 31 (below). `allowance` is added by stage 32b. Behaviours stack:
+an event is publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
 ([ADR 0425](adr/0425-one-transition-engine-for-stages-and-states.md),
@@ -1012,6 +1012,48 @@ writes for them at the seam, and the public move nothing
 ([ADR 0426](adr/0426-who-moves-a-record-and-what-follows-a-move.md)). Platform code can register
 a hook on an object's moves (`onRecordMove`): it runs in the batch of the write that makes the
 move, which is how `capacity` and `sellable` act when an order is paid. Extensions cannot.
+
+**Windows, staff-only rules and requested moves**
+([ADR 0503](adr/0503-time-windows-and-staff-only-on-the-transition-engine.md),
+`packages/core/src/records/windows.ts`). A move may declare a `window` and a `staffOnly` flag, and
+`states.create` the same for every create: a customer makes the move only from one moment until
+another, each worked out from a datetime of the record or of the record a relation points to
+(`klass.startsAt`), less whole local days in a zone and then minutes, by the host's clock in the
+write; while the flag (a boolean, named the same way) is true, only staff and the host may.
+Staff and the host are not bound. `states.requests` names moves a caller asks for by name
+(`cancel`), resolved by the host to the first listed state it may enter now (`cancelled` in
+time, `late_cancelled` after); `resolveStateRequest` is the dry run a tool shows first.
+`states.create.in` lists states a record may be created in, with who may (a booking created
+`waiting` by a member, `pending` only by the host), not judged as moves from `initial`.
+
+**Capacity claimants** ([ADR 0501](adr/0501-a-record-s-states-claim-its-place.md),
+`packages/core/src/capacity/claimants.ts`). An object declares `claims: { on, held, confirmed }`:
+its records' states hold, take and give back one place on the record `on` points to, which
+declares a capacity. The transition engine queues the claim, confirm or release in each move's
+batch (`for: { type: <object>, id }`), refused by the database past the places as an order's
+line is (migration 0440). A claimant holding a place keeps its `on` and stays out of Trash.
+Orders claim through their own move hook, unchanged.
+
+**Declared uniqueness** ([ADR 0502](adr/0502-declared-uniqueness.md),
+`packages/core/src/records/unique.ts`). `unique: [{ fields, states? }]` is a partial unique index
+the reconciler builds on the extension's table: no two live records in those states share the
+fields (one active booking per Person per class), whoever writes and however many at once. A
+read before the write gives the clear message and the dry run's answer.
+
+**`recurring`** ([ADR 0500](adr/0500-recurring-a-weekly-rule-in-local-time.md),
+`packages/core/src/recurring/`, `packages/core/src/time/local.ts`). A series (a timetable line)
+declares a weekly rule in local wall-clock time and the fields it fills on the records it makes:
+`recurring: { generates, link, rule, into, copy, cancel, ended?, closures?, horizonDays? }`. The
+minute cron (`runRecurringDue` → `recurring.generate`, as the host) makes each due series'
+records up to its horizon (56 days by default): a series is due when written, and daily at 00:05
+in its zone. `core_recurrence_occurrence` (migration 0560) keys each record on the series and
+its local date in the batch that creates it, so nothing is made twice. 06:00 stays 06:00 across a
+clock change; a time in a change's gap moves forward by the gap, one that happens twice is the
+first. A record staff change (time, copied fields, state) is marked edited and left alone; a
+change to the series reaches the rest at once, in its batch, and moving or cancelling records
+with places taken needs `recurring.change` with the count confirmed. Closures cancel the records
+they cover and nothing is made in them. The wall-clock helper is shared with subscriptions'
+`paidUpMoment` and stage 32b's allowances.
 
 `sellable` ([ADR 0435](adr/0435-sellable-what-may-be-bought-and-what-a-paid-line-grants.md),
 `packages/sdk/src/sellable.ts`, `packages/core/src/orders/sellable.ts` and `grants.ts`) is what

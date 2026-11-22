@@ -176,6 +176,7 @@ export * from "./operations/query.ts";
 export * from "./operations/record.ts";
 export * from "./operations/record-import.ts";
 export * from "./operations/record-versions.ts";
+export { type RecurringDueOptions, runRecurringDue } from "./operations/recurring.ts";
 export * from "./operations/retention.ts";
 export * from "./operations/routine.ts";
 export * from "./operations/search.ts";
@@ -253,12 +254,6 @@ export {
   type StateRuleDetails,
   StateRuleError,
 } from "./records/states.ts";
-export { assertUnique } from "./records/unique.ts";
-export * from "./records/windows.ts";
-export * from "./recurring/bookkeeping.ts";
-export * from "./recurring/index.ts";
-export { type RecurringDueOptions, runRecurringDue } from "./operations/recurring.ts";
-export * from "./time/local.ts";
 export * from "./records/stream.ts";
 export * from "./records/stream-fake.ts";
 export * from "./records/tags.ts";
@@ -270,6 +265,10 @@ export {
   TransitionRuleError,
   transitionTimeline,
 } from "./records/transitions.ts";
+export { assertUnique } from "./records/unique.ts";
+export * from "./records/windows.ts";
+export * from "./recurring/bookkeeping.ts";
+export * from "./recurring/index.ts";
 export * from "./registry.ts";
 export * from "./relative.ts";
 export * from "./retention.ts";
@@ -285,6 +284,7 @@ export * from "./subscriptions/index.ts";
 export * from "./support.ts";
 export * from "./sync/ingest.ts";
 export * from "./sync/signals.ts";
+export * from "./time/local.ts";
 export * from "./updates.ts";
 export { type PrincipalLike, resolveActingUser, SYSTEM_USER } from "./users.ts";
 export * from "./views/spec.ts";

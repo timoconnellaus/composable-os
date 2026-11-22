@@ -223,18 +223,24 @@ export function toOperationError(error: unknown): OperationError {
   }
   // Two series runs making one date at once (migration 0560, ADR 0500): the other one made it.
   if (message.includes("UNIQUE constraint failed: core_recurrence_occurrence")) {
-    return new ConflictError("Another run made these records at the same moment. Nothing was changed.", {
-      rule: "recurring_occurrence",
-    });
+    return new ConflictError(
+      "Another run made these records at the same moment. Nothing was changed.",
+      {
+        rule: "recurring_occurrence",
+      },
+    );
   }
   const unique = /UNIQUE constraint failed: ([\w.]+(?:, [\w.]+)*)/.exec(message);
   // A declared uniqueness rule on an extension's table (ADR 0502): another write made the same
   // record a moment before, and this one's batch failed on the rule's index.
   if (unique?.[1]?.startsWith("x_")) {
-    return new ConflictError("A record like this one was made at the same moment, so this one was not", {
-      rule: "unique",
-      constraint: unique[1],
-    });
+    return new ConflictError(
+      "A record like this one was made at the same moment, so this one was not",
+      {
+        rule: "unique",
+        constraint: unique[1],
+      },
+    );
   }
   if (unique) {
     return new ConflictError("A record with that value already exists", {

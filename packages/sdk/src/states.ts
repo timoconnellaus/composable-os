@@ -78,11 +78,18 @@ export interface StatesSpec {
   initial: string;
   moves: readonly StateMove[];
   /**
-   * Rules on every create, whatever state the record is created in (ADR 0503): the `window` in
-   * which a customer may create one, and `staffOnly`, a boolean field while true only staff and
-   * the host create. Named as a move's are.
+   * Rules on every create, whatever state the record is created in (ADR 0503): `in`, the states
+   * a record may be created in besides `initial`, each with who may create it there (it is then
+   * not judged as a move from `initial`: a booking is created booked or waiting by a customer,
+   * pending only by the host); the `window` in which a customer
+   * may create one; and `staffOnly`, a boolean field while true only staff and the host create.
+   * Named as a move's are.
    */
-  create?: { window?: MoveWindow; staffOnly?: string };
+  create?: {
+    in?: Readonly<Record<string, readonly Mover[]>>;
+    window?: MoveWindow;
+    staffOnly?: string;
+  };
   /**
    * Moves a caller asks for by name, resolved by the host (ADR 0503): writing the name (`cancel`)
    * into the state field moves the record to the first of the listed states whose move from where
@@ -128,7 +135,14 @@ export const statesManifestSchema = z.object({
     )
     .max(200),
   create: z
-    .object({ window: moveWindow.optional(), staffOnly: fieldPath.optional() })
+    .object({
+      in: z
+        .record(stateValue, z.array(z.enum(MOVERS)).min(1).max(MOVERS.length))
+        .refine((r) => Object.keys(r).length <= 20, "At most 20 states")
+        .optional(),
+      window: moveWindow.optional(),
+      staffOnly: fieldPath.optional(),
+    })
     .strict()
     .optional(),
   requests: z
@@ -262,8 +276,15 @@ export function checkObjectStates(
     if (move.staffOnly) checkPath(move.staffOnly, `${mp}.staffOnly`, "boolean");
   });
   if (states.create) {
+    for (const state of Object.keys(states.create.in ?? {})) {
+      if (!isState(state))
+        contract(`${sp}.create.in`, `"${state}" is not an option of ${states.field}`);
+      if (finals.has(state))
+        contract(`${sp}.create.in`, `"${state}" is final: nothing is created in it`);
+    }
     checkWindow(states.create.window, `${sp}.create.window`);
-    if (states.create.staffOnly) checkPath(states.create.staffOnly, `${sp}.create.staffOnly`, "boolean");
+    if (states.create.staffOnly)
+      checkPath(states.create.staffOnly, `${sp}.create.staffOnly`, "boolean");
   }
   for (const [request, targets] of Object.entries(states.requests ?? {})) {
     const rp = `${sp}.requests.${request}`;

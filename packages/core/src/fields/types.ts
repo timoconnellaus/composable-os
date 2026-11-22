@@ -323,7 +323,13 @@ export interface StatesDefinition {
     staffOnly?: string | undefined;
   }[];
   /** Rules on every create (ADR 0503). */
-  create?: { window?: WindowDefinition | undefined; staffOnly?: string | undefined } | undefined;
+  create?:
+    | {
+        in?: Readonly<Record<string, readonly ("staff" | "customer" | "host")[]>> | undefined;
+        window?: WindowDefinition | undefined;
+        staffOnly?: string | undefined;
+      }
+    | undefined;
   /** Moves asked for by name, resolved by the host (ADR 0503). */
   requests?: Readonly<Record<string, readonly string[]>> | undefined;
 }

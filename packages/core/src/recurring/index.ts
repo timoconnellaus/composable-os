@@ -35,12 +35,8 @@ import {
   parseLocalDate,
   parseLocalTime,
 } from "../time/local.ts";
-import {
-  armSeriesStatement,
-  markEditedStatement,
-  occurrenceStatement,
-} from "./bookkeeping.ts";
-
+import { visibleSource } from "../visibility/index.ts";
+import { armSeriesStatement, markEditedStatement, occurrenceStatement } from "./bookkeeping.ts";
 
 /** The most records one run of one series makes; the rest are made by the next tick. */
 export const RECURRING_MAX_PER_RUN = 60;
@@ -51,7 +47,11 @@ const DAILY_RUN_MINUTE = 5;
 
 /** What recurring needs of the record operations (operations/record.ts registers them). */
 export interface RecurringWriter {
-  load(ctx: HandlerContext, object: ObjectDefinition, id: string): Promise<Record<string, unknown> | null>;
+  load(
+    ctx: HandlerContext,
+    object: ObjectDefinition,
+    id: string,
+  ): Promise<Record<string, unknown> | null>;
   create(
     ctx: HandlerContext,
     object: ObjectDefinition,
@@ -133,7 +133,8 @@ export function assertRuleValues(object: ObjectDefinition, values: Record<string
   }
   const from = text(values[def.rule.from]);
   const until = def.rule.until ? text(values[def.rule.until]) : null;
-  if (from && until && until < from) refuse(def.rule.until ?? def.rule.from, "is before the first date");
+  if (from && until && until < from)
+    refuse(def.rule.until ?? def.rule.from, "is before the first date");
 }
 
 /** The rule a series' values give, or null when it is incomplete (nothing is made). */
@@ -229,7 +230,7 @@ async function closureRanges(
   const untilCol = closure?.fields.find((f) => f.name === def.closures?.until)?.column;
   if (!closure || !fromCol || !untilCol) return [];
   const rows = (await (ctx.db as AnyDb)
-    .selectFrom(closure.source)
+    .selectFrom(visibleSource(ctx, closure))
     .select([`${fromCol} as from`, `${untilCol} as until`])
     .where(fromCol, "<=", last)
     .where(untilCol, ">=", first)
@@ -419,9 +420,7 @@ export async function seriesChanged(
     .where("series_id", "=", id)
     .orderBy("local_date")
     .execute();
-  const finals = new Set(
-    (generated.states?.moves ?? []).filter((m) => m.final).map((m) => m.to),
-  );
+  const finals = new Set((generated.states?.moves ?? []).filter((m) => m.final).map((m) => m.to));
   const stateField = generated.states?.field;
   const plans: Planned[] = [];
   for (const row of rows) {
@@ -527,7 +526,8 @@ export async function closureWritten(
     seen.add(def.generates);
     const from = text(after[closure.from]);
     const until = text(after[closure.until]);
-    if (!from || !until || !parseLocalDate(from) || !parseLocalDate(until) || until < from) continue;
+    if (!from || !until || !parseLocalDate(from) || !parseLocalDate(until) || until < from)
+      continue;
     const generated = generatedOf(def);
     const startsCol = generated.fields.find((f) => f.name === def.into.starts)?.column;
     const stateField = generated.states?.field;
@@ -549,7 +549,7 @@ export async function closureWritten(
     // cover every offset, and each record's date is then worked out exactly.
     const now = Date.parse(ctx.now);
     const rows = (await (ctx.db as AnyDb)
-      .selectFrom(generated.source)
+      .selectFrom(visibleSource(ctx, generated))
       .select(["id", `${startsCol} as starts`, ...(zoneCol ? [`${zoneCol} as zone`] : [])])
       .where(startsCol, ">=", addDays(from, -2))
       .where(startsCol, "<", addDays(until, 3))
@@ -573,4 +573,3 @@ export function requireSeriesObject(name: string): ObjectDefinition {
   }
   return object;
 }
-

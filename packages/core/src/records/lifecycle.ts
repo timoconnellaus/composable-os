@@ -102,7 +102,11 @@ export async function applyTransition(
     const outcome = await runTransition(lifecycle, ctx, object, id, before, written, options.by);
     // A capacity claimant's states hold and give back its place (ADR 0501), in this batch.
     if (outcome.moved && object.claims) {
-      await claimantMove(ctx, object, id, before, { ...(before ?? {}), ...written, ...outcome.values });
+      await claimantMove(ctx, object, id, before, {
+        ...(before ?? {}),
+        ...written,
+        ...outcome.values,
+      });
     }
     const hooks = outcome.moved ? moveHooks.get(object.name) : undefined;
     if (outcome.moved && hooks?.length) {

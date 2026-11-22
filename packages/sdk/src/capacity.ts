@@ -172,7 +172,9 @@ export function checkObjectClaims(
     contract(path, `${name} must declare states: its states hold and release the claim`);
     return;
   }
-  const field = Object.hasOwn(object.fields, states.field) ? object.fields[states.field] : undefined;
+  const field = Object.hasOwn(object.fields, states.field)
+    ? object.fields[states.field]
+    : undefined;
   const values = new Set((field?.options ?? []).map((o) => o.value));
   for (const [key, list] of [
     ["held", held],

@@ -30,8 +30,8 @@ import {
 } from "./document.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
-import { renamedMessage } from "./renamed.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
+import { renamedMessage } from "./renamed.ts";
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStates, statesManifestSchema } from "./states.ts";
 import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";

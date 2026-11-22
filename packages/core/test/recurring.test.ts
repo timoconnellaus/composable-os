@@ -23,7 +23,7 @@ const WEEKDAY_OPTIONS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((v
   label: value,
 }));
 
-export const timetable = (id: string) =>
+const timetable = (id: string) =>
   manifest(id, {
     objects: {
       series: {
@@ -102,6 +102,30 @@ export const timetable = (id: string) =>
         },
         capacity: { places: "places" },
       },
+      // A booking: a claimant on its class, so a class can have places taken.
+      booking: {
+        label: "Booking",
+        plural: "Bookings",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name" },
+          klass: { type: "relation", label: "Class", to: `${id}.klass` },
+          state: {
+            type: "select",
+            label: "State",
+            options: [
+              { value: "booked", label: "Booked" },
+              { value: "cancelled", label: "Cancelled" },
+            ],
+          },
+        },
+        states: {
+          field: "state",
+          initial: "booked",
+          moves: [{ from: "booked", to: "cancelled", by: ["staff"], final: true }],
+        },
+        claims: { on: "klass", confirmed: ["booked"] },
+      },
       closure: {
         label: "Closure",
         plural: "Closures",
@@ -165,9 +189,11 @@ async function made(seriesId: string): Promise<Made[]> {
     .all<{ local_date: string; record_id: string; edited_at: string | null }>();
   const out: Made[] = [];
   for (const row of results) {
-    const record = await invoke("record.get", { object: KLASS, id: row.record_id }, as("2026-01-01T00:00:00.000Z")).catch(
-      () => null,
-    );
+    const record = await invoke(
+      "record.get",
+      { object: KLASS, id: row.record_id },
+      as("2026-01-01T00:00:00.000Z"),
+    ).catch(() => null);
     out.push({
       date: row.local_date,
       id: row.record_id,
@@ -191,7 +217,11 @@ function wallClock(instant: unknown, zone: string): string {
 /** Tuesdays and Thursdays from `first` to `last`, by plain UTC calendar walking. */
 function tuesdaysAndThursdays(first: string, last: string): string[] {
   const out: string[] = [];
-  for (let t = Date.parse(`${first}T00:00:00Z`); t <= Date.parse(`${last}T00:00:00Z`); t += 86_400_000) {
+  for (
+    let t = Date.parse(`${first}T00:00:00Z`);
+    t <= Date.parse(`${last}T00:00:00Z`);
+    t += 86_400_000
+  ) {
     const day = new Date(t).getUTCDay();
     if (day === 2 || day === 4) out.push(new Date(t).toISOString().slice(0, 10));
   }
@@ -313,14 +343,22 @@ describe("generation", () => {
     const now = "2026-05-04T00:00:00.000Z";
     const id = await series({ firstDate: "2026-05-01" }, now);
     const [first, second] = await Promise.all([
-      invoke("recurring.generate", { object: SERIES, id }, {
-        ...as(now),
-        actor: "automation",
-      }).catch((e: unknown) => e),
-      invoke("recurring.generate", { object: SERIES, id }, {
-        ...as(now),
-        actor: "automation",
-      }).catch((e: unknown) => e),
+      invoke(
+        "recurring.generate",
+        { object: SERIES, id },
+        {
+          ...as(now),
+          actor: "automation",
+        },
+      ).catch((e: unknown) => e),
+      invoke(
+        "recurring.generate",
+        { object: SERIES, id },
+        {
+          ...as(now),
+          actor: "automation",
+        },
+      ).catch((e: unknown) => e),
     ]);
     const outcomes = [first, second].map((r) =>
       (r as { made?: number }).made !== undefined ? "made" : (r as { code?: string }).code,
@@ -359,7 +397,11 @@ describe("exceptions and changes", () => {
       as(now),
     );
     // A note-like field the series does not set leaves the class the series' own.
-    await invoke("record.update", { object: KLASS, id: third.id, values: { name: "Renamed" } }, as(now));
+    await invoke(
+      "record.update",
+      { object: KLASS, id: third.id, values: { name: "Renamed" } },
+      as(now),
+    );
     let classes = await made(id);
     expect(classes.slice(0, 3).map((c) => [c.edited, c.values.changed])).toEqual([
       [true, true],
@@ -431,7 +473,10 @@ describe("exceptions and changes", () => {
     const classes = await made(id);
     const inside = (d: string) => d >= "2026-11-10" && d <= "2026-11-19";
     for (const c of classes) {
-      expect([c.date, c.values.state]).toEqual([c.date, inside(c.date) ? "cancelled" : "scheduled"]);
+      expect([c.date, c.values.state]).toEqual([
+        c.date,
+        inside(c.date) ? "cancelled" : "scheduled",
+      ]);
     }
     expect(classes.filter((c) => inside(c.date)).map((c) => c.date)).toEqual([
       "2026-11-10",
@@ -450,5 +495,70 @@ describe("exceptions and changes", () => {
     expect(later.map((c) => c.date)).not.toContain("2027-01-05");
     expect(later.map((c) => c.date)).not.toContain("2027-01-07");
     expect(later.map((c) => c.date)).toContain("2027-01-12");
+  });
+});
+
+describe("classes with places taken", () => {
+  const BOOKING = `${ext}.booking`;
+  const bookInto = async (klassId: string, now: string) =>
+    invoke("record.create", { object: BOOKING, values: { klass: klassId } }, as(now));
+
+  it("asks for the count before moving or cancelling them, and keeps places at what is taken", async () => {
+    const now = "2027-02-01T00:00:00.000Z";
+    const id = await series({ firstDate: "2027-02-01", places: 3 }, now);
+    await tick(now);
+    const [booked, , other] = await made(id);
+    if (!booked || !other) throw new Error("expected classes");
+    for (let i = 0; i < 2; i += 1) await bookInto(booked.id, now);
+
+    // Fewer places than are taken: the booked class keeps two, the rest take the new number.
+    await invoke("record.update", { object: SERIES, id, values: { places: 1 } }, as(now));
+    let classes = await made(id);
+    expect(classes[0]?.values.places).toBe(2);
+    expect(classes[1]?.values.places).toBe(1);
+
+    // A new time moves a class with bookings: refused, with the count, until it is confirmed.
+    const change = { time: "18:00" };
+    await expect(
+      invoke("record.update", { object: SERIES, id, values: change }, as(now)),
+    ).rejects.toMatchObject({
+      code: "conflict",
+      details: {
+        rule: "recurring_confirm",
+        count: 1,
+        records: [{ id: booked.id, action: "update" }],
+      },
+    });
+    expect(wallClock((await made(id))[0]?.values.startsAt, "Australia/Sydney")).toBe("06:00");
+    await expect(
+      invoke("recurring.change", { object: SERIES, id, values: change, confirm: 2 }, as(now)),
+    ).rejects.toMatchObject({ details: { rule: "recurring_confirm", count: 1 } });
+    await invoke("recurring.change", { object: SERIES, id, values: change, confirm: 1 }, as(now));
+    classes = await made(id);
+    for (const c of classes) expect(wallClock(c.values.startsAt, "Australia/Sydney")).toBe("18:00");
+
+    // Ending it: the booked class is cancelled (its bookings stay), the others go.
+    await expect(
+      invoke("record.update", { object: SERIES, id, values: { state: "ended" } }, as(now)),
+    ).rejects.toMatchObject({ details: { rule: "recurring_confirm", count: 1 } });
+    await invoke(
+      "recurring.change",
+      { object: SERIES, id, values: { state: "ended" }, confirm: 1 },
+      as(now),
+    );
+    classes = await made(id);
+    expect(classes.map((c) => [c.id, c.values.state])).toEqual([[booked.id, "cancelled"]]);
+  });
+
+  it("is a destructive operation: an assistant asks a person", async () => {
+    const now = "2027-03-01T00:00:00.000Z";
+    const id = await series({ firstDate: "2027-03-01" }, now);
+    await expect(
+      invoke(
+        "recurring.change",
+        { object: SERIES, id, values: { time: "07:00" }, confirm: 1 },
+        { ...as(now), actor: "assistant" },
+      ),
+    ).rejects.toMatchObject({ code: "pending_approval" });
   });
 });

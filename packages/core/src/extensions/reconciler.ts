@@ -22,8 +22,8 @@ import {
 import { CompiledQuery, type Kysely } from "kysely";
 import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
-import { dropRecurringStatements } from "../recurring/bookkeeping.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
+import { dropRecurringStatements } from "../recurring/bookkeeping.ts";
 import { ORG_TIMEZONE_SETTING } from "../settings.ts";
 import {
   columnName,
@@ -562,9 +562,8 @@ export function planFromState(
             f.tableName === object.tableName,
         )?.columnName ?? null;
       const columns = rule.fields.map(columnOf);
-      const stateColumn = rule.states && object.definition.states
-        ? columnOf(object.definition.states.field)
-        : null;
+      const stateColumn =
+        rule.states && object.definition.states ? columnOf(object.definition.states.field) : null;
       if (columns.some((c) => c === null) || (rule.states && !stateColumn)) continue;
       const filled = columns.map((c) => `${ident(c as string)} IS NOT NULL`);
       const states = rule.states

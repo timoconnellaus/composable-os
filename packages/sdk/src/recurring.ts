@@ -97,7 +97,10 @@ export const recurringManifestSchema = z
       .object({ field: fieldName, in: z.array(z.string().min(1).max(100)).min(1).max(20) })
       .strict()
       .optional(),
-    closures: z.object({ object: fieldName, from: fieldName, until: fieldName }).strict().optional(),
+    closures: z
+      .object({ object: fieldName, from: fieldName, until: fieldName })
+      .strict()
+      .optional(),
     horizonDays: z.number().int().min(1).max(RECURRING_HORIZON_MAX).optional(),
   })
   .strict();
@@ -133,7 +136,14 @@ export function checkObjectRecurring(
   };
 
   const rule = recurring.rule;
-  const weekdays = expect(object, name, `${path}.rule.weekdays`, rule.weekdays, ["multiSelect"], "a multiSelect field");
+  const weekdays = expect(
+    object,
+    name,
+    `${path}.rule.weekdays`,
+    rule.weekdays,
+    ["multiSelect"],
+    "a multiSelect field",
+  );
   if (weekdays) {
     const values = (weekdays.options ?? []).map((o) => o.value);
     const wrong = values.filter((v) => !(WEEKDAYS as readonly string[]).includes(v));
@@ -153,7 +163,14 @@ export function checkObjectRecurring(
   expect(object, name, `${path}.rule.until`, rule.until, ["date"], "a date field");
   expect(object, name, `${path}.rule.zone`, rule.zone, ["timezone"], "a timezone field");
   if (recurring.ended) {
-    const field = expect(object, name, `${path}.ended.field`, recurring.ended.field, ["select"], "a select field");
+    const field = expect(
+      object,
+      name,
+      `${path}.ended.field`,
+      recurring.ended.field,
+      ["select"],
+      "a select field",
+    );
     const values = new Set((field?.options ?? []).map((o) => o.value));
     for (const value of recurring.ended.in) {
       if (field && !values.has(value)) {
@@ -170,43 +187,99 @@ export function checkObjectRecurring(
   }
   const link = own(generated, recurring.link);
   if (link?.type !== "relation" || link.many || link.to !== `${m.id}.${name}`) {
-    contract(`${path}.link`, `"${recurring.link}" must be a relation field of ${generatedName} to ${m.id}.${name}`);
+    contract(
+      `${path}.link`,
+      `"${recurring.link}" must be a relation field of ${generatedName} to ${m.id}.${name}`,
+    );
   } else if (!link.readOnly) {
     contract(`${path}.link`, `"${recurring.link}" must be read-only: the host sets it`);
   }
-  expect(generated, generatedName, `${path}.into.starts`, recurring.into.starts, ["datetime"], "a datetime field");
-  expect(generated, generatedName, `${path}.into.ends`, recurring.into.ends, ["datetime"], "a datetime field");
-  expect(generated, generatedName, `${path}.into.zone`, recurring.into.zone, ["timezone"], "a timezone field");
-  const changed = expect(generated, generatedName, `${path}.into.changed`, recurring.into.changed, ["boolean"], "a boolean field");
+  expect(
+    generated,
+    generatedName,
+    `${path}.into.starts`,
+    recurring.into.starts,
+    ["datetime"],
+    "a datetime field",
+  );
+  expect(
+    generated,
+    generatedName,
+    `${path}.into.ends`,
+    recurring.into.ends,
+    ["datetime"],
+    "a datetime field",
+  );
+  expect(
+    generated,
+    generatedName,
+    `${path}.into.zone`,
+    recurring.into.zone,
+    ["timezone"],
+    "a timezone field",
+  );
+  const changed = expect(
+    generated,
+    generatedName,
+    `${path}.into.changed`,
+    recurring.into.changed,
+    ["boolean"],
+    "a boolean field",
+  );
   if (changed && !changed.readOnly) {
-    contract(`${path}.into.changed`, `"${recurring.into.changed}" must be read-only: the host sets it`);
+    contract(
+      `${path}.into.changed`,
+      `"${recurring.into.changed}" must be read-only: the host sets it`,
+    );
   }
   const into = new Set(Object.values(recurring.into));
   for (const [target, source] of Object.entries(recurring.copy ?? {})) {
     const to = own(generated, target);
     const from = own(object, source);
     if (!to || to.type === "formula" || into.has(target) || target === recurring.link) {
-      contract(`${path}.copy.${target}`, `"${target}" must be a field of ${generatedName} the host does not already fill`);
-    } else if (!from || from.type !== to.type || Boolean(from.many) !== Boolean(to.many) || from.to !== to.to) {
-      contract(`${path}.copy.${target}`, `"${source}" must be a field of ${name} of the same type as ${generatedName}.${target}`);
+      contract(
+        `${path}.copy.${target}`,
+        `"${target}" must be a field of ${generatedName} the host does not already fill`,
+      );
+    } else if (
+      !from ||
+      from.type !== to.type ||
+      Boolean(from.many) !== Boolean(to.many) ||
+      from.to !== to.to
+    ) {
+      contract(
+        `${path}.copy.${target}`,
+        `"${source}" must be a field of ${name} of the same type as ${generatedName}.${target}`,
+      );
     }
   }
   const states = generated.states;
   if (!states) {
-    contract(`${path}.cancel`, `${generatedName} must declare states, with a host move into "${recurring.cancel}"`);
+    contract(
+      `${path}.cancel`,
+      `${generatedName} must declare states, with a host move into "${recurring.cancel}"`,
+    );
   } else {
     const field = own(generated, states.field);
     if (!(field?.options ?? []).some((o) => o.value === recurring.cancel)) {
       contract(`${path}.cancel`, `"${recurring.cancel}" is not a state of ${generatedName}`);
-    } else if (!states.moves.some((move) => move.to === recurring.cancel && move.by.includes("host"))) {
-      contract(`${path}.cancel`, `${generatedName} needs a move into "${recurring.cancel}" that the host may make`);
+    } else if (
+      !states.moves.some((move) => move.to === recurring.cancel && move.by.includes("host"))
+    ) {
+      contract(
+        `${path}.cancel`,
+        `${generatedName} needs a move into "${recurring.cancel}" that the host may make`,
+      );
     }
   }
   if (recurring.closures) {
     const c = recurring.closures;
     const closure = Object.hasOwn(m.objects, c.object) ? m.objects[c.object] : undefined;
     if (!closure || c.object === name || c.object === generatedName) {
-      contract(`${path}.closures.object`, `"${c.object}" must be another of this extension's objects`);
+      contract(
+        `${path}.closures.object`,
+        `"${c.object}" must be another of this extension's objects`,
+      );
     } else {
       expect(closure, c.object, `${path}.closures.from`, c.from, ["date"], "a date field");
       expect(closure, c.object, `${path}.closures.until`, c.until, ["date"], "a date field");

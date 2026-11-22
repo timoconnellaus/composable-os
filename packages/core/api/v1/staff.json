@@ -43711,6 +43711,117 @@
       "invalidates": []
     },
     {
+      "name": "recurring.change",
+      "description": "Change a series of a recurring schedule (a timetable line) when the change moves or cancels future records that have places taken: record.update refuses that change and says how many (rule recurring_confirm, count). Pass the same values and confirm with that count; the records nobody edited move to the new time, and dates no longer in the series are cancelled. Refused again if the count has changed. Returns the series.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "confirm": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "How many records with places taken the change moves or cancels."
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "values",
+          "confirm"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "id",
+          "values"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "recurring.generate",
+      "description": "Platform use only: make one series' records that are due, up to its horizon, as the host (the minute cron). Dates already made, in a closure or past are not made. Returns how many were made and whether more are due.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "made": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "made",
+          "more"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "routine.backtest",
       "description": "Try an idea, or an existing one by id, on the last 30 days: how many times it would have messaged the person, examples that pass and fail, and warnings when there is no data or the trigger is very broad. Writes nothing to the CRM.",
       "risk": "write",

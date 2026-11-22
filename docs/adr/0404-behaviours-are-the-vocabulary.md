@@ -58,3 +58,9 @@ set is small and shared, a pack is mostly a manifest.
   versions, the publish operation for a person with `records:publish`, reading and restoring a
   version; no public reads, states or slugs, which stage 28 adds on the same table and operations.
   The first object to declare it is Programs' program.
+- **`recurring` is built** (2026-11-22, stage 31 build step 1, ADR 0500): a weekly rule in local
+  wall-clock time on a series, records made ahead by the minute cron and keyed on the series and
+  local date, edited records left alone, closures. With it in step 2 the platform pieces the
+  Bookings pack composes: capacity **claimants** (ADR 0501, extending `capacity`), declared
+  **uniqueness** (ADR 0502) and **time windows, staff-only rules and requested moves** on the
+  transition engine (ADR 0503). Each is a declaration; no pack hooks a write.

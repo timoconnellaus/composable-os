@@ -10,6 +10,7 @@ import type { Kysely } from "kysely";
 import { ConflictError } from "../errors.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
+import { visibleSource } from "../visibility/index.ts";
 
 /** Refuses a write that would leave two live records alike under one of the object's rules. */
 export async function assertUnique(
@@ -28,7 +29,7 @@ export async function assertUnique(
     if (fields.some((f) => !f?.column)) continue;
     // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
     let query = (ctx.db as Kysely<any>)
-      .selectFrom(object.source)
+      .selectFrom(visibleSource(ctx, object))
       .select("id")
       .where("id", "!=", id);
     fields.forEach((field, i) => {

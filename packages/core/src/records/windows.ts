@@ -12,11 +12,7 @@
 // organisation's default, copied by the host onto the class).
 import type { Kysely } from "kysely";
 import { getObject } from "../fields/index.ts";
-import type {
-  ObjectDefinition,
-  WindowBoundDefinition,
-  WindowDefinition,
-} from "../fields/types.ts";
+import type { ObjectDefinition, WindowBoundDefinition, WindowDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { localDaysBefore } from "../time/local.ts";
@@ -90,7 +86,11 @@ async function boundMoment(
   const instant = typeof at === "string" ? Date.parse(at) : Number.NaN;
   if (Number.isNaN(instant)) return null;
   const part = async (value: number | string | undefined) =>
-    value === undefined ? 0 : typeof value === "number" ? value : asNumber(await reader.read(value));
+    value === undefined
+      ? 0
+      : typeof value === "number"
+        ? value
+        : asNumber(await reader.read(value));
   const days = await part(b.daysBefore);
   const minutes = await part(b.minutesBefore);
   if (days === null || minutes === null) return null;
@@ -161,4 +161,3 @@ export async function staffOnlySet(reader: PathReader, path: string | undefined)
 export function staffOnlyMessage(what: string): string {
   return `${what} is made by staff only`;
 }
-

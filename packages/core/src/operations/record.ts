@@ -34,7 +34,15 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
+import {
+  assertRestorable,
+  assertSlugsFree,
+  redirectWrites,
+  slugsForCreate,
+} from "../records/slug.ts";
+import type { StageCache } from "../records/stages.ts";
 import { resolveStateRequest } from "../records/states.ts";
+import { type Mover, type TransitionOutcome, transitionTimeline } from "../records/transitions.ts";
 import { assertUnique } from "../records/unique.ts";
 import {
   assertRuleValues,
@@ -44,14 +52,6 @@ import {
   seriesCreated,
   setRecurringWriter,
 } from "../recurring/index.ts";
-import {
-  assertRestorable,
-  assertSlugsFree,
-  redirectWrites,
-  slugsForCreate,
-} from "../records/slug.ts";
-import type { StageCache } from "../records/stages.ts";
-import { type Mover, type TransitionOutcome, transitionTimeline } from "../records/transitions.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 import { setRecordWriter } from "../visibility/writes.ts";
@@ -845,7 +845,8 @@ export async function updateRecord(
     ];
   }
   // One live record per declared key (ADR 0502); the database's index refuses a race.
-  if (object.unique) await assertUnique(ctx, object, id, { ...before.values, ...valuesOf(prepared) });
+  if (object.unique)
+    await assertUnique(ctx, object, id, { ...before.values, ...valuesOf(prepared) });
   const own = prepared.filter((p) => p.own);
   if (own.length || !isCoreObject(object.name)) {
     const table = objectTableOf(object.name);
