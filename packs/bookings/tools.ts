@@ -258,8 +258,9 @@ function refusalOf(
     return out("already_booked", "You already have a place in this class, or are waiting for one.");
   }
   if (rule === "capacity") return out("full", "This class is full.");
-  // It moved on while this was being done (another write moved it first): a race, not a fault.
-  if (rule === "state_final" || rule === "state_move_not_declared") {
+  // A cancel that found the booking already in a final state: another write moved it first (a
+  // race). Any other undeclared move is a fault and is not dressed up as one.
+  if (what === "cancel" && rule === "state_final") {
     return out("changed", "It changed meanwhile: it is no longer booked. Look again.");
   }
   if (error.code === "conflict") {
@@ -1528,6 +1529,17 @@ export const move = defineTool({
         error instanceof OpsCallError
           ? (error.details as { rule?: unknown } | undefined)?.rule
           : undefined;
+      // The old booking moved to a final state meanwhile (the member cancelled it): a race.
+      if (rule === "state_final") {
+        return {
+          result: "refused" as const,
+          reason: "changed" as const,
+          message: "It changed meanwhile: it is no longer booked. Look again.",
+          detail: null,
+          opensAt: null,
+          closesAt: null,
+        };
+      }
       // The old booking's own move has a window: until its class starts.
       if (rule === "state_window_closed") {
         return no(
@@ -1597,6 +1609,13 @@ export const cancelClass = defineTool({
             "invalid_input",
             "ended",
             "This class has ended: a class that happened is not cancelled. A person can give a booking's use back (returnUse).",
+          );
+        }
+        if (details.rule === "state_window_unknown") {
+          fail(
+            "invalid_input",
+            "no_end",
+            "This class has no end time, so whether it has ended cannot be told: give it one first.",
           );
         }
         if (error.code === "conflict" && attempt === 0) continue;

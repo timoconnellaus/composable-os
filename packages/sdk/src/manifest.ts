@@ -340,7 +340,21 @@ export const roleManifestSchema = z.object({
   permissions: z.array(z.string().max(80)).max(20).default([]),
   read: z.array(z.string().max(80)).max(20).default([]),
   /** Objects whose records the role reaches only on the organisation's local today (ADR 0553). */
-  today: z.record(z.string().max(80), z.string().max(122)).optional(),
+  today: z
+    .record(
+      z.string().max(80),
+      z.union([
+        z.string().max(122),
+        z
+          .object({
+            at: z.string().max(122),
+            until: z.string().max(122).optional(),
+            zone: z.string().max(122).optional(),
+          })
+          .strict(),
+      ]),
+    )
+    .optional(),
 });
 export type RoleManifest = z.infer<typeof roleManifestSchema>;
 
@@ -1600,16 +1614,30 @@ export function validateManifest(
     }
     // A role limited to today (ADR 0553): each object its own, each path a datetime on it (or
     // one relation away, through another of its objects).
-    for (const [object, at] of Object.entries(role.today ?? {})) {
+    for (const [object, limit] of Object.entries(role.today ?? {})) {
       const tp = `${path}.today.${object}`;
       const local = object.startsWith(`${m.id}.`) ? object.slice(m.id.length + 1) : null;
       const target = local && Object.hasOwn(m.objects, local) ? m.objects[local] : undefined;
-      const field =
-        target && at.split(".").length <= 2 ? resolveFieldPath(m, target, at) : undefined;
       if (!target) {
         contract(tp, `"${object}" is not an object of this extension`);
-      } else if (field?.type !== "datetime" || field.many) {
-        contract(tp, `"${at}" must be a datetime field of ${object}, or one relation away`);
+        continue;
+      }
+      const spec = typeof limit === "string" ? { at: limit } : limit;
+      const prefix = (p: string) => (p.includes(".") ? p.split(".")[0] : null);
+      const paths: [string | undefined, string][] = [
+        [spec.at, "datetime"],
+        [spec.until, "datetime"],
+        [spec.zone, "timezone"],
+      ];
+      for (const [p, type] of paths) {
+        if (p === undefined) continue;
+        const field = p.split(".").length <= 2 ? resolveFieldPath(m, target, p) : undefined;
+        if (field?.type !== type || field.many) {
+          contract(tp, `"${p}" must be a ${type} field of ${object}, or one relation away`);
+        }
+        if (prefix(p) !== prefix(spec.at)) {
+          contract(tp, `"${p}" must be read through the same relation as "${spec.at}"`);
+        }
       }
     }
   }

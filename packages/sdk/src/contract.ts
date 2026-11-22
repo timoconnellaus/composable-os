@@ -636,11 +636,13 @@ export interface RoleSpec {
   read: readonly string[];
   /**
    * Objects whose records the role reaches only when a datetime on them falls on the
-   * organisation's local today (ADR 0553), by object: `{ "bookings.class": "startsAt",
-   * "bookings.booking": "class.startsAt" }`. The host holds it on the role's own reads and on
-   * every record its tools read or change for it. Other staff are not limited.
+   * day it is on (ADR 0553), by object: the moment, and optionally its end and zone, read through
+   * one relation at most: `{ "bookings.class": { at: "startsAt", until: "endsAt", zone:
+   * "timezone" } }`. A record is today's when its start falls on today's date in its zone (the
+   * organisation's when empty), or it has started and not yet ended. The host holds it on every
+   * call the account makes and every call of a tool run it started. Other staff are not limited.
    */
-  today?: Readonly<Record<string, string>>;
+  today?: Readonly<Record<string, string | { at: string; until?: string; zone?: string }>>;
 }
 
 /**

@@ -152,7 +152,7 @@ export interface HandlerContext {
    * The objects the staff caller's pack role reaches only on today (ADR 0553), read from the
    * account on this call; absent when it holds no such role. A tool's run carries it on.
    */
-  readonly roleToday?: Readonly<Record<string, string>> | undefined;
+  readonly roleToday?: import("./pack-role-today.ts").TodayLimits | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
   /**

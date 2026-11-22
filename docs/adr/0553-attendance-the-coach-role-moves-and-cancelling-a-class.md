@@ -91,19 +91,33 @@ and `apps/app/e2e/bookings.spec.ts` ("a coach ticks who came on a class's list",
   changed twice): a race is retried once from a fresh read, and an approved request that cannot
   apply shows that it did not. The errors are caller errors (`not_found`, `conflict`,
   `invalid_input`), so they never quarantine the pack.
-- **`move` reports a booking that moved on meanwhile as `changed`** (`state_final`,
-  `state_move_not_declared`), not as a fault.
-- **The coach role reaches today only** (`roles.coach.today`, a new declaration on a pack role):
-  its `bookings.class` records by `startsAt`, and bookings by their class's `startsAt`, on the
-  organisation's local today, on the role's own reads and on every record a tool reads or changes
-  for it (the run carries the caller's limit; `packages/core/src/pack-role-today.ts`). Another
-  day's class is not found, `day` for another date lists nothing, and another day's name cannot be
-  ticked. The spec says the coach reads "today's classes and their lists", so yesterday's late
-  corrections are not the coach's: the desk (any other staff role, not limited) makes them.
+- **The coach role reaches today only** (`roles.coach.today`, a new declaration on a pack role,
+  `packages/core/src/pack-role-today.ts`). By object it names a moment, its end and its zone, read
+  through one relation at most: a class by its `startsAt`, `endsAt` and `timezone`, a booking by
+  its class's. A record is today's when its start falls on today's date in the class's own zone
+  (the organisation's only when it has none), or it has started and not yet ended, so a coach
+  ticks a class that runs past midnight until it ends. The pipeline holds the limit before every
+  operation a limited call makes: the calls of an account holding the role, and every call of a
+  tool run it started, the runs of tools those tools call included (the limit travels in the
+  run's own state and in each invocation it makes, never in an input). `record.list` gets the
+  limit as a predicate in its own query, so its page size, cursor and any projection see only
+  today's records; `record.get` and `record.update` check the stored row (not found otherwise);
+  any other operation naming a limited object (`record.count`, `record.create`, a batch, …) is
+  refused, since the limit cannot check it. Another day's class is not found, `day` for another
+  date lists nothing, and another day's name cannot be ticked. The spec says the coach reads
+  "today's classes and their lists", so yesterday's late corrections are not the coach's: the desk
+  (any other staff role, not limited) makes them. Identifiers in the predicate are the registry's.
+- **Exactly what a cancel gives back**: a use spent from a membership or pass. A booking paid at
+  the desk holds no use, so it has nothing to give back; refunds are not built (step 8).
+- **`move` and `cancel` call a booking already in a final state a race** (`changed`); any other
+  undeclared move fails loudly.
 - Proof: `apps/runner/test/bookings-attendance.test.ts` (cancel after a tick and a late cancel,
   each use back once; untick after the cancel refused; cancel after the end refused; a move racing
   the member's cancel; a move into a class type the pass does not cover; the coach refused a class
-  five days ahead, through its reads and its tools), `packages/core/test/attendance-platform.test.ts`
+  five days ahead, through its reads and its tools; a list of one sorted newest first, and one
+  projected without the date, still today's only; a fixture tool calling roster under the limit;
+  `record.count` refused; a class in a zone just past midnight ticked while it runs; a cancel
+  racing an untick, one return; a class with no end time not cancelled), `packages/core/test/attendance-platform.test.ts`
   (a set-aside booking refused back onto a cancelled class), and the pack's tests. A weekly
   membership moved across weeks was not added on the shipped packs (it needs a subscription
   through the fake provider); the platform's fixture covers a move into a week with no use left

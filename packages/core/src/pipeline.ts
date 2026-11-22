@@ -100,7 +100,7 @@ import {
   type SystemActivityInput,
 } from "./operation.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
-import { holdRoleTodayRead } from "./pack-role-today.ts";
+import { holdRoleToday, type TodayLimits } from "./pack-role-today.ts";
 import {
   type HeldPackRole,
   loadStaffRights,
@@ -162,6 +162,11 @@ export interface InvocationContext {
   grantedPermissions?: readonly Permission[] | undefined;
   /** Why the caller wants this change. Stored on the pending action when it is queued. */
   reason?: string | undefined;
+  /**
+   * Set by platform code only (a tool run, for the staff account that started it, ADR 0553): the
+   * caller's pack role limit to today, held on this call as on the account's own.
+   */
+  roleToday?: TodayLimits | undefined;
   /** Days before a pending action expires (env APPROVAL_EXPIRY_DAYS). Default 7. */
   approvalExpiryDays?: number | undefined;
   /** Set when this call applies an approved pending action. */
@@ -688,6 +693,8 @@ async function invokeOnce<O extends AnyOperation>(
     parsed.success ? refreshSchemaRegistry(ctx.db.query) : null,
   ]);
   const { packRole, grants } = rights;
+  // The limit to today: the account's pack role's, or one a tool run carries for its caller.
+  const roleToday: TodayLimits | undefined = packRole?.today ?? ctx.roleToday;
   if (packRole && !packRoleReaches(packRole, op)) {
     const error = packRoleRefusal(packRole, op);
     const gate = evaluateGate(
@@ -842,7 +849,7 @@ async function invokeOnce<O extends AnyOperation>(
     floor: ctx.floor ?? {},
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
-    ...(packRole?.today ? { roleToday: packRole.today } : {}),
+    ...(roleToday ? { roleToday } : {}),
     reason: ctx.reason,
     ...(ctx.approval
       ? {
@@ -1166,11 +1173,12 @@ async function invokeOnce<O extends AnyOperation>(
 
   let result: unknown;
   try {
-    result = await op.handler(input, handlerCtx);
-    // A pack role limited to today reaches only today's records of its objects (ADR 0553).
-    if (packRole?.today) {
-      result = await holdRoleTodayRead(ctx.db.query, packRole, op.name, input, result);
-    }
+    // A pack role limited to today reaches only today's records of its objects (ADR 0553):
+    // held before the operation runs, a list's in its own query.
+    const limited = roleToday
+      ? await holdRoleToday(ctx.db.query, roleToday, op.name, input, Date.parse(now))
+      : input;
+    result = await op.handler(limited as typeof input, handlerCtx);
   } catch (error) {
     if (ctx.simulate && op.risk === "read" && isDryRunRefusal(error)) {
       return notRunRead(error) as OperationOutput<O>;

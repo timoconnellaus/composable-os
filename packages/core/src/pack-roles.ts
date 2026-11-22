@@ -30,7 +30,7 @@ export interface HeldPackRole {
   /** Objects (`<extension>.<object>`) whose records the role may read. */
   readonly read: readonly string[];
   /** Objects reached only on the organisation's local today, by the datetime path (ADR 0553). */
-  readonly today?: Readonly<Record<string, string>>;
+  readonly today?: import("./pack-role-today.ts").TodayLimits;
 }
 
 /** The reads a pack role's `read` opens, on the objects it lists. Nothing else reads for it. */

@@ -843,7 +843,7 @@ spec one way, or decided what it left open:
   a place or a use with it (ticked, not come and late-cancelled included), each use back once; a
   class that has ended cannot be cancelled (`endsAt` is now required); nothing takes a place on a
   closed class, for anyone; `cancelClass` fails visibly when it cannot apply; `move` answers a race
-  as `changed`; the coach role reaches the organisation's local today only (a role's `today`), so
+  as `changed`; the coach role reaches today only (a role's `today`: a class starting today in its own zone, or running now), so
   another day's corrections are the desk's; the timed-move sweep pages past records that keep
   failing; a cascade cannot follow a pooled parent.
 - **Not built here** (later steps): promote by hand, the emails (a move, a cancel, the class list

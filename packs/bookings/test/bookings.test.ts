@@ -1047,8 +1047,8 @@ describe("bookings pack (test host)", () => {
       bindsStaff: true,
     });
     expect(m.roles?.coach?.today).toEqual({
-      "bookings.class": "startsAt",
-      "bookings.booking": "class.startsAt",
+      "bookings.class": { at: "startsAt", until: "endsAt", zone: "timezone" },
+      "bookings.booking": { at: "class.startsAt", until: "class.endsAt", zone: "class.timezone" },
     });
   });
 
@@ -1057,5 +1057,10 @@ describe("bookings pack (test host)", () => {
     expect(
       await r.runTool("move", { bookingId: "bkg_1", toClassId: "cls_2" }, { caller: STAFF }),
     ).toMatchObject({ result: "refused", reason: "changed" });
+    // A move the declaration does not allow is a fault, never reported as a race.
+    const wrong = host({ "record.create": () => refusal("state_move_not_declared") });
+    await expect(
+      wrong.runTool("move", { bookingId: "bkg_1", toClassId: "cls_2" }, { caller: STAFF }),
+    ).rejects.toThrow();
   });
 });

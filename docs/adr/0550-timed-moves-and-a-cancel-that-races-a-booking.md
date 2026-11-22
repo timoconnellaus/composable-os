@@ -69,7 +69,10 @@ counter guard taken out it fails every run).
 ## Amended 2026-11-23, after the review of PR #253
 - **Failures never starve the sweep**: a record that keeps failing stays first in the order, so a
   rule pages past them within a tick (up to ten pages of 100), logging each; one hundred
-  permanently failing records no longer hold back the rest.
+  permanently failing records no longer hold back the rest. Records refused as no longer due (or
+  moved meanwhile) are paged past the same way. One budget (500 records) is shared by every rule in
+  a tick, and the rule that goes first turns each minute, so a rule whose records keep failing
+  cannot starve the rules after it.
 - **A cascade cannot follow a pool**: a parent other records draw places from as a pool counts
   claims that are not its own, which the counter check cannot read, so `follows` on such a parent
   is refused at the contract check.

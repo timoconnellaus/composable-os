@@ -91,6 +91,29 @@ const fixture = (id: string) =>
           after: [{ from: "open", to: "lapsed", at: "at" }],
         },
       },
+      zticket: {
+        label: "Ticket",
+        plural: "Tickets",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name" },
+          at: { type: "datetime", label: "At" },
+          state: {
+            type: "select",
+            label: "State",
+            options: [
+              { value: "open", label: "Open" },
+              { value: "lapsed", label: "Lapsed" },
+            ],
+          },
+        },
+        states: {
+          field: "state",
+          initial: "open",
+          moves: [{ from: "open", to: "lapsed", by: ["host"] }],
+          after: [{ from: "open", to: "lapsed", at: "at" }],
+        },
+      },
       booking: {
         label: "Booking",
         plural: "Bookings",
@@ -386,6 +409,40 @@ describe("the sweep pages past records that keep failing (ADR 0550)", () => {
     expect(tick.failed).toBe(3);
     const record = await invoke("record.get", { object: VISIT, id: good }, context(admin));
     expect((record.values as Record<string, unknown>).state).toBe("lapsed");
+  });
+});
+
+describe("one tick's budget is shared, and the rule that goes first turns (ADR 0550)", () => {
+  it("a rule whose records keep failing cannot take every tick from the rules after it", async () => {
+    const VISIT = `${ext}.visit`;
+    const TICKET = `${ext}.zticket`;
+    // Three visits that never move (no code), and one ticket that can.
+    for (const m of [0, 1, 2]) {
+      await invoke(
+        "record.create",
+        { object: VISIT, values: { name: unique("v"), at: plus(STARTS, m) } },
+        context(admin),
+      );
+    }
+    const ticket = (
+      await invoke(
+        "record.create",
+        { object: TICKET, values: { name: unique("t"), at: plus(STARTS, 1) } },
+        context(admin),
+      )
+    ).id as string;
+    const state = async () =>
+      (
+        (await invoke("record.get", { object: TICKET, id: ticket }, context(admin)))
+          .values as Record<string, unknown>
+      ).state;
+    // Two ticks a minute apart, three records each: whichever rule went first in one, the other
+    // goes first in the next, so the ticket moves within two.
+    for (const minute of [20, 21]) {
+      if ((await state()) === "lapsed") break;
+      await runTimedMovesDue(db, { clock: () => new Date(plus(STARTS, minute)), maxPerTick: 3 });
+    }
+    expect(await state()).toBe("lapsed");
   });
 });
 

@@ -892,9 +892,13 @@ export default defineExtension({
         "not). Nothing else: no money, no other people, no booking or cancelling, no settings.",
       permissions: ["bookings:coach"],
       read: ["bookings.class"],
-      // Today's classes and lists only (spec 31: "read today's classes and their lists"), on
-      // the organisation's local date; corrections to another day's list are the desk's.
-      today: { "bookings.class": "startsAt", "bookings.booking": "class.startsAt" },
+      // Today's classes and lists only (spec 31: "read today's classes and their lists"): a class
+      // starting today in its own zone, or running now (past midnight until it ends). Another
+      // day's corrections are the desk's.
+      today: {
+        "bookings.class": { at: "startsAt", until: "endsAt", zone: "timezone" },
+        "bookings.booking": { at: "class.startsAt", until: "class.endsAt", zone: "class.timezone" },
+      },
     },
   },
   tools: {

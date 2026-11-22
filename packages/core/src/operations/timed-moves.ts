@@ -194,8 +194,10 @@ export interface TimedMovesDueOptions {
   floor?: GateFloor;
   clock?: () => Date;
   events?: EventSink;
-  /** The most records one rule moves per tick. Default 100; the rest next tick. */
+  /** The most records one page of a rule reads. Default 100. */
   maxRecords?: number;
+  /** The most records one tick tries, across every rule. Default 500; the rest next tick. */
+  maxPerTick?: number;
 }
 
 export interface TimedMovesDueResult {
@@ -213,7 +215,7 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  */
 export async function runTimedMovesDue(
   db: CrmDb,
-  { floor, clock, events, maxRecords = 100 }: TimedMovesDueOptions = {},
+  { floor, clock, events, maxRecords = 100, maxPerTick = 500 }: TimedMovesDueOptions = {},
 ): Promise<TimedMovesDueResult> {
   const result: TimedMovesDueResult = { moved: 0, failed: 0 };
   const plans: RulePlan[] = [];
@@ -235,16 +237,23 @@ export async function runTimedMovesDue(
     ...(events ? { events } : {}),
   };
   const now = (clock?.() ?? new Date()).getTime();
-  for (const plan of plans) {
+  // One budget for the whole tick, and the rule that goes first turns each minute, so a rule
+  // whose records keep failing cannot take every tick from the rules after it.
+  let budget = maxPerTick;
+  const first = Math.floor(now / 60_000) % plans.length;
+  const ordered = [...plans.slice(first), ...plans.slice(0, first)];
+  for (const plan of ordered) {
+    if (budget <= 0) break;
     // Records that keep failing stay first in the order: page past them, so they never starve
     // the ones behind (a moved record drops out of the read, a failed one stays; ADR 0550).
     let skip = 0;
-    for (let page = 0; page < MAX_PAGES; page++) {
+    for (let page = 0; page < MAX_PAGES && budget > 0; page++) {
+      const asked = Math.min(maxRecords, budget);
       let rows: { id: string; state: string }[];
       try {
         rows = (
           await db.query.executeQuery<{ id: string; state: string }>(
-            dueQuery(plan, now, maxRecords, undefined, skip),
+            dueQuery(plan, now, asked, undefined, skip),
           )
         ).rows;
       } catch (error) {
@@ -256,8 +265,11 @@ export async function runTimedMovesDue(
         });
         break;
       }
-      let failedHere = 0;
+      // Records this page left where they were (failed, or refused as no longer due): the next
+      // page reads past them.
+      let leftHere = 0;
       for (const row of rows) {
+        budget -= 1;
         try {
           await invoke(
             "state.after",
@@ -278,10 +290,11 @@ export async function runTimedMovesDue(
             e.code === "conflict" &&
             (reason === "not_due" || reason === "moved_meanwhile" || reason === "not_in_position")
           ) {
+            leftHere += 1;
             continue;
           }
           result.failed += 1;
-          failedHere += 1;
+          leftHere += 1;
           console.error("timed moves: a record could not be moved", {
             object: plan.object.name,
             id: row.id,
@@ -290,8 +303,8 @@ export async function runTimedMovesDue(
           });
         }
       }
-      if (rows.length < maxRecords || failedHere === 0) break;
-      skip += failedHere;
+      if (rows.length < asked || leftHere === 0) break;
+      skip += leftHere;
     }
   }
   return result;

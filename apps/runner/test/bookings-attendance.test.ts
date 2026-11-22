@@ -67,6 +67,29 @@ const files: Record<string, Record<string, string>> = {
     }),
   ),
 };
+// A shipped fixture pack whose tool calls Bookings' roster: a limit to today must follow the call.
+files.relay = {
+  "index.ts": `import { defineExtension, defineTool, z } from "@composable-os/sdk";
+export default defineExtension({
+  id: "relay",
+  version: "0.1.0",
+  contractVersion: 1,
+  label: "Relay (fixture)",
+  requires: ["bookings"],
+  permissions: { operations: ["x.bookings.roster"], modules: ["ops"] },
+  objects: {},
+  tools: {
+    relay: defineTool({
+      description: "Test fixture: reads a class's list through Bookings' own roster tool.",
+      input: z.object({ classId: z.string() }),
+      output: z.object({}).passthrough(),
+      risk: "read",
+      handler: (input, ctx) => ctx.ops.call("x.bookings.roster", input),
+    }),
+  },
+});
+`,
+};
 const OURS = new Set(Object.keys(files));
 
 /** A deployment whose product lists Programs, Bookings and Memberships, each as shipped. */
@@ -77,6 +100,7 @@ const shippedHost: ExtensionHost = {
     { id: "bookings", version: "0.1.0" },
     { id: "memberships", version: "0.1.0" },
     { id: "programs", version: "0.1.0" },
+    { id: "relay", version: "0.1.0" },
   ],
   commitShipped: (id) =>
     files[id]
@@ -398,6 +422,71 @@ describe("attendance (criterion 7)", () => {
     // move into it by a customer.
   });
 
+  it("the coach's today is the class's own: a class running past its local midnight is ticked until it ends", async () => {
+    const kim = await coach("Coach Night");
+    // A whole-hour zone where it is now just past midnight.
+    const now = new Date();
+    const offset = (24 - now.getUTCHours()) % 24;
+    const hours = offset > 14 ? offset - 24 : offset;
+    // Zones on a whole hour with no clock change, by offset.
+    const ZONES: Record<number, string> = {
+      14: "Pacific/Kiritimati",
+      13: "Pacific/Tongatapu",
+      12: "Pacific/Tarawa",
+      11: "Pacific/Noumea",
+      10: "Australia/Brisbane",
+      9: "Asia/Tokyo",
+      8: "Asia/Shanghai",
+      7: "Asia/Bangkok",
+      6: "Asia/Dhaka",
+      5: "Asia/Tashkent",
+      4: "Asia/Dubai",
+      3: "Europe/Moscow",
+      2: "Africa/Johannesburg",
+      1: "Africa/Lagos",
+      0: "UTC",
+      [-1]: "Atlantic/Cape_Verde",
+      [-2]: "America/Noronha",
+      [-3]: "America/Sao_Paulo",
+      [-4]: "America/La_Paz",
+      [-5]: "America/Bogota",
+      [-6]: "America/Guatemala",
+      [-7]: "America/Phoenix",
+      [-8]: "Pacific/Pitcairn",
+      [-9]: "Pacific/Gambier",
+    };
+    const zone = ZONES[hours] as string;
+    const minutesPast = now.getUTCMinutes();
+    const startedAt = Date.now() - (minutesPast + 10) * MINUTE; // yesterday, locally
+    const make = (starts: number, ends: number) =>
+      create(CLASS, {
+        classType: type,
+        startsAt: new Date(starts).toISOString(),
+        endsAt: new Date(ends).toISOString(),
+        timezone: zone,
+        places: 5,
+      });
+    const running = await make(startedAt, Date.now() + HOUR);
+    const over = await make(startedAt - 3 * HOUR, startedAt - 2 * HOUR);
+    const who = await member("night");
+    const desk = await run<Out>(
+      "x.bookings.bookFor",
+      { classId: running, personId: who.personId, paidAtDesk: true },
+      staff(),
+    );
+    expect(
+      (await run<{ bookings: unknown[] }>("x.bookings.roster", { classId: running }, asCoach(kim)))
+        .bookings,
+    ).toHaveLength(1);
+    expect(
+      await run<Out>("x.bookings.markAttended", { bookingId: desk.bookingId }, asCoach(kim)),
+    ).toMatchObject({ result: "attended" });
+    // Yesterday's class, over: not the coach's.
+    expect((await refusal(run("record.get", { object: CLASS, id: over }, asCoach(kim)))).code).toBe(
+      "not_found",
+    );
+  });
+
   it("the coach role: the day, the list and ticking; nothing else", async () => {
     const kim = await coach("Coach Kim");
     const k = await klass(type, 2 * MINUTE);
@@ -456,6 +545,52 @@ describe("attendance (criterion 7)", () => {
     expect(
       await run<Out>("x.bookings.markAttended", { bookingId: later }, asCoach(kim)),
     ).toMatchObject({ result: "refused", reason: "not_found" });
+    // A list's limit is in its query: a page of one, newest first, is today's class, with no
+    // cursor pointing at another day's; a projection without the date still finds it.
+    const page = await run<{ items: { id: string }[]; nextCursor: string | null }>(
+      "record.list",
+      {
+        object: CLASS,
+        filter: { field: "id", op: "in", value: [k, ahead] },
+        sort: { field: "startsAt", direction: "desc" },
+        limit: 1,
+      },
+      asCoach(kim),
+    );
+    expect(page.items.map((c) => c.id)).toEqual([k]);
+    expect(page.nextCursor).toBeNull();
+    const projected = await run<{ items: { id: string }[] }>(
+      "record.list",
+      { object: CLASS, filter: { field: "id", op: "in", value: [k, ahead] }, fields: ["title"] },
+      asCoach(kim),
+    );
+    expect(projected.items.map((c) => c.id)).toEqual([k]);
+    // The limit follows a tool run into the tools it calls, and refuses what it cannot check.
+    const limit = {
+      "bookings.class": { at: "startsAt", until: "endsAt", zone: "timezone" },
+      "bookings.booking": { at: "class.startsAt", until: "class.endsAt", zone: "class.timezone" },
+    };
+    await run("extension.install", { id: "relay", shipped: true }, staff()).catch(() => undefined);
+    await refreshSchemaRegistry(db.query);
+    expect(
+      JSON.stringify(
+        await refusal(run("x.relay.relay", { classId: ahead }, staff({ roleToday: limit }))),
+      ),
+    ).toContain("not_found");
+    expect(
+      await run<{ bookings: unknown[] }>(
+        "x.relay.relay",
+        { classId: k },
+        staff({ roleToday: limit }),
+      ),
+    ).toMatchObject({ bookings: [expect.anything()] });
+    // Without the limit the same nested call reaches it (staff are not limited).
+    expect(
+      (await run<{ bookings: unknown[] }>("x.relay.relay", { classId: ahead }, staff())).bookings,
+    ).toHaveLength(1);
+    expect(
+      (await refusal(run("record.count", { object: CLASS }, staff({ roleToday: limit })))).code,
+    ).toBe("forbidden");
     // Other staff are not limited.
     expect(
       (await run<{ bookings: unknown[] }>("x.bookings.roster", { classId: ahead }, staff()))
@@ -871,6 +1006,54 @@ describe("cancelling a class (criterion 6)", () => {
     } finally {
       await setPreset("balanced");
     }
+  });
+
+  it("a cancel racing an untick: the use comes back once", async () => {
+    const k = await klass(type, 30 * MINUTE);
+    const who = await member("untick");
+    const pass = await givePass(who);
+    const b = await booked(who, k);
+    await run("x.bookings.markAttended", { bookingId: b }, staff());
+    await Promise.allSettled([
+      run("x.bookings.cancelClass", { classId: k, reason: "Race" }, staff()),
+      run("x.bookings.undoAttended", { bookingId: b }, staff()),
+    ]);
+    for (let i = 0; i < 3 && (await get(CLASS, k)).state !== "cancelled"; i++) {
+      await run("x.bookings.cancelClass", { classId: k, reason: "Again" }, staff()).catch(
+        () => undefined,
+      );
+    }
+    expect(await stateOf(b)).toBe("cancelled_by_us");
+    expect(await left(pass)).toBe(5);
+    const returned = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_allowance_use WHERE spender_id = ? AND returned_at IS NOT NULL",
+    )
+      .bind(b)
+      .first<{ n: number }>();
+    expect(returned?.n).toBe(1);
+    expect(await counter(k)).toMatchObject({ held: 0, taken: 0 });
+  });
+
+  it("a class with no end time is not cancelled: whether it ended cannot be told", async () => {
+    const k = await klass(type, 2 * DAY);
+    // An old class from before the end time was required: its end emptied in the table itself.
+    const table = await env.DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'x%bookings%class' LIMIT 1",
+    ).first<{ name: string }>();
+    const columns = await env.DB.prepare(`PRAGMA table_info("${table?.name}")`).all<{
+      name: string;
+    }>();
+    const endsColumn = columns.results.find((c) => /ends/i.test(c.name))?.name;
+    expect(endsColumn).toBeTruthy();
+    await env.DB.prepare(`UPDATE "${table?.name}" SET "${endsColumn}" = NULL WHERE id = ?`)
+      .bind(k)
+      .run();
+    expect((await get(CLASS, k)).endsAt ?? null).toBeNull();
+    const out = await refusal(
+      run("x.bookings.cancelClass", { classId: k, reason: "No end" }, staff()),
+    );
+    expect(JSON.stringify(out)).toContain("no_end");
+    expect((await get(CLASS, k)).state).toBe("scheduled");
   });
 
   it("a booking racing a class's cancel never stays booked on it: no place or use lost", async () => {
