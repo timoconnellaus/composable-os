@@ -16,7 +16,9 @@ grants add up); `packages/core/src/visibility/` (all of it, `guardians.ts` above
 `packs/programs` (`index.ts`, `layout.ts`, `tools.ts`), `packages/release/src/cloudflare.ts` and
 `deploy.ts`.
 
-Status: **spec proposed** (owner interviewed 2026-11-23; the questions at the end are still open).
+Status: **spec agreed** (owner interviewed 2026-11-23 and answered the open questions the same day:
+decisions 16 to 24). Build step 1, the location hint for new installs, is built
+([ADR 0580](../adr/0580-a-location-hint-on-new-installs.md)).
 Builds on stages 22, 23, 24, 41 and stage 31's family link. The first client is a gym; the first
 practice is an outside practice it works with. Nothing here depends on stages 31b, 32b or 33.
 
@@ -31,8 +33,8 @@ sees anything. The physiotherapist writes a rehab program the client follows bes
 and tells the coach what to avoid. The dietitian writes a nutrition plan the client reads, gives
 them habits to tick off, and tells the coach what matters (cutting weight for a competition). The
 client logs it all the way they log training. Each practitioner sees only what they wrote and
-whether the client did it. Coaches see the restrictions and the exercise list, never the notes. The
-client can end it at any time, and it ends at once.
+whether the client did it. Coaches see the restrictions and the exercise list, and how the client
+is going with it, never the notes. The client can end it at any time, and it ends at once.
 
 ## What exists today (from the code)
 
@@ -70,8 +72,8 @@ client can end it at any time, and it ends at once.
   customer account: they are separate tables and sessions.
 - **`personApproves`** on a field, a setting or a tool (ADRs 0507, 0552): anyone may ask, a person
   decides.
-- **Where data lives**: `deploy.ts` creates D1 databases and R2 buckets with a name only
-  (`cloudflare.ts` `createD1`, `createR2`). No location hint is passed anywhere.
+- **Where data lives**: before step 1, `deploy.ts` created D1 databases and R2 buckets with a name
+  only (`cloudflare.ts` `createD1`, `createR2`). Step 1 adds the location hint (ADR 0580).
 - **Not anywhere**: a principal for someone outside the business who works on other people's
   records, consent recorded by a Person, authorship as a scope, rows staff cannot read, anything
   kept out of the assistant by rule.
@@ -96,6 +98,25 @@ client can end it at any time, and it ends at once.
 | 14 | Build as soon as it is unblocked, in parallel with other work where possible |
 | 15 | (Added by the owner the same day.) **One person can wear three hats**: the dietitian is also a coach at the business and trains there as a member. None of the three may leak into the others |
 
+### The owner's answers to the open questions (2026-11-23)
+
+| # | Decision | Was |
+| --- | --- | --- |
+| 16 | **Three hats, three sign-ins.** One person who is a practitioner, a coach and a member has three sign-ins on one email address, one hat each, with a clear switch between them. Accepted as designed | the design of decision 15 |
+| 17 | **Coaches see how the client is going with the rehab, set by set**: the rehab exercise list and what was done, each set logged, as for their own programs. Never the practitioner's notes | question 1, (a) |
+| 18 | **When a client ends consent, restrictions stay for the coaches until their end date**, and the client can remove them on the same screen as they end it | question 2, (a) |
+| 19 | **When a client ends consent, the practitioner's private notes stay stored, readable by nobody**, until the client is erased or the practice asks for them (read as: asks for them to be removed, below) | question 3, (a) |
+| 20 | **The business's AI assistant may read restrictions and the rehab exercise list only, and only if a person on the staff switches that on** (off by default). Never notes, nutrition plans or habits | question 4, (b) |
+| 21 | **Consent is to that one practitioner.** The client can separately share with a colleague at the same practice | question 5, (a) |
+| 22 | **For a child, a linked parent agrees**, for a child with no sign-in of their own | question 6, (a) |
+| 23 | **A coach sees a member's current restrictions on the class list**: a flag beside the name, only for restrictions the client agreed to share | question 7, (a) |
+| 24 | **New installs ask Cloudflare to store data in Oceania where it can**: a preference, not a guarantee | the privacy section's proposal |
+
+**Stage 44 (Agreements)**, whose spec is being written now (`docs/stages/44-agreements.md`, on
+another branch), is intended to hold the care link's consent as an accepted document. This stage
+does not wait for it: it builds its own consent record (below) so that it can become one, with no
+change to what a client agreed to.
+
 ## The design in one page
 
 **A practitioner is a fourth kind of caller, beside staff, customers and the public.** They sign in
@@ -112,7 +133,8 @@ in the same way the family link does.
 **What a practitioner writes is marked as theirs by the host,** and kept out of everything staff
 read in bulk: SQL, dashboards, exports, search, summaries and the assistant. A person on the staff
 sees, on screen, only what the object says staff see of it: the restrictions and the rehab exercise
-list, never notes and never the nutrition plan or habits. Staff cannot change it.
+list with how the client is going, set by set, never notes and never the nutrition plan or habits.
+Staff cannot change it.
 
 **The rehab program and the habits are Programs' own objects** (a program of a new kind, assigned to
 the client and logged the same way). The restriction, the nutrition plan and the practitioner's
@@ -213,13 +235,36 @@ programs of those kinds. A **nutrition plan** is targets, meals and guidance for
 - **Agreeing**: `me.care.requests` (customer, read) and `me.care.consent { requestId }` (customer,
   write: a reviewed change). The client signs in with the address the request went to; first
   sign-in creates their Person as it does today, or links the member's existing Person. The page
-  shows the consent text, filled in: who the practitioner is; what they will see (only what they add
-  and whether you did it; never your memberships, payments or your training with the gym); what the
-  coaches will see (the restrictions and the exercise list they add, and that you are linked to
-  them; never their notes, your nutrition plan or your habits); where the data is stored and that it
-  may be overseas; that you can end it at any time and what happens then; who to ask for your
+  shows the consent text, filled in: who the practitioner is, and that the consent is to them alone,
+  not to their practice (decision 21); what they will see (only what they add and whether you did
+  it; never your memberships, payments or your training with the gym); what the coaches will see
+  (the restrictions and the exercise list they add and how you are going with it, set by set
+  (decision 17); a flag beside your name on a class list while a restriction is current (decision
+  23); and that you are linked to them; never their notes, your nutrition plan or your habits);
+  that the business's AI assistant may read the restrictions and the exercise list only if a person
+  at the business turns that on (decision 20), and never the rest; where the data is stored and that
+  it may be overseas; that you can end it at any time and what happens then (restrictions stay for
+  the coaches until their end date unless you remove them; the practitioner's notes are kept, read
+  by nobody, until you are erased or the practice asks for them to be removed); who to ask for your
   records. The link becomes `live` in the same batch that records the consent. `me.care.decline` closes it.
   Declined, withdrawn and expired look the same to the practitioner ("closed").
+- **The consent record** (in `core_care_link`, or a `core_care_consent` row it points to: the
+  build's choice) holds what an accepted document will hold, so that stage 44 (Agreements) can
+  take it over without changing what anyone agreed to: the text's identity (version and hash) and
+  the filled-in words as shown, who accepted (the customer account and the Person, and for a child
+  the guardian and the dependant), for whom and with whom (the client Person and the practitioner
+  account), when, on which channel, and its end. It is written once and never edited; ending a link
+  records the end beside it. Nothing in this stage depends on stage 44.
+- **A child** (decision 22): a guardian linked to a dependant by the family link (ADR 0540) agrees
+  for a dependant **who has no sign-in of their own**. The practitioner asks with the guardian's
+  address and the child's name (the same blind answer as any request); the guardian, signed in,
+  sees the request and chooses which of their linked dependants it is for (`me.care.consent {
+  requestId, forPersonId }`, refused as `not_found` unless the family link is live and the
+  dependant has no customer account); the consent records the guardian's account and the
+  dependant. The guardian reads the child's care records as the child would, through
+  `customer.guardians` on the Care and Programs objects, and may end the link. A dependant with a
+  sign-in of their own agrees themselves, as any client does. A guardian whose family link ends
+  can no longer end or read it; the dependant, once they sign in, can.
 - **The consent text** is the platform's, versioned, with the business's name, contact and privacy
   policy address filled in from settings. A human admin may add to it (a `personApproves` setting);
   a new version does not change what earlier clients agreed to, and every consent keeps the version
@@ -235,8 +280,20 @@ programs of those kinds. A **nutrition plan** is targets, meals and guidance for
   through; the practitioner is told `not_found`.
 - **What the practitioner wrote stays the client's** when a link ends. The client keeps reading
   their rehab program, nutrition plan, restrictions and their own logs; sessions already dated stay
-  and can still be logged; nothing new is added. The practitioner's private notes stay, unread by
-  anyone, until the client is erased or the practice asks (question 3). Restrictions: question 2.
+  and can still be logged; nothing new is added.
+- **Restrictions when a link ends** (decision 18): the screen where the client ends the link lists
+  the practitioner's active restrictions and lets them remove each (`me.care.end { linkId,
+  removeRestrictions?: [ids] }`, in the same batch). Those kept stay visible to coaches, as before,
+  until their end date (the timed move to `expired`); one with no end date stays until the client
+  removes it later, from My restrictions (`me.care.restrictionRemove`, the client's own act, for a
+  restriction whose link has ended). Nobody else changes them: the practitioner has no access and
+  staff never change an authored row.
+- **The practitioner's private notes when a link ends** (decision 19): they stay stored, readable by
+  nobody (not the practitioner, staff, the client, a shared practitioner or an AI actor), until the
+  client is erased or the practice asks for them to be removed. The practice asks the business: a
+  person on the staff with `practitioners:manage` removes them (`care.notesRemove { practitionerId,
+  personId }`, `actors: ["human"]`, audited), which deletes them without showing them. A new live
+  link with the same practitioner makes them readable to that practitioner again.
 - **Live** means: `live`, the practitioner's account `active`, and the client's Person out of the
   Trash. A Person restored from the Trash gets the link back (it never ended).
 
@@ -249,7 +306,9 @@ programs of those kinds. A **nutrition plan** is targets, meals and guidance for
   logs, the nutrition plan, restrictions), **read only**. **Never the author's private notes**
   (`care.note` is not shareable). The reading practitioner's link must be live; the author's may
   have ended, so a client handing over from a practitioner who left to a new one can share the old
-  work (question 5 covers a practice's colleagues).
+  work. **A colleague at the same practice** (decision 21) is no different: consent is to one
+  practitioner, and a client who wants a colleague to cover (a holiday, a second opinion) agrees to
+  a care link with the colleague and shares the first practitioner's work with them.
 - Ending either link, or the client ending the share, stops it at once.
 
 ### Platform: the practitioner scope in the seam
@@ -296,7 +355,8 @@ practitioner: {
     show a record on screen (`record.get`, `record.list`, the Care tab's and the coach's reads):
     never in `query.sql`, dashboards, exports, counts in reports, search, summaries, embeddings,
     the digest, the Trash list, the timeline or audit values. **An AI actor** (the assistant, MCP,
-    and an automation's AI steps) sees none of it unless question 4's setting is on;
+    and an automation's AI steps) sees none of it unless the AI setting (decision 20) is on, and
+    then only restrictions and rehab exercise lists;
   - **staff cannot change an authored row** (`authored`, for every staff actor), nor delete or
     restore it; only its author, the host and erase do. Staff's lever is ending the link or the
     account;
@@ -330,7 +390,9 @@ writes notes in the same builder** and the coach sees the exercise list without 
   them); `program` has an author and no client (a practitioner's program can be given to several of
   their clients; staff may see `rehab` ones on screen); `assignment`, `session` and `log` have the
   client `person` and `inherit` the author and staff visibility from their parent. Staff's part of a
-  session and log: question 1.
+  rehab session and its logs (decision 17): the plan without its notes, and each set as logged
+  (done or not, reps, weight, amount, when), as on their own programs; never a note on a set or a
+  session. Habits sessions and logs are never staff-visible.
 - **Tools opened to practitioners** (each a reviewed change): `assign` (their own program, to a live
   client), `sessionGet`, `history` and `progress` for a named client (their own sessions only),
   `logAdd` and `logUpdate` for a client in clinic (`recordedAs: practitioner`), and the builder's
@@ -341,7 +403,7 @@ writes notes in the same builder** and the coach sees the exercise list without 
 ### Pack: Care (`packs/care`)
 | Object | What | Declarations |
 | --- | --- | --- |
-| `care.restriction` | Client, author, kind (`restriction`, `note` for the coach), title ("No overhead pressing"), what the coach should know (text), body areas (Programs' list), exercises to avoid (bank refs, optional), from, until (empty: until lifted), state (`active`, `lifted`, `expired`) | Personal; staff see it (every field); the client reads it; `states` with `expired` as a timed move at `until` (`states.after`) and `lifted` by its author; `notify` coaches on create and on `lifted` |
+| `care.restriction` | Client, author, kind (`restriction`, `note` for the coach), title ("No overhead pressing"), what the coach should know (text), body areas (Programs' list), exercises to avoid (bank refs, optional), from, until (empty: until lifted), state (`active`, `lifted`, `expired`, `removed`) | Personal; staff see it (every field) while `active`, including after its link ends (decision 18); the client reads it; `states` with `expired` as a timed move at `until` (`states.after`), `lifted` by its author, and `removed` by the client once the link has ended (decision 18); `notify` coaches on create, `lifted` and `removed` |
 | `care.nutritionplan` | Client, author, targets (energy, protein, carbohydrate, fat, water, each optional), meals (a document: days, meals, items, amounts), guidance (rich text) | Personal; `publishable` without its public half (the client reads the published version; the practitioner edits a working copy); **staff: never** |
 | `care.note` | Client, author, about (an optional record and path: a session, an item), body (rich text), date | Personal; read and written only by its author; **not shareable, not the client's, staff never** |
 
@@ -350,12 +412,20 @@ active restrictions and which of a program's exercises they name, by exercise an
 out in the host; the builder and the coach's client view show it as a warning, they never block),
 `planPublish` (the practitioner's own; decision 10: no coach approves it), `noteAdd`, `noteUpdate`.
 
+**On the class list** (decision 23): a coach reading a class's bookings (Bookings' class list, the
+coach pack role of ADR 0553) sees a flag beside each member with a current restriction (`active`,
+staff-visible, so only restrictions under a consent the client gave); opening it shows those
+restrictions as the coach's client view does. Nothing else of care data is on the list. It needs
+the coach pack role to read `care.restriction` (an amendment to ADR 0436 that issue #258 reshapes),
+and the flag is worked out in the host (`restrictionsFor` over the class's members), not in the
+block.
+
 ### Notifications (who is told what)
 | Event | Told | What it says |
 | --- | --- | --- |
 | A request | The address | Who asks and a link to the consent page |
 | Consent given, declined or ended | The practitioner | "[client] agreed" / "closed" / "[client] ended your access" (no reason) |
-| A restriction or coach note added, or lifted | **Coaches**: staff who assigned the client a live program, plus the staff named in the Care setting "tell about restrictions" (default: admins) | In the host: the client's name, the practitioner's name and discipline, and the restriction's title and text. **By email or push: only "a practitioner added a restriction for [client]: open the app"**, no content |
+| A restriction or coach note added, lifted, or removed by the client | **Coaches**: staff who assigned the client a live program, plus the staff named in the Care setting "tell about restrictions" (default: admins) | In the host: the client's name, the practitioner's name and discipline, and the restriction's title and text. **By email or push: only "a practitioner added a restriction for [client]: open the app"**, no content |
 | A program, plan or habit given | The client | "[practitioner] added [a rehab program] for you" |
 | Sharing started or ended | Both practitioners | Who, and for which client |
 | The practitioner's account ended | Their live clients | "[practitioner] no longer has access; what they added stays yours" |
@@ -370,9 +440,12 @@ One human can be a practitioner (the dietitian), a coach (staff) and a member (c
 
 - **Three accounts, three sign-ins, the same address allowed.** A staff account (`core_user`), a
   customer account (`core_customer`) and a practitioner account (`core_practitioner`), each
-  signed in on its own, each session resolving to exactly one principal. The web app shows which
-  hat is signed in and offers to sign in as another; the member app is a customer's (and a staff
-  member's, ADR 0451); practitioners work on the web.
+  signed in on its own, each session resolving to exactly one principal. **A clear switch**
+  (decision 16): the web app always shows which hat a screen is for (practitioner, staff, member),
+  and a switch lists the hats this browser is signed in as and offers to sign in as another (an
+  email code for that account). Switching changes which session the next screen uses; no screen
+  and no call ever uses two. The member app is a customer's (and a staff member's, ADR 0451);
+  practitioners work on the web.
 - **Practitioner reach is its own account**, not a role on the staff account and not a grant on the
   Person. So ADR 0436's "one pack role, which replaces grants" does not touch it, and when issue
   #258 makes staff roles and grants add up, they add up **within** a principal: a staff account's
@@ -411,11 +484,17 @@ One human can be a practitioner (the dietitian), a coach (staff) and a member (c
   refused (it would make them their own client).
 
 ### What the business's AI assistant may and may not read
-| Data | The assistant, MCP clients, automations' AI steps | Under question 4's setting (off by default) |
+Decision 20: a Care setting, **"Let the assistant read restrictions and rehab exercise lists"**,
+off by default, turned on and off only by a person on the staff with `practitioners:manage` (a
+`personApproves` setting: the assistant's own request to turn it on waits for a person), and the
+screen says the prompts go to the business's model provider.
+
+| Data | The assistant, MCP clients, automations' AI steps | With the setting on |
 | --- | --- | --- |
-| Care links (who sees a practitioner) | no | yes, the client's practitioners by name and discipline |
 | Restrictions and coach notes | no | yes, when acting for a person on the staff (to keep a drafted program clear of them) |
-| Rehab exercise lists | no | yes, as a coach sees them, without notes |
+| Rehab exercise lists | no | yes, the list of exercises only: no notes, and not the client's logs |
+| Care links (who sees a practitioner) | no | no |
+| Rehab sessions and logs (how the client is going) | no | no |
 | Nutrition plans, habits, practitioner notes | **never** | **never** |
 | Anything, through SQL, dashboards, search, summaries, embeddings, memory or the digest | **never** | **never** |
 Practitioners have no assistant. A customer's own AI client reaches only customer tools, as today.
@@ -440,7 +519,11 @@ Errors and logs never carry an authored row's values (the field name only).
 - **A practitioner leaving**: staff end the account (`practitioner.end`), or the practitioner asks.
   Sessions end at once, every link ends, clients are told, the work stays the clients' (as
   "[name], no longer linked"). A client may share it with another practitioner.
-- **A client ending consent**: as above, at once.
+- **A client ending consent**: as above, at once; restrictions as decision 18 says, notes as
+  decision 19 says.
+- **A consent given by a guardian** (decision 22): ending the family link does not end the care
+  link (the child still sees the practitioner); the guardian can no longer reach it. Erasing the
+  child erases it as for any client.
 
 ### Screens
 | Where | Who | What |
@@ -449,13 +532,15 @@ Errors and logs never carry an authored row's values (the field name only).
 | Web: A client | Practitioner | Their programs and sessions with what was done, the nutrition plan, restrictions and notes, and what the client shares from others (marked read only) |
 | Web: Builder | Practitioner | Programs' builder block in practitioner mode (rehab and habits kinds, the practitioner's bank entries, notes confidential), publish without approval |
 | Web: Nutrition plan, restrictions | Practitioner | Edit and publish a plan; add and lift restrictions |
-| Web and native: Consent | Client | The request, the filled consent text, agree or decline |
-| Web and native: My practitioners | Client | Who is linked, since when, sharing between them, end |
+| Web and native: Consent | Client, or a guardian for a dependant with no sign-in | The request, the filled consent text, agree or decline (a guardian chooses which dependant) |
+| Web and native: My practitioners | Client | Who is linked, since when, sharing between them (a colleague included), end; ending lists the practitioner's active restrictions with "remove" on each (decision 18) |
 | Native and web: Today | Client | Rehab and habit sessions beside training, marked "from [practitioner]"; log and tick as for training |
-| Native and web: My plan, my restrictions | Client | The published nutrition plan; active restrictions |
-| Host admin: Settings, Practitioners | Staff with `practitioners:manage` | Invite, list, end; the consent text's additions; who is told about restrictions; question 4's setting |
-| Host admin: Person page, Care tab | Staff (a person) | Linked practitioners, active and past restrictions, rehab exercise lists (question 1) |
+| Native and web: My plan, my restrictions | Client | The published nutrition plan; active restrictions, and "remove" on one whose link has ended |
+| Web: the hat switch | Anyone with more than one account | Which hat this screen is for; switch, or sign in as another (decision 16) |
+| Host admin: Settings, Practitioners | Staff with `practitioners:manage` | Invite, list, end; the consent text's additions; who is told about restrictions; the AI setting (decision 20); remove a practitioner's notes at the practice's request (decision 19) |
+| Host admin: Person page, Care tab | Staff (a person) | Linked practitioners, active and past restrictions, rehab exercise lists and how the client is going, set by set (decision 17) |
 | Coach's client view and builder (Programs' blocks) | Staff | A restrictions banner and the builder's warnings from `restrictionsFor` |
+| Class list (Bookings' blocks, the coach) | Staff, the coach role | A flag beside each member with a current restriction; opening it shows them (decision 23) |
 Practitioners have no native screens in this stage; the web app works on a phone's browser. No
 block decides who sees what: the lint (stage 24) passes for every one.
 
@@ -467,25 +552,31 @@ In plain words. **This is not legal advice**; the business and the practice shou
   before collecting it, to say if it is stored overseas, to protect it with reasonable security, to
   let people see it, and to delete or de-identify it when it is no longer needed.
 - **Where Cloudflare keeps it.** Cloudflare's databases (D1), file stores (R2) and Durable Objects
-  accept an **Oceania location hint**. It is best effort: Cloudflare does not guarantee an
-  Australian jurisdiction. Hard guarantees exist only for the EU, and for US FedRAMP, per
-  Cloudflare's documentation as read on 2026-11-23. Backups follow the database.
+  accept an **Oceania location hint** (`oc`). It is best effort: Cloudflare does not guarantee it,
+  and there is no Australian jurisdiction. Hard jurisdictions exist only for the EU, the US and US
+  FedRAMP, per Cloudflare's documentation as read on 2026-11-23. A D1 or R2 hint applies only when
+  the store is created. KV and Vectorize take no hint. Where backups, Time Travel, read replicas
+  and logs are kept is not verified.
 - **What the platform does**:
-  - **New installs prefer Oceania** where the owner chooses it: `cos deploy` and the installer ask
-    for a location (none, or Oceania) and pass the hint when creating D1 and R2 (`createD1`,
-    `createR2` pass none today); the Durable Objects the host creates get the same hint. The choice
-    is in deployment state. **Existing installs are not moved**: a database's location is set when
-    it is made; moving one is an export and import, not part of this stage.
+  - **New installs prefer Oceania** (decision 24; built in step 1, ADR 0580): `cos install
+    --location oc`, the installer's question on a first install (default none), or `location: "oc"`
+    in a client's `product.ts`, which `cos deploy` passes. The hint is sent only when the D1
+    database (`primary_location_hint`) and the R2 buckets (`locationHint`) are created; it is kept
+    in the deployment state and shown by `cos status`. Durable Objects take their hint in code,
+    object by object; the host passes none (not done, ADR 0580), so Cloudflare places each near its
+    first request. **Existing installs are not moved**: `cos install`, `cos deploy` and `cos
+    upgrade` say so when asked for another location; moving one is an export and import, not part
+    of this stage. `docs/deploying.md` ("Where data is stored") says it in plain words.
   - Consent is **asked and recorded** with the words shown, and the text **says the data may be
     stored overseas** and where to read the business's privacy policy.
   - Practitioner work is kept **out of SQL, dashboards, exports, search, embeddings, summaries and
-    AI prompts and logs**, unless a person on the staff knowingly turns on question 4's setting for
-    restrictions and exercise lists; never for notes, plans or habits.
+    AI prompts and logs**, unless a person on the staff knowingly turns on the AI setting (decision
+    20) for restrictions and exercise lists; never for notes, plans or habits.
   - Audit rows of practitioner work hold field names, not values. Errors carry no values.
   - **Erase covers it**: every authored row about the client, links, consents and shares.
   - Access is the minimum each hat needs, enforced in the host.
 - **What the platform does not promise**: that data stays in Australia; that a model provider the
-  business chose, if question 4's setting is on, is in Australia; that the business's or the
+  business chose, if the AI setting (decision 20) is on, is in Australia; that the business's or the
   practice's own processes (privacy policy, access requests, how long a practice must keep its
   records) meet the law. Exporting a client's notes for an access request is left for later.
 
@@ -498,7 +589,9 @@ In plain words. **This is not legal advice**; the business and the practice shou
   integration with a practice's own system.
 - An export of a client's practitioner notes for an access request.
 - Practitioners booking appointments (stage 31b is staff booking).
-- Moving an existing install to another location.
+- Moving an existing install to another location; a Cloudflare jurisdiction (`eu`, `us`,
+  `fedramp`; there is no Australian one); a location hint for Durable Objects, KV, queues or
+  Vectorize (ADR 0580).
 
 ## Acceptance criteria
 1. **The audience**: `practitioner` is a fourth audience; no operation opens to it unless it lists
@@ -509,12 +602,21 @@ In plain words. **This is not legal advice**; the business and the practice shou
 2. **Accounts**: only a person with `practitioners:manage` invites or ends a practitioner (refused to
    the assistant, MCP, automations, extensions and imports); sign-in by code works on the web; ending
    the account ends its sessions at once; one address holds a staff, a customer and a practitioner
-   account, each signed in alone, and no session of one resolves to another.
+   account, each signed in alone, and no session of one resolves to another; the web app shows
+   which hat each screen is for and switches between the hats signed in (decision 16).
 3. **Consent**: a request shows the practitioner nothing about the address (the same answer and
    timing for a member, an unknown address, a former client, a Person in the Trash and the
    practitioner's own); no Person is created until the client signs in; nothing of the client is
    readable until `me.care.consent`; the consent row holds the version and hash of the words shown,
-   the account and the channel; declining, withdrawing and expiry look the same to the practitioner.
+   the words as shown, who accepted for whom, the account and the channel, and is never edited (the
+   shape stage 44 can take over); declining, withdrawing and expiry look the same to the
+   practitioner; a consent to one practitioner gives their colleague at the same practice nothing
+   (decision 21).
+3a. **A child** (decision 22): a guardian with a live family link agrees for a dependant with no
+   sign-in of their own, and the consent records both; a guardian cannot agree for a dependant who
+   has their own sign-in, nor for a Person they are not linked to (answered as `not_found`); the
+   guardian reads the child's care records as the child would and may end the link; once the family
+   link ends the guardian reaches none of it.
 4. **Isolation** (stage 22's suite extended, over `invoke` and over HTTP, with two practitioners, a
    shared and an unshared client, a member who is nobody's client, and a requested link): a
    practitioner cannot read or write a non-linked Person, an un-consented one, another
@@ -524,16 +626,22 @@ In plain words. **This is not legal advice**; the business and the practice shou
    `my.*`, Programs' tools or the Care tools.
 5. **Ending is immediate**: after `me.care.end`, the practitioner's next read finds nothing; a write
    racing the end fails in its own batch (the guard), as the family link's does; the client keeps
-   their rehab, plan, restrictions and logs.
+   their rehab, plan, restrictions and logs. Restrictions (decision 18): those the client removes as
+   they end it stop showing to coaches in the same batch; the rest stay visible to coaches until
+   their end date, and the client can remove one later. Notes (decision 19): after the end nobody
+   reads them (the practitioner, staff, the client, a shared practitioner, an AI actor); erasing the
+   client deletes them; `care.notesRemove`, by a person with `practitioners:manage` only, deletes
+   them without showing them.
 6. **Authored rows and staff**: with a fixture of practitioner work, every staff path (record list
    and get, search, `query.sql`, every dashboard, exports, summaries, embeddings, the digest, the
    Trash list, the timeline, audit values, notifications' email bodies, MCP and the assistant) shows
    none of it, except, to a person on the staff, on screen: restrictions, and rehab programs and
-   sessions with no notes (and logs if question 1 says so); never a nutrition plan, a habits program
-   or a practitioner note. Staff writes to authored rows are refused for every actor.
-7. **AI**: the assistant and an MCP client acting for an admin read none of it; with question 4's
-   setting turned on by a person (the assistant's own request to turn it on waits for a person),
-   they read restrictions and rehab lists only; notes, plans and habits never.
+   sessions with no notes and their logs, set by set (decision 17); never a nutrition plan, a
+   habits program or a practitioner note. Staff writes to authored rows are refused for every actor.
+7. **AI** (decision 20): the assistant and an MCP client acting for an admin read none of it; the
+   setting is off on a new host; with it turned on by a person (the assistant's own request to turn
+   it on waits for a person), they read restrictions and rehab exercise lists only (not logs, not
+   care links); notes, plans and habits never.
 8. **Three hats**: one person with a staff account (coach), a customer account (member) and a
    practitioner account (dietitian), and a client for whom they are both dietitian and coach, with a
    physiotherapist on the same client:
@@ -554,17 +662,28 @@ In plain words. **This is not legal advice**; the business and the practice shou
 10. **Care pack**: restrictions are added, lifted and expire on their date; coaches are told in the
     host with the text and by email without it; `restrictionsFor` names the exercises in a program
     a restriction touches; a nutrition plan's working copy is unseen by the client until published.
+10a. **The class list** (decision 23): a coach's class list shows a flag beside each member with a
+    current staff-visible restriction and none beside anyone else; the flag opens to those
+    restrictions; it names nothing of notes, plans or habits; a restriction the client removed or
+    that expired gives no flag.
 11. **Sharing**: only the client starts and ends a share; it is one way and read only; it stops when
-    either link ends or the client ends it.
+    either link ends or the client ends it; sharing with a colleague at the same practice works as
+    with any practitioner (decision 21).
 12. **Erase and merge**: erasing a client deletes every authored row about them and their links,
     consents and shares; merging two clients follows the rules above and waits for a person when a
     live care link is touched; erasing a practitioner's Person leaves their clients' work.
-13. **Location**: a new install asked for Oceania creates its D1 and R2 with the hint (proved against
-    the fake Cloudflare API); one not asked creates them as today.
+13. **Location** (decision 24; built in step 1, ADR 0580): a new install asked for Oceania (`cos
+    install --location oc`, or `location: "oc"` in `product.ts` for `cos deploy`) creates its D1
+    database with `primary_location_hint: "oc"` and its R2 buckets with `locationHint: "oc"`
+    (proved against the fake Cloudflare API, which records each create and refuses a value the real
+    API would); one not asked sends no hint; a repair or an upgrade sends none to a store that
+    exists, and says plainly that an existing install is not moved; KV, queues and Vectorize are
+    sent none.
 14. `pnpm lint typecheck test`, `cos ext check` and `cos ext test` on `packs/care` and
     `packs/programs`, the block lint, and one e2e test per journey (a client agrees to a request; a
     physiotherapist assigns a rehab program and the client logs it; a coach sees a restriction and
-    no notes; a client ends consent) pass in CI. ADRs for each platform piece; `CONTEXT.md` and
+    no notes; a client ends consent and removes a restriction; a guardian agrees for a child) pass
+    in CI. ADRs for each platform piece; `CONTEXT.md` and
     `docs/architecture.md` updated.
 
 ## Dependencies
@@ -573,8 +692,9 @@ In plain words. **This is not legal advice**; the business and the practice shou
   must keep authored rows out of staff's bulk paths.
 
 ## Migrations and numbers
-The next free block in [`parallel-work.md`](../parallel-work.md), claimed in the build's first
-commit: migrations for `core_practitioner` and its sessions, `core_care_link`, `core_care_share`,
+Block **AR** in [`parallel-work.md`](../parallel-work.md) (migrations 0730–0749, ADRs 0580–0589),
+claimed by step 1, which used ADR 0580 and no migration. The later steps take theirs from it (or
+the next free block if it runs out): migrations for `core_practitioner` and its sessions, `core_care_link`, `core_care_share`,
 `core_care_link_guard`, the consent texts, the permission, and the reconciler's second view; no
 `x_*` table is touched by a migration. ADRs the build will need (not written until built):
 1. The practitioner principal and audience, the account, invites and sign-in.
@@ -584,14 +704,14 @@ commit: migrations for `core_practitioner` and its sessions, `core_care_link`, `
 5. One person, several hats: accounts never combine across principals (and how this sits with
    issue #258's roles that add up within one).
 6. The Care pack and Programs' additions.
-7. The location hint on new installs.
+7. The location hint on new installs: **written**, [ADR 0580](../adr/0580-a-location-hint-on-new-installs.md).
 ADR 0402 (a fourth principal), 0414 (tools run as a practitioner), 0436, 0445, 0448 and 0540 are
 amended with dated notes.
 
 ## Suggested build order
 | Step | What | Platform files it touches | Runs beside stage 31/32 work? |
 | --- | --- | --- | --- |
-| 1 | **The location hint** for new installs | `packages/release/src/cloudflare.ts`, `deploy.ts`, `packages/create-composable-os` (the question), deployment state | **Yes, now.** Touches nothing 31 or 32 touch |
+| 1 | **The location hint** for new installs. **Built** (ADR 0580): D1 and R2 on create; Durable Objects not done | `packages/release/src/cloudflare.ts`, `deploy.ts`, `install.ts`, `update.ts`, the fake Cloudflare; `packages/product` (`location`); `packages/create-composable-os` (`--location`, the question, `cos deploy`, `cos status`), deployment state | **Yes, now.** Touches nothing 31 or 32 touch |
 | 2 | **Programs' additions**: kinds `rehab` and `habits`, `check` and `amount` measures, sets and log fields, `confidential` marks on layout notes (inert until step 5) | `packs/programs` (`index.ts`, `layout.ts`, tools), its blocks; the SDK's document node type | **Yes, now**, but agree with the owner of PR #256 (31a step 9) if it touches `packs/programs` (`classToday`, the Person tab) |
 | 3 | **The principal, audience, accounts, invites and sign-in** | `principals.ts`, `audiences.ts`, `pipeline.ts`, `invoke.ts`, `open-operations.json`, `packages/auth`, `apps/app/src/server/http/` (auth routes), `packages/client*` (a practitioner client), a migration | After PR #256 merges if it changes the HTTP surface or sign-in mail; otherwise yes. Its own session, reviewed as stage 22 was |
 | 4 | **The care link and consent**, sharing, the guard, the consent page, Trash, merge and erase of links | `visibility/` (new `practitioners.ts`), `operations/` (new `care.ts`, `me.ts`), `person.merge`, `person.erase`, `records/erase.ts`, a migration | **Not beside other seam or erase/merge work.** After step 3 |
@@ -617,49 +737,24 @@ safely. Steps 1 and 2 can start today. Step 5 is the riskiest and gets the most 
 - **Practitioners work on the web only** in this stage.
 - **Staff see restrictions on screen and receive them in the host's notices; email carries no content.**
 - **Requests expire after 30 days and are limited to 20 a day per practitioner** (guesses).
+- **How the owner's answers are read where they leave a detail open** (2026-11-23):
+  - decision 18: a restriction with **no end date** stays for coaches until the client removes it
+    (the practitioner can no longer lift it once the link has ended);
+  - decision 19: "until the practice asks for them" is read as **asks for them to be removed**
+    (option (a) as put to the owner); handing notes to the practice or the client (an access
+    request) stays out of scope;
+  - decision 22: a dependant **with** a sign-in of their own agrees themselves (as option (a)
+    said); the guardian who agreed may end it;
+  - decision 23: "only those the client agreed to share" is read as **restrictions under a consent
+    the client gave** (whose text says coaches see restrictions), with no per-restriction choice;
+    the flag is the mark, and its restrictions open from it (the title is not printed on the list);
+  - decision 20: the rehab exercise list given to an AI actor is the list of exercises, without the
+    client's logs (decision 17 is for coaches, who are people).
 
 ## Questions for the owner
-1. **Should coaches see whether the client did the rehab exercises (each set logged), or only the
-   list of exercises?**
-   - (a) The list and what was done, set by set, as for their own programs.
-   - (b) The list, and only whether each session was done.
-   - (c) The list only.
-   **Recommended: (a).** It lets the coach plan the training load around the rehab, and the consent
-   text says so. The design supports all three (it is the log's staff part).
-2. **When a client ends consent, what happens to the restrictions the practitioner added?**
-   - (a) They stay visible to coaches until their end date or until lifted; the client may remove
-     them as they end consent.
-   - (b) They stop showing at once.
-   **Recommended: (a).** A restriction is a safety note; the client is asked on the same screen and
-   chooses.
-3. **When a client ends consent, what happens to the practitioner's private notes?**
-   - (a) They stay in the host, unread by anyone, until the client is erased or the practice asks
-     for them to be removed.
-   - (b) They are deleted at once.
-   **Recommended: (a).** A practice may have to keep its clinical records for some years; ending
-   access should not destroy them. Erase still removes them.
-4. **May the business's AI assistant read restrictions and rehab exercise lists, if a staff
-   admin turns it on?** (Notes, nutrition plans and habits are never readable by it.)
-   - (a) No, never.
-   - (b) Only if a person on the staff turns it on, knowing the prompts go to the model provider.
-   **Recommended: (b), off by default.** It lets the assistant keep a drafted program clear of a
-   client's restrictions; it stays off unless someone chooses it.
-5. **Two practitioners at one practice: does a client's consent cover the practice or one person?**
-   - (a) One practitioner. The client shares with a colleague if they want to.
-   - (b) The whole practice.
-   **Recommended: (a).** It is what the client sees and agrees to, and sharing already covers a
-   colleague covering a holiday.
-6. **A child who sees a practitioner: who agrees?**
-   - (a) A linked guardian agrees for a dependant who has no account of their own; a dependant with
-     their own account agrees themselves, and either may end it.
-   - (b) Only the client themselves; children are out of scope for now.
-   **Recommended: (a)**, if the practice sees children who train at the gym; it reuses the family
-   link. Otherwise (b), and it is added later.
-7. **Should a coach see a member's active restrictions on the class list in the gym's app?**
-   - (a) Yes: a mark on the name and the restriction's title.
-   - (b) No: on the Person page and the coach's client view only.
-   **Recommended: (a).** The coach on the floor is the one who needs it. It needs the coach pack
-   role to read one more object, an amendment to ADR 0436 that issue #258 reshapes anyway.
+None open. The seven questions of the proposal were answered on 2026-11-23: decisions 17 to 23
+(question 1 is decision 17, question 7 is decision 23), with decision 16 accepting the three hats
+and decision 24 the location hint.
 
 ## Sources
 Read 2026-11-23, all in this repository: `AGENTS.md`, `CONTEXT.md`, `docs/architecture.md`,
@@ -667,10 +762,12 @@ Read 2026-11-23, all in this repository: `AGENTS.md`, `CONTEXT.md`, `docs/archit
 issue #258; `packages/core/src/principals.ts`, `audiences.ts`, `pack-role-today.ts`,
 `visibility/index.ts`, `visibility/guardians.ts`, `visibility/writes.ts`, `operations/query.ts`
 (the validator's header); `packages/db/migrations/0401_customer_accounts.sql`, `0490_staff_invites.sql`;
-`packages/release/src/cloudflare.ts` and `deploy.ts` (no location hint). The privacy law and
-Cloudflare's location hints are as the coordinator read them on 2026-11-23, not checked again here.
+`packages/release/src/cloudflare.ts` and `deploy.ts` (no location hint). The privacy law is as the
+coordinator read it on 2026-11-23, not checked again here. Cloudflare's location controls were
+read again for step 1 on 2026-11-23 and are cited in ADR 0580: D1's and R2's data location pages
+and create APIs, Durable Objects' data location page, and the KV, Queues and Vectorize create APIs.
 
 Not confirmed, and checked at build: whether the reconciler can give one object two views cheaply;
 whether the record code reads any `x_*` table outside the seam (each such read must leave authored
-rows out); how a third sign-in sits with Better Auth; that Durable Objects take the Oceania hint
-where the host makes them.
+rows out); how a third sign-in sits with Better Auth. Checked in step 1: Durable Objects take a hint
+in code at each object's first `get()`, not at deploy; the host passes none (ADR 0580).

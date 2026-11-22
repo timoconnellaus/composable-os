@@ -10,7 +10,12 @@
 // Every step looks at what exists before changing it, so a re-run after a failure (or of a
 // finished install) converges instead of duplicating.
 import type { ReleaseBundle } from "./bundle.ts";
-import { CloudflareApiError, type CloudflareClient, type ModulePart } from "./cloudflare.ts";
+import {
+  CloudflareApiError,
+  type CloudflareClient,
+  type LocationHint,
+  type ModulePart,
+} from "./cloudflare.ts";
 import { toBase64 } from "./hash.ts";
 import {
   type DurableObjectMigration,
@@ -93,6 +98,14 @@ export interface DeploymentState {
       }
     >
   >;
+  /**
+   * The location hint chosen at the first install (ADR 0580), e.g. `oc` (Oceania): sent only when
+   * a D1 database or an R2 bucket is created, never to one that exists. A preference Cloudflare
+   * honours best effort, not a guarantee of where data is kept. Absent: no hint (Cloudflare
+   * places each store itself). Never changed after the first install: a store already made stays
+   * where it is.
+   */
+  locationHint?: LocationHint;
   /** Resolved resource placeholders, e.g. `D1_ID(demo)` → its uuid. */
   resources: Record<string, string>;
   /** sha256 of the installed bundle. */
@@ -217,6 +230,15 @@ export function neededResources(
   );
 }
 
+export interface ProvisionOptions {
+  /**
+   * A location hint for the D1 databases and R2 buckets this call CREATES (ADR 0580). One that
+   * exists is found by name and left as it is: a store's location cannot be changed by a setting.
+   * KV, queues and Vectorize take no location hint in Cloudflare's API, so none is sent for them.
+   */
+  locationHint?: LocationHint | undefined;
+}
+
 /**
  * Finds or creates each resource by its deployed name (`names`, else the manifest's). Returns
  * resolved placeholders (`D1_ID(demo)` → id).
@@ -227,8 +249,13 @@ export async function provisionResources(
   manifestResources: ResourceEntry[],
   log: Log = () => {},
   names: Record<string, string> = {},
+  options: ProvisionOptions = {},
 ): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
+  const hint = options.locationHint ? { locationHint: options.locationHint } : {};
+  const created = options.locationHint
+    ? `created (location hint ${options.locationHint})`
+    : "created";
   const key = (r: ResourceEntry) => (r.placeholder ?? "").replace(/^\$/, "");
   for (const entry of manifestResources) {
     if (entry.implicit) continue;
@@ -236,15 +263,15 @@ export async function provisionResources(
     switch (resource.type) {
       case "d1": {
         const existing = (await api.listD1(accountId)).find((d) => d.name === resource.name);
-        const db = existing ?? (await api.createD1(accountId, resource.name));
-        log(`  D1 ${resource.name}: ${existing ? "exists" : "created"}`);
+        const db = existing ?? (await api.createD1(accountId, resource.name, hint));
+        log(`  D1 ${resource.name}: ${existing ? "exists" : created}`);
         out[key(resource)] = db.uuid;
         break;
       }
       case "r2": {
         const exists = (await api.listR2(accountId)).some((b) => b.name === resource.name);
-        if (!exists) await api.createR2(accountId, resource.name);
-        log(`  R2 ${resource.name}: ${exists ? "exists" : "created"}`);
+        if (!exists) await api.createR2(accountId, resource.name, hint);
+        log(`  R2 ${resource.name}: ${exists ? "exists" : created}`);
         out[key(resource)] = resource.name;
         break;
       }
