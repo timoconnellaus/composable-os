@@ -172,8 +172,17 @@ export function OffersTable() {
                     <Badge variant={o.status === "taken" ? "default" : "secondary"}>
                       {STATUS_WORDS[o.status]}
                     </Badge>
-                    {o.held ? (
-                      <span className="ml-2 text-xs text-muted-foreground">checkout open</span>
+                    {o.page ? (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {o.page === "open"
+                          ? "checkout open"
+                          : o.page === "completing"
+                            ? "being confirmed"
+                            : "checkout not confirmed closed"}
+                      </span>
+                    ) : null}
+                    {o.reissuedAs ? (
+                      <span className="ml-2 text-xs text-muted-foreground">reissued</span>
                     ) : null}
                     {o.subscribedWithout ? (
                       <span className="ml-2 text-xs text-muted-foreground">

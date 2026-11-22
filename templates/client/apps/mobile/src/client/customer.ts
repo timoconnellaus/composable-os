@@ -181,12 +181,12 @@ export type Operations = {
     output: { items: ({ id: string; state: ("incomplete") | ("expired") | ("trialing") | ("active") | ("past_due") | ("unpaid") | ("paused") | ("ended"); planObject: string; planId: string; planTitle: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); taxed: boolean; trialEnd: (string) | (null); currentPeriodStart: (string) | (null); currentPeriodEnd: (string) | (null); cancelAtPeriodEnd: boolean; cancelAt: (string) | (null); canceledAt: (string) | (null); endedAt: (string) | (null); actionUrl: (string) | (null); createdAt: string; holderPersonId: (string) | (null); payerPersonId?: (string) | (null); email?: (string) | (null); endReason?: (string) | (null); failingSince?: (string) | (null) })[]; nextCursor: (string) | (null) };
   };
   /**
-   * The signed-in customer's own continuation offers they can still take: a plan, free until the date they have paid up to on another platform, then charged. Take one with subscription.start { offerId }. chargedNow: under 48 hours are left, so taking it now is charged at once. Read-only.
+   * The signed-in customer's own continuation offers they can still take: a plan, free until the date they have paid up to on another platform, then charged. Take one with subscription.start { offerId }. chargedNow: under 48 hours are left, so taking it now is charged at once. askUs: its plan is no longer on sale and there is no single other to follow to; the member asks the company. Read-only.
    */
   "subscription.offer.mine": {
     kind: "query";
     input: Record<string, unknown>;
-    output: { offers: { id: string; planObject: string; planId: string; freeUntil: string; chargedNow: boolean }[] };
+    output: { offers: { id: string; planObject: string; planId: string; freeUntil: string; chargedNow: boolean; askUs: boolean }[] };
   };
   /**
    * Open the payment provider's customer portal for the signed-in customer: the card they pay with, their billing details and past invoices. Cancelling and plan changes are not there (subscription.cancel). The address is short-lived and opens in its own page, never a frame.

@@ -42,11 +42,30 @@ describe("the offers file", () => {
       { file: "moving.csv:2", message: 'not an email address: "not-an-address"' },
       {
         file: "moving.csv:3",
-        message: 'the paid-up date is not YYYY-MM-DD or a moment with its offset: "15/12/2026"',
+        message:
+          'the paid-up date is not a real date (YYYY-MM-DD) or moment with its offset: "15/12/2026"',
       },
       { file: "moving.csv:5", message: "d@example.com is on line 4 already" },
     ]);
     expect(readOffersFile("name,date\nx,y").problems[0]?.message).toMatch(/must name email/);
+    // An impossible day or time is never rolled forward into extra free days.
+    const impossible = readOffersFile(
+      [
+        "email,paid_up_to",
+        "a@example.com,2026-02-30T00:00Z",
+        "b@example.com,2026-12-15T24:00Z",
+        "c@example.com,2026-12-15T10:00+15:00",
+        "d@example.com,2026-02-29",
+        "e@example.com,2028-02-29T12:30:00.5+10:00",
+      ].join("\n"),
+    );
+    expect(impossible.problems.map((p) => p.file)).toEqual([
+      "offers.csv:2",
+      "offers.csv:3",
+      "offers.csv:4",
+      "offers.csv:5",
+    ]);
+    expect(impossible.rows.map((r) => r.line)).toEqual([6]);
     expect(readOffersFile("").problems[0]?.message).toBe("the file is empty");
   });
 });
@@ -57,6 +76,9 @@ function fakeHost(answer: (row: { email: string }) => Record<string, unknown>) {
   const host: ImportHost = {
     async call<T>(name: string, input: unknown): Promise<T> {
       calls.push({ name, input: input as Record<string, unknown> });
+      if (name === "record.get") {
+        return { id: (input as { id: string }).id, title: "Every course", values: {} } as T;
+      }
       if (name === "record.list") {
         return {
           items: [{ id: "rec_plan", title: "Every course", values: {} }],
@@ -183,5 +205,58 @@ describe("the import", () => {
     expect(out.join("\n")).toContain("offers.csv:2: not an email address");
     expect(fetched).toBe(0);
     expect(await runCli(["subscriptions", "nothing"], deps)).toBe(2);
+  });
+});
+
+describe("the import's races and its plan", () => {
+  it("sends a batch again when an offer changed while it was written, and names a plan by its id", async () => {
+    const file = readOffersFile("email,paid_up_to\na@example.com,2026-12-15\n");
+    const calls: string[] = [];
+    let refused = 1;
+    const host: ImportHost = {
+      async call<T>(name: string, input: unknown): Promise<T> {
+        calls.push(name);
+        if (name === "record.get") {
+          return { id: (input as { id: string }).id, title: "Plan by id", values: {} } as T;
+        }
+        if (!(input as { dryRun: boolean }).dryRun && refused-- > 0) {
+          throw Object.assign(new Error("changed"), {
+            code: "conflict",
+            details: { rule: "offer_changed" },
+          });
+        }
+        return {
+          results: [
+            {
+              email: "a@example.com",
+              outcome: "conflict",
+              offerId: "sof_1",
+              personId: "per_1",
+              freeUntil: null,
+              note: "taken",
+              signIn: null,
+            },
+          ],
+        } as T;
+      },
+      async upload() {
+        throw new Error("no uploads");
+      },
+    };
+    const plan = await resolvePlan(host, "courses.plan:rec_far_down_the_list");
+    expect(plan).toEqual({
+      object: "courses.plan",
+      id: "rec_far_down_the_list",
+      title: "Plan by id",
+    });
+    expect(calls).toEqual(["record.get"]);
+    const report = await runOffersImport(file, host, { plan, dryRun: false, invite: false });
+    // The dry run, the refused write, and the write again, which answers what is true now.
+    expect(calls.slice(1)).toEqual([
+      "subscription.offer.import",
+      "subscription.offer.import",
+      "subscription.offer.import",
+    ]);
+    expect(report.problems.map((p) => [p.line, p.note])).toEqual([[2, "taken"]]);
   });
 });

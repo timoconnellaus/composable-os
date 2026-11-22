@@ -138,3 +138,48 @@ Each check removed, tests fail (restored after; tests of `subscription-offers.te
 | Inviting needs `users:manage` | 1 (the invite) |
 | A dry run writes nothing | 1 (the import) |
 | An address no one has is reported (not given an offer) | 1 (the import) |
+
+## Amended after review (2026-11-22)
+Before the branch was merged, a review found what follows; each is changed above or here, with a
+test that fails without it (`packages/core/test/subscription-offers.test.ts`, "review of step 4",
+and `packages/create-composable-os/test/offers-import.test.ts`).
+- **An abandoned page no longer blocks a correction.** The import (and a withdrawal, and the
+  report) asks the provider about a page an offer holds: one it says expired is released in the
+  import's batch and the row is written; one still open is `held`; one completed is `completing`;
+  if the provider cannot be asked, `held_unconfirmed`. The report shows each page as the provider
+  says it now (`page`), and a withdrawal's `pageOpen` is the provider's word, not "a page was
+  once opened".
+- **A way back from a mistaken withdrawal.** A withdrawn offer stays as it was. Re-importing its
+  address is a conflict (`withdrawn`) unless staff ask for a fresh offer with `reissue`
+  (`--reissue`): a new offer beside the withdrawn one (the address's key is unique among offers
+  not withdrawn), the old one pointing to it (`reissued_as`), recorded as a change with
+  `reissuedFrom`. The import is a person's, so a reissue is too.
+- **No impossible dates.** A moment is checked by a round trip at its offset, in the host and in
+  the command's own check: `2026-02-30T00:00Z`, `T24:00`, minute 60 and an offset past 14 hours are
+  refused with the row's line, never rolled forward into extra free days.
+- **Every change is from a current read.** `core_subscription_offer.version` is set one above the
+  version each write read; migration 0532's `core_subscription_offer_stale` trigger refuses any
+  other, so the whole call fails (`offer_changed`) and records nothing. This covers an import
+  updating an offer someone took or withdrew meanwhile, a withdrawal of an offer taken meanwhile,
+  and a take whose offer's date or plan changed after it read it (its hold is written at the
+  version it read). The command sends a refused batch again (up to three times), and it then
+  answers from the offers as they are. A per-row report of a race would need the batch's row
+  counts, which the pipeline does not give a handler; failing the call whole is the platform's
+  pattern for orders and subscriptions too.
+- **The member is never charged by surprise.** The subscribe block hides a plan's trial only for
+  a member with an open offer on that plan object, and before sending a member with an offer to a
+  page for another plan it says that one is paid from today. If the offer's plan record is no
+  longer on sale, the offer follows to the plan object's only live record; with none or several,
+  the member sees "ask us" (`askUs`) and staff are told once per plan record (the minute cron,
+  `sweepOffers`).
+- **Invites are recorded and predicted.** Each invite the import writes is recorded as
+  `customer.invite` records it (the change, with the address). The dry run asks the same question
+  as the write, so an address that cannot be invited (an erased person's) is reported
+  (`invite_refused`) and the rest of the batch goes ahead.
+- **The report is a person's.** `subscription.offer.list` and `.export` are `actors: ["human"]`
+  and not on MCP: addresses and old-platform references of people who have not joined yet. Counts
+  are one aggregate query; the export pages by address and id; a cursor this list did not give is
+  refused (`invalid_input`).
+- **The command** finds `--plan <object>:<id>` by its id (`record.get`), not among the first 50.
+  Its header says what it does, as the courses import does: problems in the file stop the run;
+  rows the host cannot write are listed with their line, and the rest are written.

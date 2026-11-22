@@ -7,6 +7,7 @@
 // was used, else the earliest hold. The others are deleted (an update, then deletes: no insert, so
 // the one-hold trigger is not met). A page whose hold was dropped can still be completed at the
 // provider; its confirmation is then told to staff as a second trial (ADR 0489).
+import { sql } from "kysely";
 import type { HandlerContext } from "../operation.ts";
 
 export async function queueMergeSubscriptions(
@@ -62,7 +63,7 @@ export async function queueMergeSubscriptions(
     // survivor's account does not sign in with waits for staff to import it under that one.
     ctx.db
       .updateTable("core_subscription_offer")
-      .set({ person_id: survivorId })
+      .set({ person_id: survivorId, version: sql<number>`version + 1` })
       .where("person_id", "=", mergedId),
   );
 }

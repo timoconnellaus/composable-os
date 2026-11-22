@@ -42,10 +42,16 @@ CREATE TABLE core_subscription_offer (
   charged_from_start INTEGER NOT NULL DEFAULT 0 CHECK (charged_from_start IN (0, 1)),
   withdrawn_at TEXT,
   withdrawn_by TEXT,
-  withdraw_reason TEXT
+  withdraw_reason TEXT,
+  -- A withdrawn offer staff replaced with a fresh one (`reissue`): the new offer's id.
+  reissued_as TEXT,
+  -- Bumped by exactly one on every change (below): a write made from an older read fails.
+  version INTEGER NOT NULL DEFAULT 0
 );
--- One offer per address per plan object: the import's key.
-CREATE UNIQUE INDEX core_subscription_offer_key_uq ON core_subscription_offer (plan_object, email);
+-- One offer per address per plan object, the import's key; a withdrawn one stays as it was, and
+-- staff may reissue the address a fresh offer beside it.
+CREATE UNIQUE INDEX core_subscription_offer_key_uq ON core_subscription_offer (plan_object, email)
+  WHERE withdrawn_at IS NULL;
 CREATE INDEX core_subscription_offer_person_idx ON core_subscription_offer (person_id, plan_object);
 
 CREATE TRIGGER core_subscription_offer_one_page
@@ -54,6 +60,16 @@ WHEN NEW.checkout_id IS NOT NULL
   AND (OLD.checkout_id IS NOT NULL OR OLD.subscription_id IS NOT NULL OR OLD.withdrawn_at IS NOT NULL)
 BEGIN
   SELECT RAISE(ABORT, 'core_subscription_offer_held');
+END;
+
+-- A write made from an older read of the offer fails, and its whole batch (as a subscription's,
+-- migration 0530): an import, a withdrawal or a take that read the offer before another change
+-- to it commits nothing, and is told to try again.
+CREATE TRIGGER core_subscription_offer_stale
+BEFORE UPDATE ON core_subscription_offer
+WHEN NEW.version <> OLD.version + 1
+BEGIN
+  SELECT RAISE(ABORT, 'core_subscription_offer_stale');
 END;
 
 -- A checkout opened from an offer names it, so the provider's confirmation marks the offer taken.

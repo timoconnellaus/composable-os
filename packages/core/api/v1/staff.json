@@ -49360,6 +49360,11 @@
             "default": false,
             "description": "Invite each matched address to sign in as a customer (needs users:manage)",
             "type": "boolean"
+          },
+          "reissue": {
+            "default": false,
+            "description": "Give an address whose offer staff withdrew a fresh offer (the withdrawn one stays as it was). Without it, such a row is a conflict.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -49421,7 +49426,8 @@
                       "enum": [
                         "invited",
                         "invited_before",
-                        "has_account"
+                        "has_account",
+                        "invite_refused"
                       ]
                     },
                     {
@@ -49544,9 +49550,21 @@
                   ],
                   "description": "taken (end their old subscription), open (not yet: chase them before the date), expired (the date passed untaken), withdrawn"
                 },
-                "held": {
-                  "type": "boolean",
-                  "description": "A checkout from it is open at the provider"
+                "page": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "open",
+                        "completing",
+                        "unconfirmed"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A checkout from it, as the provider says now: open, completing (completed; being confirmed) or unconfirmed (the provider could not be asked); null: none"
                 },
                 "takenAt": {
                   "type": [
@@ -49617,6 +49635,13 @@
                     "null"
                   ]
                 },
+                "reissuedAs": {
+                  "description": "A withdrawn offer reissued: the fresh offer",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "createdAt": {
                   "type": "string"
                 }
@@ -49631,7 +49656,7 @@
                 "reference",
                 "freeUntil",
                 "status",
-                "held",
+                "page",
                 "takenAt",
                 "subscriptionId",
                 "subscriptionState",
@@ -49640,6 +49665,7 @@
                 "subscribedWithout",
                 "withdrawnAt",
                 "withdrawReason",
+                "reissuedAs",
                 "createdAt"
               ],
               "additionalProperties": false
@@ -49895,7 +49921,7 @@
                 "type": "null"
               }
             ],
-            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already), permission (staff without subscriptions:manage), held (another page with the trial is open for this person), unconfirmed (the payment provider could not say whether an earlier page was completed; try again later for the trial), continuation (this person has a continuation offer on this plan: they get its free time, never the trial). Null otherwise"
+            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already), permission (staff without subscriptions:manage), held (another page with the trial is open for this person), unconfirmed (the payment provider could not say whether an earlier page was completed; try again later for the trial), continuation (this person has an open continuation offer on this plan, or a subscription from one still running: no trial on top of it). Null otherwise"
           },
           "expiresAt": {
             "type": [

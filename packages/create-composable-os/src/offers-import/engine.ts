@@ -6,9 +6,12 @@
 // The file: a header row naming `email` and `paid_up_to` (or `free_until`), and optionally
 // `reference` (the other platform's own reference for the old subscription); one row a person.
 // A date is the start of that day in the organisation's time zone; a moment with its offset is
-// itself. Every problem in the file is named with its line before anything is sent; then the host
-// checks every row in a dry run, and only then writes. People come first (the people CSV import):
-// an address no person has is listed with its line, and nobody is created.
+// itself. Every problem in the file (not an address, not a real date, an address twice) is named
+// with its line, and stops the run before anything is sent. Then the host checks every row in a
+// dry run and writes them. A row the host cannot write (no person has the address, an offer
+// taken or withdrawn since, a checkout still open on it) is listed with its line and left out,
+// and the rest are written, as the courses import does with access rows it cannot match. People
+// come first (the people CSV import): nobody is created.
 
 import { parseCsv } from "../courses-import/format.ts";
 import type { ImportHost } from "../import-door/host.ts";
@@ -30,8 +33,30 @@ const EMAIL_HEADERS = ["email", "email_address"];
 const DATE_HEADERS = ["paid_up_to", "free_until", "paid_until"];
 const REFERENCE_HEADERS = ["reference", "ref", "subscription_id", "old_reference"];
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const MOMENT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const MOMENT =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?(Z|[+-](\d{2}):(\d{2}))$/;
+
+/**
+ * Whether `when` is a real date (`YYYY-MM-DD`) or a real moment with its offset: no 30 February,
+ * no 24:00, no offset past 14 hours, checked by a round trip, as the host checks it.
+ */
+export function realPaidUpDate(when: string): boolean {
+  const m = DATE.exec(when) ?? MOMENT.exec(when);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const [h, mi, s] = [Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0)];
+  if (m[9] !== undefined && (Number(m[9]) > 14 || Number(m[10]) > 59)) return false;
+  const at = new Date(Date.UTC(y, mo - 1, d, h, mi, s));
+  return (
+    at.getUTCFullYear() === y &&
+    at.getUTCMonth() === mo - 1 &&
+    at.getUTCDate() === d &&
+    at.getUTCHours() === h &&
+    at.getUTCMinutes() === mi &&
+    at.getUTCSeconds() === s
+  );
+}
 
 /** Reads the CSV: the rows, or every problem with `name` and its line. Never throws. */
 export function readOffersFile(text: string, name = "offers.csv"): OffersFile {
@@ -66,10 +91,10 @@ export function readOffersFile(text: string, name = "offers.csv"): OffersFile {
       problems.push({ file: at(line), message: `not an email address: "${cells[email] ?? ""}"` });
       continue;
     }
-    if (!DATE.test(when) && !MOMENT.test(when)) {
+    if (!realPaidUpDate(when)) {
       problems.push({
         file: at(line),
-        message: `the paid-up date is not YYYY-MM-DD or a moment with its offset: "${when}"`,
+        message: `the paid-up date is not a real date (YYYY-MM-DD) or moment with its offset: "${when}"`,
       });
       continue;
     }
@@ -103,7 +128,7 @@ export interface OfferOutcome {
   personId: string | null;
   freeUntil: string | null;
   note: string | null;
-  signIn: "invited" | "invited_before" | "has_account" | null;
+  signIn: "invited" | "invited_before" | "has_account" | "invite_refused" | null;
 }
 
 export interface OffersReport {
@@ -117,25 +142,31 @@ export interface OffersReport {
 /** The most rows one call sends (the host's limit). */
 export const OFFERS_BATCH = 50;
 
+type PlanRecord = { id: string; title?: string | null; values?: Record<string, unknown> };
+
 /**
- * The plan, from `--plan <object>` (its only live record) or `--plan <object>:<id>`. Throws with
- * the plans to choose from when there is more than one.
+ * The plan, from `--plan <object>:<id>` (that record, read by its id) or `--plan <object>` (its
+ * only live record). Throws with the plans to choose from when there is more than one.
  */
 export async function resolvePlan(
   host: ImportHost,
   spec: string,
 ): Promise<{ object: string; id: string; title: string }> {
   const [object, id] = spec.split(":") as [string, string | undefined];
-  const page = await host.call<{
-    items: { id: string; title?: string | null; values?: Record<string, unknown> }[];
-  }>("record.list", { object, limit: 50 });
-  const title = (r: (typeof page.items)[number]) =>
-    String(r.title ?? r.values?.title ?? r.values?.name ?? r.id);
+  const title = (r: PlanRecord) => String(r.title ?? r.values?.title ?? r.values?.name ?? r.id);
   if (id) {
-    const found = page.items.find((r) => r.id === id);
-    if (!found) throw new Error(`No ${object} record ${id} on the host.`);
+    let found: PlanRecord;
+    try {
+      found = await host.call<PlanRecord>("record.get", { object, id });
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "not_found") {
+        throw new Error(`No ${object} record ${id} on the host.`);
+      }
+      throw error;
+    }
     return { object, id, title: title(found) };
   }
+  const page = await host.call<{ items: PlanRecord[] }>("record.list", { object, limit: 50 });
   if (page.items.length === 1) {
     const only = page.items[0] as (typeof page.items)[number];
     return { object, id: only.id, title: title(only) };
@@ -160,23 +191,42 @@ export async function runOffersImport(
     plan: { object: string; id: string; title: string };
     dryRun: boolean;
     invite: boolean;
+    /** Give an address whose offer staff withdrew a fresh one (asked for, never by default). */
+    reissue?: boolean;
     progress?: (line: string) => void;
   },
 ): Promise<OffersReport> {
+  const call = async (batch: OfferRow[], dryRun: boolean) => {
+    const input = {
+      plan: { object: options.plan.object, id: options.plan.id },
+      rows: batch.map(({ email, freeUntil, reference }) => ({
+        email,
+        freeUntil,
+        ...(reference ? { reference } : {}),
+      })),
+      dryRun,
+      invite: options.invite,
+      reissue: Boolean(options.reissue),
+    };
+    // An offer someone changed while this batch was being written (a take, a withdrawal, another
+    // import): nothing of the batch was written. Sent again, it answers from the offers as they
+    // are now.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await host.call<{ results: OfferOutcome[] }>("subscription.offer.import", input);
+      } catch (error) {
+        const e = error as { code?: unknown; details?: { rule?: unknown } };
+        if (attempt >= 3 || e.code !== "conflict" || e.details?.rule !== "offer_changed") {
+          throw error;
+        }
+      }
+    }
+  };
   const send = async (dryRun: boolean) => {
     const out: (OfferOutcome & { line: number })[] = [];
     for (let i = 0; i < file.rows.length; i += OFFERS_BATCH) {
       const batch = file.rows.slice(i, i + OFFERS_BATCH);
-      const answer = await host.call<{ results: OfferOutcome[] }>("subscription.offer.import", {
-        plan: { object: options.plan.object, id: options.plan.id },
-        rows: batch.map(({ email, freeUntil, reference }) => ({
-          email,
-          freeUntil,
-          ...(reference ? { reference } : {}),
-        })),
-        dryRun,
-        invite: options.invite,
-      });
+      const answer = await call(batch, dryRun);
       answer.results.forEach((r, n) => {
         out.push({ ...r, line: (batch[n] as OfferRow).line });
       });
@@ -198,12 +248,17 @@ export async function runOffersImport(
 }
 
 const NOTE_WORDS: Record<string, string> = {
-  past: "the paid-up date has passed: no free time; they subscribe charged at once, with no trial",
+  past: "the paid-up date has passed: it cannot be taken; they subscribe as anyone does",
   under_48_hours:
     "under 48 hours to the paid-up date: taking it now is charged at once (the provider needs 48 hours for free time)",
   taken: "taken already",
-  withdrawn: "withdrawn by staff",
-  held: "a checkout from it is open on the old date; run again once it is completed or expired",
+  withdrawn:
+    "withdrawn by staff; to give this person a fresh offer, run again with --reissue (the withdrawn one stays as it was)",
+  reissued: "a fresh offer beside the one staff withdrew",
+  held: "a checkout from it is still open at the payment provider on the old date; run again once it expires (within a day) or is completed",
+  held_unconfirmed:
+    "the payment provider could not say whether its checkout is still open; run again later",
+  completing: "its checkout was completed: the subscription is being confirmed",
   another_person: "the address now belongs to another person",
   twice: "the address is in this import twice",
   "merge them first": "more than one person has this address: merge them first",
@@ -231,6 +286,11 @@ export function offersReportLines(report: OffersReport, name = "offers.csv"): st
   const invited = usable.filter((r) => r.signIn === "invited").length;
   const cannot = usable.filter((r) => r.signIn === null).length;
   if (invited) lines.push(`${invited} address(es) ${verb} invited to sign in.`);
+  for (const r of report.rows.filter((x) => x.signIn === "invite_refused")) {
+    lines.push(
+      `  ${name}:${r.line} ${r.email}: cannot be invited (an erased person's address); the rest went ahead`,
+    );
+  }
   if (cannot) {
     lines.push(
       `${cannot} of these people have no customer account and no invite. They can sign in to take ` +

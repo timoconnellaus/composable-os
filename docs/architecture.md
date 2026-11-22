@@ -1320,7 +1320,10 @@ live Person, a plan, the paid-up date) with a dry run, the address as the key an
 `subscription.start { offerId }` takes one only for the customer signed in as that address, opening
 the provider's page free until the date (`trialEnd`) and never with the plan's trial; the offer
 holds that page (a trigger refusing a second, so two takes open one) until the provider says it
-expired, and the verified event that makes the subscription marks it taken. A holder with an
+expired, and the verified event that makes the subscription marks it taken. Every change to an
+offer is made from a current read (its `version`, refused by a trigger otherwise), so a take, an
+import or a withdrawal that raced another fails whole; an offer whose plan record is gone follows
+to the object's only live plan, or the member is told to ask and staff are told. A holder with an
 open offer on a plan object, or a subscription from one that has not ended, gets no trial on it
 (`noTrial: "continuation"`); after that the one-trial rule applies. The report
 (`subscription.offer.list`, `.export`; the Subscriptions section's Continuation offers) lists who

@@ -184,6 +184,14 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "offer_held" },
     );
   }
+  // A continuation offer written from an older read of it (migration 0532): another import, a
+  // withdrawal or a take changed it first. Nothing of this call was applied; run it again.
+  if (message.includes("core_subscription_offer_stale")) {
+    return new ConflictError(
+      "The offer changed while this was being done, so nothing was changed. Try again.",
+      { rule: "offer_changed" },
+    );
+  }
   // Two imports writing one address's offer at once: the other one's is kept; run again.
   if (message.includes("UNIQUE constraint failed: core_subscription_offer")) {
     return new ConflictError(

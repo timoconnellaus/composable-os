@@ -5,7 +5,7 @@
 // subscription operation or a price here). What the subscription gives is the host's; this only
 // says what the host reports.
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
-import { day, isLive, subscriptionStatus } from "@composable-os/pack-courses/client";
+import { day, isLive, PLAN, subscriptionStatus } from "@composable-os/pack-courses/client";
 import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
@@ -19,7 +19,7 @@ export function SubscriptionScreen({
   const { data, isPending, error } = courses.useMySubscriptions();
   const offers = courses.useMyOffers();
   const live = data?.items.filter(isLive) ?? [];
-  const offer = offers.data?.offers[0];
+  const offer = offers.data?.offers.find((o) => o.planObject === PLAN);
   return (
     <Screen title="My subscription">
       {isPending ? <Text accessibilityRole="progressbar">Loading your subscription…</Text> : null}
@@ -37,9 +37,11 @@ export function SubscriptionScreen({
       ) : null}
       {offer && !live.length ? (
         <Text>
-          {offer.chargedNow
-            ? `Your subscription with us was paid up to ${day(offer.freeUntil)}. Continue it on the studio's website.`
-            : `Your subscription with us is paid up to ${day(offer.freeUntil)}. Continue it on the studio's website, free until then.`}
+          {offer.askUs
+            ? `Your subscription with us is paid up to ${day(offer.freeUntil)}. Ask the studio to continue it.`
+            : offer.chargedNow
+              ? `Your subscription with us was paid up to ${day(offer.freeUntil)}. Continue it on the studio's website.`
+              : `Your subscription with us is paid up to ${day(offer.freeUntil)}. Continue it on the studio's website, free until then.`}
         </Text>
       ) : null}
       {live.length ? <Text>Manage your subscription on the studio's website.</Text> : null}

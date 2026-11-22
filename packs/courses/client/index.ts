@@ -99,7 +99,7 @@ export function noTrialWords(reason: NoTrial): string {
     case "permission":
       return "A free trial cannot be given from here; this one is paid from today.";
     case "continuation":
-      return "You are continuing a subscription you had with us before, so there is no free trial: this one is paid from today.";
+      return "You have free time with us on your continuing subscription, and this plan is not the one it is for: this one is paid from today, with no free trial. Go back to continue free until your date.";
   }
 }
 
@@ -116,6 +116,8 @@ export interface ContinuationOffer {
   freeUntil: string;
   /** Under 48 hours left: taking it now is charged at once. */
   chargedNow: boolean;
+  /** Its plan is no longer on sale and there is no single other: the member asks the company. */
+  askUs: boolean;
 }
 
 /** The member's offer for `planId`, if they have one. */
@@ -128,6 +130,9 @@ export function offerFor(
 
 /** What a member is told about their offer, in words. Display only. */
 export function offerWords(offer: ContinuationOffer): string {
+  if (offer.askUs) {
+    return `Your subscription with us is paid up to ${day(offer.freeUntil)}. The plan it continues on is not on sale just now: ask us, and nothing is charged before then.`;
+  }
   return offer.chargedNow
     ? `Your subscription with us was paid up to ${day(offer.freeUntil)}, which is too soon for free time here: continuing is charged from today.`
     : `Your subscription with us is paid up to ${day(offer.freeUntil)}. Continue it here: nothing is charged until then.`;

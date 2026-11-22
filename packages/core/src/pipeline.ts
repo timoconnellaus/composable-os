@@ -1504,7 +1504,8 @@ function outsideError(error: unknown): OperationError {
     return typed;
   }
   // The same for a continuation offer's page (migration 0532, ADR 0491): the caller's own offer.
-  if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "offer_held") {
+  const offerRule = (typed.details as { rule?: unknown })?.rule;
+  if (typed.code === "conflict" && (offerRule === "offer_held" || offerRule === "offer_changed")) {
     return typed;
   }
   console.error("outside call failed", errorForLog(error));

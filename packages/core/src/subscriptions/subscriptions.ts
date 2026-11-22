@@ -288,6 +288,7 @@ export async function startSubscription(
       ...holdOfferStatements(ctx, {
         offerId: offer.offerId,
         releaseCheckoutId: offer.releaseCheckoutId,
+        version: offer.version,
         checkoutId: id,
         checkoutRef: opened.ref,
         url: opened.url,

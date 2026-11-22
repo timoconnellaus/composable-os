@@ -2198,7 +2198,7 @@
     },
     {
       "name": "subscription.offer.mine",
-      "description": "The signed-in customer's own continuation offers they can still take: a plan, free until the date they have paid up to on another platform, then charged. Take one with subscription.start { offerId }. chargedNow: under 48 hours are left, so taking it now is charged at once. Read-only.",
+      "description": "The signed-in customer's own continuation offers they can still take: a plan, free until the date they have paid up to on another platform, then charged. Take one with subscription.start { offerId }. chargedNow: under 48 hours are left, so taking it now is charged at once. askUs: its plan is no longer on sale and there is no single other to follow to; the member asks the company. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -2228,9 +2228,13 @@
                 },
                 "chargedNow": {
                   "type": "boolean"
+                },
+                "askUs": {
+                  "type": "boolean",
+                  "description": "No plan on sale to take it on: ask the company (it has been told)"
                 }
               },
-              "required": ["id", "planObject", "planId", "freeUntil", "chargedNow"],
+              "required": ["id", "planObject", "planId", "freeUntil", "chargedNow", "askUs"],
               "additionalProperties": false
             }
           }
@@ -2395,7 +2399,7 @@
                 "type": "null"
               }
             ],
-            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already), permission (staff without subscriptions:manage), held (another page with the trial is open for this person), unconfirmed (the payment provider could not say whether an earlier page was completed; try again later for the trial), continuation (this person has a continuation offer on this plan: they get its free time, never the trial). Null otherwise"
+            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already), permission (staff without subscriptions:manage), held (another page with the trial is open for this person), unconfirmed (the payment provider could not say whether an earlier page was completed; try again later for the trial), continuation (this person has an open continuation offer on this plan, or a subscription from one still running: no trial on top of it). Null otherwise"
           },
           "expiresAt": {
             "type": ["string", "null"]

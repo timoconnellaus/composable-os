@@ -67,6 +67,13 @@ export const subscriptionOfferImport = defineOperation({
       .boolean()
       .default(false)
       .describe("Invite each matched address to sign in as a customer (needs users:manage)"),
+    reissue: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Give an address whose offer staff withdrew a fresh offer (the withdrawn one stays as it " +
+          "was). Without it, such a row is a conflict.",
+      ),
   }),
   output: z.object({
     results: z.array(
@@ -77,7 +84,7 @@ export const subscriptionOfferImport = defineOperation({
         personId: z.string().nullable(),
         freeUntil: z.string().nullable(),
         note: z.string().nullable(),
-        signIn: z.enum(["invited", "invited_before", "has_account"]).nullable(),
+        signIn: z.enum(["invited", "invited_before", "has_account", "invite_refused"]).nullable(),
       }),
     ),
   }),
@@ -90,6 +97,7 @@ export const subscriptionOfferImport = defineOperation({
     plan: input.plan,
     dryRun: input.dryRun,
     invite: input.invite,
+    reissue: input.reissue,
     outcomes: output.results.reduce<Record<string, number>>((n, r) => {
       n[r.outcome] = (n[r.outcome] ?? 0) + 1;
       return n;
@@ -115,7 +123,13 @@ const reportItem = z.object({
       "taken (end their old subscription), open (not yet: chase them before the date), " +
         "expired (the date passed untaken), withdrawn",
     ),
-  held: z.boolean().describe("A checkout from it is open at the provider"),
+  page: z
+    .enum(["open", "completing", "unconfirmed"])
+    .nullable()
+    .describe(
+      "A checkout from it, as the provider says now: open, completing (completed; being " +
+        "confirmed) or unconfirmed (the provider could not be asked); null: none",
+    ),
   takenAt: z.string().nullable(),
   subscriptionId: z.string().nullable(),
   subscriptionState: z.string().nullable(),
@@ -132,6 +146,7 @@ const reportItem = z.object({
     .describe("Not taken, but subscribed to the plan another way (charged, no free time)"),
   withdrawnAt: z.string().nullable(),
   withdrawReason: z.string().nullable(),
+  reissuedAs: z.string().nullable().describe("A withdrawn offer reissued: the fresh offer"),
   createdAt: z.string(),
 });
 
@@ -167,7 +182,10 @@ export const subscriptionOfferList = defineOperation({
   // with subscriptions:manage only, checked first in the handler.
   permission: "records:read",
   risk: "read",
-  mcp: { idempotent: true },
+  // Addresses and old-platform references of people who have not joined yet: a person's report,
+  // nothing an assistant needs.
+  actors: ["human"],
+  mcp: { expose: false },
   async handler(input, ctx) {
     requireManage(ctx);
     return listOffers(ctx, input);
@@ -184,6 +202,7 @@ export const subscriptionOfferExport = defineOperation({
   output: z.object({ filename: z.string(), csv: z.string(), rowCount: z.number() }),
   permission: "records:read",
   risk: "read",
+  actors: ["human"],
   mcp: { expose: false },
   async handler(input, ctx) {
     requireManage(ctx);
@@ -220,7 +239,8 @@ export const subscriptionOfferMine = defineOperation({
     "The signed-in customer's own continuation offers they can still take: a plan, free until " +
     "the date they have paid up to on another platform, then charged. Take one with " +
     "subscription.start { offerId }. chargedNow: under 48 hours are left, so taking it now is " +
-    "charged at once. Read-only.",
+    "charged at once. askUs: its plan is no longer on sale and there is no single other to " +
+    "follow to; the member asks the company. Read-only.",
   input: z.object({}),
   output: z.object({
     offers: z.array(
@@ -230,6 +250,9 @@ export const subscriptionOfferMine = defineOperation({
         planId: z.string(),
         freeUntil: z.string(),
         chargedNow: z.boolean(),
+        askUs: z
+          .boolean()
+          .describe("No plan on sale to take it on: ask the company (it has been told)"),
       }),
     ),
   }),

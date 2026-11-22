@@ -55,9 +55,14 @@ export function Subscribe({
   }
   if (error || !data) return <p role="alert">We could not load the plans.</p>;
   if (!data.plans.length) return <p>No plans are offered yet.</p>;
-  const mine: readonly ContinuationOffer[] = (signedIn && offers.data?.offers) || [];
+  // Only offers on the course plan object matter here (another pack's plans are its own).
+  const mine: readonly ContinuationOffer[] = ((signedIn && offers.data?.offers) || []).filter(
+    (o) => o.planObject === PLAN,
+  );
+  const continuing = mine.length > 0;
+  const askUs = mine.filter((o) => o.askUs);
 
-  async function onSubscribe(planId: string, hasTrial: boolean, offer?: ContinuationOffer) {
+  async function onSubscribe(planId: string, offer?: ContinuationOffer) {
     setProblem(null);
     setNoTrial(null);
     try {
@@ -67,8 +72,11 @@ export function Subscribe({
         ...(signedIn ? {} : { email }),
         ...(offer ? { offerId: offer.id } : {}),
       });
-      if (!offer && hasTrial && started.noTrial) setNoTrial(started);
-      else window.location.assign(started.url);
+      // Never sent to a page that charges today without a word: the host's reason, or, for a
+      // member with free time owed on another plan, that this one is paid from today.
+      if (!offer && (started.noTrial || (continuing && !started.freeUntil))) {
+        setNoTrial({ ...started, noTrial: started.noTrial ?? "continuation" });
+      } else window.location.assign(started.url);
     } catch (e) {
       setProblem(e instanceof Error ? e.message : "We could not start your subscription");
     }
@@ -102,11 +110,17 @@ export function Subscribe({
 
   return (
     <section className="grid gap-4" aria-label="Subscribe">
+      {askUs.map((o) => (
+        <p key={o.id} role="status" data-testid="continuation-offer">
+          {offerWords(o)}
+        </p>
+      ))}
       {data.plans.map((plan) => {
-        const offer = offerFor(mine, plan.id);
-        // A continuation replaces the trial (owner decision 7): a member continuing from another
-        // platform is shown no trial on any plan (the host gives none: `noTrial: continuation`).
-        const trial = !mine.length && plan.trialDays && plan.trialDays > 0 ? plan.trialDays : null;
+        const found = offerFor(mine, plan.id);
+        const offer = found && !found.askUs ? found : undefined;
+        // A continuation replaces the trial (owner decision 7): a member with an open offer on the
+        // course plan object is shown no trial on its plans (the host gives none then).
+        const trial = !continuing && plan.trialDays && plan.trialDays > 0 ? plan.trialDays : null;
         return (
           <Card key={plan.id} data-offer={offer ? offer.id : undefined}>
             <CardHeader>
@@ -122,7 +136,7 @@ export function Subscribe({
                 className="grid max-w-sm gap-2"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  void onSubscribe(plan.id, trial !== null, offer);
+                  void onSubscribe(plan.id, offer);
                 }}
               >
                 {signedIn ? null : (

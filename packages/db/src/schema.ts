@@ -1681,6 +1681,9 @@ export interface CoreSubscriptionOfferTable {
   withdrawn_at: Defaulted<Timestamp | null>;
   withdrawn_by: Defaulted<string | null>;
   withdraw_reason: Defaulted<string | null>;
+  reissued_as: Defaulted<string | null>;
+  /** Bumped by exactly one on every change; a write from an older read fails (migration 0532). */
+  version: Defaulted<number>;
 }
 
 export interface CrmOrderView {

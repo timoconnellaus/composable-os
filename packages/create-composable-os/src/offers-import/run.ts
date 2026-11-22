@@ -19,10 +19,11 @@ export interface OffersImportFlags {
   plan?: string;
   dryRun?: boolean;
   invite?: boolean;
+  reissue?: boolean;
 }
 
 export const OFFERS_USAGE =
-  "Usage: cos subscriptions offers import <offers.csv> --host <url> --plan <object>[:<id>] [--email <you>] [--dry-run] [--invite]\n" +
+  "Usage: cos subscriptions offers import <offers.csv> --host <url> --plan <object>[:<id>] [--email <you>] [--dry-run] [--invite] [--reissue]\n" +
   "       cos subscriptions offers report --host <url> [--status taken|open|expired|withdrawn] [--out <file.csv>] [--email <you>]";
 
 function hostOf(flag: string | undefined, io: Io): string | null {
@@ -81,6 +82,7 @@ export async function offersImport(
       plan,
       dryRun: Boolean(flags.dryRun),
       invite: Boolean(flags.invite),
+      reissue: Boolean(flags.reissue),
       progress: (line) => io.out(line),
     });
     for (const line of offersReportLines(report, name)) {

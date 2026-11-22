@@ -117,12 +117,13 @@ A client repo (stage 24)
                                          twice on a re-run, keeps a student's own progress
                                          (docs/importing.md)
   cos subscriptions offers import <offers.csv> --host <url> --plan <object>[:<id>]
-                     [--email <you>] [--dry-run] [--invite]
+                     [--email <you>] [--dry-run] [--invite] [--reissue]
                                          continuation offers for people subscribed on another
                                          platform (email, paid-up date): each signs in and
                                          subscribes again, free until that date; people come
                                          first, none is created; --invite lets them sign in under
-                                         any sign-up setting (docs/importing.md)
+                                         any sign-up setting; --reissue gives an address staff
+                                         withdrew a fresh offer (docs/importing.md)
   cos subscriptions offers report --host <url> [--status taken] [--out <file.csv>]
                                          who has taken their offer and when they are charged from,
                                          so you end exactly those old subscriptions
@@ -225,6 +226,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "dry-run",
       "publish",
       "invite",
+      "reissue",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {
@@ -1433,6 +1435,7 @@ async function subscriptions(argv: string[], deps: Deps): Promise<number> {
         ...flag("plan"),
         dryRun: Boolean(parsed.flags["dry-run"]),
         invite: Boolean(parsed.flags.invite),
+        reissue: Boolean(parsed.flags.reissue),
       },
       deps.io,
     );

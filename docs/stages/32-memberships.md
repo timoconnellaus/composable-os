@@ -643,6 +643,13 @@ check above. Where the build read the spec one way, or decided what it left open
   <date>") in place of the trial, and no trial on any plan; the native block says it in words, to
   take on the web. A trialing subscription now reads "Free until <date>" for both a trial and a
   continuation.
+- **After review (2026-11-22)**, in ADR 0491: an abandoned checkout no longer blocks a correction
+  (the provider is asked, an expired page released); staff reissue a withdrawn address only with
+  `--reissue`; impossible dates are refused; every change to an offer is from a current read (a
+  version and a trigger, so a take, an import or a withdrawal racing another fails whole and is
+  sent again); the block never sends a member with free time owed to a page that charges today
+  without saying so, and an offer whose plan is gone follows to the object's only live plan or
+  says "ask us" while staff are told; invites are recorded; the report is a person's (not on MCP).
 - **Not built here:** the first client's subscribers' move is the client's own setup (its export,
   its list, telling its people), outside this repository. Nothing was run against Stripe; the
   runbook is for the owner. Updating live subscriptions when tax is turned on (the spec's guess,

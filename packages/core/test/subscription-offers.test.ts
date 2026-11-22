@@ -10,13 +10,16 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   type ActingUser,
   getObject,
+  holdOfferStatements,
   holdsAccess,
   memoryEventSink,
   OFFER_MIN_FREE_MS,
   type PaymentsEvent,
   type ProviderSubscription,
   paidUpMoment,
+  sweepSubscriptions,
 } from "../src/index.ts";
+import { erasedAddressHash } from "../src/records/erase-subject.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, unique } from "./helpers.ts";
 import {
@@ -69,7 +72,7 @@ const dateIn = (days: number) => new Date(Date.now() + days * DAY).toISOString()
 
 function importOffers(
   rows: { email: string; freeUntil: string; reference?: string }[],
-  options: { dryRun?: boolean; invite?: boolean } = {},
+  options: { dryRun?: boolean; invite?: boolean; reissue?: boolean } = {},
   ctx = staff(),
 ) {
   return run<{ results: ImportResult[] }>(
@@ -230,7 +233,20 @@ describe("the paid-up date", () => {
     expect(paidUpMoment("2026-12-15", "Australia/Sydney")).toBe("2026-12-14T13:00:00.000Z");
     expect(paidUpMoment("2026-07-15", "Europe/London")).toBe("2026-07-14T23:00:00.000Z");
     expect(paidUpMoment("2026-12-15T09:30:00+10:00", "UTC")).toBe("2026-12-14T23:30:00.000Z");
-    for (const bad of ["2026-02-30", "15/12/2026", "tomorrow", "2026-12-15T09:30", ""]) {
+    expect(paidUpMoment("2026-12-15T09:30:00.250-05:30", "UTC")).toBe("2026-12-15T15:00:00.250Z");
+    // Never rolled forward into extra free days: an impossible day or time is not a date.
+    for (const bad of [
+      "2026-02-30",
+      "15/12/2026",
+      "tomorrow",
+      "2026-12-15T09:30",
+      "",
+      "2026-02-30T00:00Z",
+      "2026-12-15T24:00Z",
+      "2026-12-15T23:60:00Z",
+      "2026-12-15T10:00:00+15:00",
+      "2026-13-01T00:00Z",
+    ]) {
       expect(paidUpMoment(bad, "UTC")).toBeNull();
     }
   });
@@ -256,7 +272,7 @@ describe("the import", () => {
       ["created", "under_48_hours"],
       ["unmatched", "no person has this address"],
       ["invalid", "not an email address"],
-      ["invalid", "the paid-up date is not a date (YYYY-MM-DD) or a moment"],
+      ["invalid", "the paid-up date is not a real date (YYYY-MM-DD) or moment with its offset"],
       ["invalid", "twice"],
     ]);
     expect(dry.results[0]?.personId).toBe(a.principal.personId);
@@ -477,7 +493,11 @@ describe("taking an offer", () => {
     } else {
       expect(won).toHaveLength(1);
       const lost = outcomes.find((o) => o.status === "rejected") as PromiseRejectedResult;
-      expect(lost.reason).toMatchObject({ code: "conflict", details: { rule: "offer_held" } });
+      // Refused by the one-page trigger or, read before the first committed, by the version.
+      expect(lost.reason).toMatchObject({ code: "conflict" });
+      expect(["offer_held", "offer_changed"]).toContain(
+        (lost.reason as { details: { rule: string } }).details.rule,
+      );
     }
     expect(held?.checkout_id).toBe(won[0]?.value.subscriptionId);
     // The losing take recorded nothing: one checkout names the offer.
@@ -662,5 +682,281 @@ describe("a person merge and an erasure", () => {
     expect((await offer(offerId))?.person_id).toBe(survivor.id);
     await run("person.erase", { id: survivor.id }, staff());
     expect(await offer(offerId)).toBeNull();
+  });
+});
+
+describe("review of step 4", () => {
+  it("corrects an offer whose page was abandoned: the provider's word releases it, and an unanswered ask is reported", async () => {
+    const { buyer, offerId } = await moving(20, "abandoned");
+    const first = await take(buyer, offerId);
+    const ref = String(pageOf(first.subscriptionId)?.ref);
+    const row = [{ email: buyer.email, freeUntil: dateIn(25) }];
+    // Still open at the provider: held, kept.
+    expect((await importOffers(row)).results[0]).toMatchObject({
+      outcome: "conflict",
+      note: "held",
+    });
+    // The provider cannot be asked: held, not known to be closed.
+    gw.pages.set(ref, "error");
+    expect((await importOffers(row)).results[0]).toMatchObject({
+      outcome: "conflict",
+      note: "held_unconfirmed",
+    });
+    // Expired uncompleted: released, and the correction is written.
+    gw.pages.set(ref, "expired");
+    expect((await importOffers(row, { dryRun: true })).results[0]?.outcome).toBe("updated");
+    expect((await offer(offerId))?.checkout_id).toBe(first.subscriptionId);
+    expect((await importOffers(row)).results[0]).toMatchObject({ outcome: "updated" });
+    expect(await offer(offerId)).toMatchObject({
+      checkout_id: null,
+      free_until: `${dateIn(25)}T00:00:00.000Z`,
+    });
+    // Taken again: the new date.
+    const second = await take(buyer, offerId);
+    expect(second.freeUntil).toBe(`${dateIn(25)}T00:00:00.000Z`);
+    // The report shows the page as the provider says it is.
+    const listed = await run<{ items: { id: string; page: string | null }[] }>(
+      "subscription.offer.list",
+      { status: "open", limit: 200 },
+      staff(),
+    );
+    expect(listed.items.find((i) => i.id === offerId)?.page).toBe("open");
+    // A withdrawal says whether a page may still be completed, from the provider's word.
+    gw.pages.set(String(pageOf(second.subscriptionId)?.ref), "expired");
+    expect(
+      await run("subscription.offer.withdraw", { id: offerId, reason: "Moved" }, staff()),
+    ).toMatchObject({ pageOpen: false });
+  });
+
+  it("reissues a withdrawn address only when staff ask for it, recorded; the withdrawn offer stays", async () => {
+    const { buyer, offerId } = await moving(20, "reissue");
+    await run("subscription.offer.withdraw", { id: offerId, reason: "By mistake" }, staff());
+    const row = [{ email: buyer.email, freeUntil: dateIn(20) }];
+    expect((await importOffers(row)).results[0]).toMatchObject({
+      outcome: "conflict",
+      note: "withdrawn",
+      offerId,
+    });
+    const again = await importOffers(row, { reissue: true });
+    const fresh = again.results[0]?.offerId as string;
+    expect(again.results[0]).toMatchObject({ outcome: "created", note: "reissued" });
+    expect(fresh).not.toBe(offerId);
+    expect(await offer(offerId)).toMatchObject({ reissued_as: fresh });
+    expect((await offer(offerId))?.withdrawn_at).not.toBeNull();
+    const changes = await env.DB.prepare(
+      "SELECT c.diff FROM core_audit_changes c JOIN core_audit a ON a.id = c.audit_id WHERE c.record_id = ? AND a.operation = 'subscription.offer.import'",
+    )
+      .bind(fresh)
+      .all<{ diff: string }>();
+    expect(changes.results.map((c) => JSON.parse(c.diff).reissuedFrom?.after)).toEqual([offerId]);
+    // The fresh one is takeable; the withdrawn one is not.
+    expect((await refusal(take(buyer, offerId))).details).toMatchObject({
+      rule: "offer_withdrawn",
+    });
+    expect((await take(buyer, fresh)).freeUntil).toBe(`${dateIn(20)}T00:00:00.000Z`);
+    // A re-run with reissue makes no third offer.
+    expect((await importOffers(row, { reissue: true })).results[0]).toMatchObject({
+      outcome: "unchanged",
+      offerId: fresh,
+    });
+  });
+
+  it("refuses an impossible moment with the row, never rolled forward", async () => {
+    const a = await createBuyer(admin, "moment");
+    const { results } = await importOffers([{ email: a.email, freeUntil: "2026-02-30T00:00Z" }]);
+    expect(results[0]?.outcome).toBe("invalid");
+  });
+
+  it("commits a take only on the offer as it read it, and an import only on the offer as it read it", async () => {
+    for (let i = 0; i < 3; i += 1) {
+      const { buyer, offerId } = await moving(20, `race${i}`);
+      const outcomes = await Promise.allSettled([
+        take(buyer, offerId),
+        importOffers([{ email: buyer.email, freeUntil: dateIn(30) }]),
+      ]);
+      for (const o of outcomes) {
+        if (o.status === "rejected") expect(o.reason).toMatchObject({ code: "conflict" });
+      }
+      // Whatever won, a page held from the offer is for the date the offer has now.
+      const now = await offer(offerId);
+      if (now?.checkout_id) {
+        const checkout = await env.DB.prepare(
+          "SELECT trial_end FROM core_subscription_checkout WHERE id = ?",
+        )
+          .bind(now.checkout_id)
+          .first<{ trial_end: string }>();
+        expect(checkout?.trial_end).toBe(now.free_until);
+      }
+    }
+    // Two imports at once: never both written over each other unseen.
+    const { buyer } = await moving(20, "twoimports");
+    const both = await Promise.allSettled([
+      importOffers([{ email: buyer.email, freeUntil: dateIn(31) }]),
+      importOffers([{ email: buyer.email, freeUntil: dateIn(32) }]),
+    ]);
+    for (const o of both) {
+      if (o.status === "rejected") {
+        expect(o.reason).toMatchObject({ code: "conflict", details: { rule: "offer_changed" } });
+      }
+    }
+  });
+
+  it("refuses a write from an older read of the offer, and records nothing of it", async () => {
+    const { offerId } = await moving(20, "stale");
+    const version = Number((await offer(offerId))?.version);
+    // Another change lands first (as a take or a withdrawal would).
+    await env.DB.prepare(
+      "UPDATE core_subscription_offer SET reference = 'meanwhile', version = version + 1 WHERE id = ?",
+    )
+      .bind(offerId)
+      .run();
+    // A write made from the older read is refused by the database.
+    await expect(
+      env.DB.prepare("UPDATE core_subscription_offer SET free_until = ?, version = ? WHERE id = ?")
+        .bind(new Date(Date.now() + 90 * DAY).toISOString(), version + 1, offerId)
+        .run(),
+    ).rejects.toThrow(/core_subscription_offer_stale/);
+    expect((await offer(offerId))?.reference).toBe("meanwhile");
+    // A take prepared before that change: its hold is written at the version it read, and the
+    // database refuses it, so the page it opened (on the old terms) is never handed out.
+    const hold = holdOfferStatements({ db: db.query, now: new Date().toISOString() } as never, {
+      offerId,
+      releaseCheckoutId: null,
+      version,
+      checkoutId: "sbs_stale_take",
+      checkoutRef: "fcs_stale_take",
+      url: "https://pay.example/stale",
+      expiresAt: null,
+    });
+    await expect(db.batch(hold)).rejects.toThrow(/core_subscription_offer_stale/);
+    expect((await offer(offerId))?.checkout_id).toBeNull();
+  });
+
+  it("records each invite the import writes, and a dry run predicts an address that cannot be invited", async () => {
+    const ok = await run<{ id: string }>(
+      "person.create",
+      { emails: [{ email: `${unique("inv")}@moving.example` }] },
+      staff(),
+    );
+    const blocked = await run<{ id: string }>(
+      "person.create",
+      { emails: [{ email: `${unique("erased")}@moving.example` }] },
+      staff(),
+    );
+    const emailOf = async (id: string) =>
+      (
+        await env.DB.prepare("SELECT email FROM core_person_emails WHERE person_id = ?")
+          .bind(id)
+          .first<{ email: string }>()
+      )?.email as string;
+    const good = await emailOf(ok.id);
+    const bad = await emailOf(blocked.id);
+    // The address is on the erased list (an earlier person with it was erased).
+    await env.DB.prepare(
+      "INSERT INTO core_erased_address (hash, object_type, erased_at) VALUES (?, 'person', ?)",
+    )
+      .bind(await erasedAddressHash(bad), new Date().toISOString())
+      .run();
+    const rows = [
+      { email: bad, freeUntil: dateIn(20) },
+      { email: good, freeUntil: dateIn(20) },
+    ];
+    const dry = await importOffers(rows, { dryRun: true, invite: true });
+    expect(dry.results.map((r) => r.signIn)).toEqual(["invite_refused", "invited"]);
+    const done = await importOffers(rows, { invite: true });
+    expect(done.results.map((r) => [r.outcome, r.signIn])).toEqual([
+      ["created", "invite_refused"],
+      ["created", "invited"],
+    ]);
+    const recorded = await env.DB.prepare(
+      "SELECT object_type FROM core_audit_changes WHERE record_id = ?",
+    )
+      .bind(good)
+      .all<{ object_type: string }>();
+    expect(recorded.results.map((r) => r.object_type)).toContain("customer_invite");
+  });
+
+  it("keeps the report a person's, counts by status and refuses a cursor it did not give", async () => {
+    for (const actor of ["assistant", "mcp", "automation"] as const) {
+      for (const name of ["subscription.offer.list", "subscription.offer.export"]) {
+        expect((await refusal(run(name, {}, staff({ actor })))).code).toBe("forbidden");
+      }
+    }
+    for (const cursor of ["nope", btoa(JSON.stringify({ x: 1 })), btoa('{"e":1,"i":"a"}')]) {
+      expect((await refusal(run("subscription.offer.list", { cursor }, staff()))).code).toBe(
+        "invalid_input",
+      );
+    }
+    const { counts } = await run<{ counts: Record<string, number> }>(
+      "subscription.offer.list",
+      {},
+      staff(),
+    );
+    const { results } = await env.DB.prepare(
+      "SELECT subscription_id, withdrawn_at, free_until FROM core_subscription_offer",
+    ).all<{ subscription_id: string | null; withdrawn_at: string | null; free_until: string }>();
+    const now = new Date().toISOString();
+    const by = (f: (r: (typeof results)[number]) => boolean) => results.filter(f).length;
+    expect(counts).toEqual({
+      taken: by((r) => r.subscription_id !== null),
+      withdrawn: by((r) => !r.subscription_id && r.withdrawn_at !== null),
+      expired: by((r) => !r.subscription_id && !r.withdrawn_at && r.free_until <= now),
+      open: by((r) => !r.subscription_id && !r.withdrawn_at && r.free_until > now),
+    });
+  });
+
+  it("follows its plan to the only live record when its own is gone; with none or several, ask us, and staff are told", async () => {
+    const create = async (name: string) =>
+      (
+        await run<{ id: string }>(
+          "record.create",
+          { object: PLAN, values: { name, price: 29, trialDays: 7 } },
+          staff(),
+        )
+      ).id;
+    const old = await create("Every course, old");
+    const buyer = await createBuyer(admin, "follows");
+    const { results } = await run<{ results: { offerId: string }[] }>(
+      "subscription.offer.import",
+      { plan: { object: PLAN, id: old }, rows: [{ email: buyer.email, freeUntil: dateIn(20) }] },
+      staff(),
+    );
+    const offerId = results[0]?.offerId as string;
+    await run("record.delete", { object: PLAN, id: old }, staff());
+    // `plan` is the object's only live record: the offer follows to it.
+    const mine = await run<{ offers: { id: string; planId: string; askUs: boolean }[] }>(
+      "subscription.offer.mine",
+      {},
+      as(buyer),
+    );
+    expect(mine.offers.find((o) => o.id === offerId)).toMatchObject({
+      planId: plan,
+      askUs: false,
+    });
+    // Another plan record on sale: no single one to follow to. The member asks; staff are told.
+    const other = await create("Every course, new");
+    try {
+      const later = await run<{ offers: { id: string; askUs: boolean }[] }>(
+        "subscription.offer.mine",
+        {},
+        as(buyer),
+      );
+      expect(later.offers.find((o) => o.id === offerId)?.askUs).toBe(true);
+      expect((await refusal(take(buyer, offerId, plan))).details).toMatchObject({
+        rule: "offer_plan",
+      });
+      expect((await sweepSubscriptions(db, new Date().toISOString())).offerPlansGone).toBe(1);
+      const { results: told } = await env.DB.prepare(
+        "SELECT title FROM core_notifications WHERE user_id = ? AND title = ?",
+      )
+        .bind(admin.id, "Continuation offers have no plan to be taken on")
+        .all();
+      expect(told).toHaveLength(1);
+    } finally {
+      await run("record.delete", { object: PLAN, id: other }, staff());
+    }
+    // One live record again: it follows, and the take opens free until the date.
+    const started = await take(buyer, offerId, plan);
+    expect(started.freeUntil).toBe(`${dateIn(20)}T00:00:00.000Z`);
   });
 });

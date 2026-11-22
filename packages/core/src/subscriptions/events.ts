@@ -13,7 +13,7 @@
 //   - A failed renewal and an invoice the provider cannot finalize tell staff once each; a
 //     renewal needing the payer to confirm it keeps the provider's link for the payer.
 import type { CoreDatabase, CoreSubscriptionTable } from "@composable-os/db";
-import type { Kysely, Selectable } from "kysely";
+import { type Kysely, type Selectable, sql } from "kysely";
 import { NotFoundError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { type SubscriptionState, subscriptionObject } from "../fields/subscription.ts";
@@ -502,6 +502,7 @@ async function offerConfirmed(
         taken_at: ctx.now,
         charged_from_start: trialEnd ? 0 : 1,
         updated_at: ctx.now,
+        version: sql<number>`version + 1`,
       })
       .where("id", "=", offerId)
       .where("subscription_id", "is", null),

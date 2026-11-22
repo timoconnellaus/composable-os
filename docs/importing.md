@@ -352,7 +352,7 @@ A CSV with a header row; its columns may come in any order, and extra ones are i
 | Column | | What |
 | --- | --- | --- |
 | `email` | required | The person's address, as on the other platform. |
-| `paid_up_to` (or `free_until`) | required | The date they have paid up to (`2026-12-15`): 00:00 that day in the organisation's time zone, the day the old platform would charge next. Or a moment with its zone (`2026-12-15T09:00:00+10:00`). |
+| `paid_up_to` (or `free_until`) | required (a real day and time: `2026-02-30` or `T24:00` is refused with its line) | The date they have paid up to (`2026-12-15`): 00:00 that day in the organisation's time zone, the day the old platform would charge next. Or a moment with its zone (`2026-12-15T09:00:00+10:00`). |
 | `reference` | optional | The other platform's reference for the old subscription, shown in the report so you can find it there. |
 
 ### What it does
@@ -362,8 +362,16 @@ A CSV with a header row; its columns may come in any order, and extra ones are i
   (`offers.csv:7`) and nobody is created; one that two people share is listed until they are
   merged.
 - **The address is the key.** A re-run changes nothing. A changed date updates an offer not yet
-  taken. An offer taken or withdrawn since, or holding an open checkout on the old date, is a
-  conflict: reported, never overwritten.
+  taken. An offer taken or withdrawn since, or with a checkout the payment provider says is still
+  open on the old date, is a conflict: reported, never overwritten. A checkout the provider says
+  expired no longer counts, so the correction is written. If the provider cannot be asked, the row
+  is reported and left until a later run.
+- **A withdrawal made by mistake.** A withdrawn offer stays withdrawn. To give that person a fresh
+  offer, run the import again with `--reissue`: the fresh offer sits beside the withdrawn one, and
+  both show in the report.
+- **A file that changes underneath.** If someone takes or withdraws an offer while the import is
+  writing it, nothing of that batch is written and the command sends it again, which then reports
+  what is true now.
 - **Dates too close, or past.** With under 48 hours to the date (the payment provider's floor for
   free time), taking the offer is charged at once. A date that has passed is imported (the report
   shows it) but cannot be taken: the person subscribes as anyone does. The report notes both.
