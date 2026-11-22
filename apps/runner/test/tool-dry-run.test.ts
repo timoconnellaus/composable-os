@@ -2,7 +2,9 @@
 // run must not run the tool, because a tool's own operation calls (and its storage) are real
 // effects the dry run cannot hold back. Each actor whose calls can be queued, each risk class a
 // tool may declare, and the floor: nothing changes until a person approves, and approving runs the
-// tool once.
+// tool once. A tool declared `risk: "read"` cannot write, in a dry run or out of one. Test mode
+// reports a write tool as not run, with a placeholder for the step (the report itself:
+// courses.test.ts, where one shipped extension may call another's tool).
 import { env } from "cloudflare:workers";
 import {
   type Actor,
@@ -47,6 +49,44 @@ beforeAll(async () => {
     ${tool("wipe", "destructive")}
     ${tool("rename", "write")}
     ${tool("renameAll", "bulk-write")}
+    peekWrite: defineTool({
+      description: "Declared a read, but tries to write.",
+      risk: "read",
+      input: z.object({ id: z.string() }),
+      output: z.unknown(),
+      async handler({ id }, ctx) {
+        try {
+          await ctx.ops.call("record.update", { object: "${ITEM}", id, values: { name: "Sneaked" } });
+          return { wrote: true };
+        } catch (error) {
+          return { refused: (error as { code?: string }).code };
+        }
+      },
+    }),
+    peekStore: defineTool({
+      description: "Declared a read, but tries to write its storage.",
+      risk: "read",
+      input: z.object({ id: z.string() }),
+      output: z.unknown(),
+      async handler({ id }, ctx) {
+        try {
+          await ctx.storage.set("peek:" + id, true);
+          return { wrote: true };
+        } catch (error) {
+          return { refused: String((error as Error).message ?? error) };
+        }
+      },
+    }),
+    look: defineTool({
+      description: "A read tool that reads.",
+      risk: "read",
+      input: z.object({ id: z.string() }),
+      output: z.unknown(),
+      async handler({ id }, ctx) {
+        const item = await ctx.ops.call<{ values: { name: string } }>("record.get", { object: "${ITEM}", id });
+        return { name: item.values.name, ran: await ctx.storage.get("ran:" + id) };
+      },
+    }),
   },`,
     ),
   );
@@ -185,14 +225,18 @@ describe("a queued extension tool", () => {
     },
   );
 
-  it("is not run in an automation's test mode either", async () => {
+  it("is not run in an automation's test mode either: the call gets a marked placeholder", async () => {
     const itemId = await newItem();
     const simulate = createTestSimulation();
-    await invokeByName(
+    const out = await invokeByName(
       `x.${id}.rename`,
       { id: itemId, name: "After" },
       as("automation", { simulate }),
     );
+    expect(out).toMatchObject({ $notRunInTestMode: true, operation: `x.${id}.rename` });
+    expect(simulate.notRun).toEqual([
+      { operation: `x.${id}.rename`, note: expect.stringContaining("would run for real") },
+    ]);
     expect(simulate.gates.map((g) => g.operation)).toEqual([`x.${id}.rename`]);
     expect(await nameOf(itemId)).toBe("Before");
     expect(await ran(itemId)).toBeNull();
@@ -206,5 +250,39 @@ describe("a queued extension tool", () => {
     ).resolves.toEqual({ name: "After" });
     expect(await nameOf(itemId)).toBe("After");
     expect(await ran(itemId)).toBe("rename");
+  });
+});
+
+describe("a read tool", () => {
+  it("cannot write through ops or its storage, and reads as before", async () => {
+    const itemId = await newItem();
+    await expect(call(admin, `x.${id}.peekWrite`, { id: itemId })).resolves.toEqual({
+      refused: "forbidden",
+    });
+    expect(await nameOf(itemId)).toBe("Before");
+    const store = await call<{ refused?: string }>(admin, `x.${id}.peekStore`, { id: itemId });
+    expect(store.refused).toContain("read tool");
+    const row = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_extension_kv WHERE extension_id = ? AND key = ?",
+    )
+      .bind(id, `peek:${itemId}`)
+      .first<{ n: number }>();
+    expect(row?.n).toBe(0);
+    await expect(call(admin, `x.${id}.look`, { id: itemId })).resolves.toEqual({
+      name: "Before",
+      ran: null,
+    });
+  });
+
+  it("is refused writes in test mode too, and still reads", async () => {
+    const itemId = await newItem();
+    const simulate = createTestSimulation();
+    await expect(
+      invokeByName(`x.${id}.peekWrite`, { id: itemId }, as("automation", { simulate })),
+    ).resolves.toEqual({ refused: "forbidden" });
+    await expect(
+      invokeByName(`x.${id}.look`, { id: itemId }, as("automation", { simulate })),
+    ).resolves.toEqual({ name: "Before", ran: null });
+    expect(await nameOf(itemId)).toBe("Before");
   });
 });

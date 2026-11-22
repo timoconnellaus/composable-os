@@ -28,6 +28,12 @@ export interface DryRunResult {
   /** The handler's output, validated, or null when it is read after commit. */
   output: unknown;
   changes: RecordChange[];
+  /** An extension tool that may write: not run, so nothing to preview (approvals/dry-run.ts). */
+  notRun?: boolean;
+  /** What the dry run refused to touch: the call runs, at least in part, only on approval. */
+  refused?: string[];
+  /** Notes for the reviewer (runs on approval, a call that will need its own approval). */
+  notes?: string[];
 }
 
 export interface QueueRequest {
@@ -416,6 +422,7 @@ export async function prepareQueuedAction(req: QueueRequest): Promise<QueuedActi
         output: storedSim.output,
         records: storedSim.records,
         ...truncated,
+        ...(dry.notes?.length ? { notes: dry.notes } : {}),
       }),
       provisional: JSON.stringify(provisional),
       depends_on: JSON.stringify(dependsOn),
@@ -448,6 +455,7 @@ export async function prepareQueuedAction(req: QueueRequest): Promise<QueuedActi
     (toolOf(req.op.name)
       ? " The tool has not run: it runs once, when a person approves it, and what it changes is decided then."
       : "") +
+    (dry.notes?.length ? ` ${dry.notes.join(" ")}` : "") +
     " Tell the user the change is waiting for approval.";
 
   return {

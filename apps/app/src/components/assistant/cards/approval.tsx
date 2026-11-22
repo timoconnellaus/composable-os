@@ -18,7 +18,7 @@ import { ChangePreview, RiskBadge } from "../../approvals/change-preview.tsx";
 import { actionTitle, groupPreview, outboundTitle, toolOf } from "../../approvals/describe.ts";
 import { decide, useRecordNames, useRefreshAfterDecision } from "../../approvals/hooks.ts";
 import { OutboundPreview } from "../../approvals/outbound-preview.tsx";
-import { ToolCallPreview } from "../../approvals/tool-call-preview.tsx";
+import { DryRunNotes, ToolCallPreview } from "../../approvals/tool-call-preview.tsx";
 import { VerdictNote } from "../../approvals/verdict-note.tsx";
 import { useCardHost } from "./host.tsx";
 import { Body, Footer, Frame, Header, LinkButton, TwoStepButton } from "./parts.tsx";
@@ -39,10 +39,15 @@ function ActionDetail({ action, names }: { action: Action; names: Map<string, st
       {action.outbound ? (
         <OutboundPreview outbound={action.outbound} />
       ) : toolOf(action.operation) ? (
-        <ToolCallPreview input={action.input} pending={action.status === "pending"} />
+        <ToolCallPreview
+          input={action.input}
+          pending={action.status === "pending"}
+          ranAtQueue={action.toolRanAtQueue}
+        />
       ) : (
         <ChangePreview groups={groups} names={names} />
       )}
+      {action.status === "pending" && <DryRunNotes notes={action.notes} />}
       {action.adjudication && <VerdictNote verdict={action.adjudication} />}
     </div>
   );

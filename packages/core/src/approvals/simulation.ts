@@ -138,6 +138,34 @@ export class Overlay implements SimulationView {
   }
 }
 
+/**
+ * An overlay over another (approvals/dry-run.ts): reads see this layer's records, then the base's;
+ * `add` writes only to this layer. The operations a dry-run handler runs are simulated over one,
+ * so what they would do is visible to the rest of the dry run but never lands in the session's
+ * overlay, whose actions the queued call's dependencies are read from.
+ */
+export class LayeredOverlay extends Overlay {
+  readonly #base: Overlay;
+  constructor(base: Overlay) {
+    super(base.actionIds);
+    this.#base = base;
+  }
+
+  override get empty(): boolean {
+    return super.empty && this.#base.empty;
+  }
+
+  override record(object: string, id: string): SimulatedRecord | undefined {
+    return super.record(object, id) ?? this.#base.record(object, id);
+  }
+
+  override records(): SimulatedRecord[] {
+    const own = super.records();
+    const keys = new Set(own.map((r) => `${r.object}:${r.id}`));
+    return [...this.#base.records().filter((r) => !keys.has(`${r.object}:${r.id}`)), ...own];
+  }
+}
+
 /** Loads the overlay for `sessionId`: its pending, unexpired actions in queue order. */
 export async function loadSessionOverlay(
   db: Kysely<CoreDatabase>,

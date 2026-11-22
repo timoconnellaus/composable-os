@@ -14,6 +14,7 @@
 import { env, exports } from "cloudflare:workers";
 import {
   type ActingUser,
+  type AutomationTestReport,
   type CustomerPrincipal,
   createFakeStream,
   type ExtensionHost,
@@ -31,6 +32,7 @@ import {
   refreshInMs,
 } from "../../../packs/courses/client/index.ts";
 import type { Outline } from "../../../packs/courses/outline.ts";
+import { automationHost } from "../src/automations/host.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
@@ -899,6 +901,91 @@ describe("one extension calling another's tool (ADR 0478)", () => {
       asCourses(["x.programs.assign"]),
     );
     expect(done.assignmentId).toBeTruthy();
+
+    // ADR 0022 amendment (2026-11-22): under Cautious an extension's bulk-write waits for a
+    // person, and the queued tool is not run (the dry run used to assign the program at once).
+    const other = await createCustomer("assigned-after-approval");
+    const assignments = async () =>
+      (
+        await run<{ items: unknown[] }>(
+          "record.list",
+          {
+            object: "programs.assignment",
+            filter: { field: "person", op: "eq", value: other.principal.personId },
+          },
+          staff(admin),
+        )
+      ).items.length;
+    await setPreset("cautious");
+    try {
+      const queued = await refusal(
+        run(
+          "x.programs.assign",
+          { ...input, personId: other.principal.personId },
+          asCourses(["x.programs.assign"]),
+        ),
+      );
+      expect(queued).toMatchObject({ code: "pending_approval" });
+      expect(await assignments()).toBe(0);
+      const actionId = (queued as { details?: { actionId?: string } }).details?.actionId;
+      const pending = await env.DB.prepare(
+        "SELECT actor, operation, status FROM core_pending_action WHERE id = ?",
+      )
+        .bind(actionId)
+        .first();
+      expect(pending).toEqual({
+        actor: "extension",
+        operation: "x.programs.assign",
+        status: "pending",
+      });
+      await setPreset("balanced");
+      const approved = await run<{ results: { status: string }[] }>(
+        "approval.approve",
+        { actionIds: [actionId] },
+        staff(admin),
+      );
+      expect(approved.results.map((r) => r.status)).toEqual(["applied"]);
+      expect(await assignments()).toBe(1);
+    } finally {
+      await setPreset("balanced");
+    }
+  });
+});
+
+describe("test mode on the assigning automation (ADR 0022 amendment, 2026-11-22)", () => {
+  it("reports Programs' tool as not run, gives the step a placeholder, and assigns nothing", async () => {
+    const student = await createCustomer("test-mode-student");
+    const progress = await create("courses.progress", {
+      holder: student.principal.personId,
+      course: courseId,
+      lessonKey: "day-1",
+      state: "started",
+    });
+    const { report } = await run<{ report: AutomationTestReport }>(
+      "automation.test",
+      { id: "courses.assignSessions", record: { object: "courses.progress", id: progress } },
+      staff(admin, { automationHost: automationHost(env) }),
+    );
+    expect(report.ok).toBe(true);
+    expect(report.notRun).toEqual([
+      { operation: "x.programs.assign", note: expect.stringContaining("would run for real") },
+    ]);
+    const step = report.steps.find((s) => s.name === "assign");
+    expect(step?.operations).toEqual([
+      expect.objectContaining({
+        operation: "x.programs.assign",
+        notRun: expect.stringContaining("not run in test mode"),
+      }),
+    ]);
+    const assignments = await run<{ items: unknown[] }>(
+      "record.list",
+      {
+        object: "programs.assignment",
+        filter: { field: "person", op: "eq", value: student.principal.personId },
+      },
+      staff(admin),
+    );
+    expect(assignments.items).toEqual([]);
   });
 });
 

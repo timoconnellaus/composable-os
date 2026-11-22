@@ -17,6 +17,7 @@ export type OperationErrorCode =
   | "timeout"
   | "extension_error"
   | "integration_error"
+  | "runs_on_approval"
   | "internal";
 
 export class OperationError extends Error {
@@ -101,6 +102,23 @@ export class PendingApprovalError extends OperationError {
   constructor(pending: PendingApproval) {
     super("pending_approval", pending.message, pending);
     this.pending = pending;
+  }
+}
+
+/**
+ * A dry run (approvals/dry-run.ts) reached something it cannot simulate: another runtime (the
+ * automation host, the updater, a connected app, a model, mail…) or a direct database write.
+ * Nothing was done. A queued call that meets it is queued with "runs on approval" instead of a
+ * preview; a simulated read that meets it fails with this.
+ */
+export class RunsOnApprovalError extends OperationError {
+  override name = "RunsOnApprovalError";
+  constructor(readonly uses: string) {
+    super(
+      "runs_on_approval",
+      `This uses ${uses}, which a dry run does not touch: it runs only when it is approved`,
+      { uses },
+    );
   }
 }
 

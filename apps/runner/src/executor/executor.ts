@@ -353,6 +353,9 @@ export class Executor {
           : { startedBy: input.caller.userId }),
       },
       ...(input.cascade ? { cascade: input.cascade } : {}),
+      ...(input.readOnly || input.dryRun
+        ? { readOnly: { dryRun: Boolean(input.dryRun), tool: input.tool } }
+        : {}),
     };
     const host = new RunHost(this.#env, run);
     const outcome = await invoke<ExtensionEntrypoint, RunResponse>(

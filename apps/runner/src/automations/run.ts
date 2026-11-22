@@ -173,6 +173,7 @@ export function stepOperations(
           }
         : {}),
       ...(undeclared ? { undeclared: true } : {}),
+      ...(op.notRun ? { notRun: op.notRun } : {}),
       ms: op.ms,
     };
   });

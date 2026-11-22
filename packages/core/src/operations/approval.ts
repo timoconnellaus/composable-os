@@ -29,6 +29,7 @@ import {
   ForbiddenError,
   NotFoundError,
   OperationError,
+  PendingApprovalError,
   toOperationError,
   ValidationError,
 } from "../errors.ts";
@@ -103,6 +104,16 @@ export const pendingActionSchema = z.object({
   preview: z.array(previewSchema),
   /** What the session sees until it is decided. */
   simulatedOutput: z.unknown().nullable(),
+  /**
+   * What the dry run could not show (ADR 0022 amendment, 2026-11-22): that the call runs, at
+   * least in part, only on approval, or that a call it makes will need its own approval.
+   */
+  notes: z.array(z.string()),
+  /**
+   * An extension tool queued before that amendment: its dry run ran the tool, so its changes may
+   * already have been made, and approving would make them again.
+   */
+  toolRanAtQueue: z.boolean(),
   provisionalIds: z.array(z.string()),
   /** Provisional id → real id, once applied. */
   bindings: z.record(z.string(), z.string()).nullable(),
@@ -253,10 +264,12 @@ export function effectiveStatus(
 }
 
 function toActionView(row: PendingRow, now: string): PendingActionView {
-  const simulated = parse<{ output?: unknown; truncated?: PendingActionView["truncated"] }>(
-    row.simulated,
-    {},
-  );
+  const simulated = parse<{
+    output?: unknown;
+    truncated?: PendingActionView["truncated"];
+    notes?: string[];
+    toolRanAtQueue?: boolean;
+  }>(row.simulated, {});
   const status = effectiveStatus(row, now);
   return {
     id: row.id,
@@ -276,6 +289,8 @@ function toActionView(row: PendingRow, now: string): PendingActionView {
     error: parse(row.error, null),
     preview: parse(row.preview, []),
     simulatedOutput: simulated.output ?? null,
+    notes: Array.isArray(simulated.notes) ? simulated.notes.map(String) : [],
+    toolRanAtQueue: simulated.toolRanAtQueue === true,
     provisionalIds: parse<{ id: string }[]>(row.provisional, []).map((p) => p.id),
     bindings: parse(row.bindings, null),
     dependsOn: parse(row.depends_on, []),
@@ -1157,9 +1172,33 @@ async function approveActions(
           bindings: own,
         });
       } catch (error) {
-        const typed = toOperationError(error);
-        failed.add(action.id);
-        const statusReason = `Failed: ${typed.message}`;
+        const waiting = waitingOn(error);
+        const typed = waiting ?? toOperationError(error);
+        if (waiting) {
+          // The call it made was queued in the same session, so it depends on this action, which
+          // ends here: that dependency is dropped, or the call it waits on could never apply.
+          const nestedId = (waiting.details as { waitingOn: string }).waitingOn;
+          const nestedRow = await ctx.db
+            .selectFrom("core_pending_action")
+            .select("depends_on")
+            .where("id", "=", nestedId)
+            .executeTakeFirst();
+          const deps = parse<string[]>(nestedRow?.depends_on ?? "[]", []).filter(
+            (id) => id !== action.id,
+          );
+          await crm.batch([
+            ctx.db
+              .updateTable("core_pending_action")
+              .set({ depends_on: JSON.stringify(deps) })
+              .where("id", "=", nestedId),
+          ]);
+        } else {
+          failed.add(action.id);
+        }
+        const statusReason =
+          typed.code === "pending_approval"
+            ? `Waiting: ${typed.message}`
+            : `Failed: ${typed.message}`;
         await crm.batch([
           ctx.db
             .updateTable("core_pending_action")
@@ -1217,6 +1256,23 @@ async function approveActions(
     await emitDecisions(ctx, [...targets, ...stranded], (id) => decided.get(id) ?? null, bound);
     return { results, counts: counts(results) };
   });
+}
+
+/**
+ * Approving ran an action whose handler calls an operation that needs its own approval (ADR 0022
+ * amendment, 2026-11-22): that call is now queued, and nothing of this action was applied. It is
+ * not re-queued (approving it again would queue the same call again): it ends, saying which
+ * action it waits on, and that one applies when it is approved.
+ */
+function waitingOn(error: unknown): OperationError | null {
+  if (!(error instanceof PendingApprovalError)) return null;
+  const { actionId, operation } = error.pending;
+  return new OperationError(
+    "pending_approval",
+    `it calls ${operation}, which needs its own approval: approve pending ` +
+      `action ${actionId} to apply it. Nothing else of this action was applied.`,
+    { waitingOn: actionId, operation },
+  );
 }
 
 export const approvalApprove = defineOperation({

@@ -45,6 +45,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | AH | 0550–0559 | 0495–0499 | Stage 42, the courses import (`feat/courses-import`, build step 8: `cos courses import`, the shared import door, videos by upload or link with captions, enrolments and progress); ADR 0495; no migrations | in flight |
 | AI | 0560–0579 | 0500–0509 | Stage 31, Recurring schedules and Bookings (31a the timetable and class bookings, the family link; 31b appointments). Steps 1 and 2 (`feat/stage-31a-recurring-claimants`: the wall-clock helper, `recurring`, capacity claimants, declared uniqueness, time windows and staff-only creates): migrations from 0560, ADRs from 0500. Step 3, the Bookings pack's spine (`feat/stage-31a-bookings-pack`): ADRs 0504 to 0507, no migration | in flight |
 | AJ | 0580–0599 | 0510–0519 | Stage 32b step 6, `recurring.grants` and the Memberships pack with passes (`feat/stage-32b-memberships-pack`): migrations 0580 and 0581, ADRs 0510 to 0513 | in flight |
+| AK | 0600–0609 | — | The dry run causes no real effect (`fix/tool-dry-run-executes`, ADR 0022 amended): migration 0600 marks tool actions queued before it; no ADRs | in flight |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.

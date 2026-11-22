@@ -16,6 +16,7 @@ import {
   coreOperations,
   type EventSink,
   type ExtensionHost,
+  ForbiddenError,
   invokeByName,
   type Origin,
   type OutsidePrincipal,
@@ -23,6 +24,7 @@ import {
   type Permission,
   parseFloor,
   queueEventSink,
+  resolveExtensionOperation,
   type TestSimulation,
   type ToolCascade,
   toOperationError,
@@ -86,6 +88,8 @@ export interface RunOperation {
   recordId?: string;
   /** Records the call wrote (bulk calls: the input's ids), for the writes-per-hour rail. */
   writes?: number;
+  /** Test mode: why the call was not run (RunOperationRecord.notRun). */
+  notRun?: string;
 }
 
 /**
@@ -125,6 +129,12 @@ export interface RunState {
   tool?: { name: string; humanOnly: boolean; permission: string | null; startedBy?: string };
   /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
   cascade?: ToolCascade;
+  /**
+   * Set for a tool declared `risk: "read"` (ADR 0022 amendment, 2026-11-22): it may only read.
+   * Its operation calls must be read operations, its storage answers `get` and `list` only, and
+   * it has no gatekeeper. In a dry run (`dryRun`) it has no model either.
+   */
+  readOnly?: { dryRun: boolean; tool: string };
 }
 
 type Envelope =
@@ -176,6 +186,7 @@ export class RunHost extends RpcTarget {
       throw new Error(`codemode:${module} has no ${method}`);
     }
     const list = Array.isArray(args) ? args : [];
+    if (run.readOnly) this.#assertReadOnly(module, method);
     // A tool running for a customer sends nothing out and spends no model budget for them: it
     // reads and writes that customer's records, and keeps its own state.
     if (run.outside && module !== "ops" && module !== "storage" && module !== "log") {
@@ -197,6 +208,30 @@ export class RunHost extends RpcTarget {
         if (isGatekeeperModule(module)) return this.#gatekeeper(module, method, list);
         throw new Error(`Unknown host module ${module}`);
     }
+  }
+
+  /** A read tool's sandbox (RunState.readOnly): refuses what is not a read, before it runs. */
+  #assertReadOnly(module: string, method: string): void {
+    const ro = this.#run.readOnly;
+    if (!ro) return;
+    const refuse = (what: string) => {
+      throw new Error(
+        `${ro.tool} is a read tool (risk "read"), so it cannot ${what}. Declare the tool's risk ` +
+          "as write (or higher) if it changes anything.",
+      );
+    };
+    if (module === "storage" && method !== "get" && method !== "list") refuse("write its storage");
+    if (isGatekeeperModule(module)) refuse(`use codemode:${module}`);
+    if (module === "ai" && ro.dryRun) refuse("use a model in a dry run");
+  }
+
+  /** Whether `operation` is a read: a core read, or a read tool of an installed extension. */
+  async #isRead(operation: string): Promise<boolean> {
+    const core = coreOperations.find((op) => op.name === operation);
+    if (core) return core.risk === "read";
+    if (!operation.startsWith("x.")) return false;
+    const tool = await resolveExtensionOperation(createCrmDb(this.#env.DB).query, operation);
+    return tool?.risk === "read";
   }
 
   /** The events queue for a tool's own calls, where this Worker has one. */
@@ -246,6 +281,14 @@ export class RunHost extends RpcTarget {
     const operation = String(name);
     let reply: Envelope;
     try {
+      if (run.readOnly && !(await this.#isRead(operation))) {
+        throw new ForbiddenError(
+          `${run.readOnly.tool} is a read tool (risk "read"), so it can only call read ` +
+            `operations, not ${operation}. Declare the tool's risk as write (or higher) if it ` +
+            "changes anything.",
+          { operation, tool: run.readOnly.tool },
+        );
+      }
       const value = run.outside
         ? // As the customer who called the tool, never as the extension: the same principal and
           // the same seam, so which records the tool reaches is the host's decision.
@@ -334,6 +377,10 @@ export class RunHost extends RpcTarget {
       }
     }
     const value = reply.ok ? (reply.value as { id?: unknown; ids?: unknown } | null) : null;
+    const notRun = (value as { $notRunInTestMode?: unknown; note?: unknown } | null)
+      ?.$notRunInTestMode
+      ? String((value as { note?: unknown }).note ?? "Not run in test mode")
+      : undefined;
     const record = input as { object?: unknown; ids?: unknown } | null;
     const step = (meta as { step?: unknown } | null)?.step;
     run.operations.push({
@@ -350,6 +397,7 @@ export class RunHost extends RpcTarget {
       step: typeof step === "string" ? step : null,
       ...(!pending && typeof value?.id === "string" ? { recordId: value.id } : {}),
       writes: Array.isArray(record?.ids) ? record.ids.length : 1,
+      ...(notRun ? { notRun } : {}),
     });
     return json(reply);
   }

@@ -26,9 +26,60 @@ export interface CrmDb {
   readOnly?(): CrmDb;
 }
 
-/** Statements a read-only handle refuses to run. Kysely's and the host's own SQL start with one. */
-const WRITE_SQL =
-  /^\s*(insert|update|delete|replace|create|drop|alter|pragma|vacuum|reindex)\b|^\s*with\b[\s\S]*\)\s*(insert|update|delete|replace)\b/i;
+/**
+ * Whether `sql` is one statement that only reads: after its comments, string literals and quoted
+ * names are set aside, it is a single `SELECT`, `VALUES`, or `WITH … SELECT` (a `WITH` that
+ * prefixes no insert, update, delete or replace; SQLite allows no write inside a SELECT). An
+ * allow-list: anything else (a write, DDL, `PRAGMA`, `ATTACH`, `SAVEPOINT`,
+ * `ANALYZE`, a second statement after `;`) is not a read. D1 has no read-only session, so this
+ * check is what a read-only handle is.
+ */
+export function isReadOnlySql(sql: string): boolean {
+  let bare = "";
+  for (let i = 0; i < sql.length; ) {
+    const c = sql[i] as string;
+    const next = sql[i + 1];
+    if (c === "-" && next === "-") {
+      const end = sql.indexOf("\n", i);
+      i = end < 0 ? sql.length : end + 1;
+      bare += " ";
+    } else if (c === "/" && next === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      if (end < 0) return false;
+      i = end + 2;
+      bare += " ";
+    } else if (c === "'" || c === '"' || c === "`" || c === "[") {
+      const close = c === "[" ? "]" : c;
+      let j = i + 1;
+      for (;;) {
+        const k = sql.indexOf(close, j);
+        if (k < 0) return false;
+        // A doubled quote is an escaped one inside the literal.
+        if (close !== "]" && sql[k + 1] === close) {
+          j = k + 2;
+          continue;
+        }
+        i = k + 1;
+        break;
+      }
+      bare += " x ";
+    } else {
+      bare += c;
+      i += 1;
+    }
+  }
+  const statements = bare
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (statements.length !== 1) return false;
+  const [statement] = statements as [string];
+  const first = /^[a-z]+/i.exec(statement)?.[0].toLowerCase();
+  if (first === "select" || first === "values") return true;
+  // In SQLite a CTE prefixes one statement, which may be a write: `WITH … INSERT/UPDATE/DELETE`.
+  if (first === "with") return !/\b(insert|update|delete)\b|\breplace\s+into\b/i.test(statement);
+  return false;
+}
 
 /** Thrown by a read-only handle; the pipeline reports it as an internal error. */
 export class ReadOnlyDatabaseError extends Error {
@@ -47,7 +98,7 @@ function readOnlyD1(d1: D1Database): D1Database {
   };
   return {
     prepare(sql: string) {
-      if (!WRITE_SQL.test(sql)) return d1.prepare(sql);
+      if (isReadOnlySql(sql)) return d1.prepare(sql);
       const write = refuse("write to the database");
       const statement = { bind: () => statement, first: write, run: write, all: write, raw: write };
       return statement as unknown as D1PreparedStatement;

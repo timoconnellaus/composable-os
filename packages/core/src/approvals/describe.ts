@@ -53,9 +53,12 @@ function spelled(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** An extension tool's operation name: `x.<extension>.<tool>` (ADR 0023). */
+export const TOOL_OPERATION_RE = /^x\.([a-z][a-z0-9]{1,29})\.([a-z][a-zA-Z0-9]{0,39})$/;
+
 /** The extension and tool of an extension tool's operation (`x.<extension>.<tool>`), else null. */
 export function toolOf(operation: string): { extension: string; tool: string } | null {
-  const match = /^x\.([a-z][a-z0-9]{1,29})\.([a-z][a-zA-Z0-9]{0,39})$/.exec(operation);
+  const match = TOOL_OPERATION_RE.exec(operation);
   return match?.[1] && match[2] ? { extension: match[1], tool: match[2] } : null;
 }
 

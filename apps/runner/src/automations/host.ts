@@ -387,6 +387,7 @@ export async function testAutomation(
     approvals: simulate.gates
       .filter((g) => g.gate === "review")
       .map((g) => ({ operation: g.operation, reason: g.reason, bulkSize: g.bulkSize })),
+    ...(simulate.notRun?.length ? { notRun: simulate.notRun } : {}),
     ok: response.ok,
     ...(response.ok
       ? {}

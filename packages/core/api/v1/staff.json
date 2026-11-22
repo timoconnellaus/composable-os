@@ -9246,6 +9246,15 @@
                     }
                   ]
                 },
+                "notes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "toolRanAtQueue": {
+                  "type": "boolean"
+                },
                 "provisionalIds": {
                   "type": "array",
                   "items": {
@@ -9643,6 +9652,8 @@
                 "error",
                 "preview",
                 "simulatedOutput",
+                "notes",
+                "toolRanAtQueue",
                 "provisionalIds",
                 "bindings",
                 "dependsOn",
@@ -10415,6 +10426,15 @@
                           }
                         ]
                       },
+                      "notes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "toolRanAtQueue": {
+                        "type": "boolean"
+                      },
                       "provisionalIds": {
                         "type": "array",
                         "items": {
@@ -10812,6 +10832,8 @@
                       "error",
                       "preview",
                       "simulatedOutput",
+                      "notes",
+                      "toolRanAtQueue",
                       "provisionalIds",
                       "bindings",
                       "dependsOn",

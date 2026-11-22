@@ -627,6 +627,20 @@ npx @composable-os/cli upgrade --version 1.4.0
 npx @composable-os/cli status                   # installed version, channel, available releases, history
 ```
 
+### Upgrading past the dry-run fix (ADR 0022 amendment, 2026-11-22)
+
+Release note: _A call waiting for approval no longer does anything before it is approved._ Up to
+and including v0.1.0-beta.9, the approval queue's dry run ran an extension tool's code, so a tool
+an AI assistant, an MCP client, an automation or another extension called, and the policy sent to
+review, had already made its changes while it waited. Approving it made them again. The same was
+true of an automation's test mode, and of core actions that start automation runs or an update.
+From this release nothing runs until a person approves.
+
+After upgrading, check **Approvals**. Migration 0600 marks every extension tool action that was
+still pending at upgrade time. The inbox says its changes may already have been made, and that
+approving would repeat them. It recommends rejecting it once you have checked the records it names.
+Nothing is rejected for you.
+
 ## Rollback
 
 Settings → Updates → History → **Roll back** on the latest successful update, or:

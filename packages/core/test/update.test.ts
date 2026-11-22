@@ -331,4 +331,50 @@ describe("preflight and apply", () => {
       code: "conflict",
     });
   });
+
+  // ADR 0022 amendment (2026-11-22): under a floor that reviews a person's destructive actions,
+  // an update and a rollback are queued, nothing runs in the dry run, and approving runs them once.
+  it("is queued, not run, under a floor that reviews a person's destructive actions", async () => {
+    const floor = { human: { destructive: "review" as const } };
+    const ctx = context(admin, { updater: runtime(), floor });
+    const approve = async (actionId: string) => {
+      const run = (confirm?: string) =>
+        invokeByName(
+          "approval.approve",
+          { actionIds: [actionId], ...(confirm ? { confirm } : {}) },
+          context(admin, { updater: runtime() }),
+        );
+      const first = await run().catch((e: unknown) => e);
+      const label = (first as { details?: { confirmLabel?: string } }).details?.confirmLabel;
+      return (label ? await run(label) : first) as { results: { status: string }[] };
+    };
+
+    const queued = await invokeByName("update.apply", { version: "1.1.0" }, ctx).catch(
+      (e: unknown) => e,
+    );
+    expect(queued).toMatchObject({ code: "pending_approval" });
+    expect(calls.filter((c) => c.startsWith("apply:"))).toEqual([]);
+    const count = await env.DB.prepare("SELECT count(*) AS n FROM core_update_runs").first();
+    expect(count?.n).toBe(0);
+    const actionId = (queued as { details: { actionId: string } }).details.actionId;
+    const view = (await invokeByName("approval.status", { actionId }, context(admin))) as {
+      changeSets: { actions: { notes: string[] }[] }[];
+    };
+    expect(view.changeSets[0]?.actions[0]?.notes.join(" ")).toContain("Runs on approval");
+    expect((await approve(actionId)).results.map((r) => r.status)).toEqual(["applied"]);
+    expect(calls.filter((c) => c.startsWith("apply:"))).toEqual(["apply:1.1.0"]);
+
+    // The rollback of that update, the same way.
+    const run = await env.DB.prepare(
+      "SELECT id FROM core_update_runs WHERE kind = 'update' AND status = 'succeeded'",
+    ).first<{ id: string }>();
+    const back = await invokeByName("update.rollback", { runId: run?.id }, ctx).catch(
+      (e: unknown) => e,
+    );
+    expect(back).toMatchObject({ code: "pending_approval" });
+    expect(calls.filter((c) => c.startsWith("rollback:"))).toEqual([]);
+    const backId = (back as { details: { actionId: string } }).details.actionId;
+    expect((await approve(backId)).results.map((r) => r.status)).toEqual(["applied"]);
+    expect(calls.filter((c) => c.startsWith("rollback:"))).toEqual(["rollback:1.0.0"]);
+  });
 });

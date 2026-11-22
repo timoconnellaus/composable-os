@@ -15,10 +15,11 @@ import type { AiEnv } from "./ai/client.ts";
 import { embeddingQueueStatement, SELF_ENQUEUEING } from "./ai/embedding.ts";
 import type { VectorStore } from "./ai/vectors.ts";
 import { matchesPreviewValue } from "./approvals/caps.ts";
-import { readOnlyCrm, runsInDryRun } from "./approvals/dry-run.ts";
+import { dryRunHosts, isDryRunRefusal, readOnlyCrm, runsInDryRun } from "./approvals/dry-run.ts";
 import { type DryRunResult, prepareQueuedAction } from "./approvals/queue.ts";
 import {
   isSimulatedRead,
+  LayeredOverlay,
   loadSessionOverlay,
   type Overlay,
   overlayRead,
@@ -52,6 +53,7 @@ import {
   OperationError,
   type PendingApproval,
   PendingApprovalError,
+  RunsOnApprovalError,
   toOperationError,
   UnknownOperationError,
   ValidationError,
@@ -788,7 +790,7 @@ async function invokeOnce<O extends AnyOperation>(
   const writes: (Compilable | CompiledQuery)[] = [];
   const changes: RecordChange[] = [];
   const activities: Compilable[] = [];
-  const handlerCtx: HandlerContext = {
+  const liveCtx: HandlerContext = {
     operation: op.name,
     actor: ctx.actor,
     user: ctx.user,
@@ -860,6 +862,10 @@ async function invokeOnce<O extends AnyOperation>(
       invoke: (name, nestedInput, nested) => invokeNested(name, nestedInput, nested),
     },
   };
+  // A simulated call (test mode, or one a dry-run handler made) reads with the dry run's
+  // read-only database and guarded runtimes too (approvals/dry-run.ts); its writes are dry-run
+  // with `dryRunCtx`, which builds on this.
+  const handlerCtx: HandlerContext = ctx.simulate ? readOnlyContext(liveCtx, () => {}) : liveCtx;
 
   /**
    * Runs another operation through the full pipeline for a handler (`pipeline.invoke`). In a dry
@@ -902,6 +908,8 @@ async function invokeOnce<O extends AnyOperation>(
       ...(ctx.assistantThreads ? { assistantThreads: ctx.assistantThreads } : {}),
       ...(ctx.voice ? { voice: ctx.voice } : {}),
       ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
+      // An approved update or rollback is applied through here (approval.approve).
+      ...(ctx.updater ? { updater: ctx.updater } : {}),
       ...(simulate ? { simulate } : {}),
     });
   }
@@ -1206,10 +1214,23 @@ async function invokeOnce<O extends AnyOperation>(
   return output as OperationOutput<O>;
 }
 
-/** What a dry run collects: the changes, and whether a nested call would wait for review. */
+/** What a dry run collects (approvals/dry-run.ts). */
 interface DrySink {
   changes: RecordChange[];
-  held: boolean;
+  /** A call the handler made would itself wait for review. */
+  held: { operation: string } | null;
+  /** What the dry run refused to touch (another runtime, a direct write). */
+  refused: string[];
+  /** Notes for the reviewer, from this dry run and the calls it simulated. */
+  notes: string[];
+}
+
+/** The reviewer's note for a call that runs, at least in part, only once approved. */
+function runsOnApprovalNote(uses: readonly string[]): string {
+  return (
+    `Runs on approval: it uses ${[...new Set(uses)].join(", ")}, which a dry run does not ` +
+    "touch, so what that part does is not shown here. Nothing has been done yet."
+  );
 }
 
 /** What a handler would change, with its writes discarded (an agent grant's dry run). */
@@ -1223,24 +1244,45 @@ async function dryRunChanges(
 
 /**
  * Dry-runs a handler (ADR 0022): its output and what it would change, with nothing written, sent
- * or run for real (approvals/dry-run.ts). An extension tool's handler is not run at all.
+ * or run for real (approvals/dry-run.ts). An extension tool that may write is not run at all. A
+ * handler that reaches something a dry run cannot simulate is stopped there: the call is queued
+ * with no preview and a note that it runs on approval (`refused`).
  */
 async function dryRunHandler(
   op: AnyOperation,
   input: unknown,
   dryCtx: (sink: DrySink) => HandlerContext,
 ): Promise<DryRunResult> {
-  if (!runsInDryRun(op)) return { output: null, changes: [] };
-  const sink: DrySink = { changes: [], held: false };
+  if (!runsInDryRun(op)) return { output: null, changes: [], notRun: true };
+  const sink: DrySink = { changes: [], held: null, refused: [], notes: [] };
   let result: unknown;
   try {
     result = await op.handler(input, dryCtx(sink));
   } catch (error) {
+    if (isDryRunRefusal(error)) {
+      sink.refused.push(
+        error instanceof RunsOnApprovalError ? error.uses : "the database (a direct write)",
+      );
+      return {
+        output: null,
+        changes: [],
+        notes: [...sink.notes, runsOnApprovalNote(sink.refused)],
+        refused: [...new Set(sink.refused)],
+      };
+    }
     // A call the handler makes would itself wait for review: the dry run ends there, and this
     // call is queued with what it would change so far. On approval it runs for real, and that
-    // call goes through the gate again.
+    // call goes through the gate again (approval.ts: this one then waits for it).
     if (sink.held && error instanceof PendingApprovalError) {
-      return { output: null, changes: sink.changes };
+      return {
+        output: null,
+        changes: sink.changes,
+        notes: [
+          ...sink.notes,
+          `When approved, it calls ${sink.held.operation}, which needs its own approval: ` +
+            "that is queued then, and this one waits for it.",
+        ],
+      };
     }
     throw error;
   }
@@ -1249,14 +1291,39 @@ async function dryRunHandler(
     const checked = op.output.safeParse(result);
     output = checked.success ? checked.data : null;
   }
-  return { output, changes: sink.changes };
+  // Refused but caught by the handler: the preview leaves that part out, and says so.
+  const notes = sink.refused.length
+    ? [...sink.notes, runsOnApprovalNote(sink.refused)]
+    : sink.notes;
+  return { output, changes: sink.changes, ...(notes.length ? { notes } : {}) };
 }
 
 /**
- * The context a handler is dry-run with (approvals/dry-run.ts). Its writes, changes and posts are
- * collected or discarded; its database handle refuses writes and `pipeline.crm` refuses to
- * commit; the operations it runs through `pipeline.invoke` are simulated (test mode's path, over
- * this dry run's overlay), so a nested call is neither committed nor queued.
+ * The context any simulated call's handler runs with (approvals/dry-run.ts): its database handle
+ * and `pipeline.crm` are read-only and every other runtime answers reads only. A test-mode or
+ * nested read gets this; a dry-run write gets `dryRunContext`, which builds on it.
+ */
+function readOnlyContext(
+  handlerCtx: HandlerContext,
+  refused: (uses: string) => void,
+): HandlerContext {
+  const crm = readOnlyCrm(handlerCtx.pipeline.crm);
+  const db = crm.query;
+  return {
+    ...handlerCtx,
+    ...dryRunHosts(handlerCtx, refused),
+    db,
+    records: recordAccess({ db, principal: handlerCtx.principal }),
+    pipeline: { ...handlerCtx.pipeline, crm },
+  };
+}
+
+/**
+ * The context a handler is dry-run with (approvals/dry-run.ts). On top of `readOnlyContext`: its
+ * writes, changes and posts are collected or discarded, and the operations it runs through
+ * `pipeline.invoke` are simulated (test mode's path) over their own overlay layered on this dry
+ * run's, so a nested call is neither committed nor queued and nothing it would do leaks into the
+ * session's overlay. What they would change joins this dry run's preview.
  */
 function dryRunContext(
   handlerCtx: HandlerContext,
@@ -1270,13 +1337,16 @@ function dryRunContext(
   ) => Promise<unknown>,
   simulate: TestSimulation | undefined,
 ): HandlerContext {
-  const crm = readOnlyCrm(handlerCtx.pipeline.crm);
-  const db = crm.query;
-  const nestedSimulation = simulate ?? { ...createTestSimulation(), overlay, dryRun: true };
+  const base = readOnlyContext(handlerCtx, (uses) => sink.refused.push(uses));
+  const nestedSimulation: TestSimulation = simulate ?? {
+    ...createTestSimulation(),
+    overlay: new LayeredOverlay(overlay),
+    dryRun: true,
+    collect: (changes) => sink.changes.push(...changes),
+    notes: sink.notes,
+  };
   return {
-    ...handlerCtx,
-    db,
-    records: recordAccess({ db, principal: handlerCtx.principal }),
+    ...base,
     write: () => {},
     recordChange: (change) => {
       sink.changes.push(change);
@@ -1284,14 +1354,15 @@ function dryRunContext(
     postActivity: () => newId("activity"),
     simulation: overlay,
     pipeline: {
-      crm,
-      resolve: handlerCtx.pipeline.resolve,
+      ...base.pipeline,
       invoke: async (name, input, nested) => {
         try {
           return await invokeNested(name, input, nested, nestedSimulation);
         } catch (error) {
           // Only this dry run's own simulation: in test mode a pending call is the run's answer.
-          if (!simulate && error instanceof PendingApprovalError) sink.held = true;
+          if (!simulate && error instanceof PendingApprovalError) {
+            sink.held = { operation: error.pending.operation };
+          }
           throw error;
         }
       },
@@ -1348,6 +1419,7 @@ async function simulateWrite(
     reason: gateReason(info.reason, op, ctx.actor, info.bulkSize),
   });
   const overlay = sim.overlay;
+  let dry: DryRunResult | undefined;
   const queued = await prepareQueuedAction({
     op,
     rawInput,
@@ -1362,7 +1434,18 @@ async function simulateWrite(
     now: info.now,
     expiryDays: ctx.approvalExpiryDays,
     overlay,
-    dryRun: () => dryRunHandler(op, input, (sink) => dryCtx(overlay, sink)),
+    dryRun: async () => {
+      dry = await dryRunHandler(op, input, (sink) => dryCtx(overlay, sink));
+      if (sim.dryRun) {
+        // A call a dry-run handler made: what cannot be simulated stops the outer dry run too,
+        // and what it would change joins the outer preview.
+        if (dry.notRun) throw new RunsOnApprovalError(`the extension tool ${op.name}`);
+        if (dry.refused) throw new RunsOnApprovalError(dry.refused.join(", "));
+        sim.collect?.(dry.changes);
+        if (dry.notes) sim.notes?.push(...dry.notes);
+      }
+      return dry;
+    },
   });
   overlay.add(queued.actionId, queued.pending.changeSetId, queued.records);
   for (const p of queued.preview) {
@@ -1401,6 +1484,16 @@ async function simulateWrite(
       ...queued.pending,
       message: `${sim.dryRun ? "Dry run" : "Test mode"}: ${op.name} would wait for approval (${gateReason(info.reason, op, ctx.actor, info.bulkSize)}). Nothing was queued.`,
     });
+  }
+  // Test mode cannot run this (an extension tool that may write, or a call that reaches another
+  // runtime): the report says so, and the step gets a placeholder it can read instead of null.
+  const ran = dry as DryRunResult | undefined;
+  if (ran?.notRun || ran?.refused) {
+    const note = ran.notRun
+      ? `${op.name} was not run in test mode: it is an extension tool, and it would run for real.`
+      : `${op.name} was not run in test mode: it uses ${ran.refused?.join(", ")}, and it would run for real.`;
+    sim.notRun?.push({ operation: op.name, note });
+    return { $notRunInTestMode: true, operation: op.name, note };
   }
   return queued.pending.simulated;
 }

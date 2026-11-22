@@ -21,7 +21,7 @@ import { actionTitle, groupPreview, outboundTitle, summariseDecision, toolOf } f
 import { ExtensionProposal } from "./extension-proposal.tsx";
 import { decide, useRecordNames, useRefreshAfterDecision } from "./hooks.ts";
 import { OutboundPreview } from "./outbound-preview.tsx";
-import { ToolCallPreview } from "./tool-call-preview.tsx";
+import { DryRunNotes, ToolCallPreview } from "./tool-call-preview.tsx";
 import { VerdictNote } from "./verdict-note.tsx";
 
 type ChangeSet = CoreOutput<"approval.get">;
@@ -381,10 +381,15 @@ function ActionItem({
         ) : action.operation === "extension.apply" ? (
           <ExtensionProposal actionId={action.id} status={action.status} />
         ) : toolOf(action.operation) ? (
-          <ToolCallPreview input={action.input} pending={pending} />
+          <ToolCallPreview
+            input={action.input}
+            pending={pending}
+            ranAtQueue={action.toolRanAtQueue}
+          />
         ) : (
           <ChangePreview groups={groups} names={names} />
         )}
+        {pending && <DryRunNotes notes={action.notes} />}
         {!pending && action.statusReason && (
           <p
             className={cn(
