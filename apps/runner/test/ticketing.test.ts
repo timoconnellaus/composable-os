@@ -1846,3 +1846,65 @@ describe("tax at checkout on tickets (stage 42 criteria 12a, 12b and 12c)", () =
     expect((await orderState(order.id)).state).toBe("cancelled");
   });
 });
+
+// --- Issue #257: the day-before reminder reaches the holder -----------------------------------------
+
+describe("the event reminder (issue #257)", () => {
+  it("queues an email to the holder's primary address the day before", async () => {
+    const { event, tickets } = await paidTickets(2);
+    // Tomorrow, in UTC: the reminder is due today.
+    const tomorrow = new Date(Date.now() + DAY);
+    tomorrow.setUTCHours(12, 0, 0, 0);
+    await run(
+      "record.update",
+      {
+        object: EVENT,
+        id: event,
+        values: { startsAt: tomorrow.toISOString(), timezone: "UTC" },
+      },
+      staff(admin),
+    );
+    // A person binds the reminder's mail connection (ADR 0170), an email-send sender.
+    await run("integration.setVendor", { vendor: "email-send", enabled: true }, staff(admin));
+    const sender = await run<{ connection: { id: string } }>(
+      "connection.create",
+      { vendor: "email-send", scope: "org" },
+      staff(admin),
+    );
+    await run(
+      "connection.bindResource",
+      {
+        id: sender.connection.id,
+        url: `email-send://sender/${encodeURIComponent("tickets@example.com")}`,
+      },
+      staff(admin),
+    );
+    await run(
+      "automation.bindConnection",
+      { id: "ticketing.eventReminder", slot: "mail", connectionId: sender.connection.id },
+      staff(admin),
+    );
+    const holder = tickets[0]?.values.holder as string;
+    expect(holder).toBeTruthy();
+    const now = new Date();
+    now.setUTCHours(Math.max(now.getUTCHours(), 1), 10, 0, 0);
+    await runZonedDateRelative(env, now);
+    // Under Balanced the send waits for a person (the run waits for the decision): it is queued,
+    // to the holder's own address.
+    const to = (
+      await run<{ emails: { email: string }[] }>("person.get", { id: holder }, staff(admin))
+    ).emails[0]?.email as string;
+    expect(to).toBeTruthy();
+    await vi.waitFor(
+      async () => {
+        const pending = await env.DB.prepare(
+          "SELECT input FROM core_pending_action WHERE operation = 'integration.outbound' AND action_kind = 'email.send' AND input LIKE ?",
+        )
+          .bind(`%${to}%`)
+          .all<{ input: string }>();
+        expect(pending.results.some((r) => r.input.includes("Tomorrow:"))).toBe(true);
+      },
+      { timeout: 30_000, interval: 250 },
+    );
+  });
+});

@@ -22,9 +22,11 @@ import { checkRoutineRun, isRoutineRun, queueRoutineDelivery } from "./routine.t
 import {
   advanceRun,
   finishRun,
+  HELD_REASON,
   loadRunSpec,
   markRunning,
   markWaiting,
+  notifyHeld,
   notifyRejected,
   PermanentStepError,
   startRun,
@@ -40,6 +42,25 @@ export const ADVANCE_RETRIES = {
 } as const;
 
 const BOOKKEEPING = { retries: { limit: 5, delay: "1 second", backoff: "exponential" } } as const;
+
+/**
+ * How long a step a gatekeeper held back (its approval queue full, `rate_limited`) waits before
+ * it is tried again (ADR 0573): about 48 minutes in all, then the run fails saying why, and its
+ * retry sends nothing already sent (ADR 0574).
+ */
+export const HOLD_WAITS = [
+  "30 seconds",
+  "1 minute",
+  "2 minutes",
+  "5 minutes",
+  "10 minutes",
+  "15 minutes",
+  "15 minutes",
+] as const;
+
+/** A step held back by a gatekeeper's full queue: not a failure, a wait (ADR 0573). */
+const isHeldBack = (error: unknown) =>
+  /^rate_limited: /.test(error instanceof Error ? error.message : String(error));
 
 type Decision = "approved" | "rejected" | "failed" | "expired";
 
@@ -76,16 +97,61 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
       const journal: AutomationJournalEntry[] = [...(params.journal ?? [])];
 
       for (let i = 0; i < MAX_ADVANCES; i++) {
-        const outcome = await durable(step, `advance:${i}`, ADVANCE_RETRIES, async () => {
-          try {
-            return await advanceRun(env, new Executor(env), params, runEvent, journal);
-          } catch (error) {
-            if (error instanceof PermanentStepError) {
-              throw new NonRetryableError(`${error.code}: ${error.message}`);
-            }
-            throw error;
+        let outcome: Awaited<ReturnType<typeof advanceRun>> | { held: string } | undefined;
+        for (let held = 0; ; held++) {
+          outcome = await durable(
+            step,
+            held ? `advance:${i}:held:${held}` : `advance:${i}`,
+            ADVANCE_RETRIES,
+            async () => {
+              try {
+                return await advanceRun(env, new Executor(env), params, runEvent, journal);
+              } catch (error) {
+                if (error instanceof PermanentStepError) {
+                  throw new NonRetryableError(`${error.code}: ${error.message}`);
+                }
+                // Held back, not failed: the step waits and is tried again (ADR 0573).
+                if (isHeldBack(error)) return { held: String((error as Error).message) };
+                throw error;
+              }
+            },
+          );
+          if (!("held" in outcome)) break;
+          const wait = HOLD_WAITS[held];
+          if (!wait) {
+            await durable(step, `held-out:${i}`, BOOKKEEPING, () =>
+              notifyHeld(env, params, "gave_up"),
+            );
+            await durable(step, `held-fail:${i}`, BOOKKEEPING, () =>
+              finishRun(env, params.runId, "failed", {
+                error: {
+                  code: "held_back",
+                  message:
+                    "The approval queue stayed full for 48 minutes, so the rest was not sent. " +
+                    "Retry the run once there is room: what it already sent is not sent again.",
+                },
+              }),
+            );
+            return { status: "failed" };
           }
-        });
+          if (held === 0) {
+            await durable(step, `held-notice:${i}`, BOOKKEEPING, () =>
+              notifyHeld(env, params, "held"),
+            );
+          }
+          await durable(step, `holding:${i}:${held}`, BOOKKEEPING, () =>
+            markWaiting(env, params.runId, {
+              status: "waiting",
+              until: new Date(Date.now() + 15 * 60_000).toISOString(),
+              reason: HELD_REASON,
+            }),
+          );
+          await step.sleep(`held:${i}:${held}`, wait);
+          await durable(step, `unheld:${i}:${held}`, BOOKKEEPING, () =>
+            markRunning(env, params.runId),
+          );
+        }
+        if (!outcome || "held" in outcome) return { status: "failed" };
         if (outcome.stopped || !outcome.advance) return { status: outcome.stopped ?? "stopped" };
         const advance = outcome.advance;
 

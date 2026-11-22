@@ -4,6 +4,7 @@
 
 import { z } from "zod";
 import { isEmailAddress } from "./address";
+import type { EmailCalendarEvent } from "./calendar";
 import type { EmailSendMessage } from "./types";
 
 /** Recipients across `to`, `cc` and `bcc`; Email Service's own limit. */
@@ -27,6 +28,57 @@ const body = z
     `must be at most ${MAX_BODY_BYTES} bytes`,
   );
 
+/** Control characters a calendar's text may not hold: all but tab, and for one line, newlines. */
+const CONTROL = {
+  test(text: string): boolean {
+    for (const char of text) {
+      const code = char.codePointAt(0) ?? 0;
+      // Tab (9), newline (10) and carriage return (13) are allowed here; one-line values refuse
+      // the last two on their own.
+      if ((code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127) return true;
+    }
+    return false;
+  },
+};
+const line = (max: number) =>
+  z
+    .string()
+    .min(1)
+    .max(max)
+    .refine((text) => !/[\r\n]/.test(text), "must be a single line")
+    .refine((text) => !CONTROL.test(text), "must not hold control characters");
+const instant = z.iso.datetime({ offset: true });
+const WEEK_MS = 7 * 86_400_000;
+
+/** A message's "add to calendar" event (ADR 0571): the gatekeeper makes the file from it. */
+const calendarSchema = z
+  .strictObject({
+    uid: z.string().regex(RECORD_ID, "must be a record id"),
+    start: instant,
+    end: instant,
+    title: line(200),
+    location: line(200).optional(),
+    description: z
+      .string()
+      .min(1)
+      .max(2000)
+      .refine((text) => !CONTROL.test(text), "must not hold control characters")
+      .optional(),
+    url: z
+      .url({ protocol: /^https$/ })
+      .max(500)
+      .optional(),
+    sequence: z.number().int().min(0).max(2_147_483_647).optional(),
+    cancelled: z.boolean().optional(),
+  })
+  .refine(
+    (e) => {
+      const span = Date.parse(e.end) - Date.parse(e.start);
+      return span > 0 && span <= WEEK_MS;
+    },
+    { message: "must end after it starts, within 7 days" },
+  );
+
 const messageSchema = z
   .strictObject({
     to: addressList.min(1),
@@ -44,6 +96,8 @@ const messageSchema = z
       .array(z.string().regex(RECORD_ID, "must be a CRM record id"))
       .max(MAX_RELATED_RECORDS)
       .optional(),
+    // One event, or two (a move: the old class's cancel and the new class's event).
+    calendar: z.union([calendarSchema, z.array(calendarSchema).min(1).max(2)]).optional(),
   })
   .refine((message) => message.text !== undefined || message.html !== undefined, {
     message: "needs a text or html body",
@@ -73,6 +127,28 @@ export function parseMessage(input: unknown): EmailSendMessage {
     ...(message.html !== undefined ? { html: message.html } : {}),
     ...(message.replyTo !== undefined ? { replyTo: message.replyTo } : {}),
     ...(message.relatedRecords?.length ? { relatedRecords: [...message.relatedRecords] } : {}),
+    ...(message.calendar
+      ? {
+          calendar: (Array.isArray(message.calendar) ? message.calendar : [message.calendar]).map(
+            calendarOf,
+          ),
+        }
+      : {}),
+  };
+}
+
+/** A calendar event rebuilt key by key, times as UTC instants. */
+function calendarOf(event: z.infer<typeof calendarSchema>): EmailCalendarEvent {
+  return {
+    uid: event.uid,
+    start: new Date(event.start).toISOString(),
+    end: new Date(event.end).toISOString(),
+    title: event.title,
+    ...(event.location !== undefined ? { location: event.location } : {}),
+    ...(event.description !== undefined ? { description: event.description } : {}),
+    ...(event.url !== undefined ? { url: event.url } : {}),
+    ...(event.sequence !== undefined ? { sequence: event.sequence } : {}),
+    ...(event.cancelled ? { cancelled: true } : {}),
   };
 }
 

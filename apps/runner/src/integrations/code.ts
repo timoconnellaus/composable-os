@@ -99,11 +99,23 @@ export async function gatekeeperCall(env: Env, call: GatekeeperCall): Promise<un
     return {
       ok: false,
       error: {
-        code: (error as { code?: string }).code ?? "integration_error",
+        code: gatekeeperErrorCode(error),
         message: error instanceof Error ? error.message : String(error),
       },
     } satisfies Envelope;
   }
+}
+
+/**
+ * A gatekeeper's refusal as a code (ADR 0573). Its approval queue full (`Too many pending
+ * actions`: sends waiting for a person) is back-pressure, not the caller's fault: `rate_limited`,
+ * which a step retries and which never counts towards an extension's quarantine. The error's own
+ * code when it has one (an RPC error loses its other properties, so the message is read too).
+ */
+export function gatekeeperErrorCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/Too many pending actions/.test(message)) return "rate_limited";
+  return (error as { code?: string }).code ?? "integration_error";
 }
 
 /** An automation run's cascade position, for the origin of its gatekeeper calls. */
@@ -231,9 +243,6 @@ export async function boundGatekeeperCall(
       ...(pending ? { pending } : {}),
     };
   } catch (error) {
-    return fail(
-      (error as { code?: string }).code ?? "integration_error",
-      error instanceof Error ? error.message : String(error),
-    );
+    return fail(gatekeeperErrorCode(error), error instanceof Error ? error.message : String(error));
   }
 }

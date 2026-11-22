@@ -33,6 +33,20 @@ import {
   type TaggedAction,
 } from "@composable-os/gatekeeper-kit/actions";
 import { domainOf, parseDomainList } from "./address";
+import {
+  CALENDAR_FILENAME,
+  CANCEL_FILENAME,
+  calendarFile,
+  calendarSummary,
+  type EmailCalendarEvent,
+} from "./calendar";
+
+/** A message's calendar events, as a list (one or two). */
+function calendarsOf(message: EmailSendMessage): EmailCalendarEvent[] {
+  const c = message.calendar;
+  return (c ? (Array.isArray(c) ? c : [c]) : []) as EmailCalendarEvent[];
+}
+
 import type { SenderConfiguratorRpc } from "./configurator/sender-configurator-types";
 import { assertSenderAllowed, SENDER_URL_PATTERN, senderFromUrl, senderUrl } from "./sender";
 import { isHostSignInMail, isSignInCodeMessage, SIGN_IN_KIND } from "./sign-in";
@@ -77,11 +91,33 @@ const SENDER_RESOURCE: SupportedResource = {
 const SEND_KIND: ActionKind = { tag: "email.send", label: "Send email" };
 const INTERNAL_KIND: ActionKind = { tag: "email.internal", label: "Send email to colleagues" };
 
+/** Sends that may wait for approval at once, per sender (the journal's default is 50). */
+const MAX_PENDING_SENDS = 500;
+
 /** How many sent and rejected emails the facet remembers for `listSent()`. */
 const HISTORY_LIMIT = 200;
 /** How many rows `listSent()` returns. */
 const LIST_LIMIT = 100;
 const HISTORY_PREFIX = "history:";
+/** Idempotency keys (ADR 0574): key → the send's id, and the order they were seen in. */
+const IDEMPOTENCY_PREFIX = "idem:";
+const IDEMPOTENCY_ORDER = "idemorder:";
+const IDEMPOTENCY_LIMIT = 2_000;
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{1,200}$/;
+
+/** A send's idempotency key, checked, and the message without it. */
+function splitIdempotencyKey(input: unknown): { key: string | null; rest: unknown } {
+  if (!input || typeof input !== "object" || !("idempotencyKey" in input)) {
+    return { key: null, rest: input };
+  }
+  const { idempotencyKey, ...rest } = input as { idempotencyKey?: unknown };
+  if (typeof idempotencyKey !== "string" || !IDEMPOTENCY_KEY.test(idempotencyKey)) {
+    throw new TypeError(
+      "Invalid email: idempotencyKey must be 1 to 200 letters, digits or . _ : -.",
+    );
+  }
+  return { key: idempotencyKey, rest };
+}
 
 // ── Actions ─────────────────────────────────────────────────────────
 
@@ -127,6 +163,12 @@ function describeSend(email: StoredEmail, internal: boolean) {
   if (message.text !== undefined) builder.verbatim("Body", message.text);
   if (message.html !== undefined) builder.verbatim("HTML body", message.html, "html");
   if (message.relatedRecords) builder.list("Related records", message.relatedRecords);
+  // Everything the calendar file will say, so the approver reviews all of it (ADR 0571).
+  for (const event of calendarsOf(message)) {
+    builder.inline("Calendar file", calendarSummary(event));
+    if (event.url) builder.inline("Calendar link", event.url);
+    if (event.description) builder.verbatim("Calendar description", event.description);
+  }
   return {
     title: sanitizeTitle(`Send email: ${message.subject}`),
     ...builder.finish(),
@@ -181,6 +223,9 @@ type SessionBackend = {
   sender: string;
   submit(queue: RpcStub<ApprovalQueue>, email: StoredEmail, kind: SendKind): Promise<number>;
   wasSent(id: number): boolean;
+  /** The send an idempotency key already made (ADR 0574), "busy" while it is being made. */
+  recall(key: string): number | "busy" | null;
+  remember(key: string, id: number | "busy" | null): void;
   listSent(): EmailSendRecord[];
   internalDomains(): string | undefined;
   allowedDomains(): string | undefined;
@@ -198,7 +243,17 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
 
   /** Validates the message and queues it for approval. */
   async send(message: EmailSendMessage): Promise<EmailSendReceipt> {
-    const parsed = parseMessage(message);
+    // A caller retrying a step passes the same key: the send it already made is answered again,
+    // never queued twice (ADR 0574).
+    const { key, rest } = splitIdempotencyKey(message);
+    if (key) {
+      const known = this.#backend.recall(key);
+      if (known === "busy") throw new Error("A send with this idempotency key is in progress.");
+      if (known !== null) {
+        return { status: this.#backend.wasSent(known) ? "sent" : "pending", id: known };
+      }
+    }
+    const parsed = parseMessage(rest);
     const sender = this.#backend.sender;
     assertSenderAllowed(sender, this.#backend.allowedDomains());
     // The host's sign-in mail only from the host's own queue, and only the fixed template.
@@ -208,7 +263,15 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
         : isInternal(parsed, this.#backend.internalDomains())
           ? "sendInternal"
           : "send";
-    const id = await this.#backend.submit(this.#queue, { from: sender, message: parsed }, kind);
+    if (key) this.#backend.remember(key, "busy");
+    let id: number;
+    try {
+      id = await this.#backend.submit(this.#queue, { from: sender, message: parsed }, kind);
+    } catch (error) {
+      if (key) this.#backend.remember(key, null);
+      throw error;
+    }
+    if (key) this.#backend.remember(key, id);
     // An auto-approved send may already have been applied while the submission was in flight.
     return { status: this.#backend.wasSent(id) ? "sent" : "pending", id };
   }
@@ -239,8 +302,11 @@ export class EmailSendGatekeeper
   extends DurableObject<Cloudflare.Env, SenderProps>
   implements Gatekeeper<EmailSendSession>
 {
+  // Members' booking emails (ADR 0572) each wait for a person under Balanced: room for a day's
+  // worth of them before new sends are refused (as back-pressure, ADR 0573).
   readonly #journal = new ActionJournal<TaggedAction<Actions>>(this.ctx.storage.kv, {
     namespace: "email",
+    maxPending: MAX_PENDING_SENDS,
   });
 
   readonly #host: EmailHost = {
@@ -279,6 +345,16 @@ export class EmailSendGatekeeper
         ...(message.text !== undefined ? { text: message.text } : {}),
         ...(message.html !== undefined ? { html: message.html } : {}),
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+        ...(calendarsOf(message).length
+          ? {
+              attachments: calendarsOf(message).map((event) => ({
+                disposition: "attachment" as const,
+                filename: event.cancelled ? CANCEL_FILENAME : CALENDAR_FILENAME,
+                type: `text/calendar; charset=utf-8; method=${event.cancelled ? "CANCEL" : "PUBLISH"}`,
+                content: calendarFile(event, { address: email.from, to: message.to }, new Date()),
+              })),
+            }
+          : {}),
       }));
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -292,6 +368,32 @@ export class EmailSendGatekeeper
       );
     }
     this.#record(id, email, { status: "sent", sentAt: new Date().toISOString(), messageId });
+  }
+
+  #recall(key: string): number | "busy" | null {
+    const value = this.ctx.storage.kv.get<number | string>(IDEMPOTENCY_PREFIX + key);
+    if (value === undefined) return null;
+    if (typeof value === "number") return value;
+    // A send being made, unless it was left so by a crash long enough ago to try again.
+    return Date.now() - Number(value.slice(5)) < 300_000 ? "busy" : null;
+  }
+
+  /** Keeps the most recent IDEMPOTENCY_LIMIT keys; older ones are forgotten (a week of retries). */
+  #remember(key: string, id: number | "busy" | null): void {
+    const kv = this.ctx.storage.kv;
+    if (id === null) {
+      kv.delete(IDEMPOTENCY_PREFIX + key);
+      return;
+    }
+    const known = kv.get(IDEMPOTENCY_PREFIX + key) !== undefined;
+    kv.put(IDEMPOTENCY_PREFIX + key, id === "busy" ? `busy:${Date.now()}` : id);
+    if (known) return;
+    kv.put(`${IDEMPOTENCY_ORDER}${String(Date.now()).padStart(15, "0")}:${key}`, key);
+    const order = [...kv.list<string>({ prefix: IDEMPOTENCY_ORDER })];
+    for (const [entry, old] of order.slice(0, Math.max(0, order.length - IDEMPOTENCY_LIMIT))) {
+      kv.delete(entry);
+      kv.delete(IDEMPOTENCY_PREFIX + old);
+    }
   }
 
   #record(
@@ -364,6 +466,8 @@ export class EmailSendGatekeeper
       sender: this.#sender(),
       submit: (queue, email, kind) => this.#actions().submit(queue, kind, email),
       wasSent: (id) => this.#journal.wasApplied(id),
+      recall: (key) => this.#recall(key),
+      remember: (key, id) => this.#remember(key, id),
       listSent: () => this.#listSent(),
       internalDomains: () => this.env.INTERNAL_DOMAINS,
       allowedDomains: () => this.env.ALLOWED_SENDER_DOMAINS,

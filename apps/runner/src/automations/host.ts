@@ -31,7 +31,12 @@ import type {
 } from "@composable-os/sdk";
 import { manifestSchema } from "@composable-os/sdk";
 import { Executor, type ExecutorOptions } from "../executor/executor.ts";
-import { type AutomationRunParams, type DispatchEnv, startRuns } from "./dispatch.ts";
+import {
+  type AutomationRunParams,
+  DEFERRED_REASON,
+  type DispatchEnv,
+  startRuns,
+} from "./dispatch.ts";
 import { finishRun, stepOperations } from "./run.ts";
 
 export type AutomationHostEnv = DispatchEnv & ConstructorParameters<typeof Executor>[0];
@@ -426,10 +431,10 @@ export async function testAutomation(
 export async function startManualRun(
   env: AutomationHostEnv,
   input: StartRunInput,
-): Promise<{ runIds: string[]; skipped: number }> {
+): Promise<{ runIds: string[]; skipped: number; deferredRunIds: string[] }> {
   const found = await loadDefinition(env, input.automationId);
   if (!found?.enabled) {
-    return { runIds: [], skipped: input.recordIds.length };
+    return { runIds: [], skipped: input.recordIds.length, deferredRunIds: [] };
   }
   const nonce = crypto.randomUUID();
   const candidates: RunCandidate[] = input.recordIds.map((id) => ({
@@ -449,7 +454,12 @@ export async function startManualRun(
     },
     { manual: { userId: input.userId, recordIds: input.recordIds } },
   );
-  return { runIds: result.runIds, skipped: result.skipped };
+  // Over the rail (ADR 0573): recorded and started on a later tick, not skipped.
+  return {
+    runIds: result.runIds,
+    skipped: result.skipped,
+    deferredRunIds: result.deferredRunIds,
+  };
 }
 
 interface RunRow {
@@ -491,11 +501,20 @@ async function rerun(
   env: AutomationHostEnv,
   runId: string,
   mode: "retry" | "replay",
-): Promise<{ runId: string }> {
+): Promise<{ runId: string; deferred?: boolean }> {
   const run = await loadRun(env, runId);
   if (mode === "retry" && run.status !== "failed") {
     throw new Error(`Only failed runs can be retried (this one is ${run.status})`);
   }
+  // Already asked for and waiting its turn (ADR 0573): the same run, not another one.
+  const waiting = await createCrmDb(env.DB)
+    .query.selectFrom("core_automation_runs")
+    .select("id")
+    .where(mode === "retry" ? "retry_of" : "replay_of", "=", runId)
+    .where("status", "=", "queued")
+    .where("status_reason", "=", DEFERRED_REASON)
+    .executeTakeFirst();
+  if (waiting) return { runId: waiting.id, deferred: true };
   const found = await loadDefinition(env, run.automation_id);
   if (!found) throw new Error(`No automation ${run.automation_id}`);
   const trigger = JSON.parse(run.trigger) as {
@@ -508,6 +527,7 @@ async function rerun(
     integration?: RunCandidate["integration"];
     manual?: AutomationRunParams["manual"];
     chain?: string[];
+    originalRunId?: string;
   };
   if (trigger.erased) {
     throw new Error("This run was about a record that has been erased, so it cannot run again");
@@ -554,11 +574,17 @@ async function rerun(
       at: new Date().toISOString(),
     },
     {
-      ...(mode === "retry" ? { retryOf: runId, journal } : { replayOf: runId }),
+      // A retry keeps the run its chain began with: a send keyed by it is the same send, so a
+      // retried run never sends again what the first one sent (ADR 0574).
+      ...(mode === "retry"
+        ? { retryOf: runId, journal, originalRunId: trigger.originalRunId ?? runId }
+        : { replayOf: runId }),
       ...(trigger.manual ? { manual: trigger.manual } : {}),
     },
   );
   const started = result.runIds[0];
+  const deferred = result.deferredRunIds[0];
+  if (!started && deferred) return { runId: deferred, deferred: true };
   if (!started) {
     throw new Error(
       `The ${mode} did not start (${result.dropped.map((d) => d.reason).join(", ") || "skipped"})`,

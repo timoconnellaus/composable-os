@@ -230,6 +230,12 @@ describe("bookings pack (test host)", () => {
       "duplicate.check",
       "waitlist.position",
       "me.family",
+      // The messages (step 9): a child's live guardians, a drop-in's order, the pack's settings,
+      // and the staff notice. No record.* or my.* operation (granted by object).
+      "person.link.list",
+      "order.get",
+      "extensionSettings.list",
+      "notification.send",
     ]);
     const rules = m.fields["programs.classtype"] ?? {};
     for (const name of [

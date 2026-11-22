@@ -375,6 +375,7 @@ export default defineExtension({
 | `fieldChanged` | `object`, `field`, `from?`, `to?`, `includeBulk?` | when the field changes; `from`/`to` are a value, `{ in: [...] }` or, on the object's stage field, `{ stageType: "open" \| "won" \| "lost" }` |
 | `schedule` | `cron` (5 fields) | in the automation timezone (Settings → Automations) |
 | `dateRelative` | `object`, `field` (date/datetime), `offsetDays` (−365…365) | once a day for each record, `offsetDays` days after its date (positive) or before it (negative: `-30` is 30 days before); 0 is the day itself |
+| `dateRelative` in minutes | `object`, `field` (datetime), `minutesBefore` or `minutesAfter`: a number (0…10,080) or `{ field?, setting? }` (a number field of the record or one relation away, else a number setting; each with a `max` of at most 10,080) | within about a minute of that moment, once per record and value of the field; a moment missed by more than 15 minutes is not run (ADR 0570) |
 | `manual` | `object`, `label`, `bulk?` | a button on the record page (and a bulk action on lists) |
 | `approvalDecided` | `decision?`, `operation?`, `object?` | when a pending action is approved or rejected |
 | `webhook` | `endpoint` (the id an admin set up), `events?` | on a verified delivery to that inbound webhook endpoint (the `webhook` gatekeeper, ADR 0113); the typed event is in `event.integration` |
@@ -415,8 +416,10 @@ durable waits. Only declared names of the matching kind are allowed. Keep side e
 **`onRejected`.** When a write in a run needs approval the run pauses; if a person rejects it the
 run follows `onRejected`: `"stop"` (default, run cancelled), `"continue"`, or `{ notify, message? }`.
 
-**Rails.** Host maxima: 60 runs/minute and 500 writes/hour per automation (exceeding them pauses
-it and notifies admins), cascade depth 3, no self-retrigger on the same record in one cascade,
+**Rails.** Host maxima: 60 runs/minute and 500 writes/hour per automation. Runs over the minute's
+rail wait their turn and start on the next ticks, never dropped (ADR 0573); more writes in an hour
+pause the automation and notify admins (the runs it held back start once it is resumed). Cascade
+depth 3, no self-retrigger on the same record in one cascade,
 updates to one record debounced. `rails` may only be stricter (`maxRunsPerMinute`,
 `maxWritesPerHour`, `debounceSeconds`).
 
