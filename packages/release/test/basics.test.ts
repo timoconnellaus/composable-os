@@ -4,6 +4,7 @@ import {
   BundleError,
   channelOf,
   compareVersions,
+  type DeploymentState,
   deployOrder,
   durableObjectMigration,
   gunzip,
@@ -15,6 +16,7 @@ import {
   sha256Hex,
   snappyDecompress,
   visibleOnChannel,
+  workerBindings,
   writeTar,
 } from "../src/index.ts";
 import { buildFixtureRelease } from "../src/testing/index.ts";
@@ -154,5 +156,26 @@ describe("deploy helpers", () => {
     });
     expect(durableObjectMigration(history, "v2")).toBeUndefined();
     expect(() => durableObjectMigration(history, "v9")).toThrow();
+  });
+
+  it("never uploads as plain text a stored var the release now declares a secret (issue #217)", async () => {
+    const { manifest } = await buildFixtureRelease({ version: "1.0.0", clientGatekeepers: true });
+    const payments = manifest.workers.find((w) => w.shortName === "payments");
+    if (!payments) throw new Error("no payments gatekeeper in the fixture");
+    // A deployment state from before FAKE_WEBHOOK_SECRET was a secret.
+    const state = {
+      accountId: "acc",
+      hostname: "crm.example.com",
+      workerNames: {},
+      resources: {},
+      vars: { [payments.name]: { FAKE_WEBHOOK_SECRET: "old", PAYMENTS_FAKE_PROVIDER: "true" } },
+    } as unknown as DeploymentState;
+    const kept = workerBindings(payments, manifest, state, {});
+    expect(kept.find((b) => b.name === "FAKE_WEBHOOK_SECRET")).toBeUndefined();
+    expect(kept.find((b) => b.name === "PAYMENTS_FAKE_PROVIDER")).toMatchObject({ text: "true" });
+    const set = workerBindings(payments, manifest, state, { FAKE_WEBHOOK_SECRET: "new" });
+    expect(set.filter((b) => b.name === "FAKE_WEBHOOK_SECRET")).toEqual([
+      { type: "secret_text", name: "FAKE_WEBHOOK_SECRET", text: "new" },
+    ]);
   });
 });

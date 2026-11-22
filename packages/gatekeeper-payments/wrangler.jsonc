@@ -4,10 +4,12 @@
 // events to the hook the CRM's integration host bound. Account-agnostic: no account or resource
 // IDs are committed (ADR 0012).
 //
-// Secrets (not committed; set with `wrangler secret put`, both optional, see deploy-inputs.json):
-// STRIPE_SECRET_KEY (the Stripe API key) and STRIPE_WEBHOOK_SECRET (the `whsec_…` signing secret of
-// the Stripe webhook endpoint that posts to <BASE_URL>/in/stripe). Without STRIPE_SECRET_KEY the
-// Stripe resource is refused. See README.md.
+// Secrets (not committed; all optional, see deploy-inputs.json): STRIPE_SECRET_KEY (the Stripe API
+// key) and STRIPE_WEBHOOK_SECRET (the `whsec_…` signing secret of the Stripe webhook endpoint that
+// posts to <BASE_URL>/in/stripe), set with `wrangler secret put`; without STRIPE_SECRET_KEY the
+// Stripe resource is refused. FAKE_WEBHOOK_SECRET, the fake provider's signing secret, which
+// `cos deploy` generates for an environment marked live: false that turns the fake on; unset, the
+// fake runs on localhost only (ADR 0485). See README.md.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "cos-gatekeeper-payments",
@@ -32,10 +34,9 @@
     // account. Empty means the account the secret key belongs to.
     "STRIPE_ACCOUNT": "",
     // "true" turns on the fake provider (its hosted page, its webhook route and its resource). For
-    // development and tests only.
-    "PAYMENTS_FAKE_PROVIDER": "false",
-    // The fake provider's webhook signing secret. Empty means "fake-payments-dev-secret".
-    "FAKE_WEBHOOK_SECRET": ""
+    // development, tests and staging only: off localhost it also needs the FAKE_WEBHOOK_SECRET
+    // secret (ADR 0485).
+    "PAYMENTS_FAKE_PROVIDER": "false"
   },
   "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": false }],
   "durable_objects": {

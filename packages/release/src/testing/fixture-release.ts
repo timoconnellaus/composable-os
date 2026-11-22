@@ -298,9 +298,17 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
           { type: "plain_text", name: "BASE_URL", text: "https://$HOSTNAME/gatekeeper/payments" },
           { type: "plain_text", name: "PAYMENTS_FAKE_PROVIDER", text: "false" },
           { type: "plain_text", name: "STRIPE_ACCOUNT", text: "" },
+          {
+            type: "secret_text",
+            name: "FAKE_WEBHOOK_SECRET",
+            text: "$SECRET(FAKE_WEBHOOK_SECRET)",
+          },
           { type: "secret_text", name: "STRIPE_SECRET_KEY", text: "$SECRET(STRIPE_SECRET_KEY)" },
         ],
-        [{ name: "STRIPE_SECRET_KEY", required: false, source: "user", description: "Stripe key" }],
+        [
+          { name: "FAKE_WEBHOOK_SECRET", required: false, source: "generated" },
+          { name: "STRIPE_SECRET_KEY", required: false, source: "user", description: "Stripe key" },
+        ],
       ),
     );
   }
