@@ -307,6 +307,21 @@ batch, as `capacity` refuses a claim past its places (stage 26).
   box-office-style test extension: a "visit" record that spends), and with Courses' "pick any
   three" if question 16 says build it (an enrolment that spends a credit). Stage 31 declares a
   booking a spender and its cancel moves as returning; nothing in 32b knows what a booking is.
+- **Amended 2026-11-22, by stage 31's agreed spec** ([31](31-bookings.md), "Spending and
+  returning an allowance use"). 32b's build also takes on:
+  1. **Spend on entering a state, not only on create**: a waiting booking spends nothing and
+     spends when it becomes `booked` (on create or by promotion): `spendIn: ["booked"]`.
+  2. **The period is the spender's time, not the spend's**: the spender names it (`at:
+     "class.startsAt"`); the use counts in the holder's period containing it, and the holder must
+     be live then.
+  3. **Conditions read the class's time of day and class type**: `spendsOn.when` over fields the
+     host copies onto the booking (class type, local weekday, local minute of the day in the
+     class's zone), for the off-peak limit of question 8.
+  4. **A move gives back and spends again in one batch** (a booking `moved` to another class).
+  5. **The holder is the spender's Person's**: a guardian's booking for a child spends the child's
+     holder, never the guardian's (question 13: no shared pool); memberships and passes declare a
+     read for a linked guardian (stage 31's family link).
+  6. **Unlimited holders still write a use**, so attendance counts every class.
 
 ### The Memberships pack (`packs/memberships`)
 | Object | What | Behaviours |
