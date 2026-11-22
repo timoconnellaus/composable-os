@@ -1207,6 +1207,55 @@ by staff.
 A practitioner's own working note about a client. Read by its author only: not the client's screen,
 not shared, never staff.
 
+**Agreement document** (a **document**; stage 44, proposed)
+Something a business asks people to agree to: its terms, a waiver, health questions, a parent's
+consent. Its **kind** is a label (`terms`, `waiver`, `health`, `guardian`, `other`, and the
+platform's `care`); only `health` changes how it works. It says how a person agrees (tick and type
+their name, or draw a signature), who agrees (the participant or the payer) and for whom (everyone,
+or dependants only). The business writes every word; the platform ships no legal wording. Core
+tables, not records: in no `rec_*` view.
+_Avoid_: form (stage 29's), contract (what the law may make of it), template
+
+**Version** (of an agreement document; stage 44, proposed)
+One published wording of a document, kept for good: the database refuses any change to it or its
+deletion. Published only by a person with `agreements:manage`, as a **small change** (earlier
+acceptances still count) or **agree again** (they stop counting, so the next booking or purchase
+asks), now or from a date. An AI may draft the working copy and can never publish, not even by
+asking. Not a record's version (`core_publish_version`).
+
+**Agreement point** (the `agreements` behaviour; stage 44, proposed)
+A place a pack says agreement may be needed: buying a membership or a pass, making a booking,
+buying a ticket or a course, a care link. The business **attaches** documents to points; nothing is
+needed anywhere by default. The host asks one question, `agreementsDue`, when an order or a
+subscription starts and when a record enters a declared state, and the write's batch carries a guard
+that fails if any document changed since. The host's own moves (a promotion, a paid drop-in booked)
+are never checked.
+_Avoid_: requirement (alone), gate (the approval gate)
+
+**Acceptance** (stage 44, proposed)
+One record that a person agreed to one version of a document: by themselves, by a **guardian** for
+a dependant, by a **guest** with their order (the Person's from the verified payment), or **recorded
+from paper** by a person on the staff (shown as that, never as the member's own). It holds the
+version and the hash of what was shown, who, how (typed, drawn, paper) and when; never the device or
+internet address. Nobody can change it. A drawn **signature** is kept as its strokes. It is
+**current** while its version is at or after the document's last "agree again" (and, for health,
+within its ask-again months); a document is **due** for a Person at a point where it is attached and
+they have no current acceptance of it. The person is emailed a **copy** with the **signed PDF**,
+built from the stored version, never kept as a file.
+_Avoid_: consent (stage 43's care link word, which becomes an acceptance), signature (one way to
+accept), sign-off
+
+**Health form** and **health answers** (stage 44, proposed)
+A `health` document's yes or no questions, a note if yes, and a person's answers. Health
+information: kept apart from every staff bulk path and every AI actor, read on screen only by
+staff with `agreements:health` (each read audited), by the person and by their guardian.
+
+**Cooling off** (stage 44, proposed)
+The days (a Memberships setting; 0, the default, turns it off) in which a new member may cancel a
+membership at once for a full refund of what they paid, each refund still waiting for a person with
+`orders:refund`.
+_Avoid_: trial (a plan's free first days), grace period
+
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
