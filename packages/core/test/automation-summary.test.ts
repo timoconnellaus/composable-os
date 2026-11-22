@@ -340,6 +340,12 @@ describe("every trigger type", () => {
       "Task · on {code}",
     ],
     [
+      "dateRelative in minutes (ADR 0570)",
+      { type: "dateRelative", object: "task", field: "dueAt", minutesBefore: 180 },
+      "<b>3 hours</b> before a <b>Task</b>'s <b>due</b>",
+      "Task · 3 hours before {code}",
+    ],
+    [
       "manual",
       { type: "manual", object: "deals.deal", label: "Send renewal reminder", bulk: true },
       "When someone clicks <b>Send renewal reminder</b> on a <b>Deal</b> or on selected <b>Deals</b>",
