@@ -1594,6 +1594,8 @@ export interface CoreSubscriptionCheckoutTable {
   tax_code: Defaulted<string | null>;
   subscription_ref: Defaulted<string | null>;
   created_at: Timestamp;
+  /** Migration 0532: the continuation offer this checkout was opened from, if any. */
+  offer_id: Defaulted<string | null>;
 }
 
 /** Migration 0530: a subscription the provider runs and the host mirrors. */
@@ -1651,6 +1653,37 @@ export interface CoreSubscriptionTrialTable {
   /** A lapsed hold released once the provider said its page expired uncompleted. */
   released_at: Defaulted<Timestamp | null>;
   created_at: Timestamp;
+}
+
+/**
+ * Migration 0532 (stage 32a, ADRs 0491 and 0492): a continuation offer. An address, its Person,
+ * a plan and the date the person has paid up to elsewhere; taken once, by the person signed in as
+ * the address, through a provider page it holds while that page can be completed.
+ */
+export interface CoreSubscriptionOfferTable {
+  id: string;
+  plan_object: string;
+  plan_id: string;
+  email: string;
+  person_id: string | null;
+  free_until: Timestamp;
+  reference: Defaulted<string | null>;
+  imported_by: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  checkout_id: Defaulted<string | null>;
+  checkout_ref: Defaulted<string | null>;
+  checkout_url: Defaulted<string | null>;
+  held_until: Defaulted<Timestamp | null>;
+  subscription_id: Defaulted<string | null>;
+  taken_at: Defaulted<Timestamp | null>;
+  charged_from_start: Defaulted<number>;
+  withdrawn_at: Defaulted<Timestamp | null>;
+  withdrawn_by: Defaulted<string | null>;
+  withdraw_reason: Defaulted<string | null>;
+  reissued_as: Defaulted<string | null>;
+  /** Bumped by exactly one on every change; a write from an older read fails (migration 0532). */
+  version: Defaulted<number>;
 }
 
 export interface CrmOrderView {
@@ -2228,6 +2261,7 @@ export interface CoreDatabase {
   core_subscription: CoreSubscriptionTable;
   core_subscription_checkout: CoreSubscriptionCheckoutTable;
   core_subscription_trial: CoreSubscriptionTrialTable;
+  core_subscription_offer: CoreSubscriptionOfferTable;
   core_order_refund: CoreOrderRefundTable;
   core_automations: CoreAutomationsTable;
   core_routine: CoreRoutineTable;

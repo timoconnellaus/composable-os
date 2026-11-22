@@ -3,6 +3,7 @@
 export * from "./access.ts";
 export * from "./events.ts";
 export * from "./merge.ts";
+export * from "./offers.ts";
 export * from "./periods.ts";
 export * from "./subscriptions.ts";
 export * from "./sweep.ts";

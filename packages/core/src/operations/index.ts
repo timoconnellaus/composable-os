@@ -64,6 +64,7 @@ import { searchOperations } from "./search.ts";
 import { settingsOperations } from "./settings.ts";
 import { setupOperations } from "./setup.ts";
 import { subscriptionOperations } from "./subscription.ts";
+import { subscriptionOfferOperations } from "./subscription-offer.ts";
 import { suggestionOperations } from "./suggestions.ts";
 import { summaryOperations } from "./summary.ts";
 import { supportOperations } from "./support.ts";
@@ -147,6 +148,7 @@ export const coreOperations = [
   ...meOperations,
   ...orderOperations,
   ...subscriptionOperations,
+  ...subscriptionOfferOperations,
   ...myOperations,
   ...capacityOperations,
 ] as const;

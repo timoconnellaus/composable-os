@@ -229,3 +229,10 @@ for a proved holder, once per holder per plan object, held while its page is ope
 the provider confirms it. The `subscription` access kind is [ADR 0488](0488-the-subscription-access-source.md);
 `courses.plan`, the members' blocks and the staff side (with ending one at once, `now`) are
 [ADR 0490](0490-the-course-plan-self-service-and-the-staff-side.md).
+
+## Note (2026-11-22, build step 4)
+`trialEnd` is used by continuation offers ([ADR 0491](0491-continuation-offers.md),
+[ADR 0492](0492-a-continuation-replaces-the-trial.md)): the host sends it only with at least 48
+hours and 15 minutes left, and charges at once below that. The checks this ADR left for Stripe's
+test mode are in [`docs/subscriptions-stripe-runbook.md`](../subscriptions-stripe-runbook.md), with
+what each answer means.

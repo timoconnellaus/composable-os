@@ -856,6 +856,13 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
   if (s.object !== "person") return 0;
   const ids = jsonList(s.recordIds);
   const addresses = jsonList(s.addresses.length ? s.addresses.map((a) => a.toLowerCase()) : [""]);
+  // Their continuation offers (stage 32a, ADR 0491): an address and a date, nothing the books
+  // need. Deleted, by Person or by address.
+  ctx.write(
+    ctx.db
+      .deleteFrom("core_subscription_offer")
+      .where((eb) => eb.or([eb("person_id", "in", ids), eb("email", "in", addresses)])),
+  );
   const orders = await ctx.db
     .selectFrom("core_order")
     .select("id")

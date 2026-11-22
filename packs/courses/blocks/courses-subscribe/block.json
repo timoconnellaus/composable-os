@@ -2,7 +2,7 @@
   "name": "courses-subscribe",
   "pack": "courses",
   "skin": "web",
-  "operations": ["x.courses.plans", "subscription.start"],
+  "operations": ["x.courses.plans", "subscription.start", "subscription.offer.mine"],
   "files": ["subscribe.tsx", "LICENSE"],
   "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],
   "packages": {

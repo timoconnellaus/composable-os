@@ -21,18 +21,21 @@ import { RepeatIcon } from "lucide-react";
 import { useMemo } from "react";
 import { EmptyState, ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
+import { OffersTable } from "#/components/subscriptions/offers-table";
 import { SubscriptionStateBadge } from "#/components/subscriptions/subscription-state-badge";
 import { formatDate } from "#/lib/format";
 import { formatMoney } from "#/lib/money";
 import { callOp } from "#/lib/operations";
 import { opKey } from "#/lib/query";
 
-type SubscriptionsView = "all" | "trials" | "failing" | "ending";
-const VIEWS: readonly SubscriptionsView[] = ["all", "trials", "failing", "ending"];
+type SubscriptionsView = "all" | "trials" | "failing" | "ending" | "offers";
+const VIEWS: readonly SubscriptionsView[] = ["all", "trials", "failing", "ending", "offers"];
 
 type ListInput = CoreInput<"subscription.list">;
+/** The views that list subscriptions; `offers` is the continuation offers report. */
+type ListView = Exclude<SubscriptionsView, "offers">;
 
-const FILTERS: Record<SubscriptionsView, ListInput["filter"] | undefined> = {
+const FILTERS: Record<ListView, ListInput["filter"] | undefined> = {
   all: undefined,
   trials: { field: "state", op: "eq", value: "trialing" },
   failing: { field: "state", op: "in", value: ["past_due", "unpaid"] },
@@ -44,7 +47,7 @@ const FILTERS: Record<SubscriptionsView, ListInput["filter"] | undefined> = {
   },
 };
 
-const EMPTY: Record<SubscriptionsView, string> = {
+const EMPTY: Record<ListView, string> = {
   all: "No subscriptions yet",
   trials: "No one is on a trial",
   failing: "No payments are failing",
@@ -82,16 +85,17 @@ function SubscriptionsPage() {
             <TabsTrigger value="trials">Trials</TabsTrigger>
             <TabsTrigger value="failing">Failing</TabsTrigger>
             <TabsTrigger value="ending">Ending</TabsTrigger>
+            <TabsTrigger value="offers">Continuation offers</TabsTrigger>
           </TabsList>
         </Tabs>
       }
     >
-      <SubscriptionsTable view={view} />
+      {view === "offers" ? <OffersTable /> : <SubscriptionsTable view={view} />}
     </PageLayout>
   );
 }
 
-function SubscriptionsTable({ view }: { view: SubscriptionsView }) {
+function SubscriptionsTable({ view }: { view: ListView }) {
   const filter = FILTERS[view];
   const input: ListInput = {
     ...(filter ? { filter } : {}),

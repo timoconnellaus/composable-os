@@ -91,6 +91,14 @@ test that fails without it (`packages/core/test/subscription-access.test.ts`).
   trial. Tested with a checkout as step 4 will write it. The Consequences above saying any
   confirmed trial end counts are superseded.
 
+## Amended (2026-11-22, build step 4)
+Continuation offers are built ([ADR 0491](0491-continuation-offers.md),
+[ADR 0492](0492-a-continuation-replaces-the-trial.md)). As decided above, taking one writes no
+trial row and uses nothing. One more reason a trial is not given: `continuation`, while the holder
+has an offer on the plan object they can still take, or a subscription started from one that has
+not ended: no trial stacked onto the continuation. After it (the subscription ended, or the offer
+expired untaken) this ADR's rule applies unchanged: a trial once, if never had (ADR 0492).
+
 ## Note (2026-11-22, ADR 0459)
 Built: "anyone starting a subscription" is a switch on top of the customer sign-up mode
 ([ADR 0459](0459-anyone-starting-a-subscription.md)). With it on and a plan on sale to the public,

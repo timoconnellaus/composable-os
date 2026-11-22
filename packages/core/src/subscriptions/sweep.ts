@@ -13,6 +13,7 @@
 //   not arriving.
 import type { CrmDb } from "@composable-os/db";
 import { notifyStatements } from "../notifications/send.ts";
+import { sweepOffers } from "./offers.ts";
 
 export const PAST_DUE_GRACE_DAYS = 30;
 export const MISSING_EVENTS_AFTER_DAYS = 3;
@@ -24,7 +25,7 @@ const ago = (now: string, days: number) => new Date(Date.parse(now) - days * DAY
 export async function sweepSubscriptions(
   crm: CrmDb,
   now: string,
-): Promise<{ pastDueLapsed: number; eventsMissing: number }> {
+): Promise<{ pastDueLapsed: number; eventsMissing: number; offerPlansGone: number }> {
   const db = crm.query;
   const lapsed = await db
     .selectFrom("core_subscription")
@@ -84,5 +85,11 @@ export async function sweepSubscriptions(
     statements.push(...plan.statements);
   }
   if (statements.length) await crm.batch(statements);
-  return { pastDueLapsed: lapsed.length, eventsMissing: silent.length };
+  // Continuation offers with no plan left to take them on (ADR 0491).
+  const offers = await sweepOffers(crm, now);
+  return {
+    pastDueLapsed: lapsed.length,
+    eventsMissing: silent.length,
+    offerPlansGone: offers.plansGone,
+  };
 }

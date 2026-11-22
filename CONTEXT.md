@@ -1096,6 +1096,17 @@ the plan's trial days, not when its page is opened; a continuation's free time i
 _Avoid_: trial offer (the provider's newer feature, not used), continuation (stage 32a step 4's
 free period until a paid-up date)
 
+**Continuation offer**
+A person subscribed on another platform continuing here: an address (and the one Person who has
+it), a subscription plan and the date they have paid up to there, imported by staff
+(`cos subscriptions offers import`, a person with `subscriptions:manage`; people come in first).
+Only the customer signed in as that address takes it; the subscription is then free until the
+date and charged from it, with no free trial on top, and none while that subscription runs; the
+continuation is not the trial, so after it has ended the one-trial rule applies. Taken once, it expires on its date (with under 48 hours left it is taken charged at
+once), and staff can withdraw it. The report says who has taken theirs, so the company ends exactly
+those old subscriptions (stage 32a, ADRs 0491 and 0492).
+_Avoid_: trial, coupon, migration (moving card data between processors is stage 32b's option 1)
+
 **Subscription**
 Something a Person pays for every period (stage 32a, ADR 0485): a base record that mirrors the
 payment provider's subscription, which keeps the card and charges each period. Its states are

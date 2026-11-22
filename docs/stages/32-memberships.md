@@ -12,8 +12,9 @@ stages [25](25-states-orders-payments.md), [26](26-capacity-and-holds.md),
 stage 32" section); `packages/core/src/orders/`, `packages/core/src/capacity/`,
 `packages/core/src/visibility/access.ts`, `packages/gatekeeper-payments/src/`, `packs/courses`.
 
-Status: **32a spec agreed** (interview 2026-11-22: questions 1 to 7, each with its recommended
-answer; 32a building); **32b agreed** (questions 8 to 16 answered the same day; it waits for
+Status: **32a built** (steps 1 to 4; never run on real Stripe: the test-mode runbook waits for
+the owner); **32a spec agreed** (interview 2026-11-22: questions 1 to 7, each with its recommended
+answer); **32b agreed** (questions 8 to 16 answered the same day; it waits for
 stage 31). The decisions already made at stage
 42's interview are listed below and are not asked again. Where this spec guesses, it says
 **(guess)**.
@@ -604,6 +605,59 @@ decided what it left open:
 - **Not built in this step:** continuation offers and the subscribers' move (step 4: it must open
   a continuation with `trialEnd`, never trial days, so it writes no trial row); the sign-in
   setting for new visitors (the identity session).
+
+## Built: 32a step 4 (2026-11-22)
+ADRs [0491](../adr/0491-continuation-offers.md) (continuation offers: who takes one, used once,
+the import, the report) and [0492](../adr/0492-a-continuation-replaces-the-trial.md) (the free time
+and the trial; dates under 48 hours or past), migration 0532, and the test-mode runbook
+[`docs/subscriptions-stripe-runbook.md`](../subscriptions-stripe-runbook.md) with every open
+check above. Where the build read the spec one way, or decided what it left open:
+
+- **The operation's name.** The spec's `subscription.offers.import` is `subscription.offer.import`,
+  beside `subscription.offer.list`, `.export`, `.withdraw` and `.mine` (a customer's own); an offer
+  is taken with `subscription.start { offerId }`. The command is `cos subscriptions offers import
+  <offers.csv> --plan <object>[:<id>]` (and `cos subscriptions offers report`).
+- **"`record.import`'s rules"** are kept, not the operation: an offer is a core row, not an
+  extension record. The address is the key (per plan object); a dry run; a re-run changes nothing;
+  an offer taken, withdrawn or holding a page is a conflict, kept. People are matched by address
+  and never created (the courses import's rule).
+- **Who takes one:** only the customer signed in as the offer's address (and its Person). A guest
+  who types the address and staff for someone are refused; another address of the same Person
+  finds nothing. Used once (the verified event marks it taken); two takes at once open one page (a
+  trigger, as for the trial's hold); expires on its date; withdrawn by staff.
+- **Sign-in:** the spec's "sign-up mode `buyers` or an invite lets them" is half right: `buyers`
+  does not (an imported person has bought nothing here). `open` does, or an invite: the import's
+  `--invite` invites each address (`users:manage`), so `invite_only` and `buyers` work too. No
+  sign-in change was made here. With the sign-in setting "anyone starting a subscription" on
+  (ADR 0459) and a plan on sale, any address may get a code, so imported subscribers sign in
+  without invites, by the subscribe block's code step, and then see their offer.
+- **Free time and the trial (decision 7 and the owner's):** the continuation replaces the trial, is
+  not the trial (no trial row). No trial while the holder has an offer they can still take or a
+  subscription from one that has not ended (`noTrial: "continuation"`); after it has ended, or the
+  offer expired untaken, the one-trial rule applies, so a returning former subscriber can have the
+  trial once (the owner's answer, corrected before merge). With under 48 hours (and 15 minutes)
+  left, taking it is charged at once with no trial; once the date has passed it cannot be taken and
+  they subscribe as anyone. The import and the report say so.
+- **The paid-up date** is 00:00 that day in the organisation's time zone, or a moment with its
+  offset.
+- **The report:** who took theirs and when their new subscription starts charging, who has not, a
+  subscription started another way; the admin's Subscriptions → Continuation offers with Download
+  CSV and withdraw, and `cos subscriptions offers report`.
+- **The member:** the subscribe block shows a signed-in member's offer ("Continue, free until
+  <date>") in place of the trial, and no trial on any plan; the native block says it in words, to
+  take on the web. A trialing subscription now reads "Free until <date>" for both a trial and a
+  continuation.
+- **After review (2026-11-22)**, in ADR 0491: an abandoned checkout no longer blocks a correction
+  (the provider is asked, an expired page released); staff reissue a withdrawn address only with
+  `--reissue`; impossible dates are refused; every change to an offer is from a current read (a
+  version and a trigger, so a take, an import or a withdrawal racing another fails whole and is
+  sent again); the block never sends a member with free time owed to a page that charges today
+  without saying so, and an offer whose plan is gone follows to the object's only live plan or
+  says "ask us" while staff are told; invites are recorded; the report is a person's (not on MCP).
+- **Not built here:** the first client's subscribers' move is the client's own setup (its export,
+  its list, telling its people), outside this repository. Nothing was run against Stripe; the
+  runbook is for the owner. Updating live subscriptions when tax is turned on (the spec's guess,
+  left in steps 1 and 2) is still not built.
 
 ## Questions for the interview
 Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:

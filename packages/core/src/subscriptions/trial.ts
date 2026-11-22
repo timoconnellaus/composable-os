@@ -36,9 +36,20 @@ export const TRIAL_HOLD_AFTER_EXPIRY_MS = 15 * 60_000;
  * - `permission`: staff starting it without `subscriptions:manage`, or not a person;
  * - `held`: another page with the trial is open for the holder (someone else opened it, or for
  *   another plan record);
- * - `unconfirmed`: the provider could not be asked whether an earlier page was completed.
+ * - `unconfirmed`: the provider could not be asked whether an earlier page was completed;
+ * - `continuation`: the holder is in a continuation on this plan object (ADR 0492): an offer they
+ *   can still take, or a subscription started from one that has not ended. Its free time is not
+ *   the trial, so once that subscription ends (or the offer expired untaken) the one-trial rule
+ *   applies as for anyone.
  */
-export const NO_TRIAL_REASONS = ["sign_in", "used", "permission", "held", "unconfirmed"] as const;
+export const NO_TRIAL_REASONS = [
+  "sign_in",
+  "used",
+  "permission",
+  "held",
+  "unconfirmed",
+  "continuation",
+] as const;
 export type NoTrial = (typeof NO_TRIAL_REASONS)[number];
 
 export interface OpenPage {
@@ -85,8 +96,42 @@ export async function trialUsed(
   return Boolean(had);
 }
 
+/**
+ * Whether `holderPersonId` is in a continuation on `planObject` now (ADR 0492): an offer they can
+ * still take (not taken, not expired, not withdrawn), or a subscription started from an offer that
+ * has not ended. No trial then, on top of the continuation or by cancelling and starting again
+ * during it. Once that subscription has ended, or the offer expired untaken, the one-trial rule
+ * alone applies: a continuation is not the trial (owner decision, 2026-11-22).
+ */
+export async function hasContinuation(
+  ctx: Pick<HandlerContext, "db" | "now">,
+  holderPersonId: string,
+  planObject: string,
+): Promise<boolean> {
+  const open = await ctx.db
+    .selectFrom("core_subscription_offer")
+    .select("id")
+    .where("person_id", "=", holderPersonId)
+    .where("plan_object", "=", planObject)
+    .where("subscription_id", "is", null)
+    .where("withdrawn_at", "is", null)
+    .where("free_until", ">", ctx.now)
+    .executeTakeFirst();
+  if (open) return true;
+  const running = await ctx.db
+    .selectFrom("core_subscription as s")
+    .innerJoin("core_subscription_checkout as c", "c.id", "s.id")
+    .select("s.id")
+    .where("s.holder_person_id", "=", holderPersonId)
+    .where("s.plan_object", "=", planObject)
+    .where("c.offer_id", "is not", null)
+    .where("s.state", "not in", ["ended", "expired"])
+    .executeTakeFirst();
+  return Boolean(running);
+}
+
 /** The provider's word on one page: open, complete, expired, or null when it cannot be asked. */
-async function pageStatus(
+export async function pageStatus(
   ctx: HandlerContext,
   target: PaymentsTarget,
   ref: string,
@@ -128,6 +173,9 @@ export async function decideTrial(
   if (start.allowed === "no_permission") return { give: false, reason: "permission" };
   if (await trialUsed(ctx, start.holderPersonId, start.planObject)) {
     return { give: false, reason: "used" };
+  }
+  if (await hasContinuation(ctx, start.holderPersonId, start.planObject)) {
+    return { give: false, reason: "continuation" };
   }
   const pending = await ctx.db
     .selectFrom("core_subscription_trial")

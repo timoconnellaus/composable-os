@@ -90,6 +90,8 @@ describe("default closed (criterion 1)", () => {
       "subscription.cancel",
       "subscription.get",
       "subscription.list",
+      // Stage 32a step 4 (ADR 0491): a customer's own continuation offers.
+      "subscription.offer.mine",
       "subscription.portal",
       "subscription.resume",
       "subscription.start",
@@ -398,6 +400,7 @@ describe("the closed handler context (ADR 0413)", () => {
       "order.view",
       // Stage 32a (ADR 0485): the host calls the payments gatekeeper for the payer.
       "subscription.cancel",
+      "subscription.offer.mine",
       "subscription.portal",
       "subscription.resume",
       "subscription.start",

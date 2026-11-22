@@ -112,6 +112,9 @@ export const subscriptionStart = defineOperation({
     "and only for a signed-in customer (or staff with subscriptions:manage starting it for a " +
     "person): a guest is charged from the start, and `noTrial` says why no trial was given. " +
     "Starting again while the page you opened with a trial is still open gives that page. " +
+    "A signed-in customer with a continuation offer (moving their subscription from another " +
+    "platform) takes it with `offerId`: free until their paid-up date, then charged, with no " +
+    "trial on top; with under 48 hours left it is charged at once. " +
     "The host prices it from the plan: no " +
     "price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the " +
     "provider confirms it. Returns the page's address and what will be charged, in minor units.",
@@ -127,6 +130,15 @@ export const subscriptionStart = defineOperation({
       .max(320)
       .optional()
       .describe("The payer's email. Required unless the caller is a signed-in customer."),
+    offerId: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe(
+        "Take your continuation offer (subscription.offer.mine): free until its date, then " +
+          "charged. A signed-in customer's own offer only.",
+      ),
   }),
   output: z.object({
     subscriptionId: z.string(),
@@ -135,6 +147,10 @@ export const subscriptionStart = defineOperation({
     currency: z.string(),
     interval: z.enum(["week", "month", "year"]),
     trialDays: z.number().nullable().describe("The free days given; null: charged from the start"),
+    freeUntil: z
+      .string()
+      .nullable()
+      .describe("Free until this moment (a continuation offer taken), then charged; else null"),
     noTrial: z
       .enum(NO_TRIAL_REASONS)
       .nullable()
@@ -143,7 +159,9 @@ export const subscriptionStart = defineOperation({
           "trial), used (one trial per person per plan, had already), permission (staff without " +
           "subscriptions:manage), held (another page with the trial is open for this person), " +
           "unconfirmed (the payment provider could not say whether an earlier page was " +
-          "completed; try again later for the trial). Null otherwise",
+          "completed; try again later for the trial), continuation (this person has an open " +
+          "continuation offer on this plan, or a subscription from one still running: no trial on " +
+          "top of it). Null otherwise",
       ),
     expiresAt: z.string().nullable(),
   }),
@@ -156,6 +174,7 @@ export const subscriptionStart = defineOperation({
     subscriptionId: output.subscriptionId,
     plan: input.plan,
     amount: output.amount,
+    ...(input.offerId ? { offerId: input.offerId, freeUntil: output.freeUntil } : {}),
   }),
   async handler(input, ctx) {
     return startSubscription(ctx, input);
