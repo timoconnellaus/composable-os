@@ -43,6 +43,12 @@ export function notificationHref(link: NotificationLink | null): string | null {
           ? `/orders/${enc(link.id)}`
           : `/orders?view=${enc(link.id)}`;
       }
+      // A subscription (stage 32a): its page, or one of the subscriptions lists (`failing`…).
+      if (link.object === "subscription") {
+        return link.id.startsWith("sbs_")
+          ? `/subscriptions/${enc(link.id)}`
+          : `/subscriptions?view=${enc(link.id)}`;
+      }
       return `/x/${enc(link.object)}/${enc(link.id)}`;
     case "approval":
       return `/approvals?set=${enc(link.changeSetId)}`;

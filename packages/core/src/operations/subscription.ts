@@ -11,7 +11,8 @@
 // No operation here takes a price, moves a subscription or makes a period paid: the provider's
 // verified events do that, through `order.applyPaymentEvent`. Cancel and resume ask the provider;
 // the subscription shows the change when the provider's event arrives. A customer's "own" is the
-// subscription they pay for (ADR 0487). Ending one at once is staff's, with stage 32a's staff side.
+// subscription they pay for (ADR 0487). Ending one at once (`subscription.cancel` with `now`) is
+// staff's only. The trial rule (one per holder per plan object, ADR 0489) is subscription.start's.
 //
 // subscription.start, .cancel, .resume and .portal are `hostInternal`: the host calls the
 // gatekeeper for a caller outside the org, so they keep the database; each touches only the
@@ -23,11 +24,13 @@ import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import {
   cancelAtPeriodEnd,
+  cancelNow,
   openPortal,
   resumeSubscription,
   startSubscription,
   subscriptionForChange,
 } from "../subscriptions/subscriptions.ts";
+import { NO_TRIAL_REASONS } from "../subscriptions/trial.ts";
 import type { VisibleRecord } from "../visibility/records.ts";
 
 const subscriptionId = z.string().min(1).max(64).describe("Subscription id (sbs_…)");
@@ -105,7 +108,11 @@ export const subscriptionStart = defineOperation({
     "Start a subscription to a plan (a record of an object sold every week, month or year), as a " +
     "signed-in customer, a guest (with an email address) or staff for someone. Opens the payment " +
     "provider's own page, which takes the card; the provider charges each period on its own " +
-    "schedule, after the plan's free trial when it has one. The host prices it from the plan: no " +
+    "schedule, after the plan's free trial when it has one. A trial is one per person per plan, " +
+    "and only for a signed-in customer (or staff with subscriptions:manage starting it for a " +
+    "person): a guest is charged from the start, and `noTrial` says why no trial was given. " +
+    "Starting again while the page you opened with a trial is still open gives that page. " +
+    "The host prices it from the plan: no " +
     "price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the " +
     "provider confirms it. Returns the page's address and what will be charged, in minor units.",
   input: z.object({
@@ -127,7 +134,17 @@ export const subscriptionStart = defineOperation({
     amount: z.number(),
     currency: z.string(),
     interval: z.enum(["week", "month", "year"]),
-    trialDays: z.number().nullable(),
+    trialDays: z.number().nullable().describe("The free days given; null: charged from the start"),
+    noTrial: z
+      .enum(NO_TRIAL_REASONS)
+      .nullable()
+      .describe(
+        "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a " +
+          "trial), used (one trial per person per plan, had already), permission (staff without " +
+          "subscriptions:manage), held (another page with the trial is open for this person), " +
+          "unconfirmed (the payment provider could not say whether an earlier page was " +
+          "completed; try again later for the trial). Null otherwise",
+      ),
     expiresAt: z.string().nullable(),
   }),
   permission: "records:write",
@@ -204,10 +221,16 @@ export const subscriptionCancel = defineOperation({
     "and what it gives lasts until then. A signed-in customer cancels their own; staff any, with the subscriptions:manage permission. " +
     "Nothing is refunded (a period's refund is order.refund). It can be undone until the period " +
     "ends (subscription.resume). Asked of the payment provider: the subscription shows it once " +
-    "the provider confirms. A person decides, not an AI assistant.",
+    "the provider confirms. Staff can instead end it at once (`now: true`): nothing more is " +
+    "charged, nothing is refunded and what it gives stops when the provider confirms; a customer " +
+    "cannot. A person decides, not an AI assistant.",
   input: z.object({
     id: subscriptionId,
     reason: z.string().trim().min(1).max(500).default("Cancelled by the payer").describe("Why"),
+    now: z
+      .boolean()
+      .default(false)
+      .describe("Staff only: end it now instead of when its period ends"),
   }),
   output: changeOutput,
   permission: "subscriptions:manage",
@@ -218,7 +241,8 @@ export const subscriptionCancel = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     const row = await subscriptionForChange(ctx, input.id);
-    await cancelAtPeriodEnd(ctx, row, input.reason);
+    if (input.now) await cancelNow(ctx, row, input.reason);
+    else await cancelAtPeriodEnd(ctx, row, input.reason);
     return { id: row.id, requested: true as const };
   },
 });

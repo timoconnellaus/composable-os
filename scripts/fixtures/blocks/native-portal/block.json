@@ -1,0 +1,8 @@
+{
+  "name": "native-portal",
+  "pack": "programs",
+  "skin": "native",
+  "operations": ["subscription.portal"],
+  "files": ["portal-screen.tsx"],
+  "dependsOn": []
+}

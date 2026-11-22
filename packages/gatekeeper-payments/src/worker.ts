@@ -69,6 +69,7 @@ import type {
   PaymentsSubscription,
   PaymentsSubscriptionChangeReceipt,
   PaymentsSubscriptionCheckoutInput,
+  PaymentsSubscriptionCheckoutStatus,
 } from "./types.js";
 import TYPES_CODE from "./types.txt";
 import {
@@ -84,6 +85,7 @@ import {
   parseResumeSubscriptionInput,
   parseSubscriptionCheckoutInput,
   providerFromUrl,
+  validInstant,
 } from "./validate.js";
 
 export type {
@@ -428,8 +430,19 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
       provider: provider.name,
       ref: checkout.ref,
       url: checkout.url,
-      expiresAt: checkout.expiresAt,
+      // Only a moment the host can read: a malformed one is reported as none, never passed on.
+      expiresAt: validInstant(checkout.expiresAt),
     };
+  }
+
+  async getSubscriptionCheckout(ref: string): Promise<PaymentsSubscriptionCheckoutStatus> {
+    const checked = assertProviderRef(ref);
+    const provider = this.#backend.open();
+    await this.#queue.authorizeObservation({
+      title: "Read a subscription checkout",
+      description: `Read whether subscription checkout \`${checked}\` on ${PROVIDER_TITLES[provider.name]} is open, completed or expired.`,
+    });
+    return { ref: checked, status: await provider.getSubscriptionCheckout(checked) };
   }
 
   async getSubscription(ref: string): Promise<PaymentsSubscription> {

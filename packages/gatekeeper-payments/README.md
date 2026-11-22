@@ -150,6 +150,7 @@ The provider runs the schedule; nothing here charges a card on its own.
 | --- | --- |
 | `createSubscriptionCheckout(input)` | An observation, then the provider's page in subscription mode: the period's price (tax-inclusive, with the plan's tax code and automatic tax when `tax` is given), a trial of `trialDays` or free until `trialEnd` (at least 48 hours ahead), the card always taken, the host's id as `metadata.cos_subscription`. |
 | `getSubscription(ref)` | An observation, then a read now. |
+| `getSubscriptionCheckout(ref)` | An observation, then whether that subscription checkout's page is `open`, `complete` or `expired` (Stripe's Checkout Session `status`): the host asks before it gives a trial again over an earlier page (ADR 0489). |
 | `cancelSubscription({ when })` | Submits `payments.subscription.cancel` (never auto-approvable). Applied: Stripe `cancel_at_period_end=true`, or `DELETE` for `now`. |
 | `resumeSubscription(input)` | Submits `payments.subscription.resume`. Applied: `cancel_at_period_end=false`. |
 | `openPortal({ customerRef, returnUrl })` | Only for the host's own call (the queue answers `isHostOrders()`; Code Mode, extensions, the assistant and MCP are refused). An observation, then a customer portal session, on a configuration made once and kept in the facet (card, billing details, invoices; no cancel, update or pause). |

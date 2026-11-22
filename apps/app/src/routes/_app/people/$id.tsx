@@ -60,6 +60,7 @@ import { RecordLayout, RecordLayoutSkeleton } from "#/components/record/record-l
 import { isRecordViewTab, useRecordViews } from "#/components/record/record-views";
 import { TaskList, TasksCard } from "#/components/record/tasks";
 import { ActivityComposer, Timeline, TimelineFilter } from "#/components/record/timeline";
+import { PersonSubscriptionsCard } from "#/components/subscriptions/person-subscriptions-card";
 import { formatDate } from "#/lib/format";
 import { callOp, OperationCallError } from "#/lib/operations";
 import { errorMessage, opKey, useOp, useOpMutation } from "#/lib/query";
@@ -300,6 +301,8 @@ function PersonRecord({
           <>
             <PersonDetailsCard person={person} readOnly={deleted} />
             {isAdmin && <CustomerAccountCard personId={person.id} />}
+            <PersonSubscriptionsCard personId={person.id} />
+
             <RecordSummaryCard object="person" id={person.id} />
             {recordViews.panels}
             <RecordAutomationsCard object={"person"} id={person.id} />

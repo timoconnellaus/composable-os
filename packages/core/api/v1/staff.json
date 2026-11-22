@@ -48716,7 +48716,7 @@
     },
     {
       "name": "subscription.cancel",
-      "description": "End a subscription when its current paid period (or trial) ends: nothing more is charged, and what it gives lasts until then. A signed-in customer cancels their own; staff any, with the subscriptions:manage permission. Nothing is refunded (a period's refund is order.refund). It can be undone until the period ends (subscription.resume). Asked of the payment provider: the subscription shows it once the provider confirms. A person decides, not an AI assistant.",
+      "description": "End a subscription when its current paid period (or trial) ends: nothing more is charged, and what it gives lasts until then. A signed-in customer cancels their own; staff any, with the subscriptions:manage permission. Nothing is refunded (a period's refund is order.refund). It can be undone until the period ends (subscription.resume). Asked of the payment provider: the subscription shows it once the provider confirms. Staff can instead end it at once (`now: true`): nothing more is charged, nothing is refunded and what it gives stops when the provider confirms; a customer cannot. A person decides, not an AI assistant.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -48737,6 +48737,11 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 500
+          },
+          "now": {
+            "default": false,
+            "description": "Staff only: end it now instead of when its period ends",
+            "type": "boolean"
           }
         },
         "required": [
@@ -49283,7 +49288,7 @@
     },
     {
       "name": "subscription.start",
-      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
+      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -49355,10 +49360,29 @@
             ]
           },
           "trialDays": {
+            "description": "The free days given; null: charged from the start",
             "type": [
               "number",
               "null"
             ]
+          },
+          "noTrial": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "sign_in",
+                  "used",
+                  "permission",
+                  "held",
+                  "unconfirmed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already), permission (staff without subscriptions:manage), held (another page with the trial is open for this person), unconfirmed (the payment provider could not say whether an earlier page was completed; try again later for the trial). Null otherwise"
           },
           "expiresAt": {
             "type": [
@@ -49374,6 +49398,7 @@
           "currency",
           "interval",
           "trialDays",
+          "noTrial",
           "expiresAt"
         ],
         "additionalProperties": false

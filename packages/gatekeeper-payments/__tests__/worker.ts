@@ -115,6 +115,7 @@ export type SessionMethod =
   | "refund"
   | "createSubscriptionCheckout"
   | "getSubscription"
+  | "getSubscriptionCheckout"
   | "cancelSubscription"
   | "resumeSubscription"
   | "openPortal";

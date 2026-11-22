@@ -12,7 +12,11 @@
 //     it. The outline's lesson material is for holders (the `holders` flag in outline.ts), so the
 //     host removes it for everyone else, and `media.play` plays a lesson's video only to a holder;
 //   - an enrolment and a lesson's progress are their student's (`customer`); progress is written
-//     only while the student holds access to its course (`requireAccess`, ADR 0478).
+//     only while the student holds access to its course (`requireAccess`, ADR 0478);
+//   - a course plan is `sellable` with `recurring` (stage 32a, ADR 0485): a subscription to it,
+//     which the payment provider charges every month, gives every live course through the host's
+//     `subscription` access source (ADR 0488), to its holder, while the host's record says it
+//     runs. One free trial per person per plan object is the host's rule (ADR 0489).
 // The tools in tools.ts compose the host's operations and hold no rule of their own.
 import { defineExtension } from "@composable-os/sdk";
 import { coursesAutomations } from "./automations.ts";
@@ -27,6 +31,7 @@ import {
   enrol,
   lesson,
   myCourses,
+  plans,
   progress,
   startSession,
   stats,
@@ -165,6 +170,9 @@ export default defineExtension({
         sources: [
           { via: "courses.enrolment", field: "course", ...ACTIVE },
           { via: "courses.enrolment", field: "bundle", through: "courses", ...ACTIVE },
+          // A running course subscription (stage 32a, ADR 0488): every live course, including
+          // ones published later, while the host's subscription record says it gives access.
+          { kind: "subscription", options: { plans: "courses.plan", covers: "all" } },
         ],
       },
       indexes: [["theme"]],
@@ -215,6 +223,39 @@ export default defineExtension({
           set: { holder: "order.person", bundle: "item", order: "order", code: "code" },
           void: "void",
         },
+      },
+    },
+    plan: {
+      label: "Course plan",
+      plural: "Course plans",
+      icon: "repeat",
+      titleField: "title",
+      description:
+        "A subscription to every published course, paid every month, with a free trial when it " +
+        "has trial days. One trial per person per plan; the payment provider charges each month.",
+      navigation: "main",
+      navigationOrder: 18,
+      fields: {
+        title: { type: "text", label: "Title", required: true },
+        description: { type: "text", label: "Description" },
+        price: { type: "currency", label: "Price per month", required: true },
+        trialDays: {
+          type: "number",
+          label: "Free trial (days)",
+          min: 0,
+          max: 90,
+          step: 1,
+          description: "Empty or 0: charged from the start. A person gets one trial on any plan.",
+        },
+      },
+      // Every live plan is offered on the site.
+      public: { read: ["title", "description", "price", "trialDays"] },
+      sellable: {
+        price: "price",
+        // As its courses (ADR 0479): taxed only once a human admin turns tax on.
+        tax: { code: "txcd_20060158" },
+        // A plan (ADR 0485): subscribed to with subscription.start, never put on an order.
+        recurring: { interval: "month", trialDays: "trialDays" },
       },
     },
     enrolment: {
@@ -401,6 +442,7 @@ export default defineExtension({
     lesson,
     progress,
     myCourses,
+    plans,
     buy,
     enrol,
     endEnrolment,

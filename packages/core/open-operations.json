@@ -211,6 +211,12 @@
       "pack": "courses"
     },
     {
+      "name": "x.courses.plans",
+      "audiences": ["customer", "public"],
+      "risk": "read",
+      "pack": "courses"
+    },
+    {
       "name": "x.courses.progress",
       "audiences": ["customer"],
       "risk": "write",

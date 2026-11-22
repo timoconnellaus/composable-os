@@ -1149,7 +1149,11 @@ record whose published list names it (a bundle). `holdsAccess` is the seam's one
 once per page by `my.list`, `my.get` and `public.*` before a document's `holders` parts are
 shown (`redactDocument(schema, value, { holder })`), and by `media.play` and `media.serve` for an
 item a published version shows only in a holders' part (`core_published_media.reach`). Other
-kinds of source are the host's to add (`registerAccessSource`): stage 32's subscriptions.
+kinds of source are the host's to add (`registerAccessSource`), with no change to the seam: the
+`subscription` kind (stage 32a, [ADR 0488](adr/0488-the-subscription-access-source.md),
+`subscriptions/access.ts`) gives a subscription's holder every live record of the object while
+the host's record is on trial, active or past due, and until its period's end when it is set to
+end; `options: { plans, covers: "all" }` name a plan object of the same extension.
 
 **The import door** ([ADR 0470](adr/0470-the-import-door.md), `packages/core/src/operations/
 record-import.ts`, `packages/create-composable-os/src/content-import/`). `cos content import
@@ -1200,6 +1204,12 @@ automations, and a tool or an automation may call another extension's tool). Its
 host (`access.check`, `public.*`, `my.*`, `order.start`); a lesson names its video and the app asks
 `media.play`, so the signing key stays in cos-app. Hooks, web blocks (catalogue, course page,
 player, my courses, the course builder) and native blocks marked `noPurchase` (no price, no buy).
+Its course plan (`courses.plan`, stage 32a, [ADR 0490](adr/0490-the-course-plan-self-service-and-the-staff-side.md))
+is a sellable that recurs; `courses.course` declares the `subscription` access source on it, so a
+subscription to it gives every course. Web blocks subscribe (`courses-subscribe`) and manage the
+member's own (`courses-subscription`: cancel, resume, the provider's portal); the native one
+(`courses-native-subscription`) only reads, and the block lint refuses a subscription's billing
+operations in every native block.
 
 **Ticketing** (`packs/ticketing`, stage 27) is the first pack that is not about a CRM: events,
 ticket types and tickets, built from these behaviours alone, with tools that compose the host's
@@ -1289,7 +1299,18 @@ agent's waits on a person; the record changes only when the provider's event say
 (`subscription.portal`) is the provider's, for the card and invoices only, and the gatekeeper opens
 it only for the host's own call. Staff ending or keeping going someone else's need
 `subscriptions:manage`. A subscription keeps its
-payer and its holder apart: billing follows the payer, what it grants the holder.
+payer and its holder apart: billing follows the payer, what it grants the holder. One free trial
+per holder per plan object ([ADR 0489](adr/0489-one-free-trial-per-person-per-plan.md),
+`subscriptions/trial.ts`, migration 0531): only for a proved holder (a signed-in customer, or
+staff with `subscriptions:manage` for a Person; a guest pays from the start), held by the
+checkout (`core_subscription_trial`, a trigger refusing a second unreleased hold, so two starts at
+once give one trial), released only when the gatekeeper says its page expired uncompleted
+(`getSubscriptionCheckout`), and used when the provider's verified event confirms it. A person
+merge moves subscriptions and trials to the survivor. With no event, past due gives access for 30
+days of failing, and an active one past its period keeps access while staff are told the events
+are not arriving (the minute cron, `subscriptions/sweep.ts`). Staff end one at once
+(`subscription.cancel` with `now`) and see subscriptions in the admin's Subscriptions section
+(all, trials, failing, ending) and on a Person's page.
 
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record

@@ -1,0 +1,9 @@
+{
+  "name": "native-cancel",
+  "pack": "courses",
+  "skin": "native",
+  "operations": ["subscription.list", "subscription.cancel"],
+  "files": ["cancel-screen.tsx"],
+  "dependsOn": [],
+  "noPurchase": true
+}

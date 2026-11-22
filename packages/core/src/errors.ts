@@ -168,6 +168,14 @@ export function toOperationError(error: unknown): OperationError {
       reason: "subscription_stale",
     });
   }
+  // A second hold of one person's free trial on a plan (migration 0531, ADR 0489): another start
+  // took it a moment before. Nothing of this start was recorded; starting again gives that page.
+  if (message.includes("core_subscription_trial_taken")) {
+    return new ConflictError(
+      "A checkout with this free trial was opened at the same moment. Start again to get it.",
+      { rule: "trial_held" },
+    );
+  }
   // A move judged from a position the record has since left (ADR 0437): another write moved it
   // first, and this one's history row would be a second current one. Nothing was applied.
   if (

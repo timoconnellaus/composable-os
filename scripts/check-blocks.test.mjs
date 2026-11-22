@@ -4,7 +4,14 @@ import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { blockFolders, lintBlocks, lintNoPurchase, lintSource } from "./check-blocks.mjs";
+import {
+  blockFolders,
+  lintBillingNames,
+  lintBlocks,
+  lintNoPurchase,
+  lintSource,
+  lintUnlisted,
+} from "./check-blocks.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -47,6 +54,45 @@ test("a noPurchase block that buys or shows a price fails (stage 42: no buying i
   assert.equal(lintNoPurchase("const { start } = courses.useBuy();")[0]?.rule, "no-purchase");
   assert.equal(lintNoPurchase("<Text>{course.price}</Text>")[0]?.rule, "no-purchase");
   assert.deepEqual(lintNoPurchase('<Text>{"Find it on the website"}</Text>'), []);
+});
+
+test("no native block changes a subscription (stage 32a: billing on the web only)", () => {
+  const marked = lintBlocks([fixture("native-cancel")], root);
+  assert.ok(
+    marked.some((p) => /block\.json: no-purchase: the block lists subscription\.cancel/.test(p)),
+  );
+  assert.ok(marked.some((p) => /cancel-screen\.tsx:\d+: no-purchase/.test(p)));
+  // Not marked noPurchase: a native block is held to it all the same.
+  const unmarked = lintBlocks([fixture("native-portal")], root);
+  assert.ok(
+    unmarked.some((p) =>
+      /block\.json: native-billing: the block lists subscription\.portal/.test(p),
+    ),
+  );
+  assert.ok(unmarked.some((p) => /portal-screen\.tsx:\d+: native-billing/.test(p)));
+  assert.equal(lintNoPurchase("const go = courses.useSubscribe();")[0]?.rule, "no-purchase");
+  // Reading one is allowed: the app shows the subscription.
+  assert.deepEqual(lintNoPurchase("const { data } = courses.useMySubscriptions();"), []);
+});
+
+test("a billing operation named as a string, in a subfolder, and unlisted is caught", () => {
+  const problems = lintBlocks([fixture("native-string")], root);
+  // The string itself, read before strings are blanked, in lib/ (the lint recurses).
+  assert.ok(
+    problems.some((p) => /lib\/call\.ts:3: native-billing/.test(p)),
+    problems.join("\n"),
+  );
+  // And the block's code names an operation its block.json does not list.
+  assert.ok(
+    problems.some((p) => /lib\/call\.ts:3: unlisted-operation: .*subscription\.cancel/.test(p)),
+  );
+  assert.equal(lintBillingNames('api.mutation("subscription.portal")')[0]?.rule, "native-billing");
+  assert.deepEqual(lintBillingNames('api.query("subscription.list", {})'), []);
+  assert.equal(
+    lintUnlisted('call("x.courses.buy")', ["x.courses.course"])[0]?.rule,
+    "unlisted-operation",
+  );
+  assert.deepEqual(lintUnlisted('call("x.courses.buy")', ["x.courses.buy"]), []);
 });
 
 test("every native courses block is marked noPurchase", async () => {

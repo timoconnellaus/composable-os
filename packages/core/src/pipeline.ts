@@ -1498,6 +1498,11 @@ function outsideError(error: unknown): OperationError {
   ) {
     return new ValidationError("There are not enough places left", { rule: "capacity" });
   }
+  // A free trial another start took a moment before (migration 0531, ADR 0489): the caller's own
+  // start, so they are told to start again (which gives them that page), and no more than that.
+  if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "trial_held") {
+    return typed;
+  }
   console.error("outside call failed", errorForLog(error));
   if (typed.code === "conflict")
     return new ConflictError("A record with that value already exists");

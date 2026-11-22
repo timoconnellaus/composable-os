@@ -17,6 +17,7 @@ import { personObject } from "../fields/person.ts";
 import { newId } from "../ids.ts";
 import { listInputSchema, pageSchema, runListQuery, selectFields } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { queueMergeOrders } from "../orders/merge.ts";
 import { bulkTagListSchema, queueBulkTags } from "../records/bulk-tags.ts";
 import {
   assertUserExists,
@@ -39,6 +40,7 @@ import { personSubject } from "../records/erase-subject.ts";
 import { countLinks, queueClearTags, queueMoveLinks } from "../records/links.ts";
 import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
+import { queueMergeSubscriptions } from "../subscriptions/merge.ts";
 import { type Reader, visibleTable } from "../visibility/index.ts";
 import { setCoreWriter } from "../visibility/writes.ts";
 import {
@@ -1109,6 +1111,9 @@ export const personMerge = defineOperation({
     await queueMergeCustomers(ctx, survivor.id, merged.id, [
       ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),
     ]);
+    // Orders, subscriptions, their checkouts and trials follow the Person (stage 32a, #221).
+    queueMergeOrders(ctx, survivor.id, merged.id);
+    await queueMergeSubscriptions(ctx, survivor.id, merged.id);
 
     const emailSet = new Set(survivor.emails.map((e) => e.email));
     after.emails = [

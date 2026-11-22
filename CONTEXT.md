@@ -1078,9 +1078,19 @@ _Avoid_: product (a product is what the platform is composed into, ADR 0400), SK
 
 **Subscription plan**
 A record of a sellable object that recurs (`sellable.recurring`: every week, month or year, with
-an optional trial): subscribed to, never put on an order (stage 32a, ADR 0485). Courses' plan is
-the first.
+an optional trial): subscribed to, never put on an order (stage 32a, ADR 0485). Courses' plan
+(`courses.plan`, a **course plan**) is the first: it gives every course (ADR 0490).
 _Avoid_: plan alone (a hosted plan), product
+
+**Free trial** (of a subscription plan)
+The free first days of a subscription, the card taken at the start and charged when it ends
+unless cancelled. One per Person (the holder) per plan object, and only for a holder who proved
+who they are (a signed-in customer, or staff with `subscriptions:manage` starting it for them): a
+guest is charged from the start. It is used when the provider confirms a subscription opened with
+the plan's trial days, not when its page is opened; a continuation's free time is not a trial
+(ADR 0489).
+_Avoid_: trial offer (the provider's newer feature, not used), continuation (stage 32a step 4's
+free period until a paid-up date)
 
 **Subscription**
 Something a Person pays for every period (stage 32a, ADR 0485): a base record that mirrors the
@@ -1314,9 +1324,11 @@ What a customer holds when one of the sources an object declares is live for the
 enrolment of theirs pointing at the course, in a state that gives access and before its `until`,
 or one pointing at a bundle whose published version lists the course. "Does this customer hold
 access to this record" is one question the seam asks (`holdsAccess`), for every read and for
-`media.play`; a later stage adds a kind of source (a subscription) without changing it. A
-refund in full voids a granted enrolment, so access ends in the refund's batch. Staff hold
-everything; the public nothing.
+`media.play`. The host's `subscription` kind (stage 32a, ADR 0488) was added without changing it:
+a running subscription to a plan the object names gives its **holder** every live record, while
+it is on trial, active or past due, and until its period's end when it is set to end. A refund in
+full voids a granted enrolment, so access ends in the refund's batch. Staff hold everything; the
+public nothing.
 _Avoid_: entitlement (a hosted plan's limits, ADR 0211), purchase (access can be given or
 imported), licence
 

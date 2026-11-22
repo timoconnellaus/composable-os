@@ -139,14 +139,19 @@ describe("the billing portal through the integration host", () => {
 
 describe("a subscription through the fake provider", () => {
   it("starts on trial from verified events, renews as a paid order, refuses a forged event, and cancels at period end", async () => {
+    const email = `${unique("member")}@buyers.test`.toLowerCase();
+    // A guest who only typed the address pays from the start: a trial is a proved holder's (ADR
+    // 0489). Staff starting one for the person by email give the plan's trial.
+    const asGuest = (await invokeByName(
+      "subscription.start",
+      { plan: { object: PLAN, id: plan }, returnUrl: RETURN, email },
+      guest,
+    )) as { trialDays: number | null; noTrial: string | null };
+    expect(asGuest).toMatchObject({ trialDays: null, noTrial: "sign_in" });
     const started = (await invokeByName(
       "subscription.start",
-      {
-        plan: { object: PLAN, id: plan },
-        returnUrl: RETURN,
-        email: `${unique("guest")}@buyers.test`.toLowerCase(),
-      },
-      guest,
+      { plan: { object: PLAN, id: plan }, returnUrl: RETURN, email },
+      staff(admin),
     )) as { subscriptionId: string; url: string; trialDays: number };
     expect(started.trialDays).toBe(7);
     expect(started.url).toMatch(/\/gatekeeper\/payments\/fake\/pay\//);

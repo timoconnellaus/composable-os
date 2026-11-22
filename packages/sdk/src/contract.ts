@@ -668,7 +668,12 @@ export type AccessSourceSpec =
       kind?: undefined;
     }
   | {
-      /** A kind of source the host provides (none yet: stage 32 adds subscriptions). */
+      /**
+       * A kind of source the host provides. `subscription` (stage 32a, ADR 0488): the caller
+       * holds a running subscription to a plan of `options.plans` (`<extension>.<object>`, an
+       * object of this extension whose `sellable` declares `recurring`), and `options.covers`
+       * is `"all"`: every live record. Access follows the subscription's holder.
+       */
       kind: string;
       options?: Readonly<Record<string, string | number | boolean | readonly string[]>>;
       via?: undefined;

@@ -79,6 +79,45 @@ describe("the manifest and the outline", () => {
     expect(host.manifest.requires).toEqual(["programs"]);
   });
 
+  it("declares the course plan, and a course's access through a subscription to it", () => {
+    const plan = courses.objects.plan;
+    expect(plan?.sellable).toMatchObject({
+      price: "price",
+      tax: { code: "txcd_20060158" },
+      recurring: { interval: "month", trialDays: "trialDays" },
+    });
+    expect(courses.objects.course?.access?.sources).toContainEqual({
+      kind: "subscription",
+      options: { plans: "courses.plan", covers: "all" },
+    });
+    // The contract refuses a subscription source that names no plan, or covers something else.
+    const bad = (options: Record<string, string>) => {
+      const course = courses.objects.course as object;
+      const m = {
+        ...courses,
+        objects: {
+          ...courses.objects,
+          course: { ...course, access: { sources: [{ kind: "subscription", options }] } },
+        },
+        // A manifest the contract must refuse: not one defineExtension would type.
+      } as unknown as typeof courses;
+      return createTestHost(m, {
+        validate: {
+          knownObjects: ["programs.program", "programs.assignment", "programs.session"],
+        },
+      }).issues.map((i) => i.path);
+    };
+    expect(bad({ plans: "courses.bundle", covers: "all" })).toEqual([
+      "objects.course.access.sources.0.options.plans",
+    ]);
+    expect(bad({ plans: "courses.plan", covers: "some" })).toEqual([
+      "objects.course.access.sources.0.options.covers",
+    ]);
+    expect(bad({ plans: "other.plan", covers: "all" })).toEqual([
+      "objects.course.access.sources.0.options.plans",
+    ]);
+  });
+
   it("takes every kind of lesson, and refuses a broken one with its path", () => {
     expect(validateDocument(OUTLINE_SCHEMA, outline, { maxBytes: 524_288 }).ok).toBe(true);
     const broken = structuredClone(outline) as unknown as {
@@ -210,6 +249,7 @@ function hostWith(options: { held?: string[]; enrolments?: Record<string, unknow
       ],
       "courses.enrolment": (options.enrolments ?? []) as never,
       "courses.progress": [],
+      "courses.plan": [{ id: "rec_plan", title: "Every course", price: 29, trialDays: 7 }],
       "programs.session": [
         { id: "rec_session", program: "rec_program", week: 1, position: 0, date: "2026-11-23" },
       ],
@@ -389,6 +429,44 @@ describe("the tools", () => {
     expect(out.courses).toEqual([
       expect.objectContaining({ id: "rec_course", why: "bundle", continueWith: "welcome" }),
     ]);
+  });
+
+  it("myCourses: a published course the host says they hold with no enrolment is through their subscription", async () => {
+    const host = hostWith({ held: ["rec_course"] });
+    const out = await host.runTool<{ courses: { id: string; why: string }[] }>(
+      "myCourses",
+      {},
+      { caller: STUDENT },
+    );
+    expect(out.courses).toEqual([
+      expect.objectContaining({ id: "rec_course", why: "subscription" }),
+    ]);
+    // Whether they hold it is the host's answer (access.check), never the pack's own reading.
+    expect(host.calls.map((c) => c.operation)).toContain("access.check");
+    expect(host.calls.map((c) => c.operation)).not.toContain("subscription.list");
+    // Holding nothing: nothing listed.
+    const none = await hostWith().runTool<{ courses: unknown[] }>(
+      "myCourses",
+      {},
+      { caller: STUDENT },
+    );
+    expect(none.courses).toEqual([]);
+  });
+
+  it("plans: the plans on offer with the host's price and trial days, for anyone", async () => {
+    const host = hostWith();
+    const out = await host.runTool<{ plans: unknown[]; currency: string }>(
+      "plans",
+      {},
+      { caller: PUBLIC },
+    );
+    expect(out).toEqual({
+      plans: [
+        { id: "rec_plan", title: "Every course", description: null, price: 29, trialDays: 7 },
+      ],
+      currency: "AUD",
+    });
+    expect(host.calls.map((c) => c.operation)).toEqual(["public.list"]);
   });
 
   it("buy: one line through order.start; a course already held is refused as not there", async () => {

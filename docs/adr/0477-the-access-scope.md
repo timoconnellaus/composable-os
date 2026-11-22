@@ -142,3 +142,8 @@ behaviour is tested here by moving the enrolment to it.
   seam, the flag and `media.play` do not change.
 - `my.get` and `my.list` open on any object with `access`: what they show is still the public
   scope's rows and columns, plus the holders' parts the caller holds.
+
+## Note (2026-11-22)
+Stage 32a step 3 registered the `subscription` kind as this ADR said, and Courses declares it on
+`courses.course`, with no change to the seam, the flag or `media.play`; stage 42's access tests
+run unchanged ([ADR 0488](0488-the-subscription-access-source.md)).

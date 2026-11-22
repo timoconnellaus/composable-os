@@ -100,6 +100,11 @@ export const SOLUTIONS: readonly Solution[] = [
           status: "built",
         },
         {
+          title: "Course subscriptions",
+          body: "One monthly subscription to every course, including ones added later, with a free trial for each person, paid through your own Stripe account. Members cancel and update their card on your website.",
+          status: "built",
+        },
+        {
           title: "Training programs",
           body: "Programs built from your exercise bank, given to a member or a whole class, with every set logged against its target.",
           status: "built",
@@ -112,9 +117,9 @@ export const SOLUTIONS: readonly Solution[] = [
       ],
       notYet: [
         {
-          title: "Course subscriptions",
-          body: "One subscription to every course, including ones added later, with a free trial, paid through your own Stripe account.",
-          status: "building",
+          title: "Moving your course subscribers",
+          body: "Your current subscribers join again on your site, free until the date they have already paid up to, and their old subscriptions end at the end of what they paid for.",
+          status: "design",
         },
         {
           title: "Class bookings",

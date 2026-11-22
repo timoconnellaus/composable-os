@@ -404,3 +404,13 @@ export function parsePortalInput(value: unknown): PaymentsPortalInput {
     returnUrl: assertReturnUrl(input.returnUrl),
   };
 }
+
+/**
+ * A moment a provider reported, as ISO 8601, or null when it is absent or not a moment: what the
+ * gatekeeper hands the host is always readable (stage 32a review).
+ */
+export function validInstant(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 40) return null;
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? null : new Date(at).toISOString();
+}
