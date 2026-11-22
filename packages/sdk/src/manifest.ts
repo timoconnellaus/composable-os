@@ -326,6 +326,8 @@ export const toolManifestSchema = z.object({
   permission: z.string().max(80).optional(),
   /** Only a person may call it (ADR 0512). */
   humanOnly: z.literal(true).optional(),
+  /** A person approves anyone else's call (ADR 0552). */
+  personApproves: z.literal(true).optional(),
   inputSchema: jsonSchemaObject,
   outputSchema: jsonSchemaObject,
 });
@@ -637,6 +639,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ...(tool.audiences ? { audiences: [...tool.audiences] } : {}),
           ...(tool.permission ? { permission: tool.permission } : {}),
           ...(tool.humanOnly ? { humanOnly: true as const } : {}),
+          ...(tool.personApproves ? { personApproves: true as const } : {}),
           ...(tool.customerFields
             ? {
                 customerFields: Object.fromEntries(
@@ -1464,6 +1467,12 @@ export function validateManifest(
       contract(
         `tools.${name}.humanOnly`,
         `A tool only a person on the staff may call cannot be open to ${open.join(" and ")} callers`,
+      );
+    }
+    if (tool.personApproves && (open.length || tool.risk === "read")) {
+      contract(
+        `tools.${name}.personApproves`,
+        "A tool a person approves is a staff tool that changes something: not open to customers or the public, and not a read",
       );
     }
     if (open.length && tool.risk !== "read" && tool.risk !== "write") {

@@ -298,6 +298,14 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "capacity", reason: "claim_live" },
     );
   }
+  // A record made for another that moved before it committed (migration 0670, ADR 0550): a
+  // booking for a class cancelled meanwhile.
+  if (message.includes("core_moved_meanwhile")) {
+    return new ConflictError(
+      "What this is for changed while it was being made (it may have been cancelled), so nothing was changed. Look again.",
+      { rule: "state_closed", reason: "moved_meanwhile" },
+    );
+  }
   // A waiter joining a waitlist after a place came free (migration 0610, ADR 0520).
   if (message.includes("core_waitlist_not_full")) {
     return new ConflictError("A place came free meanwhile: claim it instead of waiting.", {

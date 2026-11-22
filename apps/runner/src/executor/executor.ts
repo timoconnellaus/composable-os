@@ -346,6 +346,7 @@ export class Executor {
       tool: {
         name: input.tool,
         humanOnly: manifest.tools?.[input.tool]?.humanOnly === true,
+        personApproves: manifest.tools?.[input.tool]?.personApproves === true,
         permission: manifest.tools?.[input.tool]?.permission ?? null,
         // The person who called it, when a person did (the pipeline refused anyone else for a
         // humanOnly tool): who gave what a person's tool gives.

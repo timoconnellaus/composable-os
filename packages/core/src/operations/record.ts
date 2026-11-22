@@ -27,6 +27,7 @@ import {
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { assertNoLiveClaim } from "../capacity/claimants.ts";
 import { assertNoConfirmedClaims, counterWrite } from "../capacity/records.ts";
+import { WAITLIST_FOR } from "../capacity/waitlist.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import {
   ALLOWANCE_FIELDS,
@@ -874,6 +875,8 @@ export async function updateRecord(
     recurringConfirm?: number | undefined;
     /** A series change applies from this local date (`recurring.change { from }`). */
     recurringFrom?: string | undefined;
+    /** The record this one moves into, made in this batch (`movedFrom`, ADR 0551). */
+    movedInto?: string | undefined;
   } = {},
 ): Promise<boolean> {
   const before = await loadRecord(ctx, object, id);
@@ -897,7 +900,18 @@ export async function updateRecord(
   const outcome = await applyTransition(ctx, object, id, before.values, valuesOf(prepared), {
     by,
   });
-  const spent = await spenderWrite(ctx, object, id, before.values, valuesOf(prepared), outcome, by);
+  const spent = await spenderWrite(
+    ctx,
+    object,
+    id,
+    before.values,
+    valuesOf(prepared),
+    outcome,
+    by,
+    {
+      movedInto: options.movedInto,
+    },
+  );
   prepared = withHostValues(prepared, withValues(outcome, spent.values), object);
   // A record a series made, changed by anyone but the host, is its own from now on (ADR 0500).
   const edited = generatedRecordEdited(
@@ -997,15 +1011,54 @@ async function moveFollowers(
   to: string | undefined,
 ): Promise<void> {
   if (!to) return;
-  for (const follower of followersOf(object.name)) {
-    const target = Object.hasOwn(follower.when, to) ? follower.when[to] : undefined;
-    if (!target) continue;
+  const following = followersOf(object.name).filter((f) => Object.hasOwn(f.when, to));
+  if (!following.length) return;
+  // The record's live claims, read before its followers (ADR 0550): a follower made after this
+  // read and before the batch commits (a booking of a class being cancelled) would be missed by
+  // the cascade, so the batch checks at commit that the record's counter is what this read, less
+  // what the cascade gives back, leaves. Read first, so one made between the two reads is moved.
+  const claims =
+    object.capacity && !ctx.simulation
+      ? await ctx.db
+          .selectFrom("core_capacity_claim")
+          .select(["id", "for_type", "for_id", "quantity"])
+          .where("object_type", "=", object.name)
+          .where("record_id", "=", id)
+          .where("state", "in", ["held", "confirmed"])
+          .execute()
+      : null;
+  const givenBack = new Set<string>();
+  for (const follower of following) {
+    const target = follower.when[to] as string;
     const ids = await followerIds(ctx, follower, id);
     if (ids.length > FOLLOWERS_MAX) {
       throw new ConflictError(
         `${object.label} has more than ${FOLLOWERS_MAX} ${(follower.object.plural ?? "records").toLowerCase()} to move with it`,
         { rule: "follows_too_many", object: follower.object.name },
       );
+    }
+    const fc = follower.object.claims;
+    if (claims && fc?.object === object.name && fc.on === follower.relation) {
+      const keeps = fc.held.includes(target) || fc.confirmed.includes(target);
+      const moving = new Set(ids);
+      // A follower moved out of its places gives back each claim it holds.
+      if (!keeps) {
+        for (const c of claims) {
+          if (c.for_type === follower.object.name && moving.has(c.for_id)) givenBack.add(c.id);
+        }
+      }
+      // Its waitlist's holds go back with the last waiter (ADR 0520): when waiters move too.
+      const waiting = fc.waitlist?.state;
+      if (waiting && follower.from.includes(waiting) && ids.length) {
+        const waiters = await followerIds(ctx, { ...follower, from: [waiting] }, id);
+        if (waiters.length) {
+          for (const c of claims) {
+            if (c.for_type === WAITLIST_FOR && c.for_id === follower.object.name) {
+              givenBack.add(c.id);
+            }
+          }
+        }
+      }
     }
     for (const child of ids) {
       await updateRecord(
@@ -1018,6 +1071,12 @@ async function moveFollowers(
         },
       );
     }
+  }
+  if (claims) {
+    const expected = claims
+      .filter((c) => !givenBack.has(c.id))
+      .reduce((sum, c) => sum + Number(c.quantity), 0);
+    ctx.write(guardStatement("claimed", object.name, id, expected));
   }
 }
 

@@ -25,6 +25,7 @@ import {
   runDuplicateCron,
   runPublishDue,
   runRecurringDue,
+  runTimedMovesDue,
   runWaitlistDue,
   type ShippedExtension,
   type ShippedInstallResult,
@@ -307,6 +308,7 @@ export async function minuteTick(env: Env, at: Date) {
       publishing: null,
       recurring: null,
       waitlist: null,
+      timedMoves: null,
       customerSignup: null,
     };
   }
@@ -359,6 +361,14 @@ export async function minuteTick(env: Env, at: Date) {
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
     }),
   );
+  // Timed moves (stage 31a step 7, ADR 0550): records a declared moment has passed move as the
+  // host (a booking still booked after its class, on a class whose list was taken, a no-show).
+  const timedMoves = await minuteStep("timed moves", () =>
+    runTimedMovesDue(createCrmDb(env.DB), {
+      floor: parseFloor(env.APPROVAL_FLOOR),
+      ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
+    }),
+  );
   // Customer sign-in (ADR 0459): admins hear within a minute when a plan going on sale opened
   // sign-up to anyone ("anyone starting a subscription" on). Nothing while the switch is off.
   const customerSignup = await minuteStep("customer sign-up", async () => {
@@ -376,6 +386,7 @@ export async function minuteTick(env: Env, at: Date) {
     publishing,
     recurring,
     waitlist,
+    timedMoves,
     customerSignup,
   };
 }

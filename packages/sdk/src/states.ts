@@ -41,16 +41,40 @@ export interface StateMove {
    * Tools of this extension that may also make the move for whoever called them (stage 32b,
    * ADR 0513): a move by `["host"]` with `tools: ["voidPass"]` is made by the host and by that
    * tool, and by no other staff write (not `record.update`, not the assistant, not an automation).
-   * Each tool must be `humanOnly` and declare a `permission`, so the move is a person's act with
-   * that permission.
+   * Each tool must be `humanOnly`, or `personApproves` (ADR 0552: anyone else's call waits for a
+   * person's approval), and declare a `permission`, so the move is a person's act with that
+   * permission.
    */
   tools?: readonly string[];
   /**
    * Its window binds staff too (ADR 0507), every staff caller, a person included: a cancel that
    * gives a use back is in time for everyone. The host is not bound. A person who must make the
-   * move outside it does so through another move only a person's tool makes (`tools`).
+   * move outside it does so through another move only a person's tool makes (`tools`). A move
+   * staff alone make may have a window with it (ADR 0551): a coach ticks a name from an hour
+   * before the class, not days ahead.
    */
   bindsStaff?: boolean;
+}
+
+/**
+ * A move the host makes by itself once a moment has passed (ADR 0550): a booking still `booked`
+ * 30 minutes after its class ends becomes a `no_show`, if anyone on the class was ticked. The
+ * runner's minute cron finds the records due and moves each as the host, from where it was or not
+ * at all. Each needs a declared `host` move from each of `from` to `to`.
+ */
+export interface TimedMove {
+  /** The state, or states, the record moves from. */
+  from: string | readonly string[];
+  to: string;
+  /** A datetime field of the record, or `<relation>.<field>` one relation away (`class.endsAt`). */
+  at: string;
+  /** Minutes after `at` the move is due (0 to 10,080). */
+  minutesAfter?: number;
+  /**
+   * Only while another live record of this object pointing at the same record (through `at`'s
+   * relation) is in one of these states: a class whose attendance was taken has someone ticked.
+   */
+  ifAnyIn?: readonly string[];
 }
 
 /**
@@ -141,6 +165,8 @@ export interface StatesSpec {
     when: Readonly<Record<string, string>>;
     from: readonly string[];
   };
+  /** Moves the host makes once a moment has passed (ADR 0550), at most four. */
+  after?: readonly TimedMove[];
 }
 
 const fieldName = z.string().max(40);
@@ -215,6 +241,21 @@ export const statesManifestSchema = z.object({
       from: z.array(stateValue).min(1).max(20),
     })
     .strict()
+    .optional(),
+  after: z
+    .array(
+      z
+        .object({
+          from: z.union([stateValue, z.array(stateValue).min(1).max(20)]),
+          to: stateValue,
+          at: fieldPath,
+          minutesAfter: z.number().int().min(0).max(10_080).optional(),
+          ifAnyIn: z.array(stateValue).min(1).max(20).optional(),
+        })
+        .strict(),
+    )
+    .min(1)
+    .max(4)
     .optional(),
 });
 export type StatesManifest = z.infer<typeof statesManifestSchema>;
@@ -320,8 +361,15 @@ export function checkObjectStates(
   const { checkPath, checkWindow } = windowChecks(m, object, name, contract);
   states.moves.forEach((move, i) => {
     const mp = `${sp}.moves.${i}`;
-    if ((move.window || move.staffOnly) && !move.by.includes("customer")) {
-      contract(mp, "A window or staffOnly binds customers: the move must list customer in by");
+    // A window binds customers, or staff too with bindsStaff (ADR 0551); staffOnly customers.
+    if (move.staffOnly && !move.by.includes("customer")) {
+      contract(mp, "staffOnly binds customers: the move must list customer in by");
+    }
+    if (move.window && !move.by.includes("customer") && !move.bindsStaff) {
+      contract(
+        mp,
+        "A window binds customers: the move must list customer in by, or bind staff (bindsStaff)",
+      );
     }
     checkWindow(move.window, `${mp}.window`);
     for (const p of staffOnlyPathsOf(move.staffOnly)) checkPath(p, `${mp}.staffOnly`, "boolean");
@@ -330,10 +378,10 @@ export function checkObjectStates(
       const spec = m.tools?.[tool];
       if (!spec) {
         contract(`${mp}.tools`, `"${tool}" is not a tool of this extension`);
-      } else if (!spec.humanOnly || !spec.permission) {
+      } else if ((!spec.humanOnly && !spec.personApproves) || !spec.permission) {
         contract(
           `${mp}.tools`,
-          `"${tool}" must be humanOnly and declare a permission: the move is a person's act with it`,
+          `"${tool}" must be humanOnly or personApproves and declare a permission: the move is a person's act with it`,
         );
       }
     }
@@ -398,6 +446,43 @@ export function checkObjectStates(
       }
     }
   }
+  // Timed moves (ADR 0550): a declared host move each, and a moment the sweep reads in SQL.
+  (states.after ?? []).forEach((rule, i) => {
+    const tp = `${sp}.after.${i}`;
+    if (!isState(rule.to)) contract(`${tp}.to`, `"${rule.to}" is not an option of ${states.field}`);
+    for (const from of moveOrigins(rule)) {
+      if (!isState(from)) {
+        contract(`${tp}.from`, `"${from}" is not an option of ${states.field}`);
+      } else if (
+        !states.moves.some(
+          (move) =>
+            move.to === rule.to && move.by.includes("host") && moveOrigins(move).includes(from),
+        )
+      ) {
+        contract(`${tp}.from`, `${name} needs a host move from "${from}" to "${rule.to}"`);
+      }
+    }
+    const parts = rule.at.split(".");
+    const at = parts.length <= 2 ? resolveFieldPath(m, object, rule.at) : undefined;
+    const via = parts.length === 2 ? fieldOf(parts[0] as string) : undefined;
+    const ownTarget = via?.type === "relation" && !via.many && via.to?.startsWith(`${m.id}.`);
+    if (at?.type !== "datetime" || at.many || (parts.length === 2 && !ownTarget)) {
+      contract(
+        `${tp}.at`,
+        `"${rule.at}" must be a datetime field of ${name}, or <relation>.<field> on another of this extension's objects`,
+      );
+    }
+    if (rule.ifAnyIn) {
+      if (parts.length !== 2) {
+        contract(`${tp}.ifAnyIn`, "ifAnyIn needs at one relation away: the records it compares");
+      }
+      for (const state of rule.ifAnyIn) {
+        if (!isState(state)) {
+          contract(`${tp}.ifAnyIn`, `"${state}" is not an option of ${states.field}`);
+        }
+      }
+    }
+  });
   for (const [request, targets] of Object.entries(states.requests ?? {})) {
     const rp = `${sp}.requests.${request}`;
     if (isState(request)) contract(rp, `"${request}" is a state; a request needs its own name`);

@@ -14,15 +14,22 @@ import type {
   book,
   bookFor,
   cancel,
+  cancelClass,
   cancelFor,
   classGet,
   classList,
   day,
   findPeople,
   leaveWaitlist,
+  markAll,
+  markAttended,
+  markNoShow,
   mine,
+  move,
   returnUse,
+  roster,
   timetable,
+  undoAttended,
 } from "../tools.ts";
 
 type Io<T extends { input: z.ZodType; output: z.ZodType }> = {
@@ -44,6 +51,13 @@ export type BookingsOperations = {
   "x.bookings.cancelFor": { kind: "mutation" } & Io<typeof cancelFor>;
   "x.bookings.returnUse": { kind: "mutation" } & Io<typeof returnUse>;
   "x.bookings.findPeople": { kind: "query" } & Io<typeof findPeople>;
+  "x.bookings.roster": { kind: "query" } & Io<typeof roster>;
+  "x.bookings.markAttended": { kind: "mutation" } & Io<typeof markAttended>;
+  "x.bookings.undoAttended": { kind: "mutation" } & Io<typeof undoAttended>;
+  "x.bookings.markNoShow": { kind: "mutation" } & Io<typeof markNoShow>;
+  "x.bookings.markAll": { kind: "mutation" } & Io<typeof markAll>;
+  "x.bookings.move": { kind: "mutation" } & Io<typeof move>;
+  "x.bookings.cancelClass": { kind: "mutation" } & Io<typeof cancelClass>;
 };
 
 type Name = keyof BookingsOperations & string;
@@ -58,6 +72,8 @@ export type BookResult = Out<"x.bookings.book">;
 export type CancelResult = Out<"x.bookings.cancel">;
 export type DayView = Out<"x.bookings.day">;
 export type ClassListView = Out<"x.bookings.classList">;
+export type RosterView = Out<"x.bookings.roster">;
+export type MarkResult = Out<"x.bookings.markAttended">;
 export type BookForResult = Out<"x.bookings.bookFor">;
 export type FoundPeople = Out<"x.bookings.findPeople">;
 
@@ -164,6 +180,13 @@ export const BOOKINGS_HOOKS_CALL = {
   useCancelFor: ["x.bookings.cancelFor"],
   useReturnUse: ["x.bookings.returnUse"],
   useFindPeople: ["x.bookings.findPeople"],
+  useRoster: ["x.bookings.roster"],
+  useMarkAttended: ["x.bookings.markAttended"],
+  useUndoAttended: ["x.bookings.undoAttended"],
+  useMarkNoShow: ["x.bookings.markNoShow"],
+  useMarkAll: ["x.bookings.markAll"],
+  useMove: ["x.bookings.move"],
+  useCancelClass: ["x.bookings.cancelClass"],
 } as const;
 
 /**
@@ -236,6 +259,34 @@ function allBookingsHooks(
         ...api.query("x.bookings.findPeople", input),
         enabled: input.query.trim().length >= 2,
       });
+    },
+    /** A coach or staff: a class's list with names and marks (nothing of what anyone paid). */
+    useRoster(input: In<"x.bookings.roster">) {
+      return useQuery(api.query("x.bookings.roster", input));
+    },
+    /** A coach or staff: tick a name; the host says if someone ticked it first, and who. */
+    useMarkAttended() {
+      return useMutation(api.mutation("x.bookings.markAttended"));
+    },
+    /** A coach or staff: untick a name ticked by mistake. */
+    useUndoAttended() {
+      return useMutation(api.mutation("x.bookings.undoAttended"));
+    },
+    /** A coach or staff: mark a name as not come, once the class has started. */
+    useMarkNoShow() {
+      return useMutation(api.mutation("x.bookings.markNoShow"));
+    },
+    /** A coach or staff: tick everyone still booked on a class. */
+    useMarkAll() {
+      return useMutation(api.mutation("x.bookings.markAll"));
+    },
+    /** Staff: move a booking to another class with its use (refused whole when it cannot). */
+    useMove() {
+      return useMutation(api.mutation("x.bookings.move"));
+    },
+    /** A person on the staff: cancel a class and its bookings (an AI's call waits for one). */
+    useCancelClass() {
+      return useMutation(api.mutation("x.bookings.cancelClass"));
     },
   };
 }

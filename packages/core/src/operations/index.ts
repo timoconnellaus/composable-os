@@ -73,6 +73,7 @@ import { suggestionOperations } from "./suggestions.ts";
 import { summaryOperations } from "./summary.ts";
 import { supportOperations } from "./support.ts";
 import { taskOperations } from "./task.ts";
+import { timedMoveOperations } from "./timed-moves.ts";
 import { trashOperations } from "./trash.ts";
 import { updateOperations } from "./update.ts";
 import { userOperations } from "./user.ts";
@@ -133,6 +134,7 @@ export const coreOperations = [
   ...publicReadOperations,
   ...accessOperations,
   ...stateResolveOperations,
+  ...timedMoveOperations,
   ...notificationOperations,
   ...notificationDeliveryOperations,
   ...assistantOperations,

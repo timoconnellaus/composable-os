@@ -608,6 +608,13 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * any extension may declare it.
    */
   humanOnly?: boolean;
+  /**
+   * A person approves it (ADR 0552): a person on the staff calls it as any tool, and anyone else's
+   * call (the assistant, an MCP client, an automation) always waits in the approval queue for a
+   * person, whatever the approval policy or preset says, and runs when a person approves it. For
+   * what an AI may propose but a person decides (cancelling a class). Staff only, and not a read.
+   */
+  personApproves?: boolean;
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
 }
 
