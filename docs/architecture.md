@@ -1045,6 +1045,21 @@ batch (`for: { type: <object>, id }`), refused by the database past the places a
 line is (migration 0440). A claimant holding a place keeps its `on` and stays out of Trash.
 Orders claim through their own move hook, unchanged.
 
+**Waitlists** ([ADR 0520](adr/0520-a-waitlist-on-a-claimant.md),
+`packages/core/src/capacity/waitlist.ts`, `operations/waitlist.ts`). A claimant may declare
+`claims.waitlist: { state, promote, until, promotedAt?, passedOverAt?, passedOverReason? }`. A
+record in `state` holds nothing; it is made only while the claimed record is full (a
+`core_write_guard` of kind `full` in its batch, migration 0610) and before `until` (a moment named
+as a window's end). A place given back before `until` while anyone waits is handed to the
+waitlist by two conditional statements in the same batch (the counter's `held` and a claim
+`for_type 'waitlist'`), so a direct claim finds the record full. `runWaitlistDue`, the runner's
+minute step, promotes the first waiter (by creation) as the host, one batch each
+(`waitlist.promote`: from `state` or not at all, a waitlist hold given back and the waiter's own
+claim made, whatever the move spends spent), passes over a waiter whose spend is refused
+(`waitlist.passOver`) and gives back holds nobody took or that the cut-off reached
+(`waitlist.release`). Those three refuse any origin but `system`. The last waiter leaving gives the
+holds back in its batch. `waitlist.position` reads a waiter's place (a customer's own only).
+
 **Declared uniqueness** ([ADR 0502](adr/0502-declared-uniqueness.md),
 `packages/core/src/records/unique.ts`). `unique: [{ fields, states? }]` is a partial unique index
 the reconciler builds on the extension's table: no two live records in those states share the
@@ -1253,7 +1268,8 @@ copy; twelve blocks (the program builder, the exercise bank, today and session, 
 history and progress, the coach's client view; web and native) are built on it. In development
 `apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended).
 
-**Bookings** (`packs/bookings`, stage 31a, step 3 the spine; [ADR 0504](adr/0504-the-bookings-pack.md)):
+**Bookings** (`packs/bookings`, stage 31a, step 3 the spine, steps 4 and 5 spending and the
+waitlist; [ADRs 0504](adr/0504-the-bookings-pack.md) and [0520](adr/0520-a-waitlist-on-a-claimant.md)):
 rooms, coaches, series (`recurring`, making classes in local time, the horizon at least the
 longest window a class type opens), classes (places shown exactly, public while scheduled),
 closures, and bookings: a claimant on its class, one live per Person per class, windows on its
@@ -1263,11 +1279,13 @@ class not scheduled), the requested `cancel` the host resolves to in time or lat
 allowance spender (`paidBy` the Memberships pack's `membership` and `pass`, the class's start as
 its time, its class type and local weekday and minute copied; `waived` for a walk-in paid at the
 desk, [ADR 0506](adr/0506-a-spender-paid-another-way.md)). It requires Programs. Its tools:
-`timetable`, `classGet` (public), `book`, `cancel` (with `state.resolve`'s preview), `mine`
+`timetable`, `classGet` (public), `book` (joins a full class's waitlist unless asked not to),
+`cancel` (with `state.resolve`'s preview), `leaveWaitlist`, `mine` (with a waiter's position)
 (customers), `bookFor`, `cancelFor`, `day`, `classList` (staff). Hooks, web blocks (the timetable,
-the desk) and a native timetable marked `noPurchase`. Waitlists, the family link, attendance,
-moving people, staff cancelling a class, drop-ins and messages are steps 5 to 9; the states they
-use are declared, with no customer move into them. After the review ([ADR 0507](adr/0507-what-the-bookings-review-needed-of-the-platform.md)):
+the desk) and a native timetable marked `noPurchase`. The booking declares its waitlist
+(`claims.waitlist`, ADR 0520): joined by a member or staff, promoted by the host. The family link,
+attendance, moving people, staff cancelling a class, drop-ins and messages are steps 6 to 9; the
+states they use are declared, with no customer move into them. After the review ([ADR 0507](adr/0507-what-the-bookings-review-needed-of-the-platform.md)):
 a class the host cancels moves its live bookings to `cancelled_by_us` in its batch
 (`states.follows`, the state cascade), a closed class binds staff (`create.closed`), a member's
 class and holder are create-only (`customer.createOnly`), the booking rules are a person's
@@ -1501,7 +1519,7 @@ calculates a price, checks a capacity or checks a permission.
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
-| Bookings | `recurring`, `capacity` and `claims`, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 3 built (the behaviours, then the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md)); spending with real memberships (step 4) and steps 5 to 10 to come |
+| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 5 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md)); steps 6 to 10 to come |
 | Memberships | `allowance` (holders), recurring billing | stage 32b: the behaviour built; the pack in progress |
 
 ### Client repos

@@ -154,3 +154,12 @@ works out a window, a place or a price (the block lint).
   granted by object); `duplicate.check` is listed.
 - **The fixture holder** is `bkfixture.pass` (not the Memberships pack's id); the tests and local
   dev use a variant of the pack whose `paidBy` also names it, and the shipped `paidBy` is unchanged.
+
+## Note (2026-11-22, stage 31a steps 4 and 5)
+The booking declares its waitlist ([ADR 0520](0520-a-waitlist-on-a-claimant.md)): a member or
+staff create a booking `waiting` on a full class before the class type's "waitlist stops" time;
+the host promotes and passes over (`promotedAt`, `passedOverAt`, `passedOverReason`). `book` joins
+the waitlist when the class is full unless asked not to (`waitlist: false`), also for a member
+whose booking was refused for want of a use (joining spends nothing; they are passed over at
+promotion if they still cannot pay); `leaveWaitlist` is a new customer tool; `mine` and
+`classList` show the waitlist. The shipped packs' spend is proved together (ADR 0493's note).

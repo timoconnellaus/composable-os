@@ -156,3 +156,15 @@ local parts, which the periods use and stage 31 can.
   (ADR 0504).
 - A spender may declare `waived`, a read-only boolean: a record created with it true enters its
   spend states spending nothing, and the mark cannot change while it is in one (ADR 0506).
+
+## Note (2026-11-22, stage 31a steps 4 and 5)
+- Stage 31's six amendments are proved on the shipped Bookings and Memberships packs
+  (`apps/runner/test/bookings-waitlist.test.ts`): a weekly membership's uses counted in the
+  class's week, a fourth refused and the next week's booked, two bookings at once for the last use
+  (one booked), off-peak and class-type conditions, an unlimited membership spent first and still
+  writing a use, a named pass spent, a pass ending before the class refused (`ended`). Moving a use
+  (amendment 4) stays proved on the fixture (this file's tests); the staff `move` tool that makes
+  one is the Bookings pack's step 7.
+- A waiter's spend happens on promotion, as the host (`spent_by` `host`), from the holder they
+  named when they joined, if any ([ADR 0520](0520-a-waitlist-on-a-claimant.md)). A refused spend
+  refuses the promotion, and the waiter is passed over.
