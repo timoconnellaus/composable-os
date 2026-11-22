@@ -66,6 +66,84 @@ export interface RefundRequest {
   currency: string;
   reason: string;
   refundId: string;
+  /** A subscription period's invoice: the refund is credited on it (ADR 0486). */
+  invoiceRef?: string;
+}
+
+/** A subscription as the gatekeeper read it (gatekeeper PaymentsSubscription). */
+export interface ProviderSubscription {
+  provider: PaymentsProviderName;
+  ref: string;
+  customerRef: string | null;
+  subscriptionId: string | null;
+  status:
+    | "incomplete"
+    | "incomplete_expired"
+    | "trialing"
+    | "active"
+    | "past_due"
+    | "unpaid"
+    | "paused"
+    | "canceled";
+  amount: number;
+  currency: string;
+  interval: "week" | "month" | "year" | null;
+  cancelAtPeriodEnd: boolean;
+  /** A date it ends on set at the provider another way (its dashboard); resume does not undo it. */
+  cancelAt: string | null;
+  trialEnd: string | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  canceledAt: string | null;
+  endedAt: string | null;
+  endReason: string | null;
+  observedAt: string;
+}
+
+/** One invoice of a subscription (gatekeeper PaymentsInvoice). */
+export interface ProviderInvoice {
+  ref: string;
+  status: string;
+  amountPaid: number;
+  amountDue: number;
+  currency: string;
+  paymentRef: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  billingReason: string | null;
+  attemptCount: number;
+  nextAttemptAt: string | null;
+  hostedUrl: string | null;
+  tax?: { amount: number; country: string | null };
+}
+
+export type SubscriptionTrigger =
+  | "checkout_completed"
+  | "created"
+  | "updated"
+  | "deleted"
+  | "paused"
+  | "resumed"
+  | "trial_will_end"
+  | "invoice_paid"
+  | "invoice_payment_failed"
+  | "invoice_action_required"
+  | "invoice_finalization_failed";
+
+/** What the host asks the gatekeeper for to start a subscription (ADR 0485). */
+export interface SubscriptionCheckoutRequest {
+  subscriptionId: string;
+  amount: number;
+  currency: string;
+  interval: "week" | "month" | "year";
+  description: string;
+  returnUrl: string;
+  customerEmail?: string;
+  customerRef?: string;
+  trialDays?: number;
+  trialEnd?: string;
+  idempotencyKey: string;
+  tax?: { behavior: "inclusive"; taxCode: string };
 }
 
 /** A verified event, as the gatekeeper delivers it to the host's hook. */
@@ -94,6 +172,18 @@ export type PaymentsEvent =
       currency: string;
       occurredAt: string;
       tax?: { amount: number };
+      /** A credit note's report of the tax refund `refundRef` gave back; it confirms nothing. */
+      creditNote?: boolean;
+    }
+  | {
+      kind: "subscription";
+      provider: PaymentsProviderName;
+      eventId: string;
+      trigger: SubscriptionTrigger;
+      /** A current read of the subscription, made when the event arrived (ADR 0485). */
+      subscription: ProviderSubscription;
+      invoice?: ProviderInvoice;
+      occurredAt: string;
     };
 
 const notConnected = () =>
@@ -187,6 +277,29 @@ export async function requestProviderRefund(
     method: "refund",
     args: [request],
     caller,
+  });
+}
+
+/**
+ * A subscription call the host makes for itself (ADR 0485): opening the provider's page, asking
+ * it to end a subscription at its period's end or undo that, or opening its portal. Each is made
+ * only after the host's operation has established the caller may (their own subscription).
+ * Cancel and resume are the gatekeeper's outbound actions, which the host's own call applies at
+ * once; the subscription's state changes only when the provider's verified event says so.
+ */
+export async function callSubscriptionGatekeeper(
+  integrations: IntegrationRuntime | undefined,
+  target: PaymentsTarget,
+  method: "createSubscriptionCheckout" | "cancelSubscription" | "resumeSubscription" | "openPortal",
+  request: unknown,
+): Promise<IntegrationCallResult> {
+  const call = requireHostCalls(integrations);
+  return call({
+    connectionId: target.connectionId,
+    resource: target.resource,
+    method,
+    args: [request],
+    purpose: "orders",
   });
 }
 

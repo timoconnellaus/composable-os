@@ -111,6 +111,8 @@ export interface PricedLine {
   total: number;
   /** Deposit for one unit and when the balance is due, when the record offers a deposit. */
   deposit: { amount: number; balanceDueAt: string } | null;
+  /** A plan's period and trial (ADR 0485): only when priced as a plan. */
+  recurring?: { interval: "week" | "month" | "year"; trialDays: number | null };
 }
 
 /** Why a line cannot be bought. A caller outside the org sees the rule, not the record. */
@@ -189,6 +191,8 @@ export async function priceLines(
   currency: string,
   now: string = new Date().toISOString(),
   buyer?: Principal,
+  /** `plans`: price recurring plans (subscription.start, ADR 0485) instead of things to buy. */
+  options: { plans?: boolean } = {},
 ): Promise<PricedLine[]> {
   // The host's own read, org-wide: a guest cannot see a ticket type through the seam, and the
   // price is the host's to read whoever is buying.
@@ -207,6 +211,15 @@ export async function priceLines(
     const sellable: Sellable | undefined = object ? sellableOf(object) : undefined;
     if (!object || !sellable || sellableProblems(sellable, object).length) {
       refuseLine("not_for_sale", index, "This cannot be bought");
+    }
+    // A plan is subscribed to (subscription.start), never put on an order (ADR 0485); and only a
+    // plan is subscribed to.
+    if (Boolean(sellable.recurring) !== Boolean(options.plans)) {
+      refuseLine(
+        "not_for_sale",
+        index,
+        sellable.recurring ? "This is a plan: subscribe to it instead" : "This is not a plan",
+      );
     }
     // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
     const row = (await (db as any)
@@ -280,7 +293,17 @@ export async function priceLines(
       if (amount !== null && amount > 0 && balanceDueAt) deposit = { amount, balanceDueAt };
     }
     const title = object.titleField ? read(object.titleField) : null;
+    const trial = sellable.recurring?.trialDays ? read(sellable.recurring.trialDays) : null;
     priced.push({
+      ...(sellable.recurring
+        ? {
+            recurring: {
+              interval: sellable.recurring.interval,
+              trialDays:
+                typeof trial === "number" && Number.isInteger(trial) && trial > 0 ? trial : null,
+            },
+          }
+        : {}),
       id: newId("orderLine"),
       position: index,
       object: object.name,
@@ -391,6 +414,11 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     tax_amount: 0,
     tax_refunded: 0,
     tax_country: null,
+    subscription_id: null,
+    period_start: null,
+    period_end: null,
+    invoice_ref: null,
+    period_flag: null,
     paid_at: null,
     cancelled_at: null,
     refunded_at: null,

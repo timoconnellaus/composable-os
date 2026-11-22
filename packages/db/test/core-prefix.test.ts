@@ -56,6 +56,7 @@ it("after migrations every read view is rec_<object>, and none keeps the old pre
     "rec_record_tag",
     "rec_stage_history",
     "rec_state_history",
+    "rec_subscription",
     "rec_task",
     "rec_task_link",
     "rec_user",

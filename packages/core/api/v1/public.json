@@ -970,6 +970,87 @@
       "invalidates": []
     },
     {
+      "name": "subscription.start",
+      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
+      "risk": "write",
+      "audiences": ["public"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "description": "The plan's object"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The plan"
+              }
+            },
+            "required": ["object", "id"]
+          },
+          "returnUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Where the payer comes back to"
+          },
+          "email": {
+            "description": "The payer's email. Required unless the caller is a signed-in customer.",
+            "type": "string",
+            "maxLength": 320
+          }
+        },
+        "required": ["plan", "returnUrl"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "subscriptionId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "The provider's page"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string",
+            "enum": ["week", "month", "year"]
+          },
+          "trialDays": {
+            "type": ["number", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "subscriptionId",
+          "url",
+          "amount",
+          "currency",
+          "interval",
+          "trialDays",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "x.content.categories",
       "description": "Every category of posts, by name: its id, name and address (slug), for a site's menu or a post's label. Read-only. (Extension tool from Content 0.2.0.)",
       "risk": "read",

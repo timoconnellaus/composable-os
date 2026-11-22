@@ -120,6 +120,160 @@ export interface PaymentsRefundInput {
   reason: string;
   /** The host's id for this refund (1 to 64 characters), sent as metadata and idempotency key. */
   refundId: string;
+  /**
+   * A subscription period's invoice the payment paid (`in_…`). Given, the refund is also credited
+   * on that invoice (a credit note), so the provider's tax report gives back the tax with it and
+   * says how much (ADR 0486).
+   */
+  invoiceRef?: string;
+}
+
+/** How often a subscription is charged. */
+export type PaymentsInterval = "week" | "month" | "year";
+
+/**
+ * What `createSubscriptionCheckout()` takes (stage 32a, ADR 0485): the provider's own page, which
+ * takes the card and starts a subscription the provider then charges every period. The host prices
+ * it from the plan; the provider runs the schedule.
+ */
+export interface PaymentsSubscriptionCheckoutInput {
+  /** The host's id for the subscription (`sbs_…`), carried on the provider's subscription. */
+  subscriptionId: string;
+  /** The price of one period, a positive safe integer of minor units, tax included. */
+  amount: number;
+  /** ISO 4217, three letters. */
+  currency: string;
+  interval: PaymentsInterval;
+  /** The plan's title, 1 to 200 characters, shown on the provider's page and invoices. */
+  description: string;
+  /** As for a checkout: https, or http on localhost. */
+  returnUrl: string;
+  /** Prefills the payer's email when no provider customer is named. */
+  customerEmail?: string;
+  /** The provider's customer to bill, when the payer already has one (`cus_…`). */
+  customerRef?: string;
+  /**
+   * A free first period of this many days (1 to 730), with the card taken first. The provider's
+   * first charge is when it ends. Not with `trialEnd`.
+   */
+  trialDays?: number;
+  /**
+   * Free until this moment (ISO 8601), with the card taken first: a continuation's paid-up date.
+   * At least 48 hours ahead (Stripe's rule for Checkout). Not with `trialDays`.
+   */
+  trialEnd?: string;
+  /** 1 to 200 characters. The same key opens no second checkout. */
+  idempotencyKey: string;
+  /** Tax on every period, inside the price (Stripe Tax). Left out, nothing about tax is sent. */
+  tax?: { behavior: "inclusive"; taxCode: string };
+}
+
+/** A subscription's state as the provider has it. */
+export type PaymentsSubscriptionStatus =
+  | "incomplete"
+  | "incomplete_expired"
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "unpaid"
+  | "paused"
+  | "canceled";
+
+/** A subscription as the provider reported it when it was read. Times ISO 8601. */
+export interface PaymentsSubscription {
+  provider: PaymentsProviderName;
+  /** The provider's subscription reference (`sub_…`). */
+  ref: string;
+  /** The provider's customer, the payer (`cus_…`). */
+  customerRef: string | null;
+  /** The host's id the checkout gave it, or null when it carries none. */
+  subscriptionId: string | null;
+  status: PaymentsSubscriptionStatus;
+  /** One period's price, minor units. */
+  amount: number;
+  currency: string;
+  interval: PaymentsInterval | null;
+  /** Whether it is set to end when the current period ends (`cancel_at_period_end`). */
+  cancelAtPeriodEnd: boolean;
+  /**
+   * A date it is set to end on, set some other way (Stripe's `cancel_at`, from its dashboard or a
+   * schedule), or null. Resuming undoes only `cancelAtPeriodEnd`.
+   */
+  cancelAt: string | null;
+  trialEnd: string | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  canceledAt: string | null;
+  endedAt: string | null;
+  /** Why it ended or is ending, in the provider's words (`cancellation_requested`, `payment_failed`, …). */
+  endReason: string | null;
+  /** When the gatekeeper read it: later reads supersede earlier ones. */
+  observedAt: string;
+}
+
+/** One invoice of a subscription, as the provider reported it. */
+export interface PaymentsInvoice {
+  /** The provider's invoice reference (`in_…`). */
+  ref: string;
+  status: string;
+  /** What was paid on it, minor units (zero for a trial's invoice). */
+  amountPaid: number;
+  /** What it asks for, minor units. */
+  amountDue: number;
+  currency: string;
+  /** The payment the money came in on (a Stripe PaymentIntent), for a refund; null when none. */
+  paymentRef: string | null;
+  /** The period it pays for. */
+  periodStart: string | null;
+  periodEnd: string | null;
+  /** Why it was made: `subscription_create`, `subscription_cycle`, … */
+  billingReason: string | null;
+  /** How many times the provider has tried to collect it. */
+  attemptCount: number;
+  /** When the provider tries again, or null when it will not. */
+  nextAttemptAt: string | null;
+  /** The provider's page where the payer can pay or confirm it (3D Secure). */
+  hostedUrl: string | null;
+  /** The provider's tax inside `amountPaid`, when it calculated tax on the invoice. */
+  tax?: { amount: number; country: string | null };
+}
+
+/** What `cancelSubscription()` takes. */
+export interface PaymentsCancelSubscriptionInput {
+  /** The host's id, for the approver and the provider's records. */
+  subscriptionId: string;
+  /** The provider's subscription reference. */
+  subscriptionRef: string;
+  /** `period_end`: it ends when the paid period does. `now`: it ends at once, nothing refunded. */
+  when: "period_end" | "now";
+  /** 1 to 500 characters, shown to the approver. */
+  reason: string;
+}
+
+/** What `resumeSubscription()` takes: undo a cancellation at the period's end before it happens. */
+export interface PaymentsResumeSubscriptionInput {
+  subscriptionId: string;
+  subscriptionRef: string;
+}
+
+/** A submitted change to a subscription: `pending` until the host applies it. */
+export interface PaymentsSubscriptionChangeReceipt {
+  status: "pending" | "sent";
+  /** The action id in the approval queue. */
+  id: number;
+}
+
+/** What `openPortal()` takes. */
+export interface PaymentsPortalInput {
+  /** The payer's provider customer. */
+  customerRef: string;
+  /** Where the portal's "back" link goes: https, or http on localhost. */
+  returnUrl: string;
+}
+
+/** The provider's customer portal for one customer: card, billing details and invoices only. */
+export interface PaymentsPortal {
+  url: string;
 }
 
 /** A submitted refund: `pending` until the host applies it. */
@@ -160,7 +314,42 @@ export type PaymentsEvent =
       occurredAt: string;
       /** The tax this refund gave back, when the provider's refund event says. */
       tax?: { amount: number };
+      /**
+       * True when the event is a credit note's report of a refund (ADR 0486): it says the tax the
+       * refund `refundRef` gave back, and confirms nothing; the refund's own event does that.
+       */
+      creditNote?: boolean;
+    }
+  | {
+      /**
+       * Something happened to a subscription (stage 32a, ADR 0485). `subscription` is a current
+       * read made when the event arrived, not the event's own copy: events may arrive in any
+       * order, and the latest read wins.
+       */
+      kind: "subscription";
+      provider: PaymentsProviderName;
+      eventId: string;
+      /** What the provider said happened. */
+      trigger: PaymentsSubscriptionTrigger;
+      subscription: PaymentsSubscription;
+      /** For an invoice trigger: the invoice, as read when the event arrived. */
+      invoice?: PaymentsInvoice;
+      occurredAt: string;
     };
+
+/** What a subscription event says happened. */
+export type PaymentsSubscriptionTrigger =
+  | "checkout_completed"
+  | "created"
+  | "updated"
+  | "deleted"
+  | "paused"
+  | "resumed"
+  | "trial_will_end"
+  | "invoice_paid"
+  | "invoice_payment_failed"
+  | "invoice_action_required"
+  | "invoice_finalization_failed";
 
 /** The hook a session subscribes. */
 export interface PaymentsEventHook {
@@ -176,6 +365,29 @@ export interface PaymentsSession {
   getPayment(ref: string): Promise<PaymentsPayment>;
   /** Submits a refund as an outbound action `payments.refund` (never auto-approvable). Nothing is sent until the host applies it. */
   refund(input: PaymentsRefundInput): Promise<PaymentsRefundReceipt>;
-  /** Asks the host to bind a hook that receives every verified payment and refund event. */
+  /**
+   * Opens the provider's hosted page that takes the card and starts a subscription. Records an
+   * observation first. No approval: nothing is charged until the provider's schedule says so.
+   */
+  createSubscriptionCheckout(input: PaymentsSubscriptionCheckoutInput): Promise<PaymentsCheckout>;
+  /** Reads one subscription now. Records an observation first. */
+  getSubscription(ref: string): Promise<PaymentsSubscription>;
+  /**
+   * Submits a cancellation as the outbound action `payments.subscription.cancel`. Nothing is sent
+   * until it is applied; the subscription's state follows from the provider's verified event.
+   */
+  cancelSubscription(
+    input: PaymentsCancelSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt>;
+  /** Submits `payments.subscription.resume`: undoes a cancellation at the period's end. */
+  resumeSubscription(
+    input: PaymentsResumeSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt>;
+  /**
+   * Opens the provider's customer portal for one customer, with only the card, billing details and
+   * past invoices on (no cancelling or plan changes there). Records an observation first.
+   */
+  openPortal(input: PaymentsPortalInput): Promise<PaymentsPortal>;
+  /** Asks the host to bind a hook that receives every verified payment, refund and subscription event. */
   subscribe(hook: PaymentsEventHook): Promise<void>;
 }

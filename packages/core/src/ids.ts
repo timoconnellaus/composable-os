@@ -64,6 +64,8 @@ export const ID_PREFIXES = {
   orderLine: "orl",
   /** A refund of an order's payment (stage 25, ADR 0429). */
   refund: "rfd",
+  /** A subscription the payment provider runs (stage 32a, ADR 0485). */
+  subscription: "sbs",
   /** A native app's signed-in session on the HTTP surface (stage 23, ADR 0419). */
   deviceSession: "dvs",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */

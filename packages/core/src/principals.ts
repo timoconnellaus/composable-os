@@ -70,6 +70,9 @@ export type Role = (typeof ROLES)[number];
  *   Admins only by default, as `orders:refund` is. An AI actor acting for an account that holds
  *   it may ask for a publish, never make one: its request always waits for a person who holds
  *   it too (ADR 0480).
+ * - `subscriptions:manage` end or keep going someone else's subscription (stage 32a, ADR 0485).
+ *   Admins only by default, grantable as `orders:refund` is. A customer ends or keeps going their
+ *   own without it (the operation's audience, not a role, lets them).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -83,6 +86,7 @@ export const PERMISSIONS = [
   "settings:manage",
   "orders:refund",
   "records:publish",
+  "subscriptions:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -102,7 +106,11 @@ export function roleHasPermission(role: Role, permission: Permission): boolean {
  * permissions of its own tools it declares `grantable`. Nothing that changes identity, policy,
  * users or extensions is grantable.
  */
-export const GRANTABLE_PERMISSIONS = ["records:publish", "orders:refund"] as const;
+export const GRANTABLE_PERMISSIONS = [
+  "records:publish",
+  "orders:refund",
+  "subscriptions:manage",
+] as const;
 
 /**
  * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role

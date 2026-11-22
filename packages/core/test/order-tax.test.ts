@@ -467,7 +467,9 @@ describe("deposits and refunds (criteria 12b and 12c, host side)", () => {
     const action = asked.refunds[0]?.pendingActionId as string;
     await run("approval.approve", { actionIds: [action] }, staff());
     const request = [...gw.refunds.values()].at(-1) as { refundId: string; paymentRef: string };
-    expect(request.paymentRef).not.toBe(first.event.paymentRef);
+    expect(request.paymentRef).not.toBe(
+      first.event.kind === "payment" ? first.event.paymentRef : undefined,
+    );
     const refunded = (tax?: number, amount = 500) =>
       payments.deliver({
         kind: "refund",

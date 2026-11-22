@@ -243,6 +243,14 @@ export interface SellableDefinition {
   grants?: GrantDefinition | undefined;
   /** Tax at checkout (ADR 0479): the provider's product tax code, and an event's place. */
   tax?: TaxDefinition | undefined;
+  /** A plan paid for every period (ADR 0485): subscribed to, never put on an order. */
+  recurring?:
+    | {
+        interval: "week" | "month" | "year";
+        /** A number field: the days of a free first period. */
+        trialDays?: string | undefined;
+      }
+    | undefined;
 }
 
 /** The SDK's TaxSpec with registry field names. */

@@ -134,7 +134,7 @@ export default defineWorkersTestConfig({
           bindings: {
             BASE_URL: "http://crm.test/gatekeeper/payments",
             PAYMENTS_FAKE_PROVIDER: "true",
-            FAKE_WEBHOOK_SECRET: "",
+            FAKE_WEBHOOK_SECRET: "fake-payments-test-secret",
             STRIPE_API_BASE: "",
             STRIPE_ACCOUNT: "",
           },

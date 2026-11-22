@@ -7,7 +7,13 @@
 //   POST {base}/fake/pay/:ref   pay or cancel on the fake page (fake only)
 
 import { eventsStub } from "./events.js";
-import { type FakeWebhookBody, fakeLedger, fakePayPage, verifyFakeWebhook } from "./fake.js";
+import {
+  type FakeSubscriptionStep,
+  type FakeWebhookBody,
+  fakeLedger,
+  fakePayPage,
+  verifyFakeWebhook,
+} from "./fake.js";
 import { formatMinor } from "./money.js";
 import {
   baseUrl,
@@ -111,7 +117,39 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (request.method === "POST") return submitFakePage(request, env, ref);
     return methodNotAllowed("GET, POST");
   }
+  if (path.startsWith("/fake/portal/")) {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    // The fake customer portal: inert. It shows nothing from the ledger and changes nothing.
+    return new Response(FAKE_PORTAL_PAGE, {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "x-frame-options": "DENY",
+        "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+      },
+    });
+  }
   return notFound();
+}
+
+const FAKE_PORTAL_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Fake customer portal</title></head>
+<body><p>A development stand-in for the provider's customer portal: the card, billing details and
+past invoices would be here. Nothing can be cancelled or changed on it.</p></body></html>`;
+
+/**
+ * Moves a fake subscription's schedule on by one step and delivers what the provider would send
+ * (tests and development only: there is no route to it).
+ */
+export async function advanceFakeSubscription(
+  env: Env,
+  ref: string,
+  step: FakeSubscriptionStep,
+): Promise<FakeWebhookBody[]> {
+  const result = await fakeLedger(env).stepSubscription(ref, step);
+  if (!result.ok) throw new Error(`The fake provider cannot ${step}: ${result.reason}.`);
+  for (const body of result.deliveries) await deliverFakeEvent(env, body);
+  return result.deliveries;
 }
 
 /** `POST {base}/in/:provider`: one webhook delivery, verified before anything is stored. */
@@ -135,23 +173,46 @@ export async function handleInbound(
     await events.countRejected();
     return json(401, { ok: false, error: verified.reason });
   }
-  if (verified.events.length === 0) return json(200, { ok: true, ignored: true });
+  const reads = verified.reads ?? [];
+  if (verified.events.length === 0 && reads.length === 0) {
+    return json(200, { ok: true, ignored: true });
+  }
   let received = verified.events;
-  if (provider === "stripe" && received.some((e) => e.kind === "payment" && e.tax)) {
-    // Each line's tax is on the session's line items, not in the webhook: read it before storing.
-    const stripe = new StripeProvider({
+  const stripe = () =>
+    new StripeProvider({
       secretKey: stripeSecretKey(env),
       webhookSecret: stripeWebhookSecret(env),
       apiBase: stripeApiBase(env),
       account: stripeAccount(env),
     });
+  if (provider === "stripe" && received.some((e) => e.kind === "payment" && e.tax)) {
+    // Each line's tax is on the session's line items, not in the webhook: read it before storing.
+    const client = stripe();
     try {
       received = await Promise.all(
-        received.map((event) => withStripeTaxLines(event, (ref) => stripe.taxLines(ref))),
+        received.map((event) => withStripeTaxLines(event, (ref) => client.taxLines(ref))),
       );
     } catch {
       return json(500, { ok: false, error: "try again" });
     }
+  }
+  if (provider === "stripe" && reads.length > 0) {
+    // A subscription event is stored as a current read of the subscription (and its invoice),
+    // made now with the pinned version, not as the event's own copy (ADR 0485).
+    // Only a read that failed answers 500 (Stripe delivers it again). A subscription this host did
+    // not start, or one in a shape it cannot read, is answered 200 and counted: retrying it would
+    // never succeed, and Stripe disables an endpoint that keeps failing, one-off payments too.
+    const client = stripe();
+    try {
+      for (const read of reads) {
+        const outcome = await client.readSubscriptionEvent(verified.eventId, read);
+        if ("event" in outcome) received = [...received, outcome.event];
+        else await events.countIgnored(outcome.ignored);
+      }
+    } catch {
+      return json(500, { ok: false, error: "try again" });
+    }
+    if (received.length === 0) return json(200, { ok: true, ignored: true });
   }
   const { duplicate } = await events.receive(verified.eventId, received);
   return json(200, duplicate ? { ok: true, duplicate: true } : { ok: true });
@@ -253,7 +314,10 @@ async function submitFakePage(request: Request, env: Env, ref: string): Promise<
     return new Response("A billing address is required: choose a country", { status: 400 });
   }
   const { checkout } = paid;
-  if (paid.newlyPaid) {
+  if (paid.newlyPaid && paid.deliveries) {
+    // A subscription checkout (ADR 0485): the subscription's events, in the provider's order.
+    for (const body of paid.deliveries) await deliverFakeEvent(env, body);
+  } else if (paid.newlyPaid) {
     await deliverFakeEvent(env, {
       // One id per checkout: a payment is confirmed once, however often it is delivered.
       id: `fevt_pay_${checkout.ref}`,

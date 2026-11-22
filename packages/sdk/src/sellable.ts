@@ -75,6 +75,9 @@ export interface GrantSpec {
  * - `grants`: what a paid line grants (see GrantSpec).
  * - `tax`: tax at checkout (ADR 0479), see TaxSpec. A line is taxed only when this is declared and
  *   a human admin has turned tax on for the deployment.
+ * - `recurring`: a plan, paid for every period (stage 32a, ADR 0485), see RecurringSpec. Its records
+ *   are subscribed to, never put on an order: `price` is the price of one period. Not with
+ *   `deposit`, `maxPerOrder` or `grants` (32b adds what a subscription grants).
  */
 export interface SellableSpec {
   price: string;
@@ -84,6 +87,20 @@ export interface SellableSpec {
   deposit?: { amount: string; balanceDue: string };
   grants?: GrantSpec;
   tax?: TaxSpec;
+  recurring?: RecurringSpec;
+}
+
+/**
+ * How a plan recurs (ADR 0485). The payment provider charges every `interval` on its own schedule;
+ * the host learns of each paid period from its verified events and writes a paid order for it.
+ *
+ * - `interval`: `week`, `month` or `year`.
+ * - `trialDays`: a number field of the plan holding the days of a free first period (the card is
+ *   taken at the start, the first charge is when it ends). Empty or zero: no trial.
+ */
+export interface RecurringSpec {
+  interval: "week" | "month" | "year";
+  trialDays?: string;
 }
 
 /**
@@ -171,6 +188,13 @@ export const sellableManifestSchema = z
       })
       .strict()
       .optional(),
+    recurring: z
+      .object({
+        interval: z.enum(["week", "month", "year"]),
+        trialDays: fieldName.optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type SellableManifest = z.infer<typeof sellableManifestSchema>;
@@ -222,6 +246,21 @@ export function checkObjectSellable(
           `"${local}" must be a date or datetime field of ${name}`,
         );
       }
+    }
+  }
+  if (sellable.recurring) {
+    // A plan is subscribed to, not put on an order (ADR 0485).
+    for (const key of ["deposit", "maxPerOrder", "grants"] as const) {
+      if (sellable[key] !== undefined) {
+        contract(
+          `${path}.${key}`,
+          `A recurring plan has no ${key}: it is subscribed to, one at a time`,
+        );
+      }
+    }
+    const trial = sellable.recurring.trialDays;
+    if (trial !== undefined && !single(trial, new Set(["number"]))) {
+      contract(`${path}.recurring.trialDays`, `"${trial}" must be a number field of ${name}`);
     }
   }
   if (sellable.maxPerOrder !== undefined && !single(sellable.maxPerOrder, new Set(["number"]))) {

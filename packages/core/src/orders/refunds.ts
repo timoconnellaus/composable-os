@@ -22,6 +22,8 @@ export interface RefundablePayment {
   paymentRef: string;
   paid: number;
   refundable: number;
+  /** A subscription period's invoice the payment paid: its refund is credited on it (ADR 0486). */
+  invoiceRef?: string | null;
 }
 
 /** Each payment on the order that money can go back to, newest first, and how much. */
@@ -31,7 +33,7 @@ export async function refundablePayments(
 ): Promise<RefundablePayment[]> {
   const payments = await ctx.db
     .selectFrom("core_order_payment")
-    .select(["provider", "payment_ref", "amount", "received_at"])
+    .select(["provider", "payment_ref", "amount", "received_at", "invoice_ref"])
     .where("order_id", "=", orderId)
     .where("payment_ref", "is not", null)
     .orderBy("received_at", "desc")
@@ -57,6 +59,7 @@ export async function refundablePayments(
       paymentRef: p.payment_ref as string,
       paid: 0,
       refundable: 0,
+      invoiceRef: p.invoice_ref,
     };
     entry.paid += p.amount;
     entry.refundable += p.amount;
@@ -141,6 +144,7 @@ export async function requestRefund(
         currency: row.currency,
         reason: input.reason,
         refundId: id,
+        ...(payment.invoiceRef ? { invoiceRef: payment.invoiceRef } : {}),
       },
     );
     const action = result.pending[0] ?? null;

@@ -85,6 +85,14 @@ describe("default closed (criterion 1)", () => {
       "order.get",
       "order.start",
       "order.view",
+      // Stage 32a (ADR 0485): a payer starts, reads, cancels and resumes their own
+      // subscriptions, and opens the provider's portal for their card.
+      "subscription.cancel",
+      "subscription.get",
+      "subscription.list",
+      "subscription.portal",
+      "subscription.resume",
+      "subscription.start",
     ]);
     // Stage 25: a guest starts, opens and pays an order. Stage 26: places left (ADR 0433).
     expect([...openTo("public")].sort()).toEqual([
@@ -98,6 +106,8 @@ describe("default closed (criterion 1)", () => {
       "order.checkout",
       "order.start",
       "order.view",
+      // Stage 32a (ADR 0485): a guest subscribes on the provider's page.
+      "subscription.start",
     ]);
     for (const principal of [a.principal, PUBLIC]) {
       const open = openTo(principal.kind);
@@ -386,6 +396,11 @@ describe("the closed handler context (ADR 0413)", () => {
       "order.checkout",
       "order.start",
       "order.view",
+      // Stage 32a (ADR 0485): the host calls the payments gatekeeper for the payer.
+      "subscription.cancel",
+      "subscription.portal",
+      "subscription.resume",
+      "subscription.start",
     ]);
     expect(listed.find((op) => op.name === "fixture.myUpdate")).toEqual({
       name: "fixture.myUpdate",

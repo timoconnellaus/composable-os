@@ -17,7 +17,7 @@ import type {
 
 // vitest.config.ts sets BASE_URL with a trailing slash, which the Worker strips.
 const BASE = "https://crm.example.com/gatekeeper/payments";
-const FAKE_SECRET = "fake-payments-dev-secret";
+const FAKE_SECRET = "fake-payments-test-secret";
 const STRIPE_SECRET = "whsec_test_0123456789abcdef";
 const RETURN_URL = "https://shop.example.com/orders/return?o=1";
 
@@ -87,8 +87,12 @@ function submitPage(checkout: PaymentsCheckout, fields: Record<string, string>):
   );
 }
 
-async function eventsFor(h: Host, orderId: string): Promise<PaymentsEvent[]> {
-  return (await h.recorded()).received.filter((event) => event.orderId === orderId);
+type MoneyEvent = Exclude<PaymentsEvent, { kind: "subscription" }>;
+
+async function eventsFor(h: Host, orderId: string): Promise<MoneyEvent[]> {
+  return (await h.recorded()).received.filter(
+    (event): event is MoneyEvent => event.kind !== "subscription" && event.orderId === orderId,
+  );
 }
 
 async function ledger(): Promise<FakeLedgerState> {

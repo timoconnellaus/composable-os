@@ -824,7 +824,9 @@ billing, provisioning, rollouts, support grants, export and delete. It never hol
 The **dispatch Worker** (`crm-dispatch`) routes each verified hostname to its deployment and runs tenants' crons.
 
 **Plan**
-Free, Team, Business or Enterprise (ADR 0211). Its limits reach a hosted deployment as
+Free, Team, Business or Enterprise (ADR 0211). Said alone, "plan" means this hosted plan; what a
+company's customers subscribe to is a **subscription plan** (or, in the Memberships pack, a
+membership plan). Its limits reach a hosted deployment as
 **entitlements**: one `core_entitlements` row the control plane writes and the deployment enforces
 (users, records, **Platform AI**: models we pay for, as opposed to the customer's own keys or MCP).
 A self-hosted deployment has no entitlements and no limits.
@@ -1062,7 +1064,9 @@ in the deployment's one currency. Only a payment the provider confirmed and the 
 verified makes an order paid or part paid (ADR 0427); no operation does. A paid line grants
 something (a ticket, later a pass). A base record from stage 25, with its own `order.*`
 operations. With tax at checkout on, its amounts include tax: it keeps the provider's tax per
-payment, per line and in total, and what is owed does not change (ADR 0479).
+payment, per line and in total, and what is owed does not change (ADR 0479). Each paid period of a
+subscription is an order too, born paid from the provider's verified invoice, with the period's
+dates (ADR 0486).
 _Avoid_: purchase, sale, booking (a booking is a place in a class), invoice (stage 35)
 
 **Sellable**
@@ -1071,6 +1075,21 @@ field, and optionally its currency, sale window, most per order, deposit and wha
 grants. Only an object that declares it can be bought. The host reads every price and rule from
 the record, so a caller sends none.
 _Avoid_: product (a product is what the platform is composed into, ADR 0400), SKU
+
+**Subscription plan**
+A record of a sellable object that recurs (`sellable.recurring`: every week, month or year, with
+an optional trial): subscribed to, never put on an order (stage 32a, ADR 0485). Courses' plan is
+the first.
+_Avoid_: plan alone (a hosted plan), product
+
+**Subscription**
+Something a Person pays for every period (stage 32a, ADR 0485): a base record that mirrors the
+payment provider's subscription, which keeps the card and charges each period. Its states are
+the provider's (`incomplete`, `trialing`, `active`, `past_due`, `unpaid`, `paused`, and the final
+`expired` and `ended`), every move the host's, from a verified event. Ending at the period's end
+is a flag on it, not a state. It has a **payer** (who pays, and cancels or resumes it) and a
+**holder** (who what it grants is for), the same Person until stage 32b (ADR 0487).
+_Avoid_: membership (32b's record a subscription grants), recurring order
 
 **Grant**
 A record the host creates when an order is first paid, one per unit of a line whose object

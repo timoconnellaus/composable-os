@@ -449,7 +449,12 @@ environment not marked `live: false`, or a product without environments).
 The design is ADR 0429; the platform's own test-mode run is
 [payments-stripe-runbook.md](payments-stripe-runbook.md). In a client repo nothing is hand-edited:
 1. Staging first: `payments: { PAYMENTS_FAKE_PROVIDER: true }` in an environment marked
-   `live: false` lets people try checkout with no Stripe account. Deploy it.
+   `live: false` lets people try checkout with no Stripe account. Deploy it. Since stage 32a
+   (ADR 0485) the fake is on off localhost only when the gatekeeper has its own
+   `FAKE_WEBHOOK_SECRET`: its default secret is public, and with it anyone could report a paid
+   order. `FAKE_WEBHOOK_SECRET` is a plain var of the gatekeeper today, which `cos deploy` does not
+   set per environment, so until it becomes a secret `cos deploy` sets, the fake runs on a
+   developer's machine only, and staging tries checkout with Stripe's test mode (steps 2 to 4).
 2. In Stripe (test mode for staging, live mode for live), create a restricted key with write access
    to Checkout Sessions and Refunds and read access to Payment Intents. Set it on that
    environment's gatekeeper: `npx wrangler secret put STRIPE_SECRET_KEY --name <id>-staging-gatekeeper-payments`.
