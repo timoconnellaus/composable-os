@@ -1,4 +1,4 @@
-// The Bookings tools (stage 31a step 3). They become operations x.bookings.<tool>, run in the
+// The Bookings tools (stage 31a steps 3 to 5). They become operations x.bookings.<tool>, run in the
 // sandbox, and reach the host only through ctx.ops. None of them holds a rule: when booking opens
 // and closes, whether a cancel is late, which class types only staff book, the places left, one
 // booking per person per class and the use a booking spends are all the host's (index.ts). A tool
@@ -139,9 +139,12 @@ const refusalReason = z
     "not_running",
     "person_exists",
     "possible_duplicates",
+    "waitlist_closed",
   ])
   .describe(
-    "not_open: booking has not opened yet (see opensAt). closed: booking has closed. " +
+    "waitlist_closed: the class is full and it is too close to the start to wait for a place " +
+      "(nobody is moved in from the waitlist then). " +
+      "not_open: booking has not opened yet (see opensAt). closed: booking has closed. " +
       "not_running: the class was cancelled or is over. person_exists: someone on file has that " +
       "email (see people). possible_duplicates: people on file may be this person (see people; " +
       "book one of them, or ask again with confirmNew). " +
@@ -243,7 +246,17 @@ function refusalOf(
       reason,
     );
   }
-  if (rule === "unique") return out("already_booked", "You already have a place in this class.");
+  if (rule === "waitlist") {
+    return details.reason === "closed"
+      ? out(
+          "waitlist_closed",
+          "This class is full, and it is too close to the start to join its waitlist.",
+        )
+      : out("changed", "A place came free meanwhile. Try booking again.");
+  }
+  if (rule === "unique") {
+    return out("already_booked", "You already have a place in this class, or are waiting for one.");
+  }
   if (rule === "capacity") return out("full", "This class is full.");
   if (error.code === "conflict") {
     return out("changed", "It changed while you were booking. Look again and try once more.");
@@ -323,13 +336,82 @@ const booked = z.object({
     .describe("The membership or pass a use was spent from; null when paid at the desk"),
 });
 
+const waiting = z.object({
+  result: z.literal("waiting"),
+  bookingId: z.string(),
+  classId: z.string(),
+  position: z.number().nullable().describe("Their place in the queue: 1 is next"),
+  waiting: z.number().nullable().describe("How many are waiting, them included"),
+  message: z.string(),
+});
+
+/** Where a waiting booking stands, as the host says (their own only, for a member). */
+async function positionOf(ctx: Ctx, bookingId: string) {
+  const at = await ctx.ops.call<{ position: number | null; waiting: number | null }>(
+    "waitlist.position",
+    { object: BOOKING, id: bookingId },
+  );
+  return { position: at.position, waiting: at.waiting };
+}
+
+/**
+ * Makes a booking through `operation` (my.create for a member, record.create for staff): booked
+ * if a place is free, else, when asked, on the class's waitlist. Both are the host's to allow:
+ * the places, and joining only while the class is full and before its cut-off. Joining spends
+ * nothing, so someone whose booking was refused for want of a use may still wait on a full class
+ * (decision 7: they are passed over at promotion if they still cannot pay). A place that came
+ * free between the two is booked (once).
+ */
+async function bookOrWait(
+  ctx: Ctx,
+  operation: "my.create" | "record.create",
+  values: Record<string, unknown>,
+  wait: boolean,
+): Promise<{ made: RecordShape; waiting: boolean }> {
+  const ruleOf = (error: unknown) =>
+    error instanceof OpsCallError
+      ? ((error.details ?? {}) as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+  for (let attempt = 0; ; attempt++) {
+    let refusal: unknown;
+    try {
+      const made = await ctx.ops.call<RecordShape>(operation, { object: BOOKING, values });
+      return { made, waiting: false };
+    } catch (error) {
+      const rule = ruleOf(error).rule;
+      if (!wait || (rule !== "capacity" && rule !== "allowance")) throw error;
+      refusal = error;
+    }
+    try {
+      const made = await ctx.ops.call<RecordShape>(operation, {
+        object: BOOKING,
+        values: { ...values, state: "waiting" },
+      });
+      return { made, waiting: true };
+    } catch (error) {
+      // Nothing to pay with and no waitlist to join (not full, or closed): that is the answer.
+      if (ruleOf(refusal).rule === "allowance") throw refusal;
+      // Full a moment ago, and a place came free: book it (once).
+      if (ruleOf(error).reason !== "not_full" || attempt > 0) throw error;
+    }
+  }
+}
+
+const waitingMessage = (position: number | null) =>
+  position === null
+    ? "The class is full: you are on its waitlist."
+    : `The class is full: you are number ${position} on its waitlist. If a place frees in time, you are moved in and it is paid from your membership or pass then.`;
+
 export const book = defineTool({
   description:
     "Book the signed-in member into a class with what they already hold (a membership or a " +
     "pass): the host spends one use of the one whose use would lapse first, or of `holderId` " +
-    "when they name one. No money moves. Answers booked, or refused with the reason the host " +
-    "gave: booking not open yet (with when it opens), closed, booked by the gym only, nothing " +
-    "to pay with, already booked, or full.",
+    "when they name one. No money moves. When the class is full they join its waitlist " +
+    "(unless `waitlist` is false): that spends nothing, and if a place frees before the class " +
+    "type's cut-off the host moves the first waiter in and spends their use then. Answers " +
+    "booked, waiting (with their position), or refused with the reason the host gave: booking " +
+    "not open yet (with when it opens), closed, booked by the gym only, nothing to pay with, " +
+    "already booked or waiting, full, or too close to the start to wait.",
   input: z.object({
     classId: z.string().min(1).max(64),
     holderId: z
@@ -338,21 +420,38 @@ export const book = defineTool({
       .max(64)
       .optional()
       .describe("A membership or pass of theirs to spend, when they hold several"),
+    waitlist: z
+      .boolean()
+      .default(true)
+      .describe("When the class is full, join its waitlist (default) rather than be refused"),
   }),
-  output: z.union([booked, refused]),
+  output: z.union([booked, waiting, refused]),
   risk: "write",
   audiences: ["customer"],
   async handler(input, ctx) {
     try {
       // The host sets whose it is (the caller), checks the class is one they may see, and holds
-      // the windows, the staff-only rule, the place, the one-per-class rule and the spend.
-      const made = await ctx.ops.call<RecordShape>("my.create", {
-        object: BOOKING,
-        values: {
+      // the windows, the staff-only rule, the place, the one-per-class rule, the spend and when
+      // a waitlist may be joined.
+      const { made, waiting: queued } = await bookOrWait(
+        ctx,
+        "my.create",
+        {
           class: input.classId,
           ...(input.holderId ? { holder: input.holderId } : {}),
         },
-      });
+        input.waitlist,
+      );
+      if (queued) {
+        const at = await positionOf(ctx, made.id);
+        return {
+          result: "waiting" as const,
+          bookingId: made.id,
+          classId: input.classId,
+          ...at,
+          message: waitingMessage(at.position),
+        };
+      }
       return {
         result: "booked" as const,
         bookingId: made.id,
@@ -361,6 +460,42 @@ export const book = defineTool({
       };
     } catch (error) {
       return refusalOf(error, "book");
+    }
+  },
+});
+
+export const leaveWaitlist = defineTool({
+  description:
+    "Take the signed-in member off a class's waitlist (one of their bookings that is waiting). " +
+    "Nothing was spent, so nothing is given back. Refused when it is no longer waiting (they " +
+    "were moved in meanwhile: cancel that booking instead).",
+  input: z.object({ bookingId: z.string().min(1).max(64) }),
+  output: z.union([z.object({ result: z.literal("left"), bookingId: z.string() }), refused]),
+  risk: "write",
+  audiences: ["customer"],
+  async handler(input, ctx) {
+    try {
+      // From waiting, or not at all (ADR 0437): a promotion and a leave at once, one wins.
+      await ctx.ops.call<RecordShape>("my.update", {
+        object: BOOKING,
+        id: input.bookingId,
+        from: "waiting",
+        values: { state: "left" },
+      });
+      return { result: "left" as const, bookingId: input.bookingId };
+    } catch (error) {
+      if (error instanceof OpsCallError && error.code === "conflict") {
+        return {
+          result: "refused" as const,
+          reason: "changed" as const,
+          message:
+            "This booking is no longer waiting: look at it again (you may have been moved in).",
+          detail: null,
+          opensAt: null,
+          closesAt: null,
+        };
+      }
+      return refusalOf(error, "cancel");
     }
   },
 });
@@ -442,11 +577,11 @@ export const cancel = defineTool({
 export const mine = defineTool({
   description:
     "The signed-in member's own bookings, soonest class first: each with its state (booked, " +
-    "cancelled, cancelled late…), the membership or pass it spent from, and its class (name, " +
-    "start and end in its own time zone, coach, room, whether it still runs). Only their own " +
-    "bookings exist here. Read-only.",
+    "waiting, cancelled, cancelled late…), for one waiting its place on the waitlist, the " +
+    "membership or pass it spent from, and its class (name, start and end in its own time " +
+    "zone, coach, room, whether it still runs). Only their own bookings exist here. Read-only.",
   input: z.object({
-    state: z.enum(["booked", "cancelled", "late_cancelled"]).optional(),
+    state: z.enum(["booked", "waiting", "cancelled", "late_cancelled", "left"]).optional(),
     upcoming: z.boolean().default(true).describe("Only classes that have not started"),
     limit: z.number().int().min(1).max(100).default(50),
   }),
@@ -455,6 +590,10 @@ export const mine = defineTool({
       z.object({
         id: z.string(),
         state: z.string().nullable(),
+        position: z
+          .number()
+          .nullable()
+          .describe("While waiting: their place on the waitlist (1 is next); otherwise null"),
         holderId: z.string().nullable(),
         classId: z.string().nullable(),
         title: z.string().nullable(),
@@ -496,6 +635,12 @@ export const mine = defineTool({
       [...classes.values()].map((c) => text(c.room)),
     );
     const now = Date.now();
+    const positions = new Map<string, number | null>();
+    for (const booking of page.items) {
+      if (booking.values.state === "waiting") {
+        positions.set(booking.id, (await positionOf(ctx, booking.id)).position);
+      }
+    }
     const bookings = page.items
       .map((booking) => {
         const classId = text(booking.values.class);
@@ -505,6 +650,7 @@ export const mine = defineTool({
         return {
           id: booking.id,
           state: text(booking.values.state),
+          position: positions.get(booking.id) ?? null,
           holderId: text(booking.values.holder),
           classId,
           title: text(klass.title),
@@ -563,7 +709,9 @@ export const bookFor = defineTool({
     "rather than made twice: book them, or pass confirmNew when you checked it is someone else. " +
     "Staff are not bound by the booking windows or by 'booked by staff only'; a class that was " +
     "cancelled or is over, the places, one booking per person per class and the use it spends " +
-    "still hold. With `paidAtDesk` it spends no use (they paid at the desk). Audited.",
+    "still hold. With `paidAtDesk` it spends no use (they paid at the desk). With `waitlist`, " +
+    "a person on file is put on a full class's waitlist instead of being refused (it spends " +
+    "nothing until the host moves them in). Audited.",
   input: z.object({
     classId: z.string().min(1).max(64),
     personId: z.string().min(1).max(64).optional(),
@@ -581,9 +729,17 @@ export const bookFor = defineTool({
       .describe("The possible duplicates were checked: this is someone new"),
     holderId: z.string().min(1).max(64).optional(),
     paidAtDesk: z.boolean().default(false),
+    waitlist: z
+      .boolean()
+      .default(false)
+      .describe("A person on file, a full class: put them on its waitlist instead"),
     note: z.string().max(2000).optional(),
   }),
-  output: z.union([booked.extend({ personId: z.string() }), refused]),
+  output: z.union([
+    booked.extend({ personId: z.string() }),
+    waiting.extend({ personId: z.string() }),
+    refused,
+  ]),
   risk: "write",
   async handler(input, ctx) {
     if (!input.personId && !input.newPerson) {
@@ -599,10 +755,23 @@ export const bookFor = defineTool({
     };
     try {
       if (input.personId) {
-        const made = await ctx.ops.call<RecordShape>("record.create", {
-          object: BOOKING,
-          values: { ...values, person: input.personId },
-        });
+        const { made, waiting: queued } = await bookOrWait(
+          ctx,
+          "record.create",
+          { ...values, person: input.personId },
+          input.waitlist,
+        );
+        if (queued) {
+          const at = await positionOf(ctx, made.id);
+          return {
+            result: "waiting" as const,
+            bookingId: made.id,
+            classId: input.classId,
+            personId: input.personId,
+            ...at,
+            message: waitingMessage(at.position),
+          };
+        }
         return {
           result: "booked" as const,
           bookingId: made.id,
@@ -852,8 +1021,10 @@ export const day = defineTool({
 export const classList = defineTool({
   description:
     "A class's list for staff and coaches: the class (as on the day view) and every booking of " +
-    "it with the person's name, its state (booked, cancelled, cancelled late…), whether they " +
-    "paid at the desk, the membership or pass it spent from and who booked it. Read-only.",
+    "it with the person's name, its state (booked, waiting, cancelled, cancelled late…), " +
+    "whether they paid at the desk, the membership or pass it spent from, who booked it, and " +
+    "for the waitlist when they were moved in or why they were passed over. Waiters are in " +
+    "the order they joined. Read-only.",
   input: z.object({ classId: z.string().min(1).max(64) }),
   output: z.object({
     class: staffClass,
@@ -865,6 +1036,11 @@ export const classList = defineTool({
         paidAtDesk: z.boolean(),
         holderId: z.string().nullable(),
         bookedBy: z.string().nullable(),
+        promotedAt: z.string().nullable().describe("When they were moved in from the waitlist"),
+        passedOver: z
+          .string()
+          .nullable()
+          .describe("While waiting: why a free place could not be theirs (what they hold)"),
       }),
     ),
   }),
@@ -904,6 +1080,8 @@ export const classList = defineTool({
           paidAtDesk: flag(booking.values.paidOtherwise),
           holderId: text(booking.values.holder),
           bookedBy: text(booking.values.bookedBy),
+          promotedAt: text(booking.values.promotedAt),
+          passedOver: text(booking.values.passedOverReason),
         };
       }),
     };

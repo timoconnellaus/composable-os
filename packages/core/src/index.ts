@@ -200,6 +200,11 @@ export * from "./operations/update.ts";
 export * from "./operations/user.ts";
 export * from "./operations/view.ts";
 export * from "./operations/voice.ts";
+export {
+  runWaitlistDue,
+  type WaitlistDueOptions,
+  type WaitlistDueResult,
+} from "./operations/waitlist.ts";
 export * from "./orders/index.ts";
 export * from "./pack-roles.ts";
 export {

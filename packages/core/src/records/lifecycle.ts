@@ -3,6 +3,7 @@
 // `applyTransition` for every write; so does platform code that makes a `host` move.
 
 import { assertClaimRelationKept, claimantMove } from "../capacity/claimants.ts";
+import { waitlistMove } from "../capacity/waitlist.ts";
 import { ForbiddenError } from "../errors.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -101,12 +102,13 @@ export async function applyTransition(
     assertClaimRelationKept(object, before, written);
     const outcome = await runTransition(lifecycle, ctx, object, id, before, written, options.by);
     // A capacity claimant's states hold and give back its place (ADR 0501), in this batch.
+    // Its waitlist (ADR 0520): a promotion's hold given back before its place is claimed; a
+    // join checked, a place given back handed on to whoever waits, after.
     if (outcome.moved && object.claims) {
-      await claimantMove(ctx, object, id, before, {
-        ...(before ?? {}),
-        ...written,
-        ...outcome.values,
-      });
+      const after = { ...(before ?? {}), ...written, ...outcome.values };
+      await waitlistMove(ctx, object, id, before, after, options.by, "before");
+      await claimantMove(ctx, object, id, before, after);
+      await waitlistMove(ctx, object, id, before, after, options.by, "after");
     }
     const hooks = outcome.moved ? moveHooks.get(object.name) : undefined;
     if (outcome.moved && hooks?.length) {

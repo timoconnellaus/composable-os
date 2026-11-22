@@ -521,7 +521,8 @@ describe("a member books and cancels", () => {
     const id = await klass(4 * HOUR, classType, 2);
     const members = await Promise.all([1, 2, 3, 4, 5, 6].map((n) => member(`race${n}`)));
     await Promise.all(members.map((who) => pass(who, 3)));
-    const results = await Promise.all(members.map((who) => book(who, id)));
+    // Refused when full rather than waiting (step 5's waitlist: bookings-waitlist.test.ts).
+    const results = await Promise.all(members.map((who) => book(who, id, { waitlist: false })));
     expect(results.filter((r) => r.result === "booked")).toHaveLength(2);
     expect(results.filter((r) => r.result === "refused").map((r) => r.reason)).toEqual(
       expect.arrayContaining(["full"]),

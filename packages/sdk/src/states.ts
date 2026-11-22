@@ -155,7 +155,7 @@ const windowNumber = (number: z.ZodNumber) =>
       .strict()
       .refine((n) => n.field !== undefined || n.setting !== undefined, "Name a field or a setting"),
   ]);
-const windowBound = z.union([
+export const windowBoundSchema = z.union([
   fieldPath,
   z
     .object({
@@ -168,7 +168,7 @@ const windowBound = z.union([
 ]);
 const staffOnlyPaths = z.union([fieldPath, z.array(fieldPath).min(1).max(4)]);
 const moveWindow = z
-  .object({ from: windowBound.optional(), until: windowBound.optional() })
+  .object({ from: windowBoundSchema.optional(), until: windowBoundSchema.optional() })
   .strict()
   .refine((w) => w.from !== undefined || w.until !== undefined, "A window needs from or until");
 
@@ -317,44 +317,7 @@ export function checkObjectStates(
   });
 
   // Windows, staff-only rules and requests (ADR 0503; two relations and settings, ADR 0505).
-  const checkPath = (at: string, path: string, type: string) => {
-    const field = resolveFieldPath(m, object, at);
-    // A staff-only rule may read a formula: the host computes it in the view (a boolean one).
-    const formulaOk = type === "boolean" && field?.type === "formula";
-    if ((field?.type !== type && !formulaOk) || field?.many) {
-      contract(
-        path,
-        `"${at}" must be a ${type} field of ${name}, or <relation>.<field> through up to two relations (one record each), every field on the way declared by this extension`,
-      );
-    }
-  };
-  const checkNumber = (value: WindowNumber | undefined, path: string) => {
-    if (typeof value === "string") checkPath(value, path, "number");
-    else if (typeof value === "object") {
-      if (value.field !== undefined) checkPath(value.field, `${path}.field`, "number");
-      if (value.setting !== undefined) {
-        const settings = m.settings ?? {};
-        const setting = Object.hasOwn(settings, value.setting)
-          ? settings[value.setting]
-          : undefined;
-        if (setting?.type !== "number") {
-          contract(`${path}.setting`, `"${value.setting}" must be a number setting of ${m.id}`);
-        }
-      }
-    }
-  };
-  const checkWindow = (window: MoveWindow | undefined, path: string) => {
-    for (const end of ["from", "until"] as const) {
-      const bound = window?.[end];
-      if (bound === undefined) continue;
-      const b = typeof bound === "string" ? { at: bound } : bound;
-      checkPath(b.at, `${path}.${end}.at`, "datetime");
-      for (const key of ["daysBefore", "minutesBefore"] as const) {
-        checkNumber(b[key], `${path}.${end}.${key}`);
-      }
-      if (b.zone !== undefined) checkPath(b.zone, `${path}.${end}.zone`, "timezone");
-    }
-  };
+  const { checkPath, checkWindow } = windowChecks(m, object, name, contract);
   states.moves.forEach((move, i) => {
     const mp = `${sp}.moves.${i}`;
     if ((move.window || move.staffOnly) && !move.by.includes("customer")) {
@@ -446,6 +409,59 @@ export function checkObjectStates(
       }
     }
   }
+}
+
+/**
+ * The checks of window paths and numbers (ADRs 0503 and 0505): for a `states` declaration, and
+ * for any other declaration that names a moment the same way (a waitlist's cut-off, ADR 0520).
+ */
+export function windowChecks(
+  m: ExtensionManifest,
+  object: ObjectManifest,
+  name: string,
+  contract: (path: string, message: string) => void,
+) {
+  const checkPath = (at: string, path: string, type: string) => {
+    const field = resolveFieldPath(m, object, at);
+    // A staff-only rule may read a formula: the host computes it in the view (a boolean one).
+    const formulaOk = type === "boolean" && field?.type === "formula";
+    if ((field?.type !== type && !formulaOk) || field?.many) {
+      contract(
+        path,
+        `"${at}" must be a ${type} field of ${name}, or <relation>.<field> through up to two relations (one record each), every field on the way declared by this extension`,
+      );
+    }
+  };
+  const checkNumber = (value: WindowNumber | undefined, path: string) => {
+    if (typeof value === "string") checkPath(value, path, "number");
+    else if (typeof value === "object") {
+      if (value.field !== undefined) checkPath(value.field, `${path}.field`, "number");
+      if (value.setting !== undefined) {
+        const settings = m.settings ?? {};
+        const setting = Object.hasOwn(settings, value.setting)
+          ? settings[value.setting]
+          : undefined;
+        if (setting?.type !== "number") {
+          contract(`${path}.setting`, `"${value.setting}" must be a number setting of ${m.id}`);
+        }
+      }
+    }
+  };
+  const checkBound = (bound: string | WindowBound, path: string) => {
+    const b = typeof bound === "string" ? { at: bound } : bound;
+    checkPath(b.at, `${path}.at`, "datetime");
+    for (const key of ["daysBefore", "minutesBefore"] as const) {
+      checkNumber(b[key], `${path}.${key}`);
+    }
+    if (b.zone !== undefined) checkPath(b.zone, `${path}.zone`, "timezone");
+  };
+  const checkWindow = (window: MoveWindow | undefined, path: string) => {
+    for (const end of ["from", "until"] as const) {
+      const bound = window?.[end];
+      if (bound !== undefined) checkBound(bound, `${path}.${end}`);
+    }
+  };
+  return { checkPath, checkNumber, checkBound, checkWindow };
 }
 
 /**

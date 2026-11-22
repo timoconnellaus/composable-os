@@ -121,7 +121,9 @@ function ClassItem({
             onDone(
               result.result === "booked"
                 ? `Booked: ${name}, ${classTime(klass)}.`
-                : refusalMessage(result, klass.timeZone),
+                : result.result === "waiting"
+                  ? `${name}: ${result.message}`
+                  : refusalMessage(result, klass.timeZone),
             );
           }}
         />

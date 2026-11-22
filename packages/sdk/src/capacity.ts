@@ -4,6 +4,7 @@
 // is packages/core/src/capacity/.
 import { z } from "zod";
 import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifest.ts";
+import { moveOrigins, type WindowBound, windowBoundSchema, windowChecks } from "./states.ts";
 
 /**
  * What customers and the public are told about a record's places (staff always see the real
@@ -128,13 +129,55 @@ export interface ClaimsSpec {
   on: string;
   held?: readonly string[];
   confirmed?: readonly string[];
+  waitlist?: WaitlistSpec;
 }
+
+/**
+ * A waitlist on the claimed record's places (stage 31, ADR 0520). A record in `state` waits: it
+ * holds no place and spends nothing. It may be made only while the record it claims on is full
+ * and before `until`. Until then, a place given back while anyone waits is handed to the waitlist
+ * in the same statements that give it back, as a hold of its own that nobody booking directly
+ * can take. The host then promotes the first waiter (by when the record was made) from a current
+ * read: the move from `state` into `promote` takes the waitlist's hold, and whatever that move
+ * spends is spent then. A waiter who cannot be moved in (their spend is refused) is passed over
+ * and stays waiting; a hold nobody can take is given back to everyone. From `until`, nobody is
+ * promoted and a place given back goes to whoever claims first.
+ *
+ * - `state` is a state of the object that neither holds nor takes a place, and is not final.
+ * - `promote` is one of `confirmed`; a move from `state` to it must be declared for the host
+ *   (and never for a customer: nobody moves themselves ahead of the waitlist).
+ * - `until` is a moment, named as a window's end is (`{ at: "class.startsAt", minutesBefore:
+ *   { field: "class.classType.promotionMinutes", setting: "promotionMinutes" } }`).
+ * - `promotedAt`, `passedOverAt` (read-only datetimes) and `passedOverReason` (read-only text)
+ *   are what the host writes when it promotes a waiter or passes one over, for messages.
+ * - The claimed object has no pool.
+ */
+export interface WaitlistSpec {
+  state: string;
+  promote: string;
+  until: string | WindowBound;
+  promotedAt?: string;
+  passedOverAt?: string;
+  passedOverReason?: string;
+}
+
+export const waitlistManifestSchema = z
+  .object({
+    state: z.string().min(1).max(100),
+    promote: z.string().min(1).max(100),
+    until: windowBoundSchema,
+    promotedAt: fieldName.optional(),
+    passedOverAt: fieldName.optional(),
+    passedOverReason: fieldName.optional(),
+  })
+  .strict();
 
 export const claimsManifestSchema = z
   .object({
     on: fieldName,
     held: z.array(z.string().min(1).max(100)).max(20).optional(),
     confirmed: z.array(z.string().min(1).max(100)).max(20).optional(),
+    waitlist: waitlistManifestSchema.optional(),
   })
   .strict();
 export type ClaimsManifest = z.infer<typeof claimsManifestSchema>;
@@ -198,4 +241,57 @@ export function checkObjectClaims(
       );
     }
   });
+  const waitlist = claims.waitlist;
+  if (!waitlist) return;
+  // A waitlist (ADR 0520).
+  const wp = `${path}.waitlist`;
+  if (!values.has(waitlist.state)) {
+    contract(`${wp}.state`, `"${waitlist.state}" is not a state of ${name}`);
+  } else if (held.includes(waitlist.state) || confirmed.includes(waitlist.state)) {
+    contract(`${wp}.state`, `"${waitlist.state}" waits: it can neither hold nor take a place`);
+  } else if (states.moves.some((move) => move.final && move.to === waitlist.state)) {
+    contract(`${wp}.state`, `"${waitlist.state}" is final: nobody waits in it`);
+  } else if (
+    states.initial !== waitlist.state &&
+    !Object.hasOwn(states.create?.in ?? {}, waitlist.state)
+  ) {
+    contract(
+      `${wp}.state`,
+      `"${waitlist.state}" must be a state ${name} may be created in (states.create.in): a waiter joins by being made waiting`,
+    );
+  }
+  if (!confirmed.includes(waitlist.promote)) {
+    contract(`${wp}.promote`, `"${waitlist.promote}" must be one of claims.confirmed`);
+  }
+  const promotions = states.moves.filter(
+    (move) => move.to === waitlist.promote && moveOrigins(move).includes(waitlist.state),
+  );
+  if (!promotions.some((move) => move.by.includes("host"))) {
+    contract(
+      `${wp}.promote`,
+      `Declare a move from "${waitlist.state}" to "${waitlist.promote}" by the host: promotion is the host's`,
+    );
+  }
+  if (promotions.some((move) => move.by.includes("customer"))) {
+    contract(
+      `${wp}.promote`,
+      `No customer moves from "${waitlist.state}" to "${waitlist.promote}": nobody moves themselves ahead of the waitlist`,
+    );
+  }
+  windowChecks(m, object, name, contract).checkBound(waitlist.until, `${wp}.until`);
+  for (const [key, type] of [
+    ["promotedAt", "datetime"],
+    ["passedOverAt", "datetime"],
+    ["passedOverReason", "text"],
+  ] as const) {
+    const local = waitlist[key];
+    if (local === undefined) continue;
+    const field = Object.hasOwn(object.fields, local) ? object.fields[local] : undefined;
+    if (field?.type !== type || field.many || !field.readOnly) {
+      contract(`${wp}.${key}`, `"${local}" must be a read-only ${type} field of ${name}`);
+    }
+  }
+  if (targetObject?.capacity?.pool !== undefined) {
+    contract(`${wp}`, `A waitlist is on places with no pool; ${target} has one`);
+  }
 }

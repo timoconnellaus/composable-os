@@ -148,7 +148,7 @@ function asNumber(value: unknown): number | null {
 }
 
 /** A bound's moment (ms), or null when one of the values it is worked out from is empty. */
-async function boundMoment(
+export async function boundMoment(
   ctx: HandlerContext,
   reader: PathReader,
   bound: WindowBoundDefinition,

@@ -79,6 +79,7 @@ import { userOperations } from "./user.ts";
 import { userEmailOperations } from "./user-email.ts";
 import { viewOperations } from "./view.ts";
 import { voiceOperations } from "./voice.ts";
+import { waitlistOperations } from "./waitlist.ts";
 
 // biome-ignore format: one spread per line keeps parallel additions conflict-free.
 export const coreOperations = [
@@ -159,4 +160,5 @@ export const coreOperations = [
   ...capacityOperations,
   ...recurringOperations,
   ...allowanceOperations,
+  ...waitlistOperations,
 ] as const;

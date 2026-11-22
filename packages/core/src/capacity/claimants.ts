@@ -19,6 +19,7 @@ import type { ClaimsDefinition, ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { type ClaimTarget, confirmStatements, releaseStatements } from "./holds.ts";
 import { queueClaim } from "./records.ts";
+import { releaseAllWaitlistHoldsStatements } from "./waitlist.ts";
 
 type ClaimKind = "held" | "confirmed" | null;
 
@@ -130,6 +131,8 @@ export function releaseAllClaimsStatements(object: string, now: string) {
   return [
     ...releaseStatements(target, now),
     ...releaseStatements(target, now, { confirmed: true }),
+    // And the places its waitlist held for its waiters (ADR 0520).
+    ...releaseAllWaitlistHoldsStatements(object, now),
   ];
 }
 
