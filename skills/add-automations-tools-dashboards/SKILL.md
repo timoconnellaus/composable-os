@@ -120,7 +120,9 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    email per person (never several people in `to`), and read an address from `person.get`'s
    `emails` (the one marked `primary`). For "add to calendar", pass `calendar: { uid, start, end,
    title, location?, url?, sequence?, cancelled? }`: the gatekeeper makes the `.ics` file
-   (ADR 0571); nothing else can be attached (Bookings: `bookingConfirmed`).
+   (ADR 0571); nothing else can be attached (Bookings: `bookingConfirmed`). Give each email an
+   `idempotencyKey` stable across retries (`${event.runId}:${n}`), so a step retried after a
+   failure part way sends nothing twice (ADR 0574).
    A `record` trigger's updates of one record within 30 seconds coalesce into one run, whose
    `event.change` is the first: an automation that reads the change sets `rails: {
    debounceSeconds: 0 }`.

@@ -81,3 +81,28 @@ a real email-send gatekeeper and the fake Email Service: criterion 13 and criter
 parent, a redelivery, an AI's cancel sending nothing until approved, Balanced holding every send),
 `apps/runner/test/bookings-dashboard.test.ts` (criterion 16: every widget against a fixture worked
 out by hand).
+
+## Amended 2026-11-23, after the review of PR #256
+- **A burst is never dropped**: runs over the runs-per-minute rail wait their turn
+  ([ADR 0573](0573-runs-over-the-rate-rail-wait-their-turn.md)); the consequence above about a
+  closure of more than 60 classes no longer holds. Every member of a 70-class closure is told
+  once.
+- **A retried send step re-sends nothing**: each email carries `<runId>:<n>` as its idempotency
+  key ([ADR 0574](0574-an-idempotency-key-on-an-email-send.md)).
+- **A visitor who paid is told**: a booking with no Person (a drop-in staff have still to settle,
+  ADR 0560) is written to at the order's own address once paid, about that booking only:
+  `dropInOrder` (was `dropInRefunded`) tells them their payment was received and the place held,
+  and the change, cancellation and reminder reach them as they reach members. An unpaid hold
+  still hears nothing.
+- **A move** takes the old class's event off the calendar and adds the new one's (two files).
+- **Several changes to one class** within two minutes are told once, by the run that changed it
+  last, with what is true then (the runs agree through the pack's storage; each change keeps its
+  own run, `debounceSeconds: 0`, so none is lost). Changed and changed back tells nothing; a
+  change of the end alone is told, with an updated file. The same for several places given back
+  after the cut-off (`placeFree`).
+- **A calendar's SEQUENCE** is seconds since 2020 (minutes collided for two changes in a minute).
+- `bookingsUrl`, the link in every email, is a person's to change (`personApproves`).
+- The dashboard's widgets open records only where a list filter says exactly which: the booking
+  counts (classes in the dates) open nothing, since a booking list cannot filter on its class's
+  start.
+- A guardian in the Trash is not written to (person.get does not answer for them).

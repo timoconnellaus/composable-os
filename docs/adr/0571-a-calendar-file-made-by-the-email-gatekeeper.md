@@ -39,3 +39,16 @@ folding, a cancellation; the approval field; the attachment only once applied; e
 refused; no other attachment; never sign-in mail. `apps/runner/test/bookings-messages.test.ts`: the
 booking email's file as it reaches the fake Email Service, a change's later sequence and a
 cancellation's `METHOD:CANCEL`.
+
+## Amended 2026-11-23, after the review of PR #256
+- **The approver sees everything the file says**: beside "Calendar file" (what it adds or cancels,
+  when, where), the card shows its link and its description in full.
+- **Control characters are refused** in its text (all but tab, and in one-line values newlines too).
+- **RFC 5546's parties**: every file names its `ORGANIZER` (the sending address), and a
+  cancellation its `ATTENDEE`s (the recipients).
+- **One or two files**: `calendar` may be one event or two, each its own attachment
+  (`invite.ics`, and `cancelled.ics` for a cancellation): a move cancels the old class's event and
+  adds the new one's in one email.
+- **Not verified in real calendar apps**: the files are checked line by line against RFC 5545 and
+  5546 here; how Apple Calendar, Google Calendar and Outlook treat a PUBLISH or a CANCEL sent as an
+  attachment (rather than as an iMIP invitation) has not been tried.

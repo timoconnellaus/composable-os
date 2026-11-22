@@ -416,8 +416,10 @@ durable waits. Only declared names of the matching kind are allowed. Keep side e
 **`onRejected`.** When a write in a run needs approval the run pauses; if a person rejects it the
 run follows `onRejected`: `"stop"` (default, run cancelled), `"continue"`, or `{ notify, message? }`.
 
-**Rails.** Host maxima: 60 runs/minute and 500 writes/hour per automation (exceeding them pauses
-it and notifies admins), cascade depth 3, no self-retrigger on the same record in one cascade,
+**Rails.** Host maxima: 60 runs/minute and 500 writes/hour per automation. Runs over the minute's
+rail wait their turn and start on the next ticks, never dropped (ADR 0573); more writes in an hour
+pause the automation and notify admins (the runs it held back start once it is resumed). Cascade
+depth 3, no self-retrigger on the same record in one cascade,
 updates to one record debounced. `rails` may only be stricter (`maxRunsPerMinute`,
 `maxWritesPerHour`, `debounceSeconds`).
 

@@ -273,7 +273,8 @@ How stage 5 runs automations ([ADR 0130](adr/0130-automation-runtime.md), test m
         ─► rails: kill switch, depth ≤ 3, cycle, bulk, debounce, conditions, fan-out, rate limits
         ─► run row (INSERT … ON CONFLICT DO NOTHING on the Workflow id) ─► createBatch
  cos-runner cron (* * * * *) ─► schedules in the automation timezone, daily date-relative scan
-                                (and every minute, date-relative triggers in minutes, ADR 0570),
+                                (and every minute, date-relative triggers in minutes, ADR 0570;
+                                runs held back by the runs-per-minute rail, ADR 0573),
         outbox retry (rows left by failed sends, dispatched directly), integration events
         (unconsumed core_integration_event rows → webhook / syncEvent triggers, ADR 0173)
  AutomationWorkflow: start ─► advance:<n> (executor.runAutomation via LOADER.get) ─► sleep / wait

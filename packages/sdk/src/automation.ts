@@ -312,7 +312,10 @@ export type OnRejected = "stop" | "continue" | { notify: Recipient; message?: st
 
 /** Per-automation limits, within the host's maxima (Settings shows both). */
 export interface AutomationRails {
-  /** Default 60. Above it the automation auto-pauses and admins are notified. */
+  /**
+   * Default 60. Runs above it wait their turn and start on the next minutes' ticks, never dropped
+   * (ADR 0573); only a backlog of thousands (a runaway) pauses the automation.
+   */
   maxRunsPerMinute?: number;
   /** Default 500 writes an hour across all its runs. */
   maxWritesPerHour?: number;

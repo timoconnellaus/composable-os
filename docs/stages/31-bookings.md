@@ -1042,6 +1042,17 @@ it left open:
   `apps/runner/test/bookings-messages.test.ts` (criterion 13 on the shipped packs through a real
   email-send gatekeeper and the fake Email Service) and `apps/runner/test/bookings-dashboard.test.ts`
   (criterion 16, a fixture worked out by hand).
+- **After the review** (ADRs [0573](../adr/0573-runs-over-the-rate-rail-wait-their-turn.md) and
+  [0574](../adr/0574-an-idempotency-key-on-an-email-send.md); 0560, 0570, 0571 and 0572 amended):
+  runs over the runs-per-minute rail wait their turn instead of being dropped (a closure of 70
+  classes tells every member once), and a gatekeeper's full queue never quarantines the pack;
+  each email carries an idempotency key, so a retried send step sends nothing twice; the approver
+  sees the calendar file's link and description; a visitor who paid is told at the order's address;
+  a move cancels the old class's event; several changes to one class make one email; the minute
+  scan reads only due rows; `bookingsUrl` is a person's to change; Ticketing's day-before
+  reminder reads the primary address (issue #257). The site says staff approve what is sent:
+  under Balanced every member email waits for a person until the owner decides how routine
+  emails send.
 
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.
