@@ -169,6 +169,7 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
   let payer: string | null;
   let email: string;
   let token: string | null = null;
+  let created = false;
   if (caller.kind === "customer") {
     if (input.email !== undefined) {
       throw new ValidationError("You are signed in: the order uses your account's address", {
@@ -190,6 +191,7 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     const buyer = await resolveBuyer(ctx, input.email);
     payer = buyer.personId;
     email = buyer.email;
+    created = buyer.created;
     if (caller.kind === "public") token = newOrderToken();
   }
   let holder: string | null = payer;
@@ -261,6 +263,9 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
   const recordId = await createRecord(host, object, after, {
     by: "host",
     seamSet: new Set(madeBy ? [madeBy] : []),
+    // A guest's Person is made in this same batch, so it cannot be read yet; every reference was
+    // judged above (the class through the buyer's own read, the Person as theirs).
+    ...(created ? { checkReferences: false } : {}),
   });
   // A guardian's purchase for a child holds to the live link at commit (ADR 0540).
   if (caller.kind === "customer" && holder !== caller.personId) {
@@ -354,7 +359,9 @@ function oweRefund(
   );
 }
 
-const orderMoves: MoveHook = async (ctx, move) => {
+const orderMoves: MoveHook = async (outer, move) => {
+  // On a buyer's own call (order.cancel) the host moves the record, not the buyer.
+  const ctx = hostView(outer);
   const from = move.from?.id ?? null;
   const to = move.to.id;
   const paid = to === "paid" || to === "part_paid";
@@ -444,6 +451,8 @@ const recordMoves: MoveHook = async (ctx, move) => {
     // Released another way (its class cancelled): its unpaid order goes too, so the provider's
     // page cannot take money for it; a payment made anyway is a late one staff refund.
     if (order.state === "pending") {
+      // This write moves the record itself: the order's hook must not move it again.
+      moving(ctx).add(move.id);
       await changeOrder(ctx, order, "cancelled", { cancelled_at: ctx.now }, "host");
     }
     return;
