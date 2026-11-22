@@ -25,9 +25,10 @@ import {
   loadReturnOrigins,
 } from "../orders/settings.ts";
 import { taxCodeOf } from "../orders/tax.ts";
+import { holdsPermission } from "../principals.ts";
 import { callerOf } from "../records/transitions.ts";
 import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
-import { decideTrial, holdTrialStatement, type NoTrial } from "./trial.ts";
+import { decideTrial, holdTrialStatement, type NoTrial, readableInstant } from "./trial.ts";
 
 /** States in which a subscription still runs (and so can be ended at its period's end). */
 export const RUNNING: ReadonlySet<SubscriptionState> = new Set(["trialing", "active", "past_due"]);
@@ -129,22 +130,45 @@ export async function startSubscription(
     ? taxCodeOf(getObject(plan.object), await loadOrderTaxCodes(ctx.db))
     : null;
   // One trial per holder per plan object, and only for a holder who proved who they are (ADR
-  // 0489): a guest pays from the start. The holder is the payer in 32a (ADR 0487).
+  // 0489): a signed-in customer, or a person on staff with subscriptions:manage. A guest pays from
+  // the start. The holder is the payer in 32a (ADR 0487).
+  const allowed =
+    caller.kind === "customer"
+      ? ("yes" as const)
+      : caller.kind === "staff"
+        ? ctx.actor === "human" &&
+          holdsPermission(ctx.user, ctx.permissionGrants, "subscriptions:manage")
+          ? ("yes" as const)
+          : ("no_permission" as const)
+        : ("guest" as const);
+  const openedBy =
+    caller.kind === "customer"
+      ? `customer:${caller.customerId}`
+      : caller.kind === "staff"
+        ? `staff:${caller.userId}`
+        : "public";
   const decision = await decideTrial(
     ctx,
-    { holderPersonId: personId, planObject: plan.object, planId: plan.recordId, proved },
+    {
+      holderPersonId: personId,
+      planObject: plan.object,
+      planId: plan.recordId,
+      caller: openedBy,
+      allowed,
+      target,
+    },
     plan.recurring.trialDays,
   );
   if ("open" in decision) {
-    // The same holder's page for this plan, with its trial, is still open: that page again, so a
-    // second page cannot give a second trial.
+    // The caller's own page for this plan, with its trial, is still open at the provider: that
+    // page again, with the terms it was opened with, so a second page cannot give a second trial.
     return {
       subscriptionId: decision.open.checkoutId,
       url: decision.open.url,
-      amount: plan.unitPrice,
+      amount: decision.open.amount,
       currency,
       interval: plan.recurring.interval,
-      trialDays: plan.recurring.trialDays,
+      trialDays: decision.open.trialDays,
       noTrial: null,
       expiresAt: decision.open.expiresAt,
     };
@@ -201,17 +225,23 @@ export async function startSubscription(
       created_at: ctx.now,
     }),
   );
-  const expiresAt = typeof opened.expiresAt === "string" ? opened.expiresAt : null;
+  // Read defensively: a moment that is not one is reported as none, never thrown on after the
+  // page was opened (the gatekeeper validates it too).
+  const expiresAt = readableInstant(opened.expiresAt);
   if (trialDays) {
     // Held while the page can be completed; refused by the database if another start took it
     // first (the whole batch fails, so nothing of this start is recorded).
     ctx.write(
       holdTrialStatement(ctx, {
         checkoutId: id,
+        checkoutRef: opened.ref,
         holderPersonId: personId,
         planObject: plan.object,
         planId: plan.recordId,
         url: opened.url,
+        openedBy,
+        amount: plan.unitPrice,
+        trialDays,
         expiresAt,
       }),
     );

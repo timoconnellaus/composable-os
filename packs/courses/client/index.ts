@@ -82,6 +82,25 @@ export interface CourseSubscription {
   createdAt: string;
 }
 
+/** Why the host gave no free trial on a plan that has one (subscription.start's `noTrial`). */
+export type NoTrial = "sign_in" | "used" | "permission" | "held" | "unconfirmed";
+
+/** What a member is told about a trial the host did not give. Display only. */
+export function noTrialWords(reason: NoTrial): string {
+  switch (reason) {
+    case "sign_in":
+      return "The free trial is for signed-in members. Sign in for it, or continue and pay from today.";
+    case "used":
+      return "You have had your free trial on this plan, so this one is paid from today.";
+    case "held":
+      return "A checkout with your free trial is already open. Finish that one, or continue and pay from today.";
+    case "unconfirmed":
+      return "We could not check your earlier checkout with the payment provider just now, so no free trial can be given yet. Try again in a few minutes, or continue and pay from today.";
+    case "permission":
+      return "A free trial cannot be given from here; this one is paid from today.";
+  }
+}
+
 /** What subscription.start answers. */
 export interface StartedSubscription {
   subscriptionId: string;
@@ -90,7 +109,7 @@ export interface StartedSubscription {
   currency: string;
   interval: "week" | "month" | "year";
   trialDays: number | null;
-  noTrial: "sign_in" | "used" | null;
+  noTrial: NoTrial | null;
   expiresAt: string | null;
 }
 

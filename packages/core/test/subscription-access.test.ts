@@ -11,8 +11,10 @@ import {
   getObject,
   holdsAccess,
   memoryEventSink,
+  PAST_DUE_GRACE_DAYS,
   type PaymentsEvent,
   type ProviderSubscription,
+  sweepSubscriptions,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, unique } from "./helpers.ts";
@@ -120,7 +122,15 @@ async function notices(title: RegExp) {
   return results.filter((r) => title.test(r.title));
 }
 
-/** Lets a hold lapse, as if its page had expired an hour ago. */
+/** The provider's reference of the page a start opened. */
+const pageOf = (subscriptionId: string) =>
+  String(gw.subscriptions.find((s) => s.subscriptionId === subscriptionId)?.ref);
+
+/** Sets what the provider says about a start's page. */
+const page = (subscriptionId: string, status: "open" | "complete" | "expired" | "error") =>
+  gw.pages.set(pageOf(subscriptionId), status);
+
+/** Lets a hold lapse, as if its page had expired an hour ago (the provider still to be asked). */
 async function lapse(checkoutId: string) {
   await env.DB.prepare("UPDATE core_subscription_trial SET held_until = ? WHERE checkout_id = ?")
     .bind(new Date(Date.now() - 3_600_000).toISOString(), checkoutId)
@@ -128,10 +138,10 @@ async function lapse(checkoutId: string) {
 }
 
 /** Which of the school's courses `who` holds now (the seam's one question). */
-async function held(who: Buyer, at?: string): Promise<string[]> {
+async function held(who: Buyer, at?: string, ids: string[] = courses): Promise<string[]> {
   const object = getObject(COURSE);
   if (!object) throw new Error("no course object");
-  const answer = await holdsAccess({ db: db.query, principal: who.principal }, object, courses, at);
+  const answer = await holdsAccess({ db: db.query, principal: who.principal }, object, ids, at);
   return [...answer].sort();
 }
 
@@ -142,6 +152,13 @@ async function member(label = "member"): Promise<{ buyer: Buyer; id: string }> {
   await deliver("checkout_completed", read(id));
   return { buyer, id };
 }
+
+const staffStart = (email: string, ctx = staff()) =>
+  run<Started>(
+    "subscription.start",
+    { plan: { object: PLAN, id: plan }, returnUrl: RETURN, email },
+    ctx,
+  );
 
 beforeAll(async () => {
   admin = await createUser("admin");
@@ -196,22 +213,26 @@ beforeEach(() => {
 });
 
 describe("one free trial per person per plan object", () => {
-  it("is used when the provider confirms it, not when a page is opened", async () => {
+  it("is used when the provider confirms it; a page is released only once the provider says it expired", async () => {
     const buyer = await createBuyer(admin, "trial");
     const first = await subscribe(buyer);
     expect(first).toMatchObject({ trialDays: 7, noTrial: null });
     expect(gw.subscriptions.at(-1)).toMatchObject({ trialDays: 7 });
-    // A page given up: once it can no longer be completed, the trial is theirs again.
+    // Its hold lapsed, but the provider says the page is still open (a late completion could
+    // come): not released, no second trial.
     await lapse(first.subscriptionId);
+    expect(await subscribe(buyer, plan2)).toMatchObject({ trialDays: null, noTrial: "held" });
+    // The provider says it expired uncompleted: released, and the trial is theirs again.
+    page(first.subscriptionId, "expired");
     const second = await subscribe(buyer);
     expect(second).toMatchObject({ trialDays: 7, noTrial: null });
     expect(second.subscriptionId).not.toBe(first.subscriptionId);
     // The provider confirms the second: from now on the trial is used, on any plan of the object.
     await deliver("checkout_completed", read(second.subscriptionId));
     const rows = await trials(buyer.principal.personId);
-    expect(rows.map((r) => [r.checkout_id, r.used_at !== null])).toEqual([
-      [first.subscriptionId, false],
-      [second.subscriptionId, true],
+    expect(rows.map((r) => [r.checkout_id, r.used_at !== null, r.released_at !== null])).toEqual([
+      [first.subscriptionId, false, true],
+      [second.subscriptionId, true, false],
     ]);
     for (const p of [plan, plan2]) {
       const again = await subscribe(buyer, p);
@@ -221,16 +242,56 @@ describe("one free trial per person per plan object", () => {
     }
   });
 
-  it("gives the same page back while the holder's page with its trial is open", async () => {
+  it("counts a page the provider says was completed as used, before its confirmation arrives", async () => {
+    const buyer = await createBuyer(admin, "completed");
+    const first = await subscribe(buyer);
+    await lapse(first.subscriptionId);
+    page(first.subscriptionId, "complete");
+    expect(await subscribe(buyer)).toMatchObject({ trialDays: null, noTrial: "used" });
+    expect((await trials(buyer.principal.personId))[0]?.used_at).not.toBeNull();
+  });
+
+  it("gives no trial while the provider cannot be asked about an earlier page, and says why", async () => {
+    const buyer = await createBuyer(admin, "unasked");
+    const first = await subscribe(buyer);
+    await lapse(first.subscriptionId);
+    page(first.subscriptionId, "error");
+    expect(await subscribe(buyer)).toMatchObject({ trialDays: null, noTrial: "unconfirmed" });
+    // Once the provider answers that it expired, the trial is given.
+    page(first.subscriptionId, "expired");
+    expect(await subscribe(buyer)).toMatchObject({ trialDays: 7, noTrial: null });
+  });
+
+  it("gives the same page, with the terms it was opened with, only to whoever opened it, and only while it is open", async () => {
     const buyer = await createBuyer(admin, "again");
     const sent = gw.subscriptions.length;
     const first = await subscribe(buyer);
-    const again = await subscribe(buyer);
-    expect(again).toMatchObject({ subscriptionId: first.subscriptionId, url: first.url });
-    expect(gw.subscriptions.length).toBe(sent + 1);
-    // Another plan of the same object while that page is open: refused, not a second trial.
-    const other = await refusal(subscribe(buyer, plan2));
-    expect(other).toMatchObject({ code: "conflict", details: { rule: "trial_held" } });
+    // The plan's price changes meanwhile: the page goes back with what it was opened at.
+    await run("record.update", { object: PLAN, id: plan, values: { price: 35 } }, context(admin));
+    try {
+      const again = await subscribe(buyer);
+      expect(again).toMatchObject({
+        subscriptionId: first.subscriptionId,
+        url: first.url,
+        amount: 2900,
+        trialDays: 7,
+      });
+      expect(gw.subscriptions.length).toBe(sent + 1);
+      // Staff starting one for the same person: never handed that page; a fresh one, no trial.
+      const byStaff = await staffStart(buyer.email);
+      expect(byStaff.subscriptionId).not.toBe(first.subscriptionId);
+      expect(byStaff.url).not.toBe(first.url);
+      expect(byStaff).toMatchObject({ trialDays: null, noTrial: "held" });
+      // Another plan of the same object while that page is open: a fresh page, no trial.
+      expect(await subscribe(buyer, plan2)).toMatchObject({ trialDays: null, noTrial: "held" });
+      // Once the provider says the page was completed, it is never handed out again.
+      page(first.subscriptionId, "complete");
+      const after = await subscribe(buyer);
+      expect(after.url).not.toBe(first.url);
+      expect(after).toMatchObject({ noTrial: "used" });
+    } finally {
+      await run("record.update", { object: PLAN, id: plan, values: { price: 29 } }, context(admin));
+    }
   });
 
   it("gives one trial to two starts at once: the database refuses the second hold", async () => {
@@ -285,27 +346,76 @@ describe("one free trial per person per plan object", () => {
     expect(await asGuest()).toMatchObject({ trialDays: null, noTrial: "sign_in" });
   });
 
-  it("is given when staff start one for a person, and counts for that person", async () => {
+  it("is given by staff only with subscriptions:manage and as a person; otherwise none, and why", async () => {
     const buyer = await createBuyer(admin, "byStaff");
-    const started = await run<Started>(
-      "subscription.start",
-      { plan: { object: PLAN, id: plan }, returnUrl: RETURN, email: buyer.email },
-      staff(),
+    // A member of staff without the permission (records:write only): no trial, nothing held.
+    const writer = await createUser("member");
+    const plain = await staffStart(buyer.email, context(writer, { integrations: runtime, events }));
+    expect(plain).toMatchObject({ trialDays: null, noTrial: "permission" });
+    expect(await trials(buyer.principal.personId)).toEqual([]);
+    // An admin, but through an automation rather than a person: none either.
+    const automated = await staffStart(
+      buyer.email,
+      context(admin, { integrations: runtime, events, actor: "automation" }),
     );
+    expect(automated).toMatchObject({ trialDays: null, noTrial: "permission" });
+    const started = await staffStart(buyer.email);
     expect(started).toMatchObject({ trialDays: 7, noTrial: null });
     await deliver("checkout_completed", read(started.subscriptionId));
     expect(await subscribe(buyer)).toMatchObject({ noTrial: "used" });
   });
 
-  it("tells staff of a second trial the hold could not stop (a confirmation after its hold lapsed)", async () => {
+  it("tells staff of a second trial confirmed after its hold was released", async () => {
     const buyer = await createBuyer(admin, "late");
     const first = await subscribe(buyer);
-    await lapse(first.subscriptionId);
+    page(first.subscriptionId, "expired");
     const second = await subscribe(buyer);
     await deliver("checkout_completed", read(second.subscriptionId));
-    // The first page was completed just before it expired; its confirmation came late.
+    // A confirmation for the first page arrives all the same (the provider's word was wrong).
     await deliver("checkout_completed", read(first.subscriptionId));
     expect(await notices(/second free trial/)).toHaveLength(1);
+  });
+
+  it("does not count a free time until a date (a continuation) as the trial", async () => {
+    const buyer = await createBuyer(admin, "continuing");
+    // What step 4's continuation will open: free until a date, no trial days.
+    const id = `sbs_${unique("c")}`;
+    await env.DB.prepare(
+      `INSERT INTO core_subscription_checkout (id, provider, ref, payer_person_id, holder_person_id,
+        email, placed_as, plan_object, plan_id, plan_title, amount, currency, interval, trial_end,
+        created_at) VALUES (?, 'fake', ?, ?, ?, ?, 'customer', ?, ?, 'Every course', 2900, ?,
+        'month', ?, ?)`,
+    )
+      .bind(
+        id,
+        `fcs_${id}`,
+        buyer.principal.personId,
+        buyer.principal.personId,
+        buyer.email,
+        PLAN,
+        plan,
+        CURRENCY,
+        new Date(Date.now() + 20 * DAY).toISOString(),
+        new Date().toISOString(),
+      )
+      .run();
+    const told = (await notices(/second free trial/)).length;
+    await deliver(
+      "checkout_completed",
+      read(id, { trialEnd: new Date(Date.now() + 20 * DAY).toISOString() }),
+    );
+    expect(await notices(/second free trial/)).toHaveLength(told);
+    // Free time, not the trial: they still get the plan's trial.
+    expect(await subscribe(buyer)).toMatchObject({ trialDays: 7, noTrial: null });
+  });
+
+  it("survives a malformed expiry from the gatekeeper: the page is still recorded and held", async () => {
+    const buyer = await createBuyer(admin, "malformed");
+    gw.nextExpiresAt = "not a moment";
+    const started = await subscribe(buyer);
+    expect(started).toMatchObject({ trialDays: 7, expiresAt: null });
+    const [hold] = await trials(buyer.principal.personId);
+    expect(Date.parse(String(hold?.held_until))).toBeGreaterThan(Date.now() + 23 * 3_600_000);
   });
 });
 
@@ -436,6 +546,101 @@ describe("staff end a subscription at once", () => {
       ),
     );
     expect(refused.code).toBe("forbidden");
+  });
+});
+
+describe("access with no event, and only for live records (review of 32a)", () => {
+  it("answers held only for live records of the object: not a trashed or made-up id", async () => {
+    const { buyer } = await member("liveOnly");
+    const doomed = (
+      (await run(
+        "record.create",
+        { object: COURSE, values: { title: "Gone" } },
+        context(admin),
+      )) as {
+        id: string;
+      }
+    ).id;
+    await run("record.delete", { object: COURSE, id: doomed }, context(admin));
+    const asked = [...courses, doomed, "rec_made_up"];
+    expect(await held(buyer, undefined, asked)).toEqual([...courses].sort());
+  });
+
+  it("past due gives access only until it has been failing 30 days; staff are told once when it lapses", async () => {
+    const { buyer, id } = await member("longFailing");
+    await deliver("invoice_payment_failed", read(id, { status: "past_due", trialEnd: null }));
+    expect(await held(buyer)).toEqual([...courses].sort());
+    // Failing for 30 days and an hour, the provider still not ending it.
+    const since = new Date(Date.now() - (PAST_DUE_GRACE_DAYS * DAY + 3_600_000)).toISOString();
+    await env.DB.prepare("UPDATE core_subscription SET failing_since = ? WHERE id = ?")
+      .bind(since, id)
+      .run();
+    expect(await held(buyer)).toEqual([]);
+    const before = (await notices(/no longer gives access/)).length;
+    const now = new Date().toISOString();
+    expect((await sweepSubscriptions(db, now)).pastDueLapsed).toBeGreaterThanOrEqual(1);
+    await sweepSubscriptions(db, now);
+    expect(await notices(/no longer gives access/)).toHaveLength(before + 1);
+  });
+
+  it("keeps an active member's access when events stop arriving, and tells staff once", async () => {
+    const { buyer, id } = await member("silent");
+    const ended = new Date(Date.now() - 3.5 * DAY).toISOString();
+    await env.DB.prepare(
+      "UPDATE core_subscription SET state = 'active', current_period_end = ?, version = version + 1 WHERE id = ?",
+    )
+      .bind(ended, id)
+      .run();
+    // A webhook outage must not lock out a paying member.
+    expect(await held(buyer)).toEqual([...courses].sort());
+    const before = (await notices(/events are not arriving/)).length;
+    const now = new Date().toISOString();
+    expect((await sweepSubscriptions(db, now)).eventsMissing).toBeGreaterThanOrEqual(1);
+    await sweepSubscriptions(db, now);
+    expect(await notices(/events are not arriving/)).toHaveLength(before + 1);
+  });
+});
+
+describe("a person merge moves their subscriptions (review of 32a)", () => {
+  it("keeps access, self-service and the trial rule with the survivor", async () => {
+    // A guest's address, made a Person by staff starting a trial for it (Person A), confirmed.
+    const guestEmail = `${unique("guest")}@buyers.example`.toLowerCase();
+    const started = await staffStart(guestEmail);
+    await deliver("checkout_completed", read(started.subscriptionId));
+    const sub = await env.DB.prepare("SELECT holder_person_id FROM core_subscription WHERE id = ?")
+      .bind(started.subscriptionId)
+      .first<{ holder_person_id: string }>();
+    const personA = String(sub?.holder_person_id);
+    // Later they sign up under another address (Person B), with a page of their own still open.
+    const b = await createBuyer(admin, "signedUp");
+    const open = await subscribe(b);
+    expect(open).toMatchObject({ trialDays: 7 });
+    expect(await held(b)).toEqual([]);
+    // Staff merge A into B.
+    await run("person.merge", { survivorId: b.principal.personId, mergedId: personA }, staff());
+    // B holds every course, sees the subscription as theirs and can cancel it.
+    expect(await held(b)).toEqual([...courses].sort());
+    const mine = await run<{ items: { id: string }[] }>("subscription.list", {}, as(b));
+    expect(mine.items.map((s) => s.id)).toContain(started.subscriptionId);
+    await run("subscription.cancel", { id: started.subscriptionId }, as(b));
+    expect(gw.changes.at(-1)).toMatchObject({
+      method: "cancelSubscription",
+      request: { subscriptionId: started.subscriptionId },
+    });
+    // One trial row is kept for the plan object (A's used one), and B gets no second trial.
+    const rows = await trials(b.principal.personId);
+    expect(rows.map((r) => r.checkout_id)).toEqual([started.subscriptionId]);
+    expect(await trials(personA)).toEqual([]);
+    expect(await subscribe(b)).toMatchObject({ trialDays: null, noTrial: "used" });
+    const checkout = await env.DB.prepare(
+      "SELECT payer_person_id, holder_person_id FROM core_subscription_checkout WHERE id = ?",
+    )
+      .bind(started.subscriptionId)
+      .first();
+    expect(checkout).toEqual({
+      payer_person_id: b.principal.personId,
+      holder_person_id: b.principal.personId,
+    });
   });
 });
 

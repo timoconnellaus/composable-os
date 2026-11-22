@@ -30,6 +30,12 @@ export interface Gateway {
   } & Record<string, unknown>)[];
   /** Cancel, resume and portal calls the host made. */
   changes: { method: string; request: Record<string, unknown> }[];
+  /** Each subscription page's status at the provider (stage 32a review); `error`: not answered. */
+  pages: Map<string, "open" | "complete" | "expired" | "error">;
+  /** The pages the host asked about. */
+  statusAsks: string[];
+  /** What the next subscription checkout reports as its expiry (a test may make it malformed). */
+  nextExpiresAt: unknown;
 }
 
 export interface PaymentsDouble {
@@ -80,6 +86,9 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
     action: 0,
     subscriptions: [],
     changes: [],
+    pages: new Map(),
+    statusAsks: [],
+    nextExpiresAt: null,
   };
   let connectionId = "";
   const no = () => Promise.reject(new Error("not used in this test"));
@@ -113,11 +122,22 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
         const request = input.args[0] as Gateway["subscriptions"][number];
         const ref = `fcs_${unique("s")}`;
         gw.subscriptions.push({ ...request, ref });
+        gw.pages.set(ref, "open");
+        const expiresAt = gw.nextExpiresAt;
+        gw.nextExpiresAt = null;
         return {
-          value: { provider: "fake", ref, url: `https://pay.example/${ref}`, expiresAt: null },
+          value: { provider: "fake", ref, url: `https://pay.example/${ref}`, expiresAt },
           pending: [],
           applied: [],
         };
+      }
+      // Stage 32a review: whether a page is open, completed or expired, as the test sets it.
+      if (input.method === "getSubscriptionCheckout") {
+        const ref = String(input.args[0]);
+        gw.statusAsks.push(ref);
+        const status = gw.pages.get(ref) ?? "expired";
+        if (status === "error") throw new Error("the provider did not answer");
+        return { value: { ref, status }, pending: [], applied: [] };
       }
       if (
         input.method === "cancelSubscription" ||

@@ -197,12 +197,12 @@ export type Operations = {
     output: { id: string; requested: true };
   };
   /**
-   * Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff starting it for a person): a guest is charged from the start. Starting again while your page with a trial is open gives the same page. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.
+   * Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.
    */
   "subscription.start": {
     kind: "mutation";
     input: { plan: { object: string; id: string }; returnUrl: string; email?: string };
-    output: { subscriptionId: string; url: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); trialDays: (number) | (null); noTrial: (("sign_in") | ("used")) | (null); expiresAt: (string) | (null) };
+    output: { subscriptionId: string; url: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); trialDays: (number) | (null); noTrial: (("sign_in") | ("used") | ("permission") | ("held") | ("unconfirmed")) | (null); expiresAt: (string) | (null) };
   };
 };
 

@@ -26,7 +26,7 @@ import type {
   PaymentsSubscription,
   PaymentsSubscriptionChangeReceipt,
 } from "../src/types.js";
-import { parseSubscriptionCheckoutInput } from "../src/validate.js";
+import { parseSubscriptionCheckoutInput, validInstant } from "../src/validate.js";
 
 const RETURN_URL = "https://shop.example.com/account/billing";
 
@@ -153,6 +153,26 @@ describe("the fake provider's subscriptions", () => {
     expect(
       (firstInvoice?.subscription.observedAt ?? "") >= (completed?.subscription.observedAt ?? ""),
     ).toBe(true);
+  });
+
+  it("says whether a subscription checkout's page is open or completed, after an observation", async () => {
+    const h = await host();
+    const id = unique("sbs");
+    const checkout = (await h.call("createSubscriptionCheckout", [
+      subscriptionInput(id, { trialDays: 7 }),
+    ])) as PaymentsCheckout;
+    expect(Date.parse(String(checkout.expiresAt))).toBeGreaterThan(Date.now());
+    expect(await h.call("getSubscriptionCheckout", [checkout.ref])).toEqual({
+      ref: checkout.ref,
+      status: "open",
+    });
+    expect((await submitPage(checkout, { outcome: "pay" })).status).toBe(303);
+    expect(await h.call("getSubscriptionCheckout", [checkout.ref])).toMatchObject({
+      status: "complete",
+    });
+    const { observations } = await h.recorded();
+    expect(observations.some((o) => o.description.includes(checkout.ref))).toBe(true);
+    await expect(h.call("getSubscriptionCheckout", ["fcs_unknown"])).rejects.toThrow();
   });
 
   it("charges each period on its own schedule, with the tax inside the price", async () => {
@@ -461,6 +481,23 @@ describe("the Stripe provider's subscriptions", () => {
       customer_email: "payer@customer.test",
     });
     expect(form).not.toHaveProperty("client_reference_id");
+  });
+
+  it("reads a Checkout Session's status, and refuses one it cannot read", async () => {
+    const answers = [{ status: "expired" }, { status: "complete" }, { status: "weird" }];
+    const { provider, requests } = stripe(() => ok(answers.shift() ?? {}));
+    expect(await provider.getSubscriptionCheckout("cs_1")).toBe("expired");
+    expect(requests[0]?.url).toBe("https://stripe.test/v1/checkout/sessions/cs_1");
+    expect(requests[0]?.headers.get("stripe-version")).toBe(STRIPE_BILLING_VERSION);
+    expect(await provider.getSubscriptionCheckout("cs_2")).toBe("complete");
+    await expect(provider.getSubscriptionCheckout("cs_3")).rejects.toThrow(/status/);
+  });
+
+  it("hands the host only a readable expiry", () => {
+    expect(validInstant("2026-11-22T10:00:00Z")).toBe("2026-11-22T10:00:00.000Z");
+    expect(validInstant("not a moment")).toBeNull();
+    expect(validInstant(1_700_000_000)).toBeNull();
+    expect(validInstant(null)).toBeNull();
   });
 
   it("sends nothing about tax or trials when none is asked, and a continuation as trial_end", async () => {

@@ -57,3 +57,15 @@ subscription link to its page.
 ## Consequences
 - A client app adds the two web blocks to its account pages and the native block to its app.
 - The block lint's native rule applies to every pack's native blocks, not only Courses'.
+
+## Amended after review (2026-11-22)
+- **The block lint is a product rule, not a security boundary.** It keeps billing off the app for
+  the stores' sake and catches mistakes; what a caller may do is the host's (audiences, the seam,
+  `subscriptions:manage`). It now also reads a block's raw source for a billing operation named as
+  a string, walks a block's subfolders, and refuses an operation a block's code names that its
+  `block.json` does not list.
+- **The subscribe block says why there is no trial** (`noTrial`) before the provider's page asks
+  for the first payment, and offers signing in for it when the reason is `sign_in`.
+- **`now` is in the customer API's input schema** for `subscription.cancel`: the contract
+  generator has one input per operation, not one per audience. A customer's `now: true` is refused
+  (`invalid_input`), tested.

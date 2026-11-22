@@ -356,6 +356,21 @@ export class StripeProvider implements PaymentProvider {
     return read;
   }
 
+  async getSubscriptionCheckout(ref: string): Promise<"open" | "complete" | "expired"> {
+    // A Checkout Session's `status`: open, complete or expired (docs.stripe.com/api/checkout/
+    // sessions/object). Anything else is not read as an answer.
+    const { body } = await this.#call(
+      "GET",
+      `/v1/checkout/sessions/${encodeURIComponent(ref)}`,
+      undefined,
+      undefined,
+      STRIPE_BILLING_VERSION,
+    );
+    const status = (body as { status?: unknown }).status;
+    if (status === "open" || status === "complete" || status === "expired") return status;
+    throw new Error("Stripe answered the checkout session without a status this can read.");
+  }
+
   async cancelSubscription(input: PaymentsCancelSubscriptionInput): Promise<void> {
     const path = `/v1/subscriptions/${encodeURIComponent(input.subscriptionRef)}`;
     const key = `cos-cancel-${input.subscriptionId}-${input.when}`;

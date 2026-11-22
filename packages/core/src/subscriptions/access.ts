@@ -13,15 +13,19 @@
 //
 // Access follows the subscription's HOLDER (ADR 0487), never its payer. It is read from the host's
 // own record, which only the provider's verified events move:
-// - on trial, active, or past due (the provider is retrying a failed renewal: decision 4, the
-//   member keeps everything while it retries);
+// - on trial, active, or past due for at most PAST_DUE_GRACE_DAYS (the provider is retrying a
+//   failed renewal: decision 4, the member keeps everything while it retries);
+// - active or trialing with no event since its period ended: still (a webhook outage must not
+//   lock out paying members; sweep.ts tells staff the events are not arriving);
 // - set to end at its period's end (or on a date set at the provider): until that moment and not
 //   a minute after, even before the provider's event saying it ended arrives;
 // - nothing while it is incomplete, unpaid or paused, and nothing once it has ended or expired.
 import { type RawBuilder, sql } from "kysely";
+import { liveViewOf } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
 import type { AccessSource, ObjectDefinition } from "../fields/types.ts";
 import { type AccessQuery, registerAccessSource } from "../visibility/access.ts";
+import { PAST_DUE_GRACE_DAYS } from "./sweep.ts";
 
 export const SUBSCRIPTION_ACCESS_KIND = "subscription";
 
@@ -70,15 +74,36 @@ export function givingSubscriptionSql(
       AND state IN (${sql.join(GIVING_STATES.map((s) => sql`${s}`))})
       AND NOT (cancel_at_period_end = 1 AND current_period_end IS NOT NULL AND current_period_end <= ${now})
       AND NOT (cancel_at IS NOT NULL AND cancel_at <= ${now})
+      AND NOT (state = 'past_due' AND failing_since IS NOT NULL AND failing_since <= ${pastDueLapsesBefore(now)})
     LIMIT 1`;
+}
+
+/**
+ * Past due gives access while the provider retries, but not for ever: only until it has been
+ * failing PAST_DUE_GRACE_DAYS (sweep.ts tells staff when it lapses). A webhook outage on an active
+ * subscription never cuts access; only a recorded failure this long does.
+ */
+function pastDueLapsesBefore(now: string): string {
+  return new Date(Date.parse(now) - PAST_DUE_GRACE_DAYS * 86_400_000).toISOString();
 }
 
 async function holders(query: AccessQuery, source: AccessSource): Promise<ReadonlySet<string>> {
   if (problems(query.object, source).length) return new Set();
   const plans = String(optionsOf(source).plans);
   const rows = await givingSubscriptionSql(query.personId, plans, query.now).execute(query.db);
-  // covers "all": every record asked about (the seam asks only about live records of the object).
-  return rows.rows.length ? new Set(query.ids) : new Set();
+  if (!rows.rows.length) return new Set();
+  // covers "all": every live record of the object, and only those. The ids are checked against
+  // the object's live rows (its published ones, for an object the public reads as published), so
+  // a trashed, unpublished or made-up id is never answered "held" (review of 32a).
+  const object = query.object;
+  const view =
+    object.publishable && object.public && object.extension
+      ? liveViewOf(object.name)
+      : object.source;
+  const live = await sql<{ id: string }>`SELECT id FROM ${sql.table(view)} WHERE id IN (${sql.join(
+    query.ids.map((id) => sql`${id}`),
+  )})`.execute(query.db);
+  return new Set(live.rows.map((r) => String(r.id)));
 }
 
 registerAccessSource(SUBSCRIPTION_ACCESS_KIND, { holders, problems });

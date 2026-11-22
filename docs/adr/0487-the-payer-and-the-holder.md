@@ -40,3 +40,11 @@ that guesses, row by row, which role the stored Person had.
 - 32b adds a way to name a holder (and the holder's read of what they hold) without changing this
   table.
 - Until then the two columns are always equal; nothing reads one where the other is meant.
+
+## Amended after review (2026-11-22): a merge moves both
+`person.merge` repoints `core_subscription` (payer and holder), `core_subscription_checkout` and
+`core_subscription_trial` to the survivor in the merge's batch
+(`subscriptions/merge.ts`), so a guest who later signs up under another address and is merged
+keeps their access, sees and cancels their subscription, and does not get a second trial. There
+is no unmerge: restoring the merged Person (`person.restore`) does not move them back. Orders are
+not repointed by a merge (as before this stage).

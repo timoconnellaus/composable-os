@@ -342,6 +342,10 @@ batch, as `capacity` refuses a claim past its places (stage 26).
   and gives no access, and back at the end. The provider refuses a pause while trialing, with a
   schedule attached, or when `unpaid`; the host refuses the same first. A future start or a set
   end uses the provider's pause schedules (**not read; check at build**).
+- **Stripe's `pause_collection` is not a pause here** (recorded at 32a's review, 2026-11-22): it
+  keeps the subscription `active`, so the host keeps giving access and spends uses. The host does
+  not read it as paused; staff pause through the host's own pause (above), never by pausing
+  collection in the provider's dashboard.
 
 ### Shared memberships (question 13)
 - Proposed: a payer who is not the holder (a parent pays for a child): the subscription's payer
@@ -546,7 +550,11 @@ documentation alone:
 - that a credit note linked to an existing refund (`refunds[0][refund]`, `amount` equal to it) is
   accepted on an invoice paid in full;
 - the company's provider settings: retries exhausted → "cancel the subscription"; failed-payment
-  and expiring-card emails on (decisions 4 and 6).
+  and expiring-card emails on (decisions 4 and 6);
+- that `GET /v1/checkout/sessions/:id` answers `status` `open`, `complete` or `expired` with the
+  pinned version (the host asks it before giving a trial again over an earlier page, ADR 0489);
+- that nobody pauses collection (`pause_collection`) in the dashboard: Stripe keeps such a
+  subscription `active`, and the host keeps giving access (staff use the host's pause, 32b).
 
 ## Built: 32a step 3 (2026-11-22)
 ADRs [0488](../adr/0488-the-subscription-access-source.md) (the `subscription` access source),
@@ -563,12 +571,25 @@ decided what it left open:
   who typed an address is charged from the start (`noTrial: "sign_in"`): otherwise a guest could
   spend someone else's trial, and the page would tell a stranger whether that person had one. A
   company offering trials to new visitors turns customer sign-up to `open` or invites them.
-- **When the trial counts**: when the provider's verified event confirms a subscription with a
-  trial, not when a page is opened. A checkout with a trial holds it while its page can be
-  completed (its expiry plus 15 minutes), and the database refuses a second hold, so two starts at
-  once give one trial; the same person starting again gets the same page. A confirmation that
-  arrives after its hold lapsed can still give a second trial (the provider gave it): staff are
-  told.
+- **When the trial counts**: when the provider's verified event confirms a subscription opened
+  with the plan's trial, not when a page is opened. A checkout with a trial holds it; a hold is
+  released only when the provider says its page expired uncompleted (the host asks the gatekeeper,
+  `getSubscriptionCheckout`), a completed one uses the trial, and if the provider cannot be asked
+  no trial is given now (`noTrial: "unconfirmed"`). The database refuses a second unreleased hold,
+  so two starts at once give one trial. A page goes back, with the terms it was opened with, only
+  to whoever opened it and only while it is open; anyone else gets a fresh page with no trial.
+- **Staff give a trial** only with `subscriptions:manage`, as a person (`noTrial: "permission"`
+  otherwise).
+- **A person merge** moves subscriptions, their checkouts and trials to the survivor (ADR 0487).
+- **With no event**: past due gives access only for 30 days of failing (staff told once); an
+  active subscription whose period ended 3 days ago with no event keeps access, and staff are told
+  the provider's events are not arriving.
+- **Decided by the owner (2026-11-22):** a new visitor will get the trial by confirming their
+  email with a code first (a new customer sign-in setting, "anyone starting a subscription", set
+  by a human admin, ADR 0458), built by a separate identity session after this step; until then a
+  guest gets no trial, and the subscribe block's `sign_in` notice is where it joins. A
+  continuation's free time is not the trial: only a checkout with the plan's trial days uses it
+  (ADR 0489).
 - **Staff** end one at once with `subscription.cancel { now: true }` (`subscriptions:manage`;
   a customer is refused). Deviation: an AI does not propose a cancel (the spec said it may):
   cancel and resume stay `actors: ["human"]`, as steps 1 and 2 built them.
@@ -576,8 +597,9 @@ decided what it left open:
   (not only those marked `noPurchase`).
 - **Staff views** are the admin's Subscriptions section (all, trials, failing, ending) and a
   Person's page, not saved views of the generic list (the subscription is outside it, as Order is).
-- **Not built in this step:** continuation offers and the subscribers' move (step 4); whether a
-  continuation's free period counts as the trial (as built, any confirmed trial end counts).
+- **Not built in this step:** continuation offers and the subscribers' move (step 4: it must open
+  a continuation with `trialEnd`, never trial days, so it writes no trial row); the sign-in
+  setting for new visitors (the identity session).
 
 ## Questions for the interview
 Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:

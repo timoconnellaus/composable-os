@@ -84,6 +84,11 @@ const WHY = {
    * read of an order.
    */
   host: "host code for orders: the order it is about to change, or one the caller proved is theirs",
+  /**
+   * A kind of access source the seam itself asks (ADR 0477's `registerAccessSource`): which of
+   * the ids `holdsAccess` was given are live records of the object, answered only to the seam.
+   */
+  access: "an access source the seam asks: which of the ids it was given are live records",
 } as const;
 type Why = (typeof WHY)[keyof typeof WHY];
 
@@ -138,6 +143,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "retention.ts": [1, WHY.org],
   // The host's read of a period's order by its invoice (stage 32a, ADR 0486).
   "subscriptions/periods.ts": [1, WHY.host],
+  // The subscription access source's `covers: "all"`: only live ids (stage 32a review, ADR 0488).
+  "subscriptions/access.ts": [1, WHY.access],
   "sync/ingest.ts": [8, WHY.org],
 };
 

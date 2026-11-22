@@ -53,3 +53,19 @@ the provider, and the provider's own "entitlements" feature is not used.
   keeps access until the provider says it failed or ended: the host does not guess a lapse.
 - 32b's memberships will grant a record instead (`recurring.grants`); this kind stays for plans
   whose access is read straight from the subscription.
+
+## Amended after review (2026-11-22)
+- **Only live records.** `covers: "all"` answers with the ids asked about that are live records
+  of the object (its published live view when the public reads it as published), so
+  `access.check` never says "held" for a trashed, unpublished or made-up id.
+- **Past due, not for ever.** Past due gives access only until it has been failing
+  `PAST_DUE_GRACE_DAYS` (30, `subscriptions/sweep.ts`). The provider's default retries end within
+  about two weeks; this bites only when the company's setting leaves a subscription past due
+  forever. The minute cron's orders step tells staff once when one lapses.
+- **No event is not a lapse.** An active or trialing subscription whose period ended more than
+  `MISSING_EVENTS_AFTER_DAYS` (3) ago with no event keeps its access (a webhook outage must not
+  lock out paying members); staff are told once per subscription that the provider's events are
+  not arriving.
+- **Stripe's `pause_collection`** keeps a subscription `active`, so the host keeps giving access.
+  The host does not read it as paused; staff use the host's pause (32b). Recorded in the spec's
+  pauses section and the test-mode runbook; not built.

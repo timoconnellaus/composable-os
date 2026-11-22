@@ -56,3 +56,37 @@ choose. Ending it from the host would be a charge the host decided on, which not
   the provider confirmed with a trial end counts as the holder's trial (and a second one tells
   staff), so step 4 must say otherwise for continuations if it means to.
 - Staff can still start a trial for a Person who has not had one; staff are trusted with that.
+
+## Amended after review (2026-11-22)
+Before the branch was merged, a review found what follows; each is changed above or here, with a
+test that fails without it (`packages/core/test/subscription-access.test.ts`).
+- **A hold is released only on the provider's word.** A lapsed hold no longer gives the trial back
+  by itself. Before a start is given the trial, the host asks the gatekeeper about every
+  unreleased hold of the holder on the plan object (`getSubscriptionCheckout`, a new observation:
+  Stripe's Checkout Session `status`, the fake's ledger). `expired` releases it (`released_at`);
+  `complete` marks the trial used, even before its confirmation arrives; `open` keeps it held. If
+  the provider cannot be asked, no trial is given now (`noTrial: "unconfirmed"`, the caller is told
+  why). The trigger now refuses a hold while another is unreleased, not only while it is live.
+- **A page goes back only to whoever opened it**, with the terms it was opened with (the hold keeps
+  its price and trial days and who opened it), and only while the provider says it is open.
+  Anyone else, staff included, gets a fresh page with no trial (`noTrial: "held"`); another plan
+  record of the object while a page is open is the same, no longer a refusal.
+- **Staff give a trial only with `subscriptions:manage`, as a person.** Staff with `records:write`
+  alone, or a call that is not a person's (an automation), start without one
+  (`noTrial: "permission"`) and hold nothing.
+- **A merge moves the trial** (ADR 0487): the merged Person's trial rows become the survivor's;
+  where both had one on a plan object, one is kept (the earliest used, else the earliest hold).
+- **A malformed expiry** from the gatekeeper is never thrown on after the page is opened: the
+  gatekeeper validates it, and the host reads it defensively (a page with none is held for a day).
+
+## Decided by the owner (2026-11-22)
+- **A new visitor gets the trial by confirming their email with a code first**: a new customer
+  sign-in setting, "anyone starting a subscription", set by a human admin like the existing modes
+  (ADR 0458). Not built here: a later identity session builds it. Until then a guest gets no
+  trial, and the subscribe block's `noTrial: "sign_in"` notice (its "Sign in for the free trial"
+  button, `onSignInForTrial` or `signInUrl`) is where that flow joins.
+- **A continuation's free time is not the trial.** Only a subscription opened with the plan's
+  trial days uses it (`useTrial` and `trialUsed` read the checkout's `trial_days`); a free time
+  until a date (`trialEnd`, step 4) writes no trial row, uses nothing and tells no one of a second
+  trial. Tested with a checkout as step 4 will write it. The Consequences above saying any
+  confirmed trial end counts are superseded.

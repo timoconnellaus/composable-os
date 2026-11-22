@@ -49288,7 +49288,7 @@
     },
     {
       "name": "subscription.start",
-      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff starting it for a person): a guest is charged from the start. Starting again while your page with a trial is open gives the same page. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
+      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -49372,14 +49372,17 @@
                 "type": "string",
                 "enum": [
                   "sign_in",
-                  "used"
+                  "used",
+                  "permission",
+                  "held",
+                  "unconfirmed"
                 ]
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already). Null otherwise"
+            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already), permission (staff without subscriptions:manage), held (another page with the trial is open for this person), unconfirmed (the payment provider could not say whether an earlier page was completed; try again later for the trial). Null otherwise"
           },
           "expiresAt": {
             "type": [

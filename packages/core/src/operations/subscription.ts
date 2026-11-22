@@ -30,6 +30,7 @@ import {
   startSubscription,
   subscriptionForChange,
 } from "../subscriptions/subscriptions.ts";
+import { NO_TRIAL_REASONS } from "../subscriptions/trial.ts";
 import type { VisibleRecord } from "../visibility/records.ts";
 
 const subscriptionId = z.string().min(1).max(64).describe("Subscription id (sbs_…)");
@@ -108,8 +109,9 @@ export const subscriptionStart = defineOperation({
     "signed-in customer, a guest (with an email address) or staff for someone. Opens the payment " +
     "provider's own page, which takes the card; the provider charges each period on its own " +
     "schedule, after the plan's free trial when it has one. A trial is one per person per plan, " +
-    "and only for a signed-in customer (or staff starting it for a person): a guest is charged " +
-    "from the start. Starting again while your page with a trial is open gives the same page. " +
+    "and only for a signed-in customer (or staff with subscriptions:manage starting it for a " +
+    "person): a guest is charged from the start, and `noTrial` says why no trial was given. " +
+    "Starting again while the page you opened with a trial is still open gives that page. " +
     "The host prices it from the plan: no " +
     "price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the " +
     "provider confirms it. Returns the page's address and what will be charged, in minor units.",
@@ -134,11 +136,14 @@ export const subscriptionStart = defineOperation({
     interval: z.enum(["week", "month", "year"]),
     trialDays: z.number().nullable().describe("The free days given; null: charged from the start"),
     noTrial: z
-      .enum(["sign_in", "used"])
+      .enum(NO_TRIAL_REASONS)
       .nullable()
       .describe(
         "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a " +
-          "trial), used (one trial per person per plan, had already). Null otherwise",
+          "trial), used (one trial per person per plan, had already), permission (staff without " +
+          "subscriptions:manage), held (another page with the trial is open for this person), " +
+          "unconfirmed (the payment provider could not say whether an earlier page was " +
+          "completed; try again later for the trial). Null otherwise",
       ),
     expiresAt: z.string().nullable(),
   }),

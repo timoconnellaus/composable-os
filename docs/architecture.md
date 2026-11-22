@@ -1302,9 +1302,13 @@ it only for the host's own call. Staff ending or keeping going someone else's ne
 payer and its holder apart: billing follows the payer, what it grants the holder. One free trial
 per holder per plan object ([ADR 0489](adr/0489-one-free-trial-per-person-per-plan.md),
 `subscriptions/trial.ts`, migration 0531): only for a proved holder (a signed-in customer, or
-staff for a Person; a guest pays from the start), held by the checkout while its page can be
-completed (`core_subscription_trial`, a trigger refusing a second hold, so two starts at once give
-one trial), and used when the provider's verified event confirms it. Staff end one at once
+staff with `subscriptions:manage` for a Person; a guest pays from the start), held by the
+checkout (`core_subscription_trial`, a trigger refusing a second unreleased hold, so two starts at
+once give one trial), released only when the gatekeeper says its page expired uncompleted
+(`getSubscriptionCheckout`), and used when the provider's verified event confirms it. A person
+merge moves subscriptions and trials to the survivor. With no event, past due gives access for 30
+days of failing, and an active one past its period keeps access while staff are told the events
+are not arriving (the minute cron, `subscriptions/sweep.ts`). Staff end one at once
 (`subscription.cancel` with `now`) and see subscriptions in the admin's Subscriptions section
 (all, trials, failing, ending) and on a Person's page.
 

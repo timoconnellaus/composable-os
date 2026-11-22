@@ -1085,8 +1085,10 @@ _Avoid_: plan alone (a hosted plan), product
 **Free trial** (of a subscription plan)
 The free first days of a subscription, the card taken at the start and charged when it ends
 unless cancelled. One per Person (the holder) per plan object, and only for a holder who proved
-who they are (a signed-in customer, or staff starting it for them): a guest is charged from the
-start. It is used when the provider confirms it, not when its page is opened (ADR 0489).
+who they are (a signed-in customer, or staff with `subscriptions:manage` starting it for them): a
+guest is charged from the start. It is used when the provider confirms a subscription opened with
+the plan's trial days, not when its page is opened; a continuation's free time is not a trial
+(ADR 0489).
 _Avoid_: trial offer (the provider's newer feature, not used), continuation (stage 32a step 4's
 free period until a paid-up date)
 

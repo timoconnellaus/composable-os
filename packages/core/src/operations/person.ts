@@ -39,6 +39,7 @@ import { personSubject } from "../records/erase-subject.ts";
 import { countLinks, queueClearTags, queueMoveLinks } from "../records/links.ts";
 import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
+import { queueMergeSubscriptions } from "../subscriptions/merge.ts";
 import { type Reader, visibleTable } from "../visibility/index.ts";
 import { setCoreWriter } from "../visibility/writes.ts";
 import {
@@ -1109,6 +1110,8 @@ export const personMerge = defineOperation({
     await queueMergeCustomers(ctx, survivor.id, merged.id, [
       ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),
     ]);
+    // Subscriptions, their checkouts and trials follow the Person (stage 32a).
+    await queueMergeSubscriptions(ctx, survivor.id, merged.id);
 
     const emailSet = new Set(survivor.emails.map((e) => e.email));
     after.emails = [

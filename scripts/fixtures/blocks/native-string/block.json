@@ -1,0 +1,9 @@
+{
+  "name": "native-string",
+  "pack": "courses",
+  "skin": "native",
+  "operations": ["subscription.list"],
+  "files": ["screen.tsx", "lib/call.ts"],
+  "dependsOn": [],
+  "noPurchase": true
+}

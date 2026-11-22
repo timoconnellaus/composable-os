@@ -1641,8 +1641,15 @@ export interface CoreSubscriptionTrialTable {
   plan_object: string;
   plan_id: string;
   url: string;
+  checkout_ref: string;
+  /** `customer:<id>` or `staff:<user id>`: the page goes back only to whoever opened it. */
+  opened_by: string;
+  amount: number;
+  trial_days: number;
   held_until: Timestamp;
   used_at: Defaulted<Timestamp | null>;
+  /** A lapsed hold released once the provider said its page expired uncompleted. */
+  released_at: Defaulted<Timestamp | null>;
   created_at: Timestamp;
 }
 

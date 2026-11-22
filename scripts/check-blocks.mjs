@@ -121,6 +121,44 @@ export function lintNativeBilling(source) {
   return problems;
 }
 
+/** A billing operation named in a string, read in the raw source (strings are not blanked). */
+const BILLING_NAME = /["'`]subscription\.(?:start|cancel|resume|portal|change|pause)["'`]/;
+
+/** A native block that names a subscription's billing operation as a string: `{ line, … }`. */
+export function lintBillingNames(source) {
+  const problems = [];
+  source.split("\n").forEach((line, index) => {
+    if (BILLING_NAME.test(line))
+      problems.push({ line: index + 1, rule: "native-billing", message: NATIVE_BILLING });
+  });
+  return problems;
+}
+
+/** An operation's name as a string: a core one with a verb, or an extension tool's. */
+const OPERATION_NAME =
+  /["'`]((?:subscription|order|media|access|public|my|record)\.[a-z][a-zA-Z]*|x\.[a-z0-9]+\.[a-z][a-zA-Z0-9]*)["'`]/g;
+
+/**
+ * Operations a block's code names that its block.json does not list (what `cos add` tells a
+ * client app to allow): the list must say everything the block calls.
+ */
+export function lintUnlisted(source, listed) {
+  const problems = [];
+  const known = new Set(listed);
+  source.split("\n").forEach((line, index) => {
+    for (const match of line.matchAll(OPERATION_NAME)) {
+      if (!known.has(match[1])) {
+        problems.push({
+          line: index + 1,
+          rule: "unlisted-operation",
+          message: `names ${match[1]}, which its block.json does not list in operations`,
+        });
+      }
+    }
+  });
+  return problems;
+}
+
 /** The problems in one file's text: `{ line, rule, message }`. */
 export function lintSource(source) {
   const problems = [];
@@ -176,21 +214,32 @@ export function lintBlocks(folders, root) {
         }
       }
     }
-    for (const name of readdirSync(dir)) {
-      if (!/\.(tsx?|jsx?)$/.test(name)) continue;
-      const file = join(dir, name);
+    for (const file of codeFiles(dir)) {
       const text = readFileSync(file, "utf8");
-      const native = spec.skin === "native" && !noPurchase ? lintNativeBilling(text) : [];
+      const native = spec.skin === "native";
       for (const p of [
         ...lintSource(text),
         ...(noPurchase ? lintNoPurchase(text) : []),
-        ...native,
+        ...(native && !noPurchase ? lintNativeBilling(text) : []),
+        ...(native ? lintBillingNames(text) : []),
+        ...lintUnlisted(text, spec.operations ?? []),
       ]) {
         out.push(`${relative(root, file)}:${p.line}: ${p.rule}: the block ${p.message}`);
       }
     }
   }
   return out;
+}
+
+/** Every code file of a block, its subfolders' too. */
+export function codeFiles(dir) {
+  const found = [];
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) found.push(...codeFiles(path));
+    else if (/\.(tsx?|jsx?|mjs|cjs)$/.test(name)) found.push(path);
+  }
+  return found;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
