@@ -1051,6 +1051,8 @@ export interface CoreSellableRefundDueTable {
   order_id: string;
   object_type: string;
   record_id: string;
+  payment_ref: Defaulted<string | null>;
+  amount: Defaulted<number | null>;
   entered: string;
   reason: string;
   state: Defaulted<"due" | "asking" | "asked" | "done" | "lapsed" | "skipped">;

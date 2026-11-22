@@ -100,6 +100,8 @@ export async function requestRefund(
      * owed refunds, ADR 0560): the provider's idempotency key, so one asked twice is one refund.
      */
     refundId?: ((n: number) => string) | undefined;
+    /** Only this payment (a duplicate or late one owed back on its own, ADR 0560). */
+    paymentRef?: string | undefined;
   },
 ): Promise<{ refunds: RequestedRefund[]; pending: PendingApproval[] }> {
   if (row.state === "pending" || row.state === "part_paid") {
@@ -110,7 +112,10 @@ export async function requestRefund(
       { order: row.id, state: row.state },
     );
   }
-  const payments = (await refundablePayments(ctx, row.id)).filter((p) => p.refundable > 0);
+  const payments = (await refundablePayments(ctx, row.id)).filter(
+    (p) =>
+      p.refundable > 0 && (input.paymentRef === undefined || p.paymentRef === input.paymentRef),
+  );
   const available = payments.reduce((sum, p) => sum + p.refundable, 0);
   if (available <= 0) {
     throw new ConflictError("Everything paid on this order has been refunded or asked for", {

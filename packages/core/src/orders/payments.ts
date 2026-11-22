@@ -150,7 +150,11 @@ export async function applyVerifiedPayment(
     record("late");
     // A drop-in's place went back when its order closed (ADR 0560): the payment is owed back,
     // asked for by the host and approved by a person, never honoured.
-    const owed = await (await import("./moves.ts")).oweLateRefund(ctx, row.id);
+    const owed = await (await import("./moves.ts")).oweLateRefund(ctx, row.id, {
+      paymentRef: payment.paymentRef ?? null,
+      amount: payment.amount,
+      paidOrder: row.state === "paid",
+    });
     await tellStaff(
       "A payment arrived for an order that had closed",
       `Order ${row.id} is ${row.state}, and ${money(payment.amount, currency)} was paid on it. ` +

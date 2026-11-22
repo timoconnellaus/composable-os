@@ -967,6 +967,11 @@ no other ADR amended. Where the build read the spec one way, or decided what it 
   the provider's idempotency key, so one asked twice is one refund.
 - **A paid drop-in staff move** to another class carries its order with it (`dropInOrder` and the
   order's line), so the new booking's in-time cancel or class cancel owes the refund once.
+- **After the second review**: a duplicate or late payment owes back exactly that payment (one
+  owed row per payment); erasing a Person deletes their bookings as before (the Person is optional
+  only for a guest's unpaid hold); a paid guest hold whose address cannot be matched, or that staff
+  have not settled by the time booking closes, is released and refunded; the cap counts only
+  visitors' holds; the per-address limit is best effort and folds `+tags` (ADR 0560's amendment).
 - **`order.startHeld` is a tool's only, for everyone**: staff, the assistant and MCP are refused a
   direct call as customers and the public are.
 - **A member's cancel of a drop-in** says the money goes back once staff approve it (`cancel`'s

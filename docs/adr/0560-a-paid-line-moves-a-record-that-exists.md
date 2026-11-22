@@ -152,6 +152,31 @@ Training/Fitness Classes", overridable by a human admin). A late cancel and a no
 refused for want of a use) open the provider's page. Native blocks are `noPurchase` and the block
 lint refuses `x.bookings.buy` and `order.checkout` in them.
 
+## Amended 2026-11-23 (second review, before merge)
+- **A payment owed back on its own is exactly that payment.** A second payment on a paid order
+  (a guest who opened the provider's page twice), and every payment after the order closed, owes
+  back that payment's own amount, one owed row per payment (`payment_ref`, `amount`; the unique key
+  is the order and the payment), refunded from that payment alone. A paid order's first payment is
+  never touched by it. A cancel's refund is still the whole order's, one row per order.
+- **Erasing a Person** deletes their records of an object whose Person is optional only because of
+  `guest`, as when it was required (places back, the waiting list's hand-on as before). A row that
+  points at the Person twice (its Person and who made it) gives its places back and is deleted once.
+- **A paid guest hold nobody can have** does not sit for ever: an address erased, held only by a
+  Person in the Trash, or with no admin to make a Person for, at payment, releases the place and
+  owes the refund, admins told (the payment is applied, never failed); an address several People
+  share that staff have not settled by the time booking for it closes (the class's start by default)
+  is released and owed back the same way, by the minute cron's expiry.
+- **The cap is on visitors' holds**: the trigger counts every unpaid hold, and the host adds the
+  signed-in members' unpaid holds it reads to what it may count, so a member's own drop-in never
+  turns a visitor away (a member's made at the same moment may, once).
+- **The per-address limit is best effort**: read before the batch, so starts at the same moment
+  may pass together; the per-class cap in the batch is the guard. It is keyed by the mailbox
+  (`+tags`, and Gmail's dots, folded, as a sign-in code's limit is).
+- **Paying with someone else's address** is accepted, as for `order.start`'s guests (ADR 0428):
+  the paid drop-in becomes that Person's booking, or is refunded when they already have one.
+- A refund approval that failed when applied is reported as failed; when the cron gives up with
+  approvals already waiting, admins are told which actions wait and that the rest was not asked.
+
 ## Why
 - One batch for the record and its order is the only way neither exists without the other. Making
   the record as the host, after judging the caller's input with the engine's own rule code and the

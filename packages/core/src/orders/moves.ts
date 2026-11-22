@@ -19,7 +19,8 @@
 // No extension code runs, and nothing here moves money: an owed refund is asked of the payments
 // gatekeeper by the minute cron (`order.refundDue`), as the outbound action `payments.refund`,
 // which only a person with `orders:refund` approves (ADR 0429).
-import { normaliseCustomerEmail } from "../customers/accounts.ts";
+import { normaliseCustomerEmail, sameEmailPeople } from "../customers/accounts.ts";
+import { mailboxKey } from "../customers/limits.ts";
 import {
   ConfigError,
   ConflictError,
@@ -39,7 +40,7 @@ import type { Principal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type MoveHook, onEveryRecordMove, onRecordMove } from "../records/lifecycle.ts";
 import { assertCreateRules } from "../records/states.ts";
-import { pathReader, UNREADABLE } from "../records/windows.ts";
+import { boundMoment, pathReader, UNREADABLE } from "../records/windows.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
 import { erasedAddresses } from "../sync/ingest.ts";
 import { isLiveDependant, linkGuardStatement } from "../visibility/guardians.ts";
@@ -228,15 +229,22 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     }
     // At most a few starts per address in a while (the host's limit, per address as a sign-in
     // code's is; the edge limits per client address): the same answer as a full hold cap.
+    // Best effort: read before the batch, so starts at the same moment may pass together; the
+    // per-class cap in the batch is the guard. Keyed by the mailbox (`+tags` folded, as a sign-in
+    // code's limit is).
     const since = new Date(Date.parse(ctx.now) - GUEST_WINDOW_MINUTES * 60_000).toISOString();
+    const mailbox = mailboxKey(address);
+    const domain = address.slice(address.lastIndexOf("@"));
     const recent = await ctx.db
       .selectFrom("core_order")
-      .select((eb) => eb.fn.countAll<number>().as("n"))
-      .where("email", "=", address)
+      .select("email")
+      .where("email", "like", `%${domain}`)
       .where("placed_as", "=", "public")
       .where("created_at", ">", since)
-      .executeTakeFirst();
-    if (Number(recent?.n ?? 0) >= GUEST_STARTS_PER_ADDRESS) throw tryLater();
+      .limit(200)
+      .execute();
+    const starts = recent.filter((r) => r.email && mailboxKey(r.email) === mailbox).length;
+    if (starts >= GUEST_STARTS_PER_ADDRESS) throw tryLater();
     payer = null;
     email = address;
     token = newOrderToken();
@@ -340,7 +348,33 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
         typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_HOLD_PERCENT;
       const places = Number(capacity?.places ?? 0);
       const cap = Math.max(1, Math.ceil((places * percent) / 100));
-      ctx.write(guardStatement("held_cap", target, on, cap));
+      // Signed-in members' own unpaid holds are not the guests': the trigger counts every unpaid
+      // hold, so they are added to what it may count (read now; a member's hold made at the same
+      // moment may count against guests once).
+      const ownerField = customer.field;
+      const stateField = states.field;
+      const columnOf = (name: string) => {
+        const f = object.fields.find((x) => x.name === name);
+        return f ? viewColumnOf(f) : null;
+      };
+      const onColumn = columnOf(object.claims.on);
+      const ownerColumn = columnOf(ownerField);
+      const stateColumn = columnOf(stateField);
+      let members = 0;
+      if (onColumn && ownerColumn && stateColumn) {
+        // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+        const counted = (await (ctx.db as any)
+          .selectFrom(visibleSource(orgReader(ctx.db), object))
+          .select((eb: { fn: { countAll: () => { as: (a: string) => unknown } } }) =>
+            eb.fn.countAll().as("n"),
+          )
+          .where(onColumn, "=", on)
+          .where(stateColumn, "=", moves.held)
+          .where(ownerColumn, "is not", null)
+          .executeTakeFirst()) as { n?: number } | undefined;
+        members = Number(counted?.n ?? 0);
+      }
+      ctx.write(guardStatement("held_cap", target, on, cap + members));
     }
   }
   // A guardian's purchase for a child holds to the live link at commit (ADR 0540).
@@ -419,7 +453,10 @@ async function storedValues(
   return values;
 }
 
-/** Writes, in this batch, the refund the host owes on `orderId` (one per order). */
+/**
+ * Writes, in this batch, the refund the host owes on `orderId`: of the whole order (one per
+ * order), or of one payment alone (`payment`: one per payment, ADR 0560).
+ */
 function oweRefund(
   ctx: HandlerContext,
   orderId: string,
@@ -427,6 +464,7 @@ function oweRefund(
   recordId: string,
   entered: string,
   reason: string,
+  payment?: { paymentRef: string; amount: number },
 ): void {
   ctx.write(
     ctx.db
@@ -436,13 +474,14 @@ function oweRefund(
         order_id: orderId,
         object_type: object.name,
         record_id: recordId,
+        ...(payment ? { payment_ref: payment.paymentRef, amount: payment.amount } : {}),
         entered,
         reason,
         state: "due",
         created_at: ctx.now,
         updated_at: ctx.now,
       })
-      .onConflict((oc) => oc.column("order_id").doNothing()),
+      .onConflict((oc) => oc.doNothing()),
   );
 }
 
@@ -455,7 +494,7 @@ async function tellAdmins(ctx: HandlerContext, orderId: string, title: string, b
       title,
       body,
       link: { kind: "record", object: "order", id: orderId },
-      dedupeKey: `order.moves:${orderId}:${title}`,
+      dedupeKey: `order.moves:${orderId}:${title}:${ctx.now}`,
       source: { actor: "system" },
     },
     ctx.now,
@@ -464,10 +503,18 @@ async function tellAdmins(ctx: HandlerContext, orderId: string, title: string, b
 }
 
 /**
- * A late payment (ADR 0429) on an order whose line moves a record: its place went back, so the
- * payment is owed back (the refund waits for a person, as every refund). In the payment's batch.
+ * A payment on an order that was no longer pending (ADR 0429), whose line moves a record: a
+ * second payment on a paid order, or one after the order closed (its place went back). Exactly
+ * that payment is owed back, on its own (the refund waits for a person, as every refund); the
+ * paid order's first payment is never touched by it. In the payment's batch. Without the
+ * provider's reference nothing can be refunded by the host: false, and staff refund it.
  */
-export async function oweLateRefund(ctx: HandlerContext, orderId: string): Promise<boolean> {
+export async function oweLateRefund(
+  ctx: HandlerContext,
+  orderId: string,
+  payment: { paymentRef: string | null; amount: number; paidOrder: boolean },
+): Promise<boolean> {
+  if (!payment.paymentRef) return false;
   const lines = await ctx.db
     .selectFrom("core_order_line")
     .select(["object_type", "record_id"])
@@ -480,10 +527,94 @@ export async function oweLateRefund(ctx: HandlerContext, orderId: string): Promi
     orderId,
     { name: moved.object_type },
     moved.record_id,
-    "late",
-    "Paid after its place went back",
+    payment.paidOrder ? "duplicate_payment" : "late",
+    payment.paidOrder ? "Paid twice" : "Paid after its place went back",
+    { paymentRef: payment.paymentRef, amount: payment.amount },
   );
   return true;
+}
+
+/**
+ * The Person a paid guest's address is theirs by (ADR 0428's rule), or null when it cannot be
+ * any: an erased address, one only a Person in the Trash has, or no admin to make one for. Never
+ * fails the payment's batch.
+ */
+async function matchGuest(
+  ctx: HandlerContext,
+  email: string,
+): Promise<{ personId: string | null; created: boolean } | null> {
+  if ((await erasedAddresses(ctx.db, [email])).size > 0) return null;
+  const trashed = await ctx.db
+    .selectFrom("core_person_emails as e")
+    .innerJoin("core_person as p", "p.id", "e.person_id")
+    .select("p.id")
+    .where("e.email", "=", email)
+    .where("p.deleted_at", "is not", null)
+    .executeTakeFirst();
+  if (trashed && (await sameEmailPeople(ctx.db, email)).length === 0) return null;
+  try {
+    return await resolveBuyer(ctx, email);
+  } catch {
+    return null;
+  }
+}
+
+/** A paid guest record nobody can have: its place back (`expired`), its money owed back. */
+async function release(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  moves: MovesDefinition,
+  orderId: string,
+  recordId: string,
+  why: string,
+): Promise<void> {
+  const field = object.states?.field;
+  if (!field) return;
+  await whileMoving(ctx, recordId, () =>
+    updateRecord(ctx, object, recordId, { [field]: moves.expired }, { by: "host" }),
+  );
+  oweRefund(ctx, orderId, object, recordId, why, "Paid, and could not be given to anyone");
+}
+
+/**
+ * Paid guest records still held for no one when booking for them closes (the several People an
+ * address matched were not settled by staff in time): released and owed back, admins told. Run
+ * by the minute cron with the order expiry. Returns how many.
+ */
+export async function releaseUnsettledGuests(ctx: HandlerContext, limit = 20): Promise<number> {
+  const rows = await ctx.db
+    .selectFrom("core_order as o")
+    .innerJoin("core_order_line as l", "l.order_id", "o.id")
+    .select(["o.id as order_id", "l.object_type", "l.record_id"])
+    .where("o.state", "=", "paid")
+    .where("o.person_id", "is", null)
+    .where("o.placed_as", "=", "public")
+    .orderBy("o.paid_at")
+    .limit(limit)
+    .execute();
+  let released = 0;
+  for (const row of rows) {
+    const object = getObject(row.object_type);
+    const moves = movesOf(object);
+    const states = object?.states;
+    const ownerField = object?.customer?.field;
+    const until = states?.create?.window?.until;
+    if (!object || !moves?.guest || !states || !ownerField || until === undefined) continue;
+    const values = await storedValues(ctx, object, row.record_id);
+    if (!values || values[states.field] !== moves.held || values[ownerField]) continue;
+    const closes = await boundMoment(ctx, pathReader(ctx, object, values), until);
+    if (closes !== null && Date.parse(ctx.now) < closes) continue;
+    await release(ctx, object, moves, row.order_id, row.record_id, "unsettled");
+    await tellAdmins(
+      ctx,
+      row.order_id,
+      "A paid drop-in was released: nobody said whose it was",
+      `Order ${row.order_id} was paid with an address several People share, and its Person was not ` +
+        "set before booking closed. Its place went back and its refund is waiting in Approvals.",
+    );
+    released += 1;
+  }
+  return released;
 }
 
 /**
@@ -608,8 +739,23 @@ const orderMoves: MoveHook = async (outer, move) => {
           // order uses (ADR 0428): one is theirs, none makes one, several wait for staff.
           const order = move.after as { personId?: string | null; email?: string | null };
           personId = order.personId ?? null;
-          if (!personId && order.email) {
-            const buyer = await resolveBuyer(ctx, order.email);
+          if (!personId) {
+            // No address left (erased meanwhile, with the order's contact) matches no one.
+            const buyer = order.email ? await matchGuest(ctx, order.email) : null;
+            if (!buyer) {
+              // Erased meanwhile, held by a Person in the Trash, or nobody to make one for: the
+              // payment stands, the place goes back and its money is owed back.
+              await release(ctx, object, moves, move.id, line.record_id, "unmatched");
+              await tellAdmins(
+                ctx,
+                move.id,
+                "A paid drop-in could not be given to anyone",
+                `Order ${move.id} was paid, and its address cannot be matched to a Person on file ` +
+                  "(erased, in the Trash, or no admin to create one for). Its place went back and " +
+                  "its refund is waiting in Approvals.",
+              );
+              continue;
+            }
             personId = buyer.personId;
             made = buyer.created;
             if (personId) {

@@ -273,6 +273,10 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
     }
   });
   const deleted: { object: string; id: string }[] = [];
+  // A row may point at the subject through two relations (a booking's Person and who made it,
+  // ADR 0540): its places are given back, and it is deleted, once.
+  const gone = new Set<string>();
+  const released = new Set<string>();
   for (const field of relations) {
     const def = JSON.parse(field.definition) as { required?: boolean; many?: boolean };
     const table = field.table_name;
@@ -292,8 +296,10 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
     const object = objectOfTable.get(table);
     for (const row of found.rows) {
       const id = String(row.id);
+      const key = `${table}|${id}`;
+      if (gone.has(key)) continue;
       rows += 1;
-      handled.add(`${table}|${id}`);
+      handled.add(key);
       // A capacity claimant (ADR 0501) gives back every place it holds or takes, in this batch,
       // whether the row is deleted or kept with its reference cleared: a place is never held for
       // nobody. A kept row stays in its state, holding nothing; moving it later releases nothing.
@@ -303,16 +309,25 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
       // waitlist's holds go back if nobody else waits. (It holds and spends nothing.)
       const waiter = object && claimant?.claims ? await erasedWaiter(ctx, claimant, id) : null;
       if (object && waiter) {
+        gone.add(key);
         deleted.push({ object, id });
         ctx.write(CompiledQuery.raw(`DELETE FROM ${q(table)} WHERE id = ?`, [id]), ...waiter);
         continue;
       }
-      if (object && claimant?.claims) {
+      if (object && claimant?.claims && !released.has(key)) {
+        released.add(key);
         ctx.write(...releaseAllClaimsOfStatements(object, id, ctx.now));
         // A place given back before its cut-off is the waitlist's, as a cancel's is (ADR 0520).
         await handOnAfterRelease(ctx, claimant, id);
       }
-      if (def.required && !def.many && object) {
+      // A Person optional only because a guest's unpaid drop-in may be held for no one
+      // (`sellable.moves.guest`, ADR 0560) is required for erasure, as it was before: the erased
+      // Person's records go with them.
+      const guestOwner =
+        claimant?.sellable?.moves?.guest === true &&
+        claimant.fields.find((f) => f.name === claimant.customer?.field)?.column === column;
+      if ((def.required || guestOwner) && !def.many && object) {
+        gone.add(key);
         deleted.push({ object, id });
         ctx.write(CompiledQuery.raw(`DELETE FROM ${q(table)} WHERE id = ?`, [id]));
         continue;

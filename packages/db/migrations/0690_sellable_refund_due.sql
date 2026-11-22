@@ -9,7 +9,10 @@
 -- the outbound action `payments.refund`, always reviewed and approved only by a person with
 -- `orders:refund`.
 --
--- One row per order. `state`: `due` (written by the move); `asking` (the cron claimed it, in its
+-- One row per order for a refund of the whole order (a cancel), and one per payment for a payment
+-- owed back on its own (`payment_ref` and `amount`: a second payment on a paid order, or one that
+-- arrived after the order closed), so a duplicate payment is refunded alone and the first never.
+-- `state`: `due` (written by the move); `asking` (the cron claimed it, in its
 -- own statement, before it calls the gatekeeper); `asked` (refunds wait in Approvals; their ids
 -- are `rfd_<this row's id>_<attempt>_<n>`, the provider's idempotency key); `done` (the order is
 -- refunded); `lapsed` (every approval asked for was rejected or expired: staff are told once and
@@ -17,7 +20,11 @@
 -- says why, and staff were told).
 CREATE TABLE core_sellable_refund_due (
   id TEXT PRIMARY KEY,
-  order_id TEXT NOT NULL UNIQUE REFERENCES core_order (id) ON DELETE CASCADE,
+  order_id TEXT NOT NULL REFERENCES core_order (id) ON DELETE CASCADE,
+  -- A payment owed back on its own: its provider reference and amount (minor units). Null: the
+  -- whole order.
+  payment_ref TEXT,
+  amount INTEGER,
   object_type TEXT NOT NULL,
   record_id TEXT NOT NULL,
   -- The state the record entered (or `late`, a payment after its place went back), and why in
@@ -32,12 +39,17 @@ CREATE TABLE core_sellable_refund_due (
   updated_at TEXT NOT NULL
 );
 
+CREATE UNIQUE INDEX core_sellable_refund_due_uq
+  ON core_sellable_refund_due (order_id, coalesce(payment_ref, ''));
+
 -- The cron's reads: what is due, being asked, or waiting for a person, oldest first.
 CREATE INDEX core_sellable_refund_due_state_idx ON core_sellable_refund_due (state, created_at);
 
--- 2. A cap on unpaid holds. A guest's drop-in holds a place while its order is unpaid; a class may
--- carry at most `expected` such holds (unpaid drop-ins, not the waiting list's) at once, worked out
--- by the host from the class's places and the extension's setting. Kind 'held_cap' counts the held
+-- 2. A cap on unpaid guest holds. A guest's drop-in holds a place while its order is unpaid; a class
+-- may carry at most so many such holds at once, worked out by the host from the class's places and
+-- the extension's setting. The trigger counts every held claim on the record but the waiting
+-- list's; the host passes `expected` as the cap plus the signed-in members' unpaid holds it read,
+-- so members' own drop-ins never turn visitors away. Kind 'held_cap' counts the held
 -- claims on the record after the new one; more than `expected` fails the batch
 -- (`core_holds_capped`). core_write_guard stores nothing, so it is made again with the new kind,
 -- as migrations 0560, 0610 and 0670 did.

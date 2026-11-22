@@ -43,7 +43,7 @@ import {
   resolveBuyer,
 } from "../orders/guests.ts";
 import { EXPIRE_BATCH, expireDueOrders, honourLatePayment, paidLate } from "../orders/late.ts";
-import { movesFollowPerson, startHeld } from "../orders/moves.ts";
+import { movesFollowPerson, releaseUnsettledGuests, startHeld } from "../orders/moves.ts";
 import {
   changeOrder,
   createOrder,
@@ -655,7 +655,15 @@ export const orderExpireDue = defineOperation({
   mcp: { expose: false },
   auditSummary: (output) => ({ count: output.expired.length }),
   async handler(input, ctx) {
-    return { expired: await expireDueOrders(ctx, input.limit) };
+    const expired = await expireDueOrders(ctx, input.limit);
+    // Paid guest drop-ins nobody said whose by the time booking closed (ADR 0560): released and
+    // owed back. Logged and left for the next tick if it fails, never failing the expiry.
+    try {
+      await releaseUnsettledGuests(ctx);
+    } catch (error) {
+      console.error("order.expireDue: unsettled guest drop-ins not released", error);
+    }
+    return { expired };
   },
 });
 

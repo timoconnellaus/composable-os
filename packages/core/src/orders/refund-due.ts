@@ -70,9 +70,13 @@ export async function requestDueRefund(
   const prefix = dueRefundPrefix(due.id, due.attempt);
   try {
     // An order closed with a late payment on it (expired, cancelled) is refunded the same way.
+    // A payment owed back on its own (a duplicate or late one) is refunded alone, for exactly
+    // its amount; a whole order's refund is everything refundable on it.
     const asked = await requestRefund(ctx, order, {
       reason: due.reason,
       refundId: (n) => `${prefix}${n}`,
+      ...(due.payment_ref ? { paymentRef: due.payment_ref } : {}),
+      ...(due.payment_ref && due.amount ? { amount: due.amount } : {}),
     });
     if (asked.refunds.some((r) => r.pendingActionId === null)) {
       // Denied by the approval policy, or applied without a person: never left at that.
@@ -110,7 +114,7 @@ async function tell(crm: CrmDb, orderId: string, title: string, body: string, no
       title,
       body,
       link: { kind: "record", object: "order", id: orderId },
-      dedupeKey: `order.refund_due:${orderId}:${title}`,
+      dedupeKey: `order.refund_due:${orderId}:${title}:${now}`,
       source: { actor: "system" },
     },
     now,
@@ -122,7 +126,7 @@ async function waitingActions(crm: CrmDb, rowId: string, attempt: number, now: s
   const prefix = dueRefundPrefix(rowId, attempt);
   const rows = await crm.query
     .selectFrom("core_pending_action")
-    .select(["id", "expires_at"])
+    .select(["id", "expires_at", "input"])
     .where("action_kind", "=", "payments.refund")
     .where("status", "=", "pending")
     .where("input", "like", `%"refundId":"${prefix}%`)
@@ -138,14 +142,20 @@ async function giveUp(
   now: string,
 ) {
   const waiting = await waitingActions(crm, row.id, row.attempt, now);
+  const amounts = waiting.map((w) => {
+    const found = /"amount":(\d+)/.exec(w.input ?? "");
+    return found ? Number(found[1]) : null;
+  });
   const plan = waiting.length
     ? await tell(
         crm,
         row.order_id,
-        "A refund owed is waiting in Approvals",
+        "A refund owed is partly waiting in Approvals",
         `Order ${row.order_id} is owed a refund (a drop-in cancelled or not kept), and its request ` +
-          `was not recorded (${why}), but it is waiting in Approvals: approve that one, and do not ` +
-          "refund the order again.",
+          `was not recorded (${why}). ${waiting.length} refund(s) of it wait in Approvals ` +
+          `(${amounts.map((a) => (a === null ? "an amount" : `${a} in minor units`)).join(", ")}, ` +
+          `actions ${waiting.map((w) => w.id).join(", ")}): approve those. Anything else owed on ` +
+          "the order was not asked for: refund the rest from the order once those are decided.",
         now,
       )
     : await tell(
@@ -219,7 +229,9 @@ async function settleAsked(crm: CrmDb, now: string): Promise<{ lapsed: number }>
     }
     const why = refunds.some((r) => r.action === "rejected")
       ? "a person rejected it"
-      : "its approval expired before anyone decided";
+      : refunds.some((r) => r.action === "failed")
+        ? "it failed when it was applied"
+        : "its approval expired before anyone decided";
     const plan = await tell(
       crm,
       row.order_id,

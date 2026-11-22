@@ -1061,3 +1061,286 @@ describe("refunds through approval (decision 15, criterion 6's drop-in part)", (
     expect(refunds?.n).toBe(1);
   });
 });
+
+describe("round two (review)", () => {
+  const sweep = () => runRefundsDue(db, { integrations });
+  const openCheckout = (bought: Bought, returnUrl: string) =>
+    run<{ url: string }>(
+      "order.checkout",
+      { id: bought.orderId, token: bought.token, returnUrl },
+      guest,
+    );
+  const payPage = async (url: string) => {
+    const paid = await runner.gatekeeperFetch(
+      "payments",
+      new Request(url, {
+        method: "POST",
+        body: new URLSearchParams({ outcome: "pay" }),
+        redirect: "manual",
+      }),
+    );
+    expect(paid.status).toBe(303);
+  };
+  const refundsOf = (orderId: string) =>
+    env.DB.prepare(
+      "SELECT amount, payment_ref AS ref FROM core_order_refund WHERE order_id = ? ORDER BY id",
+    )
+      .bind(orderId)
+      .all<{ amount: number; ref: string }>();
+  const paymentsOf = (orderId: string) =>
+    env.DB.prepare(
+      "SELECT payment_ref AS ref, outcome FROM core_order_payment WHERE order_id = ? ORDER BY received_at",
+    )
+      .bind(orderId)
+      .all<{ ref: string; outcome: string }>();
+  const owedRows = (orderId: string) =>
+    env.DB.prepare(
+      "SELECT entered, amount, payment_ref AS ref, state FROM core_sellable_refund_due WHERE order_id = ? ORDER BY created_at",
+    )
+      .bind(orderId)
+      .all<{ entered: string; amount: number | null; ref: string | null; state: string }>();
+
+  it("paid twice: one booked place, and only the second payment is owed back", async () => {
+    const id = await klass(yoga, 5 * HOUR);
+    const bought = await buyAsGuest(id);
+    const first = await openCheckout(bought, RETURN);
+    const second = await openCheckout(bought, "https://gym.test/again");
+    await payPage(first.url);
+    await waitForBooked(bought.bookingId);
+    await payPage(second.url);
+    await vi.waitFor(
+      async () => expect((await paymentsOf(bought.orderId)).results).toHaveLength(2),
+      {
+        timeout: 15_000,
+      },
+    );
+    const payments = (await paymentsOf(bought.orderId)).results;
+    const rows = (await owedRows(bought.orderId)).results;
+    expect(rows).toEqual([
+      { entered: "duplicate_payment", amount: 2500, ref: payments[1]?.ref, state: "due" },
+    ]);
+    await sweep();
+    expect((await refundsOf(bought.orderId)).results).toEqual([
+      { amount: 2500, ref: payments[1]?.ref },
+    ]);
+    expect((await get(BOOKING, bought.bookingId)).state).toBe("booked");
+    expect((await order(bought.orderId))?.state).toBe("paid");
+  });
+
+  it("two late payments on an expired order: two refunds, each once", async () => {
+    const id = await klass(yoga, 5 * HOUR);
+    const bought = await buyAsGuest(id);
+    const first = await openCheckout(bought, RETURN);
+    const second = await openCheckout(bought, "https://gym.test/again");
+    await expire(bought.orderId);
+    await payPage(first.url);
+    await payPage(second.url);
+    await vi.waitFor(async () => expect((await owedRows(bought.orderId)).results).toHaveLength(2), {
+      timeout: 15_000,
+    });
+    await sweep();
+    await sweep();
+    const payments = (await paymentsOf(bought.orderId)).results.map((p) => p.ref).sort();
+    const refunds = (await refundsOf(bought.orderId)).results;
+    expect(refunds.map((r) => r.ref).sort()).toEqual(payments);
+    expect(refunds.every((r) => r.amount === 2500)).toBe(true);
+  });
+
+  it("a member with a cap: their own unpaid drop-in turns no visitor away", async () => {
+    const id = await klass(yoga, 5 * HOUR, 4);
+    const who = await member("capmember");
+    expect((await buy(id, as(who))).result).toBe("pending");
+    const results: Bought[] = [];
+    for (const n of [1, 2, 3]) {
+      void n;
+      results.push(await buyAsGuest(id));
+    }
+    expect(results.map((r) => r.result)).toEqual(["pending", "pending", "refused"]);
+    expect(results[2]?.reason).toBe("try_later");
+  });
+
+  it("an address variant with a +tag counts as the same address", async () => {
+    const base = unique("tagged").toLowerCase();
+    const others = await Promise.all([1, 2, 3, 4].map(() => klass(yoga, 6 * HOUR)));
+    const out: Bought[] = [];
+    for (const [n, other] of others.entries()) {
+      out.push(await buyAsGuest(other, `${base}+${n}@dropin.test`));
+    }
+    expect(out.map((r) => r.result)).toEqual(["pending", "pending", "pending", "refused"]);
+  });
+
+  it("an address erased, or only in the Trash, by payment: released, owed back, admins told", async () => {
+    for (const how of ["erase", "trash"] as const) {
+      const email = visitor();
+      const id = await klass(yoga, 5 * HOUR);
+      const bought = await buyAsGuest(id, email);
+      // The page is open before the address is erased (an erase also clears the order's link).
+      const page = await openCheckout(bought, RETURN);
+      const p = await run<{ id: string }>(
+        "person.create",
+        { givenName: `Later-${how}`, emails: [{ email }] },
+        staff(),
+      );
+      if (how === "erase") await run("person.erase", { id: p.id }, staff());
+      else await run("person.delete", { id: p.id }, staff());
+      await payPage(page.url);
+      await vi.waitFor(
+        async () => expect((await get(BOOKING, bought.bookingId)).state).toBe("expired"),
+        { timeout: 15_000 },
+      );
+      expect((await order(bought.orderId))?.state).toBe("paid");
+      expect((await owedRows(bought.orderId)).results).toEqual([
+        { entered: "unmatched", amount: null, ref: null, state: "due" },
+      ]);
+      expect(await places(id)).toMatchObject({ held: 0, taken: 0 });
+    }
+  });
+
+  it("several People share the address and nobody settles it before booking closes: released, owed", async () => {
+    const shared = `${unique("unsettled")}@dropin.test`.toLowerCase();
+    await run("person.create", { givenName: "U1", emails: [{ email: shared }] }, staff());
+    const second = await run<{ id: string }>(
+      "person.create",
+      { givenName: "U2", emails: [{ email: `${unique("u2")}@dropin.test`.toLowerCase() }] },
+      staff(),
+    );
+    await env.DB.prepare("DROP INDEX IF EXISTS core_person_emails_live_email_uq").run();
+    await env.DB.prepare("UPDATE core_person_emails SET email = ? WHERE person_id = ?")
+      .bind(shared, second.id)
+      .run();
+    try {
+      const id = await klass(yoga, 2 * HOUR);
+      const bought = await buyAsGuest(id, shared);
+      await pay(bought);
+      await vi.waitFor(async () => expect((await order(bought.orderId))?.state).toBe("paid"), {
+        timeout: 15_000,
+      });
+      expect((await get(BOOKING, bought.bookingId)).state).toBe("pending");
+      // Not yet: booking for the class is still open.
+      await run("order.expireDue", {}, staff({ actor: "automation" }));
+      expect((await get(BOOKING, bought.bookingId)).state).toBe("pending");
+      // After it closes (the class's start), the minute cron's expiry releases it.
+      await run(
+        "order.expireDue",
+        {},
+        staff({ actor: "automation", clock: () => new Date(Date.now() + 3 * HOUR) }),
+      );
+      expect((await get(BOOKING, bought.bookingId)).state).toBe("expired");
+      expect((await owedRows(bought.orderId)).results).toEqual([
+        { entered: "unsettled", amount: null, ref: null, state: "due" },
+      ]);
+    } finally {
+      await env.DB.prepare("UPDATE core_person_emails SET email = ? WHERE person_id = ?")
+        .bind(`${unique("u2")}@dropin.test`.toLowerCase(), second.id)
+        .run();
+      await env.DB.prepare(
+        "CREATE UNIQUE INDEX IF NOT EXISTS core_person_emails_live_email_uq ON core_person_emails (email) WHERE live = 1",
+      ).run();
+    }
+  });
+
+  it("erasing a Person deletes their bookings (booked, a paid drop-in, waiting), places back", async () => {
+    const id = await klass(yoga, 5 * HOUR, 2);
+    const booked = await member("erasebooked");
+    await run(
+      "x.memberships.givePass",
+      {
+        personId: booked.personId,
+        passTypeId: await create("memberships.passtype", {
+          title: unique("Pack "),
+          price: 50,
+          uses: 5,
+          validDays: 60,
+          status: "on_sale",
+        }),
+        reason: "Integration test",
+      },
+      staff(),
+    );
+    const b1 = await run<{ bookingId: string }>("x.bookings.book", { classId: id }, as(booked));
+    const dropper = await member("erasedrop");
+    const drop = await buy(id, as(dropper));
+    await pay(drop, as(dropper));
+    await waitForBooked(drop.bookingId);
+    const waiter = await member("erasewait");
+    await run(
+      "x.memberships.givePass",
+      {
+        personId: waiter.personId,
+        passTypeId: await create("memberships.passtype", {
+          title: unique("Pack "),
+          price: 50,
+          uses: 5,
+          validDays: 60,
+          status: "on_sale",
+        }),
+        reason: "Integration test",
+      },
+      staff(),
+    );
+    const w = await run<{ result: string; bookingId: string }>(
+      "x.bookings.book",
+      { classId: id },
+      as(waiter),
+    );
+    expect(w.result).toBe("waiting");
+    for (const who of [booked, dropper, waiter]) {
+      await run("person.erase", { id: who.personId }, staff());
+    }
+    for (const bookingId of [b1.bookingId, drop.bookingId, w.bookingId]) {
+      const row = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM core_capacity_claim WHERE for_id = ? AND state IN ('held', 'confirmed')",
+      )
+        .bind(bookingId)
+        .first<{ n: number }>();
+      expect(Number(row?.n)).toBe(0);
+      expect(await refusal(get(BOOKING, bookingId))).toMatchObject({ code: "not_found" });
+    }
+    expect(await places(id)).toMatchObject({ held: 0, taken: 0 });
+    // The drop-in's order stays (the money's record) with no one on it, and nothing is owed.
+    expect((await order(drop.orderId))?.person_id ?? null).toBeNull();
+    expect((await owedRows(drop.orderId)).results).toEqual([]);
+  });
+
+  it("a booking outside a guest's unpaid hold always has its Person, for every writer", async () => {
+    const id = await klass(yoga, 5 * HOUR);
+    const walkIn = await run<{ result: string; bookingId: string }>(
+      "x.bookings.bookFor",
+      { classId: id, newPerson: { givenName: unique("Walk") }, paidAtDesk: true },
+      staff(),
+    );
+    expect(walkIn.result).toBe("booked");
+    for (const actor of ["human", "assistant"] as const) {
+      const out = await refusal(
+        run(
+          "record.update",
+          { object: BOOKING, id: walkIn.bookingId, values: { person: null } },
+          staff({ actor }),
+        ),
+      );
+      expect(out.details).toMatchObject({ rule: "guest_held" });
+    }
+    expect(
+      (
+        await refusal(
+          run(
+            "record.create",
+            { object: BOOKING, values: { class: id, state: "waiting" } },
+            staff(),
+          ),
+        )
+      ).details,
+    ).toMatchObject({ rule: "guest_held" });
+    expect(
+      (
+        await refusal(
+          run(
+            "record.createMany",
+            { object: BOOKING, records: [{ class: id, state: "waiting" }] },
+            staff(),
+          ),
+        )
+      ).details,
+    ).toMatchObject({ rule: "guest_held" });
+  });
+});
