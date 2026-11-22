@@ -162,10 +162,9 @@ async function addresseesOf(
   };
   add(primaryEmail(person), true, madeBy === personId);
   const links = await ctx.ops
-    .call<{ items: { guardian: { id: string }; dependant: { id: string }; endedAt: string | null }[] }>(
-      "person.link.list",
-      { personId },
-    )
+    .call<{
+      items: { guardian: { id: string }; dependant: { id: string }; endedAt: string | null }[];
+    }>("person.link.list", { personId })
     .catch(() => ({ items: [] }));
   for (const link of links.items) {
     if (link.dependant.id !== personId || link.endedAt) continue;
@@ -334,7 +333,7 @@ export function bookedKind(
     return "booked";
   }
   const state = change.diff.state;
-  if (!state || state.after !== "booked") return null;
+  if (state?.after !== "booked") return null;
   if (state.before === "pending") return "paid";
   if (state.before === "waiting") return "promoted";
   return null;
@@ -392,12 +391,9 @@ export const bookingConfirmed = defineAutomation({
         }[kind];
         return {
           subject: a.self ? subject : `${subject} (${whom(a, name)})`,
-          text: [
-            lead,
-            "",
-            "The attached file adds it to your calendar.",
-            ...footer(link),
-          ].join("\n"),
+          text: [lead, "", "The attached file adds it to your calendar.", ...footer(link)].join(
+            "\n",
+          ),
           related: [booking.id, cls.id],
           calendar: calendarOf(booking, cls, link, kind === "moved" ? {} : undefined),
         };
@@ -499,7 +495,7 @@ export const placeFree = defineAutomation({
     if (!classId) return { skipped: "no class" };
     const letters = await step.do("compose", async () => {
       const cls = await classFacts(ctx, classId);
-      if (!cls || cls.state !== "scheduled" || !cls.startsAt) return [];
+      if (cls?.state !== "scheduled" || !cls.startsAt) return [];
       const now = Date.now();
       const stops = await cutOff(ctx, cls);
       // Before the cut-off the place went to the waiting list (the host's): nothing to tell.
@@ -507,7 +503,7 @@ export const placeFree = defineAutomation({
       const places = await ctx.ops
         .call<{ available: number | null }>("capacity.get", { object: CLASS, id: classId })
         .catch(() => null);
-      if (!places || !places.available || places.available < 1) return [];
+      if (!places?.available || places.available < 1) return [];
       const waiting = await bookingsOf(ctx, classId, ["waiting"]);
       const link = httpsLink((await settings(ctx)).bookingsUrl);
       const when = classTimeText(cls.startsAt, cls.timezone);
@@ -563,7 +559,7 @@ export const classChanged = defineAutomation({
     if (!classId || (!timeChanged && !roomChanged)) return { skipped: "no time or room change" };
     const letters = await step.do("compose", async () => {
       const cls = await classFacts(ctx, classId);
-      if (!cls || cls.state !== "scheduled") return [];
+      if (cls?.state !== "scheduled") return [];
       const bookings = await bookingsOf(ctx, classId, LIVE);
       const link = httpsLink((await settings(ctx)).bookingsUrl);
       const when = classTimeText(cls.startsAt, cls.timezone);
@@ -623,7 +619,7 @@ export const classCancelled = defineAutomation({
     if (!classId) return { skipped: "no class" };
     const letters = await step.do("compose", async () => {
       const cls = await classFacts(ctx, classId);
-      if (!cls || cls.state !== "cancelled") return [];
+      if (cls?.state !== "cancelled") return [];
       const bookings = await bookingsOf(ctx, classId, ["cancelled_by_us"]);
       const link = httpsLink((await settings(ctx)).bookingsUrl);
       const when = classTimeText(cls.startsAt, cls.timezone);
@@ -694,7 +690,7 @@ export const classReminder = defineAutomation({
     const letters = await step.do("compose", async () => {
       const cls = await classFacts(ctx, classId);
       // Cancelled (or done) since the run began: no reminder.
-      if (!cls || cls.state !== "scheduled") return [];
+      if (cls?.state !== "scheduled") return [];
       // Run late for a class already started: no reminder.
       if (cls.startsAt && Date.parse(cls.startsAt) <= Date.now()) return [];
       const bookings = await bookingsOf(ctx, classId, ["booked"]);

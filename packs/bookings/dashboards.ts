@@ -8,7 +8,8 @@
 import type { DashboardDeclaration } from "@composable-os/sdk";
 
 /** Classes starting in the period, not cancelled by the gym. */
-const IN_PERIOD = "c.starts_at >= :dates_from AND c.starts_at < :dates_to AND c.state != 'cancelled'";
+const IN_PERIOD =
+  "c.starts_at >= :dates_from AND c.starts_at < :dates_to AND c.state != 'cancelled'";
 /** A class's bookings, with the class, in the period. */
 const BOOKINGS = `FROM rec_x_bookings_booking b JOIN rec_x_bookings_class c ON c.id = b.class
 WHERE ${IN_PERIOD}`;

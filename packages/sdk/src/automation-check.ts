@@ -260,14 +260,20 @@ function checkMomentMinutes(
         ? resolveFieldPath(m, own, minutes.field)
         : undefined;
     if (!own) {
-      contract(`${path}.field`, "Minutes read from a field need a trigger object of this extension");
+      contract(
+        `${path}.field`,
+        "Minutes read from a field need a trigger object of this extension",
+      );
     } else if (field?.type !== "number") {
       contract(
         `${path}.field`,
         `"${minutes.field}" must be a number field of ${object} or one relation away, declared by ${m.id}`,
       );
     } else if (!capped(field.max)) {
-      contract(`${path}.field`, `"${minutes.field}" must declare a max of at most ${MAX_MOMENT_MINUTES}`);
+      contract(
+        `${path}.field`,
+        `"${minutes.field}" must declare a max of at most ${MAX_MOMENT_MINUTES}`,
+      );
     }
   }
   if (minutes.setting !== undefined) {

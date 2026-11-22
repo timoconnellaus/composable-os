@@ -100,7 +100,12 @@ const at = (days: number, hour: number) => {
   return d.toISOString();
 };
 
-async function klass(values: { classType: string; coach?: string; startsAt: string; places: number }) {
+async function klass(values: {
+  classType: string;
+  coach?: string;
+  startsAt: string;
+  places: number;
+}) {
   return create(CLASS, {
     ...values,
     endsAt: new Date(Date.parse(values.startsAt) + 3_600_000).toISOString(),
@@ -115,7 +120,8 @@ async function bookFor(classId: string, personId: string, extra: Record<string, 
   }
   return out.bookingId as string;
 }
-const desk = (classId: string, personId: string) => bookFor(classId, personId, { paidAtDesk: true });
+const desk = (classId: string, personId: string) =>
+  bookFor(classId, personId, { paidAtDesk: true });
 const mark = async (bookingId: string, tool: "markAttended" | "markNoShow") => {
   const out = await run<Out>(`x.bookings.${tool}`, { bookingId });
   expect(out.result).not.toBe("refused");

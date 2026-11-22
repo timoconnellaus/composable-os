@@ -489,8 +489,7 @@ export const automationTriggerSchema = z.discriminatedUnion("type", [
     .strict()
     .refine(
       (t) =>
-        [t.offsetDays, t.minutesBefore, t.minutesAfter].filter((v) => v !== undefined).length ===
-        1,
+        [t.offsetDays, t.minutesBefore, t.minutesAfter].filter((v) => v !== undefined).length === 1,
       { message: "give exactly one of offsetDays, minutesBefore and minutesAfter" },
     )
     .refine((t) => t.zoneField === undefined || t.offsetDays !== undefined, {

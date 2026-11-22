@@ -295,7 +295,10 @@ describe("booked (criterion 13)", () => {
         "BEGIN:VCALENDAR",
         "METHOD:PUBLISH",
         `UID:${out.bookingId}@example.com`,
-        `DTSTART:${new Date(start).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}`,
+        `DTSTART:${new Date(start)
+          .toISOString()
+          .replace(/[-:]/g, "")
+          .replace(/\.\d{3}/, "")}`,
         "END:VCALENDAR",
       ]),
     );
@@ -305,9 +308,8 @@ describe("booked (criterion 13)", () => {
   it("tells a parent about their child's booking, naming the child; the child has no address", async () => {
     const k = await klass(type, 2 * DAY);
     const parent = await member("parent");
-    const childId = (
-      await run<{ id: string }>("person.create", { givenName: "Robin" }, staff())
-    ).id;
+    const childId = (await run<{ id: string }>("person.create", { givenName: "Robin" }, staff()))
+      .id;
     await run("person.link.add", { guardianId: parent.personId, dependantId: childId }, staff());
     await givePass(childId);
     const out = await book(parent, k, { forPersonId: childId });
@@ -349,7 +351,11 @@ describe("the waiting list (criterion 5's emails)", () => {
     await mailsOnce(first.email, 1);
     const b = await book(second, k);
     expect([a.result, b.result]).toEqual(["booked", "waiting"]);
-    await run("x.bookings.cancel", { bookingId: a.bookingId, confirm: true, expect: "cancelled" }, as(first));
+    await run(
+      "x.bookings.cancel",
+      { bookingId: a.bookingId, confirm: true, expect: "cancelled" },
+      as(first),
+    );
     await runWaitlistDue(db, { events: sink });
     expect((await get(BOOKING, b.bookingId as string)).state).toBe("booked");
     await finished("bookingConfirmed", b.bookingId as string);
@@ -497,7 +503,10 @@ describe("under Balanced", () => {
       await givePass(who.personId);
       const out = await book(who, k);
       await vi.waitFor(
-        async () => expect((await runsFor("bookingConfirmed", out.bookingId as string))[0]?.status).toBe("review"),
+        async () =>
+          expect((await runsFor("bookingConfirmed", out.bookingId as string))[0]?.status).toBe(
+            "review",
+          ),
         { timeout: 30_000, interval: 200 },
       );
       expect(await mailTo(who.email)).toEqual([]);

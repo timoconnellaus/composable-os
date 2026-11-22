@@ -11,8 +11,8 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { MAX_MOMENT_MINUTES, type MomentMinutes } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
-import { refreshSchemaRegistry } from "../extensions/schema.ts";
 import { registryFieldName } from "../extensions/naming.ts";
+import { refreshSchemaRegistry } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";

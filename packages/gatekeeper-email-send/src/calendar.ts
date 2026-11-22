@@ -45,7 +45,10 @@ function escapeText(value: string): string {
 export function icsTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) throw new TypeError(`Invalid time: ${iso}`);
-  return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  return d
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
 }
 
 const utf8 = new TextEncoder();

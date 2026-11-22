@@ -68,7 +68,9 @@ function momentWords(
     return { amount: durationText(minutes * 60_000), side, from: null };
   }
   const parts = [
-    minutes.field ? `the ${minutes.field.includes(".") ? minutes.field : fieldLabel(minutes.field)}` : null,
+    minutes.field
+      ? `the ${minutes.field.includes(".") ? minutes.field : fieldLabel(minutes.field)}`
+      : null,
     minutes.setting ? `else the setting ${minutes.setting}` : null,
   ].filter(Boolean);
   return { amount: "some minutes", side, from: `minutes from ${parts.join(", ")}` };

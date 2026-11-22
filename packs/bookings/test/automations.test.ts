@@ -109,7 +109,9 @@ const booking = (values: Record<string, unknown>) => ({
 
 describe("the manifest", () => {
   it("passes the contract with its automations and declares each trigger", () => {
-    expect(createTestHost(bookings, { validate: { knownObjects: ["programs.classtype"] } }).issues).toEqual([]);
+    expect(
+      createTestHost(bookings, { validate: { knownObjects: ["programs.classtype"] } }).issues,
+    ).toEqual([]);
     const a = bookings.automations ?? {};
     expect(Object.keys(a).sort()).toEqual([
       "bookingConfirmed",
@@ -139,7 +141,10 @@ describe("the manifest", () => {
     // Every mail goes through the one email-send connection; the staff notice is in the app.
     for (const [name, automation] of Object.entries(a)) {
       if (name === "noAttendanceTaken") expect(automation.connections).toBeUndefined();
-      else expect(automation.connections).toEqual([expect.objectContaining({ gatekeeper: "email-send" })]);
+      else
+        expect(automation.connections).toEqual([
+          expect.objectContaining({ gatekeeper: "email-send" }),
+        ]);
     }
     expect(bookings.settings?.reminderMinutes).toMatchObject({ default: 180, max: 2_880 });
     // The record triggers read their change: never coalesced with the record's other updates.
@@ -153,7 +158,9 @@ describe("bookingConfirmed", () => {
     expect(bookedKind({ action: "created", diff: {} }, {})).toBe("booked");
     expect(bookedKind({ action: "created", diff: {} }, { movedFrom: "bkg_0" })).toBe("moved");
     // Created waiting or held, and read after it was moved in or paid: its move's run tells it.
-    expect(bookedKind({ action: "created", diff: {} }, { promotedAt: "2026-11-23T00:00:00Z" })).toBeNull();
+    expect(
+      bookedKind({ action: "created", diff: {} }, { promotedAt: "2026-11-23T00:00:00Z" }),
+    ).toBeNull();
     expect(bookedKind({ action: "created", diff: {} }, { dropInOrder: "ord_1" })).toBeNull();
     expect(
       bookedKind({ action: "created", diff: {} }, { movedFrom: "bkg_0", dropInOrder: "ord_1" }),
@@ -166,11 +173,16 @@ describe("bookingConfirmed", () => {
     expect(bookedKind(moved("waiting"), {})).toBe("promoted");
     // A tick undone, a no-show unticked, or a note edited: nothing.
     expect(bookedKind(moved("attended"), {})).toBeNull();
-    expect(bookedKind({ action: "updated", diff: { note: { before: null, after: "x" } } }, {})).toBeNull();
+    expect(
+      bookedKind({ action: "updated", diff: { note: { before: null, after: "x" } } }, {}),
+    ).toBeNull();
   });
 
   it("emails the member once, with a valid calendar event of the class", async () => {
-    const h = host({ "bookings.class": [CLASS], "bookings.booking": [booking({ madeBy: "per_ann" })] });
+    const h = host({
+      "bookings.class": [CLASS],
+      "bookings.booking": [booking({ madeBy: "per_ann" })],
+    });
     const run = await h.runAutomation("bookingConfirmed", {
       record: { object: "bookings.booking", id: "bkg_1" },
       change: { action: "created", diff: {} },
@@ -243,7 +255,10 @@ describe("bookingConfirmed", () => {
   });
 
   it("does not run for a booking that is not booked, nor write about a visitor's unpaid hold", async () => {
-    const waiting = host({ "bookings.class": [CLASS], "bookings.booking": [booking({ state: "waiting" })] });
+    const waiting = host({
+      "bookings.class": [CLASS],
+      "bookings.booking": [booking({ state: "waiting" })],
+    });
     const run = await waiting.runAutomation("bookingConfirmed", {
       record: { object: "bookings.booking", id: "bkg_1" },
       change: { action: "created", diff: {} },
@@ -252,7 +267,10 @@ describe("bookingConfirmed", () => {
     expect(waiting.gatekeeperCalls).toEqual([]);
 
     // A guest's booking with no Person (ADR 0560): nobody to write to.
-    const guest = host({ "bookings.class": [CLASS], "bookings.booking": [booking({ person: null })] });
+    const guest = host({
+      "bookings.class": [CLASS],
+      "bookings.booking": [booking({ person: null })],
+    });
     await guest.runAutomation("bookingConfirmed", {
       record: { object: "bookings.booking", id: "bkg_1" },
       change: { action: "created", diff: {} },
@@ -269,7 +287,10 @@ describe("the waiting list", () => {
     });
     const run = await h.runAutomation("waitlistPassedOver", {
       record: { object: "bookings.booking", id: "bkg_1" },
-      change: { action: "updated", diff: { passedOverReason: { before: null, after: "no_uses_left" } } },
+      change: {
+        action: "updated",
+        diff: { passedOverReason: { before: null, after: "no_uses_left" } },
+      },
     });
     expect(run.undeclared).toEqual([]);
     const [mail] = mails(h);
@@ -304,7 +325,9 @@ describe("the waiting list", () => {
       expect(m.text).not.toContain("Ann");
       expect(m.relatedRecords).toEqual(["cls_1"]);
     }
-    expect(sent.find((m) => m.to[0] === "pat@members.test")?.text).toContain("Book it for Sam Child");
+    expect(sent.find((m) => m.to[0] === "pat@members.test")?.text).toContain(
+      "Book it for Sam Child",
+    );
 
     // Three hours before (before the 2-hour cut-off) the place went to the waiting list.
     const early = host(
@@ -317,9 +340,12 @@ describe("the waiting list", () => {
     });
     expect(early.gatekeeperCalls).toEqual([]);
     // After the cut-off with no free place (someone took it): nothing.
-    const full = host({ "bookings.class": [soon], "bookings.booking": waiting }, {
-      "capacity.get": () => ({ status: "sold_out", available: 0 }),
-    });
+    const full = host(
+      { "bookings.class": [soon], "bookings.booking": waiting },
+      {
+        "capacity.get": () => ({ status: "sold_out", available: 0 }),
+      },
+    );
     await full.runAutomation("placeFree", {
       record: { object: "bookings.booking", id: "bkg_gone" },
       change: { action: "updated", diff: { state: { before: "booked", after: "cancelled" } } },
@@ -373,11 +399,18 @@ describe("a change or a cancellation by the gym", () => {
         "bookings.class": [{ ...CLASS, state: "cancelled", cancelledReason: "Coach unwell" }],
         "bookings.booking": [
           booking({ state: "cancelled_by_us" }),
-          booking({ id: "bkg_d", person: "per_bob", state: "cancelled_by_us", dropInOrder: "ord_1" }),
+          booking({
+            id: "bkg_d",
+            person: "per_bob",
+            state: "cancelled_by_us",
+            dropInOrder: "ord_1",
+          }),
           booking({ id: "bkg_x", person: "per_bob", state: "cancelled" }),
         ],
       },
-      { "order.get": () => ({ id: "ord_1", state: "paid", paid: 2500, email: "bob@members.test" }) },
+      {
+        "order.get": () => ({ id: "ord_1", state: "paid", paid: 2500, email: "bob@members.test" }),
+      },
     );
     const run = await h.runAutomation("classCancelled", {
       record: { object: "bookings.class", id: "cls_1" },
@@ -390,7 +423,9 @@ describe("a change or a cancellation by the gym", () => {
     expect(sent[0]?.text).toContain("Nothing was used from your membership or pass.");
     expect(sent[0]?.calendar).toMatchObject({ uid: "bkg_1", cancelled: true });
     expect(sent[1]?.to).toEqual(["bob@members.test"]);
-    expect(sent[1]?.text).toContain("goes back to the card it was paid with, once the gym approves");
+    expect(sent[1]?.text).toContain(
+      "goes back to the card it was paid with, once the gym approves",
+    );
   });
 });
 
@@ -446,13 +481,18 @@ describe("dropInRefunded", () => {
       },
       ops,
     );
-    const run = await h.runAutomation("dropInRefunded", { record: { object: "order", id: "ord_1" } });
+    const run = await h.runAutomation("dropInRefunded", {
+      record: { object: "order", id: "ord_1" },
+    });
     expect(run.undeclared).toEqual([]);
     expect(mails(h)).toEqual([
       expect.objectContaining({ to: ["payer@members.test"], subject: "Refund made: Strength" }),
     ]);
 
-    const other = host({ "bookings.booking": [], order: [{ id: "ord_9", state: "refunded" }] }, ops);
+    const other = host(
+      { "bookings.booking": [], order: [{ id: "ord_9", state: "refunded" }] },
+      ops,
+    );
     await other.runAutomation("dropInRefunded", { record: { object: "order", id: "ord_9" } });
     expect(other.gatekeeperCalls).toEqual([]);
   });
@@ -460,7 +500,10 @@ describe("dropInRefunded", () => {
 
 describe("noAttendanceTaken", () => {
   it("tells the admins when people were booked and nobody was marked", async () => {
-    const h = host({ "bookings.class": [CLASS], "bookings.booking": [booking({}), booking({ id: "b2" })] });
+    const h = host({
+      "bookings.class": [CLASS],
+      "bookings.booking": [booking({}), booking({ id: "b2" })],
+    });
     const run = await h.runAutomation("noAttendanceTaken", {
       record: { object: "bookings.class", id: "cls_1" },
     });
