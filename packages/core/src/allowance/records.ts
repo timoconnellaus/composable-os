@@ -91,7 +91,7 @@ type RecordUpdate = (
   object: ObjectDefinition,
   id: string,
   values: Record<string, unknown>,
-  options: { by?: Mover },
+  options: { by?: Mover; movedInto?: string },
 ) => Promise<boolean>;
 let recordUpdate: RecordUpdate | null = null;
 
@@ -826,12 +826,24 @@ export async function spenderWrite(
   written: Values,
   outcome: TransitionOutcome,
   by: Mover,
+  options: {
+    /** The record this one is being moved into, in this batch (its create names it, ADR 0551). */
+    movedInto?: string | undefined;
+  } = {},
 ): Promise<SpenderOutcome> {
   const def = spenderOf(object);
   if (!def || !object.states) return NOTHING;
   const ref = { object: object.name, id };
   const after: Values = { ...(before ?? {}), ...written, ...outcome.values };
   const to = outcome.moved?.id;
+  // The moved state gives a use back to be spent again by the record it moved to: it is entered
+  // only by making that record (`movedFrom`), in one batch, never by a write of its own (ADR 0551).
+  if (def.movedFrom && to === def.movedFrom.state && !options.movedInto) {
+    throw new ValidationError(
+      `${object.label} is moved by making the new one in its place (naming it in ${def.movedFrom.field}), in one write`,
+      { rule: "allowance", reason: "move_needs_target", field: object.states.field },
+    );
+  }
   const entering = to !== undefined && def.spendIn.includes(to);
   const returning = to !== undefined && def.returnIn.includes(to);
   const { relations, ownAt } = sources(def);
@@ -873,13 +885,58 @@ export async function spenderWrite(
       );
     }
   }
-  const spending = entering && !open && !isWaived(after);
+  // A record moved from another (ADR 0493): made by staff in a spend state, for the same person.
+  // The other is moved in this batch, giving its use back, and this one spends from the same
+  // holder; one paid another way passes its mark on, so the move spends nothing (ADR 0551).
+  const fromId = def.movedFrom && before === null ? after[def.movedFrom.field] : null;
+  const moving = def.movedFrom !== undefined && typeof fromId === "string" && fromId !== "";
+  let sourceWaived = false;
+  // Who made the source for its customer (a parent for a child, ADR 0540) is the host's to carry
+  // to the record it moves to: the move is not a new booking by whoever moved it (ADR 0553).
+  const madeByField = object.customer?.guardians?.madeBy;
+  let sourceMadeBy: unknown;
+  if (def.movedFrom && moving) {
+    if (by === "customer") {
+      throw new ValidationError(
+        `Only staff move a ${object.label.toLowerCase()} to another; cancel it and make a new one`,
+        { rule: "allowance", field: def.movedFrom.field },
+      );
+    }
+    if (!entering) {
+      throw new ValidationError(
+        `A ${object.label.toLowerCase()} moved from another is made in a state that spends`,
+        { rule: "allowance", field: def.movedFrom.field },
+      );
+    }
+    const source = await readValues(ctx, object, fromId as string);
+    if (!source) throw new NotFoundError(object.name, fromId as string);
+    if (source[def.person] !== after[def.person]) {
+      throw new ValidationError(`A ${object.label.toLowerCase()} moves to the same person`, {
+        rule: "allowance",
+        field: def.movedFrom.field,
+      });
+    }
+    sourceWaived = isWaived(source);
+    if (madeByField) sourceMadeBy = source[madeByField] ?? null;
+    if (!sourceWaived && isWaived(after)) {
+      // Moving a paid one into one paid another way would give its use back for nothing.
+      throw new ValidationError(
+        `Whether ${object.label.toLowerCase()} spends a use moves with it: it cannot change now`,
+        { rule: "allowance", reason: "waived_kept", field: def.waived ?? def.movedFrom.field },
+      );
+    }
+  }
+  const spending = entering && !open && !isWaived(after) && !sourceWaived;
   const respending = open !== null && !returning && repointed;
   const fill = before === null || entering || repointed;
   const read = fill
     ? await readSpender(ctx, object, def, after, { needAt: spending || respending })
     : { values: {}, at: ctx.now };
-  const values: Values = { ...read.values };
+  const values: Values = {
+    ...read.values,
+    ...(sourceWaived && def.waived ? { [def.waived]: true } : {}),
+    ...(madeByField && moving ? { [madeByField]: sourceMadeBy ?? null } : {}),
+  };
   const statements: CompiledQuery[] = [];
   const spenderValues = { ...after, ...values };
 
@@ -909,31 +966,19 @@ export async function spenderWrite(
     values[def.holder] = spent.holder;
     return { values, statements };
   }
-  if (!spending) return { values, statements };
-
-  // A record moved from another (ADR 0493): that record is moved in this batch, giving its use
-  // back, and this one spends from the same holder.
   let movedFrom: OpenUse | null = null;
-  const fromId = def.movedFrom && before === null ? after[def.movedFrom.field] : null;
-  if (def.movedFrom && typeof fromId === "string" && fromId) {
-    if (by === "customer") {
-      throw new ValidationError(
-        `Only staff move a ${object.label.toLowerCase()} to another; cancel it and make a new one`,
-        { rule: "allowance", field: def.movedFrom.field },
-      );
-    }
-    const source = await readValues(ctx, object, fromId);
-    if (!source) throw new NotFoundError(object.name, fromId);
-    if (source[def.person] !== spenderValues[def.person]) {
-      throw new ValidationError(`A ${object.label.toLowerCase()} moves to the same person`, {
-        rule: "allowance",
-        field: def.movedFrom.field,
-      });
-    }
-    movedFrom = await openUse(ctx, { object: object.name, id: fromId });
+  if (def.movedFrom && moving) {
+    movedFrom = await openUse(ctx, { object: object.name, id: fromId as string });
     if (!recordUpdate) throw new Error("allowance: the record writer is not set");
-    await recordUpdate(ctx, object, fromId, { [object.states.field]: def.movedFrom.state }, { by });
+    await recordUpdate(
+      ctx,
+      object,
+      fromId as string,
+      { [object.states.field]: def.movedFrom.state },
+      { by, movedInto: id },
+    );
   }
+  if (!spending) return { values, statements };
 
   // The holder it names: written now, or stored on it by an earlier write (checked then), or the
   // moved record's.

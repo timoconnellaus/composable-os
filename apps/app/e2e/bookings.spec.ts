@@ -245,6 +245,44 @@ test("staff book a walk-in into a class only staff book, paid at the desk", asyn
   expect(after.values.taken).toBe(1);
 });
 
+// Step 7: the coach's list. A class about to start, someone booked; the list block ticks them,
+// and a second tick of the same name (another coach a moment later) is told who was first.
+test("a coach ticks who came on a class's list", async ({ page }) => {
+  test.setTimeout(120_000);
+  await setUp(page);
+  const klass = await oneOff(page, 30 * 60_000);
+  const person = await op<{ id: string }>(page.request, "person.create", {
+    givenName: unique("Ticked"),
+  });
+  const name = (await op<{ displayName: string }>(page.request, "person.get", { id: person.id }))
+    .displayName;
+  const made = await op<{ result: string; bookingId: string }>(page.request, "x.bookings.bookFor", {
+    classId: klass.id,
+    personId: person.id,
+    paidAtDesk: true,
+  });
+  expect(made.result).toBe("booked");
+  await page.goto(block("bookings-class-list", "ClassList", { classId: klass.id }));
+  const list = page.getByRole("region", { name: "Class list" });
+  await expect(list.getByText(`${name} · Booked`)).toBeVisible();
+  await list.getByRole("button", { name: `Tick ${name}` }).click();
+  await expect(list.getByRole("status")).toHaveText("Ticked: they came.");
+  await expect(list.getByRole("button", { name: `Untick ${name}` })).toBeVisible();
+  // The same name ticked again: once, and the second is told who was first.
+  const again = await op<{ result: string; message: string }>(
+    page.request,
+    "x.bookings.markAttended",
+    { bookingId: made.bookingId },
+  );
+  expect(again.result).toBe("already");
+  expect(again.message).toMatch(/^Already ticked as come by /);
+  const booking = await op<{ values: Record<string, unknown> }>(page.request, "record.get", {
+    object: "bookings.booking",
+    id: made.bookingId,
+  });
+  expect(booking.values).toMatchObject({ state: "attended" });
+});
+
 test("staff link a parent to their child, and the parent books the child a class", async ({
   page,
   browser,

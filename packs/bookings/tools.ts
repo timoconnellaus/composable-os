@@ -1,4 +1,4 @@
-// The Bookings tools (stage 31a steps 3 to 6). They become operations x.bookings.<tool>, run in the
+// The Bookings tools (stage 31a steps 3 to 7). They become operations x.bookings.<tool>, run in the
 // sandbox, and reach the host only through ctx.ops. None of them holds a rule: when booking opens
 // and closes, whether a cancel is late, which class types only staff book, the places left, one
 // booking per person per class and the use a booking spends are all the host's (index.ts). A tool
@@ -267,6 +267,11 @@ function refusalOf(
     return out("already_booked", "You already have a place in this class, or are waiting for one.");
   }
   if (rule === "capacity") return out("full", "This class is full.");
+  // A cancel that found the booking already in a final state: another write moved it first (a
+  // race). Any other undeclared move is a fault and is not dressed up as one.
+  if (what === "cancel" && rule === "state_final") {
+    return out("changed", "It changed meanwhile: it is no longer booked. Look again.");
+  }
   if (error.code === "conflict") {
     return out("changed", "It changed while you were booking. Look again and try once more.");
   }
@@ -1274,6 +1279,8 @@ export const day = defineTool({
   }),
   output: z.object({ date: z.string(), classes: z.array(staffClass) }),
   risk: "read",
+  // The coach role holds it (ADR 0436); staff hold it as any read tool.
+  permission: "bookings:coach",
   async handler(input, ctx) {
     const from = localMidnight(input.date, input.timeZone);
     const next = new Date(Date.parse(`${input.date}T00:00:00Z`) + DAY).toISOString().slice(0, 10);
@@ -1321,32 +1328,10 @@ export const classList = defineTool({
   }),
   risk: "read",
   async handler(input, ctx) {
-    const klass = await ctx.ops.call<RecordShape>("record.get", {
-      object: CLASS,
-      id: input.classId,
-    });
-    const [described] = await staffClasses(ctx, [klass]);
-    const page = await ctx.ops.call<ListShape>("record.list", {
-      object: BOOKING,
-      filter: { field: "class", op: "eq", value: klass.id },
-      sort: { field: "createdAt", direction: "asc" },
-      limit: 200,
-    });
-    const names = new Map<string, string | null>();
-    for (const id of new Set(page.items.map((b) => text(b.values.person)).filter(Boolean))) {
-      try {
-        const person = await ctx.ops.call<{ displayName?: string | null } | null>("person.get", {
-          id,
-        });
-        names.set(id as string, person?.displayName ?? null);
-      } catch (error) {
-        if (!(error instanceof OpsCallError) || error.code !== "not_found") throw error;
-        names.set(id as string, null);
-      }
-    }
+    const { klass, bookings, names } = await listOf(ctx, input.classId);
     return {
-      class: described as z.infer<typeof staffClass>,
-      bookings: page.items.map((booking) => {
+      class: klass,
+      bookings: bookings.map((booking) => {
         const personId = text(booking.values.person);
         return {
           id: booking.id,
@@ -1359,6 +1344,500 @@ export const classList = defineTool({
           passedOver: text(booking.values.passedOverReason),
         };
       }),
+    };
+  },
+});
+
+// --- Attendance, the coach's list (step 7) --------------------------------------------------------
+
+/** Who is marking a list: the staff member who called the tool (never from the input). */
+function marker(ctx: Ctx) {
+  const staff = ctx.caller?.kind === "staff" ? ctx.caller : null;
+  return { markedBy: staff?.userId ?? null, markedByName: staff?.name || null };
+}
+
+const marked = z.object({
+  result: z.enum(["attended", "no_show", "booked"]),
+  bookingId: z.string(),
+  message: z.string(),
+});
+
+const alreadyMarked = z.object({
+  result: z.literal("already"),
+  bookingId: z.string(),
+  state: z.string().nullable().describe("What the booking is now"),
+  markedAt: z.string().nullable(),
+  markedBy: z.string().nullable().describe("The name of who marked it first"),
+  message: z.string(),
+});
+
+const listRefused = z.object({
+  result: z.literal("refused"),
+  reason: z
+    .enum(["not_found", "not_started", "not_booked", "changed"])
+    .describe(
+      "not_started: the list opens an hour before the class (see opensAt). not_booked: the " +
+        "booking is not one that can be marked (cancelled, waiting, moved…; see state). changed: " +
+        "it changed meanwhile; look again.",
+    ),
+  state: z.string().nullable(),
+  opensAt: z.string().nullable(),
+  message: z.string(),
+});
+
+const STATE_WORDS: Record<string, string> = {
+  booked: "booked",
+  attended: "ticked as come",
+  no_show: "marked as not come",
+  waiting: "on the waitlist",
+  cancelled: "cancelled",
+  late_cancelled: "cancelled late",
+  excused: "cancelled with the class given back",
+  cancelled_by_us: "cancelled with the class",
+  moved: "moved to another class",
+  left: "off the waitlist",
+  pending: "held while paying",
+  expired: "expired",
+};
+const words = (state: string | null) => STATE_WORDS[state ?? ""] ?? state ?? "unknown";
+
+type MarkOut = z.infer<typeof marked> | z.infer<typeof alreadyMarked> | z.infer<typeof listRefused>;
+
+/**
+ * Marks one booking as `to` from where it is (one of `from`), from that position or not at all
+ * (ADR 0437): of two coaches marking one name at once, one is made and the other is told who was
+ * first. The host holds when a list may be marked (from an hour before the class) and which moves
+ * a booking may make.
+ */
+async function markBooking(
+  ctx: Ctx,
+  bookingId: string,
+  to: "attended" | "no_show" | "booked",
+  from: readonly string[],
+): Promise<MarkOut> {
+  const no = (
+    reason: z.infer<typeof listRefused>["reason"],
+    message: string,
+    state: string | null = null,
+    opensAt: string | null = null,
+  ) => ({ result: "refused" as const, reason, state, opensAt, message });
+  let record: RecordShape;
+  try {
+    record = await ctx.ops.call<RecordShape>("record.get", { object: BOOKING, id: bookingId });
+  } catch (error) {
+    if (error instanceof OpsCallError && error.code === "not_found") {
+      return no("not_found", "No such booking.");
+    }
+    throw error;
+  }
+  const already = (now: RecordShape) => {
+    const state = text(now.values.state);
+    const by = text(now.values.markedByName);
+    return {
+      result: "already" as const,
+      bookingId,
+      state,
+      markedAt: text(now.values.markedAt),
+      markedBy: by,
+      message: `Already ${words(state)}${by ? ` by ${by}` : ""}.`,
+    };
+  };
+  const state = text(record.values.state) ?? "";
+  if (state === to) return already(record);
+  if (!from.includes(state)) {
+    return no("not_booked", `This booking is ${words(state)}: it cannot be marked.`, state);
+  }
+  const values =
+    to === "booked"
+      ? { state: to, markedAt: null, markedBy: null, markedByName: null }
+      : { state: to, markedAt: new Date().toISOString(), ...marker(ctx) };
+  try {
+    await ctx.ops.call("record.update", { object: BOOKING, id: bookingId, from: state, values });
+  } catch (error) {
+    if (!(error instanceof OpsCallError)) throw error;
+    const details = (error.details ?? {}) as Record<string, unknown>;
+    if (details.rule === "state_window_not_open") {
+      return no(
+        "not_started",
+        to === "no_show"
+          ? "A no-show is marked once the class has started."
+          : "The class's list opens an hour before it starts.",
+        state,
+        text(details.opensAt),
+      );
+    }
+    if (error.code === "conflict") {
+      // Someone marked it first (or it moved): say who, from what it is now.
+      const now = await ctx.ops.call<RecordShape>("record.get", { object: BOOKING, id: bookingId });
+      if (text(now.values.state) === to) return already(now);
+      const is = text(now.values.state);
+      return no("changed", `It changed meanwhile: it is now ${words(is)}.`, is);
+    }
+    if (details.rule === "state_move_not_declared" || details.rule === "state_final") {
+      return no("not_booked", "This booking cannot be marked.", state);
+    }
+    throw error;
+  }
+  return {
+    result: to,
+    bookingId,
+    message:
+      to === "attended"
+        ? "Ticked: they came."
+        : to === "no_show"
+          ? "Marked: they did not come. The class stays used."
+          : "Unticked: booked again.",
+  };
+}
+
+const markOutput = z.union([marked, alreadyMarked, listRefused]);
+
+export const markAttended = defineTool({
+  description:
+    "Tick a booking on a class's list: they came. From an hour before the class, and any time " +
+    "after it (a late correction: a no-show ticked becomes attended). Of two coaches ticking one " +
+    "name at once, one tick is made and the other is told who was first. A booking that is " +
+    "cancelled, waiting or moved cannot be ticked. The use it spent stays spent.",
+  input: z.object({ bookingId: z.string().min(1).max(64) }),
+  output: markOutput,
+  risk: "write",
+  permission: "bookings:coach",
+  handler: (input, ctx) => markBooking(ctx, input.bookingId, "attended", ["booked", "no_show"]),
+});
+
+export const undoAttended = defineTool({
+  description:
+    "Untick a booking ticked by mistake: it is booked again (and, once the class is 30 minutes " +
+    "over with others ticked, the host makes it a no-show). Who ticked it and when are cleared.",
+  input: z.object({ bookingId: z.string().min(1).max(64) }),
+  output: markOutput,
+  risk: "write",
+  permission: "bookings:coach",
+  handler: (input, ctx) => markBooking(ctx, input.bookingId, "booked", ["attended"]),
+});
+
+export const markNoShow = defineTool({
+  description:
+    "Mark a booked booking as not come (a no-show), once the class has started. The class stays " +
+    "used (no money, nothing else follows). The host does this itself for everyone still booked " +
+    "30 minutes after the class ends, if anyone on the list was marked.",
+  input: z.object({ bookingId: z.string().min(1).max(64) }),
+  output: markOutput,
+  risk: "write",
+  permission: "bookings:coach",
+  handler: (input, ctx) => markBooking(ctx, input.bookingId, "no_show", ["booked"]),
+});
+
+export const markAll = defineTool({
+  description:
+    "Tick everyone still booked on a class's list at once (from an hour before the class). Each " +
+    "name is ticked from where it is or not at all, so a name another coach ticked meanwhile is " +
+    "counted as already ticked, not twice.",
+  input: z.object({ classId: z.string().min(1).max(64) }),
+  output: z.union([
+    z.object({
+      result: z.literal("marked"),
+      classId: z.string(),
+      ticked: z.number().describe("Names ticked now"),
+      already: z.number().describe("Names someone else ticked meanwhile"),
+      skipped: z.number().describe("Names that changed meanwhile (cancelled, moved…)"),
+    }),
+    listRefused,
+  ]),
+  risk: "write",
+  permission: "bookings:coach",
+  async handler(input, ctx) {
+    const page = await ctx.ops.call<ListShape>("record.list", {
+      object: BOOKING,
+      filter: {
+        and: [
+          { field: "class", op: "eq", value: input.classId },
+          { field: "state", op: "eq", value: "booked" },
+        ],
+      },
+      sort: { field: "createdAt", direction: "asc" },
+      limit: 200,
+    });
+    let ticked = 0;
+    let already = 0;
+    let skipped = 0;
+    for (const booking of page.items) {
+      const out = await markBooking(ctx, booking.id, "attended", ["booked"]);
+      if (out.result === "attended") ticked += 1;
+      else if (out.result === "already") already += 1;
+      else if (out.result === "refused" && out.reason === "not_started") return out;
+      else skipped += 1;
+    }
+    return { result: "marked" as const, classId: input.classId, ticked, already, skipped };
+  },
+});
+
+/** A class as staff see it, its bookings in the order they were made, and their people's names. */
+async function listOf(ctx: Ctx, classId: string) {
+  const record = await ctx.ops.call<RecordShape>("record.get", { object: CLASS, id: classId });
+  const [klass] = await staffClasses(ctx, [record]);
+  const page = await ctx.ops.call<ListShape>("record.list", {
+    object: BOOKING,
+    filter: { field: "class", op: "eq", value: record.id },
+    sort: { field: "createdAt", direction: "asc" },
+    limit: 200,
+  });
+  const names = new Map<string, string | null>();
+  for (const id of new Set(page.items.map((b) => text(b.values.person)).filter(Boolean))) {
+    try {
+      const person = await ctx.ops.call<{ displayName?: string | null } | null>("person.get", {
+        id,
+      });
+      names.set(id as string, person?.displayName ?? null);
+    } catch (error) {
+      if (!(error instanceof OpsCallError) || error.code !== "not_found") throw error;
+      names.set(id as string, null);
+    }
+  }
+  return { klass: klass as z.infer<typeof staffClass>, bookings: page.items, names };
+}
+
+export const roster = defineTool({
+  description:
+    "A class's list for its coach: the class (as on the day view) and every booking of it with " +
+    "the person's name and its state (booked, ticked, not come, waiting in the order they " +
+    "joined, cancelled…), who marked it and when. Nothing about what anyone paid with. Read-only.",
+  input: z.object({ classId: z.string().min(1).max(64) }),
+  output: z.object({
+    class: staffClass,
+    bookings: z.array(
+      z.object({
+        id: z.string(),
+        person: named,
+        state: z.string().nullable(),
+        markedAt: z.string().nullable(),
+        markedBy: z.string().nullable().describe("The name of who marked it"),
+        promotedAt: z.string().nullable().describe("When they were moved in from the waitlist"),
+      }),
+    ),
+  }),
+  risk: "read",
+  permission: "bookings:coach",
+  async handler(input, ctx) {
+    const { klass, bookings, names } = await listOf(ctx, input.classId);
+    return {
+      class: klass,
+      bookings: bookings.map((booking) => {
+        const personId = text(booking.values.person);
+        return {
+          id: booking.id,
+          person: personId ? { id: personId, name: names.get(personId) ?? null } : null,
+          state: text(booking.values.state),
+          markedAt: text(booking.values.markedAt),
+          markedBy: text(booking.values.markedByName),
+          promotedAt: text(booking.values.promotedAt),
+        };
+      }),
+    };
+  },
+});
+
+// --- Moving people and cancelling a class (step 7) ------------------------------------------------
+
+const moveRefusal = z
+  .enum(["not_booked", "same_class", "started"])
+  .describe(
+    "not_booked: only a booked booking moves. same_class: it is already on that class. started: " +
+      "its class has started; giving its use back is returnUse's.",
+  );
+
+export const move = defineTool({
+  description:
+    "Staff move a member's booking to another class, with the use it spent, in one batch: the " +
+    "old booking is moved (its place given back, to the waitlist first before its cut-off), a " +
+    "new booking is made on the other class, and the use is spent again on it from the same " +
+    "membership or pass. Refused whole, with nothing changed, when the other class is full " +
+    "(places held for its waitlist included: raise its places first), was cancelled or is over, " +
+    "they are already booked on it, or the use cannot be spent in that class's week or period. " +
+    "Only a booked booking, before its class starts. A booking paid at the desk moves paid at " +
+    "the desk. Audited.",
+  input: z.object({
+    bookingId: z.string().min(1).max(64),
+    toClassId: z.string().min(1).max(64),
+    note: z.string().max(2000).optional(),
+  }),
+  output: z.union([
+    z.object({
+      result: z.literal("moved"),
+      fromBookingId: z.string(),
+      bookingId: z.string().describe("The new booking"),
+      classId: z.string(),
+      holderId: z.string().nullable().describe("The membership or pass the use is spent from"),
+    }),
+    refused,
+    refused.extend({ reason: moveRefusal }),
+  ]),
+  risk: "write",
+  async handler(input, ctx) {
+    const no = (reason: z.infer<typeof moveRefusal>, message: string) => ({
+      result: "refused" as const,
+      reason,
+      message,
+      detail: null,
+      opensAt: null,
+      closesAt: null,
+    });
+    let old: RecordShape;
+    try {
+      old = await ctx.ops.call<RecordShape>("record.get", { object: BOOKING, id: input.bookingId });
+    } catch (error) {
+      if (error instanceof OpsCallError && error.code === "not_found") {
+        return refusalOf(error, "cancel");
+      }
+      throw error;
+    }
+    const state = text(old.values.state);
+    if (state !== "booked") {
+      return no("not_booked", `This booking is ${words(state)}: only a booked one moves.`);
+    }
+    if (text(old.values.class) === input.toClassId) {
+      return no("same_class", "It is already booked on that class.");
+    }
+    const staff = ctx.caller?.kind === "staff" ? ctx.caller : null;
+    try {
+      // The host moves the old booking in this create's batch (the allowance's `movedFrom`): its
+      // place given back, the use spent again here from the same holder; or nothing at all.
+      const made = await ctx.ops.call<RecordShape>("record.create", {
+        object: BOOKING,
+        values: {
+          class: input.toClassId,
+          person: text(old.values.person),
+          movedFrom: old.id,
+          ...(staff?.userId ? { bookedBy: staff.userId } : {}),
+          ...(input.note ? { note: input.note } : {}),
+        },
+      });
+      return {
+        result: "moved" as const,
+        fromBookingId: old.id,
+        bookingId: made.id,
+        classId: input.toClassId,
+        holderId: text(made.values.holder),
+      };
+    } catch (error) {
+      const rule =
+        error instanceof OpsCallError
+          ? (error.details as { rule?: unknown } | undefined)?.rule
+          : undefined;
+      // The old booking moved to a final state meanwhile (the member cancelled it): a race.
+      if (rule === "state_final") {
+        return {
+          result: "refused" as const,
+          reason: "changed" as const,
+          message: "It changed meanwhile: it is no longer booked. Look again.",
+          detail: null,
+          opensAt: null,
+          closesAt: null,
+        };
+      }
+      // The old booking's own move has a window: until its class starts.
+      if (rule === "state_window_closed") {
+        return no(
+          "started",
+          "Its class has started: it can no longer be moved. A person can give its use back (returnUse).",
+        );
+      }
+      return refusalOf(error, "book");
+    }
+  },
+});
+
+export const cancelClass = defineTool({
+  description:
+    "Cancel a scheduled class that has not ended, with a reason: in the same batch every booking " +
+    "of it holding a place or a use (booked, waiting, held while paying, ticked as come, marked " +
+    "not come, cancelled late) is cancelled by the gym, each place given back and each use " +
+    "returned once. A person's act: the assistant, MCP clients and automations may ask, and it " +
+    "waits for a person to approve it. When it cannot be done (no such class, not scheduled, " +
+    "already ended, or it changed twice while being done) it fails with the reason, so an " +
+    "approved request shows it did not apply. (Emails to the members, and refunds of paid " +
+    "drop-ins, come in a later release.)",
+  input: z.object({
+    classId: z.string().min(1).max(64),
+    reason: z.string().trim().min(3).max(2000),
+  }),
+  output: z.object({
+    result: z.literal("cancelled"),
+    classId: z.string(),
+    bookingsCancelled: z.number().describe("Bookings cancelled with the class"),
+  }),
+  risk: "destructive",
+  // Anyone but a person waits for a person's approval (ADR 0552); the class's move into
+  // cancelled is made by this tool and the host only.
+  personApproves: true,
+  permission: "bookings:cancelClasses",
+  async handler(input, ctx) {
+    // A refusal is an error, never an answer: an approved request that cannot apply must show
+    // that it did not (ADR 0553).
+    const fail = (code: string, reason: string, message: string): never => {
+      throw new OpsCallError(code, message, { reason });
+    };
+    // A race (a booking landing under the cancel, another write moving the class) is tried once
+    // more from a fresh read; anything else is the answer.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await ctx.ops.call("record.update", {
+          object: CLASS,
+          id: input.classId,
+          from: "scheduled",
+          values: { state: "cancelled", cancelledReason: input.reason },
+        });
+        break;
+      } catch (error) {
+        if (!(error instanceof OpsCallError)) throw error;
+        if (error.code === "not_found") fail("not_found", "not_found", "No such class.");
+        const details = (error.details ?? {}) as Record<string, unknown>;
+        if (details.reason === "not_in_position") {
+          fail(
+            "conflict",
+            "not_scheduled",
+            "This class is not scheduled (it was cancelled or is over).",
+          );
+        }
+        if (details.rule === "state_window_closed") {
+          fail(
+            "invalid_input",
+            "ended",
+            "This class has ended: a class that happened is not cancelled. A person can give a booking's use back (returnUse).",
+          );
+        }
+        if (details.rule === "state_window_unknown") {
+          fail(
+            "invalid_input",
+            "no_end",
+            "This class has no end time, so whether it has ended cannot be told: give it one first.",
+          );
+        }
+        if (error.code === "conflict" && attempt === 0) continue;
+        if (error.code === "conflict") {
+          fail(
+            "conflict",
+            "changed",
+            "The class or its bookings changed while it was being cancelled. Look again.",
+          );
+        }
+        throw error;
+      }
+    }
+    const page = await ctx.ops.call<ListShape>("record.list", {
+      object: BOOKING,
+      filter: {
+        and: [
+          { field: "class", op: "eq", value: input.classId },
+          { field: "state", op: "eq", value: "cancelled_by_us" },
+        ],
+      },
+      limit: 200,
+    });
+    return {
+      result: "cancelled" as const,
+      classId: input.classId,
+      bookingsCancelled: page.items.length,
     };
   },
 });

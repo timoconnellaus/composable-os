@@ -168,3 +168,9 @@ local parts, which the periods use and stage 31 can.
 - A waiter's spend happens on promotion, as the host (`spent_by` `host`), from the holder they
   named when they joined, if any ([ADR 0520](0520-a-waitlist-on-a-claimant.md)). A refused spend
   refuses the promotion, and the waiter is passed over.
+
+## Amended 2026-11-23 (stage 31a step 7, ADR 0551)
+A spender's `movedFrom.state` is entered only by the host inside the create of the record it moves
+to; a write of its own into it is refused (`move_needs_target`). A source paid another way
+(`waived`) passes its mark to the new record, which spends nothing; a paid source cannot move into
+a waived record.

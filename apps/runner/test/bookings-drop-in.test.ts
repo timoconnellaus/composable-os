@@ -632,6 +632,42 @@ describe("refunds through approval (decision 15, criterion 6's drop-in part)", (
     expect((await order(paid.orderId))?.state).toBe("paid");
   });
 
+  it("staff cancelling a class: paid drop-ins (one cancelled late) refunded through approval, a pending one's order cancelled", async () => {
+    const id = await klass(yoga, 40 * 60_000, 5);
+    const paid = await buyAsGuest(id);
+    await pay(paid);
+    await waitForBooked(paid.bookingId);
+    const lateOne = await member("latecc");
+    const late = await buy(id, as(lateOne));
+    await pay(late, as(lateOne));
+    await waitForBooked(late.bookingId);
+    // Inside the late-cancel hour: the money is kept, nothing owed yet.
+    await run(
+      "x.bookings.cancel",
+      { bookingId: late.bookingId, confirm: true, expect: "late_cancelled" },
+      as(lateOne),
+    );
+    expect(await owed(late.orderId)).toBeNull();
+    const pending = await buyAsGuest(id);
+    // The gym cancels the class (a person's act, ADR 0552): every booking follows in its batch.
+    await run("x.bookings.cancelClass", { classId: id, reason: "Coach ill" }, staff());
+    expect((await get(CLASS, id)).state).toBe("cancelled");
+    for (const b of [paid, late, pending]) {
+      expect((await get(BOOKING, b.bookingId)).state).toBe("cancelled_by_us");
+    }
+    expect(await places(id)).toMatchObject({ held: 0, taken: 0 });
+    expect((await order(pending.orderId))?.state).toBe("cancelled");
+    expect(await owed(pending.orderId)).toBeNull();
+    // The class the gym cancelled gives a drop-in payer their money back, late cancel or not.
+    expect(await owed(paid.orderId)).toEqual({ state: "due", entered: "cancelled_by_us" });
+    expect(await owed(late.orderId)).toEqual({ state: "due", entered: "cancelled_by_us" });
+    expect((await sweep()).failed).toBe(0);
+    for (const b of [paid, late]) {
+      expect((await owed(b.orderId))?.state).toBe("asked");
+      expect((await order(b.orderId))?.state).toBe("paid");
+    }
+  });
+
   it("a refund staff already made by hand is not asked for twice", async () => {
     const who = await member("byhand");
     const id = await klass(yoga, 5 * HOUR);

@@ -163,7 +163,7 @@ describe("bookings pack (test host)", () => {
     expect(states?.follows).toEqual({
       relation: "class",
       when: { cancelled: "cancelled_by_us" },
-      from: ["booked", "waiting", "pending"],
+      from: ["booked", "waiting", "pending", "attended", "no_show", "late_cancelled"],
     });
     // A member joins a waitlist (step 5, the host checks the class is full); nothing a customer
     // does creates a booking held while paying (step 8).
@@ -905,5 +905,315 @@ describe("bookings pack (test host)", () => {
         passedOver: null,
       },
     ]);
+  });
+
+  // --- Step 7: attendance, the coach role, moves and cancelling a class -----------------------------
+
+  it("declares the coach role, the list's windows, no-shows after the class, and who cancels a class", () => {
+    const m = host().manifest;
+    expect(m.roles?.coach).toMatchObject({
+      permissions: ["bookings:coach"],
+      read: ["bookings.class"],
+    });
+    for (const tool of ["day", "roster", "markAttended", "undoAttended", "markNoShow", "markAll"]) {
+      expect(m.tools[tool]?.permission).toBe("bookings:coach");
+    }
+    // Not the coach's: the desk's list (holders, desk payments), booking, cancelling, moving.
+    for (const tool of ["classList", "bookFor", "cancelFor", "move", "findPeople", "returnUse"]) {
+      expect(m.tools[tool]?.permission).not.toBe("bookings:coach");
+    }
+    const booking = m.objects.booking?.states;
+    const moves = booking?.moves ?? [];
+    expect(moves.find((x) => x.from === "booked" && x.to === "attended")).toMatchObject({
+      by: ["staff"],
+      window: { from: { at: "class.startsAt", minutesBefore: 60 } },
+      bindsStaff: true,
+    });
+    expect(moves.find((x) => x.from === "booked" && x.to === "no_show")).toMatchObject({
+      by: ["staff", "host"],
+      window: { from: "class.startsAt" },
+      bindsStaff: true,
+    });
+    expect(moves.find((x) => x.to === "moved")).toMatchObject({
+      by: ["staff"],
+      window: { until: "class.startsAt" },
+      bindsStaff: true,
+    });
+    expect(booking?.after).toEqual([
+      {
+        from: "booked",
+        to: "no_show",
+        at: "class.endsAt",
+        minutesAfter: 30,
+        ifAnyIn: ["attended", "no_show"],
+      },
+    ]);
+    // A class is cancelled by the host, and by cancelClass alone: a person's, or approved by one.
+    expect(m.objects.class?.states?.moves.find((x) => x.to === "cancelled")).toMatchObject({
+      by: ["host"],
+      tools: ["cancelClass"],
+    });
+    expect(m.tools.cancelClass).toMatchObject({
+      risk: "destructive",
+      personApproves: true,
+      permission: "bookings:cancelClasses",
+    });
+    expect(m.tools.move?.risk).toBe("write");
+  });
+
+  it("markAttended ticks a name from where it is, and a second tick is told who was first", async () => {
+    const h = host();
+    expect(
+      await h.runTool("markAttended", { bookingId: "bkg_1" }, { caller: STAFF }),
+    ).toMatchObject({ result: "attended", bookingId: "bkg_1" });
+    expect(h.calls.find((c) => c.operation === "record.update")?.input).toMatchObject({
+      object: "bookings.booking",
+      id: "bkg_1",
+      from: "booked",
+      values: { state: "attended", markedBy: "usr_desk", markedByName: "Desk" },
+    });
+    // The same name again (another coach a moment later): already ticked, by whom.
+    expect(
+      await h.runTool(
+        "markAttended",
+        { bookingId: "bkg_1" },
+        { caller: { kind: "staff", userId: "usr_2", name: "Sam" } },
+      ),
+    ).toMatchObject({
+      result: "already",
+      markedBy: "Desk",
+      message: "Already ticked as come by Desk.",
+    });
+    // Unticked by mistake: booked again, who and when cleared.
+    expect(
+      await h.runTool("undoAttended", { bookingId: "bkg_1" }, { caller: STAFF }),
+    ).toMatchObject({ result: "booked" });
+    expect(h.calls.filter((c) => c.operation === "record.update").at(-1)?.input).toMatchObject({
+      from: "attended",
+      values: { state: "booked", markedAt: null, markedBy: null, markedByName: null },
+    });
+  });
+
+  it("markAttended reports the host's refusals: a race lost, the list not open, not a booking that ticks", async () => {
+    // Lost the race: the host refuses the conditional move, and the booking now says who won.
+    let reads = 0;
+    const raced = host({
+      "record.get": (input) => {
+        reads += 1;
+        return {
+          id: input.id,
+          values:
+            reads === 1
+              ? { state: "booked" }
+              : { state: "attended", markedByName: "Sam", markedAt: "2026-12-01T18:58:00.000Z" },
+        };
+      },
+      "record.update": () => {
+        throw new ExtensionToolError("conflict", "Moved meanwhile", { reason: "moved_meanwhile" });
+      },
+    });
+    expect(
+      await raced.runTool("markAttended", { bookingId: "bkg_1" }, { caller: STAFF }),
+    ).toMatchObject({ result: "already", markedBy: "Sam", markedAt: "2026-12-01T18:58:00.000Z" });
+    // Before the list opens (an hour before the class): the host's window.
+    const early = host({
+      "record.update": () =>
+        refusal("state_window_not_open", { opensAt: "2026-12-01T18:00:00.000Z" }),
+    });
+    expect(
+      await early.runTool("markAttended", { bookingId: "bkg_1" }, { caller: STAFF }),
+    ).toMatchObject({
+      result: "refused",
+      reason: "not_started",
+      opensAt: "2026-12-01T18:00:00.000Z",
+    });
+    // A booking the gym cancelled with its class: nothing to tick, and nothing asked of the host.
+    const gone = host({
+      "record.get": (input) => ({ id: input.id, values: { state: "cancelled_by_us" } }),
+    });
+    expect(
+      await gone.runTool("markAttended", { bookingId: "bkg_1" }, { caller: STAFF }),
+    ).toMatchObject({ result: "refused", reason: "not_booked", state: "cancelled_by_us" });
+    expect(gone.calls.some((c) => c.operation === "record.update")).toBe(false);
+    // A no-show ticked later (a late correction) moves from no_show.
+    const late = host({
+      "record.get": (input) => ({ id: input.id, values: { state: "no_show" } }),
+      "record.update": () => ({ id: "bkg_1", values: { state: "attended" } }),
+    });
+    await late.runTool("markAttended", { bookingId: "bkg_1" }, { caller: STAFF });
+    expect(late.calls.find((c) => c.operation === "record.update")?.input).toMatchObject({
+      from: "no_show",
+    });
+  });
+
+  it("markNoShow and markAll mark from where each booking is", async () => {
+    const h = host();
+    expect(await h.runTool("markNoShow", { bookingId: "bkg_1" }, { caller: STAFF })).toMatchObject({
+      result: "no_show",
+    });
+    const all = host();
+    expect(await all.runTool("markAll", { classId: "cls_1" }, { caller: STAFF })).toEqual({
+      result: "marked",
+      classId: "cls_1",
+      ticked: 1,
+      already: 0,
+      skipped: 0,
+    });
+    expect(all.calls.find((c) => c.operation === "record.list")?.input).toMatchObject({
+      object: "bookings.booking",
+      filter: {
+        and: [
+          { field: "class", value: "cls_1" },
+          { field: "state", value: "booked" },
+        ],
+      },
+    });
+  });
+
+  it("roster shows the coach names and marks, and nothing of what anyone paid with", async () => {
+    const out = await host().runTool<{ bookings: Record<string, unknown>[] }>(
+      "roster",
+      { classId: "cls_1" },
+      { caller: STAFF },
+    );
+    expect(out.bookings).toEqual([
+      {
+        id: "bkg_1",
+        person: { id: "per_ann", name: "Ann" },
+        state: "booked",
+        markedAt: null,
+        markedBy: null,
+        promotedAt: null,
+      },
+    ]);
+  });
+
+  it("move makes the new booking naming the old one, so the host moves both in one batch", async () => {
+    const h = host();
+    expect(
+      await h.runTool(
+        "move",
+        { bookingId: "bkg_1", toClassId: "cls_2", note: "Asked at the desk" },
+        { caller: STAFF },
+      ),
+    ).toMatchObject({ result: "moved", fromBookingId: "bkg_1", classId: "cls_2" });
+    expect(h.calls.find((c) => c.operation === "record.create")?.input).toEqual({
+      object: "bookings.booking",
+      values: {
+        class: "cls_2",
+        person: "per_ann",
+        movedFrom: "bkg_1",
+        bookedBy: "usr_desk",
+        note: "Asked at the desk",
+      },
+    });
+    // Nothing is asked of the host for the same class, or for a booking that is not booked.
+    expect(
+      await host().runTool("move", { bookingId: "bkg_1", toClassId: "cls_1" }, { caller: STAFF }),
+    ).toMatchObject({ result: "refused", reason: "same_class" });
+    const waiting = host({
+      "record.get": (input) => ({ id: input.id, values: { state: "waiting", class: "cls_1" } }),
+    });
+    expect(
+      await waiting.runTool("move", { bookingId: "bkg_1", toClassId: "cls_2" }, { caller: STAFF }),
+    ).toMatchObject({ result: "refused", reason: "not_booked" });
+    // The host's refusals, refused whole: full, no use, the old class started.
+    for (const [rule, reason] of [
+      ["capacity", "full"],
+      ["allowance", "no_use"],
+      ["unique", "already_booked"],
+      ["state_closed", "not_running"],
+      ["state_window_closed", "started"],
+    ] as const) {
+      const r = host({ "record.create": () => refusal(rule) });
+      expect(
+        await r.runTool("move", { bookingId: "bkg_1", toClassId: "cls_2" }, { caller: STAFF }),
+      ).toMatchObject({ result: "refused", reason });
+    }
+  });
+
+  it("cancelClass cancels from scheduled with the reason, and says how many bookings went with it", async () => {
+    const h = host({
+      "record.list": () => ({
+        items: [
+          { id: "bkg_1", values: { state: "cancelled_by_us" } },
+          { id: "bkg_2", values: { state: "cancelled_by_us" } },
+        ],
+      }),
+    });
+    expect(
+      await h.runTool("cancelClass", { classId: "cls_1", reason: "Coach ill" }, { caller: STAFF }),
+    ).toEqual({ result: "cancelled", classId: "cls_1", bookingsCancelled: 2 });
+    expect(h.calls.find((c) => c.operation === "record.update")?.input).toEqual({
+      object: "bookings.class",
+      id: "cls_1",
+      from: "scheduled",
+      values: { state: "cancelled", cancelledReason: "Coach ill" },
+    });
+    const done = host({
+      "record.update": () => {
+        throw new ExtensionToolError("conflict", "Not scheduled", { reason: "not_in_position" });
+      },
+    });
+    // A refusal fails the call (an approved request then shows it did not apply).
+    await expect(
+      done.runTool("cancelClass", { classId: "cls_1", reason: "Again" }, { caller: STAFF }),
+    ).rejects.toMatchObject({ details: { reason: "not_scheduled" } });
+    const ended = host({ "record.update": () => refusal("state_window_closed") });
+    await expect(
+      ended.runTool("cancelClass", { classId: "cls_1", reason: "Late" }, { caller: STAFF }),
+    ).rejects.toMatchObject({ details: { reason: "ended" } });
+    // A race is tried once more from a fresh read; twice, it fails.
+    let tries = 0;
+    const raced = host({
+      "record.update": () => {
+        tries += 1;
+        if (tries === 1) {
+          throw new ExtensionToolError("conflict", "Stale", { rule: "recurring_stale" });
+        }
+        return { id: "cls_1", values: { state: "cancelled" } };
+      },
+      "record.list": () => ({ items: [] }),
+    });
+    expect(
+      await raced.runTool("cancelClass", { classId: "cls_1", reason: "Race" }, { caller: STAFF }),
+    ).toMatchObject({ result: "cancelled" });
+    expect(tries).toBe(2);
+  });
+
+  it("a class the gym cancels takes every booking holding a place or a use, and only before it ends", () => {
+    const m = host().manifest;
+    const states = m.objects.booking?.states;
+    expect(states?.follows?.from).toEqual([
+      "booked",
+      "waiting",
+      "pending",
+      "attended",
+      "no_show",
+      "late_cancelled",
+    ]);
+    // A late cancel is not final: the class's cancel gives its kept use back.
+    expect(states?.moves.find((x) => x.to === "late_cancelled")?.final).toBeUndefined();
+    expect(m.objects.class?.fields.endsAt?.required).toBe(true);
+    expect(m.objects.class?.states?.moves.find((x) => x.to === "cancelled")).toMatchObject({
+      window: { until: "endsAt" },
+      bindsStaff: true,
+    });
+    expect(m.roles?.coach?.today).toEqual({
+      "bookings.class": { at: "startsAt", until: "endsAt", zone: "timezone" },
+      "bookings.booking": { at: "class.startsAt", until: "class.endsAt", zone: "class.timezone" },
+    });
+  });
+
+  it("move reports a booking that moved on meanwhile as changed, not as a fault", async () => {
+    const r = host({ "record.create": () => refusal("state_final") });
+    expect(
+      await r.runTool("move", { bookingId: "bkg_1", toClassId: "cls_2" }, { caller: STAFF }),
+    ).toMatchObject({ result: "refused", reason: "changed" });
+    // A move the declaration does not allow is a fault, never reported as a race.
+    const wrong = host({ "record.create": () => refusal("state_move_not_declared") });
+    await expect(
+      wrong.runTool("move", { bookingId: "bkg_1", toClassId: "cls_2" }, { caller: STAFF }),
+    ).rejects.toThrow();
   });
 });

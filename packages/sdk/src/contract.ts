@@ -608,6 +608,13 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * any extension may declare it.
    */
   humanOnly?: boolean;
+  /**
+   * A person approves it (ADR 0552): a person on the staff calls it as any tool, and anyone else's
+   * call (the assistant, an MCP client, an automation) always waits in the approval queue for a
+   * person, whatever the approval policy or preset says, and runs when a person approves it. For
+   * what an AI may propose but a person decides (cancelling a class). Staff only, and not a read.
+   */
+  personApproves?: boolean;
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
 }
 
@@ -627,6 +634,15 @@ export interface RoleSpec {
   permissions: readonly string[];
   /** Objects of this extension (`<id>.<object>`) whose records the role may read. */
   read: readonly string[];
+  /**
+   * Objects whose records the role reaches only when a datetime on them falls on the
+   * day it is on (ADR 0553), by object: the moment, and optionally its end and zone, read through
+   * one relation at most: `{ "bookings.class": { at: "startsAt", until: "endsAt", zone:
+   * "timezone" } }`. A record is today's when its start falls on today's date in its zone (the
+   * organisation's when empty), or it has started and not yet ended. The host holds it on every
+   * call the account makes and every call of a tool run it started. Other staff are not limited.
+   */
+  today?: Readonly<Record<string, string | { at: string; until?: string; zone?: string }>>;
 }
 
 /**

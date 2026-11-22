@@ -22,6 +22,7 @@ import { getObject } from "../fields/index.ts";
 import type { ClaimsDefinition, ObjectDefinition, WaitlistDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
+import { queueUnmovedGuards } from "../records/states.ts";
 import { boundMoment, pathReader, staffOnlySet } from "../records/windows.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
 import { creditSimulatedClaim, readCounter } from "./records.ts";
@@ -396,6 +397,8 @@ export async function waitlistMove(
           field,
         });
       }
+      // A class cancelled between this read and the commit fails the promotion (ADR 0550).
+      if (closed) await queueUnmovedGuards(ctx, object, after, closed);
     }
     if (was === waiting && is === t.waitlist.promote && by === "host") {
       if (typeof onAfter === "string" && onAfter) {

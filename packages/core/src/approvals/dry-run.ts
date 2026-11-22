@@ -72,6 +72,7 @@ const CONTEXT_KEYS = {
   floor: "data",
   grantedPermissions: "data",
   permissionGrants: "data",
+  roleToday: "data",
   reason: "data",
   approval: "data",
   records: "database",

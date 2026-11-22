@@ -15,6 +15,7 @@
 import { moveOrigins } from "@composable-os/sdk";
 import type { ObjectDefinition, StatesDefinition, WindowDefinition } from "../fields/types.ts";
 import { type HandlerContext, personsTool } from "../operation.ts";
+import { guardStatement } from "../recurring/bookkeeping.ts";
 import {
   ALL_MOVERS,
   type Lifecycle,
@@ -164,6 +165,31 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
             from,
           );
         }
+        // Read when the write is planned: a cancel committing before this write would leave it
+        // on a closed record the cancel never saw. The record each flag is read through must not
+        // move before this batch commits (migration 0670, ADR 0550).
+        await queueUnmovedGuards(write.ctx, o, after, closedPaths);
+      }
+      // Nor does a record take a place on what is closed (ADR 0553): a move from a state that
+      // holds no place into one that does is refused while the same flags are set, for everyone,
+      // the host included (a booking ticked or booked again on a cancelled class).
+      const claims = o.claims;
+      if (closedPaths && claims && before !== null && toId !== fromId) {
+        const holds = (state: string | null) =>
+          state !== null && (claims.held.includes(state) || claims.confirmed.includes(state));
+        if (holds(toId) && !holds(fromId)) {
+          if (await staffOnlySet(pathReader(write.ctx, o, after), closedPaths)) {
+            throw refuse(
+              write,
+              "state_closed",
+              `${o.label} cannot take a place now: what it is for is closed`,
+              [field],
+              to,
+              from,
+            );
+          }
+          await queueUnmovedGuards(write.ctx, o, after, closedPaths);
+        }
       }
       // A customer creates a record only in its initial state, or in one `create.in` lists for
       // them (ADR 0507): never straight into a later one (a booking made already cancelled).
@@ -250,7 +276,7 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       const tool = write.by === "staff" ? personsTool(write.ctx, o.extension) : null;
       const byTool = tool !== null && (move.tools ?? []).includes(tool);
       // A window that binds staff too (ADR 0507): every staff write, a person's included.
-      if (write.by === "staff" && move.bindsStaff && move.by.includes("staff")) {
+      if (write.by === "staff" && move.bindsStaff && (move.by.includes("staff") || byTool)) {
         await customerRules(
           write,
           { window: move.window },
@@ -279,6 +305,37 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       );
     },
   };
+}
+
+/**
+ * For each `closed` path read through a relation (`class.closed`), a guard in the write's batch
+ * that the related record has made no move since it was read (its state history keeps the number
+ * of rows read now). Exported for the waitlist's move in, judged against the same flags.
+ */
+export async function queueUnmovedGuards(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  after: Record<string, unknown>,
+  paths: string | readonly string[],
+): Promise<void> {
+  if (ctx.simulation) return;
+  const relations = new Set(
+    (typeof paths === "string" ? [paths] : paths)
+      .filter((p) => p.includes("."))
+      .map((p) => p.split(".")[0] as string),
+  );
+  for (const relation of relations) {
+    const id = after[relation];
+    const to = object.fields.find((f) => f.name === relation)?.options?.to;
+    if (typeof id !== "string" || !id || !to) continue;
+    const row = await ctx.db
+      .selectFrom("core_transition_history")
+      .select((eb) => eb.fn.countAll<number>().as("n"))
+      .where("object_type", "=", to)
+      .where("record_id", "=", id)
+      .executeTakeFirst();
+    ctx.write(guardStatement("unmoved", to, id, Number(row?.n ?? 0)));
+  }
 }
 
 // --- Windows, staff-only rules and requests (stage 31, ADR 0503) ---------------------------------

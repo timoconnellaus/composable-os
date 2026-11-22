@@ -1,0 +1,11 @@
+{
+  "name": "bookings-class-list",
+  "pack": "bookings",
+  "skin": "web",
+  "operations": ["x.bookings.roster", "x.bookings.markAttended", "x.bookings.undoAttended"],
+  "files": ["class-list.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-bookings": "*"
+  }
+}

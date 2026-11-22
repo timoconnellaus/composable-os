@@ -48,6 +48,11 @@ export function toolOperation(
     ...(audiences ? { audiences } : {}),
     // Only a person (ADR 0512): it narrows who may call, so it holds from any extension.
     ...(tool.humanOnly ? { actors: ["human"] as const } : {}),
+    // A person approves anyone else's call (ADR 0552): it only adds review, so it holds from any
+    // extension. The gate queues it whatever the policy, preset or floor says (a deny applies).
+    ...(tool.personApproves
+      ? { alwaysReview: ["assistant", "mcp", "automation", "extension"] as const }
+      : {}),
     ...(packPermission ? { packPermission } : {}),
     ...(packPermission && (manifest.grantable ?? []).includes(packPermission)
       ? { packPermissionGrantable: true }
@@ -92,7 +97,15 @@ export function toolOperation(
         ...(cascade ? { cascade } : {}),
         caller:
           ctx.principal.kind === "staff"
-            ? { actor: ctx.actor, userId: ctx.user.id, name: ctx.user.name }
+            ? {
+                actor: ctx.actor,
+                userId: ctx.user.id,
+                name: ctx.user.name,
+                // A pack role limited to today holds inside the tool too (ADR 0553).
+                ...(ctx.roleToday ? { roleToday: ctx.roleToday } : {}),
+                // Who approved it, for a tool a person approves called by another actor.
+                ...(ctx.approval?.approvedBy ? { approvedBy: ctx.approval.approvedBy } : {}),
+              }
             : {
                 actor: ctx.principal.kind,
                 userId: ctx.principal.kind === "customer" ? ctx.principal.customerId : "",

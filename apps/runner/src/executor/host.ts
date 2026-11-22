@@ -26,6 +26,7 @@ import {
   queueEventSink,
   resolveExtensionOperation,
   type TestSimulation,
+  type TodayLimits,
   type ToolCascade,
   toOperationError,
 } from "@composable-os/core";
@@ -126,9 +127,21 @@ export interface RunState {
    */
   outside?: { principal: OutsidePrincipal; tool: string };
   /** The tool this run is, from the installed manifest (ADR 0513); absent for automations. */
-  tool?: { name: string; humanOnly: boolean; permission: string | null; startedBy?: string };
+  tool?: {
+    name: string;
+    humanOnly: boolean;
+    /** A person approves anyone else's call (ADR 0552). */
+    personApproves?: boolean;
+    permission: string | null;
+    startedBy?: string;
+  };
   /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
   cascade?: ToolCascade;
+  /**
+   * The calling staff account's pack role limit to today (ADR 0553): the run's record reads and
+   * writes of these objects reach today's records only, whatever the extension may read.
+   */
+  roleToday?: TodayLimits;
   /**
    * Set for a tool declared `risk: "read"` (ADR 0022 amendment, 2026-11-22): it may only read.
    * Its operation calls must be read operations, its storage answers `get` and `list` only, and
@@ -321,6 +334,9 @@ export class RunHost extends RpcTarget {
               permissions: run.permissions,
               ...(run.tool ? { tool: run.tool } : {}),
             },
+            // The caller's pack role limit to today holds on every call of this run, and on the
+            // runs of tools it calls (ADR 0553): the pipeline holds it before each operation.
+            ...(run.roleToday ? { roleToday: run.roleToday } : {}),
             ...(run.simulate ? { simulate: run.simulate } : this.#events()),
             ...(await this.#tools(operation)),
           });

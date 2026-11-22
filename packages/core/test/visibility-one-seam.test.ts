@@ -140,6 +140,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "orders/guests.ts": [1, WHY.host],
   "orders/holds.ts": [1, WHY.host],
   "orders/late.ts": [2, WHY.host],
+  // ADR 0560: a record an order moves, read as the host (its state, and who a buyer may point at).
+  "orders/moves.ts": [3, WHY.host],
   "orders/orders.ts": [2, WHY.host],
   "records/erase-log.ts": [1, WHY.write],
   "records/erase-stores.ts": [1, WHY.write],

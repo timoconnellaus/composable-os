@@ -626,7 +626,9 @@ What 33 decides (the switch date, freezing the old system, telling members) is n
    cancel, a direct booking and two promotions leaves the class at its places with no place lost.
 6. **Cancelling a class** cancels every booking, pending drop-in and waiter in its batch, returns
    every use, puts each paid drop-in's refund through approval, and emails each member; it is
-   refused to an AI without a person's approval.
+   refused to an AI without a person's approval. (Decided at step 7's review, 2026-11-23: "every
+   booking" includes those already ticked as come, marked not come and cancelled late, each use
+   returned once; a class that has ended cannot be cancelled. ADR 0553.)
 7. **Attendance:** two coaches ticking one name at once mark it once and the second is told who was
    first; no-shows are written only for classes whose attendance was taken; the use is kept for
    late cancels and no-shows.
@@ -871,6 +873,50 @@ amended. Where the build read the spec one way, or decided what it left open:
   member naming the child answered as a made-up id; an ended link stops everything); the packs'
   own tests; and one e2e test (staff link a parent on the Person page, the parent books the child
   from the timetable).
+
+### Step 7: attendance, the coach role, moves and cancelling a class (2026-11-23, `feat/stage-31a-attendance`)
+ADRs [0550](../adr/0550-timed-moves-and-a-cancel-that-races-a-booking.md) (timed moves, and the
+guards a cancel and a booking racing it need), [0551](../adr/0551-staff-bound-windows-and-a-move-only-by-its-new-record.md)
+(windows on staff moves; `moved` only by the new booking; `waived` moves with it),
+[0552](../adr/0552-a-tool-a-person-approves.md) (a tool a person approves) and
+[0553](../adr/0553-attendance-the-coach-role-moves-and-cancelling-a-class.md) (the pack's part);
+migration 0670 (block AO); ADRs 0436, 0493, 0504, 0507 and 0520 amended. Where the build read the
+spec one way, or decided what it left open:
+
+- **Ticking has a window**: from an hour before the class (guess), binding staff, and no end (a
+  correction after the class, a no-show ticked as come, is allowed). A no-show is marked from the
+  start. Of two coaches ticking one name, one tick is made; the other is told who was first
+  (`markedByName`). `markAll` ticks everyone still booked.
+- **"Attendance was taken" is read, not stored**: the host's no-show move (`states.after`, 30
+  minutes after the class's end) needs another booking of the class `attended` or `no_show`. No flag
+  on the class goes stale when a tick is undone; a one-off class without an end time gets none; the
+  sweep looks back 14 days.
+- **The coach role** reads its class records and holds `day`, `roster` (names and marks, nothing
+  paid), `markAttended`, `undoAttended`, `markNoShow`, `markAll`. **It does not book walk-ins or
+  members** (spec: "book walk-ins and members into a class"): finding someone on file, and the
+  walk-in's duplicate check, show people beyond the lists, which the same sentence rules out. The
+  desk books; the coach ticks. Pack roles still do not combine (ADR 0436 amended).
+- **A move is the new booking's create** (`movedFrom`), refused whole when the new class is full
+  (its waitlist's holds count: a staff move never takes a held place; raise the places first), was
+  cancelled, already has them, or the use cannot be spent then; only before the old class starts.
+  The `moved` state cannot be written on its own (it gave a use back late). A desk-paid booking
+  moves desk-paid. A freed place goes to the waitlist before the cut-off.
+- **Cancelling a class** is `cancelClass`, a tool a person approves: the assistant, MCP and
+  automations may ask, and it waits for a person whatever the preset; no other staff write cancels a
+  class. The cascade now holds under races (ADR 0550).
+- **After the review** (ADR 0553's amendment): a class the gym cancels takes every booking holding
+  a place or a use with it (ticked, not come and late-cancelled included), each use back once; a
+  class that has ended cannot be cancelled (`endsAt` is now required); nothing takes a place on a
+  closed class, for anyone; `cancelClass` fails visibly when it cannot apply; `move` answers a race
+  as `changed`; the coach role reaches today only (a role's `today`: a class starting today in its own zone, or running now), so
+  another day's corrections are the desk's; the timed-move sweep pages past records that keep
+  failing; a cascade cannot follow a pooled parent.
+- **Not built here** (later steps): promote by hand, the emails (a move, a cancel, the class list
+  "no attendance taken"), drop-in refunds on a cancel (no drop-ins yet), the coach's screen in the
+  gym's app (the web `bookings-class-list` block is the list; native is step 9).
+- **Proof**: `packs/bookings/test/bookings.test.ts` (29), `packages/core/test/attendance-platform.test.ts`
+  (6), `apps/runner/test/bookings-attendance.test.ts` (11: criteria 6, 7 and 11 on the shipped
+  packs), and the e2e journey "a coach ticks who came on a class's list".
 
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.

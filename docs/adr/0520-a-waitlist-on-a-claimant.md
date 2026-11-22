@@ -158,3 +158,8 @@ claimant object gives its waitlist's holds back with its claims.
   logged and counted, and the next record is read.
 - **What a member reads.** An unexpected refusal passes a waiter over with the reason
   `unavailable`; the detail is only in the log.
+
+## Note, 2026-11-23 (stage 31a step 7)
+A staff move (ADR 0551) frees its old place to the waitlist as a cancel does, and never takes a
+place held for one (the hold counts). The promotion's move in queues the `unmoved` guard on its
+class (ADR 0550), so a class cancelled meanwhile fails it. Promote by hand is still to come.

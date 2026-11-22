@@ -164,6 +164,10 @@ whose booking was refused for want of a use (joining spends nothing; they are pa
 promotion if they still cannot pay); `leaveWaitlist` is a new customer tool; `mine` and
 `classList` show the waitlist. The shipped packs' spend is proved together (ADR 0493's note).
 
+## Note (2026-11-23, stage 31a step 7)
+Attendance, the coach role, moving people and cancelling a class:
+[ADR 0553](0553-attendance-the-coach-role-moves-and-cancelling-a-class.md).
+
 ## Note (2026-11-23, stage 31a step 6)
 The booking opens to guardians ([ADR 0540](0540-the-family-link.md)): `customer.guardians:
 { write: true, madeBy: "madeBy" }`, and `person` joins `customer.read`. `book` takes `forPersonId`

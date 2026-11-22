@@ -1,5 +1,6 @@
-// Bookings (stage 31a, build steps 3 to 5: the spine, spending and the waitlist; ADRs 0504 and
-// 0520): a gym's or studio's timetable and the
+// Bookings (stage 31a, build steps 3 to 5 and 7: the spine, spending, the waitlist, and
+// attendance, moves and cancelling a class; ADRs 0504, 0520 and 0553): a gym's or studio's
+// timetable and the
 // bookings members make on it. Staff set a weekly timetable once (series), the host makes each
 // week's classes from it, and members book and cancel them on the web and in the app.
 //
@@ -28,7 +29,17 @@
 //     class type's drop-in price or the organisation's, booked when the payment is verified and
 //     released when the order expires; a paid drop-in cancelled in time or by the gym owes the
 //     money back, which a person approves (`sellable.moves`, ADR 0560; step 8);
-//   - members read the timetable and how many places are left, never who is booked (decision 13).
+//   - members read the timetable and how many places are left, never who is booked (decision 13);
+//   - a coach ticks names from an hour before the class (a window that binds staff, ADR 0551);
+//     of two ticks at once one is made (ADR 0437); 30 minutes after a class ends, the host makes
+//     its still-booked bookings no-shows, only if someone on it was ticked (`states.after`,
+//     ADR 0550). A no-show keeps its use;
+//   - staff move a booking to another class by making the new one (`movedFrom`): the old one is
+//     moved, its place given back and its use spent again on the new one, in one batch, refused
+//     whole when the new class is full or the use cannot be spent (ADRs 0493 and 0551);
+//   - staff cancel a class (a person's act, or a person approves an AI's request, ADR 0552), and
+//     every booked, waiting and held booking of it is cancelled in the same batch (ADR 0507);
+//   - the coach role (`roles`, ADR 0436): the day's classes, their lists, and ticking names.
 // The tools in tools.ts compose the host's operations and add no rules of their own.
 import { defineExtension } from "@composable-os/sdk";
 import {
@@ -36,6 +47,7 @@ import {
   bookFor,
   buy,
   cancel,
+  cancelClass,
   cancelFor,
   classGet,
   classList,
@@ -43,9 +55,15 @@ import {
   family,
   findPeople,
   leaveWaitlist,
+  markAll,
+  markAttended,
+  markNoShow,
   mine,
+  move,
   returnUse,
+  roster,
   timetable,
+  undoAttended,
 } from "./tools.ts";
 
 /** Weekday values a series' `weekdays` uses (ADR 0500). */
@@ -75,6 +93,9 @@ const BOOKING_STATES = [
   { value: "expired", label: "Expired" },
 ];
 
+/** What a class the gym cancels cancels with it: every booking holding a place or a use. */
+const FOLLOW_CANCEL = ["booked", "waiting", "pending", "attended", "no_show", "late_cancelled"];
+
 /** A booking that holds or takes a place, and so counts as the Person's one for its class. */
 const ACTIVE = ["pending", "booked", "waiting", "attended", "no_show"];
 
@@ -92,6 +113,8 @@ const lateFrom = {
   at: "class.startsAt",
   minutesBefore: { field: "class.classType.lateMinutes", setting: "lateMinutes" },
 };
+/** A class's list opens for ticking an hour before it starts (guess: people arrive early). */
+const listOpens = { at: "class.startsAt", minutesBefore: 60 };
 
 // A booking rule is a person's to change (spec 31: "Change the booking rules: a person only"):
 // set by the assistant, an MCP client, an automation or extension code, it waits for a person's
@@ -350,7 +373,8 @@ export default defineExtension({
           required: true,
         },
         startsAt: { type: "datetime", label: "Starts", required: true },
-        endsAt: { type: "datetime", label: "Ends" },
+        // Required (step 7): no-shows are written after it, and a class is cancelled only before.
+        endsAt: { type: "datetime", label: "Ends", required: true },
         // Left empty, the organisation's zone (ADR 0460): a class always has one.
         timezone: { type: "timezone", label: "Time zone", required: true },
         room: { type: "relation", label: "Room", to: "bookings.room" },
@@ -374,6 +398,12 @@ export default defineExtension({
           readOnly: true,
           description: "Edited by hand: its series no longer changes it.",
         },
+        cancelledReason: {
+          type: "longText",
+          label: "Why it was cancelled",
+          readOnly: true,
+          description: "The reason staff gave when they cancelled the class.",
+        },
         // A class that is not scheduled cannot be booked by a member (the booking's create rule).
         closed: {
           type: "formula",
@@ -385,10 +415,20 @@ export default defineExtension({
         field: "state",
         initial: "scheduled",
         moves: [
-          // Only the host cancels a class at this step (a closure, a series ended, each confirmed
-          // by a person, ADR 0500). Staff cancelling a class, with its bookings cancelled in the
-          // same batch, is step 7's cascade.
-          { from: "scheduled", to: "cancelled", by: ["host"], final: true },
+          // The host cancels a class (a closure, a series ended, each confirmed by a person, ADR
+          // 0500), and so does cancelClass: a person's act, or an AI's request a person approves
+          // (ADR 0552). No other staff write cancels one. Its bookings follow in the same batch.
+          // Only until the class ends (binding the tool's staff write; the host is not bound): a
+          // class that happened is not cancelled afterwards, so no-shows never sit on one.
+          {
+            from: "scheduled",
+            to: "cancelled",
+            by: ["host"],
+            tools: ["cancelClass"],
+            window: { until: "endsAt" },
+            bindsStaff: true,
+            final: true,
+          },
           { from: "scheduled", to: "done", by: ["staff", "host"], final: true },
         ],
       },
@@ -424,7 +464,13 @@ export default defineExtension({
           "state",
         ],
       },
-      indexes: [["startsAt"], ["state", "startsAt"], ["series"], ["classType", "startsAt"]],
+      indexes: [
+        ["startsAt"],
+        ["state", "startsAt"],
+        ["series"],
+        ["classType", "startsAt"],
+        ["endsAt"],
+      ],
     },
     closure: {
       label: "Closure",
@@ -525,6 +571,25 @@ export default defineExtension({
           description: "The booking this one replaced when staff moved it to this class.",
         },
         note: { type: "longText", label: "Staff note" },
+        // Who ticked the name (or marked a no-show), and when (step 7): the coach who was first.
+        markedAt: {
+          type: "datetime",
+          label: "Attendance marked",
+          readOnly: true,
+          description: "When a coach ticked them as come, or marked them as not come.",
+        },
+        markedBy: {
+          type: "user",
+          label: "Marked by",
+          readOnly: true,
+          description: "The staff account that marked their attendance.",
+        },
+        markedByName: {
+          type: "text",
+          label: "Marked by (name)",
+          readOnly: true,
+          description: "That staff member's name as it was then.",
+        },
         // The waitlist's record of what the host did (ADR 0520), for the class list and messages.
         promotedAt: {
           type: "datetime",
@@ -559,12 +624,13 @@ export default defineExtension({
           // A class that is not scheduled (cancelled or done): nobody books it, staff included.
           closed: "class.closed",
         },
-        // A class the host cancels (a closure, a series changed, ended or trashed) cancels its
-        // live bookings in the same batch: places released, uses given back (ADR 0507).
+        // A class the gym cancels (cancelClass, a closure, a series changed, ended or trashed)
+        // cancels every booking that holds a place or a use in the same batch: booked, ticked,
+        // marked not come and cancelled late included, each use given back once (ADRs 0507, 0553).
         follows: {
           relation: "class",
           when: { cancelled: "cancelled_by_us" },
-          from: ["booked", "waiting", "pending"],
+          from: FOLLOW_CANCEL,
         },
         // A member asks to cancel; the host picks in time or late by its clock (ADR 0503).
         requests: { cancel: ["cancelled", "late_cancelled"] },
@@ -592,27 +658,60 @@ export default defineExtension({
             // person's own act, the move below.
             bindsStaff: true,
           },
+          // Not final: a class the gym cancels afterwards gives the kept use back (ADR 0553).
           {
             from: "booked",
             to: "late_cancelled",
             by: ["staff", "customer"],
-            final: true,
             window: { from: lateFrom, until: "class.startsAt" },
           },
           // A person on the staff gives the use back whatever the time, with a reason, through
           // returnUse alone (ADR 0513's `tools`: humanOnly, with its permission).
           { from: "booked", to: "excused", by: ["host"], tools: ["returnUse"], final: true },
-          { from: "booked", to: "attended", by: ["staff"] },
-          { from: "attended", to: "booked", by: ["staff"] },
-          { from: "booked", to: "no_show", by: ["staff", "host"] },
-          { from: "no_show", to: "attended", by: ["staff"] },
+          // A coach ticks a name from an hour before the class, and any time after it (a late
+          // correction), never days ahead (a window that binds staff, ADR 0551). Unticked, it is
+          // booked again; a no-show ticked is attended. Each keeps the use.
           {
-            from: ["booked", "waiting", "pending"],
-            to: "cancelled_by_us",
-            by: ["host"],
-            final: true,
+            from: "booked",
+            to: "attended",
+            by: ["staff"],
+            window: { from: listOpens },
+            bindsStaff: true,
           },
-          { from: "booked", to: "moved", by: ["staff"], final: true },
+          { from: "attended", to: "booked", by: ["staff"] },
+          // Marked by a coach once the class has started; by the host after it (states.after).
+          {
+            from: "booked",
+            to: "no_show",
+            by: ["staff", "host"],
+            window: { from: "class.startsAt" },
+            bindsStaff: true,
+          },
+          { from: "no_show", to: "attended", by: ["staff"] },
+          { from: FOLLOW_CANCEL, to: "cancelled_by_us", by: ["host"], final: true },
+          // A move to another class: made only by making the new booking (`movedFrom`), in its
+          // batch (ADR 0551), and only before the class starts; after it, giving the use back is a
+          // person's act (returnUse).
+          {
+            from: "booked",
+            to: "moved",
+            by: ["staff"],
+            final: true,
+            window: { until: "class.startsAt" },
+            bindsStaff: true,
+          },
+        ],
+        // 30 minutes after a class ends, a booking still booked is a no-show, only when someone
+        // on the class was marked (its list was taken): a forgotten list makes nobody a no-show
+        // (spec 31, decision 11; ADR 0550).
+        after: [
+          {
+            from: "booked",
+            to: "no_show",
+            at: "class.endsAt",
+            minutesAfter: 30,
+            ifAnyIn: ["attended", "no_show"],
+          },
         ],
       },
       // A place on the class while held, booked, attended or a no-show (ADR 0501).
@@ -771,6 +870,8 @@ export default defineExtension({
           "bookedBy",
           "promotedAt",
           "passedOverReason",
+          "markedAt",
+          "markedByName",
           "createdAt",
         ],
         sort: { field: "createdAt", direction: "asc" },
@@ -865,6 +966,26 @@ export default defineExtension({
       personApproves: true,
     },
   },
+  // The coach role (spec 31, decision 10; ADR 0436): the day's classes and their lists, and ticking
+  // names. Nothing else: no money (no holders, no desk payments, no orders), no people beyond the
+  // names on a list, no bookings made or cancelled, no settings.
+  roles: {
+    coach: {
+      label: "Coach",
+      description:
+        "Sees the day's classes and each class's list, and ticks who came (or marks who did " +
+        "not). Nothing else: no money, no other people, no booking or cancelling, no settings.",
+      permissions: ["bookings:coach"],
+      read: ["bookings.class"],
+      // Today's classes and lists only (spec 31: "read today's classes and their lists"): a class
+      // starting today in its own zone, or running now (past midnight until it ends). Another
+      // day's corrections are the desk's.
+      today: {
+        "bookings.class": { at: "startsAt", until: "endsAt", zone: "timezone" },
+        "bookings.booking": { at: "class.startsAt", until: "class.endsAt", zone: "class.timezone" },
+      },
+    },
+  },
   tools: {
     timetable,
     classGet,
@@ -879,6 +1000,13 @@ export default defineExtension({
     returnUse,
     day,
     classList,
+    roster,
+    markAttended,
+    undoAttended,
+    markNoShow,
+    markAll,
+    move,
+    cancelClass,
     family,
   },
 });

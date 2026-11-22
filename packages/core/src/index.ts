@@ -196,6 +196,13 @@ export * from "./operations/suggestions.ts";
 export * from "./operations/summary.ts";
 export * from "./operations/support.ts";
 export * from "./operations/task.ts";
+export {
+  runTimedMovesDue,
+  TIMED_MOVE_LOOKBACK_DAYS,
+  type TimedMovesDueOptions,
+  type TimedMovesDueResult,
+  timedMovesDue,
+} from "./operations/timed-moves.ts";
 export * from "./operations/trash.ts";
 export * from "./operations/update.ts";
 export * from "./operations/user.ts";
@@ -207,6 +214,7 @@ export {
   type WaitlistDueResult,
 } from "./operations/waitlist.ts";
 export * from "./orders/index.ts";
+export { holdRoleToday, type TodayLimit, type TodayLimits } from "./pack-role-today.ts";
 export * from "./pack-roles.ts";
 export {
   type AnyInvocationContext,

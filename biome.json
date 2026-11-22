@@ -74,6 +74,7 @@
         "packs/courses/blocks/courses-subscription/**",
         "packs/bookings/blocks/bookings-timetable/**",
         "packs/bookings/blocks/bookings-desk/**",
+        "packs/bookings/blocks/bookings-class-list/**",
         "packs/memberships/blocks/memberships-plans/**",
         "packs/memberships/blocks/memberships-passes/**",
         "packs/memberships/blocks/memberships-mine/**",
