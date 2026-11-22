@@ -128,8 +128,8 @@ export const SOLUTIONS: readonly Solution[] = [
         },
         {
           title: "Memberships and passes",
-          body: "Memberships that renew on their own, and class passes that give a number of visits, used up as people book. Waits for class bookings.",
-          status: "design",
+          body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins and an intro offer, one per person. Members see what they have left. Used up as people book, once class bookings are built.",
+          status: "building",
         },
         {
           title: "Moving from your booking system",
