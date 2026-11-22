@@ -1136,8 +1136,10 @@ OR <customer> IN (<the live dependants of :me>)`, read in the statement, so ever
 too, and `my.create` takes `forPersonId` (a live dependant, or not found as a Person that does not
 exist). A write for a dependant carries a guard in its own batch (`core_person_link_guard`): a link
 ended before it commits fails it. `madeBy` is set by the host to who made the record. `me.family`
-answers the caller's own links. A merge re-points links; an erase deletes them and says which
-children have no guardian left.
+answers the caller's own links. The database refuses a two-way link. A merge re-points links
+(ending one that would be a duplicate or two-way) and, when either Person has a live link, waits
+for a person's approval from any other actor; an erase deletes them and says which children have
+no guardian left.
 
 **Time zones** ([ADR 0460](adr/0460-time-zones-on-records.md)). A `timezone` field type (an IANA
 name the runtime knows; the deployment's zone when left empty on create), and date-relative

@@ -103,7 +103,7 @@ describe("person.merge", () => {
     expect(result.phones.map((p) => p.number)).toEqual(["+61 2 1111 1111", "+61 3 2222 2222"]);
     expect(result.socialProfiles).toHaveLength(1);
     expect(result.tags).toEqual(["MergedTag", "SurvivorTag"]);
-    expect(result.moved).toEqual({ affiliations: 1, activities: 2, tasks: 1, familyLinks: 0 });
+    expect(result.moved).toEqual({ affiliations: 1, activities: 2, tasks: 1 });
 
     // Affiliations: both on the survivor, the survivor's primary kept.
     const jobs = await invoke("affiliation.list", { personId: survivor.id }, ctx());

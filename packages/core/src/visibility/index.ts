@@ -39,6 +39,7 @@ export {
   familyOf,
   guardianProblems,
   recordsMadeFor,
+  sharedEmailWarning,
 } from "./guardians.ts";
 export { type PublicScope, publicProblems, signedInProblems } from "./public.ts";
 export { customerViaProblems, type ViaScope } from "./via.ts";

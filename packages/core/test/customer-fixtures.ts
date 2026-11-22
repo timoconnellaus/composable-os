@@ -242,7 +242,7 @@ export async function installShop(): Promise<void> {
           fields: {
             note: { type: "text", label: "Note" },
             person: { type: "relation", label: "Person", to: "person" },
-            madeBy: { type: "relation", label: "Made by", to: "person" },
+            madeBy: { type: "relation", label: "Made by", to: "person", readOnly: true },
             day: { type: "relation", label: "Day", to: `${SHOP}.day` },
             staffNote: { type: "text", label: "Staff note" },
           },

@@ -2125,7 +2125,9 @@ async function invokeOutside<O extends AnyOperation>(
       throw new OperationError("internal", `${op.name} is a read but queued writes`);
     }
     // The seam has the last word on every record the call would change.
-    await assertVisibleWrites(reader, changes, checkedBySeam, madeByHost);
+    await assertVisibleWrites(reader, changes, checkedBySeam, madeByHost, (statement) => {
+      writes.push(statement);
+    });
   } catch (error) {
     return fail(error);
   }

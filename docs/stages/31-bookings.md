@@ -817,16 +817,19 @@ amended. Where the build read the spec one way, or decided what it left open:
   pack's memberships and passes) leave `write` out. The whole decision is in
   `packages/core/src/visibility/guardians.ts`; every read through `visibleSource`, `ownedSource`
   and `customerVia`, and every write through the seam's helpers, asks it.
-- **Live** means not ended and both People out of the Trash (the spec did not say). One hop, one
+- **Live** means not ended and both People out of the Trash (the spec did not say); a Person
+  restored from the Trash gets the link back. A child's record with the parent's email, or an
+  account's sign-in address, is linked with a warning to staff (sign-in links an account by its
+  address); sign-in is unchanged. One hop, one
   direction: a child's own child is not their parent's, and a child never acts for a parent.
-- **`person.link.add` refuses the pair the other way round** (A guardian of B while B is
-  guardian of A); a merge can still produce it, from two links staff made on separate records.
+- **Never a two-way link** (A guardian of B while B is guardian of A): `person.link.add` refuses
+  it, the database refuses it for every writer (two opposite links at once get one), and a merge
+  that would make one ends the moved link instead.
 - **`people:link`** is the permission's name (the spec's guess), admins by default and grantable.
-- **Who made a booking**: `madeBy` (a Person, set by the host on every booking a member makes:
-  themselves, or the parent for a child) beside step 3's `bookedBy` (a staff account). It is not a
-  read-only field: the host sets it through the seam's create, which the record code's read-only
-  rule would refuse; no customer or tool may set it (it is reserved at the seam), staff could edit
-  it.
+- **Who made a booking**: `madeBy` (a Person, set by the seam on every booking a member makes:
+  themselves, or the parent for a child) beside step 3's `bookedBy` (a staff account). A read-only
+  field that only the seam's create sets (the record code takes it from `seamSet`); nobody edits
+  it, staff and the pack's own tools included.
 - **Booking for a child** is `book { forPersonId }` (the spec's shape) through `my.create`'s new
   `forPersonId`; `mine { personId? }` is the member's own by default and a child's when named
   (not both at once); a new customer tool, `family`, lists who a member may book for, over a new
@@ -844,8 +847,11 @@ amended. Where the build read the spec one way, or decided what it left open:
   a note on each such child's timeline naming no one. Erasing a dependant, and a purge from the
   Trash, delete their links too.
 - **Merge**: a link between the two is deleted, a live duplicate the survivor already has is ended
-  (`merged: a duplicate`), the rest (ended ones too) move; the merge's answer counts them
-  (`moved.familyLinks`) and the merge preview shows them.
+  (`merged: a duplicate`), and so is one whose other way round is live (`merged: the other way round
+  is linked`); the rest (ended ones too) move. The answer (`familyLinks: { moved, ended, deleted,
+  history }`), the merge preview (`person.link.mergePlan`) and the approval card say so. **A merge
+  touching a live link is a person's act**: from any other actor it waits for a person's approval
+  whatever the preset (the coordinator's decision on the security review).
 - **Staff link on the Person page** (a Family card: add as parent or child, end), ahead of step 9's
   Person tab; the merge preview counts family links. Emails naming the child (to whoever made it and
   the guardians) are step 9's; `madeBy` is what they read.

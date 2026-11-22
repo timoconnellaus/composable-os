@@ -43,11 +43,13 @@ export function FamilyCard({
   async function save() {
     if (!other) return;
     try {
-      await add.mutateAsync(
+      const made = await add.mutateAsync(
         role === "dependant"
           ? { guardianId: personId, dependantId: other.id }
           : { guardianId: other.id, dependantId: personId },
       );
+      // The child's record shares an address with the parent or an account: say so (ADR 0540).
+      if (made.warning) toast.warning(made.warning);
       toast.success(
         role === "dependant"
           ? `${personName} can now book for ${other.name}`
@@ -75,7 +77,7 @@ export function FamilyCard({
   }
 
   const row = (link: Link, shown: Link["guardian"], label: string) => (
-    <li key={link.id} className="flex items-center gap-2 text-sm">
+    <li key={link.id} className="flex flex-wrap items-center gap-2 text-sm">
       <UsersIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
         <RecordLink object="person" id={shown.id}>
@@ -93,6 +95,11 @@ export function FamilyCard({
         >
           End
         </Button>
+      )}
+      {link.warning && (
+        <p className="basis-full text-xs text-destructive" role="alert">
+          {link.warning}
+        </p>
       )}
     </li>
   );

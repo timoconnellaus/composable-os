@@ -480,9 +480,10 @@ export default defineExtension({
           type: "relation",
           label: "Booked by (member)",
           to: "person",
+          readOnly: true,
           description:
             "The member who made it, set by the host: the person themselves, or the parent or " +
-            "guardian who booked for them. Empty when staff booked.",
+            "guardian who booked for them. Empty when staff booked. Nobody edits it.",
         },
         movedFrom: {
           type: "relation",

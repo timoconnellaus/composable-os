@@ -4,6 +4,7 @@
 //   person.link.add    staff, a person only (people:link): link two People
 //   person.link.end    staff, a person only (people:link): end a link; it gives nothing from then
 //   person.link.list   staff (records:read): a Person's guardians and dependants, ended ones too
+//   person.link.mergePlan  staff (records:read): what a merge would do to two People's links
 //   me.family          a signed-in customer: the dependants they act for and their guardians
 //
 // Who may act for whom is identity (spec 31, ADR 0540), so making and ending a link is a person's
@@ -16,7 +17,8 @@ import { z } from "zod";
 import { ConflictError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
-import { GUARDIAN_LINK, recordsMadeFor } from "../visibility/guardians.ts";
+import { planMergeLinks } from "../records/person-links.ts";
+import { GUARDIAN_LINK, recordsMadeFor, sharedEmailWarning } from "../visibility/guardians.ts";
 import { visibleSource } from "../visibility/index.ts";
 
 const personId = z.string().min(1).max(64);
@@ -33,6 +35,13 @@ const linkSchema = z.object({
   endedAt: z.string().nullable(),
   endedBy: z.string().nullable(),
   endReason: z.string().nullable(),
+  warning: z
+    .string()
+    .nullable()
+    .describe(
+      "Set when the child's record has an email that is also the parent's or another account's: " +
+        "signing in with it would open that account as the child's",
+    ),
 });
 type Link = z.infer<typeof linkSchema>;
 
@@ -61,8 +70,9 @@ async function namesOf(ctx: HandlerContext, ids: string[]): Promise<Map<string, 
   return new Map(rows.map((row) => [row.id, row.display_name]));
 }
 
-function toLink(row: LinkRow, names: Map<string, string>): Link {
+function toLink(row: LinkRow, names: Map<string, string>, warning: string | null = null): Link {
   return {
+    warning,
     id: row.id,
     kind: "guardian",
     guardian: { id: row.guardian_id, name: names.get(row.guardian_id) ?? null },
@@ -182,6 +192,8 @@ export const personLinkAdd = defineOperation({
         [input.guardianId, guardianName],
         [input.dependantId, dependantName],
       ]),
+      // Linked anyway: staff are told, and fix the child's record (ADR 0540).
+      await sharedEmailWarning(ctx.db, input.guardianId, input.dependantId),
     );
   },
 });
@@ -271,7 +283,38 @@ export const personLinkList = defineOperation({
       ctx,
       rows.flatMap((row) => [row.guardian_id, row.dependant_id]),
     );
-    return { items: rows.map((row) => toLink(row, names)) };
+    const items: Link[] = [];
+    for (const row of rows) {
+      const warning = row.ended_at
+        ? null
+        : await sharedEmailWarning(ctx.db, row.guardian_id, row.dependant_id);
+      items.push(toLink(row, names, warning));
+    }
+    return { items };
+  },
+});
+
+export const personLinkMergePlan = defineOperation({
+  name: "person.link.mergePlan",
+  description:
+    "What merging one person (mergedId) into another (survivorId) would do to their family " +
+    "links: how many move, how many end (a duplicate, or one whose other way round is linked: " +
+    "never a two-way link), how many are deleted (links between the two) and how many past " +
+    "links move as history. A merge that touches a live link waits for a person's approval when " +
+    "anyone but a person asks for it. Read-only.",
+  input: z.object({ survivorId: personId, mergedId: personId }),
+  output: z.object({
+    moved: z.number(),
+    ended: z.number(),
+    deleted: z.number(),
+    history: z.number(),
+  }),
+  permission: "records:read",
+  risk: "read",
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    const plan = await planMergeLinks(ctx.db, input.survivorId, input.mergedId);
+    return { moved: plan.moved, ended: plan.ended, deleted: plan.deleted, history: plan.history };
   },
 });
 
@@ -309,5 +352,6 @@ export const personLinkOperations = [
   personLinkAdd,
   personLinkEnd,
   personLinkList,
+  personLinkMergePlan,
   meFamily,
 ] as const;

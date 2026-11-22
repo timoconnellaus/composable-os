@@ -7,7 +7,7 @@ import { env } from "cloudflare:workers";
 import { CompiledQuery } from "kysely";
 import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { objectTableOf } from "../src/extensions/schema.ts";
+import { fieldStorage, objectTableOf } from "../src/extensions/schema.ts";
 import {
   type ActingUser,
   type CustomerPrincipal,
@@ -27,7 +27,7 @@ import {
   TICKET,
   VISIT,
 } from "./customer-fixtures.ts";
-import { context, createUser, unique } from "./helpers.ts";
+import { context, createUser, setPreset, unique } from "./helpers.ts";
 
 let admin: ActingUser;
 let member: ActingUser;
@@ -438,6 +438,178 @@ describe("what a live link gives, and only that", () => {
     expect(await visitsOf(customer(child))).toEqual(before);
   });
 
+  it("a change to the child's record carries the guard too: a link ended in the same batch fails it", async () => {
+    const raced = defineOperation({
+      name: "familyTest.endThenUpdate",
+      description: "Test: ends the caller's link to a child, then changes the child's visit.",
+      input: z.object({ linkId: z.string(), visit: z.string() }),
+      output: z.object({ ok: z.boolean() }),
+      permission: "records:write",
+      risk: "write",
+      audiences: ["customer"],
+      hostInternal: true,
+      async handler(input, ctx) {
+        ctx.write(
+          CompiledQuery.raw("UPDATE core_person_link SET ended_at = ? WHERE id = ?", [
+            ctx.now,
+            input.linkId,
+          ]),
+        );
+        await ctx.records.update(VISIT, input.visit, { note: "raced" });
+        return { ok: true };
+      },
+    });
+    const invoker = createInvoker(createRegistry([...coreRegistry.list(), raced]));
+    const parent = await person("Parent");
+    const child = await person("Child");
+    const made = await link(parent, child);
+    const childs = await visit(child, "before");
+    await expect(
+      invoker.invokeByName(
+        "familyTest.endThenUpdate",
+        { linkId: made.id, visit: childs },
+        outside(customer(parent)),
+      ),
+    ).rejects.toMatchObject({ code: "not_found" });
+    const row = await env.DB.prepare("SELECT ended_at FROM core_person_link WHERE id = ?")
+      .bind(made.id)
+      .first<{ ended_at: string | null }>();
+    expect(row?.ended_at).toBeNull();
+    const after = await invoke("record.get", { object: VISIT, id: childs }, context(admin));
+    expect(after.values.note).toBe("before");
+  });
+
+  it("a write for the child recorded outside the seam's helpers is held to the link at commit", async () => {
+    // The reviewer's probe: a bookkeeping operation ends the link, then writes a visit for the
+    // child itself and records the create; the seam's final check adds the guard, which fails.
+    const table = objectTableOf(VISIT) as string;
+    const personColumn = fieldStorage(VISIT, "person")?.column as string;
+    const noteColumn = fieldStorage(VISIT, "note")?.column as string;
+    const unchecked = defineOperation({
+      name: "familyTest.endThenRecord",
+      description: "Test: ends the caller's link, then records a create for the child itself.",
+      input: z.object({ linkId: z.string(), child: z.string(), id: z.string() }),
+      output: z.object({ ok: z.boolean() }),
+      permission: "records:write",
+      risk: "write",
+      audiences: ["customer"],
+      hostInternal: true,
+      async handler(input, ctx) {
+        ctx.write(
+          CompiledQuery.raw("UPDATE core_person_link SET ended_at = ? WHERE id = ?", [
+            ctx.now,
+            input.linkId,
+          ]),
+          CompiledQuery.raw(
+            `INSERT INTO ${table} (id, ${personColumn}, ${noteColumn}, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+            [input.id, input.child, "unchecked", ctx.now, ctx.now],
+          ),
+        );
+        ctx.recordChange({
+          object: VISIT,
+          id: input.id,
+          action: "create",
+          diff: {
+            person: { before: null, after: input.child },
+            note: { before: null, after: "unchecked" },
+          },
+        });
+        return { ok: true };
+      },
+    });
+    const invoker = createInvoker(createRegistry([...coreRegistry.list(), unchecked]));
+    const parent = await person("Parent");
+    const child = await person("Child");
+    const made = await link(parent, child);
+    const id = `rec_${unique("UNCHECKED").toUpperCase()}`;
+    await expect(
+      invoker.invokeByName(
+        "familyTest.endThenRecord",
+        { linkId: made.id, child, id },
+        outside(customer(parent)),
+      ),
+    ).rejects.toMatchObject({ code: "not_found" });
+    const row = await env.DB.prepare(`SELECT id FROM ${table} WHERE id = ?`).bind(id).first();
+    expect(row).toBeNull();
+    const still = await env.DB.prepare("SELECT ended_at FROM core_person_link WHERE id = ?")
+      .bind(made.id)
+      .first<{ ended_at: string | null }>();
+    expect(still?.ended_at).toBeNull();
+  });
+
+  it("a guardian in the Trash gives nothing; restored, the link gives again", async () => {
+    const parent = await person("Parent");
+    const child = await person("Child");
+    await link(parent, child);
+    const childs = await visit(child, "child's");
+    const p = customer(parent);
+    await invoke("person.delete", { id: parent }, context(admin));
+    expect(await visitsOf(p)).not.toContain(childs);
+    expect(
+      await call(
+        "fixture.myCreate",
+        { object: VISIT, values: { note: "x" }, forPersonId: child },
+        outside(p),
+      ),
+    ).toMatchObject({ ok: false, error: { code: "not_found" } });
+    await invoke("person.restore", { id: parent }, context(admin));
+    expect(await visitsOf(p)).toContain(childs);
+  });
+
+  it("who made a record is the seam's alone: staff cannot set or change it", async () => {
+    const parent = await person("Parent");
+    const child = await person("Child");
+    await link(parent, child);
+    const made = await call(
+      "fixture.myCreate",
+      { object: VISIT, values: { note: "mine" }, forPersonId: child },
+      outside(customer(parent)),
+    );
+    const id = (made as { value: { id: string } }).value.id;
+    expect(
+      await refusal(
+        invoke("record.update", { object: VISIT, id, values: { madeBy: child } }, context(admin)),
+      ),
+    ).toMatchObject({ code: "invalid_input", details: { field: "madeBy" } });
+    expect(
+      await refusal(
+        invoke(
+          "record.create",
+          { object: VISIT, values: { note: "x", person: child, madeBy: parent } },
+          context(admin),
+        ),
+      ),
+    ).toMatchObject({ code: "invalid_input", details: { field: "madeBy" } });
+    const got = await invoke("record.get", { object: VISIT, id }, context(admin));
+    expect(got.values.madeBy).toBe(parent);
+  });
+
+  it("staff are warned when the child's record has an account's email", async () => {
+    const email = `${unique("shared").toLowerCase()}@family.test`;
+    const parent = await person("Parent");
+    // The parent's account signs in with this address (their Person has another).
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+    )
+      .bind(`cus_${unique("acct")}`, parent, email, now, now)
+      .run();
+    const child = (
+      await invoke(
+        "person.create",
+        { givenName: unique("Child"), emails: [{ email }] },
+        context(admin),
+      )
+    ).id as string;
+    const made = await link(parent, child);
+    expect(made.warning).toContain(email);
+    const listed = await invoke("person.link.list", { personId: child }, context(admin));
+    expect(listed.items[0]?.warning).toContain(email);
+    // No warning when the child has no such address.
+    const other = await person("OtherChild");
+    expect((await link(parent, other)).warning).toBeNull();
+  });
+
   it("a child in the Trash gives nothing until restored", async () => {
     const parent = await person("Parent");
     const child = await person("Child");
@@ -509,7 +681,8 @@ describe("merging and erasing People with links", () => {
       { survivorId: parent, mergedId: parentAgain },
       context(admin),
     );
-    expect(merged.moved.familyLinks).toBe(3);
+    // One moves (the sibling), one ends (a duplicate), one is deleted (between the two).
+    expect(merged.familyLinks).toEqual({ moved: 1, ended: 1, deleted: 1, history: 0 });
     const after = await links(parent);
     const live = after.filter((l) => l.ended_at === null);
     expect(live.map((l) => [l.guardian_id, l.dependant_id]).sort()).toEqual(
@@ -531,6 +704,95 @@ describe("merging and erasing People with links", () => {
     await invoke("person.merge", { survivorId: child, mergedId: childAgain }, context(admin));
     const childLinks = (await links(child)).filter((l) => l.ended_at === null);
     expect(childLinks.map((l) => l.guardian_id)).toEqual([parent]);
+  });
+
+  it("a merge never makes a two-way link: the moved link ends when its other way round is live", async () => {
+    // The reviewer's probe: P is C's guardian; C's duplicate C2 was made P's guardian. Merging C2
+    // into C would have made C the guardian of P, so the child would act for the parent.
+    const parent = await person("Parent", true);
+    const child = await person("Child", true);
+    const childAgain = await person("ChildAgain");
+    await link(parent, child);
+    await link(childAgain, parent);
+    const ownOfParent = await visit(parent, "the parent's own");
+    const plan = await invoke(
+      "person.link.mergePlan",
+      { survivorId: child, mergedId: childAgain },
+      context(admin),
+    );
+    expect(plan).toEqual({ moved: 0, ended: 1, deleted: 0, history: 0 });
+    const merged = await invoke(
+      "person.merge",
+      { survivorId: child, mergedId: childAgain },
+      context(admin),
+    );
+    expect(merged.familyLinks).toEqual({ moved: 0, ended: 1, deleted: 0, history: 0 });
+    const live = (await links(child)).filter((l) => l.ended_at === null);
+    expect(live.map((l) => [l.guardian_id, l.dependant_id])).toEqual([[parent, child]]);
+    expect((await links(child)).find((l) => l.ended_at !== null)).toMatchObject({
+      guardian_id: child,
+      dependant_id: parent,
+      end_reason: "merged: the other way round is linked",
+    });
+    // The child, signed in, reads nothing of the parent's.
+    expect(await visitsOf(customer(child))).not.toContain(ownOfParent);
+  });
+
+  it("the database refuses a two-way link, from any writer and from a race of two links", async () => {
+    const a = await person("A");
+    const b = await person("B");
+    await link(a, b);
+    await expect(
+      env.DB.prepare(
+        "INSERT INTO core_person_link (id, guardian_id, dependant_id, created_by, created_at) VALUES (?, ?, ?, 'usr_x', 'now')",
+      )
+        .bind(`pln_${unique("r")}`, b, a)
+        .run(),
+    ).rejects.toThrow(/core_person_link_reverse/);
+    // Two staff linking a new pair in opposite directions at once: one link is made.
+    const c = await person("C");
+    const d = await person("D");
+    const both = await Promise.allSettled([link(c, d), link(d, c)]);
+    expect(both.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const made = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_person_link WHERE ended_at IS NULL AND guardian_id IN (?, ?)",
+    )
+      .bind(c, d)
+      .first<{ n: number }>();
+    expect(made?.n).toBe(1);
+  });
+
+  it("a merge that touches a live link is a person's act: from any other actor it waits, whatever the preset", async () => {
+    const parent = await person("Parent");
+    const parentAgain = await person("ParentAgain");
+    const child = await person("Child");
+    await link(parent, child);
+    await setPreset("autonomous");
+    try {
+      for (const extra of [
+        {
+          actor: "mcp",
+          origin: { surface: "mcp", clientId: "c", clientName: "T", sessionId: unique("s") },
+          grantedPermissions: ["records:read", "records:write"],
+        },
+        { actor: "assistant", origin: { surface: "assistant", sessionId: unique("ath") } },
+      ]) {
+        const refused = await refusal(
+          invoke(
+            "person.merge",
+            { survivorId: parent, mergedId: parentAgain },
+            context(admin, extra as never),
+          ),
+        );
+        expect(refused.code, JSON.stringify(extra)).toBe("pending_approval");
+      }
+      // Nothing moved meanwhile.
+      expect(await invoke("person.get", { id: parentAgain }, context(admin))).toMatchObject({
+        id: parentAgain,
+      });
+    } finally {
+      await setPreset("balanced");
+    }
   });
 
   it("erasing a guardian leaves the child, with no guardian, and tells staff", async () => {

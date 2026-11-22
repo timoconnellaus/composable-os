@@ -253,6 +253,10 @@ describe("a parent books for a child (criterion 10)", () => {
     const refused = await book(parent, id, { forPersonId: kid, holderId: parentPass });
     expect(refused).toMatchObject({ result: "refused", reason: "no_use" });
     expect(await left(parentPass)).toBe(4); // the parent's own booking above
+    // Nor the other way: the parent naming the child's pass for their own booking.
+    const own = await book(parent, id, { holderId: kidPass });
+    expect(own).toMatchObject({ result: "refused", reason: "no_use" });
+    expect(await left(kidPass)).toBe(5);
   });
 
   it("joins and leaves a full class's waitlist for the child, spending nothing", async () => {

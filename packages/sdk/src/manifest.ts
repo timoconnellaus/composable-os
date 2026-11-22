@@ -1308,6 +1308,8 @@ export function validateManifest(
     const field = object.fields[madeBy];
     if (field?.type !== "relation" || field.to !== "person" || field.many) {
       contract(path, `"${madeBy}" must be a relation of ${name} to one person`);
+    } else if (!field.readOnly) {
+      contract(path, `"${madeBy}" must be readOnly: the host sets it, nobody edits it`);
     } else if (madeBy === object.customer?.field) {
       contract(path, "madeBy cannot be the customer field");
     } else if (object.customer?.write.includes(madeBy)) {

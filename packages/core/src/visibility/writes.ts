@@ -3,6 +3,7 @@
 // a live dependant's: ADR 0540), and only in the fields its object lists as writable.
 // The pipeline runs this on every change a customer's or the public's call recorded, before
 // anything is committed, so an operation's handler never checks whose record it is.
+import type { CompiledQuery } from "kysely";
 import { diffRecords } from "../diff.ts";
 import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { getObject, isCoreObject } from "../fields/index.ts";
@@ -50,6 +51,12 @@ export async function assertVisibleWrites(
   all: readonly RecordChange[],
   checked: ReadonlySet<RecordChange> = new Set(),
   byHost: ReadonlySet<RecordChange> = new Set(),
+  /**
+   * Adds a statement to the call's batch: the link's guard for every change to a dependant's
+   * record (ADR 0540), so one recorded outside the seam's helpers is held to the live link at
+   * commit too. Without it, such a change is refused.
+   */
+  guard?: (statement: CompiledQuery) => void,
 ): Promise<void> {
   if (ctx.principal.kind === "staff" || !all.length) return;
   const changes = byHost.size ? all.filter((change) => !byHost.has(change)) : all;
@@ -59,12 +66,23 @@ export async function assertVisibleWrites(
   }
   const personId = ctx.principal.personId;
   const existing = new Map<string, string[]>();
+  const guarded = new Set<string>();
+  /** Holds a write for a dependant to the live link at commit (migration 0650's guard). */
+  const holdToLink = (dependantId: string): boolean => {
+    if (!guard) return false;
+    if (!guarded.has(dependantId)) {
+      guarded.add(dependantId);
+      guard(linkGuardStatement(personId, dependantId));
+    }
+    return true;
+  };
   /** A new record's Person: the caller, or a live dependant where guardians write (ADR 0540). */
   const mayOwn = async (scope: Extract<Scope, { kind: "customer" }>, owner: unknown) =>
     owner === personId ||
     (scope.dependantsWrite &&
       typeof owner === "string" &&
-      (await isLiveDependant(ctx.db, personId, owner)));
+      (await isLiveDependant(ctx.db, personId, owner)) &&
+      holdToLink(owner));
   for (const change of changes) {
     const object = getObject(change.object);
     if (!object) throw unknownObject(change.object);
@@ -117,12 +135,19 @@ export async function assertVisibleWrites(
     // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
     const rows = (await (ctx.db as any)
       .selectFrom(ownedSource(ctx, object))
-      .select("id")
+      .select(["id", "owner"])
       .where("id", "in", jsonList([...new Set(ids)]))
       .execute()) as AnyRow[];
     const mine = new Set(rows.map((row) => String(row.id)));
     const missing = ids.find((id) => !mine.has(id));
     if (missing) throw new NotFoundError(name, missing);
+    // A dependant's record (ADR 0540): held to the live link at commit, or refused.
+    for (const row of rows) {
+      const owner = row.owner === null || row.owner === undefined ? null : String(row.owner);
+      if (owner !== null && owner !== personId && !holdToLink(owner)) {
+        throw new NotFoundError(name, String(row.id));
+      }
+    }
   }
 }
 
@@ -134,6 +159,7 @@ export interface RecordWriter {
     ctx: HandlerContext,
     object: ObjectDefinition,
     values: Record<string, unknown>,
+    options?: { seamSet?: ReadonlySet<string> },
   ): Promise<string>;
   update(
     ctx: HandlerContext,
@@ -303,8 +329,8 @@ async function ownerFor(
 /**
  * Creates a record of `object` for the caller: the customer field is the caller, whatever was
  * asked, or a live dependant they name (`forPersonId`, ADR 0540), and the other values must be
- * fields the caller (or the tool calling for them) may set. A record made for a dependant carries
- * the link's guard in its batch, so it is not made if the link ended meanwhile. The object's
+ * fields the caller (or the tool calling for them) may set. A record made for a dependant is held
+ * to the live link at commit by the final check, so it is not made if the link ended meanwhile. The object's
  * `guardians.madeBy`, when declared, is set to the caller.
  */
 export async function createVisible(
@@ -327,9 +353,10 @@ export async function createVisible(
     [scope.declaration.field]: owner,
     ...(madeBy ? { [madeBy]: scope.personId } : {}),
   };
-  if (owner !== scope.personId) writer.host.write(linkGuardStatement(scope.personId, owner));
+  // For a dependant, the final check (assertVisibleWrites) adds the link's guard to the batch.
   const create = recordWriter.create;
-  return { id: await recording(writer, (host) => create(host, object, owned)) };
+  const seamSet = new Set(madeBy ? [madeBy] : []);
+  return { id: await recording(writer, (host) => create(host, object, owned, { seamSet })) };
 }
 
 /** Changes one of the caller's own records, in fields they (or the tool) may set. */
@@ -353,15 +380,12 @@ export async function updateVisible(
   // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
   const row = (await (writer.reader.db as any)
     .selectFrom(ownedSource(writer.reader, object))
-    .select(["id", "owner"])
+    .select("id")
     .where("id", "=", id)
     .executeTakeFirst()) as AnyRow | undefined;
   if (!row) throw new NotFoundError(object.name, id);
-  // A dependant's record (ADR 0540): written only while the link is live when the batch commits.
-  const owner = row.owner === null || row.owner === undefined ? null : String(row.owner);
-  if (owner !== null && owner !== scope.personId) {
-    writer.host.write(linkGuardStatement(scope.personId, owner));
-  }
+  // A dependant's record (ADR 0540): the final check (assertVisibleWrites) holds the write to the
+  // live link at commit, as it does every change to a dependant's record.
   await assertRelationsVisible(writer.reader, object, values);
   if (object.customer?.requireAccess?.length) {
     // What the row points to now, through the caller's own source (its listed columns).

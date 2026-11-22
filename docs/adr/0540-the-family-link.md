@@ -31,7 +31,13 @@ history of who could act for whom; it gives nothing.
 staff audience only, `actors: ["human"]`, permission `people:link` (admins by default, grantable
 one by one as `orders:refund` is, [ADR 0449](0449-permissions-granted-one-by-one.md)). The assistant, an MCP client, an automation, extension
 code and an import are refused by the actor rule whatever is granted; a customer and the public do
-not see the operations at all. `person.link.add` refuses a pair already linked either way round.
+not see the operations at all. `person.link.add` refuses a pair already linked either way round,
+and the database refuses a live **two-way link** for every writer (migration 0650's triggers): a
+child is never their own guardian's guardian, so two staff linking a pair in opposite directions at
+once get one link. When the child's record has an email that is also the parent's or a customer
+account's sign-in address, the link is made and staff are warned (`warning`, on the answer and on
+`person.link.list`, shown on the Family card): signing in links an account to the Person with its
+address, so the parent's account would open as the child's. Sign-in is not changed.
 Both post a timeline activity on the two People that names no one. `person.link.list` is a staff
 read (`records:read`). There is no import of links: stage 33 proposes them for staff to apply.
 
@@ -56,26 +62,38 @@ dependant's own dependants are not their guardian's, and a dependant never acts 
   and otherwise answers exactly as for a Person that does not exist (`not_found` for `person`), the
   same for another member, their child, an ended link, a Trashed child, a made-up id and an object
   that does not open. The owner field is still never the caller's to send in `values`.
-- **In the write's own batch.** A write for a dependant (a create for them, or a change to their
-  record) carries a guard statement (`core_person_link_guard`, whose trigger stores nothing and
-  aborts the batch with `core_person_link_not_live` unless the link is live then). A link ended
-  between the seam's check and the commit cannot be written through; the caller is told `not_found`.
-- **Who made it.** `guardians.madeBy` names a relation to one person that the host sets on every
-  record a customer makes, to the caller (the parent, on a child's). It is reserved: no customer
-  and no tool (`customerFields`) may set it.
+- **In the write's own batch.** Every change to a dependant's record that a customer's call makes
+  (a create for them, or a change to their record, through the seam's helpers or recorded by any
+  other code) carries a guard statement (`core_person_link_guard`, whose trigger stores nothing and
+  aborts the batch with `core_person_link_not_live` unless the link is live then). The seam's final
+  check (`assertVisibleWrites`) adds it, the one place for every change; without the batch to add
+  it to, such a change is refused. A link ended between the seam's check and the commit cannot be
+  written through; the caller is told `not_found`.
+- **Who made it.** `guardians.madeBy` names a read-only relation to one person that the seam sets
+  on every record a customer makes, to the caller (the parent, on a child's). Nobody else sets or
+  changes it: not a customer or a tool (`customerFields`), not staff, the assistant, MCP, an
+  automation, the extension's own code or the host's other code. The record code takes it only
+  from the seam's create (`seamSet`). Step 9's emails trust it.
 - **The family.** `me.family` (customer, read) answers the caller's own live links: themselves,
   their dependants and their guardians, by id and display name only. A link is shown to staff,
   its guardian and its dependant, never to anyone else.
 
 **Merge and erase.** `person.merge` re-points the merged Person's links to the survivor in its
-batch: a link between the two is deleted (it would link a Person to themselves), a live link the
-survivor already has with the same Person the same way round is ended as a duplicate, and the rest
-move, ended ones included. The merge preview counts the family links that move. `person.erase`
+batch, from a plan read first (`person.link.mergePlan`): a link between the two is deleted (it
+would link a Person to themselves); a live link the survivor already has with the same Person the
+same way round is ended as a duplicate, and one whose other way round the survivor has live is
+ended too (it would make a two-way link); the rest move, ended ones included. The answer reports
+`familyLinks: { moved, ended, deleted, history }`, the merge preview shows them, and the survivor's
+change in the approval card says what happens to the links. **A merge where either Person has a
+live family link is a person's act**: from the assistant, an MCP client, an automation or extension
+code it always waits for a person's approval, whatever the preset and the floor (a deny still
+applies), as a `personApproves` field does (coordinator's decision on review, 2026-11-23, following
+AGENTS.md "identity and policy are not AI-configurable"). `person.erase`
 deletes every link of the erased People, live and ended (the foreign keys would too), and a
 dependant left with no live guardian is not erased: the erase answers with them
 (`dependantsWithoutGuardian`) and a note on their timeline says they have no guardian linked, naming
-no one. A purge from the Trash deletes the links the same way; while in the Trash a Person's links
-give nothing.
+no one. A purge from the Trash deletes the links the same way. While either Person is in the
+Trash their link gives nothing; restored, the link (never ended) gives again.
 
 **A child who later signs in** is a customer like any other: their own records, and their own
 family. The link stays; the guardian keeps acting for them until staff end it.

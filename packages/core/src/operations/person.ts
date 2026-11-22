@@ -41,8 +41,8 @@ import {
 import { personSubject } from "../records/erase-subject.ts";
 import { countLinks, queueClearTags, queueMoveLinks } from "../records/links.ts";
 import {
-  countMergedLinks,
   dependantsLeftAlone,
+  planMergeLinks,
   queueEraseLinks,
   queueMergeLinks,
 } from "../records/person-links.ts";
@@ -1101,11 +1101,18 @@ export const personMerge = defineOperation({
       affiliations: z.number(),
       activities: z.number(),
       tasks: z.number(),
-      familyLinks: z
-        .number()
-        .optional()
-        .describe("Live family links (guardians and dependants) moved to the survivor"),
     }),
+    familyLinks: z
+      .object({
+        moved: z.number().describe("Live family links that moved to the survivor"),
+        ended: z
+          .number()
+          .describe("Live links ended: a duplicate, or one whose other way round is linked"),
+        deleted: z.number().describe("Links between the two People, deleted"),
+        history: z.number().describe("Links that had already ended, moved as history"),
+      })
+      .optional()
+      .describe("What happened to the duplicate's family links (guardians and children)"),
   }),
   permission: "records:write",
   risk: "destructive",
@@ -1132,9 +1139,17 @@ export const personMerge = defineOperation({
     await queueMergeSubscriptions(ctx, survivor.id, merged.id);
     // Passes' and memberships' terms and uses follow the Person too (stage 32b, ADR 0494).
     queueMergeAllowances(ctx, survivor.id, merged.id);
-    // Family links follow the Person; one between the two, or a duplicate, is dropped (ADR 0540).
-    const familyLinks = await countMergedLinks(ctx, merged.id);
-    queueMergeLinks(ctx, survivor.id, merged.id);
+    // Family links follow the Person; one between the two is deleted, a duplicate or one that
+    // would become two-way is ended (ADR 0540).
+    const plan = await planMergeLinks(ctx.db, survivor.id, merged.id);
+    queueMergeLinks(ctx, survivor.id, merged.id, plan);
+    const familyLinks = {
+      moved: plan.moved,
+      ended: plan.ended,
+      deleted: plan.deleted,
+      history: plan.history,
+    };
+    const touchesLinks = plan.moved + plan.ended + plan.deleted + plan.history > 0;
 
     const emailSet = new Set(survivor.emails.map((e) => e.email));
     after.emails = [
@@ -1229,7 +1244,16 @@ export const personMerge = defineOperation({
       id: survivor.id,
       action: "merge",
       before: personSnapshot(survivor),
-      after: { ...personSnapshot(after), absorbedId: merged.id },
+      after: {
+        ...personSnapshot(after),
+        absorbedId: merged.id,
+        // What the merge does to family links, shown in the approval card's preview (ADR 0540).
+        ...(touchesLinks
+          ? {
+              familyLinks: `${plan.moved} moved, ${plan.ended} ended, ${plan.deleted} deleted${plan.history ? `, ${plan.history} past moved` : ""}`,
+            }
+          : {}),
+      },
     });
     ctx.recordChange({
       object: "person",
@@ -1256,9 +1280,12 @@ export const personMerge = defineOperation({
       affiliations: Number(affiliations?.n ?? 0),
       activities: links.activities,
       tasks: links.tasks,
-      familyLinks,
     };
-    return ctx.afterCommit(async () => ({ ...(await requirePerson(ctx, survivor.id)), moved }));
+    return ctx.afterCommit(async () => ({
+      ...(await requirePerson(ctx, survivor.id)),
+      moved,
+      familyLinks,
+    }));
   },
 });
 

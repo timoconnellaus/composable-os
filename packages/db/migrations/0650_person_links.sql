@@ -33,6 +33,33 @@ CREATE UNIQUE INDEX core_person_link_live_uq
   ON core_person_link (guardian_id, dependant_id, kind) WHERE ended_at IS NULL;
 CREATE INDEX core_person_link_dependant_idx ON core_person_link (dependant_id, ended_at);
 
+-- Never a two-way link: while A is B's guardian, B cannot be A's (a child would act for their
+-- parent). Refused for every writer, so two staff linking the same pair in opposite directions at
+-- once get one, and a merge that would make a two-way link fails unless it ends one first.
+CREATE TRIGGER core_person_link_no_reverse_insert
+BEFORE INSERT ON core_person_link
+WHEN NEW.ended_at IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'core_person_link_reverse')
+  WHERE EXISTS (
+    SELECT 1 FROM core_person_link r
+    WHERE r.guardian_id = NEW.dependant_id AND r.dependant_id = NEW.guardian_id
+      AND r.kind = NEW.kind AND r.ended_at IS NULL
+  );
+END;
+
+CREATE TRIGGER core_person_link_no_reverse_update
+BEFORE UPDATE OF guardian_id, dependant_id, ended_at ON core_person_link
+WHEN NEW.ended_at IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'core_person_link_reverse')
+  WHERE EXISTS (
+    SELECT 1 FROM core_person_link r
+    WHERE r.guardian_id = NEW.dependant_id AND r.dependant_id = NEW.guardian_id
+      AND r.kind = NEW.kind AND r.ended_at IS NULL AND r.id != NEW.id
+  );
+END;
+
 -- The guard a guardian's write carries in its own batch (ADR 0540): one row saying "this guardian
 -- acts for this dependant". The trigger lets it through (and drops it: nothing is stored) only
 -- while the link is live and both People are out of the Trash; otherwise the whole batch fails,

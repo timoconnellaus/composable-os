@@ -45,6 +45,8 @@ export function guardianProblems(object: ObjectDefinition): string[] {
       field.options.many
     ) {
       problems.push(`customer.guardians.madeBy "${name}" must be a relation to one person`);
+    } else if (!field.readOnly) {
+      problems.push(`customer.guardians.madeBy "${name}" must be read-only: the host sets it`);
     }
     if (name === object.customer.field) {
       problems.push("customer.guardians.madeBy cannot be the customer field");
@@ -187,4 +189,28 @@ export async function recordsMadeFor(
     if (count) out.push({ object: object.name, label: object.plural ?? object.label, count });
   }
   return out;
+}
+
+/**
+ * For staff linking or reading a link (ADR 0540): a warning when the dependant has an email that
+ * is also the guardian's, or a customer account's sign-in address. Signing in links an account to
+ * the Person with its address, so a parent's address on the child's record would make the parent's
+ * account the child's. Null when there is nothing to warn of. Ids are bound.
+ */
+export async function sharedEmailWarning(
+  db: Kysely<CoreDatabase>,
+  guardianId: string,
+  dependantId: string,
+): Promise<string | null> {
+  const { rows } = await sql<{
+    shared: string;
+  }>`SELECT DISTINCT e.email AS shared FROM core_person_emails e WHERE e.person_id = ${dependantId} AND (e.email IN (SELECT g.email FROM core_person_emails g WHERE g.person_id = ${guardianId}) OR e.email IN (SELECT c.email FROM core_customer c WHERE c.person_id IS NULL OR c.person_id != ${dependantId}))`.execute(
+    db,
+  );
+  if (!rows.length) return null;
+  return (
+    "The child's record has an email that is also the parent's or another account's " +
+    `(${rows.map((r) => r.shared).join(", ")}). Signing in with it would open that account as ` +
+    "the child's: give the child their own address or none."
+  );
 }
