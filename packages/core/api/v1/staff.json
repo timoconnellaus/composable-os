@@ -40637,7 +40637,7 @@
     },
     {
       "name": "person.link.end",
-      "description": "End a family link: from that moment the guardian reads nothing of the dependant's and books nothing for them. Bookings they already made stay (cancel them separately if needed). The link is kept, ended, with who ended it and why. Only a person on the staff with people:link can do this. Audited.",
+      "description": "End a family link: from that moment the guardian reads nothing of the dependant's and books nothing for them. Bookings they already made stay (cancel them separately if needed); the answer says how many (stays). The link is kept, ended, with who ended it and why. Only a person on the staff with people:link can do this. Audited.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -40738,6 +40738,30 @@
               "string",
               "null"
             ]
+          },
+          "stays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "object",
+                "label",
+                "count"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Live records the guardian made for the dependant (bookings): they stay"
           }
         },
         "required": [
@@ -40750,7 +40774,8 @@
           "createdBy",
           "endedAt",
           "endedBy",
-          "endReason"
+          "endReason",
+          "stays"
         ],
         "additionalProperties": false
       },
