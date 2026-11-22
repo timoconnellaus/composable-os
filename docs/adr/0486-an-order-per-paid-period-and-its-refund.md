@@ -29,10 +29,15 @@ the event table forgot it) is `period_duplicate`. A period's order is written ev
 subscription read it came with is older than the record's (the invoice is a fact; the read moves
 nothing).
 
-**Not as agreed, no order.** A paid amount or currency that is not the subscription's agreed price
-writes no order and tells staff (the money was taken; staff check it with the provider). 32a has
-no plan changes or proration, so any difference is a surprise; 32b's plan changes will revisit
-this.
+**Money paid never vanishes from orders.** A period paid other than as agreed is an order for what
+was actually paid, in the currency it was paid in, flagged (`core_order.period_flag`, staff only):
+`paid_less` (a coupon, or the payer's balance at the provider), `paid_more`, or `not_as_agreed`
+(another currency, or a subscription whose price, currency or interval was changed at the
+provider). Staff are told once for the subscription, not once per period. A first event on terms
+that are not the checkout's makes no subscription (ADR 0485), but a paid invoice it carries is
+still an order, flagged, with no subscription and the checkout's payer. (Amended after review,
+2026-11-22: the first build wrote no order and told staff each time, so money taken could be
+missing from revenue.)
 
 **Tax on each period.** A subscription opened with tax (ADR 0485) keeps the provider's figure on
 each period's order, line and payment, as a taxed checkout does, while it is no more than what was
@@ -53,9 +58,16 @@ first:
 Either way the figure is kept only while it fits the payment's tax (ADR 0479's rule). A refund
 does not end the subscription; ending it is its own action.
 
-A credit note that Stripe refuses after the refund went through fails the action as "outcome
-unknown" with words saying the money went back and the invoice must be credited by hand: it never
-reports that nothing happened.
+A credit note that fails after the refund went through leaves the action pending, with words
+saying the refund went through and its credit note is owed: the refund's reference is kept in the
+gatekeeper's own storage before the credit note is asked for, so applying the action again sends
+only the credit note (its own idempotency key), never a second refund. It never reports that
+nothing happened, nor "outcome unknown". (Amended after review, 2026-11-22: the first build marked
+it "outcome unknown", which nothing retries.)
+
+**A tax figure that is not said is unknown, not zero.** A credit note whose `total_taxes` is empty
+or absent is delivered with no tax; the host then keeps the refund's tax unknown (null), as for a
+Checkout payment's refund (ADR 0479).
 
 ## Deviation from the spec, and why
 The spec guessed that only a credit note makes the provider give back the tax, and that the credit
@@ -76,4 +88,6 @@ refund asked for.
 - A period's refund costs two Stripe calls; both use idempotency keys from the host's refund id.
 - To check in Stripe's test mode by hand (step 4): that `amount` with `refunds[0][refund]` and
   `refunds[0][amount_refunded]` equal to it is accepted on an invoice paid in full, and that the
-  credit note's `total_taxes` matches the tax Stripe reports as given back.
+  credit note's `total_taxes` matches the tax Stripe reports as given back; and that an amount-only
+  credit note on an automatic-tax invoice comes back with `total_taxes` filled at all (if empty,
+  the host keeps the tax unknown, as above).

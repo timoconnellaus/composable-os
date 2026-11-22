@@ -151,8 +151,54 @@ every subscription call.
 Not verified, to check in Stripe's test mode by hand (step 4's runbook): a `DELETE` with
 `cancellation_details[comment]` in a form body; the portal configuration's `allowed_updates` list
 as sent; that a credit note linked to an existing refund (`refunds[0][refund]`) is accepted with
-`amount` equal to the refund (ADR 0486); how Stripe answers a trial that crosses `trial_end`'s
-48-hour floor because the page was opened 47 hours before it.
+`amount` equal to the refund (ADR 0486), and that an amount-only credit note on an automatic-tax
+invoice returns `total_taxes`; that the account accepts the pinned `Stripe-Version:
+2026-11-18.endive`; how Stripe answers a trial that crosses `trial_end`'s 48-hour floor because the
+page was opened 47 hours before it.
+
+## Amended after review (2026-11-22)
+Before the branch was merged, a review found what follows; each is changed above or here, with a
+test that fails without it.
+- **A subscription this host did not start, or one it cannot read, is ignored, never retried.**
+  Whose a subscription is comes from the fresh read's `metadata.cos_subscription`, not the
+  payload. One without it (another integration's in the same Stripe account), or one whose price
+  is tiered, metered or decimal (no `unit_amount`), or whose invoice cannot be read, is answered
+  200 and counted (`PaymentsEvents` stats, `ignored.foreign` and `ignored.unreadable`). Only a read
+  that failed answers 500: Stripe disables an endpoint that keeps failing, and that would stop
+  one-off payments too.
+- **Terms changed at the provider.** A read whose price, currency or interval is not what the
+  subscription was agreed at tells staff once for the subscription and applies only what removes
+  or reduces what the member holds: a move to a state that gives less (past due, unpaid, paused,
+  ended, expired) or an end being set. It never extends anything (a later period, a trial, a
+  failing one paid). Paid periods on it are orders, flagged (ADR 0486). A first read not as agreed
+  still makes no subscription.
+- **The portal opens only for the host's own call.** The session's `openPortal` asks its approval
+  queue whether it is the host's own orders call (`isHostOrders`, answered only by the runner's
+  queue for `callAsHost` with purpose `orders`), as the email gatekeeper asks about the host's
+  sign-in mail (ADR 0456). Code Mode, an extension's tool, the assistant and MCP are refused: a
+  portal address for an arbitrary customer shows their invoices and lets their card and email be
+  changed.
+- **`subscriptions:manage`** is a new permission (admins by default, grantable one by one as
+  `orders:refund` is). `subscription.cancel` and `.resume` need it for staff; a customer cancels and
+  resumes their own through the audience, as before.
+- **`cancel_at` is reported apart.** The read's `cancelAtPeriodEnd` is Stripe's
+  `cancel_at_period_end` only; a `cancel_at` date set another way (the dashboard, a schedule) is
+  `cancelAt` (`core_subscription.cancel_at`). Resume sets `cancel_at_period_end=false`, Stripe's
+  documented way to stop a pending cancellation (docs.stripe.com/billing/subscriptions/cancel,
+  read 2026-11-22); removing a `cancel_at` date changes the period and prorates, so resume refuses
+  it and says staff change it in the provider's dashboard, instead of reporting "requested".
+- **The confirm-your-payment link** is kept only from a read applied now (not a stale one), for an
+  invoice still `open`, on a subscription still owing; any move to a state that owes nothing
+  (active among them) clears it.
+- **A deleted provider customer** no longer fails every start: the host sends the payer's address
+  with the customer it reuses, and the gatekeeper, refused with `resource_missing` on `customer`,
+  opens the page again with a new customer from the address (its own idempotency key).
+- **The fake provider runs off localhost only with its own secret.** With the default signing
+  secret, which is public, anyone who can reach `/in/fake` could report a paid order or a paid
+  subscription period. `PAYMENTS_FAKE_PROVIDER=true` now turns the fake on only when
+  `FAKE_WEBHOOK_SECRET` is set, or the base address is `http://localhost` or `http://127.0.0.1`
+  (the CRM's dev server and its e2e). A staging environment that tries checkout with the fake must
+  set the secret (`docs/deploying.md`).
 
 ## Consequences
 - The host never decides that money is owed or taken: it opens the provider's page, asks the

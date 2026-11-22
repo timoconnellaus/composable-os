@@ -23,6 +23,19 @@ that guesses, row by row, which role the stored Person had.
 - The registry shows both (`payerPersonId`, `holderPersonId`); a customer sees the holder of a
   subscription they pay for.
 
+## A payer's provider customer (amended after review, 2026-11-22)
+- **Reused only for a caller who proved who they are.** A signed-in customer starting their own
+  subscription, or staff starting one for a Person, reuses the provider customer of that Person's
+  most recently started subscription (one card, one portal). A guest who only typed an address
+  never does: they always get a new provider customer from the address, so a guest's card and
+  invoices are never attached to someone else's billing, and a saved card of theirs is never
+  offered to the guest.
+- **One Person can so have two provider customers** (each subscription a guest starts makes its
+  own). The portal opens the customer of the payer's most recently started subscription that has
+  one; an older one's invoices are in its own portal, which staff reach in the provider's dashboard.
+  A later start while signed in reuses that newest one too. Merging customers at the provider is not
+  the host's to do.
+
 ## Consequences
 - 32b adds a way to name a holder (and the holder's read of what they hold) without changing this
   table.

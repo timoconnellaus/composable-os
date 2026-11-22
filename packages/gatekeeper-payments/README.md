@@ -152,14 +152,20 @@ The provider runs the schedule; nothing here charges a card on its own.
 | `getSubscription(ref)` | An observation, then a read now. |
 | `cancelSubscription({ when })` | Submits `payments.subscription.cancel` (never auto-approvable). Applied: Stripe `cancel_at_period_end=true`, or `DELETE` for `now`. |
 | `resumeSubscription(input)` | Submits `payments.subscription.resume`. Applied: `cancel_at_period_end=false`. |
-| `openPortal({ customerRef, returnUrl })` | An observation, then a customer portal session, on a configuration made once and kept in the facet (card, billing details, invoices; no cancel, update or pause). |
+| `openPortal({ customerRef, returnUrl })` | Only for the host's own call (the queue answers `isHostOrders()`; Code Mode, extensions, the assistant and MCP are refused). An observation, then a customer portal session, on a configuration made once and kept in the facet (card, billing details, invoices; no cancel, update or pause). |
 | `refund({ …, invoiceRef })` | As a refund, and once sent the invoice is credited with a credit note linked to it, so its tax is known. |
 
 Every subscription call to Stripe sends `Stripe-Version: 2026-11-18.endive` (`STRIPE_BILLING_VERSION`).
 A subscription webhook is verified, then the subscription (and invoice, `expand[]=payments`) is
 read now with that version and delivered as the event: the payload's own shape depends on the
 endpoint's version, and Stripe does not deliver events in order. A failed read answers 500, so
-Stripe sends it again. The fake provider's ledger keeps subscriptions too; tests move its schedule
+Stripe sends it again. A subscription the read shows this host did not start (no
+`metadata.cos_subscription`), or one in a shape it cannot read (a tiered, metered or decimal price),
+is answered 200 and counted in the events' stats (`ignored.foreign`, `ignored.unreadable`), never
+500: a retry would never succeed, and Stripe disables an endpoint that keeps failing. A period
+refund whose credit note failed stays pending; applying it again sends only the credit note. A
+reused customer Stripe no longer knows (`resource_missing`) is replaced by a new one from the
+payer's address. The fake provider's ledger keeps subscriptions too; tests move its schedule
 on with `advanceFakeSubscription(env, ref, step)` (`renew`, `fail`, `retry_fail`, `recover`,
 `action_required`, `give_up`, `trial_will_end`), which has no route. `GET {base}/fake/portal/:ref`
 is an inert stand-in for the portal.
@@ -250,8 +256,8 @@ On only when `PAYMENTS_FAKE_PROVIDER` is `"true"`. For development and tests.
 | `BASE_URL` | The public base, e.g. `https://crm.example.com/gatekeeper/payments`. Builds the fake page URLs and the route prefix. Empty means `http://localhost:5173/gatekeeper/payments`. |
 | `STRIPE_API_BASE` | The Stripe API base. Empty means `https://api.stripe.com`. |
 | `STRIPE_ACCOUNT` | A Stripe connected account id, sent as `Stripe-Account`. Empty means the key's own account. |
-| `PAYMENTS_FAKE_PROVIDER` | `"true"` turns the fake provider on. Default `"false"`. |
-| `FAKE_WEBHOOK_SECRET` | The fake provider's signing secret. Empty means `fake-payments-dev-secret`. |
+| `PAYMENTS_FAKE_PROVIDER` | `"true"` turns the fake provider on, but off localhost only when `FAKE_WEBHOOK_SECRET` is set (the default secret is public, ADR 0485). Default `"false"`. |
+| `FAKE_WEBHOOK_SECRET` | The fake provider's signing secret. Empty means `fake-payments-dev-secret`, accepted only when `BASE_URL` is `http://localhost` or `http://127.0.0.1` (the CRM's dev server and e2e). |
 
 | Secret (optional, `wrangler secret put`) | Meaning |
 | --- | --- |

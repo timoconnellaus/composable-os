@@ -522,6 +522,31 @@ period's refund) and [0487](../adr/0487-the-payer-and-the-holder.md) (payer and 
   the staff side and blocks (step 3); continuation offers (step 4, though the gatekeeper's
   `trialEnd` is in); updating live subscriptions when tax is turned on (the spec's guess; the
   provider's page on it was not read; step 4 with the test-mode runbook).
+- **The one-trial rule must land before any pack declares a plan with a trial.** Until step 3
+  adds it, `subscription.start` gives a plan's trial every time; no pack declares a plan, so only
+  test fixtures can be subscribed to. Step 3 adds the rule (per holder, per plan object) before
+  `courses.plan`.
+- **Changed after review (2026-11-22)**, in ADRs 0485 to 0487: a guest never reuses another
+  person's provider customer; terms changed at the provider apply only what reduces what the member
+  holds, and every paid period is an order, flagged when not as agreed; a subscription this host
+  did not start or cannot read is ignored (200, counted), not retried; the portal opens only for
+  the host's own call; `subscriptions:manage` for staff; resume refuses an end date set at the
+  provider; a period refund's credit note is retried, not "unknown"; a deleted provider customer
+  is replaced; the fake provider runs off localhost only with its own secret.
+
+### Step 4's test-mode runbook: open checks
+Checked by hand in Stripe's test mode before the course subscribers move, none verifiable from the
+documentation alone:
+- that an amount-only credit note on an automatic-tax invoice returns `total_taxes` (if it comes
+  back empty, the host keeps the refund's tax unknown, never a precise zero: built so already);
+- that the account accepts the pinned `Stripe-Version: 2026-11-18.endive`;
+- that the portal configuration's `features[customer_update][allowed_updates]` list is accepted as
+  sent;
+- that `DELETE /v1/subscriptions/:id` takes `cancellation_details[comment]` in a form body;
+- that a credit note linked to an existing refund (`refunds[0][refund]`, `amount` equal to it) is
+  accepted on an invoice paid in full;
+- the company's provider settings: retries exhausted → "cancel the subscription"; failed-payment
+  and expiring-card emails on (decisions 4 and 6).
 
 ## Questions for the interview
 Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:

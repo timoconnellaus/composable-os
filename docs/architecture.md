@@ -1274,16 +1274,21 @@ host stores no card and schedules no charge. A plan is a sellable object that de
 `recurring`. `subscription.start` records a `core_subscription_checkout` and opens the provider's
 page through the gatekeeper (`createSubscriptionCheckout`). For each subscription webhook the
 gatekeeper verifies the signature, then reads the subscription (and the invoice) from Stripe now,
-with a pinned API version, and delivers that read (`kind: "subscription"`). The host applies it in
-`order.applyPaymentEvent`: the first read makes `core_subscription` from the checkout it names;
-later ones move it, as the host, unless the record moved from a later read already or has ended
-(events arrive in any order). A paid invoice with money on it is an order born paid, one per
-invoice, with the period's dates and the provider's tax (`subscriptions/periods.ts`); its refund is
+with a pinned API version, and delivers that read (`kind: "subscription"`); a subscription the read
+shows it did not start, or cannot read, is answered 200 and counted, never retried. The host
+applies it in `order.applyPaymentEvent`: the first read makes `core_subscription` from the checkout
+it names; later ones move it, as the host, unless the record moved from a later read already or has
+ended (events arrive in any order). A read whose price, currency or interval was changed at the
+provider applies only what reduces what the member holds. A paid invoice with money on it is an
+order born paid, one per invoice, with the period's dates and the provider's tax, flagged when not
+paid as agreed (`subscriptions/periods.ts`); its refund is
 `order.refund`, and the gatekeeper credits the invoice with a credit note linked to the refund, so
 the tax given back is known. Cancel at the period's end and resume are the gatekeeper's actions
 `payments.subscription.cancel` and `.resume`, which the host's own call applies at once and an
 agent's waits on a person; the record changes only when the provider's event says so. The portal
-(`subscription.portal`) is the provider's, for the card and invoices only. A subscription keeps its
+(`subscription.portal`) is the provider's, for the card and invoices only, and the gatekeeper opens
+it only for the host's own call. Staff ending or keeping going someone else's need
+`subscriptions:manage`. A subscription keeps its
 payer and its holder apart: billing follows the payer, what it grants the holder.
 
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
