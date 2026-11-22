@@ -1,0 +1,11 @@
+---
+// A line of copy in which a hyphenated word ("self-host", "late-cancel") never breaks at its
+// hyphen: on a phone "self-" alone at the end of a line reads as a typo.
+interface Props {
+  text: string;
+}
+const { text } = Astro.props;
+const parts = text.split(/(\S+-\S+)/);
+---
+
+{parts.map((part, i) => (i % 2 === 1 ? <span class="nowrap">{part}</span> : part))}
