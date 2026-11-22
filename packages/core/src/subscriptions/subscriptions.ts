@@ -353,14 +353,10 @@ async function holderFor(
       { field: "holderPersonId", rule: "holder" },
     );
   }
-  const person = await ctx.db
-    .selectFrom("core_person")
-    .select(["id", "merged_into_id"])
-    .where("id", "=", named)
-    .where("deleted_at", "is", null)
-    .executeTakeFirst();
-  if (!person || person.merged_into_id) throw new NotFoundError("person", named);
-  return person.id;
+  // Through the seam, as staff read people: one in the Trash (a merged one is) is not found.
+  const person = await ctx.records.get("person", named).catch(() => null);
+  if (!person) throw new NotFoundError("person", named);
+  return named;
 }
 
 /**
