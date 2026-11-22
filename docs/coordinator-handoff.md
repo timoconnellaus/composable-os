@@ -13,7 +13,7 @@ platform and is stale; where the two disagree, this file is newer), then
 Composable OS (composableos.dev) is a platform for composing software products for companies. A
 trusted host owns identity, one operations registry, approvals, audit and gatekeepers. Products are
 built from extensions on a typed contract. The CRM is the first product. Ghetto Movement, a gym, is
-the first client product: it wants to sell event tickets, and later to leave Mindbody.
+the first client product: it wants to sell event tickets, and later to leave its current booking system.
 
 The direction is in ADRs 0400 to 0405. The plan is stages 20 to 40 in the roadmap. Nothing is
 installed anywhere except the site, so renames and schema changes are cheap now and the owner has

@@ -27,6 +27,12 @@ test("leaves allowed files and product definitions alone", () => {
   assert.deepEqual(problems, []);
 });
 
+test("a rule with its own allow list reaches files the shared list allows", () => {
+  const own = [{ name: "supplier", pattern: /Acme/, instead: "say a supplier", allow: [] }];
+  const problems = checkStrayNames([["docs/history/0001.md", "Acme"]], own, allow);
+  assert.deepEqual(problems, ['docs/history/0001.md:1: "Acme" (supplier): say a supplier']);
+});
+
 test("a file with no stray name passes", () => {
   assert.deepEqual(checkStrayNames([["README.md", "New Brand"]], rules, allow), []);
 });
@@ -34,6 +40,7 @@ test("a file with no stray name passes", () => {
 test("the repository's rules are well formed", () => {
   for (const rule of RULES) {
     assert.ok(rule.name && rule.instead && rule.pattern instanceof RegExp);
+    for (const pattern of rule.allow ?? []) assert.ok(pattern instanceof RegExp);
   }
   for (const pattern of ALLOW) assert.ok(pattern instanceof RegExp);
 });

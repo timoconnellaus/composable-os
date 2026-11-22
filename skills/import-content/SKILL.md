@@ -1,6 +1,6 @@
 ---
 name: import-content
-description: Load a company's existing blog posts and their pictures into its Composable OS host with cos content import - convert the old system's posts to the import folder format (one JSON per post in the platform's rich text shape, pictures by file name), check it with --dry-run, import as drafts, then publish with their original dates. Use when asked to move a blog, news or articles from another system (WordPress, EmDash, Ghost, a CMS export) onto the host.
+description: Load a company's existing blog posts and their pictures into its Composable OS host with cos content import - convert the old system's posts to the import folder format (one JSON per post in the platform's rich text shape, pictures by file name), check it with --dry-run, import as drafts, then publish with their original dates. Use when asked to move a blog, news or articles from another system (WordPress, Ghost, another CMS's export) onto the host.
 ---
 
 # Import content
