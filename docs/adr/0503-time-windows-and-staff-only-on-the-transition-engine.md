@@ -62,3 +62,12 @@ start, and numbers a class type overrides over the organisation's defaults.
   is `assistant` (an AI acting for a member) is resolved as a customer's is. The actor is the
   invocation's (`ctx.actor`), set by the pipeline, not by the caller's input.
 - `localDaysBefore` keeps the seconds and milliseconds past the minute.
+
+## Amended 2026-11-22 (stage 31a step 3, ADR 0505)
+- A path may pass through two relations, every field on the way the declaring extension's (its
+  own objects' fields, or fields it adds to another object); a window's number may be `{ field,
+  setting }`, the field else the extension's setting; `staffOnly` may name several booleans, a
+  boolean formula among them. The numbers are read in the write rather than copied onto the
+  class, so a change of a class type's rule or the organisation's setting holds at once.
+- The dry run is an operation: `state.resolve { object, id, request }` (tool-only, staff and
+  customer, a customer of their own records only; ADR 0504).

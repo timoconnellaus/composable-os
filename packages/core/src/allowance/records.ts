@@ -855,7 +855,25 @@ export async function spenderWrite(
       );
     }
   }
-  const spending = entering && !open;
+  // Paid another way (ADR 0506): a record marked so enters its spend states spending nothing,
+  // and the mark does not change while it is in one (or holds a use), so it cannot be turned on
+  // to skip a spend already owed or off to leave one unpaid.
+  const isWaived = (values: Values | null) => {
+    const v = def.waived ? values?.[def.waived] : undefined;
+    return v === true || v === 1 || v === "1" || v === "true";
+  };
+  const state = object.states.field;
+  if (def.waived && before !== null && isWaived(before) !== isWaived(after)) {
+    const inSpend = (values: Values) =>
+      typeof values[state] === "string" && def.spendIn.includes(values[state] as string);
+    if (open || inSpend(before) || inSpend(after)) {
+      throw new ValidationError(
+        `Whether ${object.label.toLowerCase()} spends a use is decided when it is made: it cannot change now`,
+        { rule: "allowance", reason: "waived_kept", field: def.waived },
+      );
+    }
+  }
+  const spending = entering && !open && !isWaived(after);
   const respending = open !== null && !returning && repointed;
   const fill = before === null || entering || repointed;
   const read = fill

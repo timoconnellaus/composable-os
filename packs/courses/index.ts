@@ -54,22 +54,15 @@ export default defineExtension({
     // assignment and dated sessions, made by x.programs.assign for the student (step 6).
     read: ["person", "programs.program", "programs.assignment", "programs.session"],
     write: ["programs.assignment", "programs.session"],
+    // record.* and my.* are not listed: listed, they would reach every object. Courses' own
+    // objects need no grant, and Programs' are the read and write lists above.
     operations: [
       "public.list",
       "public.get",
-      "my.list",
-      "my.get",
-      "my.create",
-      "my.update",
       "access.check",
       "order.start",
-      "record.create",
-      "record.update",
-      "record.get",
-      "record.list",
       "media.list",
       "order.settings.get",
-      "record.version",
       "query.sql",
       // A session lesson's program, assigned to its student on their first open (step 6).
       "x.programs.assign",

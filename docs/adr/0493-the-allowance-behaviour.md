@@ -148,3 +148,11 @@ local parts, which the periods use and stage 31 can.
 - **Cost of a spend**: one indexed query of the Person's holders' terms (`core_allowance` by Person
   and object), one read by id per holder for its conditions, one counter read per holder by its
   primary key, the spender's open use by its partial unique index; bounded by the Person's holders.
+
+## Amended 2026-11-22 (stage 31a step 3, the Bookings pack)
+- The customer cancel this ADR warned about now ships inside its window: the Bookings pack's
+  booking returns a use only on `cancelled`, which a customer may enter only until the class type's
+  late-cancel time before the start; after the start no customer move out of `booked` is open
+  (ADR 0504).
+- A spender may declare `waived`, a read-only boolean: a record created with it true enters its
+  spend states spending nothing, and the mark cannot change while it is in one (ADR 0506).

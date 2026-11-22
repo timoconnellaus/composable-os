@@ -71,6 +71,8 @@ export interface ExtensionFieldOptions {
   default?: string | number | boolean;
   /** The extension setting that holds the default, when admins choose it. */
   defaultSetting?: string;
+  /** A person's to change: other actors' writes wait for a person (ADR 0507). */
+  personApproves?: boolean;
   to?: string;
   many?: boolean;
   currency?: string;
@@ -221,6 +223,8 @@ export interface CustomerDeclaration {
    * ADR 0478), asked of the seam's one question (`holdsAccess`).
    */
   readonly requireAccess?: readonly string[] | undefined;
+  /** Fields of `write` a customer sets only on create (ADR 0507). */
+  readonly createOnly?: readonly string[] | undefined;
 }
 
 /** One condition of a holder's `spendsOn` (the SDK's AllowanceCondition), validated. */
@@ -270,6 +274,8 @@ export type AllowanceDefinition =
       readonly movedFrom?: { readonly field: string; readonly state: string } | undefined;
       /** Holders of other extensions that may pay for it (objects or extension ids). */
       readonly paidBy: readonly string[];
+      /** A boolean field: while true, entering a spend state spends nothing (ADR 0506). */
+      readonly waived?: string | undefined;
     };
 
 /** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */
@@ -390,29 +396,47 @@ export interface StatesDefinition {
     requires?: readonly string[] | undefined;
     final?: boolean | undefined;
     window?: WindowDefinition | undefined;
-    staffOnly?: string | undefined;
+    staffOnly?: string | readonly string[] | undefined;
     /** This extension's tools that may also make it, for the person who called them (ADR 0513). */
     tools?: readonly string[] | undefined;
+    /** Its window binds staff too (ADR 0507). */
+    bindsStaff?: boolean | undefined;
   }[];
   /** Rules on every create (ADR 0503). */
   create?:
     | {
         in?: Readonly<Record<string, readonly ("staff" | "customer" | "host")[]>> | undefined;
         window?: WindowDefinition | undefined;
-        staffOnly?: string | undefined;
+        staffOnly?: string | readonly string[] | undefined;
+        /** While any is true nobody but the host creates one (ADR 0507). */
+        closed?: string | readonly string[] | undefined;
       }
     | undefined;
   /** Moves asked for by name, resolved by the host (ADR 0503). */
   requests?: Readonly<Record<string, readonly string[]>> | undefined;
+  /** A cascade from the record a relation points to (ADR 0507). */
+  follows?:
+    | {
+        relation: string;
+        when: Readonly<Record<string, string>>;
+        from: readonly string[];
+      }
+    | undefined;
 }
+
+/** A number a window is worked out from (the SDK's WindowNumber, ADR 0505). */
+export type WindowNumberDefinition =
+  | number
+  | string
+  | { field?: string | undefined; setting?: string | undefined };
 
 /** One end of a window (the SDK's WindowBound): field paths, numbers in days and minutes. */
 export type WindowBoundDefinition =
   | string
   | {
       at: string;
-      daysBefore?: number | string | undefined;
-      minutesBefore?: number | string | undefined;
+      daysBefore?: WindowNumberDefinition | undefined;
+      minutesBefore?: WindowNumberDefinition | undefined;
       zone?: string | undefined;
     };
 

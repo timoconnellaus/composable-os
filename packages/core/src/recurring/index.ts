@@ -26,6 +26,7 @@ import { ConflictError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, RecurringDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
+import { followersOn } from "../records/follows.ts";
 import type { Mover } from "../records/transitions.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
@@ -419,6 +420,8 @@ interface Planned {
   values: Record<string, unknown>;
   action: "update" | "remove" | "cancel";
   claimed: number;
+  /** Live records that follow it (a class's bookings, ADR 0507), places or not. */
+  followers: number;
   state: string | null;
 }
 
@@ -433,7 +436,13 @@ function cancellableFrom(object: ObjectDefinition, cancel: string): Set<string> 
 
 /** Refused unless `confirm` is the number of records with places taken this would move or cancel. */
 function assertConfirmed(
-  plans: readonly { id: string; date: string; action: string; claimed: number }[],
+  plans: readonly {
+    id: string;
+    date: string;
+    action: string;
+    claimed: number;
+    followers?: number;
+  }[],
   confirm: number | undefined,
   what: string,
   how: string,
@@ -444,7 +453,14 @@ function assertConfirmed(
     {
       rule: "recurring_confirm",
       count: plans.length,
-      records: plans.map((p) => ({ id: p.id, date: p.date, action: p.action })),
+      // How many live records that follow them (bookings) the cancel moves with them (ADR 0507).
+      followers: plans.reduce((sum, p) => sum + (p.followers ?? 0), 0),
+      records: plans.map((p) => ({
+        id: p.id,
+        date: p.date,
+        action: p.action,
+        followers: p.followers ?? 0,
+      })),
     },
   );
 }
@@ -521,13 +537,16 @@ export async function seriesChanged(
       stateField && typeof record[stateField] === "string" ? (record[stateField] as string) : null;
     if (state !== null && (state === def.cancel || finals.has(state))) continue;
     const claimed = await claimedOn(ctx, generated, row.record_id);
+    const followers = await followersOn(ctx, generated.name, row.record_id);
     if (!rule || !ruleIncludes(rule, row.local_date)) {
       plans.push({
         id: row.record_id,
         date: row.local_date,
         values: {},
-        action: claimed > 0 ? "cancel" : "remove",
+        // Places taken, or anything following it (a waiting booking): cancelled, never removed.
+        action: claimed > 0 || followers > 0 ? "cancel" : "remove",
         claimed,
+        followers,
         state,
       });
       continue;
@@ -550,6 +569,7 @@ export async function seriesChanged(
         values,
         action: "update",
         claimed,
+        followers,
         state,
       });
     }
@@ -572,7 +592,7 @@ export async function seriesChanged(
   assertConfirmed(
     plans.filter(
       (p) =>
-        p.claimed > 0 &&
+        (p.claimed > 0 || p.followers > 0) &&
         (p.action === "cancel" || timeFields.some((f) => Object.hasOwn(p.values, f))),
     ),
     options.confirm,
@@ -655,6 +675,7 @@ export async function closureWritten(
     id: string;
     date: string;
     claimed: number;
+    followers: number;
   }[] = [];
   for (const def of defs) {
     const closure = def.closures;
@@ -691,13 +712,28 @@ export async function closureWritten(
       if (date < range.from || date > range.until) continue;
       if (old && date >= old.from && date <= old.until) continue;
       const claimed = await claimedOn(ctx, generated, row.id);
-      targets.push({ generated, stateField, cancel: def.cancel, id: row.id, date, claimed });
+      const followers = await followersOn(ctx, generated.name, row.id);
+      targets.push({
+        generated,
+        stateField,
+        cancel: def.cancel,
+        id: row.id,
+        date,
+        claimed,
+        followers,
+      });
     }
   }
   assertConfirmed(
     targets
-      .filter((t) => t.claimed > 0)
-      .map((t) => ({ id: t.id, date: t.date, action: "cancel", claimed: t.claimed })),
+      .filter((t) => t.claimed > 0 || t.followers > 0)
+      .map((t) => ({
+        id: t.id,
+        date: t.date,
+        action: "cancel",
+        claimed: t.claimed,
+        followers: t.followers,
+      })),
     confirm,
     "of the records this closure covers",
     "recurring.close",

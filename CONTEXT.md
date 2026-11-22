@@ -1087,6 +1087,42 @@ plan paid every period, below), which shares the word and nothing else
 A date range in which a series makes nothing, and whose records already made are cancelled (a
 gym's holidays) (ADR 0500).
 
+**Class type** (Bookings)
+A kind of class (Strength, Yoga, Kids): Programs' `programs.classtype`, on which Bookings adds its
+**booking rules** (when booking opens and closes, when a cancel is late, when the waitlist stops,
+the reminder, and whether only staff book it). Each rule left empty is the organisation's setting
+(Settings → Extensions → Bookings): 7 days, at the start, 60 minutes, 120 minutes, 180 minutes,
+off (stage 31, ADRs 0504 and 0505).
+
+**Class** (Bookings)
+One dated occurrence of a series, or a one-off: a class type at a time in a zone, with a room, a
+coach and its places. Members see how many places are left, never who has them.
+_Avoid_: session (Programs' word for a dated workout), lesson, event
+
+**Booking**
+One Person's place in one class: a claimant on its class, one live per Person per class, and a
+spender of their membership's or pass's use when it is `booked`. A member's **cancel** is in time
+until the class type's late-cancel time before the start (the use given back), **late** after it
+until the start (the use kept), and not possible after; the host decides by its clock. Staff may
+book anyone, into any class, and mark a walk-in **paid at the desk** (it spends nothing)
+(stage 31, ADRs 0503 to 0506). A class the gym cancels cancels its live bookings with it, their
+uses given back (**cancelled by the gym**, ADR 0507).
+_Avoid_: reservation, appointment (31b's one-to-one), ticket
+
+**Follows** (a state cascade)
+An object whose records move when the record a relation points to moves (`states.follows`): a
+class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
+
+**Approved by a person** (a `personApproves` field or setting)
+A field or extension setting only a person changes: the assistant's, an MCP client's, an
+automation's or extension code's write of it waits for a person's approval (ADR 0507). A gym's
+booking rules.
+
+**Paid another way** (a spender's `waived`)
+A spender created marked as paid outside the allowance (a walk-in at the desk, later a drop-in's
+order): it enters its spend states spending nothing, and the mark cannot change while it is in one
+(ADR 0506).
+
 **Hold**
 A held claim: places taken out of a capacity while an order is unpaid. It has no clock of its own:
 it lasts as long as the order is unpaid, which may be weeks for a deposit, and is released when the

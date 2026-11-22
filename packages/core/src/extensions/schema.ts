@@ -736,6 +736,7 @@ function allowanceDefinition(object: ObjectState): ObjectDefinition["allowance"]
     local: { ...(sp.local ?? {}) },
     ...(sp.movedFrom ? { movedFrom: { ...sp.movedFrom } } : {}),
     paidBy: [...(sp.paidBy ?? [])],
+    ...(sp.waived ? { waived: sp.waived } : {}),
   };
 }
 
@@ -797,10 +798,20 @@ function recurringDefinition(object: ObjectState): Pick<ObjectDefinition, "recur
       horizonDays: declared.horizonDays ?? RECURRING_HORIZON_DAYS,
       ...(declared.horizonAtLeast
         ? {
-            horizonAtLeast: {
-              object: named(declared.horizonAtLeast.object),
-              field: declared.horizonAtLeast.field,
-            },
+            // Another extension's object carries this extension's field (ADR 0505).
+            horizonAtLeast: declared.horizonAtLeast.object.includes(".")
+              ? {
+                  object: declared.horizonAtLeast.object,
+                  field: registryFieldName(
+                    object.extensionId,
+                    declared.horizonAtLeast.object,
+                    declared.horizonAtLeast.field,
+                  ),
+                }
+              : {
+                  object: named(declared.horizonAtLeast.object),
+                  field: declared.horizonAtLeast.field,
+                },
           }
         : {}),
     },
@@ -913,6 +924,7 @@ function registryField(field: FieldState, object: string): FieldDefinition {
     ...(def.editableOptions ? { editableOptions: true } : {}),
     ...(def.default !== undefined ? { default: def.default } : {}),
     ...(def.defaultSetting ? { defaultSetting: def.defaultSetting } : {}),
+    ...(def.personApproves ? { personApproves: true } : {}),
     ...(def.to ? { to: def.to } : {}),
     ...(def.many !== undefined ? { many: def.many } : {}),
     // No currency of its own: the deployment's base currency applies (ADR 0101).

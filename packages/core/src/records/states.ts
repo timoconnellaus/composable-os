@@ -47,6 +47,7 @@ export interface StateRuleDetails extends TransitionRuleBase {
     | "state_window_unknown"
     | "state_staff_only"
     | "state_request_refused"
+    | "state_closed"
     | "no_state";
   /** A window's refusals: when it opens and closes (ISO instants), where they apply. */
   opensAt?: string;
@@ -144,6 +145,44 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       }
       const to = position(toId);
       const base = { fromId, from, to, group: () => null };
+      // Closed to everyone but the host (ADR 0507): no booking into a class that was cancelled
+      // or is over, by staff either. Judged on create, and when a write changes what it reads.
+      const closedPaths = states.create?.closed;
+      if (
+        closedPaths &&
+        write.by !== "host" &&
+        (before === null || ruleSources({ staffOnly: closedPaths }).some((f) => write.changed(f)))
+      ) {
+        const reader = pathReader(write.ctx, o, after);
+        if (await staffOnlySet(reader, closedPaths)) {
+          throw refuse(
+            write,
+            "state_closed",
+            `${o.label} cannot be made now: what it is for is closed`,
+            [field],
+            to,
+            from,
+          );
+        }
+      }
+      // A customer creates a record only in its initial state, or in one `create.in` lists for
+      // them (ADR 0507): never straight into a later one (a booking made already cancelled).
+      if (
+        before === null &&
+        write.by === "customer" &&
+        toId !== states.initial &&
+        !states.create?.in?.[toId]?.includes("customer")
+      ) {
+        throw refuse(
+          write,
+          "state_move_not_permitted",
+          `A customer creates ${o.label.toLowerCase()} in ${position(states.initial).title} only`,
+          [field],
+          to,
+          null,
+          { by: [] },
+        );
+      }
       // A customer's create meets the create rules, whatever state it starts in (ADR 0503).
       if (before === null && write.by === "customer" && states.create) {
         await customerRules(write, states.create, `Creating ${o.label.toLowerCase()}`, to, null);
@@ -210,6 +249,16 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       // with the tool's permission called it) may make it too; no other staff write may.
       const tool = write.by === "staff" ? personsTool(write.ctx, o.extension) : null;
       const byTool = tool !== null && (move.tools ?? []).includes(tool);
+      // A window that binds staff too (ADR 0507): every staff write, a person's included.
+      if (write.by === "staff" && move.bindsStaff && move.by.includes("staff")) {
+        await customerRules(
+          write,
+          { window: move.window },
+          `Moving ${o.label.toLowerCase()} to ${to.title}`,
+          to,
+          originPosition,
+        );
+      }
       return {
         ...base,
         from: originPosition,
@@ -237,13 +286,14 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
 /** A move's or a create's customer rules. */
 interface RuleSet {
   window?: WindowDefinition | undefined;
-  staffOnly?: string | undefined;
+  staffOnly?: string | readonly string[] | undefined;
 }
 
 /** The record's own fields a rule set reads: each path's first part (a relation, or the field). */
 function ruleSources(rules: RuleSet): string[] {
   const paths: string[] = [];
-  if (rules.staffOnly) paths.push(rules.staffOnly);
+  if (typeof rules.staffOnly === "string") paths.push(rules.staffOnly);
+  else if (rules.staffOnly) paths.push(...rules.staffOnly);
   for (const bound of [rules.window?.from, rules.window?.until]) {
     if (bound === undefined) continue;
     if (typeof bound === "string") {
@@ -253,6 +303,7 @@ function ruleSources(rules: RuleSet): string[] {
     paths.push(bound.at);
     for (const part of [bound.daysBefore, bound.minutesBefore, bound.zone]) {
       if (typeof part === "string") paths.push(part);
+      else if (typeof part === "object" && part.field) paths.push(part.field);
     }
   }
   return [...new Set(paths.map((p) => p.split(".")[0] as string))];
@@ -285,6 +336,15 @@ async function customerRefusal(
       ...(refusal.closesAt ? { closesAt: refusal.closesAt } : {}),
     },
   };
+}
+
+/** Whether the write's actor is a person (`human`); a context without one is not. */
+function isPerson(ctx: HandlerContext): boolean {
+  try {
+    return ctx.actor === "human";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -321,9 +381,10 @@ export async function resolveStateRequest(
   for (const to of requests[asked] ?? []) {
     const move = states.moves.find((m) => m.to === to && moveOrigins(m).includes(origin));
     if (!move?.by.includes(by)) continue;
-    // A customer, and the assistant (an AI acting for a member is told apart by its actor,
-    // `assistant`), are resolved by the clock; a person on the staff is not bound.
-    if (by === "customer" || ctx.actor === "assistant") {
+    // A customer, and every staff caller that is not a person (the assistant, an MCP client, an
+    // automation, extension code), are resolved by the clock; a person on the staff is not bound
+    // (ADR 0507; the assistant alone before it, ADR 0503).
+    if (by === "customer" || (by === "staff" && (!isPerson(ctx) || move.bindsStaff))) {
       const refusal = await customerRefusal(
         ctx,
         object,

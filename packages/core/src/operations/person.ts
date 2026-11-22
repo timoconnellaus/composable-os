@@ -83,7 +83,7 @@ export const socialProfileSchema = z.object({
   handle: shortText(100).optional(),
 });
 
-const personWritableFields = {
+export const personWritableFields = {
   givenName: shortText(100).nullish(),
   familyName: shortText(100).nullish(),
   displayName: shortText(200)
@@ -286,7 +286,7 @@ export function personSnapshot(person: PersonSnapshotSource): Record<string, unk
 
 // --- Writing helpers ---------------------------------------------------------------------------
 
-function normaliseEmails(emails: z.output<typeof emailInputSchema>[]) {
+export function normaliseEmails(emails: z.output<typeof emailInputSchema>[]) {
   const list = withPrimary(emails, "email").map((e) => ({
     email: e.email,
     label: e.label ?? null,

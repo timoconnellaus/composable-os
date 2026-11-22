@@ -32,10 +32,11 @@ export interface StateMove {
    */
   window?: MoveWindow;
   /**
-   * A boolean field (named as a window's `at` is): while it is true, only staff and the host may
-   * make the move ("this class type is booked by the gym").
+   * A boolean field (named as a window's `at` is), or several: while any is true, only staff and
+   * the host may make the move ("this class type is booked by the gym"). A boolean formula counts
+   * too (a class that is not scheduled).
    */
-  staffOnly?: string;
+  staffOnly?: string | readonly string[];
   /**
    * Tools of this extension that may also make the move for whoever called them (stage 32b,
    * ADR 0513): a move by `["host"]` with `tools: ["voidPass"]` is made by the host and by that
@@ -44,20 +45,37 @@ export interface StateMove {
    * that permission.
    */
   tools?: readonly string[];
+  /**
+   * Its window binds staff too (ADR 0507), every staff caller, a person included: a cancel that
+   * gives a use back is in time for everyone. The host is not bound. A person who must make the
+   * move outside it does so through another move only a person's tool makes (`tools`).
+   */
+  bindsStaff?: boolean;
 }
 
 /**
+ * A number a window is worked out from (ADR 0505): a number; a number field named as a window's
+ * `at` is; or `{ field?, setting? }`, the field's value and, when it is empty, this extension's
+ * setting of that name (its value, or the setting's default). "A class type's own late-cancel
+ * time, else the organisation's": `{ field: "class.classType.lateMinutes", setting:
+ * "lateMinutes" }`.
+ */
+export type WindowNumber = number | string | { field?: string; setting?: string };
+
+/**
  * One end of a window (ADR 0503): the moment in the datetime field `at` (a field of the record,
- * or `<relation>.<field>` on the record a relation of one record points to), less `daysBefore`
- * whole days at the same local time in `zone` (a timezone field named the same way; the
- * organisation's zone when left out) and then `minutesBefore` minutes. Each of the two is a
- * number, or a number field named as `at` is. A string is short for `{ at }`. When any of them
- * has no value the window cannot be worked out, and a customer's move is refused.
+ * or `<relation>.<field>` on the record a relation of one record points to, or two relations
+ * away, `<relation>.<relation>.<field>`: ADR 0505), less `daysBefore` whole days at the same
+ * local time in `zone` (a timezone field named the same way; the organisation's zone when left
+ * out) and then `minutesBefore` minutes. Each of the two is a `WindowNumber`. A string is short
+ * for `{ at }`. When any of them has no value the window cannot be worked out, and a customer's
+ * move is refused. Every field a path passes through is this extension's own: a field of its
+ * objects, or one it adds to another extension's object (`fields: { "programs.classtype": … }`).
  */
 export interface WindowBound {
   at: string;
-  daysBefore?: number | string;
-  minutesBefore?: number | string;
+  daysBefore?: WindowNumber;
+  minutesBefore?: WindowNumber;
   zone?: string;
 }
 
@@ -96,31 +114,59 @@ export interface StatesSpec {
   create?: {
     in?: Readonly<Record<string, readonly Mover[]>>;
     window?: MoveWindow;
-    staffOnly?: string;
+    staffOnly?: string | readonly string[];
+    /**
+     * Booleans named as `staffOnly` is (ADR 0507): while any is true, nobody but the host creates
+     * one, staff included (no booking into a class that was cancelled or is over).
+     */
+    closed?: string | readonly string[];
   };
   /**
    * Moves a caller asks for by name, resolved by the host (ADR 0503): writing the name (`cancel`)
    * into the state field moves the record to the first of the listed states whose move from where
    * it is the caller may make now, windows included (`["cancelled", "late_cancelled"]`). A name
-   * is not a state.
+   * is not a state. A person on the staff is not bound; every other caller (a customer, the
+   * assistant, an MCP client, an automation, extension code) is resolved by the clock (ADR 0507).
    */
   requests?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * A cascade from the record a relation points to (ADR 0507): when that record moves into a
+   * state named in `when`, the host moves every live record of this object pointing at it, and in
+   * one of `from`, to the state `when` gives, in the same batch, as the host (a class cancelled
+   * moves its bookings to `cancelled_by_us`: their places released, their uses given back). Each
+   * target needs a `host` move from each of `from`.
+   */
+  follows?: {
+    relation: string;
+    when: Readonly<Record<string, string>>;
+    from: readonly string[];
+  };
 }
 
 const fieldName = z.string().max(40);
 const stateValue = z.string().min(1).max(100);
-const fieldPath = z.string().min(1).max(81);
+const fieldPath = z.string().min(1).max(122);
+const windowNumber = (number: z.ZodNumber) =>
+  z.union([
+    number,
+    fieldPath,
+    z
+      .object({ field: fieldPath.optional(), setting: z.string().min(1).max(40).optional() })
+      .strict()
+      .refine((n) => n.field !== undefined || n.setting !== undefined, "Name a field or a setting"),
+  ]);
 const windowBound = z.union([
   fieldPath,
   z
     .object({
       at: fieldPath,
-      daysBefore: z.union([z.number().int().min(-366).max(366), fieldPath]).optional(),
-      minutesBefore: z.union([z.number().int().min(-527_040).max(527_040), fieldPath]).optional(),
+      daysBefore: windowNumber(z.number().int().min(-366).max(366)).optional(),
+      minutesBefore: windowNumber(z.number().int().min(-527_040).max(527_040)).optional(),
       zone: fieldPath.optional(),
     })
     .strict(),
 ]);
+const staffOnlyPaths = z.union([fieldPath, z.array(fieldPath).min(1).max(4)]);
 const moveWindow = z
   .object({ from: windowBound.optional(), until: windowBound.optional() })
   .strict()
@@ -138,8 +184,9 @@ export const statesManifestSchema = z.object({
         requires: z.array(fieldName).max(50).optional(),
         final: z.boolean().optional(),
         window: moveWindow.optional(),
-        staffOnly: fieldPath.optional(),
+        staffOnly: staffOnlyPaths.optional(),
         tools: z.array(z.string().min(1).max(40)).min(1).max(10).optional(),
+        bindsStaff: z.boolean().optional(),
       }),
     )
     .max(200),
@@ -150,7 +197,8 @@ export const statesManifestSchema = z.object({
         .refine((r) => Object.keys(r).length <= 20, "At most 20 states")
         .optional(),
       window: moveWindow.optional(),
-      staffOnly: fieldPath.optional(),
+      staffOnly: staffOnlyPaths.optional(),
+      closed: staffOnlyPaths.optional(),
     })
     .strict()
     .optional(),
@@ -158,8 +206,23 @@ export const statesManifestSchema = z.object({
     .record(z.string().regex(/^[a-z][a-z0-9_]{0,39}$/), z.array(stateValue).min(1).max(10))
     .refine((r) => Object.keys(r).length <= 10, "At most 10 requests")
     .optional(),
+  follows: z
+    .object({
+      relation: fieldName,
+      when: z
+        .record(stateValue, stateValue)
+        .refine((r) => Object.keys(r).length >= 1 && Object.keys(r).length <= 10, "1 to 10 states"),
+      from: z.array(stateValue).min(1).max(20),
+    })
+    .strict()
+    .optional(),
 });
 export type StatesManifest = z.infer<typeof statesManifestSchema>;
+
+/** A staff-only rule's paths, as a list (ADR 0505). */
+export function staffOnlyPathsOf(value: string | readonly string[] | undefined): readonly string[] {
+  return value === undefined ? [] : typeof value === "string" ? [value] : value;
+}
 
 /** The states a move leaves, as a list. */
 export function moveOrigins(move: { from: string | readonly string[] }): readonly string[] {
@@ -253,14 +316,31 @@ export function checkObjectStates(
     }
   });
 
-  // Windows, staff-only rules and requests (ADR 0503).
+  // Windows, staff-only rules and requests (ADR 0503; two relations and settings, ADR 0505).
   const checkPath = (at: string, path: string, type: string) => {
     const field = resolveFieldPath(m, object, at);
-    if (field?.type !== type || field.many) {
+    // A staff-only rule may read a formula: the host computes it in the view (a boolean one).
+    const formulaOk = type === "boolean" && field?.type === "formula";
+    if ((field?.type !== type && !formulaOk) || field?.many) {
       contract(
         path,
-        `"${at}" must be a ${type} field of ${name}, or <relation>.<field> through a relation (one record) to another of this extension's objects`,
+        `"${at}" must be a ${type} field of ${name}, or <relation>.<field> through up to two relations (one record each), every field on the way declared by this extension`,
       );
+    }
+  };
+  const checkNumber = (value: WindowNumber | undefined, path: string) => {
+    if (typeof value === "string") checkPath(value, path, "number");
+    else if (typeof value === "object") {
+      if (value.field !== undefined) checkPath(value.field, `${path}.field`, "number");
+      if (value.setting !== undefined) {
+        const settings = m.settings ?? {};
+        const setting = Object.hasOwn(settings, value.setting)
+          ? settings[value.setting]
+          : undefined;
+        if (setting?.type !== "number") {
+          contract(`${path}.setting`, `"${value.setting}" must be a number setting of ${m.id}`);
+        }
+      }
     }
   };
   const checkWindow = (window: MoveWindow | undefined, path: string) => {
@@ -270,8 +350,7 @@ export function checkObjectStates(
       const b = typeof bound === "string" ? { at: bound } : bound;
       checkPath(b.at, `${path}.${end}.at`, "datetime");
       for (const key of ["daysBefore", "minutesBefore"] as const) {
-        const value = b[key];
-        if (typeof value === "string") checkPath(value, `${path}.${end}.${key}`, "number");
+        checkNumber(b[key], `${path}.${end}.${key}`);
       }
       if (b.zone !== undefined) checkPath(b.zone, `${path}.${end}.zone`, "timezone");
     }
@@ -282,7 +361,7 @@ export function checkObjectStates(
       contract(mp, "A window or staffOnly binds customers: the move must list customer in by");
     }
     checkWindow(move.window, `${mp}.window`);
-    if (move.staffOnly) checkPath(move.staffOnly, `${mp}.staffOnly`, "boolean");
+    for (const p of staffOnlyPathsOf(move.staffOnly)) checkPath(p, `${mp}.staffOnly`, "boolean");
     // A move only named tools may make (ADR 0513): each a person's, with a permission.
     for (const tool of move.tools ?? []) {
       const spec = m.tools?.[tool];
@@ -294,6 +373,9 @@ export function checkObjectStates(
           `"${tool}" must be humanOnly and declare a permission: the move is a person's act with it`,
         );
       }
+    }
+    if (move.bindsStaff && (!move.window || !move.by.includes("staff"))) {
+      contract(`${mp}.bindsStaff`, "bindsStaff needs a window and staff in by");
     }
     if (move.tools && move.by.includes("staff")) {
       contract(
@@ -310,8 +392,48 @@ export function checkObjectStates(
         contract(`${sp}.create.in`, `"${state}" is final: nothing is created in it`);
     }
     checkWindow(states.create.window, `${sp}.create.window`);
-    if (states.create.staffOnly)
-      checkPath(states.create.staffOnly, `${sp}.create.staffOnly`, "boolean");
+    for (const p of staffOnlyPathsOf(states.create.staffOnly)) {
+      checkPath(p, `${sp}.create.staffOnly`, "boolean");
+    }
+    for (const p of staffOnlyPathsOf(states.create.closed)) {
+      checkPath(p, `${sp}.create.closed`, "boolean");
+    }
+  }
+  if (states.follows) {
+    const fp = `${sp}.follows`;
+    const f = states.follows;
+    const rel = fieldOf(f.relation);
+    const target =
+      rel?.type === "relation" && !rel.many && rel.to?.startsWith(`${m.id}.`)
+        ? m.objects[rel.to.slice(m.id.length + 1)]
+        : undefined;
+    if (!target?.states) {
+      contract(
+        `${fp}.relation`,
+        `"${f.relation}" must be a relation (one record) of ${name} to another of this extension's objects that declares states`,
+      );
+    } else {
+      const parentStates = new Set(
+        (target.fields[target.states.field]?.options ?? []).map((o) => o.value),
+      );
+      for (const [when, to] of Object.entries(f.when)) {
+        if (!parentStates.has(when)) {
+          contract(`${fp}.when`, `"${when}" is not a state of ${rel?.to ?? f.relation}`);
+        }
+        for (const from of f.from) {
+          if (!isState(from))
+            contract(`${fp}.from`, `"${from}" is not an option of ${states.field}`);
+          else if (
+            !states.moves.some(
+              (move) =>
+                move.to === to && move.by.includes("host") && moveOrigins(move).includes(from),
+            )
+          ) {
+            contract(`${fp}.when`, `${name} needs a host move from "${from}" to "${to}"`);
+          }
+        }
+      }
+    }
   }
   for (const [request, targets] of Object.entries(states.requests ?? {})) {
     const rp = `${sp}.requests.${request}`;
@@ -327,24 +449,36 @@ export function checkObjectStates(
 }
 
 /**
- * The field a path names (ADR 0503): `field` on the object, or `relation.field` on the object a
- * relation of one record points to, within the same extension.
+ * The field a path names (ADR 0503; two relations from ADR 0505): `field` on the object, or
+ * `relation.field` / `relation.relation.field` through relations of one record. Every field on
+ * the way is this extension's: a field of one of its objects, or one it adds to another object
+ * (`fields: { "programs.classtype": { … } }`). Undefined when the path names no such field.
  */
 export function resolveFieldPath(
   m: ExtensionManifest,
   object: ObjectManifest,
   path: string,
 ): FieldManifest | undefined {
-  const own = (o: ObjectManifest, local: string) =>
-    Object.hasOwn(o.fields, local) ? o.fields[local] : undefined;
   const parts = path.split(".");
-  if (parts.length === 1) return own(object, path);
-  if (parts.length !== 2) return undefined;
-  const [relation, local] = parts as [string, string];
-  const via = own(object, relation);
-  const to = via?.type === "relation" && !via.many ? via.to : undefined;
-  const target = to?.startsWith(`${m.id}.`) ? to.slice(m.id.length + 1) : undefined;
-  const targetObject =
-    target !== undefined && Object.hasOwn(m.objects, target) ? m.objects[target] : undefined;
-  return targetObject ? own(targetObject, local) : undefined;
+  if (parts.length > 3) return undefined;
+  const added = m.fields ?? {};
+  /** The fields this extension declares on an object (by its full name), or on `object`. */
+  const fieldsOn = (target: string | null): Readonly<Record<string, FieldManifest>> | undefined => {
+    if (target === null) return object.fields;
+    if (target.startsWith(`${m.id}.`)) {
+      const local = target.slice(m.id.length + 1);
+      return Object.hasOwn(m.objects, local) ? m.objects[local]?.fields : undefined;
+    }
+    return Object.hasOwn(added, target) ? added[target] : undefined;
+  };
+  let on: string | null = null;
+  for (const [i, part] of parts.entries()) {
+    const fields = fieldsOn(on);
+    const field = fields && Object.hasOwn(fields, part) ? fields[part] : undefined;
+    if (!field) return undefined;
+    if (i === parts.length - 1) return field;
+    if (field.type !== "relation" || field.many || !field.to) return undefined;
+    on = field.to.includes(".") ? field.to : `${m.id}.${field.to}`;
+  }
+  return undefined;
 }

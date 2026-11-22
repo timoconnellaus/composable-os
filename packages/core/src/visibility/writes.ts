@@ -77,6 +77,12 @@ export async function assertVisibleWrites(
         }
         continue;
       }
+      // Set when the record is made, never after (ADR 0507).
+      if (change.action !== "create" && object.customer?.createOnly?.includes(name)) {
+        throw new ValidationError(`${object.name}.${name} is set only when it is made`, {
+          field: name,
+        });
+      }
       if (scope.writable.has(name)) continue;
       if (change.action === "create" && SET_BY_HOST.has(name)) continue;
       // A field they can read but not write is named. Any other is a field that does not exist.
@@ -292,6 +298,12 @@ export async function updateVisible(
 ): Promise<void> {
   const { object, scope } = customerScopeFor(writer, name);
   assertSettable(writer, object, scope, values);
+  // Fields set when the record is made, never after (ADR 0507), whatever tool asks.
+  for (const field of object.customer?.createOnly ?? []) {
+    if (Object.hasOwn(values, field)) {
+      throw new ValidationError(`${object.name}.${field} is set only when it is made`, { field });
+    }
+  }
   // The record must be the caller's own: otherwise it is not there. One shared with them is
   // theirs to read only (ADR 0447).
   // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.

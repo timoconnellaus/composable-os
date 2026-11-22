@@ -52,6 +52,11 @@ export function toolOperation(
       ? { packPermissionGrantable: true }
       : {}),
     async handler(input, ctx) {
+      // A dry run (the approval queue's, ADR 0022) must change nothing, and a tool's own
+      // operation calls are real invocations the dry run cannot hold back: so the tool is not run
+      // until it is approved (found by the Bookings review, 2026-11-22: a destructive tool queued
+      // for a person had already made its change).
+      if (ctx.simulation) return null as never;
       const row = await ctx.db
         .selectFrom("core_extensions")
         .select(["status", "commit_oid"])

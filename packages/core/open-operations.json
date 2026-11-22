@@ -153,6 +153,13 @@
       "toolOnly": true
     },
     {
+      "name": "state.resolve",
+      "audiences": ["staff", "customer"],
+      "risk": "read",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
       "name": "subscription.cancel",
       "audiences": ["staff", "customer"],
       "risk": "write",
@@ -191,6 +198,36 @@
       "audiences": ["staff", "customer", "public"],
       "risk": "write",
       "hostInternal": true
+    },
+    {
+      "name": "x.bookings.book",
+      "audiences": ["customer"],
+      "risk": "write",
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.cancel",
+      "audiences": ["customer"],
+      "risk": "write",
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.classGet",
+      "audiences": ["customer", "public"],
+      "risk": "read",
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.mine",
+      "audiences": ["customer"],
+      "risk": "read",
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.timetable",
+      "audiences": ["customer", "public"],
+      "risk": "read",
+      "pack": "bookings"
     },
     {
       "name": "x.content.categories",

@@ -71,6 +71,12 @@ Read these before writing. They are the source of truth; this skill only gives t
 6. **Declare permissions**, the least that works. Your own objects need none. `read` and `write`
    name other objects, `operations` names operations exactly, and any of them needs `"ops"` in
    `modules`. Views, tabs and panels over other objects need no permission; only code does.
+   Never list `record.*`, `my.*` or `state.resolve` in `operations`: they are granted by object,
+   and a listed one reaches every object. A field or setting only a person should change (a
+   gym's booking rules) is `personApproves: true`: anyone else's write of it waits for a person's
+   approval (not a tool's `humanOnly`, which refuses everyone else). A
+   customer field set only when the record is made (a booking's class) goes in
+   `customer.createOnly` (ADR 0507).
 7. **Add indexes and seeds.** One index for each field a list filters or sorts by. `seed` for
    set-up records people will then edit (Deals: `objects.pipeline.seed`, `objects.stage.seed`).
 8. **Show it.** `navigation` (`main`, `settings` for set-up records, `none`), `navigationOrder`,
@@ -137,12 +143,23 @@ extension declares it; it never implements it. Each behaviour the platform has i
   is `by: ["host"], tools: ["<tool>"]`: only the host and that tool make it, and the tool is
   `humanOnly` with a `permission` (ADR 0513). An end is `"<datetime field>"` or
   `{ at, daysBefore?, minutesBefore?, zone? }`, each a field of the record or
-  `<relation>.<field>` (`klass.startsAt`) or a number: "opens 7 local days before, closes 30
-  minutes before". `states.requests: { cancel: ["cancelled", "late_cancelled"] }` lets a caller
-  write `cancel` and the host pick the state by the clock; `states.create.in: { waiting:
-  ["staff", "customer"] }` lists states a record may be created in besides `initial`, and who
-  may. Never decide "late" or "too early" in a tool. See `StateMove` and `StatesSpec` in
-  `packages/sdk/src/states.ts` and ADR 0503.
+  `<relation>.<field>` (`klass.startsAt`), up to two relations away (`class.classType.lateMinutes`,
+  every field on the way your own, including fields you add to another pack's object), or a
+  number: "opens 7 local days before, closes 30 minutes before". A number may also be `{ field,
+  setting }`: the field, else your extension's number setting of that name (a class type's own
+  rule over the organisation's default, read in the write, never copied). `staffOnly` may list
+  several booleans, a boolean formula among them (a class that is not scheduled).
+  `states.requests: { cancel: ["cancelled", "late_cancelled"] }` lets a caller write `cancel`
+  and the host pick the state by the clock, and a tool shows the member which first with
+  `state.resolve { object, id, request }`; `states.create.in: { waiting: ["staff", "customer"] }`
+  lists states a record may be created in besides `initial`, and who may (a customer never
+  creates in any other). `states.create.closed: "<boolean path>"` closes creates to everyone but
+  the host (a class that is cancelled). `states.follows: { relation, when: { <parent state>:
+  <state> }, from }` moves your live records when the record they point to moves (a class
+  cancelled cancels its bookings, in its batch; ADR 0507). A request is resolved by the clock for
+  every caller but a person. Never decide "late" or
+  "too early" in a tool. See `StateMove` and `StatesSpec` in `packages/sdk/src/states.ts`, ADRs
+  0503 and 0505, and Bookings: `packs/bookings/index.ts`.
 - **`recurring`** on a series object: a weekly rule in local time that makes records of another
   of your objects ahead (a timetable line makes its classes). Declare the rule's fields (a
   `multiSelect` of `mon`…`sun`, an `HH:MM` text field, a length in minutes, from and until
@@ -196,7 +213,9 @@ extension declares it; it never implements it. Each behaviour the platform has i
   and the local `weekday` and `minute` it fills, and `paidBy` (holder objects or extensions of
   other packs that may pay for it; left out, only yours). Conditions read only the fields the host
   fills (`copy`, `local`). Changing what a spender points at while it holds a use spends again for
-  the new target, or is refused.
+  the new target, or is refused. A spender paid outside the allowance (a walk-in at the desk)
+  names `waived: "<read-only boolean>"`, set by your own code when it is made: it then spends
+  nothing, and the mark cannot change while it is in a spend state (ADR 0506).
   Never count uses or pick a holder in a tool: the host spends in the write that moves the record.
   See `AllowanceSpec` in `packages/sdk/src/allowance.ts` and ADRs 0493 and 0494.
 

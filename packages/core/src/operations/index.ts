@@ -52,6 +52,7 @@ import { notificationDeliveryOperations } from "./notification-delivery.ts";
 import { orderOperations } from "./order.ts";
 import { organisationOperations } from "./organisation.ts";
 import { personOperations } from "./person.ts";
+import { personWithRecordOperations } from "./person-with-record.ts";
 import { planOperations } from "./plan.ts";
 import { policyOperations } from "./policy.ts";
 import { publicReadOperations } from "./public-read.ts";
@@ -65,6 +66,7 @@ import { routineOperations } from "./routine.ts";
 import { searchOperations } from "./search.ts";
 import { settingsOperations } from "./settings.ts";
 import { setupOperations } from "./setup.ts";
+import { stateResolveOperations } from "./state-resolve.ts";
 import { subscriptionOperations } from "./subscription.ts";
 import { subscriptionOfferOperations } from "./subscription-offer.ts";
 import { suggestionOperations } from "./suggestions.ts";
@@ -81,6 +83,7 @@ import { voiceOperations } from "./voice.ts";
 // biome-ignore format: one spread per line keeps parallel additions conflict-free.
 export const coreOperations = [
   ...personOperations,
+  ...personWithRecordOperations,
   ...policyOperations,
   ...organisationOperations,
   ...affiliationOperations,
@@ -128,6 +131,7 @@ export const coreOperations = [
   ...myWriteOperations,
   ...publicReadOperations,
   ...accessOperations,
+  ...stateResolveOperations,
   ...notificationOperations,
   ...notificationDeliveryOperations,
   ...assistantOperations,

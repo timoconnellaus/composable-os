@@ -117,6 +117,10 @@ The wall-clock-to-instant conversion that survives a clock change existed only p
   it, so a large timetable cannot starve the rest. A run that fails on a conflict is tried on the
   next tick; any other failure in an hour.
 
+## Amended 2026-11-22 (stage 31a step 3)
+- `horizonAtLeast` may name another extension's object with a number field this extension adds
+  to it (the Bookings pack's `opensDays` on Programs' class type, ADR 0505).
+
 ## Note (2026-11-22, stage 32b build step 6): the other "recurring"
 `sellable.recurring` (a plan paid every period, ADR 0485) and its `grants` (what a subscription
 gives, [ADR 0510](0510-what-a-subscription-grants.md)) share this behaviour's word and nothing
