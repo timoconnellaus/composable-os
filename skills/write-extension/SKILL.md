@@ -133,7 +133,9 @@ extension declares it; it never implements it. Each behaviour the platform has i
   and ADR 0502.
 - **Windows and staff-only rules** on `states`: a move's `window: { from?, until? }` and
   `staffOnly: "<boolean field>"`, and the same on `states.create` for every create, bind
-  customers (staff and the host are not bound). An end is `"<datetime field>"` or
+  customers (staff and the host are not bound). A move only a person should make (voiding a pass)
+  is `by: ["host"], tools: ["<tool>"]`: only the host and that tool make it, and the tool is
+  `humanOnly` with a `permission` (ADR 0513). An end is `"<datetime field>"` or
   `{ at, daysBefore?, minutesBefore?, zone? }`, each a field of the record or
   `<relation>.<field>` (`klass.startsAt`) or a number: "opens 7 local days before, closes 30
   minutes before". `states.requests: { cancel: ["cancelled", "late_cancelled"] }` lets a caller
@@ -184,7 +186,10 @@ extension declares it; it never implements it. Each behaviour the platform has i
   (required with `states`), a timezone field and `emptyIsUnlimited: true` if an empty uses means
   unlimited (otherwise it means none). Keep these fields out of `customer.write` and every tool's
   `customerFields`, and declare no fields named `used` or `left` (the host adds them). A customer
-  never creates a holder: grant it from an order or make it as staff. A spender declares `states` and `allowance: { spends:
+  never creates a holder: grant it from an order or make it as staff. A granted holder (what
+  `grants` or `recurring.grants` makes) keeps its terms `readOnly`, and only the host moves it into a
+  live state; a live holder, or a granted one not ended or void, cannot go to the Trash; your own
+  code writes a holder's terms only from a `humanOnly` tool with a `permission` (ADR 0513). A spender declares `states` and `allowance: { spends:
   { person, holder, spendIn, returnIn, at?, copy?, local?, movedFrom? } }`: a text field for the
   holder's id (callers may set it to choose), the states that spend and give back, its time (a
   datetime of its own or `relation.field`), read-only fields the host copies from one relation away

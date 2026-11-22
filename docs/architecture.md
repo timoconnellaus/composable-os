@@ -1272,7 +1272,9 @@ term read-only (the host and the pack's own tools write them), spent by stage 31
 local weekday and minute; only the membership declares `emptyIsUnlimited`. Its tools read the
 plans and pass types (public), start a pass's order (`buy`), give a member their holdings with
 `allowance.get`'s count (`mine`) and staff a Person's (`holdings`), and give or void a pass by hand
-(`givePass`, `voidPass`: `humanOnly`, permission `memberships:passes`, grantable). Web blocks
+(`givePass`, `voidPass`: `humanOnly`, permission `memberships:passes`, grantable; voiding is a
+move only `voidPass` and the host make, `states.moves[].tools`, and a holder's terms are written only
+by the host or such a tool, ADR [0513](adr/0513-a-granted-holder-keeps-what-it-was-granted.md)). Web blocks
 (plans with the trial and the code sign-in, passes, the member's holdings with their
 subscription's cancel, resume and portal, a Person's holdings for staff) and a native block that
 only reads.

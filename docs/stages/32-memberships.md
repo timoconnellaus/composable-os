@@ -764,9 +764,9 @@ Where the build read the spec one way, or decided what it left open:
 - **Every term of a membership or a pass is read-only**: the host and the pack's own tools write
   them; the generic record operations cannot. Giving a pass by hand is `x.memberships.givePass`
   (permission `memberships:passes`, grantable; a person only: `humanOnly`, a new ToolSpec flag);
-  voiding one staff gave is `voidPass` (the same), or a button on the pass. Deviation: the spec's
-  "`subscriptions:manage` or the right permission" is the pack's own grantable permission, and a
-  void is also a staff state move (the transition engine has no human-only move).
+  voiding one staff gave is `voidPass` (the same), or a button on the pass, and nothing else (ADR
+  0513). Deviation: the spec's "`subscriptions:manage` or the right permission" is the pack's own
+  grantable permission.
 - **Class types** are Programs' (`programs.classtype`), so the pack requires Programs; limits by
   weekday and time of day are fields of the plan and the pass type, copied onto what they grant.
   The holders' `spendsOn` names `bookings.booking` with the fields its host fills (`classType`,
@@ -776,6 +776,18 @@ Where the build read the spec one way, or decided what it left open:
   by a status field (`on_sale`), not `publishable` (a price list is not content; as `courses.plan`).
 - **Tax**: the gym dues code (`txcd_50021001`), without a place; whether the provider needs the
   gym's address is an open check for the runbook.
+- **After the independent review (2026-11-22; [ADR 0513](../adr/0513-a-granted-holder-keeps-what-it-was-granted.md)):**
+  a live holder, or a granted one not final, cannot go to the Trash (void or end it first), and a
+  granted one in the Trash that is not final is not restored; voiding a pass is the host's (a
+  refund) or `voidPass`'s, a move only named tools may make (`states.moves[].tools`), never another
+  staff write; a holder's terms are written only by the host or a tool only a person with a
+  permission calls; the contract holds a granted holder's terms read-only and its live states the
+  host's; a pass given by hand gets the host's dates and, for an intro offer, uses the Person's one;
+  a merge keeps one intro offer (used over held), and an order whose hold a merge released grants
+  nothing and tells staff; dropping a plan's grants is refused while subscriptions still running
+  hold one; `holderPersonId` and `now` are staff-only input, out of the customer's contract;
+  `allowance.list` reads up to 50 holders at once and says `payable`; a plan's `per` is required; a
+  refunded period tells staff the membership keeps running. Disputes are not read by the host yet.
 - **Not built in this step**: plan changes and pauses (the next step); the dashboard and the rest of
   the Person tab (step 7; this step has the views, the Person's Memberships and Passes tabs and a
   staff holdings block); `cos memberships import` and the subscription import (step 8); continuation
