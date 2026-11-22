@@ -1,7 +1,7 @@
 ---
 // The toolkit, for developers and agencies: the second part of the offer, kept to one section.
-// The commands match docs/deploying.md ("A company's own product") and the start-client-app and
-// add-block skills. Update them together.
+// The commands match docs/deploying.md ("A company's own product"), docs/importing.md (the import
+// commands) and the start-client-app, add-block and import-content skills. Update them together.
 import { REPO_URL } from "../links.ts";
 import Icon from "./Icon.astro";
 
@@ -38,6 +38,8 @@ const checks = [
 <span class="p">$ </span>cd harbour
 <span class="p">$ </span>pnpm cos add web-sign-in
 <span class="p">$ </span>pnpm cos deploy
-<span class="c"># the host and the web app, in a Cloudflare account</span></code></pre>
+<span class="c"># the host and the web app, in a Cloudflare account</span>
+<span class="p">$ </span>pnpm cos content import ./old-blog --host https://admin.example.com
+<span class="c"># posts and pictures from the old blog; cos courses import does the same for courses</span></code></pre>
   </div>
 </section>
