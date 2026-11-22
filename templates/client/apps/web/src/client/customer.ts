@@ -217,7 +217,7 @@ export type Operations = {
    */
   "subscription.start": {
     kind: "mutation";
-    input: { plan: { object: string; id: string }; returnUrl: string; email?: string; offerId?: string };
+    input: { plan: { object: string; id: string }; returnUrl: string; email?: string; offerId?: string; holderPersonId?: string };
     output: { subscriptionId: string; url: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); trialDays: (number) | (null); freeUntil: (string) | (null); noTrial: (("sign_in") | ("used") | ("permission") | ("held") | ("unconfirmed") | ("continuation")) | (null); expiresAt: (string) | (null) };
   };
 };
