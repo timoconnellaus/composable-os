@@ -1538,6 +1538,14 @@ function outsideError(error: unknown): OperationError {
   if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "trial_held") {
     return typed;
   }
+  // Their own second order for something sold once per Person, started at the same moment
+  // (migration 0581, ADR 0512): told it is held, and no more than that.
+  if (
+    typed.code === "conflict" &&
+    (typed.details as { rule?: unknown })?.rule === "once_per_person"
+  ) {
+    return typed;
+  }
   // The same for a continuation offer's page (migration 0532, ADR 0491): the caller's own offer.
   const offerRule = (typed.details as { rule?: unknown })?.rule;
   if (typed.code === "conflict" && (offerRule === "offer_held" || offerRule === "offer_changed")) {
