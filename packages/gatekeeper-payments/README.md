@@ -77,7 +77,7 @@ keys are ignored. The comparison is constant time (`crypto.subtle.verify`).
 | Route | Header | Secret |
 | --- | --- | --- |
 | `/in/stripe` | `Stripe-Signature` | `STRIPE_WEBHOOK_SECRET` |
-| `/in/fake` | `X-Fake-Signature` | `FAKE_WEBHOOK_SECRET`, or `fake-payments-dev-secret` when empty |
+| `/in/fake` | `X-Fake-Signature` | the `FAKE_WEBHOOK_SECRET` secret, or `fake-payments-dev-secret` when unset (localhost only) |
 
 ### Stripe events
 
@@ -231,7 +231,8 @@ type and code, never its message.
 
 ## The fake provider
 
-On only when `PAYMENTS_FAKE_PROVIDER` is `"true"`. For development and tests.
+On only when `PAYMENTS_FAKE_PROVIDER` is `"true"`, and off localhost only with its own
+`FAKE_WEBHOOK_SECRET`. For development, tests and staging (an environment marked `live: false`).
 
 - `createCheckout` records a checkout in `FakePaymentsLedger` (ref `fcs_…`, expiring in 30
   minutes) and returns `url = {base}/fake/pay/<ref>`.
@@ -256,13 +257,13 @@ On only when `PAYMENTS_FAKE_PROVIDER` is `"true"`. For development and tests.
 | `BASE_URL` | The public base, e.g. `https://crm.example.com/gatekeeper/payments`. Builds the fake page URLs and the route prefix. Empty means `http://localhost:5173/gatekeeper/payments`. |
 | `STRIPE_API_BASE` | The Stripe API base. Empty means `https://api.stripe.com`. |
 | `STRIPE_ACCOUNT` | A Stripe connected account id, sent as `Stripe-Account`. Empty means the key's own account. |
-| `PAYMENTS_FAKE_PROVIDER` | `"true"` turns the fake provider on, but off localhost only when `FAKE_WEBHOOK_SECRET` is set (the default secret is public, ADR 0485). Default `"false"`. |
-| `FAKE_WEBHOOK_SECRET` | The fake provider's signing secret. Empty means `fake-payments-dev-secret`, accepted only when `BASE_URL` is `http://localhost` or `http://127.0.0.1` (the CRM's dev server and e2e). |
+| `PAYMENTS_FAKE_PROVIDER` | `"true"` turns the fake provider on, but off localhost only when the `FAKE_WEBHOOK_SECRET` secret is set (the default secret is public, ADR 0485). Default `"false"`. |
 
 | Secret (optional, `wrangler secret put`) | Meaning |
 | --- | --- |
 | `STRIPE_SECRET_KEY` | The Stripe secret (or restricted) key. Without it the Stripe account is refused. |
 | `STRIPE_WEBHOOK_SECRET` | The `whsec_…` secret of the Stripe webhook endpoint posting to `{base}/in/stripe`. Without it every Stripe delivery is `401`. |
+| `FAKE_WEBHOOK_SECRET` | The fake provider's signing secret. Not set by a person: the installer and `cos deploy` generate it, once, for a deployment that turns the fake on (only an environment marked `live: false` may), never print it and keep it on later deploys (issue #217). Unset means `fake-payments-dev-secret`, accepted only when `BASE_URL` is `http://localhost` or `http://127.0.0.1` (the CRM's dev server and e2e). |
 
 The secrets are declared for the release manifest in [`deploy-inputs.json`](deploy-inputs.json)
 and typed in [`src/env.d.ts`](src/env.d.ts). Bindings: `PAYMENTS_EVENTS` (`PaymentsEvents`),

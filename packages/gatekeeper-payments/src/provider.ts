@@ -156,8 +156,9 @@ export function unavailableReason(
     }
     return fakeSecretOrLocal(env)
       ? undefined
-      : "The fake payment provider needs its own signing secret here: set FAKE_WEBHOOK_SECRET on " +
-          "cos-gatekeeper-payments. Without one it runs only on localhost.";
+      : "The fake payment provider needs its own signing secret here: the FAKE_WEBHOOK_SECRET " +
+          "secret of cos-gatekeeper-payments, which cos deploy generates for an environment " +
+          "marked live: false. Without one it runs only on localhost.";
   }
   return stringVar(env.STRIPE_SECRET_KEY)
     ? undefined

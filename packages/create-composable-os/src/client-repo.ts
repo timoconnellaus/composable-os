@@ -1325,10 +1325,13 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   }
 
   // The gatekeepers' secrets: set by a person, never by product.ts. Which are missing, and how.
+  // A generated one (FAKE_WEBHOOK_SECRET, made by the deploy when it is needed) is not a person's.
   for (const worker of gatekeepers.workers) {
     const deployedAs = deployedWorker(worker.name);
     const set = await api.listSecrets(accountId, deployedAs);
-    const missing = (worker.secrets ?? []).filter((s) => !set.includes(s.name));
+    const missing = (worker.secrets ?? []).filter(
+      (s) => s.source !== "generated" && !set.includes(s.name),
+    );
     if (!missing.length) continue;
     io.out(`\n${deployedAs} has no ${missing.map((s) => s.name).join(", ")}. A person sets each:`);
     for (const secret of missing) {

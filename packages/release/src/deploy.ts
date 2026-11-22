@@ -389,6 +389,9 @@ export function workerBindings(
     return binding;
   });
   for (const [name, text] of Object.entries(overrides)) {
+    // A var an older release had that this one declares a secret (FAKE_WEBHOOK_SECRET, issue
+    // #217) is not uploaded as plain text: it would clash with the secret kept on the Worker.
+    if ((worker.secrets ?? []).some((s) => s.name === name)) continue;
     if (!bindings.some((b) => b.name === name)) bindings.push({ type: "plain_text", name, text });
   }
   if (worker.gatekeeperBindings) {

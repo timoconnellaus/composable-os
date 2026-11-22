@@ -200,6 +200,17 @@ test that fails without it.
   (the CRM's dev server and its e2e). A staging environment that tries checkout with the fake must
   set the secret (`docs/deploying.md`).
 
+## Amended (2026-11-22): the fake's secret is a generated secret (issue #217)
+`FAKE_WEBHOOK_SECRET` was a plain var of the gatekeeper, which no environment could set, so after
+the change above a client's staging could no longer try checkout with the fake. It is now a secret
+of the gatekeeper (release manifest source `generated`). The installer, and so `cos deploy`,
+generates one (32 random bytes, hex) for a gatekeeper whose vars turn the fake on and that has
+none stored or supplied with `--secret`; it is never printed and is written nowhere but the Worker,
+and later deploys keep it. Only an environment marked `live: false` may turn the fake on (ADR
+0452), so a live one never gets the secret. Local development and tests are unchanged: with no
+secret, the public default still works on localhost only. A plain var of that name in an older
+deployment state is dropped and never uploaded beside the secret.
+
 ## Consequences
 - The host never decides that money is owed or taken: it opens the provider's page, asks the
   provider to stop or keep going, and mirrors what the provider's verified reads say.

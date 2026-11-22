@@ -553,6 +553,42 @@ describe("gatekeeper settings per environment (ADR 0452)", () => {
     );
   });
 
+  it("gives staging's fake payment provider a generated signing secret once, never printed, and live none (issue #217)", async () => {
+    await publish("1.0.0", undefined, { clientGatekeepers: true });
+    const dir = await created();
+    setEnvironments(dir, settings);
+    const first = await cos("deploy", "--env", "staging", "--skip-build", "--no-typecheck");
+    expect(first.code, first.output).toBe(0);
+    const worker = "shop-staging-gatekeeper-payments";
+    const secret = secretOf(worker, "FAKE_WEBHOOK_SECRET") as string;
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.output).not.toContain(secret);
+    // Named as set, never asked of a person.
+    expect(first.output).toContain("FAKE_WEBHOOK_SECRET");
+    expect(first.output).not.toContain("wrangler secret put FAKE_WEBHOOK_SECRET");
+    // A secret is never also a plain var.
+    expect(world.cf.liveBinding(worker, "FAKE_WEBHOOK_SECRET")?.type).not.toBe("plain_text");
+
+    // A person's own secret and the other settings survive a redeploy, which keeps the secret.
+    world.cf.scripts.get(worker)?.secrets.set("STRIPE_SECRET_KEY", "sk_test_by_hand");
+    const again = await cos("deploy", "--env", "staging", "--skip-build", "--no-typecheck");
+    expect(again.code, again.output).toBe(0);
+    expect(secretOf(worker, "FAKE_WEBHOOK_SECRET")).toBe(secret);
+    expect(secretOf(worker, "STRIPE_SECRET_KEY")).toBe("sk_test_by_hand");
+    expect(again.output).not.toContain(secret);
+    expect(again.output).not.toMatch(/setting secrets on [^\n]*payments[^\n]*FAKE_WEBHOOK_SECRET/);
+    expect(world.cf.liveBinding(worker, "PAYMENTS_FAKE_PROVIDER")?.text).toBe("true");
+    expect(
+      world.cf.liveBinding("shop-staging-gatekeeper-email-send", "ALLOWED_SENDER_DOMAINS")?.text,
+    ).toBe("staging.shop.example");
+
+    // Live does not turn the fake on, so it gets no fake secret.
+    const live = await cos("deploy", "--env", "live", "--skip-build", "--no-typecheck");
+    expect(live.code, live.output).toBe(0);
+    expect(secretOf("shop-gatekeeper-payments", "FAKE_WEBHOOK_SECRET")).toBeUndefined();
+    expect(live.output).not.toContain(secret);
+  });
+
   it("refuses, before any call, a secret in product.ts, a setting the gatekeeper does not take, and the fake provider on live", async () => {
     await publish("1.0.0", undefined, { clientGatekeepers: true });
     const dir = await created();
@@ -569,6 +605,9 @@ describe("gatekeeper settings per environment (ADR 0452)", () => {
     expect(
       await attempt({ live: { gatekeepers: { payments: { STRIPE_SECRET_KEY: "x" } } } }),
     ).toContain("STRIPE_SECRET_KEY is a secret of payments: it never goes in product.ts");
+    expect(
+      await attempt({ live: { gatekeepers: { payments: { FAKE_WEBHOOK_SECRET: "x" } } } }),
+    ).toContain("FAKE_WEBHOOK_SECRET is a secret of payments: it never goes in product.ts");
     expect(await attempt({ live: { gatekeepers: { payments: { COLOUR: "red" } } } })).toContain(
       "payments takes no setting COLOUR. It takes: PAYMENTS_FAKE_PROVIDER, STRIPE_ACCOUNT",
     );
