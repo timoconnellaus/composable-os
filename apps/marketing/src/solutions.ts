@@ -123,8 +123,8 @@ export const SOLUTIONS: readonly Solution[] = [
       notYet: [
         {
           title: "Class bookings",
-          body: "Classes from a timetable, appointments, waitlists and late-cancel rules.",
-          status: "planned",
+          body: "Classes from a timetable, booked on your site and app. Waitlists that move people in on their own, late-cancel rules for each class type, parents booking for their children, and one-to-one sessions booked by staff.",
+          status: "design",
         },
         {
           title: "Memberships and passes",

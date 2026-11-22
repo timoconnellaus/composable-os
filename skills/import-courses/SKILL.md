@@ -1,6 +1,6 @@
 ---
 name: import-courses
-description: Move a studio's courses, bundles, videos and students' access and progress from a hosted course platform (LearnWorlds, Teachable, Thinkific, Kajabi) onto its Composable OS host with cos courses import - import the people first, convert the export to the courses folder (one JSON per course with each lesson's sourceId, videos by file or link, captions, access.csv, progress.csv), dry run, import as drafts, re-run until no course waits for Stream, then publish. Use when asked to migrate an online school, courses or course students onto the host.
+description: Move a studio's courses, bundles, videos and students' access and progress from a hosted course platform (Teachable, Thinkific, Kajabi and the like) onto its Composable OS host with cos courses import - import the people first, convert the export to the courses folder (one JSON per course with each lesson's sourceId, videos by file or link, captions, access.csv, progress.csv), dry run, import as drafts, re-run until no course waits for Stream, then publish. Use when asked to migrate an online school, courses or course students onto the host.
 ---
 
 # Import courses

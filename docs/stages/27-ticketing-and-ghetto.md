@@ -40,7 +40,7 @@ can turn on.
 
 - **Ghetto's site** is Astro on a Worker (`ghetto-website`) in the gym's Cloudflare account, with
   its own D1. Event pages are hand-written (`src/pages/events/index.astro`,
-  `phuket-2027.astro`). Bookings and checkout are Mindbody widgets (`src/config/booking.ts`).
+  `phuket-2027.astro`). Bookings and checkout are its current booking system's widgets (`src/config/booking.ts`).
 - **Ghetto's app** is Expo (`mobile/`), with a tab bar and native stack, calling
   `/api/app/<path>` on the site with a token in secure storage.
 - **Ghetto's accounts** are its own Better Auth users in its own database: clients and coaches.
@@ -158,7 +158,7 @@ Tools are operations named `x.ticketing.<tool>`.
 - Apple and Google wallet passes.
 - Moving Ghetto's site to TanStack Start, its blog (stage 28), or its programmes, workouts and chat
   onto the platform.
-- Class bookings and anything in Mindbody.
+- Class bookings and anything in its current booking system.
 - The TV app showing events.
 
 ## Acceptance criteria

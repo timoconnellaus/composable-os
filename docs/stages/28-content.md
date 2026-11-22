@@ -6,7 +6,7 @@ Read first: [`AGENTS.md`](../../AGENTS.md), [`docs/architecture.md`](../architec
 [0404](../adr/0404-behaviours-are-the-vocabulary.md), stages [22](22-customers-and-audiences.md),
 [23](23-http-surface-and-typed-client.md) and [25](25-states-orders-payments.md) (the `states`
 behaviour), ADRs 0017, 0023, 0024, `packages/sdk/src/field-types.ts`,
-`packages/core/src/fields/`; in `~/repos/ghetto`: `README.md` (EmDash), `src/pages/blog/`,
+`packages/core/src/fields/`; in `~/repos/ghetto`: `README.md` (its current CMS), `src/pages/blog/`,
 `src/staff/doc-list.ts`, `src/pages/staff/slides.astro`.
 
 Status: **spec agreed** (interview 2026-11-21). Builds on stages 22, 23 and 41: stage 41 brings
@@ -18,7 +18,7 @@ A product can hold content that staff write and the public reads: blog posts, ev
 announcements. Staff edit a draft without changing what is live, publish it or schedule it, and
 can go back to an earlier version. The web app and the phone app each show the same content with
 their own components, because it is stored as structured data and not as HTML. Claude can draft a
-post over MCP, and a person publishes it. Ghetto's blog moves off EmDash.
+post over MCP, and a person publishes it. Ghetto's blog moves off its current CMS.
 
 ## Decided at the interview (2026-11-21)
 
@@ -49,7 +49,7 @@ Decided by the coordinator, open to override:
   version a reader is served.
 - **R2** is bound and used for files such as synced email bodies. There is no media library.
 - **Nothing is public.** After stage 22 the `public` audience exists with no operation using it.
-- **Ghetto:** the blog is EmDash on Astro (`/blog`, `/blog/[slug]`). Staff documents, TV slides
+- **Ghetto:** the blog is its current CMS on Astro (`/blog`, `/blog/[slug]`). Staff documents, TV slides
   and programmes are each stored and edited their own way in Ghetto's repository.
 
 ## Scope
@@ -114,11 +114,11 @@ Decided by the coordinator, open to override:
 
 ### Ghetto
 - The Content pack is turned on in the `ghetto` product.
-- Existing posts are imported from EmDash by a script: bodies converted to the `richText` schema,
+- Existing posts are imported from its current CMS by a script: bodies converted to the `richText` schema,
   images copied into media, slugs and publish dates kept. Anything that does not convert is listed,
   not dropped.
 - `/blog` and `/blog/[slug]` are served from the host's content, with the same addresses, and
-  EmDash is removed from the site.
+  the current CMS is removed from the site.
 
 ## Out of scope
 - A page builder, layouts or navigation stored as content. Pages are code.
@@ -152,7 +152,7 @@ Decided by the coordinator, open to override:
 11. **Cache:** after a publish the next public read is the new version.
 12. **AI:** over MCP, an assistant drafts a post; publishing it is queued for a person under the
     default policy.
-13. **Ghetto:** every EmDash post is on the host with its slug and date; the blog's addresses
+13. **Ghetto:** every post from its current CMS is on the host with its slug and date; the blog's addresses
     answer as before; the import's list of anything not converted is empty or accepted.
 14. `pnpm lint typecheck test` and e2e (write, schedule, publish, read publicly) pass in CI. ADRs,
     `CONTEXT.md` (Publish, Version, Working copy, Media, Preview) and `docs/architecture.md` are

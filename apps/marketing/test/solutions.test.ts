@@ -56,7 +56,7 @@ describe("solutions", () => {
       [...(gyms?.pieces.built ?? []), ...(gyms?.pieces.notYet ?? [])].find(
         (piece) => piece.title === title,
       )?.status;
-    expect(status("Class bookings")).toBe("planned");
+    expect(status("Class bookings")).toBe("design");
     expect(status("Memberships and passes")).toBe("design");
     expect(status("Moving from your booking system")).toBe("planned");
     // Stage 32a: the subscription (step 3) and moving the current subscribers (step 4) are built.

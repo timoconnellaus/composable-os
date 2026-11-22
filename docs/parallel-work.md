@@ -43,7 +43,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | AF | 0520–0529 | 0480–0484 | AI publish requests, stage 28 criterion 12 (`feat/ai-publish-requests`): migration 0520, ADR 0480; ADRs 0441 and 0446 amended | in flight |
 | AG | 0530–0549 | 0485–0494 | Stage 32, Allowances, recurring billing and Memberships (32a the subscription, 32b allowances and the Memberships pack). Used: migrations 0530 to 0532, ADRs 0485 to 0492. 32b step 5, the `allowance` behaviour (`feat/stage-32b-allowance`): migration 0533, ADRs 0493 and 0494 | 32a built; 32b step 5 in flight |
 | AH | 0550–0559 | 0495–0499 | Stage 42, the courses import (`feat/courses-import`, build step 8: `cos courses import`, the shared import door, videos by upload or link with captions, enrolments and progress); ADR 0495; no migrations | in flight |
-| AI | 0560–0579 | 0500–0509 | Stage 31, Recurring schedules and Bookings (proposed in the spec, `docs/stage-31-bookings`; the build confirms it in its first commit) | specced (proposal) |
+| AI | 0560–0579 | 0500–0509 | Stage 31, Recurring schedules and Bookings (31a the timetable and class bookings, the family link; 31b appointments) | specced |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.

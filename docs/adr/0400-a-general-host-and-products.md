@@ -9,7 +9,7 @@ Everything CRM-specific above People, Organisations, Activities and Tasks is alr
 on the public contract (Deals, Leads, lifecycle).
 
 Companies want software that fits them: Ghetto Movement wants to sell event tickets, has a website,
-a staff app, a client app on phones and a TV app, and runs bookings and billing in Mindbody. Each of
+a staff app, a client app on phones and a TV app, and runs bookings and billing in an existing booking system. Each of
 those is the same shape as the CRM: records, rules, staff screens, AI access. What differs is the
 set of objects and rules, and the customer-facing screens.
 

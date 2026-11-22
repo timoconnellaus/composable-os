@@ -13,7 +13,18 @@ import { fileURLToPath } from "node:url";
 
 const PRODUCT = "a product's name comes from its definition (products/<id>/product.ts)";
 
-/** @type {{ name: string, pattern: RegExp, instead: string }[]} */
+/** This check and its tests: the only files that may name what the rules forbid everywhere. */
+const SELF = /^scripts\/check-stray-names(?:\.test)?\.mjs$/;
+
+/** What a rule about a client's supplier says to write instead. */
+const SUPPLIER =
+  "the repository does not name a client's suppliers (the owner's decision, 2026-11-22)";
+
+/**
+ * A rule with its own `allow` uses it in place of ALLOW: a client's suppliers are kept out of
+ * every file, old ADRs and specs included.
+ * @type {{ name: string, pattern: RegExp, instead: string, allow?: RegExp[] }[]}
+ */
 export const RULES = [
   {
     name: "the retired brand",
@@ -56,6 +67,24 @@ export const RULES = [
       /\bcrm_(?:people|organisations|affiliations|activities|activity_links|tasks|task_links|record_tags|users|stage_history|x_[a-z]|\*)/,
     instead: "the views are rec_<object> (packages/sdk/src/renamed.ts has the mapping)",
   },
+  {
+    name: "a client's booking system",
+    pattern: /mind\s?body/i,
+    instead: `${SUPPLIER}: say "its current booking system"`,
+    allow: [SELF],
+  },
+  {
+    name: "a client's course platform",
+    pattern: /learn\s?worlds/i,
+    instead: `${SUPPLIER}: say "the hosted course platform"`,
+    allow: [SELF],
+  },
+  {
+    name: "a client's website CMS",
+    pattern: /\bEmDash\b/,
+    instead: `${SUPPLIER}: say "its current CMS"`,
+    allow: [SELF],
+  },
 ];
 
 /**
@@ -77,7 +106,7 @@ export const ALLOW = [
   // Output of eval runs made before the rename.
   /^evals\/[a-z-]+\/reports\//,
   // This check and its tests.
-  /^scripts\/check-stray-names(?:\.test)?\.mjs$/,
+  SELF,
 ];
 
 /** Never read: a product's own definition and apps, and files that are not ours to rename. */
@@ -93,9 +122,10 @@ const BINARY =
 export function checkStrayNames(files, rules = RULES, allow = ALLOW) {
   const problems = [];
   for (const [path, text] of files) {
-    if (SKIP.some((re) => re.test(path)) || allow.some((re) => re.test(path))) continue;
+    if (SKIP.some((re) => re.test(path))) continue;
     const lines = text.split("\n");
     for (const rule of rules) {
+      if ((rule.allow ?? allow).some((re) => re.test(path))) continue;
       const pattern = new RegExp(rule.pattern.source, rule.pattern.flags.replace("g", ""));
       lines.forEach((line, index) => {
         const match = pattern.exec(line);
