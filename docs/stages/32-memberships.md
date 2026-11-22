@@ -15,7 +15,7 @@ stage 32" section); `packages/core/src/orders/`, `packages/core/src/capacity/`,
 Status: **32a built** (steps 1 to 4; never run on real Stripe: the test-mode runbook waits for
 the owner); **32a spec agreed** (interview 2026-11-22: questions 1 to 7, each with its recommended
 answer); **32b agreed** (questions 8 to 16 answered the same day; built beside
-stage 31: steps 5 and 6 built). The decisions already made at stage
+stage 31: steps 5 to 7 built; step 8 to come). The decisions already made at stage
 42's interview are listed below and are not asked again. Where this spec guesses, it says
 **(guess)**.
 
@@ -793,6 +793,45 @@ Where the build read the spec one way, or decided what it left open:
   staff holdings block); `cos memberships import` and the subscription import (step 8); continuation
   offers on membership plans (32a's work for courses; a membership plan's offers need its blocks);
   a guardian's read (stage 31's family link).
+
+## Built: 32b the rest of step 6, and step 7 (2026-11-22)
+ADRs [0530](../adr/0530-plan-changes-upgrade-now-downgrade-next-period.md) (plan changes),
+[0531](../adr/0531-staff-pause-a-membership-for-a-set-time.md) (staff pauses) and
+[0532](../adr/0532-the-memberships-dashboard-and-staff-side.md) (the dashboard, views, the staff
+side, hooks and blocks), migration 0630 (`core_subscription_change`, and `rec_subscription` showing
+the change). Block AM. Where the build read the spec one way, or decided what it left open:
+
+- **Plan changes (decision 12).** `subscription.change { id, planId }` (staff; a customer their own,
+  a reviewed opening to `customer`; a person only). Dearer is an upgrade: the provider charges the
+  rest of the period at once, prorated, as a pending update, so it applies only once paid. The same
+  or cheaper is a downgrade: nothing refunded, the new price from the next invoice
+  (`proration_behavior=none`, not a subscription schedule as the spec guessed: a schedule would
+  block pauses and need releasing), and the member keeps the plan paid for until the next period's
+  verified read. The membership's terms follow the plan when it takes effect. Only an active
+  subscription not set to end, one change at a time; an upgrade never paid lapses after a day.
+- **Pauses (decision 10).** `subscription.pause { id, from?, until }` and `.unpause` (staff only,
+  `subscriptions:manage`, a person only), on a plan that declares `sellable.recurring.pause` with
+  its shortest and longest pause (Memberships: `pauseMinDays`, `pauseMaxDays`; empty: 1 day and a
+  year). The provider's own pause through a pause schedule, so the provider resumes it on its date
+  (the spec's "pause schedules, not read" were read). The membership is paused from the provider's
+  read and spends nothing; on resuming the provider charges a new period less the unused time of the
+  one paused in, an order not flagged. No minimum term (decision 11): nothing was added for one.
+- **Calls after the commit.** The change's row is written in the operation's batch and the
+  gatekeeper asked after it commits, so two asked at once ask once and a dry run asks nothing; the
+  gatekeeper's new actions are never auto-approvable (an agent's session waits for a person).
+- **The dashboard** reads memberships now (active, on trial, paused, failing), trials ended and
+  paid, revenue net of tax by month, cancellations by month and the provider's reason, classes
+  taken by week, checked against a hand-worked fixture through the fake provider.
+- **Views**: "Paused" and "Passes expiring this week" are added. "Trials ending this week" stays
+  the admin's Subscriptions → Trials tab (a trial's end is the subscription's).
+- **Blocks**: the member's block changes plan (web); the staff holdings block pauses and ends a
+  pause; the native block shows a change or a pause in words and calls nothing new.
+- **Not built here:** a list of each use on the Person page (uses are counted on the holdings and
+  the dashboard; a record tab needs an object); the Courses dashboard's subscription numbers;
+  undoing a downgrade that waits; members asking for a pause themselves (decision 10 chose staff);
+  `cos memberships import` and the subscription import (step 8). Real Stripe has never been run:
+  every behaviour above rests on the fake provider and on Stripe's documentation, and the checks
+  for Stripe's test mode are part 8 of [the runbook](../subscriptions-stripe-runbook.md).
 
 ## Questions for the interview
 Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:

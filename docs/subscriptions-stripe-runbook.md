@@ -183,6 +183,38 @@ The run that the course subscribers' move depends on. Use your second address.
 8. Withdraw: import a fifth person, then Continuation offers → Withdraw, with a reason. Sign in as
    them. **Check 29:** no offer is shown.
 
+## 8. Plan changes and pauses (stage 32b, ADRs 0530 and 0531)
+Use a membership plan of 30.00 and two more (70.00, 15.00), with `pauseMinDays` 7 and
+`pauseMaxDays` 60 on the first, and a member subscribed to it with a test card.
+1. **Upgrade.** As the member, Change plan to the 70.00 plan. **Check 30:** Stripe accepts a new
+   Price on the item's product, then `items[0][price]` with `proration_behavior=always_invoice`
+   and `payment_behavior=pending_if_incomplete` on the flexible subscription; an invoice for the
+   rest of the period is paid at once; the subscription's read shows 70.00; the membership shows
+   the new plan; the order for the proration is not flagged. Record the invoice's
+   `billing_reason` (the host does not rely on it).
+2. **Declined upgrade.** With a test card that attaches and then declines charges (Stripe's
+   testing page lists one), ask an upgrade. **Check 31:** the subscription keeps 30.00 and a `pending_update`; staff are told the
+   upgrade's charge failed; after 23 hours the pending update is gone, and the host shows the
+   change lapsed after a day.
+3. **Downgrade.** Change to the 15.00 plan. **Check 32:** `items[0][price_data][product]` with
+   `proration_behavior=none` is accepted; nothing is invoiced; the read shows 15.00 at once; the
+   membership keeps its plan until the next period (advance a test clock), then shows the new one,
+   and the renewal is 15.00.
+4. **Pause now.** Staff pause the first member for 14 days. **Check 33:** Stripe accepts a schedule
+   made `from_subscription` alone, then `pause_schedules[0]` with `pause_at` now and `resume_at` a
+   timestamp; the subscription is `paused`; `customer.subscription.paused` arrives; the membership
+   is paused and a booking is refused.
+5. **Resume on its date.** Advance the test clock past the end. **Check 34:** the provider resumes
+   it on its own and charges the new period less the unused part of the one paused in; whether the
+   schedule is still attached afterwards (if it is, record it: a later plan change would be
+   refused until it is released).
+6. **Pause later, then withdraw; end a pause early.** **Check 35:** a `pause_at` timestamp is
+   accepted and nothing changes until then; releasing the schedule withdraws it; on a paused one,
+   releasing the schedule then `POST /v1/subscriptions/:id/resume` with
+   `billing_cycle_anchor[type]=now` and `payment_behavior=resume_on_payment_success` resumes it.
+7. **Nobody pauses collection.** **Check 36:** the dashboard's "pause payment collection" is not
+   used: it keeps a subscription active, and the host keeps giving access.
+
 ## Afterwards
 Cancel the test subscriptions, delete the test clock if you made one, set customer sign-up back to
 what it was, and record the date, who ran it and every check's result in this file's status line.

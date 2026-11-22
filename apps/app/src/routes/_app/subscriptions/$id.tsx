@@ -3,6 +3,9 @@
 // cancel it at its period's end or now, with a reason, or keep it going; each asks the payment
 // provider, and the state changes only once the provider confirms (the host refuses the rest).
 // A period's refund is the order's own (order.refund, through approval).
+// Stage 32b (ADRs 0530, 0531): staff move it to another plan (an upgrade now, prorated; a downgrade
+// from the next period: the host decides which), pause it for a set time within the plan's
+// bounds, or end a pause; each asks the provider, and shows once the provider confirms.
 import type { CoreOutput } from "@composable-os/core";
 import { Button } from "@composable-os/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@composable-os/ui/components/card";
@@ -108,6 +111,7 @@ function SubscriptionPage() {
                   {`${formatDateTime(s.endedAt)}${s.endReason ? ` (${s.endReason})` : ""}`}
                 </Detail>
               )}
+              {s.change && <Detail label="Change">{changeText(s)}</Detail>}
               <Detail label="Started">{formatDateTime(s.createdAt)}</Detail>
             </dl>
           </CardContent>
@@ -116,6 +120,21 @@ function SubscriptionPage() {
       </div>
     </PageLayout>
   );
+}
+
+/** The plan change or pause the host shows on the subscription, in words. */
+function changeText(s: SubscriptionData): string {
+  const c = s.change;
+  if (!c) return "";
+  if (c.kind === "pause") {
+    return c.state === "applied"
+      ? `Paused until ${formatDateTime(c.pauseUntil)}`
+      : `Pause asked: from ${c.pauseFrom ? formatDateTime(c.pauseFrom) : "now"} until ${formatDateTime(c.pauseUntil)}`;
+  }
+  const to = `${c.toPlanTitle} (${formatMoney(c.toAmount ?? 0, s.currency)})`;
+  if (c.state === "lapsed") return `The upgrade to ${to} was never paid, so it did not happen`;
+  if (c.kind === "upgrade") return `Upgrading to ${to}, once its prorated charge is paid`;
+  return `Changes to ${to} on ${formatDateTime(c.effectiveAt)}`;
 }
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
@@ -196,13 +215,28 @@ function PeriodOrders({ subscriptionId }: { subscriptionId: string }) {
 }
 
 type Asking = "period_end" | "now" | null;
+type Changing = "plan" | "pause" | null;
 
 function SubscriptionActions({ subscription: s }: { subscription: SubscriptionData }) {
   const cancel = useOpMutation("subscription.cancel");
   const resume = useOpMutation("subscription.resume");
+  const unpause = useOpMutation("subscription.unpause");
   const [asking, setAsking] = useState<Asking>(null);
+  const [changing, setChanging] = useState<Changing>(null);
   const [error, setError] = useState<string | null>(null);
   const ending = s.cancelAtPeriodEnd || s.cancelAt !== null;
+  const open = s.change && (s.change.state === "requested" || s.change.state === "waiting");
+  const pausing = s.state === "paused" || s.change?.kind === "pause";
+
+  async function onUnpause() {
+    setError(null);
+    try {
+      await unpause.mutateAsync({ id: s.id, reason: "Ended early by staff" });
+      toast.success("Asked the payment provider to end the pause");
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
 
   async function onResume() {
     setError(null);
@@ -227,11 +261,37 @@ function SubscriptionActions({ subscription: s }: { subscription: SubscriptionDa
           Keep it going
         </Button>
       )}
+      {s.state === "active" && !ending && !open && (
+        <>
+          <Button size="sm" variant="outline" onClick={() => setChanging("plan")}>
+            Change plan
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setChanging("pause")}>
+            Pause
+          </Button>
+        </>
+      )}
+      {pausing && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void onUnpause()}
+          disabled={unpause.isPending}
+        >
+          {s.state === "paused" ? "End the pause now" : "Withdraw the pause"}
+        </Button>
+      )}
       {RUNNING.has(s.state) && !ending && (
         <Button size="sm" variant="outline" onClick={() => setAsking("period_end")}>
           Cancel at period end
         </Button>
       )}
+      <ChangePlanDialog
+        subscription={s}
+        open={changing === "plan"}
+        onDone={() => setChanging(null)}
+      />
+      <PauseDialog subscription={s} open={changing === "pause"} onDone={() => setChanging(null)} />
       <Button size="sm" variant="outline" onClick={() => setAsking("now")}>
         End now
       </Button>
@@ -312,6 +372,193 @@ function CancelDialog({
             </Button>
             <Button type="submit" disabled={pending || !reason.trim()}>
               {when === "now" ? "End now" : "Cancel at period end"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ChangePlanDialog({
+  subscription: s,
+  open,
+  onDone,
+}: {
+  subscription: SubscriptionData;
+  open: boolean;
+  onDone: () => void;
+}) {
+  const plans = useOp(
+    "record.list",
+    { object: s.planObject, limit: 100 },
+    { enabled: open, staleTime: 30_000 },
+  );
+  const change = useOpMutation("subscription.change");
+  const [planId, setPlanId] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    try {
+      const asked = await change.mutateAsync({ id: s.id, planId, reason: reason.trim() });
+      toast.success(
+        asked.kind === "upgrade"
+          ? "Asked the payment provider: it charges the rest of the period now"
+          : `It changes when this period ends, on ${formatDate(asked.effectiveAt)}`,
+      );
+      setPlanId("");
+      setReason("");
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  const options = (plans.data?.items ?? []).filter((p) => p.id !== s.planId);
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onDone()}>
+      <DialogContent>
+        <form onSubmit={(e) => void onSubmit(e)} className="grid gap-4">
+          <DialogHeader>
+            <DialogTitle>Change plan?</DialogTitle>
+            <DialogDescription>
+              A dearer plan starts now: the payment provider charges the rest of this period at
+              once, and the new plan applies only once that is paid. A cheaper one starts when this
+              period ends, with nothing refunded.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="subscription-change-plan">New plan</Label>
+            <select
+              id="subscription-change-plan"
+              className="rounded-md border bg-background px-2 py-1.5 text-sm"
+              value={planId}
+              onChange={(e) => setPlanId(e.target.value)}
+              required
+            >
+              <option value="">Choose a plan</option>
+              {options.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title ?? p.id}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="subscription-change-reason">Reason</Label>
+            <Input
+              id="subscription-change-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              required
+              maxLength={500}
+            />
+          </div>
+          {error && (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onDone}>
+              Keep this plan
+            </Button>
+            <Button type="submit" disabled={change.isPending || !planId || !reason.trim()}>
+              Change plan
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PauseDialog({
+  subscription: s,
+  open,
+  onDone,
+}: {
+  subscription: SubscriptionData;
+  open: boolean;
+  onDone: () => void;
+}) {
+  const pause = useOpMutation("subscription.pause");
+  const [from, setFrom] = useState("");
+  const [until, setUntil] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    try {
+      await pause.mutateAsync({
+        id: s.id,
+        ...(from ? { from: new Date(`${from}T00:00:00`).toISOString() } : {}),
+        until: new Date(`${until}T00:00:00`).toISOString(),
+        reason: reason.trim(),
+      });
+      toast.success("Asked the payment provider to pause it");
+      setFrom("");
+      setUntil("");
+      setReason("");
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onDone()}>
+      <DialogContent>
+        <form onSubmit={(e) => void onSubmit(e)} className="grid gap-4">
+          <DialogHeader>
+            <DialogTitle>Pause this subscription?</DialogTitle>
+            <DialogDescription>
+              Nothing is charged and what it gives stops while it is paused. On the end date the
+              payment provider resumes it and charges a new period, less the unused part of this
+              one. The plan sets the shortest and longest pause.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="subscription-pause-from">From (empty: now)</Label>
+            <Input
+              id="subscription-pause-from"
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="subscription-pause-until">Until</Label>
+            <Input
+              id="subscription-pause-until"
+              type="date"
+              value={until}
+              onChange={(e) => setUntil(e.target.value)}
+              required
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="subscription-pause-reason">Reason</Label>
+            <Input
+              id="subscription-pause-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              required
+              maxLength={500}
+            />
+          </div>
+          {error && (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onDone}>
+              Keep it running
+            </Button>
+            <Button type="submit" disabled={pause.isPending || !until || !reason.trim()}>
+              Pause
             </Button>
           </DialogFooter>
         </form>

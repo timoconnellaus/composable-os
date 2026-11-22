@@ -147,7 +147,7 @@ async function subscription(id: string) {
     .first<Record<string, unknown>>();
 }
 
-async function membershipOf(subscriptionId: string) {
+async function membershipOf(subscriptionId: string): Promise<Record<string, unknown> | null> {
   const row = await env.DB.prepare(
     "SELECT record_id FROM core_subscription_grant WHERE subscription_id = ?",
   )
