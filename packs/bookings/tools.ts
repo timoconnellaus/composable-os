@@ -1,4 +1,4 @@
-// The Bookings tools (stage 31a steps 3 to 5 and 7). They become operations x.bookings.<tool>, run in the
+// The Bookings tools (stage 31a steps 3 to 7). They become operations x.bookings.<tool>, run in the
 // sandbox, and reach the host only through ctx.ops. None of them holds a rule: when booking opens
 // and closes, whether a cancel is late, which class types only staff book, the places left, one
 // booking per person per class and the use a booking spends are all the host's (index.ts). A tool
@@ -192,6 +192,11 @@ function refusalOf(
     ...times,
   });
   if (error.code === "not_found") {
+    // A Person they may not book for (not a child linked to them, or a link that has ended) is
+    // answered as one that does not exist (ADR 0540).
+    if ((details as { object?: unknown }).object === "person") {
+      return out("not_found", "You cannot book for that person.");
+    }
     return out("not_found", what === "book" ? "That class cannot be booked." : "No such booking.");
   }
   if (rule === "state_window_not_open") {
@@ -331,6 +336,46 @@ export const classGet = defineTool({
 
 // --- Booking and cancelling (a signed-in member) ----------------------------------------------------
 
+interface FamilyShape {
+  self: { personId: string; name: string };
+  dependants: { personId: string; name: string }[];
+}
+
+/** The member and the children staff linked to them, as the host says (ADR 0540). */
+const familyOf = (ctx: Ctx) => ctx.ops.call<FamilyShape>("me.family", {});
+
+const forPerson = z
+  .string()
+  .min(1)
+  .max(64)
+  .optional()
+  .describe(
+    "A child of theirs to book for instead (a dependant the gym linked to them; see family). " +
+      "The child's own membership or pass pays, never the parent's.",
+  );
+
+export const family = defineTool({
+  description:
+    "Who the signed-in member may book for: themselves, and the children (dependants) the gym " +
+    "has linked to them, each with their name and id. Pass a child's id as book's forPersonId " +
+    "and mine's personId. Only the gym's staff link a parent to a child. Read-only.",
+  input: z.object({}),
+  output: z.object({
+    people: z.array(z.object({ personId: z.string(), name: z.string(), self: z.boolean() })),
+  }),
+  risk: "read",
+  audiences: ["customer"],
+  async handler(_input, ctx) {
+    const found = await familyOf(ctx);
+    return {
+      people: [
+        { ...found.self, self: true },
+        ...found.dependants.map((d) => ({ ...d, self: false })),
+      ],
+    };
+  },
+});
+
 const booked = z.object({
   result: z.literal("booked"),
   bookingId: z.string(),
@@ -372,7 +417,10 @@ async function bookOrWait(
   operation: "my.create" | "record.create",
   values: Record<string, unknown>,
   wait: boolean,
+  forPersonId?: string,
 ): Promise<{ made: RecordShape; waiting: boolean }> {
+  // For a member's dependant (ADR 0540): the host checks the link in the write.
+  const whose = operation === "my.create" && forPersonId ? { forPersonId } : {};
   const ruleOf = (error: unknown) =>
     error instanceof OpsCallError
       ? ((error.details ?? {}) as Record<string, unknown>)
@@ -380,7 +428,11 @@ async function bookOrWait(
   for (let attempt = 0; ; attempt++) {
     let refusal: unknown;
     try {
-      const made = await ctx.ops.call<RecordShape>(operation, { object: BOOKING, values });
+      const made = await ctx.ops.call<RecordShape>(operation, {
+        object: BOOKING,
+        values,
+        ...whose,
+      });
       return { made, waiting: false };
     } catch (error) {
       const rule = ruleOf(error).rule;
@@ -391,6 +443,7 @@ async function bookOrWait(
       const made = await ctx.ops.call<RecordShape>(operation, {
         object: BOOKING,
         values: { ...values, state: "waiting" },
+        ...whose,
       });
       return { made, waiting: true };
     } catch (error) {
@@ -416,6 +469,7 @@ async function bookOrWait(
 async function takeFreePlace(
   ctx: Ctx,
   classId: string,
+  personId: string,
 ): Promise<
   | { result: "booked"; bookingId: string; classId: string; holderId: string | null }
   | z.infer<typeof waiting>
@@ -426,6 +480,7 @@ async function takeFreePlace(
     filter: {
       and: [
         { field: "class", op: "eq", value: classId },
+        { field: "person", op: "eq", value: personId },
         { field: "state", op: "eq", value: "waiting" },
       ],
     },
@@ -476,9 +531,12 @@ export const book = defineTool({
     "the queue), else says where they stand. Answers " +
     "booked, waiting (with their position), or refused with the reason the host gave: booking " +
     "not open yet (with when it opens), closed, booked by the gym only, nothing to pay with, " +
-    "already booked or waiting, full, or too close to the start to wait.",
+    "already booked or waiting, full, or too close to the start to wait. A parent books a " +
+    "child the gym linked to them with forPersonId (see family): the same rules, and the " +
+    "child's own membership or pass pays.",
   input: z.object({
     classId: z.string().min(1).max(64),
+    forPersonId: forPerson,
     holderId: z
       .string()
       .min(1)
@@ -506,6 +564,7 @@ export const book = defineTool({
           ...(input.holderId ? { holder: input.holderId } : {}),
         },
         input.waitlist,
+        input.forPersonId,
       );
       if (queued) {
         const at = await positionOf(ctx, made.id);
@@ -530,7 +589,8 @@ export const book = defineTool({
       if (unique) {
         // Already waiting on it: take a free place if there is one (finding 5, ADR 0520).
         try {
-          const taken = await takeFreePlace(ctx, input.classId);
+          const whose = input.forPersonId ?? (await familyOf(ctx)).self.personId;
+          const taken = await takeFreePlace(ctx, input.classId, whose);
           if (taken) return taken;
         } catch (inner) {
           return refusalOf(inner, "book");
@@ -656,8 +716,16 @@ export const mine = defineTool({
     "The signed-in member's own bookings, soonest class first: each with its state (booked, " +
     "waiting, cancelled, cancelled late…), for one waiting its place on the waitlist, the " +
     "membership or pass it spent from, and its class (name, start and end in its own time " +
-    "zone, coach, room, whether it still runs). Only their own bookings exist here. Read-only.",
+    "zone, coach, room, whether it still runs). With personId, a child's the gym linked to " +
+    "them instead (see family). Only their own and their children's bookings exist here. " +
+    "Read-only.",
   input: z.object({
+    personId: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe("A child of theirs (see family); left out, their own"),
     state: z.enum(["booked", "waiting", "cancelled", "late_cancelled", "left"]).optional(),
     upcoming: z.boolean().default(true).describe("Only classes that have not started"),
     limit: z.number().int().min(1).max(100).default(50),
@@ -666,6 +734,7 @@ export const mine = defineTool({
     bookings: z.array(
       z.object({
         id: z.string(),
+        personId: z.string().nullable().describe("Whose booking it is: theirs, or their child's"),
         state: z.string().nullable(),
         position: z
           .number()
@@ -686,10 +755,17 @@ export const mine = defineTool({
   risk: "read",
   audiences: ["customer"],
   async handler(input, ctx) {
-    // The seam gives a member their own bookings only; no filter here decides whose they are.
+    // The seam gives a member their own bookings and their children's only; the filter picks
+    // whose of those (a Person they may not read gives nothing, as one that does not exist).
+    const whose = input.personId ?? (await familyOf(ctx)).self.personId;
     const page = await ctx.ops.call<ListShape>("my.list", {
       object: BOOKING,
-      ...(input.state ? { filter: { field: "state", op: "eq", value: input.state } } : {}),
+      filter: {
+        and: [
+          { field: "person", op: "eq", value: whose },
+          ...(input.state ? [{ field: "state", op: "eq", value: input.state }] : []),
+        ],
+      },
       limit: input.limit,
     });
     // Their bookings' classes, whatever the class's state (customerVia), and only those.
@@ -726,6 +802,7 @@ export const mine = defineTool({
         const roomId = text(klass.room);
         return {
           id: booking.id,
+          personId: text(booking.values.person),
           state: text(booking.values.state),
           position: positions.get(booking.id) ?? null,
           holderId: text(booking.values.holder),

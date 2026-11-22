@@ -72,6 +72,8 @@ describe("default closed (criterion 1)", () => {
       "content.list",
       "content.preview",
       "me.deleteAccount",
+      // Stage 31a step 6 (ADR 0540): their own family, the children staff linked to them.
+      "me.family",
       "me.get",
       "me.sessions.list",
       "me.sessions.revoke",

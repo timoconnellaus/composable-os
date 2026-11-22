@@ -94,3 +94,10 @@ Changed from the decision above:
 ## Note, 2026-11-23 (ADR 0458)
 The sign-up setting gains a third value, `buyers`: an invited address, one with an account, or the
 buyer's address of an order a verified payment was applied to. `invite_only` stays the default.
+
+## Note, 2026-11-23 (ADR 0540)
+"A customer acting for someone else", left for later above, is built for one case: a guardian
+(a parent) staff linked to a dependant (a child) reads, and where an object says so writes, the
+dependant's records ([ADR 0540](0540-the-family-link.md)). The link is a core record made only by a
+person on the staff with `people:link`; the seam alone decides what it gives, per object that opts
+in (`customer.guardians`), and nothing else a customer reads or writes changed.

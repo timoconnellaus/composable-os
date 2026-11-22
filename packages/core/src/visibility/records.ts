@@ -14,6 +14,7 @@ import { loadOrderCurrency } from "../orders/settings.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { holdsAccess } from "./access.ts";
 import { type CapacityView, readCapacity } from "./capacity.ts";
+import { type Family, familyOf } from "./guardians.ts";
 import {
   type AnyRow,
   previewSource,
@@ -199,8 +200,15 @@ export interface RecordAccess {
   count(object: string, filter?: Filter): Promise<{ count: number; capped: boolean }>;
   /** A record's places: the real numbers for staff, what the object's `show` allows otherwise. */
   capacity(object: string, id: string): Promise<CapacityView>;
-  /** Creates a record that belongs to the caller. Customers only. */
-  create(object: string, values: Record<string, unknown>): Promise<{ id: string }>;
+  /**
+   * Creates a record that belongs to the caller, or to a live dependant of theirs named by
+   * `forPersonId` where the object lets guardians write (ADR 0540). Customers only.
+   */
+  create(
+    object: string,
+    values: Record<string, unknown>,
+    options?: { forPersonId?: string | undefined },
+  ): Promise<{ id: string }>;
   /** Changes one of the caller's own records. Customers only. */
   update(
     object: string,
@@ -209,6 +217,11 @@ export interface RecordAccess {
     /** Move only from this state, as `record.update`'s `from` (ADR 0437). */
     options?: { from?: string | undefined },
   ): Promise<void>;
+  /**
+   * The caller's family (ADR 0540): the dependants they act for and the guardians who act for
+   * them, by name. Empty for anyone but a customer.
+   */
+  family(): Promise<Family>;
 }
 
 /** `ctx.records` over `reader`, with the given writes (none: reads only). */
@@ -230,5 +243,6 @@ export function recordAccess(
     capacity: (object, id) => readCapacity(reader, object, id),
     create: writes?.create ?? none,
     update: writes?.update ?? none,
+    family: () => familyOf(reader),
   };
 }

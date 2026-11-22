@@ -10,6 +10,7 @@
 import type { AuditChangeAction, CrmDb, ReviewSource } from "@composable-os/db";
 import { checkGrant } from "@composable-os/sdk";
 import { type Compilable, type CompiledQuery, sql } from "kysely";
+import { ADJUDICATOR_PRINCIPAL } from "./adjudicator/review.ts";
 import type { AiAdmin } from "./ai/admin.ts";
 import type { AiEnv } from "./ai/client.ts";
 import { embeddingQueueStatement, SELF_ENQUEUEING } from "./ai/embedding.ts";
@@ -748,6 +749,18 @@ async function invokeOnce<O extends AnyOperation>(
       ALWAYS_REVIEWED_PUBLISHERS.includes(ctx.actor) &&
       (await touchesPersonApproves(ctx.db.query, op.name, input)));
   if (forced && decision === "auto" && !ctx.approval) decision = "review";
+  // Applied by the adjudicator, asked again: what a person approves may have joined the action
+  // since it was queued (a family link on a merge, ADR 0540). Then it is a person's to apply.
+  if (
+    ctx.approval?.approvedBy === ADJUDICATOR_PRINCIPAL &&
+    ALWAYS_REVIEWED_PUBLISHERS.includes(ctx.actor) &&
+    (await touchesPersonApproves(ctx.db.query, op.name, input))
+  ) {
+    throw new ConflictError(
+      "This now changes something only a person approves, so it waits for a person.",
+      { rule: "person_approves" },
+    );
+  }
   // What routed it to review (ADR 0204): the adjudicator never approves floor or forced reviews.
   let reviewSource: ReviewSource = forced
     ? "always"
@@ -1840,6 +1853,9 @@ function outsideError(error: unknown): OperationError {
   if (typed.code === "conflict" && (offerRule === "offer_held" || offerRule === "offer_changed")) {
     return typed;
   }
+  // A guardian's write whose link ended before it committed (migration 0650's guard, ADR 0540):
+  // the Person is not there for them, as the seam would have said a moment later.
+  if (typed.code === "not_found") return typed;
   console.error("outside call failed", errorForLog(error));
   if (typed.code === "conflict")
     return new ConflictError("A record with that value already exists");
@@ -2038,7 +2054,7 @@ async function invokeOutside<O extends AnyOperation>(
     },
   };
   const records = recordAccess(reader, {
-    create: (object, values) => createVisible(seam, object, values),
+    create: (object, values, options) => createVisible(seam, object, values, options),
     update: (object, id, values, options) => updateVisible(seam, object, id, values, options),
   });
   // The caller's own account's sign-in address: read for the verified principal, never for an
@@ -2136,7 +2152,9 @@ async function invokeOutside<O extends AnyOperation>(
       throw new OperationError("internal", `${op.name} is a read but queued writes`);
     }
     // The seam has the last word on every record the call would change.
-    await assertVisibleWrites(reader, changes, checkedBySeam, madeByHost);
+    await assertVisibleWrites(reader, changes, checkedBySeam, madeByHost, (statement) => {
+      writes.push(statement);
+    });
   } catch (error) {
     return fail(error);
   }

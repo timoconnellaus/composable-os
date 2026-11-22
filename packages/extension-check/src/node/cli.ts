@@ -96,7 +96,12 @@ interface OpensOutside {
   objects: Record<
     string,
     {
-      customer?: { field: string; read: string[]; write: string[] };
+      customer?: {
+        field: string;
+        read: string[];
+        write: string[];
+        guardians?: { write?: boolean; madeBy?: string };
+      };
       public?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       signedIn?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       customerVia?: { from: string; field: string; read: string[] };
@@ -159,8 +164,13 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
     }
     const c = object.customer;
     if (!c) continue;
+    // The family link (ADR 0540): a linked guardian too, reading (and maybe writing) the same.
+    const g = c.guardians;
+    const whose = g
+      ? `is them or a child linked to them (${g.write ? "read and write" : "read only"})`
+      : "is them";
     lines.push(
-      `  customers see ${manifest.id}.${name} where ${c.field} is them: ` +
+      `  customers see ${manifest.id}.${name} where ${c.field} ${whose}: ` +
         `read ${c.read.join(", ") || "nothing"}; write ${c.write.join(", ") || "nothing"}`,
     );
   }

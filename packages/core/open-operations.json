@@ -50,6 +50,11 @@
       "hostInternal": true
     },
     {
+      "name": "me.family",
+      "audiences": ["customer"],
+      "risk": "read"
+    },
+    {
       "name": "me.get",
       "audiences": ["customer"],
       "risk": "read"
@@ -226,6 +231,12 @@
     {
       "name": "x.bookings.classGet",
       "audiences": ["customer", "public"],
+      "risk": "read",
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.family",
+      "audiences": ["customer"],
       "risk": "read",
       "pack": "bookings"
     },

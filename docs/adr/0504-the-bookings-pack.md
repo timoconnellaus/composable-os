@@ -167,3 +167,11 @@ promotion if they still cannot pay); `leaveWaitlist` is a new customer tool; `mi
 ## Note (2026-11-23, stage 31a step 7)
 Attendance, the coach role, moving people and cancelling a class:
 [ADR 0553](0553-attendance-the-coach-role-moves-and-cancelling-a-class.md).
+
+## Note (2026-11-23, stage 31a step 6)
+The booking opens to guardians ([ADR 0540](0540-the-family-link.md)): `customer.guardians:
+{ write: true, madeBy: "madeBy" }`, and `person` joins `customer.read`. `book` takes `forPersonId`
+(a child linked to the member), `mine` a `personId` (their own by default), and `family` (new, a
+customer read over `me.family`) lists who they may book for; `permissions.operations` lists
+`me.family`. A child's booking spends the child's holder only. The web and native timetables show
+a "Booking for" choice when the member has a child linked.

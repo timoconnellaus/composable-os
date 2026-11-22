@@ -800,6 +800,92 @@ describe("moving people (criterion 11)", () => {
     expect(await counter(elsewhere)).toMatchObject({ taken: 0 });
   });
 
+  it("with the family link: a moved child's booking stays the child's, made by the parent; a parent cannot tick, move or cancel", async () => {
+    const parent = await member("famparent");
+    const kid = (await run<{ id: string }>("person.create", { givenName: unique("Kid") }, staff()))
+      .id;
+    await run("person.link.add", { guardianId: parent.personId, dependantId: kid }, staff());
+    const kidPass = await givePass({ kind: "customer", customerId: "none", personId: kid });
+    const from = await klass(type, 2 * DAY);
+    const to = await klass(type, 3 * DAY);
+    const booked = await book(parent, from, { forPersonId: kid });
+    expect(booked).toMatchObject({ result: "booked", holderId: kidPass });
+    const old = booked.bookingId as string;
+    expect(await get(BOOKING, old)).toMatchObject({ person: kid, madeBy: parent.personId });
+    const moved = await run<Out>("x.bookings.move", { bookingId: old, toClassId: to }, staff());
+    expect(moved).toMatchObject({ result: "moved", holderId: kidPass });
+    // The new booking carries who made it (set by the host, never by the caller) and whose it is.
+    expect(await get(BOOKING, moved.bookingId as string)).toMatchObject({
+      person: kid,
+      madeBy: parent.personId,
+      state: "booked",
+    });
+    expect(await left(kidPass)).toBe(4);
+    // The parent still reads the child's moved booking.
+    const mineKid = await run<{ bookings: { id: string }[] }>(
+      "x.bookings.mine",
+      { personId: kid },
+      as(parent),
+    );
+    expect(mineKid.bookings.map((b) => b.id)).toContain(moved.bookingId);
+    // Nobody sets who made a booking, staff included.
+    expect(
+      (
+        await refusal(
+          run(
+            "record.update",
+            { object: BOOKING, id: moved.bookingId, values: { madeBy: null } },
+            staff(),
+          ),
+        )
+      ).code,
+    ).toBe("invalid_input");
+    // Ticking, moving and cancelling a class are staff tools: a parent reaches none of them.
+    for (const [name, input] of [
+      ["x.bookings.markAttended", { bookingId: moved.bookingId }],
+      ["x.bookings.move", { bookingId: moved.bookingId, toClassId: from }],
+      ["x.bookings.cancelClass", { classId: to, reason: "A parent's try" }],
+      ["x.bookings.roster", { classId: to }],
+    ] as const) {
+      const error = await refusal(run(name, input, as(parent)));
+      expect([name, error.code]).toEqual([
+        name,
+        expect.stringMatching(/unknown_operation|forbidden/),
+      ]);
+    }
+    // A class the gym cancels gives the child's use back.
+    await run("x.bookings.cancelClass", { classId: to, reason: "Coach ill" }, staff());
+    expect(await stateOf(moved.bookingId as string)).toBe("cancelled_by_us");
+    expect(await left(kidPass)).toBe(5);
+  });
+
+  it("the coach's today and a parent's family scope are apart: a coach's limit is the staff sign-in's only", async () => {
+    const kim = await coach("Coach Parent");
+    // The same human, as a member (another sign-in), is a parent of a child booked five days out.
+    const parent = await member("coachparent");
+    const kid = (await run<{ id: string }>("person.create", { givenName: unique("Kid") }, staff()))
+      .id;
+    await run("person.link.add", { guardianId: parent.personId, dependantId: kid }, staff());
+    await givePass({ kind: "customer", customerId: "none", personId: kid });
+    const ahead = await klass(type, 5 * DAY);
+    const booked = await book(parent, ahead, { forPersonId: kid });
+    expect(booked.result).toBe("booked");
+    // As the member, the parent reads the child's booking whatever day it is.
+    const mineKid = await run<{ bookings: { id: string }[] }>(
+      "x.bookings.mine",
+      { personId: kid },
+      as(parent),
+    );
+    expect(mineKid.bookings.map((b) => b.id)).toContain(booked.bookingId);
+    // As the coach (the staff sign-in), today's limit holds, and there is no family scope.
+    expect(
+      JSON.stringify(await refusal(run("x.bookings.roster", { classId: ahead }, asCoach(kim)))),
+    ).toContain("not_found");
+    expect((await refusal(run("x.bookings.mine", { personId: kid }, asCoach(kim)))).code).toMatch(
+      /forbidden|unknown_operation/,
+    );
+  });
+
   it("a booking paid at the desk moves paid at the desk, spending nothing", async () => {
     const who = await member("desk");
     const pass = await givePass(who);

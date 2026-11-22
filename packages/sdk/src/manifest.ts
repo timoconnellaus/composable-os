@@ -214,6 +214,10 @@ export const objectManifestSchema = z.object({
       write: z.array(z.string().max(40)).max(100),
       requireAccess: z.array(z.string().max(40)).max(10).optional(),
       createOnly: z.array(z.string().max(40)).max(100).optional(),
+      guardians: z
+        .object({ write: z.boolean().optional(), madeBy: z.string().max(40).optional() })
+        .strict()
+        .optional(),
     })
     .strict()
     .optional(),
@@ -1312,6 +1316,24 @@ export function validateManifest(
           `"${fieldName}" must be one the customer writes (customer.write)`,
         );
       }
+    }
+  }
+
+  // The family link (ADR 0540): who made a record is a relation to one person the host sets, never
+  // one the customer writes.
+  for (const [name, object] of Object.entries(m.objects)) {
+    const madeBy = object.customer?.guardians?.madeBy;
+    if (madeBy === undefined) continue;
+    const path = `objects.${name}.customer.guardians.madeBy`;
+    const field = object.fields[madeBy];
+    if (field?.type !== "relation" || field.to !== "person" || field.many) {
+      contract(path, `"${madeBy}" must be a relation of ${name} to one person`);
+    } else if (!field.readOnly) {
+      contract(path, `"${madeBy}" must be readOnly: the host sets it, nobody edits it`);
+    } else if (madeBy === object.customer?.field) {
+      contract(path, "madeBy cannot be the customer field");
+    } else if (object.customer?.write.includes(madeBy)) {
+      contract(path, `"${madeBy}" is set by the host: customer.write may not list it`);
     }
   }
 

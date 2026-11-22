@@ -73,6 +73,9 @@ export type Role = (typeof ROLES)[number];
  * - `subscriptions:manage` end or keep going someone else's subscription (stage 32a, ADR 0485).
  *   Admins only by default, grantable as `orders:refund` is. A customer ends or keeps going their
  *   own without it (the operation's audience, not a role, lets them).
+ * - `people:link` link a guardian to a dependant and end the link (stage 31a, ADR 0540): who may
+ *   act for whom. Admins only by default, grantable as `orders:refund` is, and a person only
+ *   whatever is granted (the operations are `actors: ["human"]`).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -87,6 +90,7 @@ export const PERMISSIONS = [
   "orders:refund",
   "records:publish",
   "subscriptions:manage",
+  "people:link",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -110,6 +114,7 @@ export const GRANTABLE_PERMISSIONS = [
   "records:publish",
   "orders:refund",
   "subscriptions:manage",
+  "people:link",
 ] as const;
 
 /**

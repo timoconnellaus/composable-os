@@ -61,6 +61,14 @@ export type Operations = {
     output: { disabled: true; sessionsEnded: number; eraseRequest: { requestedAt: string; dueAt: string } };
   };
   /**
+   * Your family, as a signed-in customer: yourself, the dependants (children) the gym has linked to you, whom you may book for, and the guardians linked to you, each with their name and id. Only live links; the gym's staff make and end them. Read-only.
+   */
+  "me.family": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { self: { personId: string; name: string }; dependants: { personId: string; name: string }[]; guardians: { personId: string; name: string }[] };
+  };
+  /**
    * Your own Person, as a signed-in customer: your name, primary email and primary phone, and your account's sign-in address (signInEmail, the one the emailed code verified, with signInEmailVerified). Link records kept elsewhere to a customer by signInEmail only: primaryEmail is a contact address staff can change. Read-only.
    */
   "me.get": {
@@ -254,12 +262,13 @@ export const operations = {
   "content.get": { kind: "query", invalidates: [] },
   "content.list": { kind: "query", invalidates: [] },
   "content.preview": { kind: "query", invalidates: [] },
-  "me.deleteAccount": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
+  "me.deleteAccount": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.family": { kind: "query", invalidates: [] },
   "me.get": { kind: "query", invalidates: [] },
   "me.sessions.list": { kind: "query", invalidates: [] },
-  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
-  "me.signOut": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
-  "me.update": { kind: "mutation", invalidates: ["me.get","me.sessions.list","my.get","my.list"] },
+  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.signOut": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.update": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
   "media.play": { kind: "query", invalidates: [] },
   "media.serve": { kind: "query", invalidates: [] },
   "my.get": { kind: "query", invalidates: [] },

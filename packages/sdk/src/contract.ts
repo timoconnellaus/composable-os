@@ -776,6 +776,15 @@ export interface CustomerSpec {
    * any tool.
    */
   createOnly?: readonly string[];
+  /**
+   * The family link (ADR 0540): a signed-in guardian also reads their live dependants' records of
+   * this object (a child's bookings), with the same `read` fields. With `write: true` they also
+   * make records for a dependant (`my.create`'s `forPersonId`) and change the dependant's, with
+   * the same `write` fields. `madeBy` names a relation to one person the host sets, on every
+   * record a customer makes, to the Person who made it. Staff link guardians to dependants; the
+   * seam checks the link in every read and write. A reviewed change, as `customer` is.
+   */
+  guardians?: { write?: boolean; madeBy?: string };
 }
 
 /** A tool shown as a button on a record page. */

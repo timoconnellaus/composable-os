@@ -214,7 +214,7 @@ async function prepareValues(
   object: ObjectDefinition,
   values: Record<string, unknown>,
   mode: "create" | "update",
-  options: { checkReferences?: boolean; by?: Mover } = {},
+  options: { checkReferences?: boolean; by?: Mover; seamSet?: ReadonlySet<string> } = {},
 ): Promise<PreparedValue[]> {
   const prepared: PreparedValue[] = [];
   for (const [name, value] of Object.entries(values)) {
@@ -243,8 +243,23 @@ async function prepareValues(
       field.extension !== undefined &&
       ctx.extension?.id === field.extension &&
       (!term || personsTool(ctx, field.extension) !== null);
+    // Who made a record for a customer (ADR 0540) is the seam's alone: set by its create, and by
+    // no one else, staff, AI, the host's other code and the extension's own tools included.
+    if (name === object.customer?.guardians?.madeBy) {
+      if (mode === "create" && options.seamSet?.has(name)) {
+        // Set by the seam for the caller: stored as given (a relation to a Person).
+      } else {
+        throw new ValidationError(
+          `${object.name}.${name} is set by the host and cannot be written`,
+          {
+            field: name,
+          },
+        );
+      }
+    }
+    const seamCode = options.seamSet?.has(name) === true;
     // Platform code making a host move sets them too (a payment's reference and time).
-    const hostCode = field.fieldType !== "formula" && options.by === "host";
+    const hostCode = field.fieldType !== "formula" && (options.by === "host" || seamCode);
     // What a holder's conditions read on a spender is the host's alone, even for the
     // extension's own code (ADR 0493): no actor sets what pays for it.
     if (!hostCode && hostFilled(object).has(name)) {
@@ -602,6 +617,8 @@ export async function createRecord(
     by?: Mover;
     /** A closure's create cancelling records with places taken: their count, confirmed. */
     recurringConfirm?: number | undefined;
+    /** Fields the visibility seam itself sets for a customer (`guardians.madeBy`, ADR 0540). */
+    seamSet?: ReadonlySet<string>;
   } = {},
 ): Promise<string> {
   const requester = options.by ?? (object.states?.requests ? callerMover(ctx) : undefined);

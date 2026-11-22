@@ -13,13 +13,14 @@ import { personNameKey } from "../duplicates/normalise.ts";
 import { queueClosePairs } from "../duplicates/pairs.ts";
 import { possibleDuplicatesSchema } from "../duplicates/rules.ts";
 import { assertRecordCapacity } from "../entitlements.ts";
-import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { personObject } from "../fields/person.ts";
 import { newId } from "../ids.ts";
 import { listInputSchema, pageSchema, runListQuery, selectFields } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { queueMergeOrders } from "../orders/merge.ts";
+import { holdsPermission } from "../principals.ts";
 import { bulkTagListSchema, queueBulkTags } from "../records/bulk-tags.ts";
 import {
   assertUserExists,
@@ -40,6 +41,12 @@ import {
 } from "../records/erase.ts";
 import { personSubject } from "../records/erase-subject.ts";
 import { countLinks, queueClearTags, queueMoveLinks } from "../records/links.ts";
+import {
+  dependantsLeftAlone,
+  planMergeLinks,
+  queueEraseLinks,
+  queueMergeLinks,
+} from "../records/person-links.ts";
 import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
 import { queueMergeSubscriptions } from "../subscriptions/merge.ts";
@@ -1091,7 +1098,22 @@ export const personMerge = defineOperation({
       .describe("Which record's value to keep for each field (default survivor)"),
   }),
   output: personSchema.extend({
-    moved: z.object({ affiliations: z.number(), activities: z.number(), tasks: z.number() }),
+    moved: z.object({
+      affiliations: z.number(),
+      activities: z.number(),
+      tasks: z.number(),
+    }),
+    familyLinks: z
+      .object({
+        moved: z.number().describe("Live family links that moved to the survivor"),
+        ended: z
+          .number()
+          .describe("Live links ended: a duplicate, or one whose other way round is linked"),
+        deleted: z.number().describe("Links between the two People, deleted"),
+        history: z.number().describe("Links that had already ended, moved as history"),
+      })
+      .optional()
+      .describe("What happened to the duplicate's family links (guardians and children)"),
   }),
   permission: "records:write",
   risk: "destructive",
@@ -1118,6 +1140,24 @@ export const personMerge = defineOperation({
     await queueMergeSubscriptions(ctx, survivor.id, merged.id);
     // Passes' and memberships' terms and uses follow the Person too (stage 32b, ADR 0494).
     queueMergeAllowances(ctx, survivor.id, merged.id);
+    // Family links follow the Person; one between the two is deleted, a duplicate or one that
+    // would become two-way is ended (ADR 0540).
+    const plan = await planMergeLinks(ctx.db, survivor.id, merged.id);
+    // Moving a live link moves who may act for whom: as making or ending one, it needs
+    // people:link (ADR 0540).
+    if (plan.movesLive && !holdsPermission(ctx.user, ctx.permissionGrants, "people:link")) {
+      throw new ForbiddenError(
+        `${merged.displayName} has family links (a parent or a child), which a merge would move: merging them needs people:link`,
+        { permission: "people:link" },
+      );
+    }
+    queueMergeLinks(ctx, survivor.id, merged.id, plan);
+    const familyLinks = {
+      moved: plan.moved,
+      ended: plan.ended,
+      deleted: plan.deleted,
+      history: plan.history,
+    };
 
     const emailSet = new Set(survivor.emails.map((e) => e.email));
     after.emails = [
@@ -1211,8 +1251,15 @@ export const personMerge = defineOperation({
       object: "person",
       id: survivor.id,
       action: "merge",
-      before: personSnapshot(survivor),
-      after: { ...personSnapshot(after), absorbedId: merged.id },
+      // Family links (ADR 0540): before, the two People's live links as read; after, what the
+      // merge does to them. Shown in the approval card, and an approval is held to the before: a
+      // link made or ended after the preview makes applying it a conflict, never a surprise.
+      before: { ...personSnapshot(survivor), familyLinks: plan.live },
+      after: {
+        ...personSnapshot(after),
+        absorbedId: merged.id,
+        familyLinks: `${plan.moved} moved, ${plan.ended} ended, ${plan.deleted} deleted${plan.history ? `, ${plan.history} past moved` : ""}`,
+      },
     });
     ctx.recordChange({
       object: "person",
@@ -1240,7 +1287,11 @@ export const personMerge = defineOperation({
       activities: links.activities,
       tasks: links.tasks,
     };
-    return ctx.afterCommit(async () => ({ ...(await requirePerson(ctx, survivor.id)), moved }));
+    return ctx.afterCommit(async () => ({
+      ...(await requirePerson(ctx, survivor.id)),
+      moved,
+      familyLinks,
+    }));
   },
 });
 
@@ -1273,6 +1324,13 @@ export const personErase = defineOperation({
     auditRowsRedacted: z.number(),
     conversationsScrubbed: z.number(),
     ...eraseCountsOutput,
+    dependantsWithoutGuardian: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "People this person was the only live guardian of (ADR 0540): they stay, with no guardian " +
+          "linked, and a note on their timeline",
+      ),
   }),
   permission: "records:erase",
   risk: "destructive",
@@ -1281,6 +1339,9 @@ export const personErase = defineOperation({
     await requirePerson(ctx, input.id, { includeDeleted: true });
     const ids = await withMergedRecords(ctx, "person", input.id);
     const subject = await personSubject(ctx.db, ids);
+    // Their family links go with them; a child left with no guardian stays, and staff are told.
+    const leftAlone = await dependantsLeftAlone(ctx, ids);
+    queueEraseLinks(ctx, ids, leftAlone);
     const counts = await queueErase(ctx, {
       object: "person",
       recordId: input.id,
@@ -1298,6 +1359,7 @@ export const personErase = defineOperation({
       auditRowsRedacted: await countRedactions(ctx.db, "person", input.id),
       conversationsScrubbed: counts.conversations,
       ...(await afterErase(ctx, counts)),
+      dependantsWithoutGuardian: leftAlone,
     }));
   },
 });

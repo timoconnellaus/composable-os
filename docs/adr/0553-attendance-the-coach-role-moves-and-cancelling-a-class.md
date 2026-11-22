@@ -122,3 +122,11 @@ and `apps/app/e2e/bookings.spec.ts` ("a coach ticks who came on a class's list",
   membership moved across weeks was not added on the shipped packs (it needs a subscription
   through the fake provider); the platform's fixture covers a move into a week with no use left
   (`allowance.test.ts`).
+
+## Note, 2026-11-23 (merging the family link, ADR 0540)
+- A moved booking stays its Person's (a child's stays the child's) and carries who made it: the
+  host copies the source's `madeBy` onto the new booking inside the move (the allowance's
+  `movedFrom`), and nobody, staff and the pack's tools included, can write it.
+- Ticking, moving, cancelling a class and the class list are staff tools: no customer, a
+  guardian included, reaches them. The coach's limit to today is a staff sign-in's; a guardian's
+  scope is a customer sign-in's; the two never meet in one call.

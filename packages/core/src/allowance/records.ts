@@ -891,6 +891,10 @@ export async function spenderWrite(
   const fromId = def.movedFrom && before === null ? after[def.movedFrom.field] : null;
   const moving = def.movedFrom !== undefined && typeof fromId === "string" && fromId !== "";
   let sourceWaived = false;
+  // Who made the source for its customer (a parent for a child, ADR 0540) is the host's to carry
+  // to the record it moves to: the move is not a new booking by whoever moved it (ADR 0553).
+  const madeByField = object.customer?.guardians?.madeBy;
+  let sourceMadeBy: unknown;
   if (def.movedFrom && moving) {
     if (by === "customer") {
       throw new ValidationError(
@@ -913,6 +917,7 @@ export async function spenderWrite(
       });
     }
     sourceWaived = isWaived(source);
+    if (madeByField) sourceMadeBy = source[madeByField] ?? null;
     if (!sourceWaived && isWaived(after)) {
       // Moving a paid one into one paid another way would give its use back for nothing.
       throw new ValidationError(
@@ -930,6 +935,7 @@ export async function spenderWrite(
   const values: Values = {
     ...read.values,
     ...(sourceWaived && def.waived ? { [def.waived]: true } : {}),
+    ...(madeByField && moving ? { [madeByField]: sourceMadeBy ?? null } : {}),
   };
   const statements: CompiledQuery[] = [];
   const spenderValues = { ...after, ...values };

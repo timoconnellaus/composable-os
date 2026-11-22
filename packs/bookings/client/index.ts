@@ -19,6 +19,7 @@ import type {
   classGet,
   classList,
   day,
+  family,
   findPeople,
   leaveWaitlist,
   markAll,
@@ -42,6 +43,7 @@ export type BookingsOperations = {
   "x.bookings.timetable": { kind: "query" } & Io<typeof timetable>;
   "x.bookings.classGet": { kind: "query" } & Io<typeof classGet>;
   "x.bookings.mine": { kind: "query" } & Io<typeof mine>;
+  "x.bookings.family": { kind: "query" } & Io<typeof family>;
   "x.bookings.book": { kind: "mutation" } & Io<typeof book>;
   "x.bookings.cancel": { kind: "mutation" } & Io<typeof cancel>;
   "x.bookings.leaveWaitlist": { kind: "mutation" } & Io<typeof leaveWaitlist>;
@@ -68,6 +70,8 @@ export type Timetable = Out<"x.bookings.timetable">;
 export type TimetableClass = Timetable["classes"][number];
 export type MyBookings = Out<"x.bookings.mine">;
 export type MyBooking = MyBookings["bookings"][number];
+export type Family = Out<"x.bookings.family">;
+export type FamilyPerson = Family["people"][number];
 export type BookResult = Out<"x.bookings.book">;
 export type CancelResult = Out<"x.bookings.cancel">;
 export type DayView = Out<"x.bookings.day">;
@@ -171,6 +175,7 @@ export const BOOKINGS_HOOKS_CALL = {
   useTimetable: ["x.bookings.timetable"],
   useClass: ["x.bookings.classGet"],
   useMyBookings: ["x.bookings.mine"],
+  useFamily: ["x.bookings.family"],
   useBook: ["x.bookings.book"],
   useCancel: ["x.bookings.cancel"],
   useLeaveWaitlist: ["x.bookings.leaveWaitlist"],
@@ -217,9 +222,13 @@ function allBookingsHooks(
     useClass(input: In<"x.bookings.classGet">) {
       return useQuery(api.query("x.bookings.classGet", input));
     },
-    /** The signed-in member's own bookings. */
+    /** The signed-in member's own bookings, or (with personId) a child's linked to them. */
     useMyBookings(input: In<"x.bookings.mine"> = {}) {
       return useQuery(api.query("x.bookings.mine", input));
+    },
+    /** Who the member may book for: themselves and the children staff linked to them. */
+    useFamily() {
+      return useQuery(api.query("x.bookings.family", {}));
     },
     /** Books the member into a class; the host answers booked, waiting (full) or why not. */
     useBook() {
