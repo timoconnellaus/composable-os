@@ -16,9 +16,9 @@ export * from "./ai/workers-ai-rest.ts";
 export * from "./allowance/index.ts";
 export {
   assertSpenderDeletable,
-  holderTerms,
   type SpenderOutcome,
   spenderWrite,
+  storedTerms,
 } from "./allowance/records.ts";
 export * from "./approvals/describe.ts";
 export * from "./approvals/high-risk.ts";

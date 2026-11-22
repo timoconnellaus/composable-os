@@ -242,6 +242,8 @@ export type AllowanceDefinition =
       /** With states: the states it can be spent in. Null: no states, always. */
       readonly live: readonly string[] | null;
       readonly zone?: string | undefined;
+      /** An empty `uses` is unlimited (declared); otherwise it is none. */
+      readonly emptyIsUnlimited: boolean;
     }
   | {
       readonly kind: "spender";
@@ -257,6 +259,8 @@ export type AllowanceDefinition =
         readonly zone?: string | undefined;
       };
       readonly movedFrom?: { readonly field: string; readonly state: string } | undefined;
+      /** Holders of other extensions that may pay for it (objects or extension ids). */
+      readonly paidBy: readonly string[];
     };
 
 /** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */

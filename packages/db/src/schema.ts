@@ -1036,8 +1036,13 @@ export interface CoreAllowanceTable {
   zone: string;
   valid_from: string | null;
   valid_until: string | null;
+  from_date: Defaulted<string | null>;
+  until_date: Defaulted<string | null>;
   live: number;
   trashed: Defaulted<number>;
+  prev_per: Defaulted<AllowancePer | null>;
+  prev_zone: Defaulted<string | null>;
+  applies_from: Defaulted<string | null>;
   updated_at: string;
 }
 export type AllowancePer = "total" | "week" | "month";
@@ -1048,10 +1053,12 @@ export interface CoreAllowancePeriodTable {
   record_id: string;
   period: string;
   per: AllowancePer;
+  zone: string;
   starts_at: string;
   ends_at: string;
   uses: number | null;
   used: Defaulted<number>;
+  rekeyed: Defaulted<number>;
   updated_at: string;
 }
 
@@ -1061,10 +1068,12 @@ export interface CoreAllowanceUseTable {
   object_type: string;
   record_id: string;
   period: string;
+  zone: string;
   spender_type: string;
   spender_id: string;
   person_id: string;
   at: string;
+  at_date: string;
   spent_at: string;
   spent_by: "staff" | "customer" | "host";
   returned_at: Defaulted<string | null>;

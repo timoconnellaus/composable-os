@@ -10,21 +10,27 @@
 import { env } from "cloudflare:workers";
 import { type ExtensionManifest, validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
+import { assertHolderCreatable } from "../src/allowance/records.ts";
 import {
   type ActingUser,
   allowancePeriodOf,
+  ConflictError,
   type CustomerPrincipal,
   coreRegistry,
   createInvoker,
   createRegistry,
+  defineOperation,
+  ForbiddenError,
   type InvocationContext,
   localParts,
+  type OperationError,
   PendingApprovalError,
   paidUpMoment,
   ValidationError,
   wallClockToIso,
 } from "../src/index.ts";
-import { extId, manifest, reconcile } from "./extension-helpers.ts";
+import { check, extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 
 const ext = extId("alw");
@@ -146,8 +152,36 @@ function fixture(id: string): ExtensionManifest {
             per: "week",
             until: "until",
             live: ["active"],
-            spendsOn: { object: "visit" },
+            emptyIsUnlimited: true,
+            spendsOn: [{ object: "visit" }, { object: "entry" }],
           },
+        },
+      },
+      // A spender with no return state: an entry at the door, kept once made.
+      entry: {
+        label: "Entry",
+        plural: "Entries",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name", required: true },
+          person: { type: "relation", label: "Person", to: "person" },
+          holder: { type: "text", label: "Paid by" },
+          state: {
+            type: "select",
+            label: "State",
+            options: [
+              { value: "open", label: "Open" },
+              { value: "in", label: "In" },
+            ],
+          },
+        },
+        states: {
+          field: "state",
+          initial: "open",
+          moves: [{ from: "open", to: "in", by: ["staff"] }],
+        },
+        allowance: {
+          spends: { person: "person", holder: "holder", spendIn: ["in"], returnIn: [] },
         },
       },
       visit: {
@@ -433,12 +467,15 @@ describe("criterion 10: the limit", () => {
     );
     const made = outcomes.filter((o) => o === true);
     expect(made).toHaveLength(5);
+    // Refused by the host once it can see the pass is full, or by the database when another
+    // spend took the last use between the host's read and the commit (a conflict, to try again).
     for (const o of outcomes.filter((x) => x !== true)) {
-      expect(o).toBeInstanceOf(ValidationError);
-      expect((o as ValidationError).details).toMatchObject({
-        rule: "allowance",
-        reason: "no_uses_left",
-      });
+      const reason = (o as OperationError).details as { reason?: string };
+      if (o instanceof ConflictError) expect(reason).toMatchObject({ reason: "spent_meanwhile" });
+      else {
+        expect(o).toBeInstanceOf(ValidationError);
+        expect(reason).toMatchObject({ rule: "allowance", reason: "no_uses_left" });
+      }
     }
     expect(await periodRow(holder, "total")).toEqual({ uses: 5, used: 5 });
     expect(await uses("record_id = ?", holder)).toHaveLength(5);
@@ -547,7 +584,7 @@ describe("what a holder pays for", () => {
   it("by kind and by time of day", async () => {
     const p = await person();
     const holder = await pass(p, {
-      uses: null,
+      uses: 100,
       per: "total",
       kinds: ["spin", "open"],
       offPeakFrom: 540,
@@ -570,13 +607,13 @@ describe("what a holder pays for", () => {
     await book(p, await klass("2026-12-02T22:00:00.000Z"));
     await book(p, await klass("2026-12-03T04:59:00.000Z", "open"));
     // A holder with no kinds and no window pays for anything.
-    const any = await pass(p, { uses: null, per: "total" });
+    const any = await pass(p, { uses: 100, per: "total" });
     await book(p, await klass("2026-12-03T07:00:00.000Z", "yoga"), { holder: any });
   });
 
   it("a caller cannot set the copied kind", async () => {
     const p = await person();
-    await pass(p, { uses: null, per: "total", kinds: ["spin"] });
+    await pass(p, { uses: 100, per: "total", kinds: ["spin"] });
     const error = await book(p, await klass("2026-12-02T23:00:00.000Z", "yoga"), {
       kind: "spin",
     }).then(
@@ -622,7 +659,7 @@ describe("holders not live at the spender's time", () => {
     const trashed = await pass(p, { uses: 5, per: "total" });
     await invoke("record.delete", { object: PASS, id: trashed }, staff());
     expect(await refusal(book(p, c, { holder: trashed }))).toMatchObject({
-      reason: "not_theirs",
+      reason: "not_live",
     });
     await invoke("record.restore", { object: PASS, id: trashed }, staff());
     await book(p, c, { holder: trashed });
@@ -634,12 +671,29 @@ describe("holders not live at the spender's time", () => {
     await env.DB.prepare("UPDATE core_allowance SET live = 0 WHERE record_id = ?")
       .bind(holder)
       .run();
+    // Past the host: a use written straight to the table is refused by its trigger.
+    await env.DB.prepare(
+      "INSERT INTO core_allowance_period (object_type, record_id, period, per, zone, starts_at, ends_at, uses, used, updated_at) VALUES (?, ?, 'total', 'total', ?, '0000', '9999', 5, 0, 'now')",
+    )
+      .bind(PASS, holder, SYDNEY)
+      .run();
+    const error = await env.DB.prepare(
+      "INSERT INTO core_allowance_use (id, object_type, record_id, period, zone, spender_type, spender_id, person_id, at, at_date, spent_at, spent_by) VALUES ('alu_x1', ?, ?, 'total', ?, ?, 'rec_x', ?, '2026-12-20T23:00:00.000Z', '2026-12-21', 'now', 'staff')",
+    )
+      .bind(PASS, holder, SYDNEY, VISIT, p)
+      .run()
+      .then(
+        () => null,
+        (e: unknown) => String(e),
+      );
+    expect(error).toContain("core_allowance_refused");
+    expect(error).toContain("not_live");
+    // And the host refuses it too, saying why.
     expect(await refusal(book(p, await klass("2026-12-20T23:00:00.000Z")))).toMatchObject({
       rule: "allowance",
       reason: "not_live",
       record: holder,
     });
-    expect(await periodRow(holder, "total")).toBeNull();
   });
 
   it("a person with nothing to spend is told so, and no visit is made", async () => {
@@ -832,5 +886,550 @@ describe("a Person merged or erased", () => {
       .bind(holder)
       .first();
     expect(row).toBeNull();
+  });
+});
+
+// --- The independent review's findings (2026-11-22): each test fails without its fix. ---------
+
+const cancel = (id: string) =>
+  invoke("record.update", { object: VISIT, id, values: { state: "cancelled" } }, staff());
+
+describe("review 1: a lowered limit is the real limit", () => {
+  it("5 spent on a pass lowered to 2: giving back 2 lets none be spent until it is under 2", async () => {
+    const p = await person();
+    const holder = await pass(p, { uses: 5, per: "total" });
+    const visits: string[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      visits.push(await book(p, await klass(`2027-05-0${i + 1}T23:00:00.000Z`)));
+    }
+    await invoke("record.update", { object: PASS, id: holder, values: { uses: 2 } }, staff());
+    expect(await periodRow(holder, "total")).toEqual({ uses: 2, used: 5 });
+    await cancel(visits[0] as string);
+    await cancel(visits[1] as string);
+    expect(await refusal(book(p, await klass("2027-05-20T23:00:00.000Z")))).toMatchObject({
+      reason: "no_uses_left",
+      uses: 2,
+      used: 3,
+    });
+    await cancel(visits[2] as string);
+    expect(await refusal(book(p, await klass("2027-05-21T23:00:00.000Z")))).toMatchObject({
+      reason: "no_uses_left",
+      uses: 2,
+      used: 2,
+    });
+    // The dry run says the same, with the real limit.
+    await setPreset("cautious");
+    try {
+      expect(
+        await refusal(book(p, await klass("2027-05-21T23:00:00.000Z"), {}, asMcp())),
+      ).toMatchObject({ reason: "no_uses_left", uses: 2, used: 2 });
+    } finally {
+      await setPreset("balanced");
+    }
+    await cancel(visits[3] as string);
+    await book(p, await klass("2027-05-22T23:00:00.000Z"));
+    expect(await periodRow(holder, "total")).toEqual({ uses: 2, used: 2 });
+    // The database itself refuses past the real limit.
+    const raw = await env.DB.prepare(
+      "UPDATE core_allowance_period SET used = used + 1 WHERE record_id = ? AND period = 'total'",
+    )
+      .bind(holder)
+      .run()
+      .then(
+        () => "",
+        (e: unknown) => String(e),
+      );
+    expect(raw).toContain("no_uses_left");
+    expect(raw).toContain('"uses":2');
+  });
+});
+
+describe("review 2: what a booked visit points at changes", () => {
+  it("another class: the use is given back and spent again for the new class, or the change is refused whole", async () => {
+    const p = await person();
+    const holder = await pass(p, { uses: 1, per: "week", kinds: ["spin"] });
+    const v = await book(p, await klass("2027-06-01T23:00:00.000Z")); // week of 31 May
+    const later = await klass("2027-06-08T23:00:00.000Z"); // week of 7 June
+    await invoke("record.update", { object: VISIT, id: v, values: { klass: later } }, staff());
+    expect(await periodRow(holder, "week:2027-05-31")).toEqual({ uses: 1, used: 0 });
+    expect(await periodRow(holder, "week:2027-06-07")).toEqual({ uses: 1, used: 1 });
+    const [old, current] = await uses("spender_id = ?", v);
+    expect(old?.returned_at).not.toBeNull();
+    expect(current).toMatchObject({ moved_from: old?.id, period: "week:2027-06-07" });
+    // A class its pass does not cover: refused, and nothing moved.
+    const yoga = await klass("2027-06-15T23:00:00.000Z", "yoga");
+    expect(
+      await refusal(
+        invoke("record.update", { object: VISIT, id: v, values: { klass: yoga } }, staff()),
+      ),
+    ).toMatchObject({ reason: "not_covered" });
+    expect((await visitValues(v)).klass).toBe(later);
+    // Into a full week: refused whole.
+    await book(p, await klass("2027-06-22T23:00:00.000Z"));
+    const full = await klass("2027-06-23T23:00:00.000Z");
+    expect(
+      await refusal(
+        invoke("record.update", { object: VISIT, id: v, values: { klass: full } }, staff()),
+      ),
+    ).toMatchObject({ reason: "no_uses_left", period: "week:2027-06-21" });
+    expect(await periodRow(holder, "week:2027-06-07")).toEqual({ uses: 1, used: 1 });
+  });
+
+  it("a class rescheduled into another week takes its bookings' uses with it, or is refused", async () => {
+    const p = await person();
+    const holder = await pass(p, { uses: 1, per: "week" });
+    const c = await klass("2027-07-06T23:00:00.000Z"); // Wed 7 Jul, 09:00 local, week of 5 Jul
+    const v = await book(p, c);
+    await invoke(
+      "record.update",
+      { object: KLASS, id: c, values: { startsAt: "2027-07-13T05:00:00.000Z" } }, // Tue 13 Jul 15:00
+      staff(),
+    );
+    expect(await periodRow(holder, "week:2027-07-05")).toEqual({ uses: 1, used: 0 });
+    expect(await periodRow(holder, "week:2027-07-12")).toEqual({ uses: 1, used: 1 });
+    expect(await visitValues(v)).toMatchObject({ weekday: 2, minute: 900, holder });
+    // Into a week where the member has no use left: the reschedule is refused, naming the visit.
+    await book(p, await klass("2027-07-20T23:00:00.000Z"));
+    const error = await invoke(
+      "record.update",
+      { object: KLASS, id: c, values: { startsAt: "2027-07-21T23:00:00.000Z" } },
+      staff(),
+    ).then(
+      () => null,
+      (e: unknown) => e as ValidationError,
+    );
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error?.details).toMatchObject({ reason: "no_uses_left", spender: v });
+    expect((await invoke("record.get", { object: KLASS, id: c }, staff())).values.startsAt).toBe(
+      "2027-07-13T05:00:00.000Z",
+    );
+  });
+});
+
+describe("review 3: whose visit it is cannot change under a use", () => {
+  it("refused while it holds one; allowed once given back", async () => {
+    const p = await person();
+    const other = await person();
+    await pass(p, { uses: 2, per: "total" });
+    const v = await book(p, await klass("2027-08-03T23:00:00.000Z"));
+    expect(
+      await refusal(
+        invoke("record.update", { object: VISIT, id: v, values: { person: other } }, staff()),
+      ),
+    ).toMatchObject({ rule: "allowance", field: "person" });
+    await cancel(v);
+    await invoke("record.update", { object: VISIT, id: v, values: { person: other } }, staff());
+  });
+});
+
+const WAYS = [
+  { value: "open", label: "Open" },
+  { value: "in", label: "In" },
+];
+const goObject = (extra: Record<string, unknown> = {}) => ({
+  label: "Go",
+  plural: "Goes",
+  titleField: "name",
+  fields: {
+    name: { type: "text", label: "Name", required: true },
+    person: { type: "relation", label: "Person", to: "person" },
+    holder: { type: "text", label: "Paid by" },
+    kind: { type: "text", label: "Kind", readOnly: true },
+    label: { type: "text", label: "Label" },
+    state: { type: "select", label: "State", options: WAYS },
+  },
+  states: { field: "state", initial: "open", moves: [{ from: "open", to: "in", by: ["staff"] }] },
+  allowance: {
+    spends: {
+      person: "person",
+      holder: "holder",
+      spendIn: ["in"],
+      returnIn: [],
+      copy: {},
+      ...extra,
+    },
+  },
+});
+
+describe("review 4: the terms row cannot drift from the record", () => {
+  it("two writes at once to different terms both land", async () => {
+    const p = await person();
+    const holder = await pass(p, { uses: 3, per: "total" });
+    await Promise.all([
+      invoke("record.update", { object: PASS, id: holder, values: { uses: 7 } }, staff()),
+      invoke(
+        "record.update",
+        { object: PASS, id: holder, values: { validUntil: "2030-01-01" } },
+        staff(),
+      ),
+    ]);
+    const row = await env.DB.prepare(
+      "SELECT uses, until_date FROM core_allowance WHERE record_id = ?",
+    )
+      .bind(holder)
+      .first();
+    expect(row).toEqual({ uses: 7, until_date: "2030-01-01" });
+  });
+
+  it("a changed declaration re-derives every holder's terms at reconcile", async () => {
+    const id = extId("alwbf");
+    const shape = (live: string[]) =>
+      manifest(id, {
+        objects: {
+          card: {
+            label: "Card",
+            plural: "Cards",
+            titleField: "name",
+            fields: {
+              name: { type: "text", label: "Name", required: true },
+              person: { type: "relation", label: "Person", to: "person" },
+              uses: { type: "number", label: "Uses" },
+              state: { type: "select", label: "State", options: HOLDER_STATES },
+            },
+            states: holderStates,
+            allowance: {
+              holds: {
+                person: "person",
+                uses: "uses",
+                per: "total",
+                live,
+                spendsOn: { object: "go" },
+              },
+            },
+          },
+          go: goObject() as never,
+        },
+      });
+    await reconcile(shape(["active"]));
+    const p = await person();
+    const card = await create(`${id}.card`, { name: "c", person: p, uses: 2 });
+    await invoke(
+      "record.update",
+      { object: `${id}.card`, id: card, values: { state: "paused" } },
+      staff(),
+    );
+    // As if it predated the declaration: no terms row.
+    await env.DB.prepare("DELETE FROM core_allowance WHERE record_id = ?").bind(card).run();
+    await reconcile(shape(["active", "paused"]));
+    const row = await env.DB.prepare("SELECT live, uses FROM core_allowance WHERE record_id = ?")
+      .bind(card)
+      .first();
+    expect(row).toEqual({ live: 1, uses: 2 });
+  });
+
+  it("a holder keeps the organisation's zone it was given when the setting changes", async () => {
+    const set = (zone: string) =>
+      env.DB.prepare(
+        "INSERT INTO core_settings (key, value, updated_at) VALUES ('org_timezone', ?, 'now') ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+      )
+        .bind(JSON.stringify(zone))
+        .run();
+    const before = await env.DB.prepare(
+      "SELECT value FROM core_settings WHERE key = 'org_timezone'",
+    ).first<{ value: string }>();
+    try {
+      await set("Europe/London");
+      const p = await person();
+      const m = await create(MEMBERSHIP, { name: unique("Zoned"), person: p, uses: 2 });
+      await set("Asia/Tokyo");
+      await invoke("record.update", { object: MEMBERSHIP, id: m, values: { uses: 3 } }, staff());
+      const row = await env.DB.prepare("SELECT zone, uses FROM core_allowance WHERE record_id = ?")
+        .bind(m)
+        .first();
+      expect(row).toEqual({ zone: "Europe/London", uses: 3 });
+    } finally {
+      if (before) await set(JSON.parse(before.value) as string);
+      else await env.DB.prepare("DELETE FROM core_settings WHERE key = 'org_timezone'").run();
+    }
+  });
+});
+
+describe("review 5: who may pay for a spender of another extension", () => {
+  const spenderExt = extId("alwsp");
+  const holderExt = extId("alwho");
+  const spender = (paidBy?: string[]) =>
+    manifest(spenderExt, {
+      objects: { go: goObject(paidBy ? { paidBy } : {}) as never },
+    });
+  const holder = (when?: { field: string; in: string[] }[]) =>
+    manifest(holderExt, {
+      objects: {
+        card: {
+          label: "Card",
+          plural: "Cards",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name", required: true },
+            person: { type: "relation", label: "Person", to: "person" },
+            uses: { type: "number", label: "Uses" },
+          },
+          allowance: {
+            holds: {
+              person: "person",
+              uses: "uses",
+              per: "total",
+              spendsOn: { object: `${spenderExt}.go`, ...(when ? { when } : {}) },
+            },
+          },
+        },
+      },
+    });
+
+  it("refused at install unless the spender lets it; a spend finds it only then", async () => {
+    await reconcile(spender());
+    const found = (await check(holder())).issues.map((i) => i.message).join("\n");
+    expect(found).toContain("does not let");
+    await reconcile(holder());
+    const p = await person();
+    await create(`${holderExt}.card`, { name: "c", person: p, uses: 3 });
+    const go = () => create(`${spenderExt}.go`, { name: "g", person: p, state: "in" });
+    expect(await refusal(go())).toMatchObject({ reason: "no_holder" });
+    await reconcile(spender([holderExt]));
+    expect((await check(holder())).issues).toEqual([]);
+    await go();
+    // A condition on a field the spender's host does not fill is refused across extensions too.
+    const bad = (await check(holder([{ field: "label", in: ["x"] }]))).issues
+      .map((i) => i.message)
+      .join("\n");
+    expect(bad).toContain("must be a field");
+  });
+
+  it("an empty uses is none unless the object declares it unlimited", async () => {
+    const p = await person();
+    const holderId = await pass(p, { per: "total" });
+    expect(await refusal(book(p, await klass("2027-09-01T23:00:00.000Z")))).toMatchObject({
+      reason: "no_uses_left",
+      record: holderId,
+      uses: 0,
+    });
+  });
+
+  it("no holder's terms are a customer's to write, by customer.write or a tool's customerFields", () => {
+    const m = fixture("alwcf");
+    (m.objects.pass as Record<string, unknown>).customer = {
+      field: "person",
+      read: ["name"],
+      write: [],
+    };
+    (m.tools as Record<string, unknown>).topUp = {
+      description: "A customer tops up their own pass with more uses",
+      risk: "write",
+      audiences: ["customer"],
+      customerFields: { "alwcf.pass": ["uses", "per"] },
+      inputSchema: { type: "object" },
+      outputSchema: { type: "object" },
+    };
+    const found = validateManifest(m)
+      .issues.map((i) => `${i.path}: ${i.message}`)
+      .join("\n");
+    expect(found).toContain("objects.pass.allowance.holds.uses");
+    expect(found).toContain("objects.pass.allowance.holds.per.field");
+  });
+
+  it("a customer never creates a holder, whatever a tool allows", () => {
+    const object = { name: PASS, label: "Pass", allowance: { kind: "holder" } } as never;
+    expect(() => assertHolderCreatable(object, "customer")).toThrow(ForbiddenError);
+    expect(() => assertHolderCreatable(object, "staff")).not.toThrow();
+  });
+});
+
+describe("review 6: a holder named on a write that does not spend", () => {
+  it("is checked then, and is the one spent when the visit is booked", async () => {
+    const p = await person();
+    const other = await person();
+    const theirs = await pass(other, { uses: 5, per: "total" });
+    const c = await klass("2027-10-05T23:00:00.000Z");
+    expect(
+      await refusal(create(VISIT, { name: unique("Wait"), person: p, klass: c, holder: theirs })),
+    ).toMatchObject({ reason: "not_theirs" });
+    // Precedence would pick the weekly membership; the pass named while waiting is spent.
+    await create(MEMBERSHIP, { name: unique("Weekly"), person: p, uses: 3 });
+    const mine = await pass(p, { uses: 5, per: "total" });
+    const v = await create(VISIT, { name: unique("Wait"), person: p, klass: c, holder: mine });
+    await invoke("record.update", { object: VISIT, id: v, values: { state: "booked" } }, staff());
+    expect((await visitValues(v)).holder).toBe(mine);
+    expect((await uses("spender_id = ?", v))[0]).toMatchObject({ record_id: mine });
+  });
+});
+
+describe("review 7: what conditions read is the host's alone", () => {
+  it("the extension's own code cannot set a copied field", async () => {
+    const p = await person();
+    await pass(p, { uses: 5, per: "total", kinds: ["spin"] });
+    const asExtension = staff({
+      actor: "extension",
+      origin: { surface: "system" },
+      extension: {
+        id: ext,
+        permissions: { read: [], write: [], operations: ["record.create"], modules: [] },
+      },
+    });
+    const yoga = await klass("2027-10-06T23:00:00.000Z", "yoga");
+    const error = await create(
+      VISIT,
+      { name: unique("Forged"), person: p, klass: yoga, kind: "spin" },
+      asExtension,
+    ).then(
+      () => null,
+      (e: unknown) => e as ValidationError,
+    );
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error?.message).toContain("set by the host");
+  });
+
+  it("a condition on a field the host does not fill is refused by the check", () => {
+    const m = fixture("alwcond");
+    const holds = (m.objects.pass as { allowance: { holds: { spendsOn: { when: unknown[] } } } })
+      .allowance.holds;
+    holds.spendsOn.when.push({ field: "name", in: ["x"] });
+    const found = validateManifest(m)
+      .issues.map((i) => i.message)
+      .join("\n");
+    expect(found).toContain("must be a field");
+  });
+});
+
+describe("review 8: a holder full by an older limit is passed over", () => {
+  it("a past week counted under a limit of 1 stays full after the limit is raised: the next holder pays", async () => {
+    const p = await person();
+    const weekly = await pass(p, { uses: 1, per: "week" });
+    await book(p, await klass("2026-01-06T23:00:00.000Z")); // a past week
+    await invoke("record.update", { object: PASS, id: weekly, values: { uses: 3 } }, staff());
+    expect(await periodRow(weekly, "week:2026-01-05")).toEqual({ uses: 1, used: 1 });
+    const total = await pass(p, { uses: 5, per: "total", validUntil: "2099-01-01" });
+    const v = await book(p, await klass("2026-01-07T23:00:00.000Z"));
+    expect((await visitValues(v)).holder).toBe(total);
+  });
+});
+
+describe("review 9: what a customer is told", () => {
+  it("allowance.get gives a customer only the terms their record shows; an unknown object is not found", async () => {
+    const p = await person();
+    const mine = await pass(p, { uses: 2, per: "total", validUntil: "2030-01-01" });
+    const me: CustomerPrincipal = { kind: "customer", customerId: `cus_${unique()}`, personId: p };
+    const view = await invoke("allowance.get", { object: PASS, id: mine }, { principal: me, db });
+    expect(view).toMatchObject({ uses: 2, live: true, period: { used: 0, left: 2 } });
+    expect(view).not.toHaveProperty("validUntil");
+    expect(view).not.toHaveProperty("personId");
+    for (const object of [`${ext}.nothing`, VISIT]) {
+      const error = await invoke("allowance.get", { object, id: mine }, { principal: me, db }).then(
+        () => null,
+        (e: unknown) => e as { code?: string },
+      );
+      expect(error?.code).toBe("not_found");
+    }
+  });
+
+  it("a refusal reaches a customer with its reason and never another's record", async () => {
+    const op = defineOperation({
+      name: "fixture.allowanceRefusal",
+      description: "Fixture: a customer's call refused by the allowance.",
+      input: z.object({ reason: z.string() }),
+      output: z.object({}),
+      permission: "records:read",
+      risk: "read",
+      audiences: ["customer"],
+      async handler(input) {
+        throw new ValidationError("refused", {
+          rule: "allowance",
+          reason: input.reason,
+          object: PASS,
+          record: "rec_someone_elses",
+          period: "total",
+          uses: 2,
+          used: 2,
+        });
+      },
+    });
+    const outside = createInvoker(createRegistry([...coreRegistry.list(), op]));
+    const me: CustomerPrincipal = {
+      kind: "customer",
+      customerId: `cus_${unique()}`,
+      personId: await person(),
+    };
+    for (const reason of ["not_theirs", "no_uses_left"]) {
+      const error = await outside
+        .invokeByName("fixture.allowanceRefusal", { reason }, { principal: me, db })
+        .then(
+          () => null,
+          (e: unknown) => e as ValidationError,
+        );
+      expect(JSON.stringify(error?.details)).not.toContain("rec_someone_elses");
+      expect(error?.details).toMatchObject({ rule: "allowance", reason });
+      expect(error?.message).not.toBe("refused");
+    }
+  });
+});
+
+describe("review 10: a change of period, a spender with no return, a Person in the Trash", () => {
+  it("weekly to monthly: the week running keeps its count; later uses move to their month", async () => {
+    const p = await person();
+    const holder = await pass(p, { uses: 2, per: "week" });
+    const now = Date.now();
+    const week = allowancePeriodOf(new Date(now).toISOString(), "week", SYDNEY);
+    const at = (ms: number) => new Date(ms).toISOString();
+    await book(p, await klass(at(now + 60_000)));
+    await book(p, await klass(at(now + 120_000)));
+    const nextWeek = Date.parse(week.endsAt) + 3_600_000;
+    const ahead = await book(p, await klass(at(nextWeek)));
+    await invoke("record.update", { object: PASS, id: holder, values: { per: "month" } }, staff());
+    // This week still counts as a week: full.
+    expect(await refusal(book(p, await klass(at(now + 180_000))))).toMatchObject({
+      reason: "no_uses_left",
+      period: week.key,
+    });
+    // The booking already made for next week now counts in its month.
+    const month = allowancePeriodOf(at(nextWeek), "month", SYDNEY).key;
+    expect((await uses("spender_id = ?", ahead))[0]).toMatchObject({ period: month });
+    expect(await periodRow(holder, month)).toMatchObject({ used: 1 });
+  });
+
+  it("an entry, which gives nothing back, can go to the Trash and keeps its use", async () => {
+    const p = await person();
+    await create(MEMBERSHIP, { name: unique("Unlimited"), person: p });
+    const e = await create(`${ext}.entry`, { name: unique("In"), person: p, state: "in" });
+    await invoke("record.delete", { object: `${ext}.entry`, id: e }, staff());
+    expect((await uses("spender_id = ?", e))[0]).toMatchObject({ returned_at: null });
+  });
+
+  it("a Person in the Trash spends nothing; purged, their allowance rows go", async () => {
+    const p = await person();
+    const holder = await pass(p, { uses: 2, per: "total" });
+    await book(p, await klass("2027-11-02T23:00:00.000Z"));
+    const waiting = await create(VISIT, {
+      name: unique("Wait"),
+      person: p,
+      klass: await klass("2027-11-03T23:00:00.000Z"),
+    });
+    await invoke("person.delete", { id: p }, staff());
+    expect(
+      await refusal(
+        invoke(
+          "record.update",
+          { object: VISIT, id: waiting, values: { state: "booked" } },
+          staff(),
+        ),
+      ),
+    ).toMatchObject({ reason: "not_live" });
+    await env.DB.prepare(
+      "UPDATE core_person SET deleted_at = '2000-01-01T00:00:00.000Z' WHERE id = ?",
+    )
+      .bind(p)
+      .run();
+    await invoke(
+      "trash.purge",
+      { limit: 50 },
+      {
+        ...context(admin),
+        actor: "automation",
+        origin: { surface: "system", automationId: "trash.purge" },
+      },
+    );
+    expect(await uses("person_id = ?", p)).toHaveLength(0);
+    expect(
+      await env.DB.prepare("SELECT 1 AS x FROM core_allowance WHERE record_id = ?")
+        .bind(holder)
+        .first(),
+    ).toBeNull();
   });
 });

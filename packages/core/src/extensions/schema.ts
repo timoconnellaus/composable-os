@@ -378,8 +378,7 @@ export function buildViews(state: SchemaState): ViewBuild {
     }
     const allowance = object.definition.allowance;
     if (allowance && "holds" in allowance) {
-      const uses = own.find((f) => f.localName === allowance.holds.uses)?.columnName;
-      const held = allowanceView(object.name, uses ? `t.${ident(uses)}` : "NULL");
+      const held = allowanceView(object.name);
       columns.push(...held.columns);
       joins.push(...held.joins);
     }
@@ -484,19 +483,17 @@ function capacityView(object: string): { joins: string[]; columns: string[] } {
 
 /**
  * The allowance values of a holder's view (stage 32b, ADR 0493): uses spent in the current period
- * and uses left now, from its terms row and the period containing the database's clock. A holder
- * written before its object declared the behaviour has no terms row until its next write or spend:
- * it shows its own uses field, nothing spent.
+ * and uses left now, from rec_allowance (migration 0533) over its terms row, which every write and
+ * the reconciler's backfill keep.
  */
-function allowanceView(object: string, usesColumn: string): { joins: string[]; columns: string[] } {
+function allowanceView(object: string): { joins: string[]; columns: string[] } {
   const name = `'${object.replaceAll("'", "''")}'`;
-  const now = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
-  const used = `coalesce((SELECT p.used FROM core_allowance_period p WHERE p.object_type = alw.object_type AND p.record_id = alw.record_id AND p.per = alw.per AND p.starts_at <= ${now} AND p.ends_at > ${now} LIMIT 1), 0)`;
   return {
-    joins: [`LEFT JOIN core_allowance alw ON alw.object_type = ${name} AND alw.record_id = t.id`],
+    joins: [`LEFT JOIN rec_allowance alw ON alw.object_type = ${name} AND alw.record_id = t.id`],
     columns: [
-      `${used} AS ${ALLOWANCE_COLUMNS.used}`,
-      `CASE WHEN alw.record_id IS NULL THEN CASE WHEN typeof(${usesColumn}) IN ('integer', 'real') THEN max(CAST(${usesColumn} AS INTEGER), 0) END WHEN alw.live = 0 OR alw.trashed = 1 OR (alw.valid_from IS NOT NULL AND alw.valid_from > ${now}) OR (alw.valid_until IS NOT NULL AND alw.valid_until <= ${now}) THEN 0 WHEN alw.uses IS NULL THEN NULL ELSE max(alw.uses - ${used}, 0) END AS ${ALLOWANCE_COLUMNS.left}`,
+      `coalesce(alw.used, 0) AS ${ALLOWANCE_COLUMNS.used}`,
+      // No terms row (never written since a reconcile's backfill): nothing can be spent yet.
+      `CASE WHEN alw.record_id IS NULL THEN 0 ELSE alw."left" END AS ${ALLOWANCE_COLUMNS.left}`,
     ],
   };
 }
@@ -716,6 +713,7 @@ function allowanceDefinition(object: ObjectState): ObjectDefinition["allowance"]
       ...(h.until ? { until: h.until } : {}),
       live: h.live ? [...h.live] : null,
       ...(h.zone ? { zone: h.zone } : {}),
+      emptyIsUnlimited: h.emptyIsUnlimited === true,
     };
   }
   const sp = declared.spends;
@@ -729,6 +727,7 @@ function allowanceDefinition(object: ObjectState): ObjectDefinition["allowance"]
     copy: { ...(sp.copy ?? {}) },
     local: { ...(sp.local ?? {}) },
     ...(sp.movedFrom ? { movedFrom: { ...sp.movedFrom } } : {}),
+    paidBy: [...(sp.paidBy ?? [])],
   };
 }
 

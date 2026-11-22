@@ -8291,7 +8291,7 @@
     },
     {
       "name": "allowance.get",
-      "description": "How many uses a pass, membership or other allowance holder has spent and has left, in the period containing `at` (default now): this week or month (from Monday, or the 1st, in its time zone), or in all for a pass of N. Also its uses per period (null is unlimited), whether it can be spent (live), and the dates it is valid between. A signed-in customer reads their own only; anyone else's is not found. Read-only: uses are spent by booking.",
+      "description": "How many uses a pass, membership or other allowance holder has spent and has left, in the period containing `at` (default now): this week or month (from Monday, or the 1st, in its time zone), or in all for a pass of N. Staff also get its uses per period (null is unlimited), whether it can be spent (live), and the dates it is valid between; a signed-in customer reads their own only, with the terms their own record shows them. Anyone else's is not found. Read-only: uses are spent by booking.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -8333,13 +8333,14 @@
             "type": "string"
           },
           "personId": {
+            "description": "Staff only",
             "type": [
               "string",
               "null"
             ]
           },
           "uses": {
-            "description": "Uses per period; null is unlimited",
+            "description": "Uses per period; null is unlimited. Left out when the caller may not read it",
             "type": [
               "number",
               "null"
@@ -8354,8 +8355,8 @@
             ]
           },
           "zone": {
-            "type": "string",
-            "description": "The time zone weeks and months are counted in"
+            "description": "The time zone weeks and months are counted in",
+            "type": "string"
           },
           "validFrom": {
             "type": [
@@ -8371,8 +8372,8 @@
             ]
           },
           "live": {
-            "type": "boolean",
-            "description": "Its state lets it be spent (not paused, used up, ended or void)"
+            "description": "Its state lets it be spent (not paused, used up, ended or void)",
+            "type": "boolean"
           },
           "at": {
             "type": "string",
@@ -8415,13 +8416,6 @@
         "required": [
           "object",
           "id",
-          "personId",
-          "uses",
-          "per",
-          "zone",
-          "validFrom",
-          "validUntil",
-          "live",
           "at",
           "period"
         ],

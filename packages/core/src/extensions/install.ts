@@ -6,6 +6,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { type ExtensionManifest, type ManifestIssue, validateManifest } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
+import { allowanceHostIssues } from "../allowance/check.ts";
 import { automationSyncStatements } from "../automations/registry.ts";
 import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
@@ -146,6 +147,13 @@ export async function checkManifest(
         });
       }
     });
+  }
+  // An allowance declaration against what is installed (ADR 0494): another extension's spender
+  // must let this holder pay, and fields one relation away must exist with the right type.
+  if (manifest) {
+    for (const issue of allowanceHostIssues(manifest)) {
+      all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
+    }
   }
   // A source of access of a kind the host does not provide gives no one access (ADR 0477).
   for (const [name, object] of Object.entries(manifest?.objects ?? {})) {

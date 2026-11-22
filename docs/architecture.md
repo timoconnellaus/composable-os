@@ -1350,7 +1350,10 @@ total, week or month or unlimited, its dates, live states, zone, and `spendsOn` 
 `spends` them (a booking: its Person, the holder field, the states that spend and give back, its
 time `at` one relation away, fields the host copies onto it and the local weekday and minute).
 record.create, record.update and the import spend in the spender's batch when it moves into a spend
-state and give back on a return state; the holder's terms (`core_allowance`) follow its writes. A
+state and give back on a return state, and spend again when what the spender points at changes (a
+class rescheduled); the holder's terms (`core_allowance`) are derived in SQL from its stored record
+in each write's batch and by the reconciler. Another pack's holder pays only where the spender's
+`paidBy` lets it. A
 spend is three statements with no read of the count: a counter per holder per period
 (`core_allowance_period`, the limit copied from the terms), `used + 1` on it, and the use
 (`core_allowance_use`); a CHECK and triggers refuse past the limit, or a holder not the Person's,

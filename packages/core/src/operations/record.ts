@@ -14,9 +14,12 @@ import {
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { z } from "zod";
 import {
+  assertHolderCreatable,
   assertSpenderDeletable,
+  followSpenders,
   holderTrash,
   holderWrite,
+  hostFilled,
   setAllowanceRecordUpdate,
   spenderWrite,
 } from "../allowance/records.ts";
@@ -222,6 +225,13 @@ async function prepareValues(
       ctx.extension?.id === field.extension;
     // Platform code making a host move sets them too (a payment's reference and time).
     const hostCode = field.fieldType !== "formula" && options.by === "host";
+    // What a holder's conditions read on a spender is the host's alone, even for the
+    // extension's own code (ADR 0493): no actor sets what pays for it.
+    if (!hostCode && hostFilled(object).has(name)) {
+      throw new ValidationError(`${object.name}.${name} is set by the host and cannot be written`, {
+        field: name,
+      });
+    }
     if (field.readOnly && !ownCode && !hostCode) {
       throw new ValidationError(
         field.fieldType === "formula"
@@ -592,6 +602,8 @@ export async function createRecord(
   const table = objectTableOf(object.name) as string;
   const id = newId("record");
   const by = options.by ?? callerMover(ctx);
+  // Passes and memberships are granted or made by staff, never by a customer (ADR 0494).
+  assertHolderCreatable(object, by);
   const outcome = await applyTransition(ctx, object, id, null, valuesOf(prepared), {
     by,
     cache: options.cache,
@@ -614,7 +626,7 @@ export async function createRecord(
   const counter = await counterWrite(ctx, object, id, valuesOf(prepared), "create");
   if (counter) ctx.write(counter);
   // A holder's terms, and a spender's use (ADR 0493).
-  ctx.write(...(await holderWrite(ctx, object, id, valuesOf(prepared), "create")));
+  ctx.write(...(await holderWrite(ctx, object, id, null, valuesOf(prepared))));
   ctx.write(...spent.statements);
   const title = prepared.find((p) => p.field.name === object.titleField)?.value;
   ctx.write(...searchDoc(object.name, id, title == null ? null : String(title)));
@@ -867,16 +879,19 @@ export async function updateRecord(
   );
   if (counter) ctx.write(counter);
   // A holder's terms follow its record; a spender's move spends or gives back a use (ADR 0493).
+  ctx.write(...(await holderWrite(ctx, object, id, before.values, after)));
+  ctx.write(...spent.statements);
+  // Spenders that read their time or copies from this record follow it (a class rescheduled).
   ctx.write(
-    ...(await holderWrite(
+    ...(await followSpenders(
       ctx,
       object,
       id,
       after,
       prepared.map((p) => p.field.name),
+      by,
     )),
   );
-  ctx.write(...spent.statements);
   // A published record's old address keeps pointing to it (ADR 0442).
   ctx.write(...(await redirectWrites(ctx, object, id, before.values, after)));
   const timeline = await timelineFor(ctx, object, id, before.values, after, outcome);
@@ -1004,8 +1019,6 @@ export const recordDelete = defineOperation({
     await assertSpenderDeletable(ctx, object, input.id);
     const table = objectTableOf(object.name) as string;
     ctx.write(
-      // A holder in the Trash cannot be spent (ADR 0493).
-      ...holderTrash(object, input.id, true, ctx.now),
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
         ctx.now,
         ctx.user.id,
@@ -1015,6 +1028,8 @@ export const recordDelete = defineOperation({
         object.name,
         input.id,
       ]),
+      // A holder in the Trash cannot be spent: its terms follow the record (ADR 0493).
+      ...(await holderTrash(ctx, object, input.id)),
     );
     ctx.recordChange({
       object: object.name,
@@ -1047,10 +1062,10 @@ export const recordRestore = defineOperation({
     // Its slug may have been taken while it was in the Trash (stage 28, ADR 0444).
     await assertRestorable(ctx, object, input.id);
     ctx.write(
-      ...holderTrash(object, input.id, false, ctx.now),
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ?`, [
         input.id,
       ]),
+      ...(await holderTrash(ctx, object, input.id)),
     );
     ctx.recordChange({ object: object.name, id: input.id, action: "restore", diff: {} });
     return ctx.afterCommit(async () => {

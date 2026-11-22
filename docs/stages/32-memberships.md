@@ -715,6 +715,17 @@ way, or decided what it left open:
   `sellable`), not the behaviour's.
 - **The local-time helper** is shared at `packages/core/src/time/local.ts` (moved unchanged from
   `subscriptions/offers.ts`, with wall clock to instant and an instant's local parts below it).
+- **After the independent review (2026-11-22, before merge; ADRs 0493 and 0494 amended):** the
+  limit stored is the real one (a period over a lowered limit takes no spend); the host refuses a
+  full holder before the batch and a database refusal after is a conflict; a booking repointed to
+  another class, or a class rescheduled, gives its use back and spends again for the new time in
+  one batch, or is refused; whose booking it is cannot change under a use; terms are derived in
+  SQL from the stored record and backfilled by the reconciler; a holder keeps the organisation's
+  zone it was given; a change of period or zone applies from the end of the period running;
+  conditions read only host-filled fields; `paidBy` for holders of other extensions, checked at
+  install; an empty uses is none unless declared; a customer never creates a holder; a Person in
+  the Trash spends nothing and a purge removes their rows; a customer's `allowance.get` shows only
+  what their record does.
 - **Not built here:** the Memberships pack, `recurring.grants`, plan changes and pauses (steps 6
   to 8); a customer booking through a pack's tool is exercised by stage 31's build (the fixture
   proves the host's side for every staff actor, the dry run and a customer's `allowance.get`);

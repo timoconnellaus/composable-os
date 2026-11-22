@@ -49,8 +49,10 @@ export interface AllowanceSpendsOn {
  *
  * - `person`: the relation to the Person whose uses they are. Only that Person's spenders spend
  *   them (a payer who is not the holder pays; the holder spends).
- * - `uses`: a number field, how many uses per period. Empty: unlimited (a use is still written,
- *   so attendance counts).
+ * - `uses`: a number field, how many uses per period. Empty means none, unless the object
+ *   declares `emptyIsUnlimited: true`: then empty is unlimited (a use is still written, so
+ *   attendance counts). Unlimited is always the object's explicit choice, never what a missing
+ *   value falls into.
  * - `per`: `total`, `week` or `month`, or `{ field }`, a select field whose options are those.
  *   Unused uses never carry over: each period starts at nought.
  * - `from`, `until`: date or datetime fields. A spender whose time is before `from` or at or
@@ -61,7 +63,9 @@ export interface AllowanceSpendsOn {
  *   organisation's zone.
  * - `spendsOn`: what it pays for, one or several.
  *
- * None of these fields may be in `customer.write`: a customer does not set their own uses.
+ * None of these fields, nor the holder fields a condition compares with, may be writable by a
+ * customer by any route (`customer.write`, or a tool's `customerFields`): a customer does not set
+ * their own uses.
  */
 export interface AllowanceHolderSpec {
   person: string;
@@ -72,6 +76,7 @@ export interface AllowanceHolderSpec {
   until?: string;
   live?: readonly string[];
   zone?: string;
+  emptyIsUnlimited?: boolean;
 }
 
 /**
@@ -95,6 +100,12 @@ export interface AllowanceHolderSpec {
  *   A record created into a spend state with it set takes the use of the record it names: in the
  *   same batch the host moves that record to `state` (a return state) and spends from the same
  *   holder, so a move never fails for want of a use the member already had.
+ * - `paidBy`: holders of other extensions that may pay for it, by object (`memberships.pass`) or
+ *   by extension (`memberships`). Left out, only this extension's holders. A holder naming a
+ *   spender of another extension that does not list it is refused at install.
+ *
+ * Every field a holder's condition reads must be one the host fills (`copy` or `local`), so no
+ * caller (a customer, staff, an AI) sets what pays for it.
  */
 export interface AllowanceSpenderSpec {
   person: string;
@@ -105,6 +116,7 @@ export interface AllowanceSpenderSpec {
   copy?: Readonly<Record<string, string>>;
   local?: { weekday?: string; minute?: string; zone?: string };
   movedFrom?: { field: string; state: string };
+  paidBy?: readonly string[];
 }
 
 /** The allowance behaviour: an object holds uses or spends them, never both. */
@@ -140,6 +152,7 @@ export const allowanceManifestSchema = z.union([
           until: fieldName.optional(),
           live: z.array(stateValue).min(1).max(20).optional(),
           zone: fieldName.optional(),
+          emptyIsUnlimited: z.boolean().optional(),
         })
         .strict(),
     })
@@ -163,6 +176,7 @@ export const allowanceManifestSchema = z.union([
             .strict()
             .optional(),
           movedFrom: z.object({ field: fieldName, state: stateValue }).strict().optional(),
+          paidBy: z.array(path).min(1).max(20).optional(),
         })
         .strict(),
     })
@@ -181,6 +195,40 @@ export function spendsOnList(
 
 const DATES = new Set(["date", "datetime"]);
 
+/** The fields a spender's host fills: what its holders' conditions may read. */
+export function hostFilledFields(spends: Pick<AllowanceSpenderSpec, "copy" | "local">): string[] {
+  return [
+    ...Object.keys(spends.copy ?? {}),
+    ...(spends.local?.weekday ? [spends.local.weekday] : []),
+    ...(spends.local?.minute ? [spends.local.minute] : []),
+  ];
+}
+
+/**
+ * Whether a spender (of extension `spenderExtension`) lets a holder object pay for it:
+ * `paidBy` names the holder's object or its extension; left out, its own extension's only.
+ */
+export function spenderAllows(
+  spends: Pick<AllowanceSpenderSpec, "paidBy">,
+  spenderExtension: string,
+  holderObject: string,
+): boolean {
+  const holderExtension = holderObject.split(".")[0];
+  if (holderExtension === spenderExtension) return true;
+  return (spends.paidBy ?? []).some((p) => p === holderObject || p === holderExtension);
+}
+
+/** The fields of `object` (local name `name`) a customer can write by any route. */
+export function customerWritable(m: ExtensionManifest, name: string): Set<string> {
+  const object = m.objects[name];
+  const out = new Set(object?.customer?.write ?? []);
+  if (object?.customer?.field) out.add(object.customer.field);
+  for (const tool of Object.values(m.tools ?? {})) {
+    for (const field of tool.customerFields?.[`${m.id}.${name}`] ?? []) out.add(field);
+  }
+  return out;
+}
+
 /** Reports problems with `objects.<name>.allowance` through `contract`. */
 export function checkObjectAllowance(
   m: ExtensionManifest,
@@ -193,7 +241,10 @@ export function checkObjectAllowance(
   const ap = `objects.${name}.allowance`;
   const fieldOf = (o: ObjectManifest, local: string): FieldManifest | undefined =>
     Object.hasOwn(o.fields, local) ? o.fields[local] : undefined;
-  const customerWrites = new Set(object.customer?.write ?? []);
+  const customerWrites = customerWritable(m, name);
+  // A holder's Person is whose record it is: a customer sets it to themselves on create, so it
+  // is not a term they choose; it is checked against the spender's Person, never trusted.
+  if (object.customer?.field) customerWrites.delete(object.customer.field);
   const ownObject = (target: string): [string, ObjectManifest] | undefined => {
     const local = target.startsWith(`${m.id}.`)
       ? target.slice(m.id.length + 1)
@@ -209,7 +260,10 @@ export function checkObjectAllowance(
   );
   const notCustomerWritten = (local: string, p: string, what: string) => {
     if (customerWrites.has(local)) {
-      contract(p, `"${local}" is ${what}, so it cannot be in customer.write`);
+      contract(
+        p,
+        `"${local}" is ${what}, so a customer cannot write it (customer.write or a tool's customerFields)`,
+      );
     }
   };
 
@@ -219,6 +273,11 @@ export function checkObjectAllowance(
     const person = fieldOf(object, h.person);
     if (person?.type !== "relation" || person.many || person.to !== "person") {
       contract(`${hp}.person`, `"${h.person}" must be a relation field (one record) to person`);
+    }
+    // The holder's Person: whose uses they are. Only the customer field itself is set to the
+    // caller by the host; any other person field must not be a customer's to write.
+    if (h.person !== object.customer?.field) {
+      notCustomerWritten(h.person, `${hp}.person`, "whose uses they are");
     }
     const uses = fieldOf(object, h.uses);
     if (uses?.type !== "number" || uses.many) {
@@ -292,7 +351,7 @@ export function checkObjectAllowance(
         contract(`${sp}.object`, `${spenderName} must declare allowance.spends`);
         return;
       }
-      const spenderWrites = new Set(spender.customer?.write ?? []);
+      const filledBy = new Set(hostFilledFields(spender.allowance.spends));
       (target.when ?? []).forEach((clause, j) => {
         const cp = `${sp}.when.${j}`;
         const ops = (["in", "atLeast", "below"] as const).filter((k) => clause[k] !== undefined);
@@ -302,10 +361,10 @@ export function checkObjectAllowance(
         const field = fieldOf(spender, clause.field);
         if (!field || field.type === "formula") {
           contract(`${cp}.field`, `"${clause.field}" must be a field of ${spenderName}`);
-        } else if (spenderWrites.has(clause.field)) {
+        } else if (!filledBy.has(clause.field)) {
           contract(
             `${cp}.field`,
-            `"${clause.field}" is in ${spenderName}'s customer.write, so a customer could set what pays for it`,
+            `"${clause.field}" must be a field ${spenderName}'s host fills (its copy or local), so no caller sets what pays for it`,
           );
         }
         if (typeof clause.in === "string" && !fieldOf(object, clause.in)) {
@@ -409,9 +468,17 @@ export function checkObjectAllowance(
         if (field && field.type !== "timezone") {
           contract(`${sp}.local.zone`, `"${s.local.zone}" must be a timezone field`);
         }
-      } else if (fieldOf(object, s.local.zone)?.type !== "timezone") {
-        contract(`${sp}.local.zone`, `"${s.local.zone}" must be a timezone field of ${name}`);
+      } else {
+        if (fieldOf(object, s.local.zone)?.type !== "timezone") {
+          contract(`${sp}.local.zone`, `"${s.local.zone}" must be a timezone field of ${name}`);
+        }
+        notCustomerWritten(s.local.zone, `${sp}.local.zone`, "the zone its local time is read in");
       }
+    }
+  }
+  for (const [i, payer] of (s.paidBy ?? []).entries()) {
+    if (!/^[a-z][a-z0-9]{1,29}(\.[a-z][a-z0-9]{0,29})?$/.test(payer)) {
+      contract(`${sp}.paidBy.${i}`, `"${payer}" must be an extension id or <extension>.<object>`);
     }
   }
   if (s.movedFrom) {

@@ -100,6 +100,8 @@ type Why = (typeof WHY)[keyof typeof WHY];
 const REMAINING: Record<string, [reads: number, why: Why]> = {
   "ai/embedding.ts": [9, WHY.org],
   "ai/summaries.ts": [16, WHY.later],
+  // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
+  "allowance/records.ts": [1, WHY.write],
   "assistant/memory.ts": [2, WHY.later],
   "assistant/producers.ts": [5, WHY.sql],
   "assistant/routine-backtest.ts": [1, WHY.sql],
@@ -110,6 +112,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "duplicates/check.ts": [5, WHY.write],
   "duplicates/rules.ts": [9, WHY.write],
   "duplicates/scan.ts": [10, WHY.org],
+  // Stage 32b (ADR 0493): a holder's view joins its allowance numbers (view DDL, not a read).
+  "extensions/schema.ts": [1, WHY.part],
   "entitlements.ts": [2, WHY.org],
   "filter.ts": [1, WHY.part],
   "integrations/outbound-check.ts": [2, WHY.org],

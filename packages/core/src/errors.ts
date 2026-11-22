@@ -246,6 +246,7 @@ export function toOperationError(error: unknown): OperationError {
 /** Why a holder could not pay for a spender. */
 export type AllowanceRefusalReason =
   | "no_uses_left"
+  | "spent_meanwhile"
   | "not_theirs"
   | "not_live"
   | "not_yet_valid"
@@ -268,6 +269,7 @@ const ALLOWANCE_REFUSED = /core_allowance_refused (\{[^{}]*\})/;
 
 const ALLOWANCE_MESSAGES: Record<AllowanceRefusalReason, string> = {
   no_uses_left: "No uses left in this period",
+  spent_meanwhile: "Another booking took the last use at the same moment. Try again",
   not_theirs: "That pass or membership is not this person's",
   not_live: "That pass or membership cannot be used now (paused, ended or void)",
   not_yet_valid: "That pass or membership is not valid yet at this time",
@@ -286,6 +288,7 @@ export function allowanceMessage(details: AllowanceRefusalDetails): string {
 
 /** The error for a batch the allowance rule refused, or null when it failed for another reason. */
 export function allowanceRefusal(error: unknown): ValidationError | ConflictError | null {
+  if (error instanceof OperationError) return null;
   const message = error instanceof Error ? error.message : String(error);
   const match = ALLOWANCE_REFUSED.exec(message);
   if (match) {
@@ -305,13 +308,15 @@ export function allowanceRefusal(error: unknown): ValidationError | ConflictErro
       ...(typeof payload.used === "number" ? { used: payload.used } : {}),
       ...(typeof payload.at === "string" ? { at: payload.at } : {}),
     };
+    // The host refuses a spend it can see will not fit before the batch; one the database
+    // refused past the limit was raced by another spend in between: try again (ADR 0494).
+    if (details.reason === "no_uses_left") {
+      return new ConflictError(
+        "Another booking took the last use at the same moment, so nothing was changed. Try again.",
+        { ...details, reason: "spent_meanwhile" },
+      );
+    }
     return new ValidationError(allowanceMessage(details), { ...details });
-  }
-  if (message.includes("core_allowance_within_uses")) {
-    return new ValidationError("No uses left in this period", {
-      rule: "allowance",
-      reason: "no_uses_left",
-    });
   }
   if (message.includes("UNIQUE constraint failed: core_allowance_use.spender_type")) {
     return new ConflictError(

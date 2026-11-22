@@ -1,7 +1,9 @@
 // trash.* operations: what is in Trash (soft-deleted people, organisations, activities and tasks)
 // and the scheduled purge that hard-deletes them once their 30-day restore window has passed.
+
 import { type SqlBool, sql } from "kysely";
 import { z } from "zod";
+import { queueEraseAllowances } from "../allowance/people.ts";
 import { ValidationError } from "../errors.ts";
 import { mediaObject } from "../fields/media.ts";
 import { decodeCursor, encodeCursor } from "../list.ts";
@@ -247,6 +249,11 @@ export const trashPurge = defineOperation({
         );
       }
     }
+    // A purged Person's passes' and memberships' uses go as an erased Person's do (ADR 0494).
+    queueEraseAllowances(
+      ctx,
+      purged.filter((r) => r.object === "person").map((r) => r.id),
+    );
     // Duplicate pairs have no foreign key: a purged record's pairs (dismissed ones too) go with it.
     for (const object of ["person", "organisation"] as const) {
       const ids = purged.filter((r) => r.object === object).map((r) => r.id);

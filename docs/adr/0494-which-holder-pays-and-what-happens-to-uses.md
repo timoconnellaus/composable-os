@@ -71,3 +71,26 @@ Memberships pack's pass type, `sellable`'s purchase), with the same shape as the
   membership's use first while one is left, then the pack, so no weekly use is wasted.
 - A member who wants their pack spent instead names it.
 - An erased member's past attendance no longer counts in "uses spent per week".
+
+## Amended 2026-11-22, after the independent review (before merge)
+
+- **The terms row is derived from the stored record** in SQL, queued after the record's own write
+  in every batch, so two writes to different fields of a holder at once both land in it; and the
+  reconciler derives it again for every record of a holder object at each install or change of the
+  declaration (a holder made before its object declared the behaviour, or other live states).
+- **Zones.** A holder with a zone field of its own counts in it. One without is given the
+  organisation's zone when its terms are first written and keeps it: a later change of the
+  organisation's setting does not move it (its periods would otherwise change meaning under its
+  spent uses). To move a holder to another zone, staff set its zone field.
+- **A change of period or zone** (a holder's `per` or zone field) applies from the end of the
+  period running when it was made (now, for a total): before then spends are counted the old way,
+  so the week running keeps its count; uses already spent for times from then are moved to their
+  new periods in the change's batch, even past their limit, as a lowered limit leaves them.
+- **Limit changes** apply the real new limit to current and future periods (see ADR 0493's
+  amendment): a period over it accepts no spend until it is back under.
+- **Which holder**: after precedence, the first covering holder with room by its period's own
+  numbers; when none has room, `no_uses_left` with the first's numbers.
+- **A customer's `allowance.get`** returns only the terms whose fields the holder's `customer.read`
+  lists (never the Person), and the period's numbers; an object that is not a holder, or that they
+  cannot read, is not found exactly as another's record is. A refusal reaches a customer as its
+  reason in words, with the numbers only for no uses left, and never a record id.

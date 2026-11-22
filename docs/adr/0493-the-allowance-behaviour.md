@@ -100,3 +100,51 @@ local parts, which the periods use and stage 31 can.
   counted where it was spent (stage 31's series changes ask staff before moving booked classes).
 - `cos ext test`'s harness does not simulate the behaviour; a pack's allowance is tested against
   the host.
+
+## Amended 2026-11-22, after the independent review (before merge)
+
+- **The limit is the real limit.** A period's counter stores the holder's limit as it is, never
+  raised to what was spent. A limit lowered below what a period spent leaves the period over it, and
+  the database then refuses every spend until gives-back bring it under (the trigger refuses any
+  rise of `used` past the limit; the CHECK that forced the limit up is gone). The host refuses a
+  spend when every holder that covers it is full, with the period's real numbers, before the batch,
+  in the real run and the dry run alike; a refusal by the database after the host saw room is a
+  race and is answered as a conflict to try again (`spent_meanwhile`). The host reads a period's
+  own limit (a past period keeps the limit it had), and passes to the next covering holder with room.
+- **What a spender points at changes under a use** (its `at` relation, a `copy` or `local.zone`
+  relation, or an own `at` or zone field): in the same batch the use is given back and spent again
+  for the new target under every rule, from the same holder if it still pays and has room,
+  otherwise as the host chooses; if nothing can pay, the whole update is refused and nothing moves.
+  The new use records the one it replaced (`moved_from`). **A class rescheduled** follows the same
+  rule from the class's side: when a record that spenders read their time or copies from changes
+  those fields, each spender holding a use gives it back and spends again for the class as the
+  write leaves it, in the class's batch, and its copied and local values are written again. A
+  booking moved across a week or month boundary so has its use counted in the new week or month;
+  if any booking can no longer be paid there (no use left, its pass ended, not covered), the
+  reschedule is refused naming that booking, so staff move or cancel it first. This replaces the
+  consequence above ("does not move its use to another period").
+- **Whose spender it is** cannot change while it holds a use, as its holder cannot.
+- **A holder named on a write that does not spend** is checked then (the spender's Person's own) and
+  refused otherwise; when the spender later enters a spend state, the stored holder is the one spent.
+- **Conditions read only host-filled fields**: every field a condition reads must be a `copy` or
+  `local` field of the spender, which no caller sets, the extension's own code and staff included
+  (the record code refuses them to everyone but the host). A holder's terms, its Person (other than
+  its customer field) and the holder fields its conditions compare with are never customer-writable,
+  by `customer.write` or a tool's `customerFields`. An empty `uses` is none unless the holder object
+  declares `emptyIsUnlimited: true`. A customer never creates a holder.
+- **Across extensions**, a spender declares `paidBy` (holder objects or extensions); left out, only
+  its own extension's holders pay for it. The host checks a holder naming another extension's
+  spender at install and `cos ext check` (`allowance/check.ts`): the spender must exist, allow it,
+  and fill every field its conditions read; and a spender's `at`, `copy` and `local.zone` one
+  relation away into another extension or a core object must exist with the right type. A spend
+  finds only holders whose object the spender allows.
+- **A spender with no return state** may go to the Trash; its use is kept (it gives nothing back).
+- **A Person in the Trash** spends nothing (the use's trigger checks the Person); purged, their
+  allowance rows go as an erased Person's do.
+- **For stage 31's build:** the transition engine has no time windows yet, so a customer move into
+  a `returnIn` state gives the use back whenever it is made, even after the class. The Bookings pack
+  must not ship a customer cancel until the windows exist (a cancel limited to before the class's
+  "late from" moment); until then cancels that return a use are staff's.
+- **Cost of a spend**: one indexed query of the Person's holders' terms (`core_allowance` by Person
+  and object), one read by id per holder for its conditions, one counter read per holder by its
+  primary key, the spender's open use by its partial unique index; bounded by the Person's holders.
