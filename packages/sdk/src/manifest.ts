@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { automationManifestSchema } from "./automation.ts";
 import { checkAutomation } from "./automation-check.ts";
+import { allowanceManifestSchema, checkObjectAllowance } from "./allowance.ts";
 import { checkObjectBehaviour } from "./behaviour.ts";
 import { capacityManifestSchema, checkObjectCapacity } from "./capacity.ts";
 import {
@@ -192,6 +193,7 @@ export const objectManifestSchema = z.object({
   stages: stagesManifestSchema.optional(),
   capacity: capacityManifestSchema.optional(),
   sellable: sellableManifestSchema.optional(),
+  allowance: allowanceManifestSchema.optional(),
   states: statesManifestSchema.optional(),
   owner: z.string().max(40).optional(),
   customer: z
@@ -972,6 +974,7 @@ export function validateManifest(
     checkObjectBehaviour(m, name, object, contract);
     checkObjectCapacity(m, name, object, contract);
     checkObjectSellable(m, name, object, contract);
+    checkObjectAllowance(m, name, object, contract);
     checkObjectStates(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
       for (const field of group) {

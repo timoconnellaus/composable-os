@@ -1025,6 +1025,53 @@ export interface CoreCapacityClaimTable {
 }
 export type CapacityClaimState = "held" | "confirmed" | "released";
 
+/** Migration 0533 (stage 32b, ADR 0493): an allowance holder's terms, kept from its record. */
+export interface CoreAllowanceTable {
+  object_type: string;
+  record_id: string;
+  person_id: string | null;
+  /** Null: unlimited. */
+  uses: number | null;
+  per: AllowancePer;
+  zone: string;
+  valid_from: string | null;
+  valid_until: string | null;
+  live: number;
+  trashed: Defaulted<number>;
+  updated_at: string;
+}
+export type AllowancePer = "total" | "week" | "month";
+
+/** Migration 0533: a holder's count of uses in one period, refused past its limit. */
+export interface CoreAllowancePeriodTable {
+  object_type: string;
+  record_id: string;
+  period: string;
+  per: AllowancePer;
+  starts_at: string;
+  ends_at: string;
+  uses: number | null;
+  used: Defaulted<number>;
+  updated_at: string;
+}
+
+/** Migration 0533: one use a spender spent from a holder, and when it was given back. */
+export interface CoreAllowanceUseTable {
+  id: string;
+  object_type: string;
+  record_id: string;
+  period: string;
+  spender_type: string;
+  spender_id: string;
+  person_id: string;
+  at: string;
+  spent_at: string;
+  spent_by: "staff" | "customer" | "host";
+  returned_at: Defaulted<string | null>;
+  returned_by: Defaulted<"staff" | "customer" | "host" | null>;
+  moved_from: Defaulted<string | null>;
+}
+
 /** Migration 0310 (ADR 0246): an assignment rule, ordered per object. */
 export interface CoreAssignmentRuleTable {
   id: string;
@@ -2302,6 +2349,9 @@ export interface CoreDatabase {
   core_native_sign_in_confirm: CoreNativeSignInConfirmTable;
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
+  core_allowance: CoreAllowanceTable;
+  core_allowance_period: CoreAllowancePeriodTable;
+  core_allowance_use: CoreAllowanceUseTable;
   core_publish_version: CorePublishVersionTable;
   core_publish_schedule: CorePublishScheduleTable;
   core_slug_redirect: CoreSlugRedirectTable;

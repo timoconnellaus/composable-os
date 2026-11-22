@@ -5,6 +5,7 @@
 export { z } from "zod";
 export * from "./automation.ts";
 export * from "./automation-check.ts";
+export * from "./allowance.ts";
 export * from "./capacity.ts";
 export * from "./contract.ts";
 export * from "./document.ts";

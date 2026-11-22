@@ -2,6 +2,7 @@
 // built from it, and the rec_* view SQL generated from it (ADR 0023, ADR 0024).
 import type { CoreDatabase } from "@composable-os/db";
 import {
+  type AllowanceManifest,
   type CapacityManifest,
   type DocumentSchema,
   documentJsonPath,
@@ -13,6 +14,7 @@ import {
   formulaTypeOf,
   isDocumentType,
   type SellableManifest,
+  spendsOnList,
   type StagesManifest,
   type StatesManifest,
 } from "@composable-os/sdk";
@@ -64,6 +66,7 @@ export interface ObjectDefinitionJson {
   stages?: StagesManifest;
   capacity?: CapacityManifest;
   sellable?: SellableManifest;
+  allowance?: AllowanceManifest;
   states?: StatesManifest;
   owner?: string;
   /** The object's customer (ADR 0402), as declared. */
@@ -373,6 +376,13 @@ export function buildViews(state: SchemaState): ViewBuild {
       columns.push(...published.columns);
       joins.push(...published.joins);
     }
+    const allowance = object.definition.allowance;
+    if (allowance && "holds" in allowance) {
+      const uses = own.find((f) => f.localName === allowance.holds.uses)?.columnName;
+      const held = allowanceView(object.name, uses ? `t.${ident(uses)}` : "NULL");
+      columns.push(...held.columns);
+      joins.push(...held.joins);
+    }
     build.creates.push(
       `CREATE VIEW ${view} AS SELECT ${columns.join(", ")} FROM ${ident(object.tableName)} t${joins.length ? ` ${joins.join(" ")}` : ""} WHERE t.deleted_at IS NULL`,
     );
@@ -468,6 +478,25 @@ function capacityView(object: string): { joins: string[]; columns: string[] } {
       `coalesce(cap.held, 0) AS ${CAPACITY_COLUMNS.held}`,
       `coalesce(cap.taken, 0) AS ${CAPACITY_COLUMNS.taken}`,
       `CASE WHEN cap.places IS NULL AND capp.places IS NULL THEN NULL WHEN capp.places IS NULL THEN ${left("cap")} WHEN cap.places IS NULL THEN ${left("capp")} ELSE min(${left("cap")}, ${left("capp")}) END AS ${CAPACITY_COLUMNS.available}`,
+    ],
+  };
+}
+
+/**
+ * The allowance values of a holder's view (stage 32b, ADR 0493): uses spent in the current period
+ * and uses left now, from its terms row and the period containing the database's clock. A holder
+ * written before its object declared the behaviour has no terms row until its next write or spend:
+ * it shows its own uses field, nothing spent.
+ */
+function allowanceView(object: string, usesColumn: string): { joins: string[]; columns: string[] } {
+  const name = `'${object.replaceAll("'", "''")}'`;
+  const now = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+  const used = `coalesce((SELECT p.used FROM core_allowance_period p WHERE p.object_type = alw.object_type AND p.record_id = alw.record_id AND p.per = alw.per AND p.starts_at <= ${now} AND p.ends_at > ${now} LIMIT 1), 0)`;
+  return {
+    joins: [`LEFT JOIN core_allowance alw ON alw.object_type = ${name} AND alw.record_id = t.id`],
+    columns: [
+      `${used} AS ${ALLOWANCE_COLUMNS.used}`,
+      `CASE WHEN alw.record_id IS NULL THEN CASE WHEN typeof(${usesColumn}) IN ('integer', 'real') THEN max(CAST(${usesColumn} AS INTEGER), 0) END WHEN alw.live = 0 OR alw.trashed = 1 OR (alw.valid_from IS NOT NULL AND alw.valid_from > ${now}) OR (alw.valid_until IS NOT NULL AND alw.valid_until <= ${now}) THEN 0 WHEN alw.uses IS NULL THEN NULL ELSE max(alw.uses - ${used}, 0) END AS ${ALLOWANCE_COLUMNS.left}`,
     ],
   };
 }
@@ -638,6 +667,70 @@ export const CAPACITY_FIELDS: readonly FieldDefinition[] = [
     description: "Places left (the record's and its pool's, whichever is fewer). Empty: unlimited.",
   },
 ];
+
+/** View columns of the allowance values: no declared field's column can start with `_`. */
+export const ALLOWANCE_COLUMNS = { used: "_alw_used", left: "_alw_left" } as const;
+
+/** The read-only allowance values on every record of a holder object (ALLOWANCE_VALUES). */
+export const ALLOWANCE_FIELDS: readonly FieldDefinition[] = [
+  {
+    name: "used",
+    label: "Used",
+    type: "number",
+    column: ALLOWANCE_COLUMNS.used,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "Uses spent in the current period (this week, this month, or in all).",
+  },
+  {
+    name: "left",
+    label: "Left",
+    type: "number",
+    column: ALLOWANCE_COLUMNS.left,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "Uses that can be spent now in the current period. Empty: unlimited.",
+  },
+];
+
+/** The allowance declaration with registry field names, or undefined (ADR 0493). */
+function allowanceDefinition(object: ObjectState): ObjectDefinition["allowance"] {
+  const declared = object.definition.allowance;
+  if (!declared) return undefined;
+  const qualify = (target: string) =>
+    target.includes(".") ? target : `${object.extensionId}.${target}`;
+  if ("holds" in declared) {
+    const h = declared.holds;
+    return {
+      kind: "holder",
+      person: h.person,
+      uses: h.uses,
+      per: typeof h.per === "string" ? { fixed: h.per } : { field: h.per.field },
+      spendsOn: spendsOnList(h).map((s) => ({
+        object: qualify(s.object),
+        when: (s.when ?? []).map((c) => ({ ...c })),
+      })),
+      ...(h.from ? { from: h.from } : {}),
+      ...(h.until ? { until: h.until } : {}),
+      live: h.live ? [...h.live] : null,
+      ...(h.zone ? { zone: h.zone } : {}),
+    };
+  }
+  const sp = declared.spends;
+  return {
+    kind: "spender",
+    person: sp.person,
+    holder: sp.holder,
+    spendIn: [...sp.spendIn],
+    returnIn: [...sp.returnIn],
+    ...(sp.at ? { at: sp.at } : {}),
+    copy: { ...(sp.copy ?? {}) },
+    local: { ...(sp.local ?? {}) },
+    ...(sp.movedFrom ? { movedFrom: { ...sp.movedFrom } } : {}),
+  };
+}
 
 /** The capacity declaration with registry field names, or undefined. */
 function capacityDefinition(object: ObjectState, own: FieldState[]): ObjectDefinition["capacity"] {
@@ -851,6 +944,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     );
     const capacity = capacityDefinition(object, own);
     const sellable = sellableDefinition(object, own);
+    const allowance = allowanceDefinition(object);
     const publishable = object.definition.publishable;
     const fields = [
       ...SYSTEM_FIELDS,
@@ -858,6 +952,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...foreign.map((f) => registryField(f, object.name)),
       ...[...own, ...foreign].flatMap((f) => documentPathFields(f, object.name)),
       ...(capacity ? CAPACITY_FIELDS : []),
+      ...(allowance?.kind === "holder" ? ALLOWANCE_FIELDS : []),
       ...(publishable ? PUBLISHED_FIELDS : []),
     ];
     map.set(object.name, {
@@ -878,6 +973,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.stages ? { stages: object.definition.stages } : {}),
       ...(capacity ? { capacity } : {}),
       ...(sellable ? { sellable } : {}),
+      ...(allowance ? { allowance } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),

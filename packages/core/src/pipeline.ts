@@ -42,6 +42,8 @@ import { checkOutsideRateLimit } from "./customers/limits.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
 import { diffRecords, type FieldDiff } from "./diff.ts";
 import {
+  type AllowanceRefusalDetails,
+  allowanceMessage,
   ConflictError,
   ForbiddenError,
   GateDeniedError,
@@ -1497,6 +1499,21 @@ function outsideError(error: unknown): OperationError {
     (typed.details as { rule?: unknown })?.rule === "capacity"
   ) {
     return new ValidationError("There are not enough places left", { rule: "capacity" });
+  }
+  // A use the database refused (stage 32b, ADR 0493): the member is told why and, for their own
+  // pass or membership, how many of its uses are spent; never which record refused it, since a
+  // holder that is not theirs is someone else's.
+  if (typed.code === "invalid_input" && (typed.details as { rule?: unknown })?.rule === "allowance") {
+    const { reason, period, uses, used } = typed.details as AllowanceRefusalDetails;
+    const details: AllowanceRefusalDetails = {
+      rule: "allowance",
+      reason,
+      ...(reason === "no_uses_left" ? { period, uses, used } : {}),
+    };
+    return new ValidationError(allowanceMessage(details), details);
+  }
+  if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "allowance") {
+    return typed;
   }
   // A free trial another start took a moment before (migration 0531, ADR 0489): the caller's own
   // start, so they are told to start again (which gives them that page), and no more than that.

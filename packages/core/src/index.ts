@@ -49,9 +49,17 @@ export * from "./automations/simulate.ts";
 export * from "./automations/sources.ts";
 export * from "./automations/summary.ts";
 export * from "./automations/types.ts";
+export * from "./allowance/index.ts";
+export {
+  assertSpenderDeletable,
+  holderTerms,
+  type SpenderOutcome,
+  spenderWrite,
+} from "./allowance/records.ts";
 export * from "./capacity/holds.ts";
 export * from "./capacity/index.ts";
 export * from "./capacity/records.ts";
+export * from "./local-time.ts";
 export {
   CONTENT_CACHE_SECONDS,
   type ContentCacheStore,

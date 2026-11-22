@@ -72,6 +72,8 @@ export const ID_PREFIXES = {
   deviceSession: "dvs",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */
   capacityClaim: "clm",
+  /** A use spent from an allowance holder by a spender (stage 32b, ADR 0493). */
+  allowanceUse: "alu",
   /** An invite for a staff account (ADR 0455). */
   userInvite: "uin",
   // Stage 28 (ADR 0444): a picture of the media library.

@@ -20,6 +20,7 @@ import {
   type ObjectManifest,
 } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely } from "kysely";
+import { dropAllowanceStatements } from "../allowance/index.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import { ORG_TIMEZONE_SETTING } from "../settings.ts";
@@ -182,6 +183,7 @@ export function planFromState(
       ...(object.stages ? { stages: object.stages } : {}),
       ...(object.capacity ? { capacity: object.capacity } : {}),
       ...(object.sellable ? { sellable: object.sellable } : {}),
+      ...(object.allowance ? { allowance: object.allowance } : {}),
       ...(object.states ? { states: object.states } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),
@@ -718,6 +720,13 @@ export async function planDropHidden(
   const capacityDrops = droppedObjects
     .filter((o) => o.definition.capacity)
     .flatMap((o) => dropCapacityStatements(o.name));
+  // A dropped holder's terms, periods and uses go with its table; a dropped spender's open uses
+  // are given back first (ADR 0493).
+  const allowanceDrops = droppedObjects.flatMap((o) => {
+    const declared = o.definition.allowance;
+    if (!declared) return [];
+    return dropAllowanceStatements(o.name, "holds" in declared ? "holder" : "spender", options.now);
+  });
   // What orders granted of a dropped object goes with its table (ADR 0435): the orders stay.
   const granted = new Set(
     current.objects.flatMap((o) => {
@@ -734,7 +743,7 @@ export async function planDropHidden(
     current,
     next,
     tableDdl,
-    [...capacityDrops, ...grantDrops],
+    [...capacityDrops, ...allowanceDrops, ...grantDrops],
     changes,
     [],
   );
