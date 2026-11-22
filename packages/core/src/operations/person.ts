@@ -1,9 +1,11 @@
 // person.* operations. The reference implementation of the operation pattern: read with ctx.db,
 // queue writes with ctx.write, record before/after snapshots with ctx.recordChange, and return
 // the record (reading it after commit where that is simpler). See ../../README.md.
+
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
+import { queueMergeAllowances } from "../allowance/people.ts";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { queueMergeCustomers } from "../customers/merge.ts";
 import { checkPerson } from "../duplicates/check.ts";
@@ -1114,6 +1116,8 @@ export const personMerge = defineOperation({
     // Orders, subscriptions, their checkouts and trials follow the Person (stage 32a, #221).
     queueMergeOrders(ctx, survivor.id, merged.id);
     await queueMergeSubscriptions(ctx, survivor.id, merged.id);
+    // Passes' and memberships' terms and uses follow the Person too (stage 32b, ADR 0494).
+    queueMergeAllowances(ctx, survivor.id, merged.id);
 
     const emailSet = new Set(survivor.emails.map((e) => e.email));
     after.emails = [

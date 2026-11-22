@@ -1,13 +1,44 @@
-// Wall clocks and instants in a time zone (ADR 0493; stage 31 uses it too). A wall-clock time in a
-// zone (06:00 in Australia/Sydney on a date) is turned into the instant it names, across a change
-// of clocks; an instant is read back as its zone's date, weekday and minute of the day.
+// Wall clocks and instants in a time zone. The first part (the zone's offset, a real wall clock)
+// was private to subscriptions/offers.ts (`paidUpMoment`) and is moved here unchanged, shared with
+// stage 31's timetable; below it, what the allowance's periods need (stage 32b, ADR 0493).
+
+/** The offset of `timeZone` from UTC at `at`, in milliseconds. */
+export function zoneOffset(at: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(at));
+  const n = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute"), n("second")) - at;
+}
+
+/** Whether these are a real day and time (no 30 February, no 24:00), checked by a round trip. */
+export function realWallClock(y: number, m: number, d: number, h = 0, mi = 0, s = 0): boolean {
+  const at = new Date(Date.UTC(y, m - 1, d, h, mi, s));
+  return (
+    at.getUTCFullYear() === y &&
+    at.getUTCMonth() === m - 1 &&
+    at.getUTCDate() === d &&
+    at.getUTCHours() === h &&
+    at.getUTCMinutes() === mi &&
+    at.getUTCSeconds() === s
+  );
+}
+
+// --- Wall clocks to instants and back (stage 32b, ADR 0493) --------------------------------------
 //
-// The rules where a wall clock is not one instant:
+// A wall-clock time in a zone (06:00 in Australia/Sydney on a date) is turned into the instant it
+// names, across a change of clocks; an instant is read back as its zone's date, weekday and minute
+// of the day. Where a wall clock is not one instant:
 //   - a time that does not exist (02:30 on the morning clocks go forward) moves forward by the
 //     gap: it is read with the offset in force before the change (03:30 after it);
 //   - a time that happens twice (01:30 on the morning clocks go back) is the first of the two.
-//
-// It was private to subscriptions/offers.ts (`paidUpMoment`), which now uses it from here.
 
 const offsetFormatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -83,26 +114,6 @@ export function localParts(at: number | Date | string, timeZone: string): LocalP
     date: `${year}-${pad(month)}-${pad(day)}`,
     minuteOfDay: hour * 60 + minute,
   };
-}
-
-/** The offset of `timeZone` from UTC at the instant `at`, in milliseconds. */
-export function zoneOffset(at: number, timeZone: string): number {
-  const p = localParts(at, timeZone);
-  const wall = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
-  return wall - (at - (((at % 1000) + 1000) % 1000));
-}
-
-/** Whether these are a real day and time (no 30 February, no 24:00), checked by a round trip. */
-export function realWallClock(y: number, m: number, d: number, h = 0, mi = 0, s = 0): boolean {
-  const at = new Date(Date.UTC(y, m - 1, d, h, mi, s));
-  return (
-    at.getUTCFullYear() === y &&
-    at.getUTCMonth() === m - 1 &&
-    at.getUTCDate() === d &&
-    at.getUTCHours() === h &&
-    at.getUTCMinutes() === mi &&
-    at.getUTCSeconds() === s
-  );
 }
 
 const HOUR = 3_600_000;

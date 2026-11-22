@@ -2,6 +2,116 @@
   "version": "v1",
   "operations": [
     {
+      "name": "allowance.get",
+      "description": "How many uses a pass, membership or other allowance holder has spent and has left, in the period containing `at` (default now): this week or month (from Monday, or the 1st, in its time zone), or in all for a pass of N. Also its uses per period (null is unlimited), whether it can be spent (live), and the dates it is valid between. A signed-in customer reads their own only; anyone else's is not found. Read-only: uses are spent by booking.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81,
+            "description": "An extension object that holds an allowance"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "at": {
+            "description": "The time to read the period of (a class's start), ISO 8601; default now",
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": ["string", "null"]
+          },
+          "uses": {
+            "description": "Uses per period; null is unlimited",
+            "type": ["number", "null"]
+          },
+          "per": {
+            "type": "string",
+            "enum": ["total", "week", "month"]
+          },
+          "zone": {
+            "type": "string",
+            "description": "The time zone weeks and months are counted in"
+          },
+          "validFrom": {
+            "type": ["string", "null"]
+          },
+          "validUntil": {
+            "description": "A spender's time must be before this",
+            "type": ["string", "null"]
+          },
+          "live": {
+            "type": "boolean",
+            "description": "Its state lets it be spent (not paused, used up, ended or void)"
+          },
+          "at": {
+            "type": "string",
+            "description": "The time the period was read for"
+          },
+          "period": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "total, week:<Monday's local date> or month:<YYYY-MM>"
+              },
+              "startsAt": {
+                "type": "string"
+              },
+              "endsAt": {
+                "type": "string"
+              },
+              "used": {
+                "type": "number"
+              },
+              "left": {
+                "description": "Uses that can still be spent in it; 0 when the holder cannot pay then, null when unlimited",
+                "type": ["number", "null"]
+              }
+            },
+            "required": ["key", "startsAt", "endsAt", "used", "left"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "personId",
+          "uses",
+          "per",
+          "zone",
+          "validFrom",
+          "validUntil",
+          "live",
+          "at",
+          "period"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "capacity.get",
       "description": "How many places a record of an object with a capacity has left (a ticket type, a class). Staff get places, held (while someone pays), taken (paid), available, and the pool's numbers when the record draws on a parent's places. Customers and the public get only what the object shows: the number left, a low-stock warning, or available / sold out. Read-only; claims nothing.",
       "risk": "read",

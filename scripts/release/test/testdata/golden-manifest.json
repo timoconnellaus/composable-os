@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 532,
+  "coreSchemaVersion": 533,
   "extensionContract": {
     "supported": [
       1
@@ -518,6 +518,10 @@
     {
       "name": "0532_subscription_offers.sql",
       "sha256": "ecc7c62564d11d3e634877c0175a3556053d5b0c2f540abbef4a0ce2ad306863"
+    },
+    {
+      "name": "0533_allowances.sql",
+      "sha256": "0a940ddde359e76faaad82b5b903f4e38f2a7e0b7752dd826ad0910308b614f1"
     }
   ],
   "product": "crm",

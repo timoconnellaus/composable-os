@@ -24,11 +24,11 @@ import {
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { AllowanceDefinition, ObjectDefinition } from "../fields/types.ts";
-import { localParts } from "../local-time.ts";
 import type { HandlerContext, RecordRef } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import type { Mover, TransitionOutcome } from "../records/transitions.ts";
 import { loadGeneralSettings } from "../settings.ts";
+import { localParts } from "../time/local.ts";
 import {
   type AllowanceTerms,
   returnStatements,
@@ -460,7 +460,8 @@ export async function spenderWrite(
     .filter((p): p is string => typeof p === "string" && p.includes("."))
     .map((p) => p.split(".")[0] as string);
   const relationChanged = reads.some(
-    (rel) => Object.hasOwn(written, rel) && String(written[rel] ?? "") !== String(before?.[rel] ?? ""),
+    (rel) =>
+      Object.hasOwn(written, rel) && String(written[rel] ?? "") !== String(before?.[rel] ?? ""),
   );
   const fillCopies = before === null || entering || relationChanged;
   const open = before === null ? null : await openUse(ctx, ref);
@@ -517,20 +518,10 @@ export async function spenderWrite(
     }
     movedFrom = await openUse(ctx, { object: object.name, id: fromId });
     if (!recordUpdate) throw new Error("allowance: the record writer is not set");
-    await recordUpdate(
-      ctx,
-      object,
-      fromId,
-      { [object.states.field]: def.movedFrom.state },
-      { by },
-    );
+    await recordUpdate(ctx, object, fromId, { [object.states.field]: def.movedFrom.state }, { by });
   }
 
-  const named = holderWritten
-    ? String(written[def.holder])
-    : movedFrom
-      ? movedFrom.record
-      : null;
+  const named = holderWritten ? String(written[def.holder]) : movedFrom ? movedFrom.record : null;
   const candidates = await holdersOf(ctx, object, person);
   const at = read.at;
   let chosen: Candidate;
@@ -538,7 +529,9 @@ export async function spenderWrite(
   if (named) {
     const candidate = candidates.find((c) => c.id === named);
     if (!candidate) {
-      const anyone = listObjects().some((o) => holderOf(o)?.spendsOn.some((s) => s.object === object.name));
+      const anyone = listObjects().some((o) =>
+        holderOf(o)?.spendsOn.some((s) => s.object === object.name),
+      );
       throw refusal({ rule: "allowance", reason: anyone ? "not_theirs" : "no_holder" });
     }
     const reason = cannotPay(candidate, object, spenderValues, at);

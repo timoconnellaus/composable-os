@@ -674,6 +674,52 @@ check above. Where the build read the spec one way, or decided what it left open
   runbook is for the owner. Updating live subscriptions when tax is turned on (the spec's guess,
   left in steps 1 and 2) is still not built.
 
+## Built: 32b step 5 (2026-11-22)
+ADRs [0493](../adr/0493-the-allowance-behaviour.md) (the behaviour: declarations, spending on a
+move, the period of the spender's time, the limit in the database, moving a use) and
+[0494](../adr/0494-which-holder-pays-and-what-happens-to-uses.md) (which holder pays, and uses when
+a holder ends, pauses, is voided, trashed or changes its limit, and when its Person is merged or
+erased), migration 0533. Proved with a fixture extension in `packages/core/test/allowance.test.ts`
+(a class, a pass, a weekly membership and a visit that spends). Where the build read the spec one
+way, or decided what it left open:
+
+- **The declaration's shape.** `allowance: { holds }` or `allowance: { spends }`. The spec's `per`
+  may also be a select field (a membership plan's period varies by record). `spendsOn` may list
+  several spender objects (classes now, 31b's appointments later). The spender's holder is a text
+  field holding the holder's id, not a relation, because a booking may be paid by a membership or a
+  pass (two objects); the host checks it.
+- **Spend and give-back** are on a move into the spender's declared states (stage 31's amendment
+  1), never only on create; every other move keeps the use. A spender holds one open use at a time;
+  its holder cannot be changed under it; it cannot go to the Trash holding one.
+- **Conditions** compare a spender field with a holder field or a literal (`in`, `atLeast`,
+  `below`; an empty holder field is no limit). The class type and the local weekday and minute are
+  copied onto the spender by the host (`copy`, `local`), read-only, so no caller can set what pays.
+- **Periods**: a week from Monday 00:00 and a month from the 1st, in the holder's zone (its own
+  timezone field, else the organisation's: the spec's guess said the deployment's zone, the brief
+  the organisation's; they are the same setting). A date `until` includes that day.
+- **The limit is the database's** (a CHECK and triggers on counters per holder per period, as
+  capacity's), for every actor and in the dry run; 20 spends at once for 5 uses make exactly 5.
+- **Read**: holders carry `used` and `left` (now); `allowance.get { object, id, at? }` gives the
+  period containing a time (a class's), for staff any and a customer their own (`hostInternal`, a
+  reviewed opening to `customer`); `rec_allowance`, `rec_allowance_period`, `rec_allowance_use`.
+- **Which holder** (ADR 0494): named by the caller, or unlimited first, then the use that would
+  lapse first (a week's end before a pack's expiry), then by id; the next with room when the first is
+  full. "Expires first" is read as the use that expires first.
+- **Moving a use** is `movedFrom` on the new spender, made by staff: the old one is moved to its
+  declared state and gives back, the new one spends from the same holder, in one batch.
+- **The holder is the spender's Person's** (amendment 5); the guardian's read waits for stage 31's
+  family link, and `allowance.get` follows the seam, so it needs no change then.
+- **Merge and erase** follow 32a: a merge moves terms and uses to the survivor; an erase deletes the
+  Person's allowance rows (uses are attendance, not money).
+- **The intro offer's "one per Person"** is a rule on buying, so it is step 6's (the pass type and
+  `sellable`), not the behaviour's.
+- **The local-time helper** is shared at `packages/core/src/time/local.ts` (moved unchanged from
+  `subscriptions/offers.ts`, with wall clock to instant and an instant's local parts below it).
+- **Not built here:** the Memberships pack, `recurring.grants`, plan changes and pauses (steps 6
+  to 8); a customer booking through a pack's tool is exercised by stage 31's build (the fixture
+  proves the host's side for every staff actor, the dry run and a customer's `allowance.get`);
+  `cos ext test`'s harness does not simulate the behaviour.
+
 ## Questions for the interview
 Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:
 1 to 7 as recommended; 8 with every option (time-of-day limits are stage 31's to carry).

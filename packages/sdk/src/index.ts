@@ -3,9 +3,9 @@
 //   import { defineExtension, defineTool, z } from "@composable-os/sdk";
 //   export default defineExtension({ id: "example", version: "1.0.0", contractVersion: 1, ... });
 export { z } from "zod";
+export * from "./allowance.ts";
 export * from "./automation.ts";
 export * from "./automation-check.ts";
-export * from "./allowance.ts";
 export * from "./capacity.ts";
 export * from "./contract.ts";
 export * from "./document.ts";

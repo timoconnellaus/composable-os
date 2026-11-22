@@ -62,6 +62,8 @@ describe("default closed (criterion 1)", () => {
     const openTo = (kind: string) =>
       new Set(listed.filter((e) => e.audiences.includes(kind) && !e.toolOnly).map((e) => e.name));
     expect([...openTo("customer")].sort()).toEqual([
+      // Stage 32b (ADR 0493): a customer's own pass or membership, its uses spent and left.
+      "allowance.get",
       "capacity.get",
       // Stage 28 (ADR 0442): what the public reads of content, a customer reads too.
       "content.get",
@@ -381,6 +383,8 @@ describe("the closed handler context (ADR 0413)", () => {
     expect(listed.filter((op) => op.hostInternal).map((op) => op.name)).toEqual([
       // Stage 42 (ADR 0478): it reads the sources of access (a student's enrolments).
       "access.check",
+      // Stage 32b (ADR 0493): it reads a holder's counters once the seam shows the holder.
+      "allowance.get",
       // Stage 28 (ADR 0442): they read redirects, preview links and the cache's generation.
       "content.get",
       "content.list",

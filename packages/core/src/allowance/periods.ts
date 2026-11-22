@@ -3,7 +3,7 @@
 // start (`week:2026-11-23`, `month:2026-11`), so the same instant always falls in the same period
 // and a change of clocks inside a week moves nothing: the week is still Monday to Monday on the
 // wall clock, 167 or 169 hours long.
-import { addLocalDays, localParts, wallClockToIso } from "../local-time.ts";
+import { addLocalDays, localParts, wallClockToIso } from "../time/local.ts";
 
 export type AllowancePer = "total" | "week" | "month";
 

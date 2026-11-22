@@ -14,9 +14,9 @@ import {
   formulaTypeOf,
   isDocumentType,
   type SellableManifest,
-  spendsOnList,
   type StagesManifest,
   type StatesManifest,
+  spendsOnList,
 } from "@composable-os/sdk";
 import {
   compileFormula,

@@ -2,8 +2,8 @@
 // `defineExtension({...})`. Everything here is plain data plus tool/automation handlers, so the host
 // can turn it into a JSON manifest, validate it, diff it and reconcile it to tables.
 import type { z } from "zod";
-import type { AutomationSpec } from "./automation.ts";
 import type { AllowanceSpec } from "./allowance.ts";
+import type { AutomationSpec } from "./automation.ts";
 import type { CapacitySpec } from "./capacity.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";

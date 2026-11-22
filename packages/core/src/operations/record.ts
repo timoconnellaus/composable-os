@@ -13,7 +13,6 @@ import {
 } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { z } from "zod";
-import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import {
   assertSpenderDeletable,
   holderTrash,
@@ -21,9 +20,11 @@ import {
   setAllowanceRecordUpdate,
   spenderWrite,
 } from "../allowance/records.ts";
+import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { assertNoConfirmedClaims, counterWrite } from "../capacity/records.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import {
+  ALLOWANCE_FIELDS,
   CAPACITY_FIELDS,
   fieldStorage,
   objectTableOf,
@@ -133,6 +134,13 @@ function fromRow(object: ObjectDefinition, row: Record<string, unknown>): Record
   // The capacity behaviour's read-only values (ADR 0431): held, taken, available.
   if (object.capacity) {
     for (const field of CAPACITY_FIELDS) {
+      const raw = field.column ? row[field.column] : null;
+      values[field.name] = raw === undefined || raw === null ? null : Number(raw);
+    }
+  }
+  // The allowance behaviour's read-only values on a holder (ADR 0493): used and left now.
+  if (object.allowance?.kind === "holder") {
+    for (const field of ALLOWANCE_FIELDS) {
       const raw = field.column ? row[field.column] : null;
       values[field.name] = raw === undefined || raw === null ? null : Number(raw);
     }
@@ -327,8 +335,13 @@ function withHostValues(
 }
 
 /** A lifecycle outcome with more host values (the allowance's) on top of its own. */
-function withValues(outcome: TransitionOutcome, values: Record<string, unknown>): TransitionOutcome {
-  return Object.keys(values).length ? { ...outcome, values: { ...outcome.values, ...values } } : outcome;
+function withValues(
+  outcome: TransitionOutcome,
+  values: Record<string, unknown>,
+): TransitionOutcome {
+  return Object.keys(values).length
+    ? { ...outcome, values: { ...outcome.values, ...values } }
+    : outcome;
 }
 
 const valuesOf = (prepared: PreparedValue[]) =>

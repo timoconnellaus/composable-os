@@ -20,7 +20,9 @@ const period = z.object({
   left: z
     .number()
     .nullable()
-    .describe("Uses that can still be spent in it; 0 when the holder cannot pay then, null when unlimited"),
+    .describe(
+      "Uses that can still be spent in it; 0 when the holder cannot pay then, null when unlimited",
+    ),
 });
 
 export const allowanceViewSchema = z.object({

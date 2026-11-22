@@ -5,6 +5,14 @@ import { type ClientOptions, createClient } from "@composable-os/client";
 /** Every operation's input, output and kind. */
 export type Operations = {
   /**
+   * How many uses a pass, membership or other allowance holder has spent and has left, in the period containing `at` (default now): this week or month (from Monday, or the 1st, in its time zone), or in all for a pass of N. Also its uses per period (null is unlimited), whether it can be spent (live), and the dates it is valid between. A signed-in customer reads their own only; anyone else's is not found. Read-only: uses are spent by booking.
+   */
+  "allowance.get": {
+    kind: "query";
+    input: { object: string; id: string; at?: string };
+    output: { object: string; id: string; personId: (string) | (null); uses: (number) | (null); per: ("total") | ("week") | ("month"); zone: string; validFrom: (string) | (null); validUntil: (string) | (null); live: boolean; at: string; period: { key: string; startsAt: string; endsAt: string; used: number; left: (number) | (null) } };
+  };
+  /**
    * How many places a record of an object with a capacity has left (a ticket type, a class). Staff get places, held (while someone pays), taken (paid), available, and the pool's numbers when the record draws on a parent's places. Customers and the public get only what the object shows: the number left, a low-stock warning, or available / sold out. Read-only; claims nothing.
    */
   "capacity.get": {
@@ -216,6 +224,7 @@ export type Operations = {
 
 /** What the runtime needs: each operation's kind, and what a mutation makes stale. */
 export const operations = {
+  "allowance.get": { kind: "query", invalidates: [] },
   "capacity.get": { kind: "query", invalidates: [] },
   "content.get": { kind: "query", invalidates: [] },
   "content.list": { kind: "query", invalidates: [] },

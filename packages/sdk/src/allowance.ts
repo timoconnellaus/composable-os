@@ -416,11 +416,7 @@ export function checkObjectAllowance(
   }
   if (s.movedFrom) {
     const rel = fieldOf(object, s.movedFrom.field);
-    if (
-      rel?.type !== "relation" ||
-      rel.many ||
-      (rel.to !== `${m.id}.${name}` && rel.to !== name)
-    ) {
+    if (rel?.type !== "relation" || rel.many || (rel.to !== `${m.id}.${name}` && rel.to !== name)) {
       contract(
         `${sp}.movedFrom.field`,
         `"${s.movedFrom.field}" must be a relation field (one record) to ${m.id}.${name}`,

@@ -8290,6 +8290,146 @@
       "invalidates": []
     },
     {
+      "name": "allowance.get",
+      "description": "How many uses a pass, membership or other allowance holder has spent and has left, in the period containing `at` (default now): this week or month (from Monday, or the 1st, in its time zone), or in all for a pass of N. Also its uses per period (null is unlimited), whether it can be spent (live), and the dates it is valid between. A signed-in customer reads their own only; anyone else's is not found. Read-only: uses are spent by booking.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81,
+            "description": "An extension object that holds an allowance"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "at": {
+            "description": "The time to read the period of (a class's start), ISO 8601; default now",
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "uses": {
+            "description": "Uses per period; null is unlimited",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "per": {
+            "type": "string",
+            "enum": [
+              "total",
+              "week",
+              "month"
+            ]
+          },
+          "zone": {
+            "type": "string",
+            "description": "The time zone weeks and months are counted in"
+          },
+          "validFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "validUntil": {
+            "description": "A spender's time must be before this",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "live": {
+            "type": "boolean",
+            "description": "Its state lets it be spent (not paused, used up, ended or void)"
+          },
+          "at": {
+            "type": "string",
+            "description": "The time the period was read for"
+          },
+          "period": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "total, week:<Monday's local date> or month:<YYYY-MM>"
+              },
+              "startsAt": {
+                "type": "string"
+              },
+              "endsAt": {
+                "type": "string"
+              },
+              "used": {
+                "type": "number"
+              },
+              "left": {
+                "description": "Uses that can still be spent in it; 0 when the holder cannot pay then, null when unlimited",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "key",
+              "startsAt",
+              "endsAt",
+              "used",
+              "left"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "personId",
+          "uses",
+          "per",
+          "zone",
+          "validFrom",
+          "validUntil",
+          "live",
+          "at",
+          "period"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "approval.approve",
       "description": "Approve pending actions: a whole change set, or chosen actions. Each is applied in queue order by re-running it through the pipeline as the agent that asked for it, with provisional ids replaced by the real ids of records created earlier. An action whose record changed or was deleted meanwhile fails with a reason, and actions depending on it are skipped. An action cannot be approved before a pending action it depends on. High-risk actions (see each action's secondStep) are refused without `confirm`. People only.",
       "risk": "write",
@@ -41550,7 +41690,7 @@
     },
     {
       "name": "query.sql",
-      "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of publishable records, without their content), rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
+      "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of publishable records, without their content), rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent or given back), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"

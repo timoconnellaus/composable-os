@@ -1503,7 +1503,10 @@ function outsideError(error: unknown): OperationError {
   // A use the database refused (stage 32b, ADR 0493): the member is told why and, for their own
   // pass or membership, how many of its uses are spent; never which record refused it, since a
   // holder that is not theirs is someone else's.
-  if (typed.code === "invalid_input" && (typed.details as { rule?: unknown })?.rule === "allowance") {
+  if (
+    typed.code === "invalid_input" &&
+    (typed.details as { rule?: unknown })?.rule === "allowance"
+  ) {
     const { reason, period, uses, used } = typed.details as AllowanceRefusalDetails;
     const details: AllowanceRefusalDetails = {
       rule: "allowance",

@@ -3,9 +3,9 @@
 // diffs and reconciles the manifest. `validateManifest` is the contract check `extension.check`
 // runs; it returns structured issues a model can act on.
 import { z } from "zod";
+import { allowanceManifestSchema, checkObjectAllowance } from "./allowance.ts";
 import { automationManifestSchema } from "./automation.ts";
 import { checkAutomation } from "./automation-check.ts";
-import { allowanceManifestSchema, checkObjectAllowance } from "./allowance.ts";
 import { checkObjectBehaviour } from "./behaviour.ts";
 import { capacityManifestSchema, checkObjectCapacity } from "./capacity.ts";
 import {

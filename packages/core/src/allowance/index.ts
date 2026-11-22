@@ -29,7 +29,6 @@ export {
   periodOf as allowancePeriodOf,
 } from "./periods.ts";
 
-
 /** A holder's terms, as the host keeps them in core_allowance. */
 export interface AllowanceTerms {
   object: string;
