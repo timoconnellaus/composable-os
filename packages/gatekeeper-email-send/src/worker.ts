@@ -33,6 +33,7 @@ import {
   type TaggedAction,
 } from "@composable-os/gatekeeper-kit/actions";
 import { domainOf, parseDomainList } from "./address";
+import { CALENDAR_FILENAME, calendarFile, calendarSummary } from "./calendar";
 import type { SenderConfiguratorRpc } from "./configurator/sender-configurator-types";
 import { assertSenderAllowed, SENDER_URL_PATTERN, senderFromUrl, senderUrl } from "./sender";
 import { isHostSignInMail, isSignInCodeMessage, SIGN_IN_KIND } from "./sign-in";
@@ -127,6 +128,7 @@ function describeSend(email: StoredEmail, internal: boolean) {
   if (message.text !== undefined) builder.verbatim("Body", message.text);
   if (message.html !== undefined) builder.verbatim("HTML body", message.html, "html");
   if (message.relatedRecords) builder.list("Related records", message.relatedRecords);
+  if (message.calendar) builder.inline("Calendar file", calendarSummary(message.calendar));
   return {
     title: sanitizeTitle(`Send email: ${message.subject}`),
     ...builder.finish(),
@@ -279,6 +281,18 @@ export class EmailSendGatekeeper
         ...(message.text !== undefined ? { text: message.text } : {}),
         ...(message.html !== undefined ? { html: message.html } : {}),
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+        ...(message.calendar
+          ? {
+              attachments: [
+                {
+                  disposition: "attachment" as const,
+                  filename: CALENDAR_FILENAME,
+                  type: `text/calendar; charset=utf-8; method=${message.calendar.cancelled ? "CANCEL" : "PUBLISH"}`,
+                  content: calendarFile(message.calendar, domainOf(email.from), new Date()),
+                },
+              ],
+            }
+          : {}),
       }));
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);

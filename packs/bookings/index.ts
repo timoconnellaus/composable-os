@@ -40,8 +40,14 @@
 //   - staff cancel a class (a person's act, or a person approves an AI's request, ADR 0552), and
 //     every booked, waiting and held booking of it is cancelled in the same batch (ADR 0507);
 //   - the coach role (`roles`, ADR 0436): the day's classes, their lists, and ticking names.
-// The tools in tools.ts compose the host's operations and add no rules of their own.
+// The tools in tools.ts compose the host's operations and add no rules of their own. The messages
+// in automations.ts (step 9, ADR 0572) email members and their guardians through the email-send
+// gatekeeper on what the host did: booked, moved in, passed over, a place free after the cut-off,
+// a class changed or cancelled by the gym, the reminder before a class (a date-relative trigger
+// in minutes, ADR 0570) with an add-to-calendar file (ADR 0571), a drop-in's refund made; and
+// tell staff of a class whose list was not taken. They write nothing.
 import { defineExtension } from "@composable-os/sdk";
+import { bookingsAutomations } from "./automations.ts";
 import {
   book,
   bookFor,
@@ -150,6 +156,10 @@ export default defineExtension({
     // waitlist.position: where a waiter stands in the queue (a member: their own only).
     // me.family: the member's own id, and the children staff linked to them (ADR 0540).
     // order.startHeld: a drop-in, the booking made with its order by the host (ADR 0560).
+    // The messages (automations.ts): person.link.list (a child's live guardians, who are written
+    // to), order.get (whether a drop-in was paid, and who paid), extensionSettings.list (the link
+    // in each email and the waiting list's cut-off), notification.send (staff told of a class
+    // whose list was not taken); email-send, the members' mail.
     operations: [
       "order.startHeld",
       "public.list",
@@ -158,8 +168,12 @@ export default defineExtension({
       "duplicate.check",
       "waitlist.position",
       "me.family",
+      "person.link.list",
+      "order.get",
+      "extensionSettings.list",
+      "notification.send",
     ],
-    modules: ["ops"],
+    modules: ["ops", "email-send"],
   },
   // Bookings' fields on Programs' class type: how it shows, and its booking rules when they
   // differ from the organisation's (Settings → Extensions → Bookings). Empty: the organisation's.
@@ -196,11 +210,15 @@ export default defineExtension({
         "Nobody is moved in from the waitlist after this: a place freed later goes to whoever " +
           "books first. Empty: the organisation's setting.",
       ),
-      reminderMinutes: minutes(
-        "Reminder (minutes before)",
-        "When members are reminded of a class. Empty: the organisation's setting. (Reminders " +
-          "come in a later release.)",
-      ),
+      reminderMinutes: {
+        ...minutes(
+          "Reminder (minutes before)",
+          "When members booked into a class are emailed a reminder, at most two days before. " +
+            "Empty: the organisation's setting.",
+        ),
+        // At most two days: the reminder's minute scan reads the classes this far ahead (ADR 0570).
+        max: 2_880,
+      },
       dropInPrice: {
         type: "number",
         label: "Drop-in price",
@@ -977,11 +995,20 @@ export default defineExtension({
     reminderMinutes: {
       type: "number",
       label: "Reminder (minutes before)",
-      description: "When members are reminded of a class (a later release).",
+      description:
+        "When members booked into a class are emailed a reminder, unless its class type sets " +
+        "its own: at most two days (2,880 minutes) before.",
       default: 180,
       min: 0,
-      max: 10_080,
+      max: 2_880,
       personApproves: true,
+    },
+    bookingsUrl: {
+      type: "text",
+      label: "Where members see their bookings",
+      description:
+        "The page on your site where a signed-in member sees their bookings (https), linked from " +
+        "every booking email. Empty: the emails say to sign in.",
     },
   },
   // The coach role (spec 31, decision 10; ADR 0436): the day's classes and their lists, and ticking
@@ -1027,4 +1054,5 @@ export default defineExtension({
     cancelClass,
     family,
   },
+  automations: bookingsAutomations,
 });

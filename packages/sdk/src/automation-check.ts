@@ -5,12 +5,14 @@
 import {
   type AutomationManifest,
   durationMs,
+  MAX_MOMENT_MINUTES,
   type Recipient,
   type ValueMatch,
 } from "./automation.ts";
 import type { ViewFilter } from "./contract.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { ExtensionManifest } from "./manifest.ts";
+import { resolveFieldPath } from "./states.ts";
 
 /** Waits in one run (sleeps plus waitForEvent timeouts) add up to at most this. */
 export const MAX_TOTAL_WAIT_DAYS = 365;
@@ -237,6 +239,52 @@ function filterFields(filter: ViewFilter): string[] {
 const isStageType = (match: ValueMatch | undefined): boolean =>
   typeof match === "object" && match !== null && "stageType" in match;
 
+/**
+ * A `dateRelative` trigger's minutes read per record (ADR 0570): `field` is a number field this
+ * extension declares on the trigger object or one relation away, `setting` one of its number
+ * settings, and each declares a `max` of at most a week, which bounds the records the host reads.
+ */
+function checkMomentMinutes(
+  ctx: AutomationCheckContext,
+  object: string | null,
+  minutes: { field?: string; setting?: string },
+  path: string,
+): void {
+  const m = ctx.manifest;
+  const { contract } = ctx;
+  const capped = (max: number | undefined) => max !== undefined && max <= MAX_MOMENT_MINUTES;
+  if (minutes.field !== undefined) {
+    const own = object?.startsWith(`${m.id}.`) ? m.objects[object.slice(m.id.length + 1)] : null;
+    const field =
+      own && minutes.field.split(".").length <= 2
+        ? resolveFieldPath(m, own, minutes.field)
+        : undefined;
+    if (!own) {
+      contract(`${path}.field`, "Minutes read from a field need a trigger object of this extension");
+    } else if (field?.type !== "number") {
+      contract(
+        `${path}.field`,
+        `"${minutes.field}" must be a number field of ${object} or one relation away, declared by ${m.id}`,
+      );
+    } else if (!capped(field.max)) {
+      contract(`${path}.field`, `"${minutes.field}" must declare a max of at most ${MAX_MOMENT_MINUTES}`);
+    }
+  }
+  if (minutes.setting !== undefined) {
+    const setting = Object.hasOwn(m.settings ?? {}, minutes.setting)
+      ? m.settings?.[minutes.setting]
+      : undefined;
+    if (setting?.type !== "number") {
+      contract(`${path}.setting`, `"${minutes.setting}" must be a number setting of ${m.id}`);
+    } else if (!capped(setting.max)) {
+      contract(
+        `${path}.setting`,
+        `"${minutes.setting}" must declare a max of at most ${MAX_MOMENT_MINUTES}`,
+      );
+    }
+  }
+}
+
 /** Reports problems with `automations.<name>` through `ctx.contract`. */
 export function checkAutomation(
   ctx: AutomationCheckContext,
@@ -326,12 +374,27 @@ export function checkAutomation(
     case "schedule":
       for (const issue of cronIssues(trigger.cron)) contract(`${path}.trigger.cron`, issue);
       break;
-    case "dateRelative":
-      requireField(`${path}.trigger.field`, trigger.field, ["date", "datetime"]);
+    case "dateRelative": {
+      const minutes = trigger.minutesBefore ?? trigger.minutesAfter;
+      // A moment some minutes from a field is an instant: the field is a datetime (ADR 0570).
+      requireField(
+        `${path}.trigger.field`,
+        trigger.field,
+        minutes === undefined ? ["date", "datetime"] : ["datetime"],
+      );
       if (trigger.zoneField !== undefined) {
         requireField(`${path}.trigger.zoneField`, trigger.zoneField, ["timezone"]);
       }
+      if (minutes !== undefined && typeof minutes === "object") {
+        checkMomentMinutes(
+          ctx,
+          object,
+          minutes,
+          `${path}.trigger.${trigger.minutesBefore !== undefined ? "minutesBefore" : "minutesAfter"}`,
+        );
+      }
       break;
+    }
     case "manual":
       break;
     case "approvalDecided":

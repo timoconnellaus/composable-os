@@ -53,6 +53,27 @@ const UNITS: [string, number][] = [
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+/**
+ * A `dateRelative` trigger counted in minutes (ADR 0570), in words: "3 hours" before, or "the
+ * reminder (minutes)" read per record with where it comes from. Null for one counted in days.
+ */
+function momentWords(
+  trigger: Extract<Trigger, { type: "dateRelative" }>,
+  fieldLabel: (field: string) => string,
+): { amount: string; side: "before" | "after"; from: string | null } | null {
+  const minutes = trigger.minutesBefore ?? trigger.minutesAfter;
+  if (minutes === undefined) return null;
+  const side = trigger.minutesBefore !== undefined ? "before" : "after";
+  if (typeof minutes === "number") {
+    return { amount: durationText(minutes * 60_000), side, from: null };
+  }
+  const parts = [
+    minutes.field ? `the ${minutes.field.includes(".") ? minutes.field : fieldLabel(minutes.field)}` : null,
+    minutes.setting ? `else the setting ${minutes.setting}` : null,
+  ].filter(Boolean);
+  return { amount: "some minutes", side, from: `minutes from ${parts.join(", ")}` };
+}
+
 /** "3 days", "1 week", "90 minutes": the largest unit the duration is a whole number of. */
 export function durationText(duration: number | string): string {
   let ms: number;
@@ -256,12 +277,20 @@ function triggerPhrase(trigger: Trigger, labels: Labels): Text {
     case "dateRelative": {
       const { label } = labels.object(trigger.object);
       const field = labels.field(trigger.object, trigger.field);
+      const moment = momentWords(trigger, (f) => labels.field(trigger.object, f));
+      if (moment) {
+        return out
+          .b(moment.amount)
+          .t(` ${moment.side} ${article(label)} `)
+          .b(label)
+          .t("'s ")
+          .b(field)
+          .t(moment.from ? ` (${moment.from})` : "");
+      }
+      const days = trigger.offsetDays ?? 0;
       const fieldWords = /\bdate\b/.test(field) ? field : `${field} date`;
-      if (trigger.offsetDays === 0) out.t("On ");
-      else
-        out
-          .b(plural(Math.abs(trigger.offsetDays), "day"))
-          .t(trigger.offsetDays > 0 ? " after " : " before ");
+      if (days === 0) out.t("On ");
+      else out.b(plural(Math.abs(days), "day")).t(days > 0 ? " after " : " before ");
       out
         .t(`${article(label)} `)
         .b(label)
@@ -714,7 +743,16 @@ function triggerNode(trigger: Trigger, labels: Labels): DiagramNode {
         detail: cronText(trigger.cron),
       });
     case "dateRelative": {
-      const n = trigger.offsetDays;
+      const moment = momentWords(trigger, (f) => labels.field(trigger.object, f));
+      if (moment) {
+        return node({
+          ...base,
+          text: `${labels.object(trigger.object).label} · ${moment.amount} ${moment.side} {code}`,
+          code: [trigger.field],
+          detail: `Checked every minute${moment.from ? `; ${moment.from}` : ""}`,
+        });
+      }
+      const n = trigger.offsetDays ?? 0;
       const when = n === 0 ? "on" : `${plural(Math.abs(n), "day")} ${n > 0 ? "after" : "before"}`;
       return node({
         ...base,

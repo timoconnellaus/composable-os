@@ -12,6 +12,8 @@ export type OutgoingEmail = {
   text?: string;
   html?: string;
   replyTo?: string;
+  /** Only ever the calendar file this gatekeeper made (ADR 0571). */
+  attachments?: { disposition: "attachment"; filename: string; type: string; content: string }[];
 };
 
 /** The structural subset of Email Service's `SendEmail` binding this gatekeeper uses. */

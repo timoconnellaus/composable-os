@@ -49,6 +49,7 @@ export * from "./automations/cron.ts";
 export * from "./automations/events.ts";
 export * from "./automations/integration-source.ts";
 export * from "./automations/outbox.ts";
+export * from "./automations/moments.ts";
 export * from "./automations/records.ts";
 export * from "./automations/registry.ts";
 export * from "./automations/sample.ts";

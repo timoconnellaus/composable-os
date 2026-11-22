@@ -122,11 +122,22 @@ export type AutomationTrigger =
        * of `object`; 0 is the day itself. Evaluated once a day, in the automation timezone; or,
        * with `zoneField`, in each record's own time zone (ADR 0460): the day of the date and
        * "today" are both that zone's, and the run starts in the first hour of that local day.
+       *
+       * Or, instead of `offsetDays`, `minutesBefore` or `minutesAfter` a datetime field (ADR
+       * 0570): the run starts within about a minute of that moment, once per record and value of
+       * the field (a record whose time changes is due again at its new time). The minutes may be a
+       * number, or read per record (a number field of the record or one relation away, else the
+       * extension's number setting), as a window's are (ADR 0505). A moment missed by more than
+       * 15 minutes (a record made after it) is not run.
        */
       type: "dateRelative";
       object: string;
       field: string;
-      offsetDays: number;
+      offsetDays?: number;
+      /** Minutes before the datetime field (ADR 0570); not with `offsetDays` or `minutesAfter`. */
+      minutesBefore?: MomentMinutes;
+      /** Minutes after the datetime field (ADR 0570); not with `offsetDays` or `minutesBefore`. */
+      minutesAfter?: MomentMinutes;
       /** A `timezone` field of `object`: count days in the zone each record names. */
       zoneField?: string;
     }
@@ -176,6 +187,17 @@ export type AutomationTrigger =
        */
       from?: "person" | "organisation" | "either";
     };
+
+/**
+ * A `dateRelative` trigger's minutes (ADR 0570): a number (0 to 10,080, a week), or a number read
+ * per record: `field`, a number field of the trigger object or one relation away that this
+ * extension declares (`classType.reminderMinutes`), and when it is empty `setting`, this
+ * extension's number setting. The field and the setting declare a `max` of at most 10,080.
+ */
+export type MomentMinutes = number | { field?: string; setting?: string };
+
+/** The most minutes a `dateRelative` trigger's moment may be from its field (a week). */
+export const MAX_MOMENT_MINUTES = 10_080;
 
 export type AutomationTriggerType = AutomationTrigger["type"];
 export const AUTOMATION_TRIGGER_TYPES = [
@@ -421,6 +443,19 @@ export const valueMatchSchema = z.union([
 const objectName = z.string().min(1).max(80);
 const fieldName = z.string().min(1).max(80);
 
+const momentMinutesSchema = z.union([
+  z.number().int().min(0).max(MAX_MOMENT_MINUTES),
+  z
+    .object({
+      field: z.string().min(1).max(200).optional(),
+      setting: z.string().min(1).max(80).optional(),
+    })
+    .strict()
+    .refine((m) => m.field !== undefined || m.setting !== undefined, {
+      message: "name a field, a setting or both",
+    }),
+]);
+
 export const automationTriggerSchema = z.discriminatedUnion("type", [
   z
     .object({
@@ -446,10 +481,21 @@ export const automationTriggerSchema = z.discriminatedUnion("type", [
       type: z.literal("dateRelative"),
       object: objectName,
       field: fieldName,
-      offsetDays: z.number().int().min(-365).max(365),
+      offsetDays: z.number().int().min(-365).max(365).optional(),
+      minutesBefore: momentMinutesSchema.optional(),
+      minutesAfter: momentMinutesSchema.optional(),
       zoneField: fieldName.optional(),
     })
-    .strict(),
+    .strict()
+    .refine(
+      (t) =>
+        [t.offsetDays, t.minutesBefore, t.minutesAfter].filter((v) => v !== undefined).length ===
+        1,
+      { message: "give exactly one of offsetDays, minutesBefore and minutesAfter" },
+    )
+    .refine((t) => t.zoneField === undefined || t.offsetDays !== undefined, {
+      message: "zoneField counts days: use it with offsetDays only",
+    }),
   z
     .object({
       type: z.literal("manual"),

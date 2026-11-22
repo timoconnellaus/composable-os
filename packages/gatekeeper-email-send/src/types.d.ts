@@ -17,6 +17,29 @@ export interface EmailSendMessage {
    * records created earlier in the same change set (such as `per_pending_…`) are fine.
    */
   relatedRecords?: string[];
+  /**
+   * An "add to calendar" file of one event, attached as `invite.ics`. The gatekeeper makes the
+   * file from these values (times in UTC); nothing else can be attached. Send the same `uid` with
+   * a higher `sequence` for a change, and `cancelled: true` to take it off the calendar.
+   */
+  calendar?: {
+    /** A stable id of what the event is, such as a record id. */
+    uid: string;
+    /** ISO 8601 instants; the end after the start, within 7 days. */
+    start: string;
+    end: string;
+    /** One line, up to 200 characters. */
+    title: string;
+    /** One line, up to 200 characters. */
+    location?: string;
+    /** Up to 2,000 characters. */
+    description?: string;
+    /** An https link. */
+    url?: string;
+    /** 0 to 2,147,483,647; higher on each change. */
+    sequence?: number;
+    cancelled?: boolean;
+  };
 }
 
 /** What `EmailSendSession.send()` returns. */
