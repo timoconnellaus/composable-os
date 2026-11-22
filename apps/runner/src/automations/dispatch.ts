@@ -90,6 +90,11 @@ export interface StartResult {
   dropped: { automationId: string; reason: string }[];
   /** Automations auto-paused by a rate limit in this call. */
   paused: string[];
+  /**
+   * Runs over the runs-per-minute rail (ADR 0573): recorded `queued` with `wait_until` and drained
+   * by the minute cron (`runDeferredDue`) as the rail allows, never dropped.
+   */
+  deferred: number;
 }
 
 export interface StartOptions {
@@ -101,7 +106,27 @@ export interface StartOptions {
   now?: Date;
 }
 
-const emptyResult = (): StartResult => ({ runIds: [], skipped: 0, dropped: [], paused: [] });
+const emptyResult = (): StartResult => ({
+  runIds: [],
+  skipped: 0,
+  dropped: [],
+  paused: [],
+  deferred: 0,
+});
+
+/** A deferred run's status reason (ADR 0573): a queued row with no Workflow instance yet. */
+export const DEFERRED_REASON = "deferred: over the runs-per-minute rail";
+/** Deferred runs one automation may hold before it is paused (a runaway), its backlog kept. */
+export const DEFERRED_CAP = 5_000;
+/** Deferred runs the minute cron starts in one tick, across automations. */
+const DRAIN_PER_TICK = 500;
+
+/** A candidate held back by a rail, with when it may start. */
+interface Deferred {
+  candidate: RunCandidate;
+  until: string;
+  reason: string;
+}
 
 function hourKey(at: string): string {
   return at.slice(0, 13);
@@ -225,25 +250,31 @@ export async function startRuns(
     kept = kept.slice(0, FAN_OUT_BUDGET);
   }
 
-  // Rate limits: runs per minute (the Rate Limiting binding, per automation) and writes per hour
-  // (core_automation_counters). Exceeding either auto-pauses the automation.
-  kept = await applyRateLimits(env, crm, kept, now, settings, result, drop);
+  // Rate limits (ADR 0573): runs per minute (the Rate Limiting binding, per automation) shape,
+  // they do not lose: a run over the rail is recorded and started on a later tick. Writes per hour
+  // (core_automation_counters) pause the automation, the runs it held back recorded the same way.
+  const limited = await applyRateLimits(env, crm, kept, now, settings, result, drop);
+  kept = limited.out;
+  const deferred = limited.deferred;
+  result.deferred += deferred.length;
 
   // Run rows, then Workflow instances.
   const rows = await Promise.all(
     [
-      ...kept.map((c) => ({ candidate: c, skip: null as string | null })),
-      ...skippedRows.map((s) => ({ candidate: s.candidate, skip: s.reason })),
-    ].map(async ({ candidate, skip }) => ({
+      ...kept.map((c) => ({ candidate: c, skip: null as string | null, defer: null })),
+      ...skippedRows.map((s) => ({ candidate: s.candidate, skip: s.reason, defer: null })),
+      ...deferred.map((d) => ({ candidate: d.candidate, skip: null, defer: d })),
+    ].map(async ({ candidate, skip, defer }) => ({
       candidate,
       skip,
+      defer: defer as Deferred | null,
       workflowId: await workflowInstanceId(candidate.automation.id, candidate.idempotencyKey),
       runId: newId("automationRun"),
     })),
   );
   if (!rows.length) return result;
   await crm.batch(
-    rows.map(({ candidate: c, skip, workflowId, runId }) =>
+    rows.map(({ candidate: c, skip, defer, workflowId, runId }) =>
       db
         .insertInto("core_automation_runs")
         .values({
@@ -256,7 +287,8 @@ export async function startRuns(
           record_object: c.record?.object ?? null,
           record_id: c.record?.id ?? null,
           status: skip ? "skipped" : "queued",
-          status_reason: skip,
+          status_reason: skip ?? (defer ? DEFERRED_REASON : null),
+          ...(defer ? { wait_until: defer.until } : {}),
           test: 0,
           depth: origin.depth + 1,
           root_event_id: origin.rootEventId,
@@ -269,7 +301,7 @@ export async function startRuns(
         .onConflict((oc) => oc.doNothing()),
     ),
   );
-  const toStart = rows.filter((r) => !r.skip);
+  const toStart = rows.filter((r) => !r.skip && !r.defer);
   if (!toStart.length) return result;
   // On a redelivery the rows already exist: use theirs, and (re)create only queued ones.
   const existing: { id: string; workflow_id: string | null; status: string }[] = [];
@@ -424,14 +456,25 @@ async function applyRateLimits(
   settings: AutomationSettings,
   result: StartResult,
   drop: (c: RunCandidate, reason: string) => void,
-): Promise<RunCandidate[]> {
+): Promise<{ out: RunCandidate[]; deferred: Deferred[] }> {
   const out: RunCandidate[] = [];
-  const blocked = new Set<string>();
+  const deferred: Deferred[] = [];
+  const blocked = new Map<string, string>();
+  const overMinute = new Set<string>();
   const writesChecked = new Map<string, boolean>();
+  const nextMinute = new Date(Date.parse(now) + 60_000).toISOString();
+  const nextHour = new Date(Date.parse(`${hourKey(now)}:00:00.000Z`) + 3_600_000).toISOString();
   for (const c of candidates) {
     const a = c.automation;
-    if (blocked.has(a.id)) {
-      drop(c, "paused");
+    // Paused for its writes in this call: what it held back starts after it is resumed.
+    const pausedFor = blocked.get(a.id);
+    if (pausedFor) {
+      deferred.push({ candidate: c, until: nextHour, reason: pausedFor });
+      continue;
+    }
+    // Over its runs a minute in this call: the rest wait for the next ticks, in order.
+    if (overMinute.has(a.id)) {
+      deferred.push({ candidate: c, until: nextMinute, reason: "runs a minute" });
       continue;
     }
     const rails = effectiveRails(a.spec, settings);
@@ -447,8 +490,9 @@ async function applyRateLimits(
       if (over) {
         const reason = `More than ${rails.maxWritesPerHour} writes in an hour`;
         if (await pauseAutomation(crm, a, reason, now)) result.paused.push(a.id);
-        blocked.add(a.id);
+        blocked.set(a.id, reason);
         drop(c, "rate limit");
+        deferred.push({ candidate: c, until: nextHour, reason });
         continue;
       }
     }
@@ -469,15 +513,134 @@ async function applyRateLimits(
       allowed = Number(recent?.n ?? 0) + started < rails.maxRunsPerMinute;
     }
     if (!allowed) {
-      const reason = `More than ${rails.maxRunsPerMinute} runs a minute`;
-      if (await pauseAutomation(crm, a, reason, now)) result.paused.push(a.id);
-      blocked.add(a.id);
-      drop(c, "rate limit");
+      // Shaped, not lost (ADR 0573): this run and the rest of the call wait their turn. Only a
+      // backlog past DEFERRED_CAP (a runaway) pauses the automation, its backlog kept.
+      overMinute.add(a.id);
+      deferred.push({ candidate: c, until: nextMinute, reason: "runs a minute" });
+      const backlog = await crm.query
+        .selectFrom("core_automation_runs")
+        .select(sql<number>`count(*)`.as("n"))
+        .where("automation_id", "=", a.id)
+        .where("status", "=", "queued")
+        .where("status_reason", "=", DEFERRED_REASON)
+        .executeTakeFirst();
+      if (Number(backlog?.n ?? 0) >= DEFERRED_CAP) {
+        const reason = `More than ${DEFERRED_CAP} runs waiting their turn`;
+        if (await pauseAutomation(crm, a, reason, now)) result.paused.push(a.id);
+      }
       continue;
     }
     out.push(c);
   }
-  return out;
+  return { out, deferred };
+}
+
+/**
+ * The minute cron's drain of deferred runs (ADR 0573): the oldest first, each started once the
+ * runs-per-minute rail allows it again, with the trigger and cascade tags it was recorded with.
+ * An automation disabled or paused keeps its backlog until it runs again. Returns how many
+ * started.
+ */
+export async function runDeferredDue(
+  env: DispatchEnv,
+  at: Date = new Date(),
+): Promise<{ started: number; waiting: number }> {
+  const crm = createCrmDb(env.DB);
+  const db = crm.query;
+  const now = at.toISOString();
+  const settings = await loadAutomationSettings(db);
+  if (settings.killSwitch) return { started: 0, waiting: 0 };
+  const rows = await db
+    .selectFrom("core_automation_runs as r")
+    .innerJoin("core_automations as a", "a.id", "r.automation_id")
+    .select([
+      "r.id",
+      "r.automation_id",
+      "r.extension_id",
+      "r.commit_oid",
+      "r.workflow_id",
+      "r.trigger",
+      "r.depth",
+      "r.root_event_id",
+      "a.key",
+      "a.spec",
+    ])
+    .where("r.status", "=", "queued")
+    .where("r.status_reason", "=", DEFERRED_REASON)
+    .where("r.wait_until", "<=", now)
+    .where("a.enabled", "=", 1)
+    .where("a.paused_reason", "is", null)
+    .orderBy("r.started_at")
+    .orderBy("r.id")
+    .limit(DRAIN_PER_TICK)
+    .execute();
+  const full = new Set<string>();
+  const instances: { id: string; params: AutomationRunParams }[] = [];
+  const startedIds: string[] = [];
+  for (const row of rows) {
+    if (full.has(row.automation_id) || !row.workflow_id) continue;
+    let allowed = true;
+    if (env.AUTOMATION_RATE_LIMIT) {
+      allowed = (await env.AUTOMATION_RATE_LIMIT.limit({ key: row.automation_id })).success;
+    }
+    if (!allowed) {
+      full.add(row.automation_id);
+      continue;
+    }
+    const t = JSON.parse(row.trigger) as {
+      type: AutomationTriggerType;
+      eventId: string;
+      record?: { object: string; id: string };
+      change?: RunCandidate["change"];
+      approval?: RunCandidate["approval"];
+      period?: string;
+      integration?: RunCandidate["integration"];
+      manual?: { userId: string; recordIds: string[] };
+      chain?: string[];
+    };
+    const chain = t.chain ?? [];
+    instances.push({
+      id: row.workflow_id,
+      params: {
+        runId: row.id,
+        automationId: row.automation_id,
+        extensionId: row.extension_id,
+        key: row.key,
+        commit: row.commit_oid,
+        trigger: t.type,
+        eventId: t.eventId,
+        ...(t.record ? { record: t.record } : {}),
+        ...(t.change ? { change: t.change } : {}),
+        ...(t.approval ? { approval: t.approval } : {}),
+        ...(t.period ? { period: t.period } : {}),
+        ...(t.integration ? { integration: t.integration } : {}),
+        ...(t.manual ? { manual: t.manual } : {}),
+        depth: row.depth,
+        chain: t.record ? [...chain, chainKey(row.automation_id, t.record)] : [...chain],
+        rootEventId: row.root_event_id ?? t.eventId,
+      },
+    });
+    startedIds.push(row.id);
+  }
+  for (let i = 0; i < instances.length; i += WORKFLOW_BATCH_MAX) {
+    const batch = instances.slice(i, i + WORKFLOW_BATCH_MAX);
+    try {
+      await env.AUTOMATION_WORKFLOW.createBatch(batch);
+    } catch (error) {
+      if (!/already exists|duplicate|10405|10415/i.test(String(error))) throw error;
+    }
+  }
+  // After the instances exist: a crash between the two starts them again on the next tick, and
+  // an existing instance id is ignored, so each run starts once.
+  for (let i = 0; i < startedIds.length; i += 100) {
+    await db
+      .updateTable("core_automation_runs")
+      .set({ status_reason: null, started_at: now, updated_at: now })
+      .where("id", "in", jsonList(startedIds.slice(i, i + 100)))
+      .where("status_reason", "=", DEFERRED_REASON)
+      .execute();
+  }
+  return { started: startedIds.length, waiting: rows.length - startedIds.length };
 }
 
 /**
@@ -531,6 +694,7 @@ export async function dispatchAutomationMessages(
     total.skipped += started.skipped;
     total.dropped.push(...started.dropped);
     total.paused.push(...started.paused);
+    total.deferred += started.deferred;
   }
   // Admin Slack channel routes (ADR 0172); never throws.
   await deliverNotificationRoutes(env, messages, options);

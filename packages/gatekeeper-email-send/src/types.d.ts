@@ -18,28 +18,40 @@ export interface EmailSendMessage {
    */
   relatedRecords?: string[];
   /**
+   * Makes a retried send safe: a second `send()` with the same key (up to 200 letters, digits or
+   * `. _ : -`) answers with the first one's receipt and queues nothing. Use one key per email,
+   * stable across retries (an automation's run id and the email's place in it).
+   */
+  idempotencyKey?: string;
+  /**
    * An "add to calendar" file of one event, attached as `invite.ics`. The gatekeeper makes the
    * file from these values (times in UTC); nothing else can be attached. Send the same `uid` with
    * a higher `sequence` for a change, and `cancelled: true` to take it off the calendar.
    */
-  calendar?: {
-    /** A stable id of what the event is, such as a record id. */
-    uid: string;
-    /** ISO 8601 instants; the end after the start, within 7 days. */
-    start: string;
-    end: string;
-    /** One line, up to 200 characters. */
-    title: string;
-    /** One line, up to 200 characters. */
-    location?: string;
-    /** Up to 2,000 characters. */
-    description?: string;
-    /** An https link. */
-    url?: string;
-    /** 0 to 2,147,483,647; higher on each change. */
-    sequence?: number;
-    cancelled?: boolean;
-  };
+  calendar?: EmailCalendarEventInput | EmailCalendarEventInput[];
+}
+
+/**
+ * One event of an email's calendar files. Give one, or two for a move (the old event cancelled,
+ * the new one added); each is its own file.
+ */
+export interface EmailCalendarEventInput {
+  /** A stable id of what the event is, such as a record id. */
+  uid: string;
+  /** ISO 8601 instants; the end after the start, within 7 days. */
+  start: string;
+  end: string;
+  /** One line, up to 200 characters. */
+  title: string;
+  /** One line, up to 200 characters. */
+  location?: string;
+  /** Up to 2,000 characters. */
+  description?: string;
+  /** An https link. */
+  url?: string;
+  /** 0 to 2,147,483,647; higher on each change. */
+  sequence?: number;
+  cancelled?: boolean;
 }
 
 /** What `EmailSendSession.send()` returns. */

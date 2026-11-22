@@ -49,7 +49,11 @@ beforeEach(resetFakes);
 
 describe("the calendar file", () => {
   it("is one valid event, in UTC, escaped, with a UID on the sender's domain", () => {
-    const ics = calendarFile(event, "example.com", new Date("2026-10-01T00:00:00Z"));
+    const ics = calendarFile(
+      event,
+      { address: "crm@example.com", to: ["ann@members.test"] },
+      new Date("2026-10-01T00:00:00Z"),
+    );
     expect(lines(ics)).toEqual([
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
@@ -58,6 +62,7 @@ describe("the calendar file", () => {
       "METHOD:PUBLISH",
       "BEGIN:VEVENT",
       "UID:bkg_01ABC@example.com",
+      "ORGANIZER:mailto:crm@example.com",
       "DTSTAMP:20261001T000000Z",
       "DTSTART:20261005T190000Z",
       "DTEND:20261005T200000Z",
@@ -75,7 +80,7 @@ describe("the calendar file", () => {
     const long = "Ünïcödé class ".repeat(12).trim();
     const ics = calendarFile(
       { ...event, title: long, description: "Line one\nLine two", sequence: 7, cancelled: true },
-      "example.com",
+      { address: "crm@example.com", to: ["ann@members.test"] },
       new Date(),
     );
     const all = lines(ics);
@@ -84,6 +89,9 @@ describe("the calendar file", () => {
     expect(all).toContain("METHOD:CANCEL");
     expect(all).toContain("STATUS:CANCELLED");
     expect(all).toContain("SEQUENCE:7");
+    // RFC 5546: a CANCEL names its organizer and attendees.
+    expect(all).toContain("ORGANIZER:mailto:crm@example.com");
+    expect(all).toContain("ATTENDEE:mailto:ann@members.test");
     expect(icsTime("2026-04-05T06:30:00+10:00")).toBe("20260404T203000Z");
   });
 
@@ -108,6 +116,8 @@ describe("a send with a calendar file", () => {
       kind: "inline",
       value: `Adds "${event.title}" 2026-10-05T19:00:00.000Z to 2026-10-05T20:00:00.000Z at Studio A`,
     });
+    // Everything the file will say is in front of the approver: its link and its description.
+    expect(fields?.find((f) => f.label === "Calendar link")).toMatchObject({ value: event.url });
     await h.apply(id);
     expect(sentEmails).toHaveLength(1);
     const [attachment, ...others] = sentEmails[0]?.attachments ?? [];
@@ -128,6 +138,8 @@ describe("a send with a calendar file", () => {
     ["a title over two lines", { title: "a\r\nb" }, /calendar\.title/],
     ["a file of its own", { content: "BEGIN:VCALENDAR" }, /Unrecognized key/],
     ["a time that is not an instant", { start: "next Tuesday" }, /calendar\.start/],
+    ["a control character in the title", { title: "Strength\u000bclass" }, /control characters/],
+    ["a NUL in the description", { description: "Bring\u0000a towel" }, /control characters/],
   ];
   for (const [name, change, error] of bad) {
     it(`refuses ${name}`, async () => {
@@ -139,10 +151,49 @@ describe("a send with a calendar file", () => {
     });
   }
 
+  it("shows the approver the calendar's description in full", async () => {
+    const h = await host();
+    const description = "Bring a towel.\nThe studio is upstairs.";
+    await h.call("send", [{ ...message, calendar: { ...event, description } }]);
+    const fields = submissions[0]?.[1].fields as ActionField[] | undefined;
+    expect(fields?.find((f) => f.label === "Calendar description")).toMatchObject({
+      value: description,
+    });
+  });
+
   it("refuses any attachment but the calendar", async () => {
     const h = await host();
     await expect(
       h.call("send", [{ ...message, attachments: [{ filename: "x.exe", content: "MZ" }] }]),
     ).rejects.toThrow(/Unrecognized key/);
+  });
+});
+
+describe("an idempotency key (ADR 0574)", () => {
+  it("answers a retried send with the first one's receipt and queues nothing more", async () => {
+    const h = await host();
+    const first = (await h.call("send", [
+      { ...message, idempotencyKey: "run_1:0" },
+    ])) as EmailSendReceipt;
+    const again = (await h.call("send", [
+      { ...message, idempotencyKey: "run_1:0" },
+    ])) as EmailSendReceipt;
+    expect(again).toEqual(first);
+    expect(submissions).toHaveLength(1);
+    // Another key is another email.
+    await h.call("send", [{ ...message, idempotencyKey: "run_1:1" }]);
+    expect(submissions).toHaveLength(2);
+    // The key is not part of what the approver reads or what is sent.
+    expect(JSON.stringify(submissions[0]?.[1])).not.toContain("run_1:0");
+    await h.apply(first.id);
+    expect(JSON.stringify(sentEmails[0])).not.toContain("idempotencyKey");
+  });
+
+  it("refuses a malformed key", async () => {
+    const h = await host();
+    await expect(h.call("send", [{ ...message, idempotencyKey: "has spaces" }])).rejects.toThrow(
+      /idempotencyKey/,
+    );
+    expect(submissions).toEqual([]);
   });
 });

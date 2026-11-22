@@ -160,7 +160,8 @@ export default defineExtension({
     // The messages (automations.ts): person.link.list (a child's live guardians, who are written
     // to), order.get (whether a drop-in was paid, and who paid), extensionSettings.list (the link
     // in each email and the waiting list's cut-off), notification.send (staff told of a class
-    // whose list was not taken); email-send, the members' mail.
+    // whose list was not taken); email-send, the members' mail; storage, which class changes are
+    // still to be told (several edits within two minutes make one email).
     operations: [
       "order.startHeld",
       "public.list",
@@ -174,7 +175,7 @@ export default defineExtension({
       "extensionSettings.list",
       "notification.send",
     ],
-    modules: ["ops", "email-send"],
+    modules: ["ops", "email-send", "storage"],
   },
   // Bookings' fields on Programs' class type: how it shows, and its booking rules when they
   // differ from the organisation's (Settings → Extensions → Bookings). Empty: the organisation's.
@@ -1035,6 +1036,8 @@ export default defineExtension({
       description:
         "The page on your site where a signed-in member sees their bookings (https), linked from " +
         "every booking email. Empty: the emails say to sign in.",
+      // The link every member email carries: a person's to change, as the booking rules are.
+      personApproves: true,
     },
   },
   // The coach role (spec 31, decision 10; ADR 0436): the day's classes and their lists, and ticking

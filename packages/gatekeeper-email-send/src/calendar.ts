@@ -31,6 +31,8 @@ export interface EmailCalendarEvent {
 
 /** The file name a message's calendar is attached as. */
 export const CALENDAR_FILENAME = "invite.ics";
+/** The file name of an event's cancellation, beside a new event's (a move). */
+export const CANCEL_FILENAME = "cancelled.ics";
 
 /** Text values: backslash, semicolon, comma and newlines escaped (RFC 5545 3.3.11). */
 function escapeText(value: string): string {
@@ -76,10 +78,17 @@ function fold(line: string): string {
 }
 
 /**
- * The `.ics` text of one event. `domain` makes the UID globally unique (`<uid>@<domain>`, the
- * sender's domain); `stamp` is when the file was made.
+ * The `.ics` text of one event. The UID is the event's at the sending address's domain, so it is
+ * globally unique; `stamp` is when the file was made. RFC 5546 names the ORGANIZER (the sending
+ * address) in a PUBLISH and a CANCEL, and the ATTENDEEs (the recipients) in a CANCEL. How each
+ * calendar app treats a file sent as an attachment is not verified (ADR 0571).
  */
-export function calendarFile(event: EmailCalendarEvent, domain: string, stamp: Date): string {
+export function calendarFile(
+  event: EmailCalendarEvent,
+  from: { address: string; to: readonly string[] },
+  stamp: Date,
+): string {
+  const domain = from.address.slice(from.address.lastIndexOf("@") + 1).toLowerCase();
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -88,6 +97,8 @@ export function calendarFile(event: EmailCalendarEvent, domain: string, stamp: D
     `METHOD:${event.cancelled ? "CANCEL" : "PUBLISH"}`,
     "BEGIN:VEVENT",
     `UID:${event.uid}@${domain}`,
+    `ORGANIZER:mailto:${from.address}`,
+    ...(event.cancelled ? from.to.map((to) => `ATTENDEE:mailto:${to}`) : []),
     `DTSTAMP:${icsTime(stamp.toISOString())}`,
     `DTSTART:${icsTime(event.start)}`,
     `DTEND:${icsTime(event.end)}`,

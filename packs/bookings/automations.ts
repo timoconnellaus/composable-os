@@ -2,18 +2,23 @@
 // email-send gatekeeper (a connection a person binds when the pack is installed; each send is an
 // outbound action the approval policy decides), and one notice to staff in the app. They add no
 // rule of their own: every state they read was written by the host's behaviours, and they write
-// nothing.
+// no record (the pack's own storage holds which class changes are still to be told).
 //
 // Who is written to, for a booking (the same rule for every message):
 //   - the booking's Person, when they have an email address;
 //   - each guardian with a live family link to that Person (ADR 0540), when they have an email
-//     address: a parent is told about their child's class, naming the child. A link that ended is
-//     not live, so a parent who lost access to the child's bookings hears nothing more of them;
+//     address and are not in the Trash: a parent is told about their child's class, naming the
+//     child. A link that ended is not live, so a parent who lost access to the child's bookings
+//     hears nothing more of them;
+//   - a booking with no Person (a visitor's drop-in, ADR 0560) only once it is paid for: the order's
+//     own address, about that booking only. A hold not paid for is nobody's and hears nothing;
 //   - nobody else, ever. Each email has one recipient and is about one booking, so no email names
-//     another member or shows another member's address. A visitor's drop-in held while unpaid has
-//     no Person (ADR 0560): it is nobody's, and nothing is sent about it until it is booked.
+//     another member or shows another member's address.
 // Not emailed (spec 31): a coach swap, and a booking the member cancelled themselves (the screen
 // says so). Nothing here sends a push or a text.
+//
+// Every email carries an idempotency key (the run and the email's place in it), so a send step
+// retried after a failure part way never sends an earlier email again (ADR 0574).
 import { defineAutomation, type ExtensionContext } from "@composable-os/sdk";
 
 const CLASS = "bookings.class";
@@ -27,6 +32,9 @@ const MAIL = {
   gatekeeper: "email-send",
   purpose: "Email members about their bookings",
 } as const;
+
+/** How long a change to a class settles before it is told, so several edits make one email. */
+const SETTLE = "2 minutes" as const;
 
 interface RecordShape {
   id: string;
@@ -43,7 +51,7 @@ const PAGE = 200;
 async function settings(ctx: ExtensionContext): Promise<Record<string, unknown>> {
   const { items } = await ctx.ops.call<{
     items: { id: string; values: Record<string, unknown> }[];
-  }>("extensionSettings.list");
+  }>("extensionSettings.list", { extension: "bookings" });
   return items.find((item) => item.id === "bookings")?.values ?? {};
 }
 
@@ -71,6 +79,21 @@ export function classTimeText(iso: string | null, zone: string | null): string {
     return `${local} (${timeZone.replace(/_/g, " ")} time)`;
   } catch {
     return iso;
+  }
+}
+
+/** A class's end in its own zone ("07:00"). */
+function endText(iso: string | null, zone: string | null): string | null {
+  if (!iso) return null;
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: zone ?? "UTC",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).format(new Date(iso));
+  } catch {
+    return null;
   }
 }
 
@@ -129,29 +152,73 @@ async function classFacts(ctx: ExtensionContext, id: string): Promise<ClassFacts
 /** One person a booking's message goes to. */
 export interface Addressee {
   email: string;
-  /** The booking's own Person (else a guardian of theirs). */
+  /** The booking's own Person, or the visitor who paid for it (else a guardian of the Person). */
   self: boolean;
   /** This addressee made the booking (`madeBy`, set by the host). */
   madeIt: boolean;
 }
 
+/** A Person as person.get answers: their addresses, the primary one marked. */
+interface PersonShape {
+  displayName?: string | null;
+  emails?: { email: string; primary?: boolean | null }[] | null;
+  deletedAt?: string | null;
+}
+
+/** A Person's primary address, else their first; null when they have none (a child). */
+export function primaryEmail(person: PersonShape | null): string | null {
+  if (!person || person.deletedAt) return null;
+  const emails = person.emails ?? [];
+  return text((emails.find((e) => e.primary) ?? emails[0])?.email);
+}
+
+/** An order as order.get answers, the parts read here. */
+interface OrderShape {
+  state: string;
+  paid?: number;
+  email?: string | null;
+}
+
+/** The order a booking's drop-in was paid with, once per run. */
+function ordersReader(ctx: ExtensionContext) {
+  const cache = new Map<string, Promise<OrderShape | null>>();
+  return (id: string) => {
+    let read = cache.get(id);
+    if (!read) {
+      read = ctx.ops.call<OrderShape>("order.get", { id }).catch(() => null);
+      cache.set(id, read);
+    }
+    return read;
+  };
+}
+type Orders = ReturnType<typeof ordersReader>;
+
 /**
  * Who hears about one booking: its Person and their live guardians, each with an address, one
- * entry per address. `madeBy` (host-set) only words the message ("You booked Sam"); it never adds
- * anyone, so a parent whose link ended is not written to however the booking was made.
+ * entry per address; for a booking with no Person, the paying visitor at the order's own address,
+ * once paid. `madeBy` (host-set) only words the message ("You booked Sam"); it never adds anyone,
+ * so a parent whose link ended is not written to however the booking was made.
  */
 async function addresseesOf(
   ctx: ExtensionContext,
   booking: RecordShape,
+  orders: Orders,
 ): Promise<{ name: string | null; to: Addressee[] }> {
   const personId = text(booking.values.person);
-  // A visitor's drop-in held while unpaid is nobody's (ADR 0560): no one to write to.
-  if (!personId) return { name: null, to: [] };
+  if (!personId) {
+    // A visitor's drop-in (ADR 0560): told at the order's address once they have paid, about
+    // this booking only. An unpaid hold is nobody's: nothing is sent about it.
+    const orderId = text(booking.values.dropInOrder);
+    const order = orderId ? await orders(orderId) : null;
+    const email = text(order?.email)?.toLowerCase();
+    if (!order || !email || (order.paid ?? 0) <= 0) return { name: null, to: [] };
+    return { name: null, to: [{ email, self: true, madeIt: true }] };
+  }
   const madeBy = text(booking.values.madeBy);
   const person = await ctx.ops
     .call<PersonShape | null>("person.get", { id: personId })
     .catch(() => null);
-  if (!person) return { name: null, to: [] };
+  if (!person || person.deletedAt) return { name: null, to: [] };
   const to: Addressee[] = [];
   const seen = new Set<string>();
   const add = (email: string | null | undefined, self: boolean, madeIt: boolean) => {
@@ -168,24 +235,13 @@ async function addresseesOf(
     .catch(() => ({ items: [] }));
   for (const link of links.items) {
     if (link.dependant.id !== personId || link.endedAt) continue;
+    // A guardian in the Trash is not live (ADR 0540): person.get does not answer for them.
     const guardian = await ctx.ops
       .call<PersonShape | null>("person.get", { id: link.guardian.id })
       .catch(() => null);
     add(primaryEmail(guardian), false, madeBy === link.guardian.id);
   }
   return { name: text(person.displayName), to };
-}
-
-/** A Person as person.get answers: their addresses, the primary one marked. */
-interface PersonShape {
-  displayName?: string | null;
-  emails?: { email: string; primary?: boolean | null }[] | null;
-}
-
-/** A Person's primary address, else their first; null when they have none (a child). */
-export function primaryEmail(person: PersonShape | null): string | null {
-  const emails = person?.emails ?? [];
-  return text((emails.find((e) => e.primary) ?? emails[0])?.email);
 }
 
 /** "you" to the member; the child's name to a parent. */
@@ -195,13 +251,28 @@ const whoIs = (a: Addressee, name: string | null) => (a.self ? "you are" : `${wh
 const your = (a: Addressee, name: string | null) => (a.self ? "your" : `${whom(a, name)}'s`);
 const capital = (words: string) => words.charAt(0).toUpperCase() + words.slice(1);
 
-/** An "add to calendar" event for a booking (ADR 0571): the booking's id, so a change replaces it. */
+/** Seconds since 2020: a calendar SEQUENCE that grows with each change, well inside 2^31. */
+const sequenceNow = () => Math.floor(Date.now() / 1000) - 1_577_836_800;
+
+/** One "add to calendar" event (ADR 0571). */
+export interface CalendarEvent {
+  uid: string;
+  start: string;
+  end: string;
+  title: string;
+  location?: string;
+  url?: string;
+  sequence?: number;
+  cancelled?: boolean;
+}
+
+/** An "add to calendar" event for a booking: the booking's id, so a change replaces it. */
 function calendarOf(
-  booking: RecordShape,
+  booking: { id: string },
   cls: ClassFacts,
   link: string | null,
   change?: { cancelled?: boolean },
-) {
+): CalendarEvent | undefined {
   if (!cls.startsAt) return undefined;
   const start = Date.parse(cls.startsAt);
   const end = cls.endsAt ? Date.parse(cls.endsAt) : Number.NaN;
@@ -213,8 +284,8 @@ function calendarOf(
     title: cls.title.slice(0, 200),
     ...(cls.room ? { location: cls.room.slice(0, 200) } : {}),
     ...(link ? { url: link } : {}),
-    // A change replaces the event a calendar imported: a later sequence (minutes since 1970).
-    ...(change ? { sequence: Math.floor(Date.now() / 60_000) } : {}),
+    // A change replaces the event a calendar imported: a later sequence.
+    ...(change ? { sequence: sequenceNow() } : {}),
     ...(change?.cancelled ? { cancelled: true } : {}),
   };
 }
@@ -224,29 +295,37 @@ const httpsLink = (value: unknown): string | null => {
   return url && /^https:\/\//.test(url) ? url : null;
 };
 
-/** Sends one email to one address through the bound email-send connection. */
-async function sendMail(
-  ctx: ExtensionContext,
-  message: {
-    to: string;
-    subject: string;
-    text: string;
-    related: string[];
-    calendar?: ReturnType<typeof calendarOf>;
-  },
-): Promise<void> {
+/** One email to one address, built by a message's `compose`. */
+interface Letter {
+  to: string;
+  subject: string;
+  text: string;
+  related: string[];
+  /** One event, or two: a move cancels the old class's event and adds the new one's. */
+  calendar?: CalendarEvent | CalendarEvent[];
+}
+
+/**
+ * Sends one email to one address through the bound email-send connection, with an idempotency key
+ * stable across the step's retries, so a retried send is the same email (ADR 0574).
+ */
+async function sendMail(ctx: ExtensionContext, letter: Letter, key: string): Promise<void> {
   const gatekeeper = ctx.gatekeeper("email-send");
   const connections = await gatekeeper.connections();
   const resource =
     connections.find((c) => c.id === MAIL.id)?.resources[0]?.bindingName ??
     connections[0]?.resources[0]?.bindingName ??
     "SENDER";
+  const events = (Array.isArray(letter.calendar) ? letter.calendar : [letter.calendar]).filter(
+    (e): e is CalendarEvent => Boolean(e),
+  );
   await gatekeeper.call(MAIL.id, resource, "send", {
-    to: [message.to],
-    subject: message.subject.slice(0, 200),
-    text: message.text,
-    relatedRecords: message.related.slice(0, 20),
-    ...(message.calendar ? { calendar: message.calendar } : {}),
+    to: [letter.to],
+    subject: letter.subject.slice(0, 200),
+    text: letter.text,
+    relatedRecords: letter.related.slice(0, 20),
+    idempotencyKey: key,
+    ...(events.length === 1 ? { calendar: events[0] } : events.length ? { calendar: events } : {}),
   });
 }
 
@@ -280,23 +359,15 @@ async function bookingsOf(
   return out;
 }
 
-/** One email per addressee of each booking, built by `compose`. */
-interface Letter {
-  to: string;
-  subject: string;
-  text: string;
-  related: string[];
-  calendar?: ReturnType<typeof calendarOf>;
-}
-
 async function lettersFor(
   ctx: ExtensionContext,
   bookings: RecordShape[],
+  orders: Orders,
   compose: (a: Addressee, name: string | null, booking: RecordShape) => Omit<Letter, "to"> | null,
 ): Promise<Letter[]> {
   const letters: Letter[] = [];
   for (const booking of bookings) {
-    const { name, to } = await addresseesOf(ctx, booking);
+    const { name, to } = await addresseesOf(ctx, booking, orders);
     for (const a of to) {
       const letter = compose(a, name, booking);
       if (letter) letters.push({ ...letter, to: a.email });
@@ -305,13 +376,21 @@ async function lettersFor(
   return letters;
 }
 
-async function sendAll(ctx: ExtensionContext, letters: Letter[]): Promise<{ sent: number }> {
-  for (const letter of letters) await sendMail(ctx, letter);
+/** Sends each letter once, keyed by the run and its place, so a retried step resends none. */
+export async function sendAll(
+  ctx: ExtensionContext,
+  letters: Letter[],
+  runId: string,
+): Promise<{ sent: number }> {
+  for (const [i, letter] of letters.entries()) await sendMail(ctx, letter, `${runId}:${i}`);
   return { sent: letters.length };
 }
 
 const footer = (link: string | null) =>
   link ? ["", `Your bookings: ${link}`] : ["", "You can see your bookings when you sign in."];
+
+/** What every message's compose step reads and calls (the guest path reads the order). */
+const COMPOSE_CALLS = ["person.link.list", "order.get", "extensionSettings.list"];
 
 // --- Booked -------------------------------------------------------------------------------------
 
@@ -344,7 +423,8 @@ export const bookingConfirmed = defineAutomation({
   description:
     "When a booking becomes booked (made by the member, a parent or staff; a drop-in paid for; " +
     "moved in from the waiting list; or moved by staff to another class), emails the member and " +
-    "their parents or guardians the class, its time and room, with an add-to-calendar file.",
+    "their parents or guardians the class, its time and room, with an add-to-calendar file (a " +
+    "move also takes the old class off the calendar).",
   trigger: { type: "record", object: BOOKING, on: ["created", "updated"] },
   conditions: { field: "state", op: "eq", value: "booked" },
   // Each change its own run: the message is read from the change (a waiter moved in, a drop-in
@@ -356,7 +436,7 @@ export const bookingConfirmed = defineAutomation({
       name: "compose",
       label: "Read the class and who to tell",
       reads: [BOOKING, CLASS, ROOM, "person"],
-      calls: ["person.link.list", "extensionSettings.list"],
+      calls: COMPOSE_CALLS,
     },
     { name: "send", label: "Email the member (and their guardians)" },
   ],
@@ -370,10 +450,20 @@ export const bookingConfirmed = defineAutomation({
       if (text(booking.values.state) !== "booked") return [];
       const cls = await classFacts(ctx, String(booking.values.class));
       if (!cls) return [];
+      // A move: the old booking's class, whose event the member's calendar holds.
+      let old: { booking: string; cls: ClassFacts } | null = null;
+      const from = kind === "moved" ? text(booking.values.movedFrom) : null;
+      if (from) {
+        const was = await ctx.ops
+          .call<RecordShape>("record.get", { object: BOOKING, id: from })
+          .catch(() => null);
+        const oldClass = was ? await classFacts(ctx, String(was.values.class)) : null;
+        if (oldClass) old = { booking: from, cls: oldClass };
+      }
       const link = httpsLink((await settings(ctx)).bookingsUrl);
       const when = classTimeText(cls.startsAt, cls.timezone);
       const where = cls.room ? `, in ${cls.room}` : "";
-      return lettersFor(ctx, [booking], (a, name) => {
+      return lettersFor(ctx, [booking], ordersReader(ctx), (a, name) => {
         const lead = {
           booked:
             a.madeIt && !a.self
@@ -381,7 +471,7 @@ export const bookingConfirmed = defineAutomation({
               : `${capital(whoIs(a, name))} booked into ${cls.title} on ${when}${where}.`,
           paid: `Payment received: ${whoIs(a, name)} booked into ${cls.title} on ${when}${where}.`,
           promoted: `A place came free and ${whoIs(a, name)} now booked into ${cls.title} on ${when}${where}, moved in from the waiting list. It used one class from ${your(a, name)} membership or pass.`,
-          moved: `The gym moved ${your(a, name)} booking to ${cls.title} on ${when}${where}.`,
+          moved: `The gym moved ${your(a, name)} booking${old ? ` from ${old.cls.title} on ${classTimeText(old.cls.startsAt, old.cls.timezone)}` : ""} to ${cls.title} on ${when}${where}.`,
         }[kind];
         const subject = {
           booked: `Booked: ${cls.title}`,
@@ -389,18 +479,28 @@ export const bookingConfirmed = defineAutomation({
           promoted: `You're in: ${cls.title}`,
           moved: `Booking moved: ${cls.title}`,
         }[kind];
+        const added = calendarOf(booking, cls, link, kind === "moved" ? {} : undefined);
+        const removed = old
+          ? calendarOf({ id: old.booking }, old.cls, null, { cancelled: true })
+          : undefined;
+        const events = [removed, added].filter((e): e is CalendarEvent => Boolean(e));
         return {
           subject: a.self ? subject : `${subject} (${whom(a, name)})`,
-          text: [lead, "", "The attached file adds it to your calendar.", ...footer(link)].join(
-            "\n",
-          ),
+          text: [
+            lead,
+            "",
+            removed
+              ? "The attached files take the old class off your calendar and add the new one."
+              : "The attached file adds it to your calendar.",
+            ...footer(link),
+          ].join("\n"),
           related: [booking.id, cls.id],
-          calendar: calendarOf(booking, cls, link, kind === "moved" ? {} : undefined),
+          ...(events.length ? { calendar: events.length === 1 ? events[0] : events } : {}),
         };
       });
     });
     if (!letters.length) return { sent: 0, kind };
-    return { ...(await step.do("send", () => sendAll(ctx, letters))), kind };
+    return { ...(await step.do("send", () => sendAll(ctx, letters, event.runId))), kind };
   },
 });
 
@@ -419,7 +519,7 @@ export const waitlistPassedOver = defineAutomation({
       name: "compose",
       label: "Read the class and who to tell",
       reads: [BOOKING, CLASS, ROOM, "person"],
-      calls: ["person.link.list", "extensionSettings.list"],
+      calls: COMPOSE_CALLS,
     },
     { name: "send", label: "Email the member (and their guardians)" },
   ],
@@ -434,7 +534,7 @@ export const waitlistPassedOver = defineAutomation({
       if (!cls) return [];
       const link = httpsLink((await settings(ctx)).bookingsUrl);
       const when = classTimeText(cls.startsAt, cls.timezone);
-      return lettersFor(ctx, [booking], (a, name) => ({
+      return lettersFor(ctx, [booking], ordersReader(ctx), (a, name) => ({
         subject: `A place came free: ${cls.title}`,
         text: [
           `A place came free on ${cls.title} on ${when}, but we could not move ${whom(a, name)} in: ${passedOverWords(reason)}.`,
@@ -445,7 +545,7 @@ export const waitlistPassedOver = defineAutomation({
       }));
     });
     if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters));
+    return step.do("send", () => sendAll(ctx, letters, event.runId));
   },
 });
 
@@ -467,12 +567,39 @@ async function cutOff(ctx: ExtensionContext, cls: ClassFacts): Promise<number | 
   return Date.parse(cls.startsAt) - minutes * 60_000;
 }
 
+/**
+ * Several runs for one class within a moment are told once (ADR 0572): each run takes the class's
+ * turn in the pack's storage (`claimTurn`), waits for things to settle, and only the run that took
+ * the turn last tells, with what is true then. A run never loses the turn without a later run
+ * holding it, so the last change is always told.
+ */
+async function claimTurn<T extends Record<string, unknown>>(
+  ctx: ExtensionContext,
+  key: string,
+  runId: string,
+  merge: (before: T | null) => T,
+): Promise<void> {
+  const before = await ctx.storage.get<T & { turn: string }>(key);
+  await ctx.storage.set(key, { ...merge(before), turn: runId });
+}
+
+async function takeTurn<T>(
+  ctx: ExtensionContext,
+  key: string,
+  runId: string,
+): Promise<(T & { turn: string }) | null> {
+  const held = await ctx.storage.get<T & { turn: string }>(key);
+  if (held?.turn !== runId) return null;
+  await ctx.storage.delete(key);
+  return held;
+}
+
 export const placeFree = defineAutomation({
   label: "A place free after the waiting list stops",
   description:
     "When someone gives a place back after the class's waiting list has stopped (2 hours before " +
     "by default), emails everyone still waiting that a place is free: whoever books it first " +
-    "gets it.",
+    "gets it. Several places given back within two minutes make one email.",
   trigger: {
     type: "fieldChanged",
     object: BOOKING,
@@ -482,18 +609,24 @@ export const placeFree = defineAutomation({
   },
   connections: [MAIL],
   steps: [
+    { name: "note", label: "Note the class has a place to tell of" },
+    { name: "settle", kind: "sleep", duration: SETTLE },
     {
       name: "compose",
       label: "Check the place is free and read who is waiting",
       reads: [BOOKING, CLASS, ROOM, CLASS_TYPE, "person"],
-      calls: ["capacity.get", "person.link.list", "extensionSettings.list"],
+      calls: ["capacity.get", ...COMPOSE_CALLS],
     },
     { name: "send", label: "Email each person waiting" },
   ],
   async run(event, step, ctx) {
     const classId = text(event.record?.data?.class);
     if (!classId) return { skipped: "no class" };
+    const key = `free:${classId}`;
+    await step.do("note", () => claimTurn(ctx, key, event.runId, () => ({ classId })));
+    await step.sleep("settle", SETTLE);
     const letters = await step.do("compose", async () => {
+      if (!(await takeTurn(ctx, key, event.runId))) return [];
       const cls = await classFacts(ctx, classId);
       if (cls?.state !== "scheduled" || !cls.startsAt) return [];
       const now = Date.now();
@@ -507,7 +640,7 @@ export const placeFree = defineAutomation({
       const waiting = await bookingsOf(ctx, classId, ["waiting"]);
       const link = httpsLink((await settings(ctx)).bookingsUrl);
       const when = classTimeText(cls.startsAt, cls.timezone);
-      return lettersFor(ctx, waiting, (a, name) => ({
+      return lettersFor(ctx, waiting, ordersReader(ctx), (a, name) => ({
         subject: `A place is free: ${cls.title}`,
         text: [
           `A place is free on ${cls.title} on ${when}. The waiting list has stopped for this class, so whoever books it first gets it.`,
@@ -520,7 +653,7 @@ export const placeFree = defineAutomation({
       }));
     });
     if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters));
+    return step.do("send", () => sendAll(ctx, letters, event.runId));
   },
 });
 
@@ -529,50 +662,80 @@ export const placeFree = defineAutomation({
 /** Bookings that a change to their class concerns: with a place, held while paying, or waiting. */
 const LIVE = ["booked", "pending", "waiting"];
 
+/** What the changes to a class since it was last told add up to (kept in the pack's storage). */
+interface ClassChange extends Record<string, unknown> {
+  /** Its start before the first change not yet told. */
+  startsBefore: string | null;
+  time: boolean;
+  end: boolean;
+  room: boolean;
+}
+
 export const classChanged = defineAutomation({
   label: "Class time or room changed",
   description:
-    "When staff change a scheduled class's time, day or room (one class, or a series from a " +
-    "date), emails everyone booked or waiting the new time or room, with an updated " +
-    "add-to-calendar file. A change of coach sends nothing.",
+    "When staff change a scheduled class's time, day, end or room (one class, or a series from a " +
+    "date), emails everyone booked or waiting what it is now, with an updated add-to-calendar " +
+    "file; several changes within two minutes make one email. A change of coach sends nothing.",
   trigger: { type: "record", object: CLASS, on: ["updated"], includeBulk: true },
   conditions: { field: "state", op: "eq", value: "scheduled" },
   // Each change its own run: a coach swap then a new time a moment later must not coalesce into
-  // one run that sees only the swap.
+  // one run that sees only the swap. The runs then agree among themselves which tells (claimTurn).
   rails: { debounceSeconds: 0 },
   connections: [MAIL],
   steps: [
+    { name: "note", label: "Note what changed" },
+    { name: "settle", kind: "sleep", duration: SETTLE },
     {
       name: "compose",
       label: "Read who is booked or waiting",
       reads: [BOOKING, CLASS, ROOM, "person"],
-      calls: ["person.link.list", "extensionSettings.list"],
+      calls: COMPOSE_CALLS,
     },
     { name: "send", label: "Email each member (and their guardians)" },
   ],
   async run(event, step, ctx) {
     const classId = event.record?.id;
     const diff = event.change?.diff ?? {};
-    const timeChanged = "startsAt" in diff;
-    const roomChanged = "room" in diff;
+    const changed = { time: "startsAt" in diff, end: "endsAt" in diff, room: "room" in diff };
     // A coach swap (decision 16), the places or the notes: nothing to tell.
-    if (!classId || (!timeChanged && !roomChanged)) return { skipped: "no time or room change" };
+    if (!classId || (!changed.time && !changed.end && !changed.room)) {
+      return { skipped: "no time or room change" };
+    }
+    const key = `changed:${classId}`;
+    await step.do("note", () =>
+      claimTurn<ClassChange>(ctx, key, event.runId, (before) => ({
+        startsBefore: before ? before.startsBefore : text(diff.startsAt?.before),
+        time: Boolean(before?.time) || changed.time,
+        end: Boolean(before?.end) || changed.end,
+        room: Boolean(before?.room) || changed.room,
+      })),
+    );
+    await step.sleep("settle", SETTLE);
     const letters = await step.do("compose", async () => {
+      // A later change took the turn: it tells, with everything changed since.
+      const told = await takeTurn<ClassChange>(ctx, key, event.runId);
+      if (!told) return [];
       const cls = await classFacts(ctx, classId);
       if (cls?.state !== "scheduled") return [];
+      const before = told.startsBefore;
+      const moved = told.time && (!before || Date.parse(before) !== Date.parse(cls.startsAt ?? ""));
+      // Changed and changed back: nothing to tell.
+      if (!moved && !told.end && !told.room) return [];
       const bookings = await bookingsOf(ctx, classId, LIVE);
       const link = httpsLink((await settings(ctx)).bookingsUrl);
       const when = classTimeText(cls.startsAt, cls.timezone);
-      const before = text(diff.startsAt?.before);
-      return lettersFor(ctx, bookings, (a, name, booking) => {
+      const ends = endText(cls.endsAt, cls.timezone);
+      return lettersFor(ctx, bookings, ordersReader(ctx), (a, name, booking) => {
         const lines = [
-          timeChanged
+          moved
             ? `${cls.title}${before ? ` on ${classTimeText(before, cls.timezone)}` : ""} has moved to ${when}.`
-            : `${cls.title} on ${when} is now in ${cls.room ?? "another room"}.`,
-          ...(timeChanged && roomChanged && cls.room ? [`It is now in ${cls.room}.`] : []),
+            : `${cls.title} on ${when} has changed.`,
+          ...(told.end && ends ? [`It now ends at ${ends}.`] : []),
+          ...(told.room ? [`It is now in ${cls.room ?? "another room"}.`] : []),
           `${capital(your(a, name))} ${text(booking.values.state) === "waiting" ? "place on the waiting list stays" : "booking stays"} as it is. If the change does not suit, cancel it when you sign in.`,
         ];
-        const keep = text(booking.values.state) === "booked";
+        const keep = text(booking.values.state) !== "waiting";
         return {
           subject: `Class changed: ${cls.title}${a.self ? "" : ` (${whom(a, name)})`}`,
           text: [
@@ -586,7 +749,7 @@ export const classChanged = defineAutomation({
       });
     });
     if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters));
+    return step.do("send", () => sendAll(ctx, letters, event.runId));
   },
 });
 
@@ -610,7 +773,7 @@ export const classCancelled = defineAutomation({
       name: "compose",
       label: "Read the bookings the cancel cancelled",
       reads: [BOOKING, CLASS, ROOM, "person"],
-      calls: ["order.get", "person.link.list", "extensionSettings.list"],
+      calls: COMPOSE_CALLS,
     },
     { name: "send", label: "Email each member (and their guardians)" },
   ],
@@ -623,41 +786,14 @@ export const classCancelled = defineAutomation({
       const bookings = await bookingsOf(ctx, classId, ["cancelled_by_us"]);
       const link = httpsLink((await settings(ctx)).bookingsUrl);
       const when = classTimeText(cls.startsAt, cls.timezone);
-      // Whether each drop-in's money was taken (its order paid), and the payer's own address,
-      // read once per order.
+      const orders = ordersReader(ctx);
+      // Whether each drop-in's money was taken (its order paid), read once per order.
       const paid = new Map<string, boolean>();
-      const payer = new Map<string, string | null>();
       for (const booking of bookings) {
         const order = text(booking.values.dropInOrder);
-        if (!order || paid.has(order)) continue;
-        const read = await ctx.ops
-          .call<{ state: string; paid?: number; email?: string | null }>("order.get", {
-            id: order,
-          })
-          .catch(() => null);
-        paid.set(order, Boolean(read && (read.paid ?? 0) > 0));
-        payer.set(order, text(read?.email)?.toLowerCase() ?? null);
+        if (order && !paid.has(order)) paid.set(order, ((await orders(order))?.paid ?? 0) > 0);
       }
-      // A visitor's paid drop-in that staff had not yet matched to a Person (ADR 0560) has no
-      // addressee of its own: the payer is told at the order's address, about their own payment
-      // only, that the money is on its way (decision 15).
-      const unmatched: Letter[] = [];
-      for (const booking of bookings) {
-        const order = text(booking.values.dropInOrder);
-        const to = order ? payer.get(order) : null;
-        if (text(booking.values.person) || !order || !paid.get(order) || !to) continue;
-        unmatched.push({
-          to,
-          subject: `Cancelled by the gym: ${cls.title}`,
-          text: [
-            `The gym has cancelled ${cls.title} on ${when}, which you paid for.`,
-            ...(cls.reason ? [`The reason: ${cls.reason}`] : []),
-            "The money goes back to the card it was paid with, once the gym approves the refund: you will get an email when it has been made.",
-          ].join("\n"),
-          related: [booking.id, cls.id, order],
-        });
-      }
-      const letters = await lettersFor(ctx, bookings, (a, name, booking) => {
+      return lettersFor(ctx, bookings, orders, (a, name, booking) => {
         const order = text(booking.values.dropInOrder);
         const money = order
           ? paid.get(order)
@@ -678,10 +814,9 @@ export const classCancelled = defineAutomation({
           calendar: calendarOf(booking, cls, link, { cancelled: true }),
         };
       });
-      return [...letters, ...unmatched];
     });
     if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters));
+    return step.do("send", () => sendAll(ctx, letters, event.runId));
   },
 });
 
@@ -691,7 +826,8 @@ export const classReminder = defineAutomation({
   label: "Class reminder",
   description:
     "Before each scheduled class (3 hours by default: the class type's reminder, else the " +
-    "organisation's), emails everyone booked into it a reminder of the time and room.",
+    "organisation's), emails everyone booked into it a reminder of the time and room, and a " +
+    "visitor who paid for a place that staff have not yet confirmed.",
   trigger: {
     type: "dateRelative",
     object: CLASS,
@@ -705,7 +841,7 @@ export const classReminder = defineAutomation({
       name: "compose",
       label: "Read who is booked",
       reads: [BOOKING, CLASS, ROOM, "person"],
-      calls: ["person.link.list", "extensionSettings.list"],
+      calls: COMPOSE_CALLS,
     },
     { name: "send", label: "Email each member (and their guardians)" },
   ],
@@ -718,10 +854,14 @@ export const classReminder = defineAutomation({
       if (cls?.state !== "scheduled") return [];
       // Run late for a class already started: no reminder.
       if (cls.startsAt && Date.parse(cls.startsAt) <= Date.now()) return [];
-      const bookings = await bookingsOf(ctx, classId, ["booked"]);
+      // Booked; and a visitor's paid place held for staff to settle (addresseesOf skips a hold
+      // nobody paid for).
+      const bookings = (await bookingsOf(ctx, classId, ["booked", "pending"])).filter(
+        (b) => text(b.values.state) === "booked" || !text(b.values.person),
+      );
       const link = httpsLink((await settings(ctx)).bookingsUrl);
       const when = classTimeText(cls.startsAt, cls.timezone);
-      return lettersFor(ctx, bookings, (a, name, booking) => ({
+      return lettersFor(ctx, bookings, ordersReader(ctx), (a, name, booking) => ({
         subject: `Reminder: ${cls.title}${a.self ? "" : ` (${whom(a, name)})`}`,
         text: [
           `A reminder: ${whoIs(a, name)} booked into ${cls.title} on ${when}${cls.room ? `, in ${cls.room}` : ""}.`,
@@ -732,18 +872,25 @@ export const classReminder = defineAutomation({
       }));
     });
     if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters));
+    return step.do("send", () => sendAll(ctx, letters, event.runId));
   },
 });
 
-// --- A drop-in's refund made ---------------------------------------------------------------------
+// --- A drop-in's payment and refund --------------------------------------------------------------
 
-export const dropInRefunded = defineAutomation({
-  label: "Drop-in refund made",
+export const dropInOrder = defineAutomation({
+  label: "Drop-in paid or refunded",
   description:
-    "When the refund of a paid drop-in has been made (a person approved it and the payment " +
-    "provider confirmed it), emails the person who paid that their money is back.",
-  trigger: { type: "fieldChanged", object: "order", field: "state", to: "refunded" },
+    "When a visitor pays for a class that staff still have to confirm (their address matches " +
+    "several people on file), emails them at the order's address that their place is held; when " +
+    "the refund of a paid drop-in has been made, emails the person who paid that their money is " +
+    "back.",
+  trigger: {
+    type: "fieldChanged",
+    object: "order",
+    field: "state",
+    to: { in: ["paid", "refunded"] },
+  },
   connections: [MAIL],
   steps: [
     {
@@ -757,7 +904,7 @@ export const dropInRefunded = defineAutomation({
   async run(event, step, ctx) {
     const orderId = event.record?.id;
     if (!orderId) return { skipped: "no order" };
-    const letters = await step.do("compose", async () => {
+    const letters = await step.do("compose", async (): Promise<Letter[]> => {
       const found = await ctx.ops.call<{ items: RecordShape[] }>("record.list", {
         object: BOOKING,
         filter: { field: "dropInOrder", op: "eq", value: orderId },
@@ -765,28 +912,46 @@ export const dropInRefunded = defineAutomation({
       });
       // An order of something else: not ours to tell.
       if (!found.items.length) return [];
-      const order = await ctx.ops.call<{ email: string | null; state: string }>("order.get", {
-        id: orderId,
-      });
+      const order = await ctx.ops.call<OrderShape>("order.get", { id: orderId });
       const email = text(order.email)?.toLowerCase();
-      if (!email || order.state !== "refunded") return [];
+      if (!email) return [];
       const booking = found.items[0] as RecordShape;
       const cls = await classFacts(ctx, String(booking.values.class));
       const link = httpsLink((await settings(ctx)).bookingsUrl);
+      const what = cls
+        ? `${cls.title} on ${classTimeText(cls.startsAt, cls.timezone)}`
+        : "your class";
+      if (order.state === "refunded") {
+        return [
+          {
+            to: email,
+            subject: `Refund made${cls ? `: ${cls.title}` : ""}`,
+            text: [
+              `Your refund for ${what} has been made to the card you paid with. Banks can take a few days to show it.`,
+              ...footer(link),
+            ].join("\n"),
+            related: [orderId, booking.id],
+          },
+        ];
+      }
+      // Paid, and still held with no Person: staff settle whose it is (ADR 0560). A booking
+      // that became booked with its Person is told by bookingConfirmed instead.
+      if (text(booking.values.state) !== "pending" || text(booking.values.person)) return [];
       return [
         {
           to: email,
-          subject: `Refund made${cls ? `: ${cls.title}` : ""}`,
+          subject: `Payment received${cls ? `: ${cls.title}` : ""}`,
           text: [
-            `Your refund for ${cls ? `${cls.title} on ${classTimeText(cls.startsAt, cls.timezone)}` : "a class"} has been made to the card you paid with. Banks can take a few days to show it.`,
+            `Payment received for ${what}. Your place is held: the gym confirms it shortly, and you will get an email when it has.`,
             ...footer(link),
           ].join("\n"),
           related: [orderId, booking.id],
+          ...(cls ? { calendar: calendarOf(booking, cls, link) } : {}),
         },
       ];
     });
     if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters));
+    return step.do("send", () => sendAll(ctx, letters, event.runId));
   },
 });
 
@@ -842,6 +1007,6 @@ export const bookingsAutomations = {
   classChanged,
   classCancelled,
   classReminder,
-  dropInRefunded,
+  dropInOrder,
   noAttendanceTaken,
 };

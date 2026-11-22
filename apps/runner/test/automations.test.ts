@@ -23,7 +23,11 @@ import {
 } from "@composable-os/core";
 import { z } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
-import { dispatchAutomationMessages } from "../src/automations/dispatch.ts";
+import {
+  DEFERRED_REASON,
+  dispatchAutomationMessages,
+  runDeferredDue,
+} from "../src/automations/dispatch.ts";
 import { automationHost } from "../src/automations/host.ts";
 import { advanceRun, startRun } from "../src/automations/run.ts";
 import { runAutomationCron, runDateRelative } from "../src/automations/schedule.ts";
@@ -320,37 +324,47 @@ describe("AC3: rails", () => {
     expect(started.runIds).toEqual([]);
   });
 
-  it("rate limit: above the runs-per-minute rail the automation auto-pauses and admins hear", async () => {
+  it("rate limit: runs over the runs-per-minute rail wait their turn and start on later ticks (ADR 0573)", async () => {
     const items = await Promise.all(
       [1, 2, 3].map((n) => createItem({ name: `Rate${n}`, level: 9 })),
     );
-    const limited = { ...env, AUTOMATION_RATE_LIMIT: memoryRateLimit(1) };
-    const before = await count("core_notifications");
+    const limiter = memoryRateLimit(1);
+    const limited = { ...env, AUTOMATION_RATE_LIMIT: limiter };
     const result = await runWorkflows(() =>
       dispatchAutomationMessages(
         limited,
         items.map((i) => recordMessage(i.result)),
       ),
     );
+    // One starts now; the other two are recorded, not dropped, and the automation is not paused.
     expect(result.runIds).toHaveLength(1);
-    expect(result.paused).toEqual([`${FIXTURE_ID}.onCreate`]);
+    expect(result.deferred).toBe(2);
+    expect(result.paused).toEqual([]);
     const row = await db.query
       .selectFrom("core_automations")
       .select(["paused_reason"])
       .where("id", "=", `${FIXTURE_ID}.onCreate`)
       .executeTakeFirstOrThrow();
-    expect(row.paused_reason).toMatch(/runs a minute/);
-    const notices = await env.DB.prepare(
-      "SELECT user_id, type FROM core_notifications WHERE type = 'automation.paused' AND user_id = ?",
-    )
-      .bind(admin.id)
-      .all();
-    expect(notices.results.length).toBeGreaterThanOrEqual(1);
-    expect(await count("core_notifications")).toBeGreaterThan(before);
-    // Paused automations match nothing until enabled again.
-    const { result: later } = await createItem({ name: "Later", level: 9 });
-    expect((await dispatch([recordMessage(later)])).runIds).toEqual([]);
-    await call(admin, "automation.enable", { id: `${FIXTURE_ID}.onCreate` });
+    expect(row.paused_reason).toBeNull();
+    const waiting = async () =>
+      (await runsOf(`${FIXTURE_ID}.onCreate`)).filter(
+        (r) =>
+          items.some((i) => i.result.id === r.record_id) && r.status_reason === DEFERRED_REASON,
+      );
+    expect(await waiting()).toHaveLength(2);
+    // The next ticks start them as the rail allows: one a minute here, each once.
+    const at = (minutes: number) => new Date(Date.now() + minutes * 60_000);
+    limiter.reset();
+    expect((await runWorkflows(() => runDeferredDue(limited, at(2)))).started).toBe(1);
+    limiter.reset();
+    expect((await runWorkflows(() => runDeferredDue(limited, at(3)))).started).toBe(1);
+    limiter.reset();
+    expect((await runDeferredDue(limited, at(4))).started).toBe(0);
+    expect(await waiting()).toEqual([]);
+    // Every item got its one follow-up task: nothing lost, nothing twice.
+    for (const [n, item] of items.entries()) {
+      expect(await tasksOn(item.result.id)).toEqual([`Follow up Rate${n + 1}`]);
+    }
   });
 
   it("debounce: updates to one record within the window coalesce into one run", async () => {

@@ -28,12 +28,15 @@ const body = z
     `must be at most ${MAX_BODY_BYTES} bytes`,
   );
 
+/** Control characters a calendar's text may not hold: all but tab, and for one line, newlines. */
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 const line = (max: number) =>
   z
     .string()
     .min(1)
     .max(max)
-    .refine((text) => !/[\r\n]/.test(text), "must be a single line");
+    .refine((text) => !/[\r\n]/.test(text), "must be a single line")
+    .refine((text) => !CONTROL.test(text), "must not hold control characters");
 const instant = z.iso.datetime({ offset: true });
 const WEEK_MS = 7 * 86_400_000;
 
@@ -45,7 +48,12 @@ const calendarSchema = z
     end: instant,
     title: line(200),
     location: line(200).optional(),
-    description: z.string().min(1).max(2000).optional(),
+    description: z
+      .string()
+      .min(1)
+      .max(2000)
+      .refine((text) => !CONTROL.test(text), "must not hold control characters")
+      .optional(),
     url: z
       .url({ protocol: /^https$/ })
       .max(500)
@@ -78,7 +86,8 @@ const messageSchema = z
       .array(z.string().regex(RECORD_ID, "must be a CRM record id"))
       .max(MAX_RELATED_RECORDS)
       .optional(),
-    calendar: calendarSchema.optional(),
+    // One event, or two (a move: the old class's cancel and the new class's event).
+    calendar: z.union([calendarSchema, z.array(calendarSchema).min(1).max(2)]).optional(),
   })
   .refine((message) => message.text !== undefined || message.html !== undefined, {
     message: "needs a text or html body",
@@ -108,7 +117,13 @@ export function parseMessage(input: unknown): EmailSendMessage {
     ...(message.html !== undefined ? { html: message.html } : {}),
     ...(message.replyTo !== undefined ? { replyTo: message.replyTo } : {}),
     ...(message.relatedRecords?.length ? { relatedRecords: [...message.relatedRecords] } : {}),
-    ...(message.calendar ? { calendar: calendarOf(message.calendar) } : {}),
+    ...(message.calendar
+      ? {
+          calendar: (Array.isArray(message.calendar) ? message.calendar : [message.calendar]).map(
+            calendarOf,
+          ),
+        }
+      : {}),
   };
 }
 

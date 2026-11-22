@@ -51,9 +51,11 @@ interface Mail {
 function host(
   records: Record<string, Record<string, unknown>[]>,
   operations: Record<string, (input: Record<string, unknown>) => unknown> = {},
+  gatekeeper?: (call: { args: unknown[] }) => unknown,
 ) {
   return createTestHost(bookings, {
     validate: { knownObjects: ["programs.classtype"] },
+    ...(gatekeeper ? { gatekeepers: { "email-send": gatekeeper } } : {}),
     records: {
       "bookings.room": [{ id: "room_1", name: "Studio A" }],
       "programs.classtype": [{ id: "ct_1", name: "Strength" }],
@@ -80,14 +82,18 @@ function host(
           (l) => l.dependant.id === input.personId || l.guardian.id === input.personId,
         ),
       }),
-      "extensionSettings.list": () => ({
-        items: [
-          {
-            id: "bookings",
-            values: { bookingsUrl: "https://gym.test/bookings", promotionMinutes: 120 },
-          },
-        ],
-      }),
+      "extensionSettings.list": (input) => {
+        // Only this extension's settings are asked for.
+        expect(input).toEqual({ extension: "bookings" });
+        return {
+          items: [
+            {
+              id: "bookings",
+              values: { bookingsUrl: "https://gym.test/bookings", promotionMinutes: 120 },
+            },
+          ],
+        };
+      },
       ...operations,
     },
   });
@@ -118,7 +124,7 @@ describe("the manifest", () => {
       "classCancelled",
       "classChanged",
       "classReminder",
-      "dropInRefunded",
+      "dropInOrder",
       "noAttendanceTaken",
       "placeFree",
       "waitlistPassedOver",
@@ -453,11 +459,11 @@ describe("a change or a cancellation by the gym", () => {
       expect.objectContaining({
         to: ["visitor@elsewhere.test"],
         subject: "Cancelled by the gym: Strength",
-        relatedRecords: ["bkg_g", "cls_1", "ord_g"],
+        relatedRecords: ["bkg_g", "cls_1"],
       }),
     ]);
-    expect(mails(h)[0]?.text).toContain("which you paid for");
-    expect(mails(h)[0]?.calendar).toBeUndefined();
+    expect(mails(h)[0]?.text).toContain("goes back to the card it was paid with");
+    expect(mails(h)[0]?.calendar).toMatchObject({ uid: "bkg_g", cancelled: true });
   });
 });
 
@@ -500,7 +506,7 @@ describe("classReminder", () => {
   });
 });
 
-describe("dropInRefunded", () => {
+describe("dropInOrder", () => {
   it("tells the payer the refund was made, and nothing for an order that paid for no class", async () => {
     const ops = {
       "order.get": () => ({ id: "ord_1", state: "refunded", email: "Payer@Members.test" }),
@@ -513,7 +519,7 @@ describe("dropInRefunded", () => {
       },
       ops,
     );
-    const run = await h.runAutomation("dropInRefunded", {
+    const run = await h.runAutomation("dropInOrder", {
       record: { object: "order", id: "ord_1" },
     });
     expect(run.undeclared).toEqual([]);
@@ -525,8 +531,237 @@ describe("dropInRefunded", () => {
       { "bookings.booking": [], order: [{ id: "ord_9", state: "refunded" }] },
       ops,
     );
-    await other.runAutomation("dropInRefunded", { record: { object: "order", id: "ord_9" } });
+    await other.runAutomation("dropInOrder", { record: { object: "order", id: "ord_9" } });
     expect(other.gatekeeperCalls).toEqual([]);
+  });
+});
+
+describe("dropInOrder: a visitor's payment staff still have to settle", () => {
+  it("tells them at the order's address their place is held; nothing once it has a Person", async () => {
+    const paid = {
+      "order.get": () => ({ id: "ord_v", state: "paid", paid: 2500, email: "V@Out.test" }),
+    };
+    const held = host(
+      {
+        "bookings.class": [CLASS],
+        "bookings.booking": [
+          booking({ id: "bkg_v", person: null, state: "pending", dropInOrder: "ord_v" }),
+        ],
+        order: [{ id: "ord_v", state: "paid" }],
+      },
+      paid,
+    );
+    const run = await held.runAutomation("dropInOrder", {
+      record: { object: "order", id: "ord_v" },
+    });
+    expect(run.undeclared).toEqual([]);
+    expect(mails(held)).toEqual([
+      expect.objectContaining({ to: ["v@out.test"], subject: "Payment received: Strength" }),
+    ]);
+    expect(mails(held)[0]?.calendar).toMatchObject({ uid: "bkg_v" });
+    // Matched to a Person and booked: bookingConfirmed tells them, this sends nothing.
+    const matched = host(
+      {
+        "bookings.class": [CLASS],
+        "bookings.booking": [booking({ id: "bkg_v", state: "booked", dropInOrder: "ord_v" })],
+        order: [{ id: "ord_v", state: "paid" }],
+      },
+      paid,
+    );
+    await matched.runAutomation("dropInOrder", { record: { object: "order", id: "ord_v" } });
+    expect(matched.gatekeeperCalls).toEqual([]);
+  });
+});
+
+describe("a visitor who paid, with no Person yet (ADR 0560)", () => {
+  const visitor = booking({ id: "bkg_v", person: null, state: "pending", dropInOrder: "ord_v" });
+  const unpaid = booking({ id: "bkg_u", person: null, state: "pending", dropInOrder: "ord_u" });
+  const orders = {
+    "order.get": (input: Record<string, unknown>) =>
+      input.id === "ord_v"
+        ? { id: "ord_v", state: "paid", paid: 2500, email: "Visitor@Out.test" }
+        : { id: "ord_u", state: "pending", paid: 0, email: "unpaid@out.test" },
+  };
+
+  it("is told at the order's address when the class moves an hour; an unpaid hold is not", async () => {
+    const h = host({ "bookings.class": [CLASS], "bookings.booking": [visitor, unpaid] }, orders);
+    const run = await h.runAutomation("classChanged", {
+      record: { object: "bookings.class", id: "cls_1" },
+      change: {
+        action: "updated",
+        diff: { startsAt: { before: inHours(29), after: CLASS.startsAt } },
+      },
+      runId: "run_move",
+    });
+    expect(run.undeclared).toEqual([]);
+    expect(mails(h).map((m) => m.to)).toEqual([["visitor@out.test"]]);
+    expect(mails(h)[0]?.text).toContain("has moved to");
+    expect(mails(h)[0]?.calendar).toMatchObject({ uid: "bkg_v", start: CLASS.startsAt });
+  });
+
+  it("is reminded; an unpaid hold is not", async () => {
+    const h = host({ "bookings.class": [CLASS], "bookings.booking": [visitor, unpaid] }, orders);
+    await h.runAutomation("classReminder", { record: { object: "bookings.class", id: "cls_1" } });
+    expect(mails(h).map((m) => m.to)).toEqual([["visitor@out.test"]]);
+  });
+});
+
+describe("a send that fails part way (ADR 0574)", () => {
+  it("keys each email by the run and its place, so a retry sends none twice", async () => {
+    // The gatekeeper fails once on the second email, as a connection can; it dedupes on the key,
+    // as email-send does.
+    const delivered = new Map<string, string>();
+    let failed = false;
+    const gatekeeper = (call: { args: unknown[] }) => {
+      const m = call.args[0] as Mail & { idempotencyKey: string };
+      if (delivered.size === 1 && !failed) {
+        failed = true;
+        throw new Error("connection reset");
+      }
+      if (!delivered.has(m.idempotencyKey)) delivered.set(m.idempotencyKey, m.to[0] as string);
+      return { status: "pending", id: delivered.size };
+    };
+    const records = {
+      "bookings.class": [CLASS],
+      "bookings.booking": [
+        booking({}),
+        booking({ id: "bkg_b", person: "per_bob" }),
+        booking({ id: "bkg_s", person: "per_sam" }),
+      ],
+    };
+    const h = host(records, {}, gatekeeper);
+    const first = await h.runAutomation("classReminder", {
+      record: { object: "bookings.class", id: "cls_1" },
+      runId: "run_r",
+    });
+    expect(first.error).not.toBeNull();
+    // The step is retried, as the Workflow does: the same run, the same keys.
+    await h.runAutomation("classReminder", {
+      record: { object: "bookings.class", id: "cls_1" },
+      runId: "run_r",
+    });
+    expect([...delivered.keys()]).toEqual(["run_r:0", "run_r:1", "run_r:2", "run_r:3"]);
+    expect([...delivered.values()].sort()).toEqual([
+      "ann@members.test",
+      "bob@members.test",
+      "kim@members.test",
+      "pat@members.test",
+    ]);
+  });
+});
+
+describe("several changes to one class", () => {
+  it("are told once, by the last run, with all of them as the class is then", async () => {
+    const h = host({
+      "bookings.class": [{ ...CLASS, room: "room_2" }],
+      "bookings.booking": [booking({})],
+      "bookings.room": [
+        { id: "room_1", name: "Studio A" },
+        { id: "room_2", name: "Studio B" },
+      ],
+    });
+    // An earlier run noted a room change and is still settling (the test host skips the wait,
+    // so its note is set here): the time change a moment later takes the turn.
+    await h.storage.set("changed:cls_1", {
+      startsBefore: null,
+      time: false,
+      end: false,
+      room: true,
+      turn: "run_room",
+    });
+    const run = await h.runAutomation("classChanged", {
+      record: { object: "bookings.class", id: "cls_1" },
+      change: {
+        action: "updated",
+        diff: { startsAt: { before: inHours(29), after: CLASS.startsAt } },
+      },
+      runId: "run_time",
+    });
+    expect(run.undeclared).toEqual([]);
+    const sent = mails(h);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("has moved to");
+    expect(sent[0]?.text).toContain("It is now in Studio B.");
+    // Told: the turn is given up, so the room run, waking, finds nothing to tell.
+    expect(h.storage.get("changed:cls_1")).toBeUndefined();
+  });
+
+  it("changed and changed back tells nothing; an end-only change sends an updated file", async () => {
+    const h = host({ "bookings.class": [CLASS], "bookings.booking": [booking({})] });
+    await h.runAutomation("classChanged", {
+      record: { object: "bookings.class", id: "cls_1" },
+      change: {
+        action: "updated",
+        diff: { startsAt: { before: CLASS.startsAt, after: CLASS.startsAt } },
+      },
+      runId: "run_back",
+    });
+    expect(h.gatekeeperCalls).toEqual([]);
+    await h.runAutomation("classChanged", {
+      record: { object: "bookings.class", id: "cls_1" },
+      change: {
+        action: "updated",
+        diff: { endsAt: { before: inHours(30.5), after: CLASS.endsAt } },
+      },
+      runId: "run_end",
+    });
+    expect(mails(h)).toHaveLength(1);
+    expect(mails(h)[0]?.text).toContain("It now ends at");
+    expect(mails(h)[0]?.calendar).toMatchObject({ uid: "bkg_1", end: CLASS.endsAt });
+  });
+});
+
+describe("a staff move", () => {
+  it("cancels the old class's calendar event and adds the new one's", async () => {
+    const old = {
+      ...CLASS,
+      id: "cls_0",
+      title: "Yoga",
+      startsAt: inHours(20),
+      endsAt: inHours(21),
+    };
+    const h = host({
+      "bookings.class": [CLASS, old],
+      "bookings.booking": [
+        booking({ id: "bkg_old", class: "cls_0", state: "moved" }),
+        booking({ id: "bkg_new", movedFrom: "bkg_old" }),
+      ],
+    });
+    await h.runAutomation("bookingConfirmed", {
+      record: { object: "bookings.booking", id: "bkg_new" },
+      change: { action: "created", diff: {} },
+    });
+    const [mail] = mails(h);
+    expect(mail?.subject).toBe("Booking moved: Strength");
+    expect(mail?.text).toContain("from Yoga on");
+    expect(mail?.calendar).toEqual([
+      expect.objectContaining({ uid: "bkg_old", start: old.startsAt, cancelled: true }),
+      expect.objectContaining({ uid: "bkg_new", start: CLASS.startsAt }),
+    ]);
+  });
+});
+
+describe("a guardian in the Trash", () => {
+  it("is not written to", async () => {
+    const h = host(
+      { "bookings.class": [CLASS], "bookings.booking": [booking({ person: "per_sam" })] },
+      {
+        "person.get": (input) =>
+          input.id === "per_sam"
+            ? { id: "per_sam", displayName: "Sam Child", emails: [] }
+            : {
+                id: input.id,
+                displayName: "Gone",
+                emails: [{ email: `${input.id}@x.test`, primary: true }],
+                deletedAt: input.id === "per_kim" ? "2026-11-01T00:00:00Z" : null,
+              },
+      },
+    );
+    await h.runAutomation("bookingConfirmed", {
+      record: { object: "bookings.booking", id: "bkg_1" },
+      change: { action: "created", diff: {} },
+    });
+    expect(mails(h).map((m) => m.to)).toEqual([["per_pat@x.test"]]);
   });
 });
 
