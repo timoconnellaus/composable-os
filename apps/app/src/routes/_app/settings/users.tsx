@@ -736,6 +736,54 @@ function CustomerSignupCard() {
             </div>
           ))}
         </RadioGroup>
+        {/* On top of the mode (ADR 0459): a new visitor confirms their address to start a plan. */}
+        <div className="mt-4 flex items-start gap-2 border-t pt-4">
+          <Checkbox
+            id="signup-starting-subscription"
+            checked={settings.data?.startingSubscription ?? false}
+            disabled={settings.isPending || save.isPending || value === "open"}
+            onCheckedChange={async (checked) => {
+              const on = checked === true;
+              try {
+                await save.mutateAsync({ startingSubscription: on });
+                toast.success(
+                  on
+                    ? "Customer sign-in: also anyone starting a subscription"
+                    : "Customer sign-in: no longer anyone starting a subscription",
+                );
+              } catch (error) {
+                toast.error(errorMessage(error));
+              }
+            }}
+            className="mt-1"
+          />
+          <Label htmlFor="signup-starting-subscription" className="grid gap-0.5 font-normal">
+            <span className="font-medium">Also anyone starting a subscription</span>
+            <span className="text-xs text-muted-foreground">
+              A new visitor confirms their address with a code, then starts a plan signed in, with
+              its free trial (one per person). While a plan is on sale this means anyone can make a
+              customer account, including people already in your records, who then see their own
+              orders, tickets and subscriptions. Sign-up opens to anyone the moment a plan goes on
+              sale, whoever publishes or prices it; admins are told when it does.
+            </span>
+            {value === "open" ? (
+              <span
+                className="text-xs text-muted-foreground"
+                data-testid="starting-subscription-kept"
+              >
+                {settings.data?.startingSubscription
+                  ? "On, and kept: anyone can sign in now, and this applies again if you change who can sign in back."
+                  : "Anyone can sign in now; this applies only to the other choices."}
+              </span>
+            ) : settings.data?.startingSubscription ? (
+              <span className="text-xs text-muted-foreground">
+                {settings.data.planOnSale
+                  ? "A plan is on sale now, so anyone can get a code."
+                  : "No plan is on sale now; the moment one is, anyone can get a code."}
+              </span>
+            ) : null}
+          </Label>
+        </div>
       </CardContent>
     </Card>
   );

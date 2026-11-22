@@ -7,9 +7,11 @@
 //   customer cookie is not a staff cookie by name, by signature or by table, and the reverse.
 // - Sign-in by a one-time code sent by email (Better Auth's email OTP plugin), and nothing else:
 //   no password, no social sign-in, no passkey. Codes are stored hashed.
-// - Who may get a code is the host's rule (`customerMayGetCode` in core): an erased address
-//   never, an existing account while active, any other address when sign-up is open or staff
-//   invited it. The answer to a code request is the same either way, and nothing is sent.
+// - Who may get a code is the host's rule (`customerCodeReason` in core): an erased address
+//   never, an existing account while active, any other address when sign-up is open, staff
+//   invited it, it bought (`buyers`, ADR 0458), or anyone starting a subscription may and a plan
+//   is on sale (ADR 0459). The answer to a code request is the same either way, and nothing is
+//   sent or stored when the rule says no.
 // - At sign-in the account is linked to its Person (`linkCustomer` in core).
 // - No client address is stored: Better Auth's IP and user-agent session fields are dropped
 //   before a session is written, and the tables have no column for them.
@@ -17,6 +19,7 @@
 // The HTTP routes that mount `handle` are stage 23's.
 import {
   type CustomerPrincipal,
+  customerCodeReason,
   customerMayGetCode,
   customerSignedInStatement,
   linkCustomer,
@@ -24,6 +27,9 @@ import {
   newId,
   type PublicPrincipal,
   type RateLimitBinding,
+  rateLimit,
+  reportCodeLimitReached,
+  watchSubscriberSignup,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { betterAuth } from "better-auth";
@@ -69,6 +75,13 @@ export interface CustomerAuthOptions {
    * which is never stored. Unset: not limited here.
    */
   codeAddressRateLimit?: RateLimitBinding | undefined;
+  /**
+   * Limits codes sent host-wide to addresses that only "anyone starting a subscription" lets sign
+   * in (ADR 0459): one key, `code-new`, for the whole host. Over it, nothing is sent, the answer
+   * is the same as for a sent code, and admins are told once an hour. Unset: no such code is
+   * sent at all (shut, not open); every other reason is unaffected.
+   */
+  codeNewRateLimit?: RateLimitBinding | undefined;
   /**
    * Whether codes can be sent at all: null when they can, or why not (no email connection is set
    * for customer mail). Asked before a code is made; the answer is the same for every address.
@@ -146,7 +159,44 @@ export function createCustomerAuth(options: CustomerAuthOptions) {
         allowedAttempts: CUSTOMER_CODE_ATTEMPTS,
         storeOTP: "hashed",
         async sendVerificationOTP({ email, otp, type }, ctx) {
-          const allowed = type === "sign-in" && (await customerMayGetCode(crm.query, email));
+          const now = clock();
+          // A code request may reuse a recent "is a plan on sale" (60 s, this isolate); the
+          // recheck when the account is made does not (ADR 0459).
+          const reason =
+            type === "sign-in"
+              ? await customerCodeReason(crm.query, email, now.toISOString(), { memo: true })
+              : null;
+          if (type === "sign-in" && reason !== "account") {
+            // Admins hear once when a plan going on sale opened sign-up, or when the switch
+            // cannot be answered. Never in the way of the answer.
+            await watchSubscriberSignup(crm, now, { memo: true }).catch((error: unknown) =>
+              console.error(
+                "customer sign-in: could not watch the subscription sign-up",
+                error instanceof Error ? error.message : error,
+              ),
+            );
+          }
+          // A new address that only "anyone starting a subscription" lets in (ADR 0459) is the one
+          // reason a stranger can bring about for any address: such codes are also limited
+          // host-wide, and without the limit's binding none is sent (shut, not open). Over it,
+          // this address is answered as one that may not get a code, and admins are told.
+          let allowed = reason !== null;
+          if (reason === "subscription") {
+            if (!options.codeNewRateLimit) {
+              allowed = false;
+              console.warn(
+                "customer sign-in: CUSTOMER_CODE_NEW_RATE_LIMIT is not bound, so new addresses get no code",
+              );
+            } else {
+              allowed = (await rateLimit(options.codeNewRateLimit, "code-new")).ok;
+              if (!allowed) {
+                console.warn(
+                  "customer sign-in: codes to new addresses are over the host-wide limit",
+                );
+                await reportCodeLimitReached(crm, now).catch(() => {});
+              }
+            }
+          }
           if (!allowed) {
             // The same answer as a sent code, and nothing is kept: the code just stored for this
             // address is removed, so it can never be guessed into an account.

@@ -1,5 +1,6 @@
-// Who may sign up as a customer (stage 22, ADR 0402): a product setting, `open` or `invite_only`.
-// The default is `invite_only`. Only a human admin changes it (customer.settings.update).
+// Who may sign up as a customer (stage 22, ADR 0402): a product setting, `open`, `buyers` (ADR
+// 0458) or `invite_only`, and anyone starting a subscription on top of it (ADR 0459). The default
+// is `invite_only` with nothing on top. Only a human admin changes them (customer.settings.update).
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
@@ -31,6 +32,32 @@ export async function loadCustomerSignup(db: Kysely<CoreDatabase>): Promise<Cust
     return parsed.success ? parsed.data : DEFAULT_CUSTOMER_SIGNUP;
   } catch {
     return DEFAULT_CUSTOMER_SIGNUP;
+  }
+}
+
+// --- Anyone starting a subscription (ADR 0459) ---------------------------------------------------
+
+/**
+ * On top of the sign-up mode: an address with no account may get a code while the host has a plan
+ * on sale to the public (ADR 0459), so a new visitor confirms their address and then starts the
+ * subscription signed in, with the plan's free trial. While a plan is on sale this lets anyone
+ * make a customer account. Default off. Only a human admin changes it (customer.settings.update).
+ */
+export const CUSTOMER_SIGNUP_SUBSCRIBERS_SETTING = "customer_signup_subscribers";
+export const DEFAULT_CUSTOMER_SIGNUP_SUBSCRIBERS = false;
+
+/** Whether it is on. A missing or unreadable setting is off. */
+export async function loadCustomerSignupSubscribers(db: Kysely<CoreDatabase>): Promise<boolean> {
+  const row = await db
+    .selectFrom("core_settings")
+    .select("value")
+    .where("key", "=", CUSTOMER_SIGNUP_SUBSCRIBERS_SETTING)
+    .executeTakeFirst();
+  if (!row) return DEFAULT_CUSTOMER_SIGNUP_SUBSCRIBERS;
+  try {
+    return JSON.parse(row.value) === true;
+  } catch {
+    return DEFAULT_CUSTOMER_SIGNUP_SUBSCRIBERS;
   }
 }
 

@@ -570,7 +570,8 @@ decided what it left open:
 - **The trial is a proved holder's only** (a signed-in customer, or staff for a Person). A guest
   who typed an address is charged from the start (`noTrial: "sign_in"`): otherwise a guest could
   spend someone else's trial, and the page would tell a stranger whether that person had one. A
-  company offering trials to new visitors turns customer sign-up to `open` or invites them.
+  company offering trials to new visitors turns on "anyone starting a subscription" (ADR 0459),
+  or customer sign-up `open`, or invites them.
 - **When the trial counts**: when the provider's verified event confirms a subscription opened
   with the plan's trial, not when a page is opened. A checkout with a trial holds it; a hold is
   released only when the provider says its page expired uncompleted (the host asks the gatekeeper,
@@ -587,7 +588,10 @@ decided what it left open:
 - **Decided by the owner (2026-11-22):** a new visitor will get the trial by confirming their
   email with a code first (a new customer sign-in setting, "anyone starting a subscription", set
   by a human admin, ADR 0458), built by a separate identity session after this step; until then a
-  guest gets no trial, and the subscribe block's `sign_in` notice is where it joins. A
+  guest gets no trial, and the subscribe block's `sign_in` notice is where it joins. Since built
+  ([ADR 0459](../adr/0459-anyone-starting-a-subscription.md)): a switch on top of the sign-up
+  mode, on while a plan is on sale to the public; the visitor confirms the code on the plan (the
+  block's `signIn`) and goes on to the provider's page with the trial. A
   continuation's free time is not the trial: only a checkout with the plan's trial days uses it
   (ADR 0489).
 - **Staff** end one at once with `subscription.cancel { now: true }` (`subscriptions:manage`;

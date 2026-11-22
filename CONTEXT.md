@@ -1024,8 +1024,12 @@ chose: customer and staff sign-in codes, invite notices, a declined erase reques
 
 **Customer sign-up mode**
 Who may get a customer sign-in code, a human admin's choice: `invite_only` (the default),
-`buyers` (also the buyer's address of an order a verified payment was applied to) or `open`. The
-answer to a code request is the same for every address whatever the mode (ADRs 0402, 0458).
+`buyers` (also the buyer's address of an order a verified payment was applied to) or `open`; and,
+on top of any of them, **anyone starting a subscription** (any address, while the host has a plan
+on sale to the public, so a new visitor confirms their address and starts the plan with its trial;
+in effect anyone can make an account while a plan is on sale, including people already in the
+records, who then see their own records). The answer to a code request is
+the same for every address whatever the mode (ADRs 0402, 0458, 0459).
 _Avoid_: registration, membership
 
 **Sign-in mail**

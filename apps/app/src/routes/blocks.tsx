@@ -3,7 +3,9 @@
 // ProgramBuilder&props={"programId":"rec_…"}` renders that export of the block with the pack's
 // hooks (as the prop named for the pack: `programs`, `ticketing`) over a client that calls the
 // host's HTTP surface from the browser, as a client app's would: signed in as staff, it is staff;
-// with a customer's cookie, that customer; with neither, the public.
+// with a customer's cookie, that customer; with neither, the public. A prop given as
+// `"signIn": "customer"` is the host's own customer sign-in by code (the two calls a client app's
+// sign-in block makes through its own routes), for a block that signs a guest in on the spot.
 //
 // The blocks are read where they sit (`packs/<id>/blocks/<block>/`), their base-layer imports
 // joined to `blocks/` by pack-blocks-plugin.ts. A production build mounts nothing.
@@ -122,6 +124,28 @@ function browserClient<C>(calls: Record<string, readonly string[]>): C {
 // biome-ignore lint/suspicious/noExplicitAny: the hooks are typed by each pack; this passes them through.
 type AnyHooks = any;
 
+function customerAuth(path: string, body: unknown): Promise<Response> {
+  return fetch(`/api/customer-auth${path}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** The host's customer sign-in by code, from the browser (it sets the customer's cookie). */
+const customerSignIn = {
+  requestCode: async (email: string) =>
+    (await customerAuth("/email-otp/send-verification-otp", { email, type: "sign-in" })).ok,
+  // The host's answer says whether the account is ready or waits for staff to merge people.
+  confirm: async (email: string, otp: string) => {
+    const response = await customerAuth("/sign-in/email-otp", { email, otp });
+    if (!response.ok) return null;
+    const { account } = (await response.json()) as { account?: unknown };
+    return account === "ready" ? ("ready" as const) : ("needs_attention" as const);
+  },
+};
+
 function usePackHooks(pack: string): AnyHooks {
   // The app's own React Query: a query is refetched when the block asks, as a client app's is.
   const react = { useQuery, useMutation, useState, useEffect } as never;
@@ -169,6 +193,7 @@ function BlocksPage() {
   if (failed) return <p role="alert">{failed}</p>;
   if (!Component || !hooks) return <p aria-busy="true">Loading {block}…</p>;
   const extra = props ? (JSON.parse(props) as Record<string, unknown>) : {};
+  if (extra.signIn === "customer") extra.signIn = customerSignIn;
   return (
     <main className="mx-auto max-w-5xl p-6" data-block={block}>
       <Component {...{ [pack]: hooks, ...extra }} />

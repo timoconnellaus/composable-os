@@ -105,3 +105,9 @@ started a checkout gets the same answer and no code). Each check removed, its te
 A buyer is also the live Person whose order it is now: `hasBought` reads orders placed with the
 address or owned by the Person who has that address, so after a person merge (which moves
 orders, ADR 0487) the survivor can sign in under any of their addresses in `buyers` mode.
+
+## Note (2026-11-22, ADR 0459)
+A fourth way in, on top of whichever mode is set: anyone starting a subscription, while the host
+has a plan on sale to the public ([ADR 0459](0459-anyone-starting-a-subscription.md)). It is a
+separate switch (`startingSubscription`), so "members plus buyers plus anyone starting a
+subscription" is `buyers` with it on. Set the same way: a human admin, Settings → Users.

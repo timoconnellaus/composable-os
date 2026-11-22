@@ -170,6 +170,11 @@ export interface CustomerIdentityEnv {
   CUSTOMER_CODE_RATE_LIMIT?: RateLimitBinding;
   /** Code requests per client address, keyed by a hash of it (stage 23). */
   CUSTOMER_CODE_ADDRESS_RATE_LIMIT?: RateLimitBinding;
+  /**
+   * Codes sent host-wide to new addresses that only "anyone starting a subscription" lets sign
+   * in (ADR 0459), one key for the whole host.
+   */
+  CUSTOMER_CODE_NEW_RATE_LIMIT?: RateLimitBinding;
 }
 
 const customerIdentityCache = new WeakMap<object, CustomerIdentity>();
@@ -198,6 +203,7 @@ export function getCustomerIdentity(
       sendCode,
       codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
       codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
+      codeNewRateLimit: env.CUSTOMER_CODE_NEW_RATE_LIMIT,
       ready,
     });
     identity = customerIdentity(auth, env.DB);
