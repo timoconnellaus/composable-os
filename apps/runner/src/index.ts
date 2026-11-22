@@ -24,6 +24,7 @@ import {
   retryOutbox,
   runDuplicateCron,
   runPublishDue,
+  runRecurringDue,
   type ShippedExtension,
   type ShippedInstallResult,
   type StartRunInput,
@@ -303,6 +304,7 @@ export async function minuteTick(env: Env, at: Date) {
       duplicates: null,
       orders: null,
       publishing: null,
+      recurring: null,
       customerSignup: null,
     };
   }
@@ -337,6 +339,15 @@ export async function minuteTick(env: Env, at: Date) {
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
     }),
   );
+  // Recurring schedules (stage 31, ADR 0500): series written since the last tick, and each once a
+  // day after its local midnight, make their records up to the horizon.
+  const recurring = await minuteStep("recurring", () =>
+    runRecurringDue(createCrmDb(env.DB), {
+      clock: () => at,
+      floor: parseFloor(env.APPROVAL_FLOOR),
+      ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
+    }),
+  );
   // Customer sign-in (ADR 0459): admins hear within a minute when a plan going on sale opened
   // sign-up to anyone ("anyone starting a subscription" on). Nothing while the switch is off.
   const customerSignup = await minuteStep("customer sign-up", async () => {
@@ -352,6 +363,7 @@ export async function minuteTick(env: Env, at: Date) {
     duplicates,
     orders,
     publishing,
+    recurring,
     customerSignup,
   };
 }

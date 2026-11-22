@@ -56,6 +56,7 @@ export * from "./automations/simulate.ts";
 export * from "./automations/sources.ts";
 export * from "./automations/summary.ts";
 export * from "./automations/types.ts";
+export * from "./capacity/claimants.ts";
 export * from "./capacity/holds.ts";
 export * from "./capacity/index.ts";
 export * from "./capacity/records.ts";
@@ -182,6 +183,7 @@ export * from "./operations/query.ts";
 export * from "./operations/record.ts";
 export * from "./operations/record-import.ts";
 export * from "./operations/record-versions.ts";
+export { type RecurringDueOptions, runRecurringDue } from "./operations/recurring.ts";
 export * from "./operations/retention.ts";
 export * from "./operations/routine.ts";
 export * from "./operations/search.ts";
@@ -253,7 +255,12 @@ export {
   sniffMediaType,
 } from "./records/media.ts";
 export { type StageRuleDetails, StageRuleError } from "./records/stages.ts";
-export { type StateRef, type StateRuleDetails, StateRuleError } from "./records/states.ts";
+export {
+  resolveStateRequest,
+  type StateRef,
+  type StateRuleDetails,
+  StateRuleError,
+} from "./records/states.ts";
 export * from "./records/stream.ts";
 export * from "./records/stream-fake.ts";
 export * from "./records/tags.ts";
@@ -265,6 +272,10 @@ export {
   TransitionRuleError,
   transitionTimeline,
 } from "./records/transitions.ts";
+export { assertUnique } from "./records/unique.ts";
+export * from "./records/windows.ts";
+export * from "./recurring/bookkeeping.ts";
+export * from "./recurring/index.ts";
 export * from "./registry.ts";
 export * from "./relative.ts";
 export * from "./retention.ts";

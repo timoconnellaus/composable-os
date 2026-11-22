@@ -59,6 +59,7 @@ import { queryOperations } from "./query.ts";
 import { recordOperations } from "./record.ts";
 import { recordImportOperations } from "./record-import.ts";
 import { recordVersionOperations } from "./record-versions.ts";
+import { recurringOperations } from "./recurring.ts";
 import { retentionOperations } from "./retention.ts";
 import { routineOperations } from "./routine.ts";
 import { searchOperations } from "./search.ts";
@@ -152,5 +153,6 @@ export const coreOperations = [
   ...subscriptionOfferOperations,
   ...myOperations,
   ...capacityOperations,
+  ...recurringOperations,
   ...allowanceOperations,
 ] as const;

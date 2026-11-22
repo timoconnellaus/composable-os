@@ -145,6 +145,17 @@ export class ConfigError extends OperationError {
   }
 }
 
+/**
+ * The declared uniqueness rules' columns as D1 names them in a refusal (`x_<table>.<column>, ...`),
+ * kept by the field registry (ADR 0502), so a declared rule is told apart from a slug or any
+ * other unique index, which keep the general message.
+ */
+let declaredUniqueKeys: ReadonlySet<string> = new Set();
+
+export function setDeclaredUniqueKeys(keys: ReadonlySet<string>): void {
+  declaredUniqueKeys = keys;
+}
+
 /** Converts D1 constraint failures into typed errors; everything else becomes `internal`. */
 export function toOperationError(error: unknown): OperationError {
   if (error instanceof OperationError) return error;
@@ -223,7 +234,42 @@ export function toOperationError(error: unknown): OperationError {
       { reason: "published_meanwhile" },
     );
   }
+  // A batch planned from a read that changed before it committed (migration 0560's guard): a
+  // series changed under a run, or a class was booked under a change to its series.
+  if (message.includes("core_recurrence_stale")) {
+    return new ConflictError(
+      "The schedule or a booking changed while this was being done, so nothing was changed. Try again.",
+      { rule: "recurring_stale" },
+    );
+  }
+  // A claimant took a place after it was read as holding none (ADR 0501).
+  if (message.includes("core_claim_live")) {
+    return new ConflictError(
+      "This record took a place while it was being deleted, so it was not. Move it out first.",
+      { rule: "capacity", reason: "claim_live" },
+    );
+  }
+  // Two series runs making one date at once (migration 0560, ADR 0500): the other one made it.
+  if (message.includes("UNIQUE constraint failed: core_recurrence_occurrence")) {
+    return new ConflictError(
+      "Another run made these records at the same moment. Nothing was changed.",
+      {
+        rule: "recurring_occurrence",
+      },
+    );
+  }
   const unique = /UNIQUE constraint failed: ([\w.]+(?:, [\w.]+)*)/.exec(message);
+  // A declared uniqueness rule on an extension's table (ADR 0502): another write made the same
+  // record a moment before, and this one's batch failed on the rule's index.
+  if (unique?.[1] && declaredUniqueKeys.has(unique[1])) {
+    return new ConflictError(
+      "A record like this one was made at the same moment, so this one was not",
+      {
+        rule: "unique",
+        constraint: unique[1],
+      },
+    );
+  }
   if (unique) {
     return new ConflictError("A record with that value already exists", {
       constraint: unique[1],

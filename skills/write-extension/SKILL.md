@@ -117,6 +117,43 @@ extension declares it; it never implements it. Each behaviour the platform has i
   public are told. Records get read-only `held`, `taken` and `available`, so don't declare fields
   with those names. Never count places in a tool: claims are made by the host in the write that
   needs them (an order). See `CapacitySpec` in `packages/sdk/src/capacity.ts` and ADR 0431.
+- **`claims`** on an object with `states`: its records hold a place on the record a relation
+  points to, by their state (a booking on its class). Declare
+  `claims: { on: "<relation>", held?: [<states>], confirmed?: [<states>] }`; `on`'s object
+  declares a `capacity`. Entering a held state holds a place, a confirmed state takes one,
+  leaving both gives it back, in the write's batch, and the database refuses one past the places.
+  No move may go from a confirmed state back to a held one; while a record holds a place its
+  `on` cannot change (a move to another class is a new record) and it cannot go to Trash. Never
+  count places or claim them in a tool. See `ClaimsSpec` in `packages/sdk/src/capacity.ts` and
+  ADR 0501.
+- **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
+  two live records in those states share the fields (one active booking per Person per class).
+  The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).
+  Never check for a duplicate in a tool instead. See `UniqueSpec` in `packages/sdk/src/unique.ts`
+  and ADR 0502.
+- **Windows and staff-only rules** on `states`: a move's `window: { from?, until? }` and
+  `staffOnly: "<boolean field>"`, and the same on `states.create` for every create, bind
+  customers (staff and the host are not bound). An end is `"<datetime field>"` or
+  `{ at, daysBefore?, minutesBefore?, zone? }`, each a field of the record or
+  `<relation>.<field>` (`klass.startsAt`) or a number: "opens 7 local days before, closes 30
+  minutes before". `states.requests: { cancel: ["cancelled", "late_cancelled"] }` lets a caller
+  write `cancel` and the host pick the state by the clock; `states.create.in: { waiting:
+  ["staff", "customer"] }` lists states a record may be created in besides `initial`, and who
+  may. Never decide "late" or "too early" in a tool. See `StateMove` and `StatesSpec` in
+  `packages/sdk/src/states.ts` and ADR 0503.
+- **`recurring`** on a series object: a weekly rule in local time that makes records of another
+  of your objects ahead (a timetable line makes its classes). Declare the rule's fields (a
+  `multiSelect` of `mon`…`sun`, an `HH:MM` text field, a length in minutes, from and until
+  dates, a `timezone`), then `recurring: { generates: "<object>", link: "<read-only relation on
+  it back to the series>", rule: { weekdays, time, length?, from, until?, zone? }, into: {
+  starts, ends?, zone?, changed? }, copy?: { <generated field>: "<series field>" }, cancel:
+  "<a state of the generated object with a host move into it>", ended?: { field, in },
+  closures?: { object, from, until }, horizonDays?, horizonAtLeast?: { object, field } }`
+  (`horizonAtLeast`: a number field in days, a booking window, the horizon never falls short of). The host makes the records from the minute
+  cron, keeps 06:00 at 06:00 across a clock change, never overwrites one staff edited, applies a
+  series change to the rest, and cancels what a closure covers. Never create the dated records
+  in a tool or an automation. See `RecurringScheduleSpec` in `packages/sdk/src/recurring.ts` and
+  ADR 0500.
 - **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
   an object that declares it can go on an order, and the host reads its price and rules from the
   record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,

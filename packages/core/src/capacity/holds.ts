@@ -17,19 +17,20 @@ import { CompiledQuery } from "kysely";
 import type { ClaimFor } from "./index.ts";
 
 /** Which claims: one by id, or every claim taken for something (an order's lines). */
-export type ClaimTarget = { claim: string } | { for: ClaimFor };
+export type ClaimTarget = { claim: string } | { for: ClaimFor } | { forType: string };
 
 /** Statements per confirm or release, whatever the number of claims. */
 export const CONFIRM_STATEMENTS = 3;
 export const RELEASE_STATEMENTS = 3;
 
 function targetWhere(target: ClaimTarget, alias: string): { sql: string; params: string[] } {
-  return "claim" in target
-    ? { sql: `${alias}.id = ?`, params: [target.claim] }
-    : {
-        sql: `${alias}.for_type = ? AND ${alias}.for_id = ?`,
-        params: [target.for.type, target.for.id],
-      };
+  if ("claim" in target) return { sql: `${alias}.id = ?`, params: [target.claim] };
+  // Every claim of one kind of claimant (an object dropped for good, ADR 0501).
+  if ("forType" in target) return { sql: `${alias}.for_type = ?`, params: [target.forType] };
+  return {
+    sql: `${alias}.for_type = ? AND ${alias}.for_id = ?`,
+    params: [target.for.type, target.for.id],
+  };
 }
 
 /**

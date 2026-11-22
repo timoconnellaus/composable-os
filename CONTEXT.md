@@ -398,6 +398,18 @@ makes one as someone the move does not list, is refused.
 Who makes a move: `staff` (everyone who calls an operation today), `customer` (stage 22) or
 `host`.
 
+**Window** (on a move)
+When a customer may make a move or a create, worked out from fields of the record or the record a
+relation points to: from a moment until another, each a datetime less whole local days and then
+minutes (booking opens 7 days before a class, closes at its start). Checked by the transition
+engine against the host's clock; staff and the host are not bound (ADR 0503). A **staff-only**
+rule is a boolean that, while true, refuses a customer the move or the create.
+
+**Requested move**
+A move a caller asks for by name (`cancel`), which the host resolves to one of the states listed
+for it by who is asking and the time: a member's cancel is on time or late by the host's clock
+(ADR 0503). A request is never stored.
+
 **Host move**
 A move only platform code can make (an order becomes paid when the payment provider confirms it).
 No person, MCP client, extension or import can make one, because no operation passes on who is
@@ -877,7 +889,9 @@ as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**) and
 **state machine**), which exist and share the **transition engine**; `capacity` (places, holds
 and claims, ADRs 0430 to 0433) and `sellable` (prices, sale rules and what a paid line grants,
 ADR 0435), which exist; `publishable` (a working copy and published versions, ADR 0446), whose
-half without a public exists; `recurring` and `allowance`, which are designed.
+half without a public exists; `recurring` (a weekly series that makes dated records, ADR 0500), capacity **claimants**
+(ADR 0501) and declared uniqueness (ADR 0502), which exist since stage 31; `allowance`, which is
+designed.
 _Avoid_: hook, trigger (a trigger starts an automation), plugin
 
 **Pack**
@@ -1050,9 +1064,27 @@ actor. A record may also draw on one parent's places, its **pool** (a ticket typ
 event). What customers and the public are told is the object's `show` (stage 26, ADRs 0430 to 0433).
 
 **Claim**
-Places taken from a capacity for something: an order line, later a booking. `held`, then
-`confirmed` once paid, or `released`. Made, confirmed and released in the batch of the owner's own
-write.
+Places taken from a capacity for something: an order line, or a **claimant**'s record. `held`,
+then `confirmed` once paid, or `released`. Made, confirmed and released in the batch of the
+owner's own write.
+
+**Claimant**
+A record whose own states hold, take and give back one place on the record its relation points to
+(a booking on its class), declared `claims: { on, held, confirmed }`. The host makes the claim in
+the batch of each move, refused by the database past the places, as an order's line is (stage 31,
+ADR 0501).
+
+**Series** (of a recurring schedule)
+A record that declares `recurring`: a weekly rule in local wall-clock time (weekdays, a time, a
+length, from and until dates, a zone) that makes dated records of another object ahead, up to its
+horizon (a timetable line makes its classes). Each record made is its **occurrence**, keyed on the
+series and its local date so it is made once; one edited by staff is the series' no more. 06:00 is
+06:00 across a clock change (stage 31, ADR 0500).
+_Avoid_: recurrence rule, RRULE, schedule (an automation's trigger)
+
+**Closure**
+A date range in which a series makes nothing, and whose records already made are cancelled (a
+gym's holidays) (ADR 0500).
 
 **Hold**
 A held claim: places taken out of a capacity while an order is unpaid. It has no clock of its own:

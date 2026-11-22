@@ -110,3 +110,92 @@ export function checkObjectCapacity(
     contract(`${path}.lowAt`, 'show: "low" needs lowAt, the number at or below which it says so');
   }
 }
+
+/**
+ * A capacity claimant (stage 31, ADR 0501): a record whose own states hold and release a claim of
+ * one place on the record its relation `on` points to (a booking on its class), which declares a
+ * capacity. Entering a `held` state holds a place, entering a `confirmed` state takes one (from
+ * the hold, or claimed and taken at once), and leaving them gives it back, each in the batch of
+ * the write that makes the move, refused by the database past the places as an order's claim is.
+ * Moving between two `held` states, or two `confirmed` ones, changes nothing.
+ *
+ * - The object declares `states`; `held` and `confirmed` are its states, apart. No move goes from
+ *   a confirmed state back to a held one.
+ * - While a record is in one of them, `on` cannot be changed: a move to another class is a new
+ *   record. A record holding a place cannot be moved to Trash.
+ */
+export interface ClaimsSpec {
+  on: string;
+  held?: readonly string[];
+  confirmed?: readonly string[];
+}
+
+export const claimsManifestSchema = z
+  .object({
+    on: fieldName,
+    held: z.array(z.string().min(1).max(100)).max(20).optional(),
+    confirmed: z.array(z.string().min(1).max(100)).max(20).optional(),
+  })
+  .strict();
+export type ClaimsManifest = z.infer<typeof claimsManifestSchema>;
+
+/** Reports problems with `objects.<name>.claims` through `contract`. */
+export function checkObjectClaims(
+  m: ExtensionManifest,
+  name: string,
+  object: ObjectManifest,
+  contract: (path: string, message: string) => void,
+): void {
+  const claims = object.claims;
+  if (!claims) return;
+  const path = `objects.${name}.claims`;
+  const on = Object.hasOwn(object.fields, claims.on) ? object.fields[claims.on] : undefined;
+  const target = on?.type === "relation" && !on.many ? on.to : undefined;
+  const local = target?.startsWith(`${m.id}.`) ? target.slice(m.id.length + 1) : undefined;
+  const targetObject =
+    local !== undefined && Object.hasOwn(m.objects, local) ? m.objects[local] : undefined;
+  if (!targetObject || local === name) {
+    contract(
+      `${path}.on`,
+      `"${claims.on}" must be a relation field (one record) to another of this extension's objects`,
+    );
+  } else if (!targetObject.capacity) {
+    contract(`${path}.on`, `${target} must declare a capacity for its places to be claimed`);
+  }
+  const held = claims.held ?? [];
+  const confirmed = claims.confirmed ?? [];
+  if (!held.length && !confirmed.length) {
+    contract(path, "Name the states that hold a place (held) or take one (confirmed)");
+  }
+  const states = object.states;
+  if (!states) {
+    contract(path, `${name} must declare states: its states hold and release the claim`);
+    return;
+  }
+  const field = Object.hasOwn(object.fields, states.field)
+    ? object.fields[states.field]
+    : undefined;
+  const values = new Set((field?.options ?? []).map((o) => o.value));
+  for (const [key, list] of [
+    ["held", held],
+    ["confirmed", confirmed],
+  ] as const) {
+    if (new Set(list).size !== list.length) contract(`${path}.${key}`, "List each state once");
+    for (const state of list) {
+      if (!values.has(state)) contract(`${path}.${key}`, `"${state}" is not a state of ${name}`);
+    }
+  }
+  const both = held.filter((state) => confirmed.includes(state));
+  if (both.length) {
+    contract(path, `"${both[0]}" cannot both hold and take a place`);
+  }
+  states.moves.forEach((move, i) => {
+    const from = typeof move.from === "string" ? [move.from] : move.from;
+    if (held.includes(move.to) && from.some((state) => confirmed.includes(state))) {
+      contract(
+        `objects.${name}.states.moves.${i}`,
+        `A move from a state that takes a place cannot go back to one that only holds it ("${move.to}")`,
+      );
+    }
+  });
+}

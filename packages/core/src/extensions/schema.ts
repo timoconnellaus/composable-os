@@ -4,6 +4,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import {
   type AllowanceManifest,
   type CapacityManifest,
+  type ClaimsManifest,
   type DocumentSchema,
   documentJsonPath,
   documentMaxBytesOf,
@@ -13,10 +14,13 @@ import {
   type FieldTypeName,
   formulaTypeOf,
   isDocumentType,
+  RECURRING_HORIZON_DAYS,
+  type RecurringScheduleManifest,
   type SellableManifest,
   type StagesManifest,
   type StatesManifest,
   spendsOnList,
+  type UniqueManifest,
 } from "@composable-os/sdk";
 import {
   compileFormula,
@@ -25,6 +29,7 @@ import {
   type FormulaFieldRef,
 } from "@composable-os/sdk/formula";
 import { type Kysely, sql } from "kysely";
+import { setDeclaredUniqueKeys } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFilterType } from "../fields/field-types.ts";
 import { CORE_OBJECTS, setExtensionObjects } from "../fields/index.ts";
 import type { FieldDefinition, FieldType, ObjectDefinition } from "../fields/types.ts";
@@ -68,6 +73,9 @@ export interface ObjectDefinitionJson {
   sellable?: SellableManifest;
   allowance?: AllowanceManifest;
   states?: StatesManifest;
+  claims?: ClaimsManifest;
+  unique?: UniqueManifest;
+  recurring?: RecurringScheduleManifest;
   owner?: string;
   /** The object's customer (ADR 0402), as declared. */
   customer?: {
@@ -748,6 +756,57 @@ function capacityDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
   };
 }
 
+/** The claimant declaration (ADR 0501), with the claimed object's registry name. */
+function claimsDefinition(
+  object: ObjectState,
+  own: FieldState[],
+): Pick<ObjectDefinition, "claims"> {
+  const declared = object.definition.claims;
+  if (!declared) return {};
+  const on = own.find((f) => f.localName === declared.on);
+  if (!on?.definition.to) return {};
+  return {
+    claims: {
+      on: on.name,
+      object: on.definition.to,
+      held: [...(declared.held ?? [])],
+      confirmed: [...(declared.confirmed ?? [])],
+    },
+  };
+}
+
+/** The recurring declaration (ADR 0500), with the objects' registry names. */
+function recurringDefinition(object: ObjectState): Pick<ObjectDefinition, "recurring"> {
+  const declared = object.definition.recurring;
+  if (!declared) return {};
+  const named = (local: string) => `${object.extensionId}.${local}`;
+  return {
+    recurring: {
+      generates: named(declared.generates),
+      link: declared.link,
+      rule: { ...declared.rule },
+      into: { ...declared.into },
+      copy: { ...(declared.copy ?? {}) },
+      cancel: declared.cancel,
+      ...(declared.ended
+        ? { ended: { field: declared.ended.field, in: [...declared.ended.in] } }
+        : {}),
+      ...(declared.closures
+        ? { closures: { ...declared.closures, object: named(declared.closures.object) } }
+        : {}),
+      horizonDays: declared.horizonDays ?? RECURRING_HORIZON_DAYS,
+      ...(declared.horizonAtLeast
+        ? {
+            horizonAtLeast: {
+              object: named(declared.horizonAtLeast.object),
+              field: declared.horizonAtLeast.field,
+            },
+          }
+        : {}),
+    },
+  };
+}
+
 /**
  * The sellable declaration with registry field names, or undefined (ADR 0435). The granted
  * object's fields are named by their registry names, which for an object's own fields are their
@@ -974,6 +1033,9 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(sellable ? { sellable } : {}),
       ...(allowance ? { allowance } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
+      ...claimsDefinition(object, own),
+      ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
+      ...recurringDefinition(object),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
       ...(object.definition.public ? { public: object.definition.public } : {}),
@@ -1067,6 +1129,27 @@ export async function refreshSchemaRegistry(db: Kysely<CoreDatabase>): Promise<v
   );
   cached = { stamp, objects, storage, tables };
   setExtensionObjects(objects);
+  // How D1 names a declared uniqueness rule's columns when it refuses (ADR 0502).
+  const keys = new Set<string>();
+  for (const object of state.objects) {
+    if (object.status !== "active") continue;
+    for (const rule of object.definition.unique ?? []) {
+      const columns = rule.fields.map(
+        (local) =>
+          state.fields.find(
+            (f) =>
+              f.object === object.name &&
+              f.extensionId === object.extensionId &&
+              f.localName === local &&
+              f.status === "active",
+          )?.columnName,
+      );
+      if (columns.every(Boolean)) {
+        keys.add(columns.map((c) => `${object.tableName}.${c}`).join(", "));
+      }
+    }
+  }
+  setDeclaredUniqueKeys(keys);
 }
 
 /** One declared or edited option of a select field. */

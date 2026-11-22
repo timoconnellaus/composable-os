@@ -157,3 +157,56 @@ export function addLocalDays(date: { year: number; month: number; day: number },
   const at = new Date(Date.UTC(date.year, date.month - 1, date.day + days));
   return { year: at.getUTCFullYear(), month: at.getUTCMonth() + 1, day: at.getUTCDate() };
 }
+
+// --- Local dates as text (stage 31, ADR 0500) -----------------------------------------------------
+//
+// What `recurring`, closures and booking windows add, in terms of the helpers above: dates as
+// `YYYY-MM-DD` text (the occurrence key), local times as `HH:MM`, and whole local days before an
+// instant at the same time of day.
+
+/** A `YYYY-MM-DD` date's parts, or null when it is not a real date. */
+export function parseLocalDate(date: string): { year: number; month: number; day: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  return realWallClock(year, month, day) ? { year, month, day } : null;
+}
+
+function requireDate(date: string) {
+  const parts = parseLocalDate(date);
+  if (!parts) throw new RangeError(`Not a date: ${date}`);
+  return parts;
+}
+
+/** `HH:MM` (00:00 to 23:59) as minutes of the day, or null. */
+export function parseLocalTime(time: string): number | null {
+  const match = /^(\d{2}):(\d{2})$/.exec(time.trim());
+  if (!match) return null;
+  const [h, mi] = [Number(match[1]), Number(match[2])];
+  return h < 24 && mi < 60 ? h * 60 + mi : null;
+}
+
+/** The wall clock of a `YYYY-MM-DD` date at `minutes` past its midnight. */
+export function wallClockOf(date: string, minutes: number): WallClock {
+  return { ...requireDate(date), hour: Math.floor(minutes / 60), minute: minutes % 60 };
+}
+
+/** The ISO weekday of a `YYYY-MM-DD` date: 1 is Monday, 7 is Sunday. */
+export function isoWeekday(date: string): number {
+  const d = requireDate(date);
+  const day = new Date(Date.UTC(d.year, d.month - 1, d.day)).getUTCDay();
+  return day === 0 ? 7 : day;
+}
+
+/**
+ * The instant `days` local days before `at` (after, when negative), at the same wall clock in
+ * `timeZone`, seconds and milliseconds kept: "opens 7 days before" is 06:00 a week earlier across
+ * a change of clocks.
+ */
+export function localDaysBefore(at: number, days: number, timeZone: string): number {
+  const p = localParts(at, timeZone);
+  const date = addLocalDays(p, -days);
+  const ms = ((at % 1000) + 1000) % 1000;
+  const wall = { ...date, hour: p.hour, minute: p.minute, second: p.second };
+  return wallClockToInstant(wall, timeZone) + ms;
+}

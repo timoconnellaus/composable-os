@@ -19,11 +19,15 @@ import {
   isLosslessChange,
   type ObjectManifest,
 } from "@composable-os/sdk";
-import { CompiledQuery, type Kysely } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { dropAllowanceStatements, termsSyncStatements } from "../allowance/index.ts";
+import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
+import { getObject } from "../fields/index.ts";
+import { dropRecurringStatements } from "../recurring/bookkeeping.ts";
 import { loadGeneralSettings, ORG_TIMEZONE_SETTING } from "../settings.ts";
+import { orgReader, visibleSource } from "../visibility/index.ts";
 import {
   columnName,
   ident,
@@ -79,7 +83,9 @@ export interface ReconcileIssue {
     | "unknown_target"
     | "formula"
     | "foreign_object"
-    | "seed";
+    | "seed"
+    | "unique_conflict"
+    | "claims_conflict";
   path: string;
   message: string;
   suggestion?: string;
@@ -145,7 +151,120 @@ export async function planReconcile(
   options: { now: string },
 ): Promise<ReconcilePlan> {
   const { timezone } = await loadGeneralSettings(db);
-  return planFromState(db, await loadSchemaState(db), manifest, options.now, timezone);
+  const current = await loadSchemaState(db);
+  const plan = planFromState(db, current, manifest, options.now, timezone);
+  plan.issues.push(...(await dataIssues(db, current, plan.next, manifest.id)));
+  return plan;
+}
+
+/** A declared uniqueness rule's partial index (ADR 0502): its name, columns and condition. */
+function uniqueIndexes(state: SchemaState, object: ObjectState, ext: string) {
+  const out: { rule: number; name: string; columns: string[]; where: string }[] = [];
+  (object.definition.unique ?? []).forEach((rule, i) => {
+    const columnOf = (local: string) =>
+      state.fields.find(
+        (f) =>
+          f.object === object.name &&
+          f.extensionId === ext &&
+          f.localName === local &&
+          f.status === "active" &&
+          f.tableName === object.tableName,
+      )?.columnName ?? null;
+    const columns = rule.fields.map(columnOf);
+    const stateColumn =
+      rule.states && object.definition.states ? columnOf(object.definition.states.field) : null;
+    if (columns.some((c) => c === null) || (rule.states && !stateColumn)) return;
+    const named = (columns as string[]).map((c) => ident(c));
+    const filled = named.map((c) => `${c} IS NOT NULL`);
+    const states = rule.states
+      ? [`${ident(stateColumn as string)} IN (${rule.states.map(sqlString).join(", ")})`]
+      : [];
+    const where = ["deleted_at IS NULL", ...filled, ...states].join(" AND ");
+    const name = ident(`${object.tableName}__${named.join("__")}__u${shortHash(where)}`);
+    out.push({ rule: i, name, columns: named, where });
+  });
+  return out;
+}
+
+/**
+ * Refusals that depend on the records already there (stage 31): a uniqueness rule the live
+ * records already break (ADR 0502), and a claims declaration changed while records are in a
+ * state it names, before or after (ADR 0501: their claims would be missing or never given back).
+ * Each names the records to put right first.
+ */
+async function dataIssues(
+  db: Kysely<CoreDatabase>,
+  current: SchemaState,
+  next: SchemaState,
+  ext: string,
+): Promise<ReconcileIssue[]> {
+  const issues: ReconcileIssue[] = [];
+  // Org-wide, through the seam: the installed object's view as the registry has it now.
+  const reader = orgReader(db);
+  // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
+  const anyDb = db as unknown as Kysely<any>;
+  for (const object of next.objects) {
+    if (object.extensionId !== ext || object.status !== "active") continue;
+    const before = current.objects.find(
+      (o) => o.name === object.name && o.tableName === object.tableName && o.status === "active",
+    );
+    const installed = getObject(object.name);
+    if (!before || !installed) continue; // A new object has no records.
+    const columnOf = (name: string | undefined) =>
+      name ? installed.fields.find((f) => f.name === name)?.column : undefined;
+    for (const index of uniqueIndexes(next, object, ext)) {
+      if ((current.indexes ?? []).some((i) => i.name === index.name)) continue;
+      const rule = object.definition.unique?.[index.rule];
+      const columns = (rule?.fields ?? []).map(columnOf);
+      if (!rule || columns.some((c) => !c)) continue; // A new field: no record has a value yet.
+      const stateColumn = rule.states ? columnOf(object.definition.states?.field) : undefined;
+      if (rule.states && !stateColumn) continue;
+      let query = anyDb
+        .selectFrom(visibleSource(reader, installed))
+        .select(sql<string>`group_concat(id, ', ')`.as("ids"));
+      for (const column of columns) query = query.where(column as string, "is not", null);
+      if (rule.states && stateColumn) query = query.where(stateColumn, "in", [...rule.states]);
+      const clash = (await query
+        .groupBy(columns as string[])
+        .having(sql`count(*)`, ">", 1)
+        .limit(5)
+        .execute()) as { ids: string }[];
+      if (clash.length) {
+        issues.push({
+          code: "unique_conflict",
+          path: `objects.${object.localName}.unique.${index.rule}`,
+          message: `${object.name}: live records already share these values: ${clash.map((r) => r.ids).join("; ")}. Change or delete them first.`,
+        });
+      }
+    }
+    const was = before.definition.claims;
+    const now = object.definition.claims;
+    if (JSON.stringify(was ?? null) === JSON.stringify(now ?? null)) continue;
+    const column = columnOf(object.definition.states?.field ?? before.definition.states?.field);
+    const states = [
+      ...new Set([
+        ...(was?.held ?? []),
+        ...(was?.confirmed ?? []),
+        ...(now?.held ?? []),
+        ...(now?.confirmed ?? []),
+      ]),
+    ];
+    if (!column || !states.length) continue;
+    const live = (await anyDb
+      .selectFrom(visibleSource(reader, installed))
+      .select("id")
+      .where(column, "in", states)
+      .limit(10)
+      .execute()) as { id: string }[];
+    if (live.length) {
+      issues.push({
+        code: "claims_conflict",
+        path: `objects.${object.localName}.claims`,
+        message: `${object.name}: claims cannot change while records are in a state it names (${states.join(", ")}): ${live.map((r) => r.id).join(", ")}. Move them out of those states first.`,
+      });
+    }
+  }
+  return issues;
 }
 
 export function planFromState(
@@ -188,6 +307,9 @@ export function planFromState(
       ...(object.sellable ? { sellable: object.sellable } : {}),
       ...(object.allowance ? { allowance: object.allowance } : {}),
       ...(object.states ? { states: object.states } : {}),
+      ...(object.claims ? { claims: object.claims } : {}),
+      ...(object.unique?.length ? { unique: object.unique } : {}),
+      ...(object.recurring ? { recurring: object.recurring } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),
       ...(object.public ? { public: object.public } : {}),
@@ -547,6 +669,16 @@ export function planFromState(
         `CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${column}) WHERE deleted_at IS NULL AND ${column} IS NOT NULL`,
       );
     }
+    // Declared uniqueness (stage 31, ADR 0502): no two live records with the same values while
+    // in the rule's states. A partial unique index, so the database refuses the second record
+    // (or a move back into a counted state), whoever writes it and however many at once. Its
+    // name carries a hash of the rule, so a changed rule is a new index.
+    for (const index of uniqueIndexes(next, object, ext)) {
+      wanted.set(
+        index.name,
+        `CREATE UNIQUE INDEX IF NOT EXISTS ${index.name} ON ${ident(object.tableName)} (${index.columns.join(", ")}) WHERE ${index.where}`,
+      );
+    }
     const existing = (current.indexes ?? []).filter(
       (index) => index.table === object.tableName && index.name.startsWith(`${object.tableName}__`),
     );
@@ -728,6 +860,12 @@ export async function planDropHidden(
   const capacityDrops = droppedObjects
     .filter((o) => o.definition.capacity)
     .flatMap((o) => dropCapacityStatements(o.name));
+  // A dropped claimant gives back the places its records held and took (ADR 0501), and a
+  // dropped series or generated object takes its recurring bookkeeping with it (ADR 0500).
+  const claimantDrops = droppedObjects
+    .filter((o) => o.definition.claims)
+    .flatMap((o) => releaseAllClaimsStatements(o.name, options.now));
+  const recurringDrops = droppedObjects.flatMap((o) => dropRecurringStatements(o.name));
   // A dropped holder's terms, periods and uses go with its table; a dropped spender's open uses
   // are given back first (ADR 0493).
   const allowanceDrops = droppedObjects.flatMap((o) => {
@@ -751,7 +889,7 @@ export async function planDropHidden(
     current,
     next,
     tableDdl,
-    [...capacityDrops, ...allowanceDrops, ...grantDrops],
+    [...capacityDrops, ...claimantDrops, ...recurringDrops, ...allowanceDrops, ...grantDrops],
     changes,
     [],
   );
@@ -881,4 +1019,19 @@ export async function applyPlan(
     );
   }
   await batch(plan.statements);
+}
+
+/** A SQL string literal (a declared state value in an index's WHERE clause). */
+function sqlString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+/** Eight hex digits naming a rule's index (FNV-1a): a changed rule is a new index. */
+function shortHash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
