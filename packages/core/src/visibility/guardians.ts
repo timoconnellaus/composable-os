@@ -14,8 +14,10 @@
 // direction: a dependant never acts for their guardian.
 import type { CoreDatabase } from "@composable-os/db";
 import { CompiledQuery, type Kysely, type RawBuilder, sql } from "kysely";
+import { listObjects } from "../fields/index.ts";
 import type { GuardiansDeclaration, ObjectDefinition } from "../fields/types.ts";
 import type { Principal } from "../principals.ts";
+import { viewColumnOf } from "../records/columns.ts";
 
 /** The one kind of link today. */
 export const GUARDIAN_LINK = "guardian";
@@ -154,4 +156,35 @@ export async function familyOf(reader: {
     dependants: shown(dependants.rows),
     guardians: shown(guardians.rows),
   };
+}
+
+/**
+ * For staff ending a link (ADR 0540): how many live records a guardian made for a dependant, per
+ * object that records who made them (`guardians.madeBy`). They stay when the link ends; staff are
+ * told. Ids are bound; columns are registry identifiers.
+ */
+export async function recordsMadeFor(
+  db: Kysely<CoreDatabase>,
+  guardianId: string,
+  dependantId: string,
+): Promise<{ object: string; label: string; count: number }[]> {
+  const out: { object: string; label: string; count: number }[] = [];
+  for (const object of listObjects()) {
+    const declared = object.customer;
+    const madeBy = declared?.guardians?.madeBy;
+    if (!declared || !madeBy) continue;
+    const owner = object.fields.find((f) => f.name === declared.field);
+    const maker = object.fields.find((f) => f.name === madeBy);
+    const ownerColumn = owner ? viewColumnOf(owner) : null;
+    const makerColumn = maker ? viewColumnOf(maker) : null;
+    if (!ownerColumn || !makerColumn) continue;
+    const { rows } = await sql<{
+      n: number;
+    }>`SELECT count(*) AS n FROM ${sql.table(object.source)} WHERE ${sql.ref(ownerColumn)} = ${dependantId} AND ${sql.ref(makerColumn)} = ${guardianId}`.execute(
+      db,
+    );
+    const count = Number(rows[0]?.n ?? 0);
+    if (count) out.push({ object: object.name, label: object.plural ?? object.label, count });
+  }
+  return out;
 }

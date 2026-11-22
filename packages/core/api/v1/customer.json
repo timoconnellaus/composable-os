@@ -631,7 +631,71 @@
         "required": ["disabled", "sessionsEnded", "eraseRequest"],
         "additionalProperties": false
       },
-      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
+    },
+    {
+      "name": "me.family",
+      "description": "Your family, as a signed-in customer: yourself, the dependants (children) the gym has linked to you, whom you may book for, and the guardians linked to you, each with their name and id. Only live links; the gym's staff make and end them. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "self": {
+            "type": "object",
+            "properties": {
+              "personId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": ["personId", "name"],
+            "additionalProperties": false
+          },
+          "dependants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": ["personId", "name"],
+              "additionalProperties": false
+            }
+          },
+          "guardians": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": ["personId", "name"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["self", "dependants", "guardians"],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "me.get",
@@ -778,7 +842,7 @@
         "required": ["id", "revoked"],
         "additionalProperties": false
       },
-      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
     },
     {
       "name": "me.signOut",
@@ -800,7 +864,7 @@
         "required": ["signedOut"],
         "additionalProperties": false
       },
-      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
     },
     {
       "name": "me.update",
@@ -884,7 +948,7 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": ["me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
     },
     {
       "name": "media.play",
@@ -2697,7 +2761,7 @@
     },
     {
       "name": "x.bookings.book",
-      "description": "Book the signed-in member into a class with what they already hold (a membership or a pass): the host spends one use of the one whose use would lapse first, or of `holderId` when they name one. No money moves. When the class is full they join its waitlist (unless `waitlist` is false): that spends nothing, and if a place frees before the class type's cut-off the host moves the first waiter in and spends their use then. Asked again by a member already waiting, it books them if a place is free to them (never one held for the queue), else says where they stand. Answers booked, waiting (with their position), or refused with the reason the host gave: booking not open yet (with when it opens), closed, booked by the gym only, nothing to pay with, already booked or waiting, full, or too close to the start to wait. (Extension tool from Bookings 0.1.0.)",
+      "description": "Book the signed-in member into a class with what they already hold (a membership or a pass): the host spends one use of the one whose use would lapse first, or of `holderId` when they name one. No money moves. When the class is full they join its waitlist (unless `waitlist` is false): that spends nothing, and if a place frees before the class type's cut-off the host moves the first waiter in and spends their use then. Asked again by a member already waiting, it books them if a place is free to them (never one held for the queue), else says where they stand. Answers booked, waiting (with their position), or refused with the reason the host gave: booking not open yet (with when it opens), closed, booked by the gym only, nothing to pay with, already booked or waiting, full, or too close to the start to wait. A parent books a child the gym linked to them with forPersonId (see family): the same rules, and the child's own membership or pass pays. (Extension tool from Bookings 0.1.0.)",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -2708,6 +2772,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "forPersonId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A child of theirs to book for instead (a dependant the gym linked to them; see family). The child's own membership or pass pays, never the parent's."
           },
           "holderId": {
             "type": "string",
@@ -2844,11 +2914,13 @@
         ]
       },
       "invalidates": [
+        "me.family",
         "me.get",
         "me.sessions.list",
         "my.get",
         "my.list",
         "x.bookings.classGet",
+        "x.bookings.family",
         "x.bookings.mine",
         "x.bookings.timetable"
       ],
@@ -2974,11 +3046,13 @@
         ]
       },
       "invalidates": [
+        "me.family",
         "me.get",
         "me.sessions.list",
         "my.get",
         "my.list",
         "x.bookings.classGet",
+        "x.bookings.family",
         "x.bookings.mine",
         "x.bookings.timetable"
       ],
@@ -3130,6 +3204,46 @@
       "pack": "bookings"
     },
     {
+      "name": "x.bookings.family",
+      "description": "Who the signed-in member may book for: themselves, and the children (dependants) the gym has linked to them, each with their name and id. Pass a child's id as book's forPersonId and mine's personId. Only the gym's staff link a parent to a child. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "self": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["personId", "name", "self"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["people"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "bookings"
+    },
+    {
       "name": "x.bookings.leaveWaitlist",
       "description": "Take the signed-in member off a class's waitlist (one of their bookings that is waiting). Nothing was spent, so nothing is given back. Refused when it is no longer waiting (they were moved in meanwhile: cancel that booking instead). (Extension tool from Bookings 0.1.0.)",
       "risk": "write",
@@ -3232,11 +3346,13 @@
         ]
       },
       "invalidates": [
+        "me.family",
         "me.get",
         "me.sessions.list",
         "my.get",
         "my.list",
         "x.bookings.classGet",
+        "x.bookings.family",
         "x.bookings.mine",
         "x.bookings.timetable"
       ],
@@ -3244,13 +3360,19 @@
     },
     {
       "name": "x.bookings.mine",
-      "description": "The signed-in member's own bookings, soonest class first: each with its state (booked, waiting, cancelled, cancelled late…), for one waiting its place on the waitlist, the membership or pass it spent from, and its class (name, start and end in its own time zone, coach, room, whether it still runs). Only their own bookings exist here. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "description": "The signed-in member's own bookings, soonest class first: each with its state (booked, waiting, cancelled, cancelled late…), for one waiting its place on the waitlist, the membership or pass it spent from, and its class (name, start and end in its own time zone, coach, room, whether it still runs). With personId, a child's the gym linked to them instead (see family). Only their own and their children's bookings exist here. Read-only. (Extension tool from Bookings 0.1.0.)",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
       "input": {
         "type": "object",
         "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A child of theirs (see family); left out, their own"
+          },
           "state": {
             "type": "string",
             "enum": ["booked", "waiting", "cancelled", "late_cancelled", "left"]
@@ -3279,6 +3401,10 @@
               "properties": {
                 "id": {
                   "type": "string"
+                },
+                "personId": {
+                  "description": "Whose booking it is: theirs, or their child's",
+                  "type": ["string", "null"]
                 },
                 "state": {
                   "type": ["string", "null"]
@@ -3319,6 +3445,7 @@
               },
               "required": [
                 "id",
+                "personId",
                 "state",
                 "position",
                 "holderId",
@@ -3621,6 +3748,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.family",
         "me.get",
         "me.sessions.list",
         "my.get",
@@ -4394,6 +4522,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.family",
         "me.get",
         "me.sessions.list",
         "my.get",
@@ -4499,6 +4628,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.family",
         "me.get",
         "me.sessions.list",
         "my.get",
@@ -4511,13 +4641,20 @@
     },
     {
       "name": "x.memberships.mine",
-      "description": "The signed-in member's own memberships and passes: each one's title, state, what it allows (classes per week or month, or in all; class types, days and times), when it started and when it stops or expires, and the host's count for now: classes used and left this week, this month or in all (left null: unlimited). Read-only. (Extension tool from Memberships 0.1.0.)",
+      "description": "The signed-in member's own memberships and passes: each one's title, state, what it allows (classes per week or month, or in all; class types, days and times), when it started and when it stops or expires, and the host's count for now: classes used and left this week, this month or in all (left null: unlimited). With personId, a child's the gym linked to them instead (their parent or guardian reads what the child has left). Read-only. (Extension tool from Memberships 0.1.0.)",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
       "input": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A child linked to them; left out, their own"
+          }
+        },
         "additionalProperties": {}
       },
       "output": {
@@ -5336,6 +5473,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.family",
         "me.get",
         "me.sessions.list",
         "my.get",
@@ -5489,6 +5627,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.family",
         "me.get",
         "me.sessions.list",
         "my.get",
@@ -5720,6 +5859,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.family",
         "me.get",
         "me.sessions.list",
         "my.get",
@@ -6561,6 +6701,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.family",
         "me.get",
         "me.sessions.list",
         "my.get",

@@ -99,3 +99,8 @@ Memberships pack's pass type, `sellable`'s purchase), with the same shape as the
 The intro offer is built as decided here, on buying: `sellable.onePerPerson` ([ADR
 0512](0512-one-per-person-and-tools-only-a-person-may-call.md)). A pass voided by a full refund
 keeps the uses it spent, as "*Paused, used up, void*" above says.
+
+## Note, 2026-11-23 (ADR 0540)
+A guardian reads a linked dependant's holders and their uses: the Memberships pack's membership
+and pass declare `customer.guardians: {}` (read only), and `mine` takes the child's `personId`.
+What pays stays the booking's Person's own holder, whoever booked.

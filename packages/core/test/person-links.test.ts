@@ -314,7 +314,14 @@ describe("what a live link gives, and only that", () => {
     expect(await call("fixture.myGet", { object: DAY, id: day.id }, outside(p))).toMatchObject({
       ok: true,
     });
-    await invoke("person.link.end", { id: made.id }, context(admin));
+    // A visit the parent made for the child, which stays: staff are told.
+    await call(
+      "fixture.myCreate",
+      { object: VISIT, values: { note: "made by the parent" }, forPersonId: child },
+      outside(p),
+    );
+    const ended = await invoke("person.link.end", { id: made.id }, context(admin));
+    expect(ended.stays).toEqual([{ object: VISIT, label: "Visits", count: 1 }]);
     expect(await visitsOf(p)).not.toContain(childs);
     expect(await call("fixture.myGet", { object: DAY, id: day.id }, outside(p))).toMatchObject({
       ok: false,

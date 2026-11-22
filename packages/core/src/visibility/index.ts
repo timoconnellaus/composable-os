@@ -33,7 +33,13 @@ import {
 import { customerViaScope, type ViaScope, viaObject } from "./via.ts";
 
 export { type CustomerScope, customerProblems } from "./customer.ts";
-export { type Family, type FamilyMember, familyOf, guardianProblems } from "./guardians.ts";
+export {
+  type Family,
+  type FamilyMember,
+  familyOf,
+  guardianProblems,
+  recordsMadeFor,
+} from "./guardians.ts";
 export { type PublicScope, publicProblems, signedInProblems } from "./public.ts";
 export { customerViaProblems, type ViaScope } from "./via.ts";
 

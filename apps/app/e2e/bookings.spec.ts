@@ -1,6 +1,7 @@
-// Stage 31a step 3 end to end, one test per journey: a member books a class from the timetable
-// and cancels it in time, with the membership's use given back; and staff book a walk-in into a
-// class type only staff book, paid at the desk. The blocks are the pack's own web blocks, mounted
+// Stage 31a steps 3 and 6 end to end, one test per journey: a member books a class from the
+// timetable and cancels it in time, with the membership's use given back; staff book a walk-in
+// into a class type only staff book, paid at the desk; and staff link a parent to a child on the
+// parent's page, and the parent books the child a class with the child's own pass. The blocks are the pack's own web blocks, mounted
 // where they sit (`/blocks`, development only), calling the host's HTTP surface from the browser
 // as a client app would. In local dev Programs and Bookings are the org's own extensions
 // (scripts/dev-setup.mjs). The Memberships pack (stage 32b) is built beside this step, so the
@@ -242,4 +243,78 @@ test("staff book a walk-in into a class only staff book, paid at the desk", asyn
     id: klass.id,
   });
   expect(after.values.taken).toBe(1);
+});
+
+test("staff link a parent to their child, and the parent books the child a class", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(180_000);
+  await setUp(page);
+  const email = `${unique("parent")}@members.test`.toLowerCase();
+  const parent = await op<{ id: string }>(page.request, "person.create", {
+    givenName: unique("Parent"),
+    emails: [{ email }],
+  });
+  // The child has no email and no account; their own pass pays for their classes.
+  const childName = unique("Kid");
+  const child = await op<{ id: string }>(page.request, "person.create", { givenName: childName });
+  const pass = await op<{ id: string }>(page.request, "record.create", {
+    object: "bkfixture.pass",
+    values: { name: unique("Kids pass "), person: child.id, uses: 3, per: "week" },
+  });
+  const klass = await oneOff(page, 3 * HOUR);
+  const left = async () =>
+    (
+      await op<{ values: { left: number } }>(page.request, "record.get", {
+        object: "bkfixture.pass",
+        id: pass.id,
+      })
+    ).values.left;
+
+  // At the desk: staff link the parent to the child on the parent's page.
+  await open(page, `/people/${parent.id}`);
+  const family = page.getByTestId("family-card");
+  await family.getByRole("button", { name: "Add a family link" }).click();
+  await family.getByRole("button", { name: /Family member/ }).click();
+  await page.getByPlaceholder("Search people…").fill(childName);
+  await page.getByRole("option", { name: new RegExp(childName) }).click();
+  await family.getByRole("button", { name: "Link", exact: true }).click();
+  await expect(family.getByRole("link", { name: childName })).toBeVisible();
+
+  try {
+    const member = await signInMember(page, browser, baseURL ?? "", email);
+    const memberPage = await member.newPage();
+    await memberPage.goto(block("bookings-timetable", "Timetable"));
+    const timetable = memberPage.getByRole("region", { name: "Timetable" });
+    await timetable.getByLabel("Booking for").selectOption({ label: childName });
+    await timetable.getByRole("button", { name: `Book ${klass.name}` }).click();
+    await expect(timetable.getByRole("status")).toContainText(
+      `Booked for ${childName}: ${klass.name}`,
+    );
+    // The child's pass paid: the booking is the child's, made by the parent.
+    await expect.poll(left).toBe(2);
+    const bookings = await op<{ items: { values: Record<string, unknown> }[] }>(
+      page.request,
+      "record.list",
+      { object: "bookings.booking", filter: { field: "class", op: "eq", value: klass.id } },
+    );
+    expect(bookings.items.map((b) => b.values)).toEqual([
+      expect.objectContaining({ state: "booked", person: child.id, madeBy: parent.id }),
+    ]);
+    // Seen as the child's: Cancel shows for the child, Book for the parent themselves.
+    await expect(timetable.getByRole("button", { name: `Cancel ${klass.name}` })).toBeVisible();
+    await timetable.getByLabel("Booking for").selectOption({ label: "Me" });
+    await expect(timetable.getByRole("button", { name: `Book ${klass.name}` })).toBeVisible();
+    await member.close();
+  } finally {
+    await op(
+      page.request,
+      "outbound.setAutoApprove",
+      { tag: "fake.signin", enabled: false },
+      false,
+    );
+    await op(page.request, "customer.settings.update", { signup: "invite_only" }, false);
+  }
 });

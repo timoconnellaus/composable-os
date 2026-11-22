@@ -16,7 +16,7 @@ import { z } from "zod";
 import { ConflictError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
-import { GUARDIAN_LINK } from "../visibility/guardians.ts";
+import { GUARDIAN_LINK, recordsMadeFor } from "../visibility/guardians.ts";
 import { visibleSource } from "../visibility/index.ts";
 
 const personId = z.string().min(1).max(64);
@@ -191,13 +191,17 @@ export const personLinkEnd = defineOperation({
   description:
     "End a family link: from that moment the guardian reads nothing of the dependant's and " +
     "books nothing for them. Bookings they already made stay (cancel them separately if " +
-    "needed). The link is kept, ended, with who ended it and why. Only a person on the staff " +
-    "with people:link can do this. Audited.",
+    "needed); the answer says how many (stays). The link is kept, ended, with who ended it and " +
+    "why. Only a person on the staff with people:link can do this. Audited.",
   input: z.object({
     id: linkId,
     reason: z.string().trim().max(500).optional(),
   }),
-  output: linkSchema,
+  output: linkSchema.extend({
+    stays: z
+      .array(z.object({ object: z.string(), label: z.string(), count: z.number() }))
+      .describe("Live records the guardian made for the dependant (bookings): they stay"),
+  }),
   permission: "people:link",
   risk: "write",
   actors: ["human"],
@@ -224,10 +228,15 @@ export const personLinkEnd = defineOperation({
       ],
     });
     const names = await namesOf(ctx, [row.guardian_id, row.dependant_id]);
-    return toLink(
-      { ...row, ended_at: ctx.now, ended_by: ctx.user.id, end_reason: input.reason || null },
-      names,
-    );
+    // What they made for the child stays (bookings): staff are told how many.
+    const stays = await recordsMadeFor(ctx.db, row.guardian_id, row.dependant_id);
+    return {
+      ...toLink(
+        { ...row, ended_at: ctx.now, ended_by: ctx.user.id, end_reason: input.reason || null },
+        names,
+      ),
+      stays,
+    };
   },
 });
 

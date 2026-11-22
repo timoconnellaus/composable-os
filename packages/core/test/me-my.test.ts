@@ -44,6 +44,8 @@ beforeAll(async () => {
 // list them (customer-pipeline.test.ts).
 const OPENED = [
   "me.deleteAccount",
+  // Stage 31a step 6 (ADR 0540): the caller's own family links.
+  "me.family",
   "me.get",
   "me.sessions.list",
   "me.sessions.revoke",

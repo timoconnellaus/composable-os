@@ -109,6 +109,12 @@ function hostWith(): TestHost {
         })),
         nextCursor: null,
       }),
+      // The member, as the host says (ADR 0540): their own holdings unless they name a child.
+      "me.family": () => ({
+        self: { personId: "per_member", name: "Member" },
+        dependants: [],
+        guardians: [],
+      }),
       // The host's count for every holding of an object in one call; the staff-given pass is
       // live in its terms and still cannot pay now (it has not started): payable false.
       "allowance.list": (input) => ({

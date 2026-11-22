@@ -920,8 +920,8 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   with its own cookie and secret, and resolves a request to a customer or the public, never to
   staff. Who may sign up is a human admin's setting: invite only, also buyers (ADR 0458), or
   anyone; and, on top, anyone starting a subscription while a plan is on sale (ADR 0459).
-- **Open operations:** `me.get`, `me.update`, `me.signOut`, `me.sessions.*`, `me.deleteAccount`,
-  `my.list`, `my.get`, and for tools only `my.create`, `my.update`.
+- **Open operations:** `me.get`, `me.update`, `me.family`, `me.signOut`, `me.sessions.*`,
+  `me.deleteAccount`, `my.list`, `my.get`, and for tools only `my.create`, `my.update`.
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
   outside path with the same principal. It may set an object's writable fields and the fields
   the tool lists in its manifest. A runtime extension can open nothing.
@@ -1126,6 +1126,18 @@ of the same extension that declares a customer) points to through `field`, whate
 other's records. `my.list` and `my.get` read it. Buying reads `buyableSource`, the scope without
 it: reading is not buying. The seam also adds `currency` (the deployment's) beside a sellable
 object's records, and `me.get` returns the account's verified sign-in address (`signInEmail`).
+
+**For a dependant** ([ADR 0540](adr/0540-the-family-link.md), `packages/core/src/visibility/guardians.ts`,
+`core_person_link`, migration 0650). Staff with `people:link`, a person only (`person.link.add`,
+`person.link.end`), link a guardian (a parent) to a dependant (a child). On an object whose
+`customer` declares `guardians: { write?, madeBy? }` a customer's scope is `WHERE <customer> = :me
+OR <customer> IN (<the live dependants of :me>)`, read in the statement, so every read through
+`visibleSource` (and `customerVia` from such an object) sees it; with `write`, `ownedSource` does
+too, and `my.create` takes `forPersonId` (a live dependant, or not found as a Person that does not
+exist). A write for a dependant carries a guard in its own batch (`core_person_link_guard`): a link
+ended before it commits fails it. `madeBy` is set by the host to who made the record. `me.family`
+answers the caller's own links. A merge re-points links; an erase deletes them and says which
+children have no guardian left.
 
 **Time zones** ([ADR 0460](adr/0460-time-zones-on-records.md)). A `timezone` field type (an IANA
 name the runtime knows; the deployment's zone when left empty on create), and date-relative
@@ -1521,7 +1533,7 @@ calculates a price, checks a capacity or checks a permission.
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
-| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 5 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md)); steps 6 to 10 to come |
+| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); steps 7 to 10 to come |
 | Memberships | `allowance` (holders), recurring billing | stage 32b: the behaviour built; the pack in progress |
 
 ### Client repos

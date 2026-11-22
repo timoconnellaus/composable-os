@@ -69,11 +69,13 @@ interface MovePreview {
   tasksMore: boolean;
   affiliations: number;
   children: number | null;
+  /** A person's live family links (ADR 0540); null for an organisation. */
+  familyLinks: number | null;
 }
 
 /** What would move from `id` onto the survivor: linked activities, tasks, affiliations, children. */
 async function loadMovePreview(object: MergeObject, id: string): Promise<MovePreview> {
-  const [activities, tasks, affiliations, children] = await Promise.all([
+  const [activities, tasks, affiliations, children, family] = await Promise.all([
     callOp("activity.listForRecord", { object, recordId: id, limit: 100 }),
     callOp("task.list", {
       filter: { field: "linkedRecordId", op: "eq", value: id },
@@ -91,6 +93,8 @@ async function loadMovePreview(object: MergeObject, id: string): Promise<MovePre
           fields: ["id"],
         })
       : null,
+    // A person's family links move to the survivor (ADR 0540).
+    object === "person" ? callOp("person.link.list", { personId: id }) : null,
   ]);
   return {
     activities: activities.items.length,
@@ -99,6 +103,7 @@ async function loadMovePreview(object: MergeObject, id: string): Promise<MovePre
     tasksMore: Boolean(tasks.nextCursor),
     affiliations: affiliations.items.length,
     children: children ? children.items.length : null,
+    familyLinks: family ? family.items.length : null,
   };
 }
 
@@ -391,6 +396,13 @@ function MergeChooser({
               many="tasks"
             />
             <MoveLine count={moves.data.affiliations} one="affiliation" many="affiliations" />
+            {moves.data.familyLinks !== null && (
+              <MoveLine
+                count={moves.data.familyLinks}
+                one="family link (a parent or child)"
+                many="family links (parents or children; a duplicate is dropped)"
+              />
+            )}
             {moves.data.children !== null && (
               <MoveLine
                 count={moves.data.children}

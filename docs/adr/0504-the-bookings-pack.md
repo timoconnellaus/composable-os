@@ -163,3 +163,11 @@ the waitlist when the class is full unless asked not to (`waitlist: false`), als
 whose booking was refused for want of a use (joining spends nothing; they are passed over at
 promotion if they still cannot pay); `leaveWaitlist` is a new customer tool; `mine` and
 `classList` show the waitlist. The shipped packs' spend is proved together (ADR 0493's note).
+
+## Note (2026-11-23, stage 31a step 6)
+The booking opens to guardians ([ADR 0540](0540-the-family-link.md)): `customer.guardians:
+{ write: true, madeBy: "madeBy" }`, and `person` joins `customer.read`. `book` takes `forPersonId`
+(a child linked to the member), `mine` a `personId` (their own by default), and `family` (new, a
+customer read over `me.family`) lists who they may book for; `permissions.operations` lists
+`me.family`. A child's booking spends the child's holder only. The web and native timetables show
+a "Booking for" choice when the member has a child linked.
