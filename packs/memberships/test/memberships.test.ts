@@ -176,7 +176,9 @@ describe("the manifest", () => {
     }
     // No term of what a member holds is writable by anyone but the host and this pack's tools.
     for (const holder of [membership, pass]) {
-      for (const [name, field] of Object.entries(holder.fields as Record<string, { readOnly?: boolean }>)) {
+      for (const [name, field] of Object.entries(
+        holder.fields as Record<string, { readOnly?: boolean }>,
+      )) {
         if (name !== "status") expect(field.readOnly, name).toBe(true);
       }
       expect(holder.customer.write).toEqual([]);
@@ -192,11 +194,10 @@ describe("the manifest", () => {
 describe("the tools", () => {
   it("plans: the plans on sale with the host's prices and currency", async () => {
     const host = hostWith();
-    const out = await host.runTool<{ plans: { id: string; uses: number; per: string }[]; currency: string }>(
-      "plans",
-      {},
-      { caller: PUBLIC },
-    );
+    const out = await host.runTool<{
+      plans: { id: string; uses: number; per: string }[];
+      currency: string;
+    }>("plans", {}, { caller: PUBLIC });
     expect(out.plans).toEqual([
       expect.objectContaining({ id: "rec_plan", uses: 3, per: "week", price: 45, trialDays: 7 }),
     ]);
@@ -285,9 +286,16 @@ describe("the tools", () => {
 
   it("voidPass: voids a pass staff gave, from a current read; a bought one is refused", async () => {
     const host = hostWith();
-    await host.runTool("voidPass", { passId: "rec_given", reason: "Given in error" }, { caller: STAFF });
+    await host.runTool(
+      "voidPass",
+      { passId: "rec_given", reason: "Given in error" },
+      { caller: STAFF },
+    );
     expect(host.calls.find((c) => c.operation === "record.update")?.input).toEqual(
-      expect.objectContaining({ values: { status: "void", reason: "Given in error (Sam)" }, from: "active" }),
+      expect.objectContaining({
+        values: { status: "void", reason: "Given in error (Sam)" },
+        from: "active",
+      }),
     );
     await expect(
       host.runTool("voidPass", { passId: "rec_p", reason: "Given in error" }, { caller: STAFF }),
@@ -298,11 +306,17 @@ describe("the tools", () => {
 describe("display helpers", () => {
   it("say what a plan allows and why the host refused a pass, in words", () => {
     expect(
-      allowsWords({ uses: 3, per: "week", weekdays: ["1", "3"], fromMinute: 540, untilMinute: 960 }),
+      allowsWords({
+        uses: 3,
+        per: "week",
+        weekdays: ["1", "3"],
+        fromMinute: 540,
+        untilMinute: 960,
+      }),
     ).toBe("3 classes a week · Mon, Wed · from 09:00 before 16:00");
-    expect(allowsWords({ uses: null, per: "week", weekdays: [], fromMinute: null, untilMinute: null })).toBe(
-      "Unlimited classes",
-    );
+    expect(
+      allowsWords({ uses: null, per: "week", weekdays: [], fromMinute: null, untilMinute: null }),
+    ).toBe("Unlimited classes");
     expect(refusalWords({ rule: "once_per_person", reason: "used" })).toContain("had yours");
     expect(refusalWords({ rule: "once_per_person", reason: "sign_in" })).toContain("sign in");
     expect(

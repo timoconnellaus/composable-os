@@ -2,10 +2,10 @@
 // The `subscription` access source registers itself with the seam when this module loads.
 export * from "./access.ts";
 export * from "./events.ts";
+export * from "./grants.ts";
 export * from "./merge.ts";
 export * from "./offers.ts";
 export * from "./periods.ts";
 export * from "./subscriptions.ts";
 export * from "./sweep.ts";
 export * from "./trial.ts";
-export * from "./grants.ts";

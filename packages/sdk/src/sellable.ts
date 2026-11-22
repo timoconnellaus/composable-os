@@ -383,7 +383,10 @@ export function checkObjectSellable(
     }
   }
   if (sellable.onePerPerson !== undefined && !single(sellable.onePerPerson, new Set(["boolean"]))) {
-    contract(`${path}.onePerPerson`, `"${sellable.onePerPerson}" must be a boolean field of ${name}`);
+    contract(
+      `${path}.onePerPerson`,
+      `"${sellable.onePerPerson}" must be a boolean field of ${name}`,
+    );
   }
   if (sellable.maxPerOrder !== undefined && !single(sellable.maxPerOrder, new Set(["number"]))) {
     contract(`${path}.maxPerOrder`, `"${sellable.maxPerOrder}" must be a number field of ${name}`);
@@ -582,9 +585,15 @@ function checkGrants(
       if (target === undefined) continue;
       const field = Object.hasOwn(granted.fields, target) ? granted.fields[target] : undefined;
       if (!field || !DATES.has(field.type) || field.many) {
-        contract(`${path}.valid.${key}`, `"${target}" must be a date or datetime field of ${local}`);
+        contract(
+          `${path}.valid.${key}`,
+          `"${target}" must be a date or datetime field of ${local}`,
+        );
       } else if (Object.hasOwn(grants.set, target)) {
-        contract(`${path}.valid.${key}`, `"${target}" is in set too: the host writes it from valid`);
+        contract(
+          `${path}.valid.${key}`,
+          `"${target}" is in set too: the host writes it from valid`,
+        );
       }
     }
     if (days !== undefined) {
@@ -694,7 +703,10 @@ function checkRecurringGrants(
   }
   const states = granted.states;
   if (!states) {
-    contract(`${path}.object`, `${local} must declare states: its state follows the subscription's`);
+    contract(
+      `${path}.object`,
+      `${local} must declare states: its state follows the subscription's`,
+    );
     return;
   }
   const stateField = granted.fields[states.field];
@@ -732,7 +744,10 @@ function checkRecurringGrants(
     }
   }
   if (Object.hasOwn(grants.set, states.field)) {
-    contract(`${path}.set.${states.field}`, `${states.field} is ${local}'s state: the host sets it`);
+    contract(
+      `${path}.set.${states.field}`,
+      `${states.field} is ${local}'s state: the host sets it`,
+    );
   }
   const filled = new Set<string>();
   for (const [key, target] of [
@@ -742,7 +757,7 @@ function checkRecurringGrants(
     if (target === undefined) continue;
     const field = Object.hasOwn(granted.fields, target) ? granted.fields[target] : undefined;
     // A moment, not a day: access stops at the period's end and not a minute after (ADR 0488).
-    if (!field || field.type !== "datetime" || field.many) {
+    if (field?.type !== "datetime" || field.many) {
       contract(`${path}.${key}`, `"${target}" must be a datetime field of ${local}`);
     } else if (Object.hasOwn(grants.set, target)) {
       contract(`${path}.${key}`, `"${target}" is in set too: the host keeps it`);
@@ -785,7 +800,10 @@ function checkRecurringGrants(
         contract(fp, `subscription needs a text field; "${target}" is a ${field.type} field`);
       }
     } else if (!(field.type === "relation" && one && field.to === "person")) {
-      contract(fp, `${source} needs a relation to one person; "${target}" is a ${field.type} field`);
+      contract(
+        fp,
+        `${source} needs a relation to one person; "${target}" is a ${field.type} field`,
+      );
     } else if (source === "subscription.payer") {
       // A payer erased later leaves the field empty; it never fills a required one.
       always = false;

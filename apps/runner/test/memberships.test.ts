@@ -215,11 +215,7 @@ beforeAll(async () => {
   expect(getObject(PASSTYPE)?.sellable?.onePerPerson).toBe("onePerPerson");
   expect(getObject(MEMBERSHIP)?.allowance).toBeDefined();
 
-  await run(
-    "settings.update",
-    { timezone: ZONE },
-    staff(admin),
-  ).catch(() => undefined);
+  await run("settings.update", { timezone: ZONE }, staff(admin)).catch(() => undefined);
   await run(
     "order.settings.update",
     { currency: "AUD", returnOrigins: ["https://gym.test"] },
@@ -273,7 +269,8 @@ describe("a membership, through the fake provider", () => {
     expect(await mine(member)).toEqual([]);
     await pay(started.url);
     await vi.waitFor(
-      async () => expect((await mine(member)).find((h) => h.kind === "membership")?.status).toBe("trialing"),
+      async () =>
+        expect((await mine(member)).find((h) => h.kind === "membership")?.status).toBe("trialing"),
       { timeout: 20_000 },
     );
     const membership = (await mine(member)).find((h) => h.kind === "membership") as Holding;
@@ -290,7 +287,17 @@ describe("a membership, through the fake provider", () => {
     expect(spent.values.holder).toBe(membership.id);
     const nextWeek = await run<{ period: { used: number; left: number } }>(
       "allowance.get",
-      { object: MEMBERSHIP, id: membership.id, at: (await run<{ values: { startsAt: string } }>("record.get", { object: CLASS, id: klass }, staff(admin))).values.startsAt },
+      {
+        object: MEMBERSHIP,
+        id: membership.id,
+        at: (
+          await run<{ values: { startsAt: string } }>(
+            "record.get",
+            { object: CLASS, id: klass },
+            staff(admin),
+          )
+        ).values.startsAt,
+      },
       as(member),
     );
     expect(nextWeek.period).toMatchObject({ used: 1, left: 2 });
@@ -299,11 +306,7 @@ describe("a membership, through the fake provider", () => {
 
     // Nothing the member writes changes what they hold.
     const theirs = await refusal(
-      run(
-        "my.update",
-        { object: MEMBERSHIP, id: membership.id, values: { uses: 99 } },
-        as(member),
-      ),
+      run("my.update", { object: MEMBERSHIP, id: membership.id, values: { uses: 99 } }, as(member)),
     );
     expect(theirs.code).toBeDefined();
   });

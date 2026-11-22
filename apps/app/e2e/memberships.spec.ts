@@ -71,7 +71,11 @@ async function setUp(page: Page, baseURL: string): Promise<void> {
 }
 
 /** A member signed in by an emailed code, in a browser context of their own. */
-async function signInMember(page: Page, browser: Browser, baseURL: string): Promise<BrowserContext> {
+async function signInMember(
+  page: Page,
+  browser: Browser,
+  baseURL: string,
+): Promise<BrowserContext> {
   const origin = new URL(baseURL).origin;
   const outbox = fakeAddress("members");
   await openIntegrations(page);
@@ -225,7 +229,10 @@ test("a member buys a class pack and sees what it gives", async ({ page, browser
       )
       .toBe("5 of 5 left");
     await expect(
-      memberPage.getByRole("region", { name: "My memberships" }).getByText(/^Expires /).first(),
+      memberPage
+        .getByRole("region", { name: "My memberships" })
+        .getByText(/^Expires /)
+        .first(),
     ).toBeVisible();
     await member.close();
   } finally {

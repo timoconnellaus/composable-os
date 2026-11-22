@@ -38,7 +38,10 @@ const currency = z
 const limitsOut = z.object({
   classTypes: z.array(z.string()).describe("Class type ids; empty: every class type"),
   weekdays: z.array(z.string()).describe("1 Monday to 7 Sunday; empty: every day"),
-  fromMinute: z.number().nullable().describe("Classes starting at or after, minutes after midnight"),
+  fromMinute: z
+    .number()
+    .nullable()
+    .describe("Classes starting at or after, minutes after midnight"),
   untilMinute: z.number().nullable().describe("Classes starting before, minutes after midnight"),
 });
 const limitsOf = (v: Record<string, unknown>) => ({
@@ -89,7 +92,8 @@ export const plans = defineTool({
         description: text(p.values.description),
         price: num(p.values.price),
         uses: num(p.values.uses),
-        per: p.values.per === "month" ? ("month" as const) : p.values.per ? ("week" as const) : null,
+        per:
+          p.values.per === "month" ? ("month" as const) : p.values.per ? ("week" as const) : null,
         trialDays: num(p.values.trialDays),
         ...limitsOf(p.values),
       })),
@@ -205,7 +209,10 @@ const holding = limitsOut.extend({
   kind: z.enum(["membership", "pass"]),
   title: z.string().nullable(),
   status: z.string().describe("The record's own state, as the host keeps it"),
-  uses: z.number().nullable().describe("Per period for a membership, in all for a pass; null: unlimited"),
+  uses: z
+    .number()
+    .nullable()
+    .describe("Per period for a membership, in all for a pass; null: unlimited"),
   per: z.enum(["total", "week", "month"]),
   from: z.string().nullable(),
   until: z.string().nullable().describe("When it stops or expires"),

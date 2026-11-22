@@ -189,9 +189,7 @@ export function leftWords(h: Holding): string {
   const p = h.period;
   if (!p || p.left === null) return "Unlimited";
   const when = h.per === "week" ? " this week" : h.per === "month" ? " this month" : "";
-  return h.uses !== null
-    ? `${p.left} of ${h.uses} left${when}`
-    : `${p.left} left${when}`;
+  return h.uses !== null ? `${p.left} of ${h.uses} left${when}` : `${p.left} left${when}`;
 }
 
 /** What a membership's subscription means to its payer, in words. Display only. */

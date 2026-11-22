@@ -57,10 +57,7 @@ export function PersonHoldings({
                 variant="outline"
                 disabled={voided.isPending || reason.trim().length < 3}
                 onClick={() =>
-                  void act(
-                    () => voided.mutateAsync({ passId: h.id, reason }),
-                    "The pass is void.",
-                  )
+                  void act(() => voided.mutateAsync({ passId: h.id, reason }), "The pass is void.")
                 }
               >
                 Void this pass

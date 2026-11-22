@@ -49,7 +49,11 @@ interface LineRow {
 }
 
 /** A field's value as a record holds it, read from a row of the object's view. */
-export function grantFieldValue(object: ObjectDefinition, row: AnyRow | undefined, name: string): unknown {
+export function grantFieldValue(
+  object: ObjectDefinition,
+  row: AnyRow | undefined,
+  name: string,
+): unknown {
   const field = object.fields.find((f) => f.name === name);
   const column = field ? viewColumnOf(field) : null;
   if (!field || !column || !row) return null;
@@ -98,7 +102,12 @@ export async function validFrom(
         `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day).padStart(2, "0")}`;
     } else {
       out[valid.until] = wallClockToIso(
-        { ...addLocalDays(local, days), hour: local.hour, minute: local.minute, second: local.second },
+        {
+          ...addLocalDays(local, days),
+          hour: local.hour,
+          minute: local.minute,
+          second: local.second,
+        },
         zone,
       );
     }
@@ -132,7 +141,9 @@ async function grant(ctx: HandlerContext, orderId: string, order: Record<string,
         : undefined;
     // When it is valid (ADR 0511): from now, for the item's days, in the organisation's zone.
     const valid = grants.valid
-      ? await validFrom(ctx, granted, grants.valid, (field) => grantFieldValue(item, itemRow, field))
+      ? await validFrom(ctx, granted, grants.valid, (field) =>
+          grantFieldValue(item, itemRow, field),
+        )
       : {};
     const from = (source: string): unknown => {
       if (source === "item") return line.record_id;

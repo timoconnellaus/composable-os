@@ -516,7 +516,12 @@ describe("a subscription's grant follows it (recurring.grants, ADR 0510)", () =>
     expect(grantUntil({ ...base, cancel_at_period_end: 1 }, now)).toBe("2026-12-01T00:00:00.000Z");
     expect(
       grantUntil(
-        { ...base, state: "past_due", failing_since: "2026-11-20T00:00:00.000Z", cancel_at_period_end: 1 },
+        {
+          ...base,
+          state: "past_due",
+          failing_since: "2026-11-20T00:00:00.000Z",
+          cancel_at_period_end: 1,
+        },
         now,
       ),
     ).toBe("2026-12-01T00:00:00.000Z");
@@ -551,7 +556,11 @@ describe("passes: valid for their days, voided by a full refund (grants.valid, A
       { object: PASS, id: passId },
       staff(),
     );
-    expect(pass.values).toMatchObject({ person: buyer.principal.personId, uses: 10, status: "active" });
+    expect(pass.values).toMatchObject({
+      person: buyer.principal.personId,
+      uses: 10,
+      status: "active",
+    });
     const from = Date.parse(String(pass.values.from));
     const until = Date.parse(String(pass.values.until));
     expect(from).toBeGreaterThanOrEqual(before - 1000);
@@ -559,7 +568,11 @@ describe("passes: valid for their days, voided by a full refund (grants.valid, A
     expect(Math.abs(until - from - 30 * DAY)).toBeLessThanOrEqual(3_600_000);
 
     // A use spent, then the order refunded in full: void, and the use is still spent.
-    const visit = await create(VISIT, { name: "Wed", person: buyer.principal.personId, holder: passId });
+    const visit = await create(VISIT, {
+      name: "Wed",
+      person: buyer.principal.personId,
+      holder: passId,
+    });
     await run("record.update", { object: VISIT, id: visit, values: { state: "booked" } }, staff());
     const asked = await run<{ refunds: { pendingActionId: string }[] }>(
       "order.refund",
@@ -587,7 +600,13 @@ describe("an intro offer: one per Person (onePerPerson, ADR 0512)", () => {
   let intro: string;
   let otherIntro: string;
   beforeAll(async () => {
-    intro = await create(PASSTYPE, { title: "Intro", price: 20, uses: 3, validDays: 7, intro: true });
+    intro = await create(PASSTYPE, {
+      title: "Intro",
+      price: 20,
+      uses: 3,
+      validDays: 7,
+      intro: true,
+    });
     otherIntro = await create(PASSTYPE, { title: "Intro 2", price: 25, uses: 2, intro: true });
   });
   const startFor = (ctx: Parameters<typeof run>[2], id: string, email?: string) =>
@@ -714,7 +733,9 @@ describe("the declarations' checks", () => {
       initial: "active",
       moves: [{ from: "active", to: "ended", by: ["host"] }],
     };
-    const issues = validateManifest(m).issues.map((i) => i.message).join("\n");
+    const issues = validateManifest(m)
+      .issues.map((i) => i.message)
+      .join("\n");
     expect(issues).toMatch(/needs a move from "active" to "paused"/);
     expect(issues).toMatch(/must be a final state/);
   });
@@ -723,7 +744,9 @@ describe("the declarations' checks", () => {
     const m = fixture(extId("bad"));
     const plan = m.objects.plan as NonNullable<(typeof m.objects)[string]>;
     (plan.sellable as { onePerPerson?: string }).onePerPerson = "trialDays";
-    const issues = validateManifest(m).issues.map((i) => i.message).join("\n");
+    const issues = validateManifest(m)
+      .issues.map((i) => i.message)
+      .join("\n");
     expect(issues).toMatch(/onePerPerson is for things bought once/);
     expect(issues).toMatch(/must be a boolean field/);
   });

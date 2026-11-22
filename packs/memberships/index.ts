@@ -149,7 +149,7 @@ export default defineExtension({
         summary: {
           type: "text",
           label: "What it gives, in a line",
-          description: "Shown with the plan: \"3 classes a week, off-peak\".",
+          description: 'Shown with the plan: "3 classes a week, off-peak".',
         },
         description: { type: "text", label: "Description" },
         price: { type: "currency", label: "Price per month", required: true },
@@ -417,7 +417,12 @@ export default defineExtension({
       fields: {
         title: { type: "text", label: "Pass", readOnly: true },
         person: { type: "relation", label: "Member", to: "person", readOnly: true },
-        passtype: { type: "relation", label: "Pass type", to: "memberships.passtype", readOnly: true },
+        passtype: {
+          type: "relation",
+          label: "Pass type",
+          to: "memberships.passtype",
+          readOnly: true,
+        },
         order: { type: "text", label: "Order", readOnly: true },
         uses: { type: "number", label: "Classes", readOnly: true },
         ...limits(true),

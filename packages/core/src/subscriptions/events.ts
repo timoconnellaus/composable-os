@@ -22,8 +22,8 @@ import { type HandlerContext, recordHostChange } from "../operation.ts";
 import type { PaymentsEvent, ProviderSubscription } from "../orders/gateway.ts";
 import { formatMoney } from "../orders/orders.ts";
 import { applyTransition } from "../records/lifecycle.ts";
-import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
 import { followSubscriptionGrant } from "./grants.ts";
+import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
 import { useTrial } from "./trial.ts";
 
 export type SubscriptionRow = Selectable<CoreSubscriptionTable>;
