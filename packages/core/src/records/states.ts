@@ -14,7 +14,7 @@
 //     emptied.
 import { moveOrigins } from "@composable-os/sdk";
 import type { ObjectDefinition, StatesDefinition, WindowDefinition } from "../fields/types.ts";
-import type { HandlerContext } from "../operation.ts";
+import { type HandlerContext, personsTool } from "../operation.ts";
 import {
   ALL_MOVERS,
   type Lifecycle,
@@ -206,10 +206,14 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
           originPosition,
         );
       }
+      // A move named tools may make (ADR 0513): a staff write from inside one of them (a person
+      // with the tool's permission called it) may make it too; no other staff write may.
+      const tool = write.by === "staff" ? personsTool(write.ctx, o.extension) : null;
+      const byTool = tool !== null && (move.tools ?? []).includes(tool);
       return {
         ...base,
         from: originPosition,
-        by: move.by,
+        by: byTool ? [...move.by, "staff"] : move.by,
         requires: move.requires ?? [],
       };
     },

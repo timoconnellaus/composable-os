@@ -36,6 +36,14 @@ export interface StateMove {
    * make the move ("this class type is booked by the gym").
    */
   staffOnly?: string;
+  /**
+   * Tools of this extension that may also make the move for whoever called them (stage 32b,
+   * ADR 0513): a move by `["host"]` with `tools: ["voidPass"]` is made by the host and by that
+   * tool, and by no other staff write (not `record.update`, not the assistant, not an automation).
+   * Each tool must be `humanOnly` and declare a `permission`, so the move is a person's act with
+   * that permission.
+   */
+  tools?: readonly string[];
 }
 
 /**
@@ -131,6 +139,7 @@ export const statesManifestSchema = z.object({
         final: z.boolean().optional(),
         window: moveWindow.optional(),
         staffOnly: fieldPath.optional(),
+        tools: z.array(z.string().min(1).max(40)).min(1).max(10).optional(),
       }),
     )
     .max(200),
@@ -274,6 +283,24 @@ export function checkObjectStates(
     }
     checkWindow(move.window, `${mp}.window`);
     if (move.staffOnly) checkPath(move.staffOnly, `${mp}.staffOnly`, "boolean");
+    // A move only named tools may make (ADR 0513): each a person's, with a permission.
+    for (const tool of move.tools ?? []) {
+      const spec = m.tools?.[tool];
+      if (!spec) {
+        contract(`${mp}.tools`, `"${tool}" is not a tool of this extension`);
+      } else if (!spec.humanOnly || !spec.permission) {
+        contract(
+          `${mp}.tools`,
+          `"${tool}" must be humanOnly and declare a permission: the move is a person's act with it`,
+        );
+      }
+    }
+    if (move.tools && move.by.includes("staff")) {
+      contract(
+        `${mp}.tools`,
+        "A move named tools may make is not also open to all staff: drop staff from by",
+      );
+    }
   });
   if (states.create) {
     for (const state of Object.keys(states.create.in ?? {})) {

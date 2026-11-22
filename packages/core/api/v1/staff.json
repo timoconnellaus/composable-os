@@ -8379,6 +8379,10 @@
             "type": "string",
             "description": "The time the period was read for"
           },
+          "payable": {
+            "type": "boolean",
+            "description": "It can pay for something at `at`: live, out of the Trash and within its dates (uses aside)"
+          },
           "period": {
             "type": "object",
             "properties": {
@@ -8417,7 +8421,163 @@
           "object",
           "id",
           "at",
+          "payable",
           "period"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "allowance.list",
+      "description": "allowance.get for up to 50 holders of one object at once (a member's passes): each one's numbers in the period containing `at` (default now), and whether it can pay then. Staff any; a signed-in customer their own only: an id they cannot see is left out. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81,
+            "description": "An extension object that holds an allowance"
+          },
+          "ids": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": [
+          "object",
+          "ids"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "personId": {
+                  "description": "Staff only",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "uses": {
+                  "description": "Uses per period; null is unlimited. Left out when the caller may not read it",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "per": {
+                  "type": "string",
+                  "enum": [
+                    "total",
+                    "week",
+                    "month"
+                  ]
+                },
+                "zone": {
+                  "description": "The time zone weeks and months are counted in",
+                  "type": "string"
+                },
+                "validFrom": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "validUntil": {
+                  "description": "A spender's time must be before this",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "live": {
+                  "description": "Its state lets it be spent (not paused, used up, ended or void)",
+                  "type": "boolean"
+                },
+                "at": {
+                  "type": "string",
+                  "description": "The time the period was read for"
+                },
+                "payable": {
+                  "type": "boolean",
+                  "description": "It can pay for something at `at`: live, out of the Trash and within its dates (uses aside)"
+                },
+                "period": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "description": "total, week:<Monday's local date> or month:<YYYY-MM>"
+                    },
+                    "startsAt": {
+                      "type": "string"
+                    },
+                    "endsAt": {
+                      "type": "string"
+                    },
+                    "used": {
+                      "type": "number"
+                    },
+                    "left": {
+                      "description": "Uses that can still be spent in it; 0 when the holder cannot pay then, null when unlimited",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "startsAt",
+                    "endsAt",
+                    "used",
+                    "left"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "at",
+                "payable",
+                "period"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
         ],
         "additionalProperties": false
       },
@@ -50202,6 +50362,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "holderPersonId": {
+            "description": "Staff only: the Person who holds what it gives (a child whose parent pays), when not the payer. The payer, named by email, is billed; the trial and access are the holder's.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           }
         },
         "required": [
@@ -64589,6 +64755,303 @@
       },
       "invalidates": [],
       "pack": "leads"
+    },
+    {
+      "name": "x.memberships.givePass",
+      "description": "Give a person a pass by hand, free, with the reason: a pass type's classes, or fewer if given (never more), valid from now for the type's days, as the host works them out for a pass bought. An intro offer given this way is the person's one: refused if they have had it. Recorded as given by staff, with who gave it and why. A person on the staff only (never the assistant or an automation), with the memberships:passes permission. Returns the pass. (Extension tool from Memberships 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "passTypeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          },
+          "uses": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Fewer classes than the pass type gives; default: the type's"
+          }
+        },
+        "required": [
+          "personId",
+          "passTypeId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "passId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "passId",
+          "status",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.memberships.holdings"
+      ],
+      "pack": "memberships"
+    },
+    {
+      "name": "x.memberships.holdings",
+      "description": "For staff: one person's memberships and passes, with their state, what each allows, when it stops or expires, and the classes used and left now, as the host counts them. Read-only. (Extension tool from Memberships 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "personId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "holdings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "classTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Class type ids; empty: every class type"
+                },
+                "weekdays": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "1 Monday to 7 Sunday; empty: every day"
+                },
+                "fromMinute": {
+                  "description": "Classes starting at or after, minutes after midnight",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "untilMinute": {
+                  "description": "Classes starting before, minutes after midnight",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "membership",
+                    "pass"
+                  ]
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "description": "The record's own state, as the host keeps it"
+                },
+                "uses": {
+                  "description": "Per period for a membership, in all for a pass; null: unlimited",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "per": {
+                  "type": "string",
+                  "enum": [
+                    "total",
+                    "week",
+                    "month"
+                  ]
+                },
+                "from": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "until": {
+                  "description": "When it stops or expires",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "live": {
+                  "type": "boolean",
+                  "description": "It can pay for a class now (the host's answer)"
+                },
+                "period": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "startsAt": {
+                          "type": "string"
+                        },
+                        "endsAt": {
+                          "type": "string"
+                        },
+                        "used": {
+                          "type": "number"
+                        },
+                        "left": {
+                          "description": "Null: unlimited",
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "startsAt",
+                        "endsAt",
+                        "used",
+                        "left"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "This week, this month or in all, as the host counts it"
+                }
+              },
+              "required": [
+                "classTypes",
+                "weekdays",
+                "fromMinute",
+                "untilMinute",
+                "id",
+                "kind",
+                "title",
+                "status",
+                "uses",
+                "per",
+                "from",
+                "until",
+                "live",
+                "period"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "holdings"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "memberships"
+    },
+    {
+      "name": "x.memberships.voidPass",
+      "description": "Void a pass by hand, with the reason: it pays for no more classes; classes already booked with it stay booked. For a pass bought, refund its order instead (a full refund voids it). A person on the staff only, with the memberships:passes permission. Returns the pass. (Extension tool from Memberships 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "passId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "passId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "passId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "passId",
+          "status",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.memberships.holdings"
+      ],
+      "pack": "memberships"
     },
     {
       "name": "x.programs.assign",

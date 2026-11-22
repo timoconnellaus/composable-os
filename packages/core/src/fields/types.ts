@@ -309,8 +309,23 @@ export interface SellableDefinition {
         interval: "week" | "month" | "year";
         /** A number field: the days of a free first period. */
         trialDays?: string | undefined;
+        /** What a subscription to it grants, kept in step with it (ADR 0510). */
+        grants?: RecurringGrantDefinition | undefined;
       }
     | undefined;
+  /** A boolean field: while true, a Person buys the record once across the object (ADR 0512). */
+  onePerPerson?: string | undefined;
+}
+
+/** The SDK's RecurringGrantSpec with the granted object's registry name (ADR 0510). */
+export interface RecurringGrantDefinition {
+  object: string;
+  set: Readonly<Record<string, string>>;
+  from?: string | undefined;
+  until?: string | undefined;
+  states: Readonly<
+    Record<"trialing" | "active" | "past_due" | "unpaid" | "paused" | "ended", string>
+  >;
 }
 
 /** The SDK's TaxSpec with registry field names. */
@@ -339,6 +354,10 @@ export interface GrantDefinition {
   set: Readonly<Record<string, GrantSource>>;
   /** The state what was granted moves to when the order is refunded in full or cancelled. */
   void: string;
+  /** The granted object's from and until fields the host writes, and its days (ADR 0511). */
+  valid?:
+    | { from?: string | undefined; until?: string | undefined; days?: string | undefined }
+    | undefined;
 }
 
 /** A stage behaviour as the host enforces it (the SDK's StagesSpec, validated). */
@@ -372,6 +391,8 @@ export interface StatesDefinition {
     final?: boolean | undefined;
     window?: WindowDefinition | undefined;
     staffOnly?: string | undefined;
+    /** This extension's tools that may also make it, for the person who called them (ADR 0513). */
+    tools?: readonly string[] | undefined;
   }[];
   /** Rules on every create (ADR 0503). */
   create?:

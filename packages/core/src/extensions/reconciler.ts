@@ -85,7 +85,8 @@ export interface ReconcileIssue {
     | "foreign_object"
     | "seed"
     | "unique_conflict"
-    | "claims_conflict";
+    | "claims_conflict"
+    | "grants_conflict";
   path: string;
   message: string;
   suggestion?: string;
@@ -234,6 +235,37 @@ async function dataIssues(
           code: "unique_conflict",
           path: `objects.${object.localName}.unique.${index.rule}`,
           message: `${object.name}: live records already share these values: ${clash.map((r) => r.ids).join("; ")}. Change or delete them first.`,
+        });
+      }
+    }
+    // What a plan's subscriptions grant (ADR 0510) cannot be dropped or changed while a
+    // subscription still running holds a record of it: its records would stop following it and
+    // keep what they give for good. End those first, or keep the declaration.
+    const grantsWas = before.definition.sellable?.recurring?.grants;
+    const grantsNow = object.definition.sellable?.recurring?.grants;
+    const grantKey = (g: typeof grantsWas) =>
+      g
+        ? JSON.stringify({
+            object: g.object.includes(".") ? g.object : `${ext}.${g.object}`,
+            states: g.states,
+            from: g.from ?? null,
+            until: g.until ?? null,
+          })
+        : null;
+    if (grantsWas && grantKey(grantsWas) !== grantKey(grantsNow)) {
+      const running = await db
+        .selectFrom("core_subscription_grant as g")
+        .innerJoin("core_subscription as s", "s.id", "g.subscription_id")
+        .select(["s.id", "g.record_id"])
+        .where("s.plan_object", "=", object.name)
+        .where("s.state", "not in", ["ended", "expired"])
+        .limit(10)
+        .execute();
+      if (running.length) {
+        issues.push({
+          code: "grants_conflict",
+          path: `objects.${object.localName}.sellable.recurring.grants`,
+          message: `${object.name}: what its subscriptions grant cannot be dropped or changed while subscriptions still running hold one (${running.map((r) => `${r.id} → ${r.record_id}`).join(", ")}). End them first, or keep the declaration.`,
         });
       }
     }
@@ -880,9 +912,21 @@ export async function planDropHidden(
       return to ? [to.includes(".") ? to : `${o.extensionId}.${to}`] : [];
     }),
   );
-  const grantDrops = droppedObjects
-    .filter((o) => granted.has(o.name))
-    .map((o) => CompiledQuery.raw("DELETE FROM core_order_grant WHERE object_type = ?", [o.name]));
+  const subscriptionGranted = new Set(
+    current.objects.flatMap((o) => {
+      const to = o.definition.sellable?.recurring?.grants?.object;
+      return to ? [to.includes(".") ? to : `${o.extensionId}.${to}`] : [];
+    }),
+  );
+  const grantDrops = droppedObjects.flatMap((o) => [
+    ...(granted.has(o.name)
+      ? [CompiledQuery.raw("DELETE FROM core_order_grant WHERE object_type = ?", [o.name])]
+      : []),
+    // What subscriptions granted of it (ADR 0510): the subscriptions stay.
+    ...(subscriptionGranted.has(o.name)
+      ? [CompiledQuery.raw("DELETE FROM core_subscription_grant WHERE object_type = ?", [o.name])]
+      : []),
+  ]);
   return finishPlan(
     db,
     ext,

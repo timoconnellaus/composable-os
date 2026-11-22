@@ -94,3 +94,8 @@ Memberships pack's pass type, `sellable`'s purchase), with the same shape as the
   lists (never the Person), and the period's numbers; an object that is not a holder, or that they
   cannot read, is not found exactly as another's record is. A refusal reaches a customer as its
   reason in words, with the numbers only for no uses left, and never a record id.
+
+## Note (2026-11-22, stage 32b build step 6)
+The intro offer is built as decided here, on buying: `sellable.onePerPerson` ([ADR
+0512](0512-one-per-person-and-tools-only-a-person-may-call.md)). A pass voided by a full refund
+keeps the uses it spent, as "*Paused, used up, void*" above says.

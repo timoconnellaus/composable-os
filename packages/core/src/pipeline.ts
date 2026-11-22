@@ -1538,6 +1538,14 @@ function outsideError(error: unknown): OperationError {
   if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "trial_held") {
     return typed;
   }
+  // Their own second order for something sold once per Person, started at the same moment
+  // (migration 0581, ADR 0512): told it is held, and no more than that.
+  if (
+    typed.code === "conflict" &&
+    (typed.details as { rule?: unknown })?.rule === "once_per_person"
+  ) {
+    return typed;
+  }
   // The same for a continuation offer's page (migration 0532, ADR 0491): the caller's own offer.
   const offerRule = (typed.details as { rule?: unknown })?.rule;
   if (typed.code === "conflict" && (offerRule === "offer_held" || offerRule === "offer_changed")) {
@@ -1625,6 +1633,23 @@ async function invokeOutside<O extends AnyOperation>(
   // Counted once the call is one this caller may make at all, and before any work is done for it.
   // A tool's own calls are part of the one call that started the tool.
   if (!ctx.tool) await checkOutsideRateLimit(ctx.rateLimit, principal, op.name);
+  // An option only staff may pass is not the customer's or the public's to send (it is not in
+  // their contract either).
+  const staffKeys = (op.staffInput ?? []).filter(
+    (key) =>
+      rawInput !== null &&
+      typeof rawInput === "object" &&
+      (rawInput as Record<string, unknown>)[key] !== undefined,
+  );
+  if (staffKeys.length) {
+    throw new ValidationError(
+      `Invalid input for ${op.name}: ${staffKeys.join(", ")} is for staff`,
+      {
+        field: staffKeys[0],
+        rule: "staff_input",
+      },
+    );
+  }
   const parsed = op.input.safeParse(rawInput);
   if (!parsed.success) {
     throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });

@@ -45,6 +45,8 @@ export function toolOperation(
     permission: tool.risk === "read" ? "records:read" : "records:write",
     risk: tool.risk,
     ...(audiences ? { audiences } : {}),
+    // Only a person (ADR 0512): it narrows who may call, so it holds from any extension.
+    ...(tool.humanOnly ? { actors: ["human"] as const } : {}),
     ...(packPermission ? { packPermission } : {}),
     ...(packPermission && (manifest.grantable ?? []).includes(packPermission)
       ? { packPermissionGrantable: true }

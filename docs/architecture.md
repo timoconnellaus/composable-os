@@ -1260,6 +1260,25 @@ signed-in member's continuation offer in place of the trial) and manage the memb
 (`courses-native-subscription`) only reads (the offer too, in words), and the block lint refuses a
 subscription's billing operations in every native block.
 
+**Memberships** (`packs/memberships`, stage 32b step 6; ADRs
+[0510](adr/0510-what-a-subscription-grants.md), [0511](adr/0511-the-memberships-pack-and-passes.md)
+and [0512](adr/0512-one-per-person-and-tools-only-a-person-may-call.md)): membership plans
+(`memberships.plan`, a sellable that recurs, whose subscription grants a `memberships.membership`
+through `sellable.recurring.grants`), pass types (`memberships.passtype`, sellable once, granting a
+`memberships.pass` valid for the type's days through `grants.valid`, and an intro offer one per
+Person through `sellable.onePerPerson`). Memberships and passes are allowance holders with every
+term read-only (the host and the pack's own tools write them), spent by stage 31's
+`bookings.booking` by class type (Programs' `programs.classtype`, so it requires Programs) and the
+local weekday and minute; only the membership declares `emptyIsUnlimited`. Its tools read the
+plans and pass types (public), start a pass's order (`buy`), give a member their holdings with
+`allowance.get`'s count (`mine`) and staff a Person's (`holdings`), and give or void a pass by hand
+(`givePass`, `voidPass`: `humanOnly`, permission `memberships:passes`, grantable; voiding is a
+move only `voidPass` and the host make, `states.moves[].tools`, and a holder's terms are written only
+by the host or such a tool, ADR [0513](adr/0513-a-granted-holder-keeps-what-it-was-granted.md)). Web blocks
+(plans with the trial and the code sign-in, passes, the member's holdings with their
+subscription's cancel, resume and portal, a Person's holdings for staff) and a native block that
+only reads.
+
 **Ticketing** (`packs/ticketing`, stage 27) is the first pack that is not about a CRM: events,
 ticket types and tickets, built from these behaviours alone, with tools that compose the host's
 operations (`eventsOnSale`, `orderStart`, `myTickets`, `salesSummary`, `checkIn`, `undoCheckIn`)
@@ -1348,7 +1367,12 @@ agent's waits on a person; the record changes only when the provider's event say
 (`subscription.portal`) is the provider's, for the card and invoices only, and the gatekeeper opens
 it only for the host's own call. Staff ending or keeping going someone else's need
 `subscriptions:manage`. A subscription keeps its
-payer and its holder apart: billing follows the payer, what it grants the holder. One free trial
+payer and its holder apart: billing follows the payer, what it grants the holder; staff may start
+one held by another Person (`holderPersonId`, a parent paying for a child; a customer may not until
+stage 31's family link). A plan whose `recurring` declares `grants` gets one record of the granted
+object for the holder, made by the host in the verified event's batch that first reports the
+subscription running and moved with every later read, its `until` the moment it stops giving
+(`subscriptions/grants.ts`, `core_subscription_grant`, migration 0580, ADR 0510). One free trial
 per holder per plan object ([ADR 0489](adr/0489-one-free-trial-per-person-per-plan.md),
 `subscriptions/trial.ts`, migration 0531): only for a proved holder (a signed-in customer, or
 staff with `subscriptions:manage` for a Person; a guest pays from the start, or confirms their

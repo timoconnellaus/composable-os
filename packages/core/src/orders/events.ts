@@ -600,7 +600,13 @@ export interface PaymentEventDeps {
 
 /** How many times an event is applied again after the order changed under it. */
 export const PAYMENT_EVENT_RETRIES = 5;
-const RETRIED_REASONS = new Set(["order_stale", "subscription_stale", "moved_meanwhile"]);
+const RETRIED_REASONS = new Set([
+  "order_stale",
+  "subscription_stale",
+  "moved_meanwhile",
+  // Two events for one subscription granting at once (ADR 0510): read again, it is then granted.
+  "subscription_grant",
+]);
 
 /**
  * Applies one stored event through `order.applyPaymentEvent`, again on `order_stale`, then sends

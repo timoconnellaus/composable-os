@@ -10,7 +10,15 @@ export type Operations = {
   "allowance.get": {
     kind: "query";
     input: { object: string; id: string; at?: string };
-    output: { object: string; id: string; personId?: (string) | (null); uses?: (number) | (null); per?: ("total") | ("week") | ("month"); zone?: string; validFrom?: (string) | (null); validUntil?: (string) | (null); live?: boolean; at: string; period: { key: string; startsAt: string; endsAt: string; used: number; left: (number) | (null) } };
+    output: { object: string; id: string; personId?: (string) | (null); uses?: (number) | (null); per?: ("total") | ("week") | ("month"); zone?: string; validFrom?: (string) | (null); validUntil?: (string) | (null); live?: boolean; at: string; payable: boolean; period: { key: string; startsAt: string; endsAt: string; used: number; left: (number) | (null) } };
+  };
+  /**
+   * allowance.get for up to 50 holders of one object at once (a member's passes): each one's numbers in the period containing `at` (default now), and whether it can pay then. Staff any; a signed-in customer their own only: an id they cannot see is left out. Read-only.
+   */
+  "allowance.list": {
+    kind: "query";
+    input: { object: string; ids: string[]; at?: string };
+    output: { items: ({ object: string; id: string; personId?: (string) | (null); uses?: (number) | (null); per?: ("total") | ("week") | ("month"); zone?: string; validFrom?: (string) | (null); validUntil?: (string) | (null); live?: boolean; at: string; payable: boolean; period: { key: string; startsAt: string; endsAt: string; used: number; left: (number) | (null) } })[] };
   };
   /**
    * How many places a record of an object with a capacity has left (a ticket type, a class). Staff get places, held (while someone pays), taken (paid), available, and the pool's numbers when the record draws on a parent's places. Customers and the public get only what the object shows: the number left, a low-stock warning, or available / sold out. Read-only; claims nothing.
@@ -217,7 +225,7 @@ export type Operations = {
    */
   "subscription.start": {
     kind: "mutation";
-    input: { plan: { object: string; id: string }; returnUrl: string; email?: string; offerId?: string };
+    input: { plan: { object: string; id: string }; returnUrl: string; email?: string; offerId?: string; holderPersonId?: string };
     output: { subscriptionId: string; url: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); trialDays: (number) | (null); freeUntil: (string) | (null); noTrial: (("sign_in") | ("used") | ("permission") | ("held") | ("unconfirmed") | ("continuation")) | (null); expiresAt: (string) | (null) };
   };
 };
@@ -225,6 +233,7 @@ export type Operations = {
 /** What the runtime needs: each operation's kind, and what a mutation makes stale. */
 export const operations = {
   "allowance.get": { kind: "query", invalidates: [] },
+  "allowance.list": { kind: "query", invalidates: [] },
   "capacity.get": { kind: "query", invalidates: [] },
   "content.get": { kind: "query", invalidates: [] },
   "content.list": { kind: "query", invalidates: [] },

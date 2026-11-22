@@ -116,3 +116,8 @@ The wall-clock-to-instant conversion that survives a clock change existed only p
   oldest due first, and one with more to make is due again "now", behind every series due before
   it, so a large timetable cannot starve the rest. A run that fails on a conflict is tried on the
   next tick; any other failure in an hour.
+
+## Note (2026-11-22, stage 32b build step 6): the other "recurring"
+`sellable.recurring` (a plan paid every period, ADR 0485) and its `grants` (what a subscription
+gives, [ADR 0510](0510-what-a-subscription-grants.md)) share this behaviour's word and nothing
+else. The documents call that one `sellable.recurring.grants`, never "the recurring behaviour".

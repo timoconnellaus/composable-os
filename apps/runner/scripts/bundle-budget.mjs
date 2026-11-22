@@ -23,8 +23,11 @@ import { fileURLToPath } from "node:url";
 // packs (the shipped sources grew from 69 KiB to 120 KiB); not raised. Raised to 7,168 KiB
 // (2026-11-22): stage 42's Courses pack (its shipped source, carried as text) with the video
 // host and the access scope, on top of tax at checkout and publish requests, took it to 6,811 KiB.
-// No React or compiler came with them.
-const MAIN_BUDGET_KIB = 7_168;
+// No React or compiler came with them. Raised to 7,680 KiB (2026-11-22): stage 32b's Memberships
+// pack (its shipped source, carried as text) with the subscription grants, the one-per-person rule
+// and the review's holder rules took it to 7,184 KiB; the Bookings pack lands beside it. No React
+// or compiler came with them either.
+const MAIN_BUDGET_KIB = 7_680;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");

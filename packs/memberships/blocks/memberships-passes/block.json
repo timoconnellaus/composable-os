@@ -1,0 +1,11 @@
+{
+  "name": "memberships-passes",
+  "pack": "memberships",
+  "skin": "web",
+  "operations": ["x.memberships.passTypes", "x.memberships.buy", "order.checkout"],
+  "files": ["passes.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/pack-memberships": "*"
+  }
+}
