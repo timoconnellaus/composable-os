@@ -9246,6 +9246,9 @@
                     }
                   ]
                 },
+                "bulkSize": {
+                  "type": "number"
+                },
                 "notes": {
                   "type": "array",
                   "items": {
@@ -9652,6 +9655,7 @@
                 "error",
                 "preview",
                 "simulatedOutput",
+                "bulkSize",
                 "notes",
                 "toolRanAtQueue",
                 "provisionalIds",
@@ -10426,6 +10430,9 @@
                           }
                         ]
                       },
+                      "bulkSize": {
+                        "type": "number"
+                      },
                       "notes": {
                         "type": "array",
                         "items": {
@@ -10832,6 +10839,7 @@
                       "error",
                       "preview",
                       "simulatedOutput",
+                      "bulkSize",
                       "notes",
                       "toolRanAtQueue",
                       "provisionalIds",

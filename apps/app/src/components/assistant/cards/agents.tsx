@@ -288,7 +288,7 @@ export function AgentGrantComponent({ props }: RendererProps<"agentGrant">) {
 function titleOf(action: Action): string {
   return action.outbound
     ? outboundTitle(action.outbound)
-    : actionTitle(action.operation, action.preview, action.input);
+    : actionTitle(action.operation, action.preview, action.input, action.bulkSize);
 }
 
 function ReviewRow({

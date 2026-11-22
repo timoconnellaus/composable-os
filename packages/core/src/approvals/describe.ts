@@ -90,7 +90,15 @@ export function actionTitle(
   operation: string,
   preview: readonly PreviewEntry[],
   input?: unknown,
+  bulkSize = 1,
 ): string {
+  const base = baseTitle(operation, preview, input);
+  // Nothing to preview (it runs on approval, or is a tool): the count it was queued with says
+  // how much it touches, so "Run automation" over 500 records says so.
+  return !preview.length && bulkSize > 1 ? `${base} (${bulkSize} records)` : base;
+}
+
+function baseTitle(operation: string, preview: readonly PreviewEntry[], input?: unknown): string {
   const args = (input ?? {}) as {
     id?: unknown;
     version?: unknown;

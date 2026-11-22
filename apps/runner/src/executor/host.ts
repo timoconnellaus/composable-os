@@ -135,6 +135,13 @@ export interface RunState {
    * it has no gatekeeper. In a dry run (`dryRun`) it has no model either.
    */
   readOnly?: { dryRun: boolean; tool: string };
+  /**
+   * Set with `readOnly.dryRun`: the simulation the tool's operation calls run under, so they
+   * reach nothing real either (read-only database, guarded runtimes, no audit, no usage).
+   */
+  simulate?: TestSimulation;
+  /** In a dry run: the first thing the read-only sandbox refused (the tool then did not run). */
+  refusedInDryRun?: string;
 }
 
 type Envelope =
@@ -215,6 +222,7 @@ export class RunHost extends RpcTarget {
     const ro = this.#run.readOnly;
     if (!ro) return;
     const refuse = (what: string) => {
+      if (ro.dryRun) this.#run.refusedInDryRun ??= what;
       throw new Error(
         `${ro.tool} is a read tool (risk "read"), so it cannot ${what}. Declare the tool's risk ` +
           "as write (or higher) if it changes anything.",
@@ -282,6 +290,7 @@ export class RunHost extends RpcTarget {
     let reply: Envelope;
     try {
       if (run.readOnly && !(await this.#isRead(operation))) {
+        if (run.readOnly.dryRun) run.refusedInDryRun ??= `call ${operation}`;
         throw new ForbiddenError(
           `${run.readOnly.tool} is a read tool (risk "read"), so it can only call read ` +
             `operations, not ${operation}. Declare the tool's risk as write (or higher) if it ` +
@@ -312,9 +321,14 @@ export class RunHost extends RpcTarget {
               permissions: run.permissions,
               ...(run.tool ? { tool: run.tool } : {}),
             },
-            ...this.#events(),
+            ...(run.simulate ? { simulate: run.simulate } : this.#events()),
             ...(await this.#tools(operation)),
           });
+      // A read it made was not run in the dry run (it reached a gatekeeper or a model): the
+      // tool's answer is incomplete, so the tool counts as not run too.
+      if (run.simulate && (value as { $notRunInTestMode?: unknown } | null)?.$notRunInTestMode) {
+        run.refusedInDryRun ??= `call ${operation}`;
+      }
       reply = { ok: true, value };
     } catch (error) {
       reply = errorEnvelope(error);

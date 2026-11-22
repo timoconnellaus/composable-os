@@ -6,7 +6,7 @@ import type { ExtensionManifest, ToolManifest } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { TOOL_OPERATION_RE } from "../approvals/describe.ts";
-import { ForbiddenError, OperationError } from "../errors.ts";
+import { ForbiddenError, OperationError, RunsOnApprovalError } from "../errors.ts";
 import { type AnyOperation, defineOperation, markHostTool } from "../operation.ts";
 import { requireHost } from "./install.ts";
 
@@ -100,6 +100,13 @@ export function toolOperation(
               },
       });
       if (!result.ok) {
+        // A read tool in a dry run reached what the dry run does not touch: not run (dry-run.ts).
+        if (result.error.code === "runs_on_approval") {
+          const uses = (result.error.details as { uses?: unknown } | undefined)?.uses;
+          throw new RunsOnApprovalError(
+            typeof uses === "string" ? uses : `the extension tool ${manifest.id}.${name}`,
+          );
+        }
         throw new OperationError("extension_error", result.error.message, {
           extension: manifest.id,
           tool: name,

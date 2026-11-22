@@ -43,7 +43,7 @@ beforeAll(async () => {
     id,
     source(
       id,
-      `permissions: { modules: ["ops", "storage"] },
+      `permissions: { modules: ["ops", "storage", "ai"] },
   objects: { item: { label: "Item", plural: "Items", titleField: "name", fields: { name: { type: "text", label: "Name" } } } },
   tools: {
     ${tool("wipe", "destructive")}
@@ -75,6 +75,15 @@ beforeAll(async () => {
         } catch (error) {
           return { refused: String((error as Error).message ?? error) };
         }
+      },
+    }),
+    askAi: defineTool({
+      description: "A read tool that asks a model.",
+      risk: "read",
+      input: z.object({}),
+      output: z.unknown(),
+      async handler(_input, ctx) {
+        return { summary: await ctx.ai.summarise("Something to summarise") };
       },
     }),
     look: defineTool({
@@ -274,15 +283,41 @@ describe("a read tool", () => {
     });
   });
 
-  it("is refused writes in test mode too, and still reads", async () => {
+  it("in test mode: a refused write makes it not run (placeholder, reported), and reading still answers", async () => {
     const itemId = await newItem();
     const simulate = createTestSimulation();
     await expect(
       invokeByName(`x.${id}.peekWrite`, { id: itemId }, as("automation", { simulate })),
-    ).resolves.toEqual({ refused: "forbidden" });
+    ).resolves.toMatchObject({ $notRunInTestMode: true, operation: `x.${id}.peekWrite` });
+    expect(simulate.notRun?.map((n) => n.operation)).toEqual([`x.${id}.peekWrite`]);
     await expect(
       invokeByName(`x.${id}.look`, { id: itemId }, as("automation", { simulate })),
     ).resolves.toEqual({ name: "Before", ran: null });
     expect(await nameOf(itemId)).toBe("Before");
+  });
+
+  it("in test mode it is not recorded as a run, and a refusal there never counts towards quarantine", async () => {
+    const runs = async () =>
+      (
+        await env.DB.prepare(
+          "SELECT count(*) AS n FROM core_extension_runs WHERE extension_id = ? AND name = 'askAi'",
+        )
+          .bind(id)
+          .first<{ n: number }>()
+      )?.n ?? 0;
+    const before = await runs();
+    for (let i = 0; i < 4; i++) {
+      const simulate = createTestSimulation();
+      await expect(
+        invokeByName(`x.${id}.askAi`, {}, as("automation", { simulate })),
+      ).resolves.toMatchObject({ $notRunInTestMode: true });
+    }
+    expect(await runs()).toBe(before);
+    const row = await env.DB.prepare(
+      "SELECT status, failure_count FROM core_extensions WHERE id = ?",
+    )
+      .bind(id)
+      .first<{ status: string; failure_count: number }>();
+    expect(row).toMatchObject({ status: "active", failure_count: 0 });
   });
 });

@@ -29,7 +29,7 @@ type Decision = "approve" | "reject";
 function titleOf(action: Action): string {
   return action.outbound
     ? outboundTitle(action.outbound)
-    : actionTitle(action.operation, action.preview, action.input);
+    : actionTitle(action.operation, action.preview, action.input, action.bulkSize);
 }
 
 function ActionDetail({ action, names }: { action: Action; names: Map<string, string> }) {
@@ -45,7 +45,17 @@ function ActionDetail({ action, names }: { action: Action; names: Map<string, st
           ranAtQueue={action.toolRanAtQueue}
         />
       ) : (
-        <ChangePreview groups={groups} names={names} />
+        <>
+          <ChangePreview groups={groups} names={names} />
+          {(!action.preview.length || action.notes.length > 0) && (
+            <ToolCallPreview
+              input={action.input}
+              pending={action.status === "pending"}
+              ranAtQueue={false}
+              tool={false}
+            />
+          )}
+        </>
       )}
       {action.status === "pending" && <DryRunNotes notes={action.notes} />}
       {action.adjudication && <VerdictNote verdict={action.adjudication} />}

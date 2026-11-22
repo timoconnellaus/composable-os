@@ -12,15 +12,30 @@ export function ToolCallPreview({
   input,
   pending,
   ranAtQueue,
+  tool = true,
 }: {
   input: unknown;
   pending: boolean;
   ranAtQueue: boolean;
+  /**
+   * False for any other call with nothing (or not everything) to preview: it runs on approval,
+   * or the dry run noted what it could not show. Its inputs are then what there is to judge, so
+   * the agent's reason is never the only description of what will happen.
+   */
+  tool?: boolean;
 }) {
   const inputs = toolInputs(input);
   return (
-    <div className="grid gap-1.5 text-sm" data-testid="tool-call-preview">
-      {pending &&
+    <div className="grid gap-1.5 text-sm" data-testid={tool ? "tool-call-preview" : "call-inputs"}>
+      {!tool && (
+        <p className="text-muted-foreground">
+          {pending
+            ? "Not all of this can be shown before it runs. It runs, once you approve, with:"
+            : "It ran with:"}
+        </p>
+      )}
+      {tool &&
+        pending &&
         (ranAtQueue ? (
           <p className="text-destructive" data-testid="tool-ran-at-queue">
             Queued before an update that fixed how tools are checked: this tool already ran when it

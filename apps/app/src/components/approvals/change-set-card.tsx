@@ -141,7 +141,9 @@ function ChangeSetView({
       new Map(
         actions.map((a) => [
           a.id,
-          a.outbound ? outboundTitle(a.outbound) : actionTitle(a.operation, a.preview, a.input),
+          a.outbound
+            ? outboundTitle(a.outbound)
+            : actionTitle(a.operation, a.preview, a.input, a.bulkSize),
         ]),
       ),
     [actions],
@@ -387,7 +389,17 @@ function ActionItem({
             ranAtQueue={action.toolRanAtQueue}
           />
         ) : (
-          <ChangePreview groups={groups} names={names} />
+          <>
+            <ChangePreview groups={groups} names={names} />
+            {(!action.preview.length || action.notes.length > 0) && (
+              <ToolCallPreview
+                input={action.input}
+                pending={pending}
+                ranAtQueue={false}
+                tool={false}
+              />
+            )}
+          </>
         )}
         {pending && <DryRunNotes notes={action.notes} />}
         {!pending && action.statusReason && (

@@ -12,6 +12,7 @@
 import {
   type CodeCaller,
   type CodeResult,
+  createTestSimulation,
   type EvaluateResult,
   extensionPrincipalId,
   newId,
@@ -356,6 +357,7 @@ export class Executor {
       ...(input.readOnly || input.dryRun
         ? { readOnly: { dryRun: Boolean(input.dryRun), tool: input.tool } }
         : {}),
+      ...(input.dryRun ? { simulate: { ...createTestSimulation(), dryRun: true } } : {}),
     };
     const host = new RunHost(this.#env, run);
     const outcome = await invoke<ExtensionEntrypoint, RunResponse>(
@@ -399,6 +401,28 @@ export class Executor {
         ok: false,
         error: { code: "crashed", message: "The worker returned no result" },
       };
+    }
+    // A read tool run inside a dry run or test mode (ADR 0022 amendment, 2026-11-22) did not
+    // happen as far as the extension's record goes: no run row, and nothing it did (a refused
+    // write, a model it may not use there) counts towards quarantine.
+    if (input.dryRun) {
+      if (run.refusedInDryRun) {
+        return {
+          ok: false,
+          runId,
+          quarantined: false,
+          error: {
+            code: "runs_on_approval",
+            message: `${input.tool} could not run in a dry run: it tried to ${run.refusedInDryRun}`,
+            details: {
+              uses: `the extension tool ${input.id}.${input.tool} (${run.refusedInDryRun})`,
+            },
+          },
+        };
+      }
+      return response.ok
+        ? { ok: true, value: response.value, runId }
+        : { ok: false, error: response.error, runId, quarantined: false };
     }
     const counts = !response.ok && !CALLER_ERRORS.has(response.error.code);
     const failures = response.ok ? 0 : counts ? row.failure_count + 1 : row.failure_count;

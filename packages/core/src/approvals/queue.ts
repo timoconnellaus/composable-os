@@ -34,6 +34,8 @@ export interface DryRunResult {
   refused?: string[];
   /** Notes for the reviewer (runs on approval, a call that will need its own approval). */
   notes?: string[];
+  /** A call the handler makes would itself need approval (its operation): see NeedsOwnApprovalError. */
+  held?: string;
 }
 
 export interface QueueRequest {
@@ -423,6 +425,8 @@ export async function prepareQueuedAction(req: QueueRequest): Promise<QueuedActi
         records: storedSim.records,
         ...truncated,
         ...(dry.notes?.length ? { notes: dry.notes } : {}),
+        // Marks a tool queued by code that does not run it (migration 0600 tells the two apart).
+        ...(dry.notRun ? { notRun: true } : {}),
       }),
       provisional: JSON.stringify(provisional),
       depends_on: JSON.stringify(dependsOn),

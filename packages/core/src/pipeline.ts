@@ -15,7 +15,13 @@ import type { AiEnv } from "./ai/client.ts";
 import { embeddingQueueStatement, SELF_ENQUEUEING } from "./ai/embedding.ts";
 import type { VectorStore } from "./ai/vectors.ts";
 import { matchesPreviewValue } from "./approvals/caps.ts";
-import { dryRunHosts, isDryRunRefusal, readOnlyCrm, runsInDryRun } from "./approvals/dry-run.ts";
+import {
+  dryRunHosts,
+  isDryRunRefusal,
+  notRunPlaceholder,
+  readOnlyCrm,
+  runsInDryRun,
+} from "./approvals/dry-run.ts";
 import { type DryRunResult, prepareQueuedAction } from "./approvals/queue.ts";
 import {
   isSimulatedRead,
@@ -50,6 +56,7 @@ import {
   ConflictError,
   ForbiddenError,
   GateDeniedError,
+  NeedsOwnApprovalError,
   OperationError,
   type PendingApproval,
   PendingApprovalError,
@@ -127,6 +134,12 @@ import {
   type SeamWriter,
   updateVisible,
 } from "./visibility/writes.ts";
+
+/** What a call made while an approved action is applied checks against, and reports to. */
+export interface AppliedPreview {
+  preview: ApplyingApproval["preview"];
+  report(changes: readonly RecordChange[]): void;
+}
 
 /** Everything an adapter supplies for one call. */
 export interface InvocationContext {
@@ -209,6 +222,12 @@ export interface InvocationContext {
    * others can never be granted (grants.ts).
    */
   grantGuard?: GrantGuard | undefined;
+  /**
+   * Set by the pipeline on a call an approved action's handler makes (never by an adapter): the
+   * preview the reviewer approved, which this call's changes are checked against before it
+   * commits, and where it reports what it committed (ADR 0022 amendment, 2026-11-22).
+   */
+  applying?: AppliedPreview;
   /**
    * Test mode (ADR 0133): the call is simulated against this in-memory overlay. The gate is
    * evaluated and recorded, writes are dry-run, nothing is written and no events are sent.
@@ -567,7 +586,10 @@ function timelineActivity(
  * When applying an approved action: fails with ConflictError if a record the human approved a
  * change to has changed meanwhile (a previewed field's current value is not its preview `before`).
  */
-function assertUnchangedSincePreview(approval: ApplyingApproval, changes: RecordChange[]): void {
+function assertUnchangedSincePreview(
+  approval: Pick<ApplyingApproval, "preview">,
+  changes: readonly RecordChange[],
+): void {
   for (const change of changes) {
     if (change.action === "create" || !change.before) continue;
     const previewed = approval.preview.find(
@@ -790,6 +812,20 @@ async function invokeOnce<O extends AnyOperation>(
   const writes: (Compilable | CompiledQuery)[] = [];
   const changes: RecordChange[] = [];
   const activities: Compilable[] = [];
+  // Applying an approved action, or a call it makes (ADR 0022 amendment, 2026-11-22): every
+  // change in the order it was made, this call's own and those its calls committed, for binding
+  // the preview's provisional ids, which the dry run assigned in the same order.
+  const applyingLog: RecordChange[] = [];
+  const applyingFor =
+    (ctx.approval || ctx.applying) && !ctx.simulate
+      ? {
+          preview: ctx.approval?.preview ?? ctx.applying?.preview ?? [],
+          report: (made: readonly RecordChange[]) => {
+            applyingLog.push(...made);
+          },
+        }
+      : undefined;
+  let preChecked = false;
   const liveCtx: HandlerContext = {
     operation: op.name,
     actor: ctx.actor,
@@ -818,6 +854,7 @@ async function invokeOnce<O extends AnyOperation>(
     },
     recordChange: (change) => {
       changes.push(change);
+      applyingLog.push(change);
     },
     postActivity: (activity) => {
       const id = newId("activity");
@@ -859,13 +896,51 @@ async function invokeOnce<O extends AnyOperation>(
     pipeline: {
       crm: ctx.db,
       resolve: (name) => ctx.resolveOperation?.(name),
-      invoke: (name, nestedInput, nested) => invokeNested(name, nestedInput, nested),
+      invoke: async (name, nestedInput, nested) => {
+        // An approved action is applied whole or not at all: before its first call commits,
+        // the same dry run shows whether a call it makes would need its own approval.
+        if (ctx.approval && !preChecked) {
+          preChecked = true;
+          await assertAppliesWhole();
+        }
+        return invokeNested(name, nestedInput, nested);
+      },
     },
   };
   // A simulated call (test mode, or one a dry-run handler made) reads with the dry run's
   // read-only database and guarded runtimes too (approvals/dry-run.ts); its writes are dry-run
   // with `dryRunCtx`, which builds on this.
-  const handlerCtx: HandlerContext = ctx.simulate ? readOnlyContext(liveCtx, () => {}) : liveCtx;
+  const simRefused: string[] = [];
+  const handlerCtx: HandlerContext = ctx.simulate
+    ? readOnlyContext(liveCtx, (uses) => simRefused.push(uses))
+    : liveCtx;
+
+  /**
+   * A simulated read that reached something a simulation does not touch (a gatekeeper, a model):
+   * it answers the not-run placeholder, and the test report (or the dry run's notes) say so,
+   * rather than failing the automation step or the dry run.
+   */
+  function notRunRead(error: unknown): unknown {
+    const sim = ctx.simulate as TestSimulation;
+    const uses = error instanceof RunsOnApprovalError ? error.uses : "the database (a write)";
+    const note = `${op.name} was not run in ${sim.dryRun ? "the dry run" : "test mode"}: it uses ${uses}, and it would run for real.`;
+    if (sim.dryRun) sim.notes?.push(runsOnApprovalNote([uses]));
+    else sim.notRun?.push({ operation: op.name, note });
+    return notRunPlaceholder(op.name, note);
+  }
+
+  /** A simulated read that caught a refusal itself: answered, and the refusal still noted. */
+  function noteCaughtRefusals(): void {
+    const sim = ctx.simulate;
+    if (!sim || !simRefused.length) return;
+    if (sim.dryRun) sim.notes?.push(runsOnApprovalNote(simRefused));
+    else {
+      sim.notRun?.push({
+        operation: op.name,
+        note: `Part of ${op.name} was not run in test mode: it uses ${[...new Set(simRefused)].join(", ")}.`,
+      });
+    }
+  }
 
   /**
    * Runs another operation through the full pipeline for a handler (`pipeline.invoke`). In a dry
@@ -910,6 +985,9 @@ async function invokeOnce<O extends AnyOperation>(
       ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
       // An approved update or rollback is applied through here (approval.approve).
       ...(ctx.updater ? { updater: ctx.updater } : {}),
+      // A call an approved action makes: checked against the reviewed preview, and its changes
+      // reported back for binding provisional ids.
+      ...(applyingFor && !simulate ? { applying: applyingFor } : {}),
       ...(simulate ? { simulate } : {}),
     });
   }
@@ -917,6 +995,25 @@ async function invokeOnce<O extends AnyOperation>(
   /** The handler's context for a dry run (approvals/dry-run.ts): nothing it does is real. */
   const dryRunCtx = (overlay: Overlay, sink: DrySink): HandlerContext =>
     dryRunContext(handlerCtx, overlay, sink, invokeNested, ctx.simulate);
+
+  /**
+   * Applying an approved action whose handler makes calls (ADR 0022 amendment, 2026-11-22): the
+   * dry run is run again, now, before any of its calls commits. If one would need its own
+   * approval, nothing of the action is applied: it waits (approval.ts), rather than applying the
+   * calls before that one and stopping there.
+   */
+  async function assertAppliesWhole(): Promise<void> {
+    if (!runsInDryRun(op)) return;
+    const overlay = await loadSessionOverlay(ctx.db.query, ctx.origin.sessionId, now);
+    let held: string | undefined;
+    try {
+      held = (await dryRunHandler(op, input, (sink) => dryRunCtx(overlay, sink))).held;
+    } catch {
+      // The check could not tell (a dry run that fails): the real run decides, as before.
+      return;
+    }
+    if (held) throw new NeedsOwnApprovalError(op.name, held);
+  }
 
   const fail = async (error: unknown, gateDecision: GateDecision = "auto"): Promise<never> => {
     const typed = toOperationError(error);
@@ -1054,8 +1151,10 @@ async function invokeOnce<O extends AnyOperation>(
           return checked.data;
         });
       } catch (error) {
+        if (ctx.simulate && isDryRunRefusal(error)) return notRunRead(error) as OperationOutput<O>;
         return fail(error);
       }
+      noteCaughtRefusals();
       if (audited && !ctx.simulate) await countRead(op, ctx, now, true);
       return output as OperationOutput<O>;
     }
@@ -1065,21 +1164,28 @@ async function invokeOnce<O extends AnyOperation>(
   try {
     result = await op.handler(input, handlerCtx);
   } catch (error) {
+    if (ctx.simulate && op.risk === "read" && isDryRunRefusal(error)) {
+      return notRunRead(error) as OperationOutput<O>;
+    }
     return fail(error, decision);
   }
+  if (op.risk === "read") noteCaughtRefusals();
 
   if (op.risk === "read" && (writes.length || changes.length || activities.length)) {
     return fail(new OperationError("internal", `${op.name} is a read but queued writes`));
   }
 
   let bindings: Record<string, string> = {};
-  if (ctx.approval) {
+  if (ctx.approval || ctx.applying) {
+    // Its own changes against what the reviewer saw (a call it made checks its own, before it
+    // commits). An approved action binds its provisional ids to every create in the order the
+    // dry run made them: its own and those its calls made.
     try {
-      assertUnchangedSincePreview(ctx.approval, changes);
+      assertUnchangedSincePreview(ctx.approval ?? (ctx.applying as AppliedPreview), changes);
     } catch (error) {
       return fail(error, decision);
     }
-    bindings = bindProvisional(ctx.approval, changes);
+    if (ctx.approval) bindings = bindProvisional(ctx.approval, applyingLog);
   }
 
   const deferred = isAfterCommit(result) ? result : null;
@@ -1186,6 +1292,8 @@ async function invokeOnce<O extends AnyOperation>(
   }
 
   if (guardRouted) guard?.applied(changes);
+  // Committed: a call an approved action made reports what it made, for that action's bindings.
+  ctx.applying?.report(applyingLog);
 
   if (statements.length && ctx.onCommitted) {
     try {
@@ -1277,10 +1385,12 @@ async function dryRunHandler(
       return {
         output: null,
         changes: sink.changes,
+        held: sink.held.operation,
         notes: [
           ...sink.notes,
-          `When approved, it calls ${sink.held.operation}, which needs its own approval: ` +
-            "that is queued then, and this one waits for it.",
+          `It calls ${sink.held.operation}, which needs its own approval. While it does, ` +
+            "approving this is refused and nothing of it is applied: ask for " +
+            `${sink.held.operation} on its own, or reject this.`,
         ],
       };
     }
@@ -1351,6 +1461,13 @@ function dryRunContext(
     recordChange: (change) => {
       sink.changes.push(change);
     },
+    ...(base.recordHostChange
+      ? {
+          recordHostChange: (change: RecordChange) => {
+            sink.changes.push(change);
+          },
+        }
+      : {}),
     postActivity: () => newId("activity"),
     simulation: overlay,
     pipeline: {
@@ -1493,7 +1610,7 @@ async function simulateWrite(
       ? `${op.name} was not run in test mode: it is an extension tool, and it would run for real.`
       : `${op.name} was not run in test mode: it uses ${ran.refused?.join(", ")}, and it would run for real.`;
     sim.notRun?.push({ operation: op.name, note });
-    return { $notRunInTestMode: true, operation: op.name, note };
+    return notRunPlaceholder(op.name, note);
   }
   return queued.pending.simulated;
 }

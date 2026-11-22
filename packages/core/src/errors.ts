@@ -156,6 +156,21 @@ export class ConflictError extends OperationError {
   }
 }
 
+/**
+ * Applying an approved action is refused, before anything of it is applied, because a call it
+ * makes would need its own approval (ADR 0022 amendment, 2026-11-22). The action stays pending.
+ */
+export class NeedsOwnApprovalError extends ConflictError {
+  override name = "NeedsOwnApprovalError";
+  constructor(operation: string, calls: string) {
+    super(
+      `${operation} calls ${calls}, which needs its own approval, so it cannot be applied as one ` +
+        `change: nothing of it was applied. Ask for ${calls} on its own, or reject this.`,
+      { needsOwnApproval: calls, operation },
+    );
+  }
+}
+
 export class ConfigError extends OperationError {
   override name = "ConfigError";
   constructor(message: string) {

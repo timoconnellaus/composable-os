@@ -4,18 +4,18 @@
 // gives the handler a context in which effects cannot be made, rather than trusting each handler
 // to check `ctx.simulation`:
 //
-// - `write`, `recordChange` and `postActivity` are collected or discarded (pipeline.ts);
+// - `write`, `recordChange`, `recordHostChange` and `postActivity` are collected or discarded
+//   (pipeline.ts);
 // - the database handle is read-only (`CrmDb.readOnly()`): a statement that is not a read is
 //   refused when it runs, and `pipeline.crm.batch` refuses;
-// - every other runtime on the context (`dryRunHosts` below: the extension host, the integration
-//   host, stores, models, the judge, the updater, mail, queues, the automation host, threads,
-//   agents, voice, AI settings, the search index, the dashboard cache) answers only its read
+// - every other runtime on the context (`dryRunHosts` below; `CONTEXT_KEYS` classifies every key
+//   of the context type, so a new runtime cannot be added unguarded) answers only its read
 //   methods. Anything else is refused with RunsOnApprovalError before it reaches the runtime, and
 //   the queued call is marked "runs on approval" instead of carrying a preview;
 // - an operation the handler runs through `pipeline.invoke` is itself simulated (pipeline.ts);
 // - an extension tool that may write is not run at all (`runsInDryRun`): its sandboxed code
 //   reaches the host through its own invocations, storage and gatekeepers. A read tool runs with
-//   a read-only sandbox (apps/runner executor/host.ts).
+//   a read-only sandbox whose calls are simulated too (apps/runner executor/host.ts).
 //
 // The guarantee is these wrappers. The `ctx.simulation` checks some handlers still make (media,
 // erasure, extension installs, the tool handler) are what make their preview useful, not what
@@ -51,7 +51,73 @@ export function runsInDryRun(op: AnyOperation): boolean {
 
 type Host = Record<string, unknown>;
 
-/** Per runtime: what it is called in a note, and the methods a dry run may call (reads). */
+/**
+ * Every key of the handler context, classified. The type checker holds this to `HandlerContext`:
+ * adding a key without classifying it here fails to compile, and every key classified `runtime`
+ * must have an entry in `RUNTIMES`.
+ * - `database`: replaced in a dry run by a read-only handle or a collector (pipeline.ts);
+ * - `runtime`: guarded in a dry run (`dryRunHosts`);
+ * - `data`: values and read-only lookups that cannot act.
+ */
+const CONTEXT_KEYS = {
+  operation: "data",
+  actor: "data",
+  user: "data",
+  principal: "data",
+  onBehalfOf: "data",
+  origin: "data",
+  now: "data",
+  auditId: "data",
+  db: "database",
+  floor: "data",
+  grantedPermissions: "data",
+  permissionGrants: "data",
+  reason: "data",
+  approval: "data",
+  records: "database",
+  // Reads the caller's own sign-in address: a lookup, not an effect.
+  signIn: "data",
+  write: "database",
+  recordChange: "database",
+  recordHostChange: "database",
+  postActivity: "database",
+  afterCommit: "data",
+  simulation: "data",
+  pipeline: "database",
+  extensionHost: "runtime",
+  extension: "data",
+  integrations: "runtime",
+  blobs: "runtime",
+  media: "runtime",
+  // The bytes a person uploaded with the request: data the handler is given, not a store.
+  upload: "data",
+  models: "runtime",
+  judge: "runtime",
+  personsWords: "data",
+  assistantTurn: "data",
+  widgetCache: "runtime",
+  updater: "runtime",
+  vectors: "runtime",
+  aiAdmin: "runtime",
+  // The raw AI binding (refused whole) beside settings and secrets (strings, which cannot act).
+  aiEnv: "runtime",
+  events: "runtime",
+  automationHost: "runtime",
+  assistantThreads: "runtime",
+  voice: "runtime",
+  agentJobs: "runtime",
+  hostMail: "runtime",
+} as const satisfies Record<keyof HandlerContext, "database" | "runtime" | "data">;
+
+type RuntimeKey = {
+  [K in keyof typeof CONTEXT_KEYS]: (typeof CONTEXT_KEYS)[K] extends "runtime" ? K : never;
+}[keyof typeof CONTEXT_KEYS];
+
+/**
+ * Per runtime: what it is called in a note, and the methods a dry run may call (reads). Nothing
+ * that runs a model answers (spend is not a read): a read that needs a model is not run in a dry
+ * run or in test mode. A gatekeeper call is never run either (`integrations.call`).
+ */
 const RUNTIMES = {
   extensionHost: {
     label: "the extension host",
@@ -63,11 +129,12 @@ const RUNTIMES = {
   },
   blobs: { label: "stored email bodies", reads: ["get", "list"] },
   media: { label: "media storage", reads: ["get"] },
-  models: { label: "an AI model", reads: ["roles", "embed"] },
+  models: { label: "an AI model", reads: ["roles"] },
   judge: { label: "the judge (an AI model)", reads: ["isOn"] },
   updater: { label: "the updater", reads: ["listReleases", "manifest", "secretsSet"] },
   vectors: { label: "the search index", reads: ["query", "getVector"] },
   aiAdmin: { label: "the AI settings", reads: ["status", "usage"] },
+  aiEnv: { label: "the AI binding", reads: [] },
   events: { label: "the automation events queue", reads: [] },
   automationHost: { label: "automation runs", reads: [] },
   assistantThreads: { label: "assistant conversations", reads: ["search"] },
@@ -75,43 +142,57 @@ const RUNTIMES = {
   agentJobs: { label: "agents", reads: [] },
   hostMail: { label: "the host's mail", reads: ["signInMailProblem"] },
   widgetCache: { label: "the dashboard cache", reads: ["get"] },
-} as const satisfies Record<string, { label: string; reads: readonly string[] }>;
+} as const satisfies Record<RuntimeKey, { label: string; reads: readonly string[] }>;
 
 export type DryRunRuntime = keyof typeof RUNTIMES;
 
-/** Every runtime a handler context can carry, so a test can check none is left unguarded. */
+/** Every runtime a handler context can carry (CONTEXT_KEYS checks it against the type). */
 export const DRY_RUN_RUNTIMES = Object.keys(RUNTIMES) as DryRunRuntime[];
 
 /** Writes to the dashboard cache are dropped, not refused: a read that fills it still answers. */
 const SILENT: Partial<Record<DryRunRuntime, readonly string[]>> = { widgetCache: ["put"] };
 
+/** Refuses `uses`: tells `refused`, and throws. */
+function refuse(uses: string, refused: (uses: string) => void): never {
+  refused(uses);
+  throw new RunsOnApprovalError(uses);
+}
+
 /**
- * A runtime for a dry run: its read methods answer, its other properties (flags, names) read
- * through, and any other method is refused before the runtime sees it. `refused` hears what was
- * refused, also when the handler catches the error.
+ * A runtime for a dry run: its read methods answer, its plain values (flags, names) read through,
+ * and any other method is refused before the runtime sees it. `refused` hears what was refused,
+ * also when the handler catches the error. It never answers `then`, so awaiting it (or an RPC
+ * stub behind it, which answers every name) calls nothing.
  */
 function guard(runtime: DryRunRuntime, host: Host, refused: (uses: string) => void): Host {
   const { label, reads } = RUNTIMES[runtime];
   const silent = SILENT[runtime] ?? [];
   return new Proxy(host, {
     get(target, property) {
+      if (property === "then") return undefined;
       const value = Reflect.get(target, property, target);
-      if (typeof value !== "function" || typeof property !== "string") return value;
+      if (typeof property !== "string" || typeof value !== "function") return value;
       if ((reads as readonly string[]).includes(property)) return value.bind(target);
-      // A read tool runs in a read-only sandbox (its writes are refused there): it may run.
+      // A read tool runs in a read-only sandbox, as a dry run (its calls are simulated, and the
+      // run is not recorded): it may run.
       if (runtime === "extensionHost" && property === "runTool") {
-        return (input: { readOnly?: boolean }) => {
-          if (input?.readOnly) return value.call(target, { ...input, dryRun: true });
-          refused(`${label} (runTool)`);
-          throw new RunsOnApprovalError(`${label} (runTool)`);
-        };
+        return (input: { readOnly?: boolean }) =>
+          input?.readOnly
+            ? value.call(target, { ...input, dryRun: true })
+            : refuse(`${label} (runTool)`, refused);
       }
       if (silent.includes(property)) return async () => undefined;
-      return () => {
-        const uses = `${label} (${property})`;
-        refused(uses);
-        throw new RunsOnApprovalError(uses);
-      };
+      return () => refuse(`${label} (${property})`, refused);
+    },
+  });
+}
+
+/** A value that refuses everything: what a binding inside `aiEnv` becomes in a dry run. */
+function refusing(label: string, refused: (uses: string) => void): Host {
+  return new Proxy({} as Host, {
+    get(_target, property) {
+      if (property === "then" || typeof property !== "string") return undefined;
+      return () => refuse(`${label} (${property})`, refused);
     },
   });
 }
@@ -124,7 +205,21 @@ export function dryRunHosts(
   const out: Record<string, unknown> = {};
   for (const runtime of DRY_RUN_RUNTIMES) {
     const host = (ctx as unknown as Record<string, unknown>)[runtime];
-    out[runtime] = host ? guard(runtime, host as Host, refused) : undefined;
+    if (!host) {
+      out[runtime] = undefined;
+    } else if (runtime === "aiEnv") {
+      // Settings and secrets are strings (they read through); a binding is refused whole.
+      out[runtime] = Object.fromEntries(
+        Object.entries(host as Host).map(([key, value]) => [
+          key,
+          value !== null && (typeof value === "object" || typeof value === "function")
+            ? refusing(`${RUNTIMES.aiEnv.label} ${key}`, refused)
+            : value,
+        ]),
+      );
+    } else {
+      out[runtime] = guard(runtime, host as Host, refused);
+    }
   }
   return out as Partial<HandlerContext>;
 }
@@ -132,4 +227,9 @@ export function dryRunHosts(
 /** Whether `error` is a dry run's refusal: nothing was done, and the call runs on approval. */
 export function isDryRunRefusal(error: unknown): boolean {
   return error instanceof RunsOnApprovalError || error instanceof ReadOnlyDatabaseError;
+}
+
+/** What a simulated call answers when it could not be run (test mode, or nested in a dry run). */
+export function notRunPlaceholder(operation: string, note: string) {
+  return { $notRunInTestMode: true as const, operation, note };
 }
