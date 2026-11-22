@@ -687,23 +687,30 @@ export const returnUse = defineTool({
   description:
     "A person on the staff cancels a booking and gives its use back whatever the time: after " +
     "the late-cancel point, or after the class (a member who was ill, a class the coach missed). " +
-    "Destructive: the assistant and MCP clients only ask, and a person approves. The reason is " +
-    "kept on the booking and in the audit log. Only a booked booking.",
+    "A person's own act: the assistant, MCP clients, automations and other code cannot call it. " +
+    "The reason is kept on the booking and in the audit log. Only a booked booking.",
   input: z.object({
     bookingId: z.string().min(1).max(64),
     reason: z.string().trim().min(3).max(2000),
   }),
-  output: z.union([cancelled, refused]),
+  output: z.union([
+    z.object({ result: z.literal("excused"), bookingId: z.string(), late: z.literal(false) }),
+    refused,
+  ]),
   risk: "destructive",
+  // Only a person calls it, with the pack's permission (ADR 0513); the move it makes is open to
+  // no other staff write.
+  humanOnly: true,
+  permission: "bookings:returns",
   async handler(input, ctx) {
     try {
       await ctx.ops.call("record.update", {
         object: BOOKING,
         id: input.bookingId,
         from: "booked",
-        values: { state: "cancelled", note: `Use given back: ${input.reason}` },
+        values: { state: "excused", note: `Use given back: ${input.reason}` },
       });
-      return { result: "cancelled" as const, bookingId: input.bookingId, late: false };
+      return { result: "excused" as const, bookingId: input.bookingId, late: false as const };
     } catch (error) {
       return refusalOf(error, "cancel");
     }

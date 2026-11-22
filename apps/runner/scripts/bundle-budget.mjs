@@ -23,12 +23,13 @@ import { fileURLToPath } from "node:url";
 // packs (the shipped sources grew from 69 KiB to 120 KiB); not raised. Raised to 7,168 KiB
 // (2026-11-22): stage 42's Courses pack (its shipped source, carried as text) with the video
 // host and the access scope, on top of tax at checkout and publish requests, took it to 6,811 KiB.
-// No React or compiler came with them. Measured 2026-11-22 with stage 31a's Bookings pack (the
-// eighth pack): 7,192 KiB, over. What dominated it (esbuild's metafile): packages/core 2,461 KiB,
-// @cloudflare/computer 835, zod 832, kysely 578, sucrase 493, the AI SDK about 700, and the packs'
-// sources as a JS literal (generated/shipped.ts) 359 KiB, growing by each pack's whole source.
-// Packs were not duplicated (no blocks, clients or SDK copies in it). The packs' sources moved to a
-// Text module (shipped.txt) as the SDK bundle's are: 6,834 KiB with all eight; not raised.
+// No React or compiler came with them. Raised to 7,680 KiB (2026-11-22) by stage 32b's Memberships
+// pack, at 7,184 KiB, and lowered back to 7,168 KiB the same day: stage 31a measured the cause.
+// What dominated the main module (esbuild's metafile, with eight packs at 7,192 KiB): packages/core
+// 2,461 KiB, @cloudflare/computer 835, zod 832, kysely 578, sucrase 493, the AI SDK about 700, and
+// the packs' sources as a JS literal (generated/shipped.ts) 359 KiB, growing by each pack's whole
+// source. Packs were not duplicated (no blocks, clients or SDK copies in it). The packs' sources
+// moved to a Text module (shipped.txt), as the SDK bundle's are: 6,874 KiB with all nine packs.
 const MAIN_BUDGET_KIB = 7_168;
 
 const here = dirname(fileURLToPath(import.meta.url));

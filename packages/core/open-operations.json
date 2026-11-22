@@ -15,6 +15,12 @@
       "hostInternal": true
     },
     {
+      "name": "allowance.list",
+      "audiences": ["staff", "customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "capacity.get",
       "audiences": ["staff", "customer", "public"],
       "risk": "read"
@@ -276,6 +282,30 @@
       "audiences": ["customer"],
       "risk": "read",
       "pack": "courses"
+    },
+    {
+      "name": "x.memberships.buy",
+      "audiences": ["customer", "public"],
+      "risk": "write",
+      "pack": "memberships"
+    },
+    {
+      "name": "x.memberships.mine",
+      "audiences": ["customer"],
+      "risk": "read",
+      "pack": "memberships"
+    },
+    {
+      "name": "x.memberships.passTypes",
+      "audiences": ["customer", "public"],
+      "risk": "read",
+      "pack": "memberships"
+    },
+    {
+      "name": "x.memberships.plans",
+      "audiences": ["customer", "public"],
+      "risk": "read",
+      "pack": "memberships"
     },
     {
       "name": "x.programs.classToday",

@@ -37,6 +37,20 @@ export interface StateMove {
    * too (a class that is not scheduled).
    */
   staffOnly?: string | readonly string[];
+  /**
+   * Tools of this extension that may also make the move for whoever called them (stage 32b,
+   * ADR 0513): a move by `["host"]` with `tools: ["voidPass"]` is made by the host and by that
+   * tool, and by no other staff write (not `record.update`, not the assistant, not an automation).
+   * Each tool must be `humanOnly` and declare a `permission`, so the move is a person's act with
+   * that permission.
+   */
+  tools?: readonly string[];
+  /**
+   * Its window binds staff too (ADR 0507), every staff caller, a person included: a cancel that
+   * gives a use back is in time for everyone. The host is not bound. A person who must make the
+   * move outside it does so through another move only a person's tool makes (`tools`).
+   */
+  bindsStaff?: boolean;
 }
 
 /**
@@ -171,6 +185,8 @@ export const statesManifestSchema = z.object({
         final: z.boolean().optional(),
         window: moveWindow.optional(),
         staffOnly: staffOnlyPaths.optional(),
+        tools: z.array(z.string().min(1).max(40)).min(1).max(10).optional(),
+        bindsStaff: z.boolean().optional(),
       }),
     )
     .max(200),
@@ -346,6 +362,27 @@ export function checkObjectStates(
     }
     checkWindow(move.window, `${mp}.window`);
     for (const p of staffOnlyPathsOf(move.staffOnly)) checkPath(p, `${mp}.staffOnly`, "boolean");
+    // A move only named tools may make (ADR 0513): each a person's, with a permission.
+    for (const tool of move.tools ?? []) {
+      const spec = m.tools?.[tool];
+      if (!spec) {
+        contract(`${mp}.tools`, `"${tool}" is not a tool of this extension`);
+      } else if (!spec.humanOnly || !spec.permission) {
+        contract(
+          `${mp}.tools`,
+          `"${tool}" must be humanOnly and declare a permission: the move is a person's act with it`,
+        );
+      }
+    }
+    if (move.bindsStaff && (!move.window || !move.by.includes("staff"))) {
+      contract(`${mp}.bindsStaff`, "bindsStaff needs a window and staff in by");
+    }
+    if (move.tools && move.by.includes("staff")) {
+      contract(
+        `${mp}.tools`,
+        "A move named tools may make is not also open to all staff: drop staff from by",
+      );
+    }
   });
   if (states.create) {
     for (const state of Object.keys(states.create.in ?? {})) {

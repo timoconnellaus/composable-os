@@ -189,6 +189,22 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "trial_held" },
     );
   }
+  // A second hold of something sold once per Person (migration 0581, ADR 0512): another order for
+  // it was started a moment before. Nothing of this one was recorded.
+  if (message.includes("UNIQUE constraint failed: core_sellable_once")) {
+    return new ConflictError(
+      "This is one per person, and another order for it was started at the same moment",
+      { rule: "once_per_person", reason: "held" },
+    );
+  }
+  // Two events for one subscription granting at once (migration 0580, ADR 0510): the other one
+  // granted it. Nothing of this one was applied; the provider delivers it again.
+  if (message.includes("UNIQUE constraint failed: core_subscription_grant")) {
+    return new ConflictError(
+      "This subscription's grant was made by another event at the same moment. Try again.",
+      { reason: "subscription_grant" },
+    );
+  }
   // A continuation offer's page held by another take a moment before, or the offer taken or
   // withdrawn meanwhile (migration 0532, ADR 0491). Nothing of this take was recorded.
   if (message.includes("core_subscription_offer_held")) {

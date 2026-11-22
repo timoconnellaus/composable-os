@@ -1080,7 +1080,8 @@ length, from and until dates, a zone) that makes dated records of another object
 horizon (a timetable line makes its classes). Each record made is its **occurrence**, keyed on the
 series and its local date so it is made once; one edited by staff is the series' no more. 06:00 is
 06:00 across a clock change (stage 31, ADR 0500).
-_Avoid_: recurrence rule, RRULE, schedule (an automation's trigger)
+_Avoid_: recurrence rule, RRULE, schedule (an automation's trigger); `sellable.recurring` (a
+plan paid every period, below), which shares the word and nothing else
 
 **Closure**
 A date range in which a series makes nothing, and whose records already made are cancelled (a
@@ -1112,7 +1113,7 @@ _Avoid_: reservation, appointment (31b's one-to-one), ticket
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
 
-**A person's own** (a `humanOnly` field or setting)
+**Approved by a person** (a `personApproves` field or setting)
 A field or extension setting only a person changes: the assistant's, an MCP client's, an
 automation's or extension code's write of it waits for a person's approval (ADR 0507). A gym's
 booking rules.
@@ -1151,8 +1152,11 @@ _Avoid_: product (a product is what the platform is composed into, ADR 0400), SK
 **Subscription plan**
 A record of a sellable object that recurs (`sellable.recurring`: every week, month or year, with
 an optional trial): subscribed to, never put on an order (stage 32a, ADR 0485). Courses' plan
-(`courses.plan`, a **course plan**) is the first: it gives every course (ADR 0490).
-_Avoid_: plan alone (a hosted plan), product
+(`courses.plan`, a **course plan**) is the first: it gives every course (ADR 0490). A
+**membership plan** (`memberships.plan`) is the second: its subscription grants a membership
+(`sellable.recurring.grants`, ADR 0510).
+_Avoid_: plan alone (a hosted plan), product; "recurring" for it alone (the `recurring` behaviour
+is a timetable's weekly rule, ADR 0500)
 
 **Free trial** (of a subscription plan)
 The free first days of a subscription, the card taken at the start and charged when it ends
@@ -1181,15 +1185,42 @@ payment provider's subscription, which keeps the card and charges each period. I
 the provider's (`incomplete`, `trialing`, `active`, `past_due`, `unpaid`, `paused`, and the final
 `expired` and `ended`), every move the host's, from a verified event. Ending at the period's end
 is a flag on it, not a state. It has a **payer** (who pays, and cancels or resumes it) and a
-**holder** (who what it grants is for), the same Person until stage 32b (ADR 0487).
-_Avoid_: membership (32b's record a subscription grants), recurring order
+**holder** (who what it grants is for), the same Person unless staff name another holder (a
+parent paying for a child, stage 32b; ADR 0487).
+_Avoid_: membership (the record a subscription grants), recurring order
+
+**Membership**
+What a subscription to a membership plan grants its holder (stage 32b, ADR 0510): a record the
+host makes when the provider first reports the subscription running, and moves with it, in each
+verified event's batch: on trial, active, past due (for at most 30 days of failing), unpaid,
+paused, ended. Its `until` is when it stops giving (the end of its last period when it is set to
+end). What it allows is its plan's as it was at the start. An allowance holder: unlimited, or N a
+week or a month, of the class types and times its plan allows.
+_Avoid_: subscription (what is paid for; the membership is what it gives), member (a Person)
+
+**Pass** (and **pass type**)
+What a paid order line of a pass type grants (stage 32b, ADR 0511): a number of uses in all, of
+the class types and times its type allows, valid from when it is bought for the type's days. A
+**drop-in** is a pass of one. A full refund of its order voids it; uses spent stay spent. Staff
+give one by hand, a person with `memberships:passes` only, with a reason.
+_Avoid_: ticket (a ticket is a place at an event), credit
+
+**Intro offer**
+A pass type a Person buys once, across every pass type marked so (`sellable.onePerPerson`, ADR
+0512): only when they proved who they are (signed in, or staff for them), held from the order's
+start so two orders at once give one, used when it is paid, given back only when the unpaid order
+expires or is cancelled.
+_Avoid_: trial (a subscription plan's free first days), coupon, discount
 
 **Grant**
 A record the host creates when an order is first paid, one per unit of a line whose object
 declares what it grants (a ticket per place), in the batch that marks the order paid or part
 paid, with its fields set from the line, the item and the order and, when declared, a code. Kept
 in `core_order_grant`. Refunding the order in full, or cancelling it after a deposit, moves what
-it granted to its void state (stage 27, ADR 0435).
+it granted to its void state (stage 27, ADR 0435). A grant may be valid from when it is granted
+for days its item names (`grants.valid`, a pass, ADR 0511). A subscription's grant (a membership)
+is made and moved by its subscription's verified events instead, kept in
+`core_subscription_grant` (ADR 0510).
 _Avoid_: entitlement (a hosted plan's limits, ADR 0211), allowance (a pass's uses), fulfilment
 
 **Code** (of a grant)

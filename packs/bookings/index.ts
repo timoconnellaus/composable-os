@@ -54,6 +54,7 @@ const BOOKING_STATES = [
   { value: "left", label: "Left the waitlist" },
   { value: "cancelled", label: "Cancelled" },
   { value: "late_cancelled", label: "Cancelled late" },
+  { value: "excused", label: "Cancelled, class given back" },
   { value: "attended", label: "Attended" },
   { value: "no_show", label: "No-show" },
   { value: "cancelled_by_us", label: "Cancelled by the gym" },
@@ -81,7 +82,7 @@ const lateFrom = {
 
 // A booking rule is a person's to change (spec 31: "Change the booking rules: a person only"):
 // set by the assistant, an MCP client, an automation or extension code, it waits for a person's
-// approval (`humanOnly`, ADR 0507).
+// approval (`personApproves`, ADR 0507).
 const minutes = (label: string, description: string) => ({
   type: "number" as const,
   label,
@@ -89,7 +90,7 @@ const minutes = (label: string, description: string) => ({
   min: 0,
   max: 10_080,
   step: 1,
-  humanOnly: true,
+  personApproves: true,
 });
 
 export default defineExtension({
@@ -131,7 +132,7 @@ export default defineExtension({
         min: 0,
         max: 365,
         step: 1,
-        humanOnly: true,
+        personApproves: true,
       },
       closesMinutes: minutes(
         "Booking closes (minutes before)",
@@ -157,7 +158,7 @@ export default defineExtension({
         type: "boolean",
         label: "Booked by staff only",
         description: "Members cannot book its classes themselves; staff book them in.",
-        humanOnly: true,
+        personApproves: true,
       },
     },
   },
@@ -501,6 +502,9 @@ export default defineExtension({
             by: ["staff", "customer"],
             final: true,
             window: { until: lateFrom },
+            // In time for everyone, staff included (ADR 0507): giving a use back later is a
+            // person's own act, the move below.
+            bindsStaff: true,
           },
           {
             from: "booked",
@@ -509,6 +513,9 @@ export default defineExtension({
             final: true,
             window: { from: lateFrom, until: "class.startsAt" },
           },
+          // A person on the staff gives the use back whatever the time, with a reason, through
+          // returnUse alone (ADR 0513's `tools`: humanOnly, with its permission).
+          { from: "booked", to: "excused", by: ["host"], tools: ["returnUse"], final: true },
           { from: "booked", to: "attended", by: ["staff"] },
           { from: "attended", to: "booked", by: ["staff"] },
           { from: "booked", to: "no_show", by: ["staff", "host"] },
@@ -534,7 +541,7 @@ export default defineExtension({
           person: "person",
           holder: "holder",
           spendIn: ["booked"],
-          returnIn: ["cancelled", "cancelled_by_us", "moved"],
+          returnIn: ["cancelled", "excused", "cancelled_by_us", "moved"],
           at: "class.startsAt",
           copy: { classType: "class.classType" },
           local: { weekday: "weekday", minute: "minute", zone: "class.timezone" },
@@ -646,7 +653,7 @@ export default defineExtension({
       default: 7,
       min: 0,
       max: 56,
-      humanOnly: true,
+      personApproves: true,
     },
     closesMinutes: {
       type: "number",
@@ -655,7 +662,7 @@ export default defineExtension({
       default: 0,
       min: 0,
       max: 10_080,
-      humanOnly: true,
+      personApproves: true,
     },
     lateMinutes: {
       type: "number",
@@ -664,7 +671,7 @@ export default defineExtension({
       default: 60,
       min: 0,
       max: 10_080,
-      humanOnly: true,
+      personApproves: true,
     },
     promotionMinutes: {
       type: "number",
@@ -673,7 +680,7 @@ export default defineExtension({
       default: 120,
       min: 0,
       max: 10_080,
-      humanOnly: true,
+      personApproves: true,
     },
     reminderMinutes: {
       type: "number",
@@ -682,7 +689,7 @@ export default defineExtension({
       default: 180,
       min: 0,
       max: 10_080,
-      humanOnly: true,
+      personApproves: true,
     },
   },
   tools: {

@@ -25,6 +25,7 @@
     "@composable-os/db": "workspace:*",
     "@composable-os/pack-bookings": "workspace:*",
     "@composable-os/pack-courses": "workspace:*",
+    "@composable-os/pack-memberships": "workspace:*",
     "@composable-os/pack-programs": "workspace:*",
     "@composable-os/pack-ticketing": "workspace:*",
     "@composable-os/product": "workspace:*",

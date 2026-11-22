@@ -29,6 +29,7 @@ import {
   visibleSource,
 } from "../visibility/index.ts";
 import { claimOrderPlaces } from "./holds.ts";
+import { holdOncePerPerson } from "./once.ts";
 import {
   GRANTS_PER_ORDER_CEILING,
   lineLimit,
@@ -113,6 +114,8 @@ export interface PricedLine {
   deposit: { amount: number; balanceDueAt: string } | null;
   /** A plan's period and trial (ADR 0485): only when priced as a plan. */
   recurring?: { interval: "week" | "month" | "year"; trialDays: number | null };
+  /** Sold once per Person (ADR 0512): the record's `onePerPerson` field is on. */
+  once?: boolean;
 }
 
 /** Why a line cannot be bought. A caller outside the org sees the rule, not the record. */
@@ -294,7 +297,9 @@ export async function priceLines(
     }
     const title = object.titleField ? read(object.titleField) : null;
     const trial = sellable.recurring?.trialDays ? read(sellable.recurring.trialDays) : null;
+    const onceFlag = sellable.onePerPerson ? read(sellable.onePerPerson) : null;
     priced.push({
+      ...(onceFlag === 1 || onceFlag === true ? { once: true } : {}),
       ...(sellable.recurring
         ? {
             recurring: {
@@ -458,6 +463,20 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
       }),
     ),
     ...outcome.history,
+  );
+  // One per Person (ADR 0512): refused, or held in this batch, after the order it names.
+  await holdOncePerPerson(
+    ctx,
+    id,
+    lines
+      .filter((line) => line.once)
+      .map((line) => ({
+        object: line.object,
+        recordId: line.recordId,
+        quantity: line.quantity,
+        position: line.position,
+      })),
+    { personId: input.personId, placedAs: input.placedAs },
   );
   recordHostChange(ctx, { object: "order", id, action: "create", after: orderSnapshot(row) });
   postOrderMove(ctx, row, null);

@@ -751,7 +751,7 @@ the spec one way, or decided what it left open:
   staff; a member's class and holder are create-only and a member creates only `booked`; a trashed
   class type closes its classes; every class has a zone and places; `cancelFor` is decided by the
   clock and `returnUse` (destructive) gives a use back late; walk-ins are made with their booking in
-  one batch after the duplicate check; the booking rules are a person's (`humanOnly`); permissions
+  one batch after the duplicate check; the booking rules are a person's (`personApproves`); permissions
   by object only. This replaces the notes above on the "a person only" settings and on staff
   cancelling a class: the host's cancels cascade now; staff's own cancel is step 7's, with emails.
 

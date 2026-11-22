@@ -58,7 +58,8 @@ describe("solutions", () => {
       )?.status;
     // Stage 31a: the Bookings pack's spine is merged; waitlists, families and the rest to come.
     expect(status("Class bookings")).toBe("building");
-    expect(status("Memberships and passes")).toBe("design");
+    // Stage 32b step 6: plans, memberships and passes are merged; the rest is in progress.
+    expect(status("Memberships and passes")).toBe("building");
     expect(status("Moving from your booking system")).toBe("planned");
     // Stage 32a: the subscription (step 3) and moving the current subscribers (step 4) are built.
     expect(status("Course subscriptions")).toBe("built");

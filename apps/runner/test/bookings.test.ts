@@ -784,7 +784,8 @@ describe("the desk: who is booked, and who may give a use back", () => {
       await run("x.bookings.cancelFor", { bookingId: early.bookingId }, staff()),
     ).toMatchObject({ result: "cancelled", late: false });
     expect(await left(whoPass)).toBe(4);
-    // A person gives a use back late, with a reason; the assistant only asks.
+    // Giving a use back late is a person's own act through returnUse (ADR 0513): the assistant
+    // is refused, and no other staff write may (the in-time window binds staff, `bindsStaff`).
     const again = await book(who, await klass(20 * MINUTE));
     expect(await left(whoPass)).toBe(3);
     expect(
@@ -795,7 +796,18 @@ describe("the desk: who is booked, and who may give a use back", () => {
           staff({ actor: "assistant" }),
         ),
       ),
-    ).toMatchObject({ code: "pending_approval" });
+    ).toMatchObject({ code: expect.stringMatching(/forbidden|actor/) });
+    for (const state of ["cancelled", "excused"]) {
+      expect(
+        await refusal(
+          run(
+            "record.update",
+            { object: BOOKING, id: again.bookingId, values: { state } },
+            staff(),
+          ),
+        ),
+      ).toMatchObject({ code: "invalid_input" });
+    }
     expect((await get(BOOKING, again.bookingId as string)).values.state).toBe("booked");
     expect(
       await run(
@@ -803,7 +815,8 @@ describe("the desk: who is booked, and who may give a use back", () => {
         { bookingId: again.bookingId, reason: "Coach was ill" },
         staff(),
       ),
-    ).toMatchObject({ result: "cancelled" });
+    ).toMatchObject({ result: "excused" });
+    expect((await get(BOOKING, again.bookingId as string)).values.state).toBe("excused");
     expect(await left(whoPass)).toBe(4);
     expect((await get(BOOKING, again.bookingId as string)).values.note).toBe(
       "Use given back: Coach was ill",

@@ -141,12 +141,14 @@ works out a window, a place or a price (the block lint).
   56 days out (the organisation's "opens" at most) exists when it opens.
 - **A trashed class type closes its classes to members** (its rules cannot be read).
 - **`cancelFor` asks the host to cancel**, decided by its clock (a tool's calls are never a
-  person's); `keepUse` cancels late. **`returnUse`** (destructive, with a reason) gives a use back
-  after the late point.
+  person's); `keepUse` cancels late. The in-time cancel's window binds staff too (`bindsStaff`).
+  **`returnUse`** gives a use back whatever the time, with a reason, into `excused`: a move only
+  that tool makes (`tools`, ADR 0513), the tool `humanOnly` with the permission
+  `bookings:returns`.
 - **Walk-ins** are made with their booking in one batch (`person.createWith`), after the duplicate
   check: someone with that email, or a possible duplicate, is answered with who (`findPeople`, new,
   looks people up first); the desk lets staff pick someone on file and shows refusals.
-- **The booking rules are a person's** (`humanOnly` on the class type's rule fields and the
+- **The booking rules are a person's** (`personApproves` on the class type's rule fields and the
   settings): changed by the assistant, MCP, an automation or extension code, they wait for one.
 - **Permissions**: no `record.*`, `my.*` or `state.resolve` in `permissions.operations` (they are
   granted by object); `duplicate.check` is listed.

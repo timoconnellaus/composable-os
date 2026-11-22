@@ -20,6 +20,11 @@ import {
   createCoursesHooks,
 } from "@composable-os/pack-courses/client";
 import {
+  createMembershipsHooks,
+  MEMBERSHIPS_HOOKS_CALL,
+  type MembershipsClient,
+} from "@composable-os/pack-memberships/client";
+import {
   createProgramsHooks,
   PROGRAMS_HOOKS_CALL,
   type ProgramsClient,
@@ -167,6 +172,12 @@ function usePackHooks(pack: string): AnyHooks {
     return createBookingsHooks(
       react,
       browserClient<FullClient<BookingsClient>>(BOOKINGS_HOOKS_CALL),
+    );
+  }
+  if (pack === "memberships") {
+    return createMembershipsHooks(
+      react,
+      browserClient<FullClient<MembershipsClient>>(MEMBERSHIPS_HOOKS_CALL),
     );
   }
   if (pack === "ticketing") {

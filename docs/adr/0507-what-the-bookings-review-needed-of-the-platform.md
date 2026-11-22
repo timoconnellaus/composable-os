@@ -43,8 +43,10 @@ must hold for every actor, so each is the host's.
 - **A request is resolved by the clock for every caller but a person**: the assistant, an MCP
   client, an automation and extension code (any pack tool's own calls) as a customer's; a person on
   the staff is not bound. Bookings' `cancelFor` asks for `cancel`; giving a use back after the late
-  point is `returnUse`, a `destructive` tool (an AI asks, a person approves), with its reason kept.
-- **A person's own fields and settings** (`humanOnly: true` on a field or a setting): a write that
+  point is `returnUse` (below: a move only that tool makes), with its reason kept. The in-time
+  cancel's window binds staff too (`moves[].bindsStaff`), so no staff write, a person's included,
+  returns a use late except through it.
+- **A person's approval for fields and settings** (`personApproves: true` on a field or a setting): a write that
   sets one, by the assistant, an MCP client, an automation or extension code, always waits for a
   person's approval (the gate forces review, as for an AI's publish, `ALWAYS_REVIEWED_PUBLISHERS`,
   ADR 0480). Chosen over refusing because it is the policy code's existing way to keep a change a
@@ -67,6 +69,21 @@ must hold for every actor, so each is the host's.
   approved.
 - **The runner's packs are a Text module** (`shipped.txt`), as the SDK bundle is: they had grown
   the main module by each pack's whole source.
+
+### Two notions of "a person's own", and why they differ (amended 2026-11-22, merging stage 32b)
+- **A tool only a person may call** is ADR 0512's `humanOnly` on a tool, and **a move only such a
+  tool may make** is ADR 0513's `states.moves[].tools`. Anyone else (the assistant, an MCP client,
+  an automation, other code) is **refused**: the act is a person's, there is nothing to propose.
+  Bookings uses it for `returnUse` (giving a use back after the late point, into `excused`), with
+  the permission `bookings:returns`: there is one person-only mechanism for acts.
+- **A value a person approves** is this ADR's `personApproves` on a field or an extension setting.
+  Anyone else's write of it is **queued for a person's approval**, as an AI's publish request is
+  (ADR 0480): the assistant may well propose "make late cancels 2 hours", and a person decides.
+  It applies to data any staff write may touch (`record.update`, imports, settings), where
+  refusing would only push the assistant to ask a person to do it by hand.
+- So the names differ on purpose: `humanOnly` (tools) refuses, `personApproves` (fields, settings)
+  queues. The first version of this ADR called both `humanOnly`; the field and setting one was
+  renamed when stage 32b's merged.
 
 ## Consequences
 - A class cancelled by staff (step 7's `cancelClass`) needs only a staff move into `cancelled`.

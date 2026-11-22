@@ -236,3 +236,9 @@ the provider confirms it. The `subscription` access kind is [ADR 0488](0488-the-
 hours and 15 minutes left, and charges at once below that. The checks this ADR left for Stripe's
 test mode are in [`docs/subscriptions-stripe-runbook.md`](../subscriptions-stripe-runbook.md), with
 what each answer means.
+
+## Note (2026-11-22, stage 32b build step 6)
+"32b adds what a subscription grants" is built: `sellable.recurring.grants` ([ADR
+0510](0510-what-a-subscription-grants.md)), a record of the plan's pack made and moved by the
+subscription's verified events. A plan still has no order-line `grants`, `deposit` or
+`maxPerOrder`. It is not the `recurring` behaviour of ADR 0500 (a timetable's weekly rule).

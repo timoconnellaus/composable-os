@@ -193,7 +193,7 @@ describe("bookings pack (test host)", () => {
         person: "person",
         holder: "holder",
         spendIn: ["booked"],
-        returnIn: ["cancelled", "cancelled_by_us", "moved"],
+        returnIn: ["cancelled", "excused", "cancelled_by_us", "moved"],
         at: "class.startsAt",
         copy: { classType: "class.classType" },
         local: { weekday: "weekday", minute: "minute", zone: "class.timezone" },
@@ -226,8 +226,8 @@ describe("bookings pack (test host)", () => {
       "reminderMinutes",
       "staffOnly",
     ]) {
-      expect(rules[name]?.humanOnly, name).toBe(true);
-      expect(m.settings[name === "staffOnly" ? "lateMinutes" : name]?.humanOnly).toBe(true);
+      expect(rules[name]?.personApproves, name).toBe(true);
+      expect(m.settings[name === "staffOnly" ? "lateMinutes" : name]?.personApproves).toBe(true);
     }
     expect(m.objects.class?.fields.places?.required).toBe(true);
     expect(m.objects.class?.fields.timezone?.required).toBe(true);
@@ -500,19 +500,32 @@ describe("bookings pack (test host)", () => {
     });
   });
 
-  it("returnUse gives the use back whatever the time, with the reason, and is destructive", async () => {
+  it("returnUse gives the use back whatever the time, a person's own act with its permission", async () => {
     const h = host();
-    expect(host().manifest.tools.returnUse?.risk).toBe("destructive");
+    expect(host().manifest.tools.returnUse).toMatchObject({
+      risk: "destructive",
+      humanOnly: true,
+      permission: "bookings:returns",
+    });
+    // The move it makes is open to that tool alone (ADR 0513), and the in-time cancel's window
+    // binds staff too, so no other write returns a use late.
+    const moves = host().manifest.objects.booking?.states?.moves ?? [];
+    expect(moves.find((m) => m.to === "excused")).toMatchObject({
+      from: "booked",
+      by: ["host"],
+      tools: ["returnUse"],
+    });
+    expect(moves.find((m) => m.to === "cancelled" && m.from === "booked")?.bindsStaff).toBe(true);
     expect(
       await h.runTool(
         "returnUse",
         { bookingId: "bkg_1", reason: "Ill on the day" },
         { caller: STAFF },
       ),
-    ).toEqual({ result: "cancelled", bookingId: "bkg_1", late: false });
+    ).toEqual({ result: "excused", bookingId: "bkg_1", late: false });
     expect(h.calls.find((c) => c.operation === "record.update")?.input).toMatchObject({
       from: "booked",
-      values: { state: "cancelled", note: "Use given back: Ill on the day" },
+      values: { state: "excused", note: "Use given back: Ill on the day" },
     });
   });
 

@@ -4,7 +4,7 @@
 // customer creates only in the initial state and sets create-only fields only then, an unreadable
 // rule source is closed rather than the organisation's default, an empty zone is the
 // organisation's, a request is resolved by the clock for every caller but a person, a
-// `humanOnly` field or setting waits for a person, and `state.resolve` is granted by object. A window's numbers are read two relations away (the
+// `personApproves` field or setting waits for a person, and `state.resolve` is granted by object. A window's numbers are read two relations away (the
 // booking's class's type, as Bookings' rules sit on Programs' class type), and when that is empty
 // from the extension's setting (the organisation's default); a staff-only rule is any of several
 // booleans, a formula among them (a class that is not scheduled); and a spender marked paid
@@ -44,7 +44,7 @@ const lateFrom = {
 const fixture = (id: string) =>
   manifest(id, {
     settings: {
-      lateMinutes: { type: "number", label: "Late from", default: 60, humanOnly: true },
+      lateMinutes: { type: "number", label: "Late from", default: 60, personApproves: true },
     },
     objects: {
       kind: {
@@ -53,7 +53,7 @@ const fixture = (id: string) =>
         titleField: "name",
         fields: {
           name: { type: "text", label: "Name", required: true },
-          lateMinutes: { type: "number", label: "Late from", humanOnly: true },
+          lateMinutes: { type: "number", label: "Late from", personApproves: true },
           staffOnly: { type: "boolean", label: "Staff only" },
         },
       },
@@ -538,7 +538,7 @@ describe("a requested move is resolved by the clock for every caller but a perso
   });
 });
 
-describe("a person's own fields and settings (humanOnly)", () => {
+describe("a person's own fields and settings (personApproves)", () => {
   it("a person changes them; any other actor's change waits for a person", async () => {
     const kind = await create(KIND, { name: unique("Kind") });
     await expect(

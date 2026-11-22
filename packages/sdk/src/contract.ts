@@ -81,7 +81,7 @@ interface FieldBase {
    * an automation or extension code, always waits for a person's approval, as publishing does
    * (ADR 0480). A gym's booking rules.
    */
-  humanOnly?: boolean;
+  personApproves?: boolean;
 }
 
 export type SelectOption =
@@ -488,7 +488,7 @@ export type SettingSpec = {
   description?: string;
   required?: boolean;
   /** A person's to change (ADR 0507): changed by anyone else, it waits for a person. */
-  humanOnly?: boolean;
+  personApproves?: boolean;
 } & (
   | { type: "text"; default?: string }
   | { type: "number"; default?: number; min?: number; max?: number }
@@ -600,6 +600,14 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * own may declare it.
    */
   permission?: string;
+  /**
+   * Only a person may call it (ADR 0512): the assistant, an MCP client, an automation and other
+   * extensions' code are refused by the host, as a core operation with `actors: ["human"]` is.
+   * For what a person on the staff decides themselves (giving a pass by hand). Staff only: not
+   * with `audiences` that open it to customers or the public. It only narrows who may call, so
+   * any extension may declare it.
+   */
+  humanOnly?: boolean;
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
 }
 

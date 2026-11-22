@@ -128,8 +128,8 @@ export const SOLUTIONS: readonly Solution[] = [
         },
         {
           title: "Memberships and passes",
-          body: "Memberships that renew on their own, and class passes that give a number of visits, used up as people book. Waits for class bookings.",
-          status: "design",
+          body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins and an intro offer, one per person. Members see what they have left. Used up as people book, once class bookings are built.",
+          status: "building",
         },
         {
           title: "Moving from your booking system",
@@ -150,7 +150,7 @@ export const SOLUTIONS: readonly Solution[] = [
     questions: [
       {
         q: "Can we keep our booking system for now?",
-        a: "Yes. Class bookings are being built and memberships aren't built yet, so your booking system stays while the rest moves. Moving from it comes after both are built.",
+        a: "Yes. Class bookings and memberships are being built, so your booking system stays while the rest moves. Moving from it comes after both are built.",
       },
       {
         q: "Can members use it on their phones?",
