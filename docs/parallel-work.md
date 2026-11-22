@@ -50,6 +50,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | AM | 0630–0649 | 0530–0539 | Stage 32b, plan changes, pauses and the Memberships dashboard, views and blocks (`feat/stage-32b-memberships-changes`, build steps 6 and 7): migration 0630, ADRs 0530 to 0532 | in flight |
 | AO | 0670–0689 | 0550–0559 | Stage 31a step 7, attendance, the coach role, no-shows, moves and cancelling a class (`feat/stage-31a-attendance`): migration 0670, ADRs 0550 to 0553 (AM and AN are claimed on their branches) | in flight |
 | AN | 0650–0669 | 0540–0549 | Stage 31a step 6, the family link (`feat/stage-31a-family-link`): `core_person_link`, the seam's guardian scope, booking for a dependant | in flight |
+| AR | 0730–0749 | 0580–0589 | Stage 43, Outside practitioners. Step 1, the location hint for new installs (`feat/stage-43-oceania-hint`): ADR 0580, no migrations; the later steps take theirs from here (block AQ, 0710–0729 / 0570–0579, is PR #256's) | in flight |
 | AP | 0690–0709 | 0560–0569 | Stage 31a step 8, drop-ins (`feat/stage-31a-drop-ins`): `sellable.moves`, a record held while its order is unpaid, drop-in refunds through approval (block AO, 0670–0689 / 0550–0559, is stage 31a step 7's, PR #253) | in flight |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
