@@ -426,6 +426,72 @@
   color: var(--navy-muted);
 }
 
+/* A piece's status: dashed while it is short of ready, solid blue when it is ready today. */
+.soon.ready {
+  border-style: solid;
+  border-color: var(--blue-ink);
+  color: var(--blue-ink);
+}
+
+/* Solutions on the home page: one linked card per solution. */
+.card.solution {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 160ms var(--ease-out);
+}
+.card.solution .textlink {
+  display: inline-block;
+  margin-top: 18px;
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .card.solution:hover {
+    border-color: var(--blue);
+  }
+}
+
+/* A solution's page: a hero without a picture, pieces in two groups, and the first business. */
+.hero.solo {
+  padding-bottom: 72px;
+}
+.hero .eyebrow + h1 {
+  margin-top: 16px;
+}
+h2.wide {
+  max-width: 34ch;
+}
+.grid.two {
+  grid-template-columns: repeat(2, 1fr);
+}
+.group {
+  margin-top: 56px;
+  font-size: 20px;
+}
+.group + .grid {
+  margin-top: 20px;
+}
+.group-note {
+  margin-top: 8px;
+  max-width: 62ch;
+}
+.group-note + .grid {
+  margin-top: 22px;
+}
+.group-cta {
+  margin-top: 40px;
+}
+.first {
+  padding: 40px;
+}
+.first p {
+  margin-top: 12px;
+  font-size: 17px;
+}
+
 /* Looked after: what the one subscription covers. */
 .care .checks {
   gap: 16px;
@@ -649,6 +715,7 @@
     width: 250px;
   }
   .grid,
+  .grid.two,
   .pains,
   .call {
     grid-template-columns: 1fr;

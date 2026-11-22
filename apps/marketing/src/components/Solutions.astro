@@ -1,0 +1,30 @@
+---
+// Solutions: the whole system for one kind of business, each on its own page. One card per
+// solution in src/solutions.ts; only solutions that exist are listed. It follows "What can go in"
+// on the same background, as its continuation.
+import { SOLUTIONS } from "../solutions.ts";
+---
+
+<section id="solutions" class="flush" aria-labelledby="solutions-title">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">Solutions</span>
+      <h2 id="solutions-title">Start from a system made for a business like yours.</h2>
+      <p class="lead">
+        A solution is the whole system for one kind of business, with every piece marked built or
+        still to come.
+      </p>
+    </div>
+    <div class="grid solutions">
+      {
+        SOLUTIONS.map((solution) => (
+          <a class="card solution reveal" href={`/solutions/${solution.slug}/`}>
+            <h3>{solution.label}</h3>
+            <p>{solution.summary}</p>
+            <span class="textlink">{solution.linkLabel}</span>
+          </a>
+        ))
+      }
+    </div>
+  </div>
+</section>

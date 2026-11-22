@@ -9,12 +9,15 @@ import Logo from "./Logo.astro";
 interface Props {
   /** True on the landing page itself. */
   home?: boolean;
+  /** True on a page with its own call form (#call), so the action stays on the page. */
+  call?: boolean;
 }
-const { home = false } = Astro.props;
+const { home = false, call = home } = Astro.props;
 const at = (hash: string) => (home ? hash : `/${hash}`);
 const links = [
   { href: at("#how"), label: "How it works" },
   { href: at("#pieces"), label: "What can go in" },
+  { href: at("#solutions"), label: "Solutions" },
   { href: at("#care"), label: "Looked after" },
   { href: at("#developers"), label: "For developers" },
 ];
@@ -26,7 +29,7 @@ const links = [
     <nav class="links" aria-label="Main">
       {links.map((link) => <a href={link.href}>{link.label}</a>)}
     </nav>
-    <a class="btn dark sm" href={at("#call")}>{CTA}</a>
+    <a class="btn dark sm" href={call ? "#call" : "/#call"}>{CTA}</a>
     <button class="menu-btn" type="button" aria-expanded="false" aria-controls="mm" aria-label="Open menu">
       <Icon name="menu" />
     </button>

@@ -1,8 +1,11 @@
-// The landing page in a real browser, against the built site served by the Worker: the page says
-// what it sells and asks for one action, the call form works with and without JavaScript, the
-// layout holds at phone, tablet and desktop widths, and the metadata is served.
+// The landing page and each solution's page in a real browser, against the built site served by
+// the Worker: each says what it sells and asks for one action, the call form works with and
+// without JavaScript, the layout holds at phone, tablet and desktop widths, and the metadata is
+// served.
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import { SOLUTIONS } from "../src/solutions.ts";
+import { STATUS } from "../src/status.ts";
 
 const CTA = "Book a call";
 
@@ -37,6 +40,7 @@ test.describe("the page", () => {
     for (const [label, id] of [
       ["How it works", "how"],
       ["What can go in", "pieces"],
+      ["Solutions", "solutions"],
       ["Looked after", "care"],
       ["For developers", "developers"],
     ] as const) {
@@ -118,39 +122,41 @@ test.describe("the call form", () => {
 });
 
 test.describe("layout", () => {
-  for (const width of [390, 834, 1280]) {
-    test(`no horizontal overflow at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("/");
-      // html and body clip overflow, so check every element against the viewport, skipping
-      // anything inside a container that scrolls or clips on purpose (the frame's rounded sheet,
-      // the product picture, the commands).
-      const offenders = await page.evaluate(() => {
-        const vw = document.documentElement.clientWidth;
-        const clipped = (el: Element) => {
-          for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
-            if (p.classList.contains("frame")) continue;
-            if (getComputedStyle(p).overflowX !== "visible") return true;
+  const paths = ["/", ...SOLUTIONS.map((solution) => `/solutions/${solution.slug}/`)];
+  for (const path of paths)
+    for (const width of [390, 834, 1280]) {
+      test(`no horizontal overflow on ${path} at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(path);
+        // html and body clip overflow, so check every element against the viewport, skipping
+        // anything inside a container that scrolls or clips on purpose (the frame's rounded sheet,
+        // the product picture, the commands).
+        const offenders = await page.evaluate(() => {
+          const vw = document.documentElement.clientWidth;
+          const clipped = (el: Element) => {
+            for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+              if (p.classList.contains("frame")) continue;
+              if (getComputedStyle(p).overflowX !== "visible") return true;
+            }
+            return false;
+          };
+          const out: string[] = [];
+          for (const el of document.body.querySelectorAll("*")) {
+            const style = getComputedStyle(el);
+            if (style.display === "none" || style.visibility === "hidden") continue;
+            if (el.closest(".sr, .skip") || clipped(el)) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) continue;
+            if (r.right > vw + 1 || r.left < -1) out.push(`${el.tagName}.${el.className}`);
           }
-          return false;
-        };
-        const out: string[] = [];
-        for (const el of document.body.querySelectorAll("*")) {
-          const style = getComputedStyle(el);
-          if (style.display === "none" || style.visibility === "hidden") continue;
-          if (el.closest(".sr, .skip") || clipped(el)) continue;
-          const r = el.getBoundingClientRect();
-          if (r.width === 0 || r.height === 0) continue;
-          if (r.right > vw + 1 || r.left < -1) out.push(`${el.tagName}.${el.className}`);
-        }
-        return out;
+          return out;
+        });
+        expect(offenders).toEqual([]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+          width,
+        );
       });
-      expect(offenders).toEqual([]);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-        width,
-      );
-    });
-  }
+    }
 
   test("on a phone the action stays in the bar, and the menu opens and closes", async ({
     page,
@@ -190,8 +196,79 @@ test("metadata, robots.txt and sitemap.xml are served", async ({ page, request }
     "content",
     "https://composableos.dev/og.png",
   );
-  for (const path of ["/robots.txt", "/sitemap.xml", "/og.png", "/favicon.svg", "/privacy/"]) {
+  for (const path of [
+    "/robots.txt",
+    "/sitemap.xml",
+    "/og.png",
+    "/favicon.svg",
+    "/privacy/",
+    ...SOLUTIONS.map((solution) => `/solutions/${solution.slug}/`),
+  ]) {
     expect((await request.get(path)).status(), path).toBe(200);
+  }
+});
+
+test("the header's links and its action do not overlap just above the menu's width", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.goto("/");
+  const links = await page.getByRole("navigation", { name: "Main" }).boundingBox();
+  const action = await page.locator("header").getByRole("link", { name: CTA }).boundingBox();
+  expect(links && action && links.x + links.width).toBeLessThanOrEqual(action?.x ?? 0);
+});
+
+test.describe("a solution's page", () => {
+  for (const solution of SOLUTIONS) {
+    const path = `/solutions/${solution.slug}/`;
+
+    test(`${solution.label}: is linked from the home page`, async ({ page }) => {
+      await page.goto("/");
+      await page.locator("#solutions").getByRole("link", { name: solution.label }).click();
+      await expect(page).toHaveURL(new RegExp(`${path}$`));
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(solution.heading);
+    });
+
+    test(`${solution.label}: one action, kept on the page, and every piece's status in the site's words`, async ({
+      page,
+    }) => {
+      await page.goto(path);
+      await expect(page).toHaveTitle(solution.title);
+      await expect(page.locator('meta[name="description"]')).toHaveAttribute(
+        "content",
+        solution.description,
+      );
+      expect(await page.getByRole("heading", { level: 1 }).count()).toBe(1);
+      const actions = page.locator("a.btn:not(.ghost), button.btn");
+      expect(await actions.count()).toBeGreaterThanOrEqual(4);
+      for (const label of await actions.allTextContents()) expect(label.trim()).toBe(CTA);
+      for (const link of await page.locator("a.btn:not(.ghost)").all()) {
+        await expect(link).toHaveAttribute("href", "#call");
+      }
+      await expect(page.locator(".hero").getByRole("link", { name: CTA })).toBeInViewport();
+      const words: string[] = Object.values(STATUS);
+      const pills = await page.locator("#pieces .soon").allTextContents();
+      expect(pills).toHaveLength(solution.pieces.built.length + solution.pieces.notYet.length);
+      for (const pill of pills) expect(words).toContain(pill.trim());
+      // No hosted plans, prices or signup waitlist ("waitlists" for classes is a feature).
+      await expect(page.getByText(/\bwaitlist\b|\$\d|per month/i)).toHaveCount(0);
+      const schema = JSON.parse(
+        (await page.locator('script[type="application/ld+json"]').textContent()) ?? "{}",
+      );
+      expect(schema.mainEntity.map((q: { name: string }) => q.name)).toEqual(
+        solution.questions.map((item) => item.q),
+      );
+    });
+
+    test(`${solution.label}: the call form sends in place`, async ({ page }) => {
+      await page.goto(`${path}#call`);
+      const form = page.locator("form[data-form]");
+      await form.getByLabel("Work email").fill(`solution-${randomUUID()}@example.com`);
+      const response = page.waitForResponse("**/api/signup");
+      await form.getByRole("button", { name: CTA }).click();
+      expect(await (await response).json()).toEqual({ ok: true });
+      await expect(form.locator(".done")).toBeVisible();
+    });
   }
 });
 

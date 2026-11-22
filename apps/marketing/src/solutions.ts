@@ -1,0 +1,173 @@
+// Solutions: the whole system for one kind of business, each on its own page at
+// /solutions/<slug>/ (src/pages/solutions/[slug].astro), and listed on the home page
+// (Solutions.astro). Every piece carries a status word from status.ts, as true of the repository
+// today; SITE.md says what each page claims and where it comes from. Only solutions that exist
+// are listed: no placeholders.
+import type { Status } from "./status.ts";
+
+export interface SolutionPiece {
+  title: string;
+  body: string;
+  status: Status;
+}
+
+export interface Solution {
+  slug: string;
+  /** The name on the site: the home page's card, the page's eyebrow. */
+  label: string;
+  /** The home page's card. */
+  summary: string;
+  /** The home page card's link. */
+  linkLabel: string;
+  /** The page's <title> (50 to 60 characters) and meta description (150 to 160). */
+  title: string;
+  description: string;
+  heading: string;
+  lead: string;
+  facts: readonly string[];
+  problem: { heading: string; pains: readonly { title: string; body: string }[] };
+  pieces: {
+    heading: string;
+    lead: string;
+    /** What is built, ready or not yet live. */
+    built: readonly SolutionPiece[];
+    /** What is being built, in design or planned. */
+    notYet: readonly SolutionPiece[];
+    /** What the reader keeps until the pieces still to come exist. */
+    notYetNote: string;
+    /** The last built card: the piece only this business has. */
+    own: string;
+  };
+  /** The first business of this kind being moved onto the platform: its name only. */
+  first?: { eyebrow: string; name: string; heading: string; body: string };
+  questions: readonly { q: string; a: string }[];
+  call: { heading: string; lead: string };
+}
+
+export const SOLUTIONS: readonly Solution[] = [
+  {
+    slug: "gyms",
+    label: "For gyms and studios",
+    summary:
+      "Events, online courses, training programs and your blog in one system, with class bookings and memberships still to come. Each piece says how far along it is.",
+    linkLabel: "See the system for gyms",
+    title: "Gym and studio software, looked after · Composable OS",
+    description:
+      "One system for your gym or studio: events, online courses, training programs and your blog on your own site and app. Built for you, looked after. Book a call.",
+    heading: "Gym and studio software, built around how you run yours",
+    lead: "Events, online courses, training programs and your blog in one system, on your own site and app, with class bookings and memberships still to come. Zero BS AI composes it for your gym, then looks after it on one subscription.",
+    facts: [
+      "Every member is one record, not five",
+      "Your own site and app",
+      "Looked after by us, on one subscription",
+      "Your data stays yours",
+    ],
+    problem: {
+      heading:
+        "A booking system, a course platform, ticketing, a website and a programming app. None of them talk to each other.",
+      pains: [
+        {
+          title: "A bill for every job",
+          body: "Each tool does one thing and charges for it. Add a camp or a course and there is another subscription.",
+        },
+        {
+          title: "The same member, five times",
+          body: "Someone who comes to classes, buys a course and books a camp is a different record in each tool. Nobody sees the whole person.",
+        },
+        {
+          title: "Gaps filled by hand",
+          body: "Who paid, who has access and who is coming gets copied between systems and checked in a spreadsheet.",
+        },
+      ],
+    },
+    pieces: {
+      heading: "The whole system, and how far along each piece is.",
+      lead: "Every piece works on the same members, payments and rules. The built ones are tested and can go into your system now; none is live at a gym yet.",
+      built: [
+        {
+          title: "Members and enquiries",
+          body: "Every member, ticket buyer, student and enquiry is one person, with their history and emails in one place.",
+          status: "ready",
+        },
+        {
+          title: "Events and camps",
+          body: "Ticket types with their own places, paying in full or by deposit, tickets in your app, and scanning at the door.",
+          status: "built",
+        },
+        {
+          title: "Online courses",
+          body: "Video lessons sold one at a time or in bundles, on your site and in your app, with progress. Only people who paid can play them. Your courses and students come across with an import.",
+          status: "built",
+        },
+        {
+          title: "Course subscriptions",
+          body: "One monthly subscription to every course, including ones added later, with a free trial for each person, paid through your own Stripe account. Members cancel and update their card on your website.",
+          status: "built",
+        },
+        {
+          title: "Training programs",
+          body: "Programs built from your exercise bank, given to a member or a whole class, with every set logged against its target.",
+          status: "built",
+        },
+        {
+          title: "Your blog",
+          body: "Posts with drafts, preview links and scheduled publishing, on your own site. Your old posts come across with an import.",
+          status: "built",
+        },
+      ],
+      notYet: [
+        {
+          title: "Moving your course subscribers",
+          body: "Your current subscribers join again on your site, free until the date they have already paid up to, and their old subscriptions end at the end of what they paid for.",
+          status: "design",
+        },
+        {
+          title: "Class bookings",
+          body: "Classes from a timetable, appointments, waitlists and late-cancel rules.",
+          status: "planned",
+        },
+        {
+          title: "Memberships and passes",
+          body: "Memberships that renew on their own, and class passes that give a number of visits, used up as people book. Waits for class bookings.",
+          status: "design",
+        },
+        {
+          title: "Moving from your booking system",
+          body: "Your clients, visit history, passes and schedules brought across, with a time when both run side by side.",
+          status: "planned",
+        },
+      ],
+      notYetNote:
+        "Class bookings, memberships and passes, and the move from your booking system are what would replace it. None is built yet, so until they are, your booking system stays.",
+      own: "The thing no software does the way your gym does it. We build that piece for you.",
+    },
+    first: {
+      eyebrow: "The first gym",
+      name: "Ghetto Movement",
+      heading: "Ghetto Movement is being moved onto it.",
+      body: "It is the first gym moving onto Composable OS, and it is not live yet.",
+    },
+    questions: [
+      {
+        q: "Can we keep our booking system for now?",
+        a: "Yes. Class bookings and memberships aren't built yet, so your booking system stays while the rest moves. Moving from it comes after they are built.",
+      },
+      {
+        q: "Can members use it on their phones?",
+        a: "Yes. Tickets, courses and training programs each have screens for your own app as well as your website.",
+      },
+      {
+        q: "Who takes the payments?",
+        a: "Your own Stripe account. Nothing on the platform charges a card on its own.",
+      },
+      {
+        q: "What does it cost?",
+        a: "Once it's built, one subscription that covers hosting, updates, fixes, changes and support. The figure depends on what we compose for your gym, so you get it after the call.",
+      },
+    ],
+    call: {
+      heading: "Tell us how your gym runs.",
+      lead: "Zero BS AI will tell you what we'd compose for it, what is built and what it would take.",
+    },
+  },
+];

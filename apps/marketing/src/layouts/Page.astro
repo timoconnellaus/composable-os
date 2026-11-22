@@ -14,6 +14,8 @@ interface Props {
   description?: string;
   /** True on the landing page itself (in-page header links). */
   home?: boolean;
+  /** True on a page with its own call form (a solution's), so the header's action stays there. */
+  call?: boolean;
   /** Keep the page out of search results (form results, 404). */
   noindex?: boolean;
 }
@@ -21,6 +23,7 @@ const {
   title = "Custom business software, with a head start · Composable OS",
   description = "Zero BS AI builds custom software to fit your business on Composable OS, from parts that already work, then looks after it on one subscription. Book a call.",
   home = false,
+  call = home,
   noindex = false,
 } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site);
@@ -60,7 +63,7 @@ const ogImage = new URL("/og.png", Astro.site);
     <a class="skip" href="#main">Skip to content</a>
     <Sprite />
     <div class="frame">
-      <Header home={home} />
+      <Header home={home} call={call} />
       <main id="main">
         <slot />
       </main>

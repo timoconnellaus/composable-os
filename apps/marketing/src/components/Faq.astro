@@ -1,6 +1,13 @@
 ---
+// The questions: the home page's (faq.ts) unless a page passes its own. The page that shows them
+// also writes them as FAQPage structured data, from the same list.
 import { QUESTIONS } from "../faq.ts";
 import Icon from "./Icon.astro";
+
+interface Props {
+  questions?: readonly { q: string; a: string }[];
+}
+const { questions = QUESTIONS } = Astro.props;
 ---
 
 <section class="questions" aria-labelledby="faq-title">
@@ -8,7 +15,7 @@ import Icon from "./Icon.astro";
     <h2 id="faq-title" class="reveal">Questions</h2>
     <div class="faq">
       {
-        QUESTIONS.map((item, i) => (
+        questions.map((item, i) => (
           <details open={i === 0}>
             <summary>
               {item.q}

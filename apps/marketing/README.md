@@ -16,7 +16,7 @@ pnpm --filter @composable-os/marketing build        # dist/, then the no-tracker
 pnpm --filter @composable-os/marketing test         # the form endpoint in workerd against local D1
 pnpm --filter @composable-os/marketing preview      # build + local D1 migrations + wrangler dev
 pnpm --filter @composable-os/marketing test:e2e     # Playwright against the built site and Worker
-pnpm --filter @composable-os/marketing screenshots  # screenshots/{390,834,1280}.jpg
+pnpm --filter @composable-os/marketing screenshots  # screenshots/{390,834,1280}.jpg, and gyms-<width>.jpg
 pnpm --filter @composable-os/marketing og-image     # re-render public/og.png and the touch icon
 ```
 
@@ -26,6 +26,10 @@ pnpm --filter @composable-os/marketing og-image     # re-render public/og.png an
   in page order: `Hero` (with the facts bar), `Problem`, `HowItWorks`, `Pieces`, `Inside`, `Care`,
   `Control`, `Developers`, `Faq`, `FinalCta` (with `CallForm`). `Page.astro` is the shell
   (metadata, fonts, the icon sprite, and the frame holding the header, the page and the footer).
+- `src/pages/solutions/[slug].astro` is a solution's page (`/solutions/gyms/`), one per entry in
+  `src/solutions.ts`, which also feeds the home page's `Solutions` section. Each has its own
+  call form at `#call`. A new solution is an entry there plus its URL in `public/sitemap.xml`.
+- `src/status.ts` holds the status words a piece can have (`StatusPill`); `SITE.md` defines them.
 - `src/styles/base.css` holds the design tokens and shared pieces; `landing.css` the sections.
 - `src/links.ts` holds the links and `CTA`, the label of the page's one action. `src/faq.ts` holds
   the questions, read by the section and by the page's FAQPage structured data.
@@ -36,13 +40,16 @@ pnpm --filter @composable-os/marketing og-image     # re-render public/og.png an
 ## Rules
 
 - **Follow the `landing-page-generator` skill** (`.claude/skills/landing-page-generator`) for any
-  change to the page, and run its three checks on the built page. All three must exit 0:
+  change to the page, and run its three checks on every built page that sells (the home page and
+  each solution's). All must exit 0:
 
   ```sh
   pnpm --filter @composable-os/marketing build
-  python3 .claude/skills/landing-page-generator/scripts/cta_analyzer.py apps/marketing/dist/index.html
-  python3 .claude/skills/landing-page-generator/scripts/conversion_checklist.py apps/marketing/dist/index.html
-  python3 .claude/skills/landing-page-generator/scripts/page_speed_estimator.py apps/marketing/dist/index.html
+  for page in index.html solutions/gyms/index.html; do
+    python3 .claude/skills/landing-page-generator/scripts/cta_analyzer.py apps/marketing/dist/$page
+    python3 .claude/skills/landing-page-generator/scripts/conversion_checklist.py apps/marketing/dist/$page
+    python3 .claude/skills/landing-page-generator/scripts/page_speed_estimator.py apps/marketing/dist/$page
+  done
   ```
 
   The checklist's "minimal navigation" line stays failed on purpose: this is a site page with a

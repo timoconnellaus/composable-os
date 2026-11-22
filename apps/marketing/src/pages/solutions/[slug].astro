@@ -1,0 +1,132 @@
+---
+// A solution's page (/solutions/<slug>/): the whole system for one kind of business, each piece
+// with its status, how it is looked after, and the same one action as the home page, with its own
+// call form. The copy is in src/solutions.ts; SITE.md says what each page claims.
+import Care from "../../components/Care.astro";
+import Faq from "../../components/Faq.astro";
+import FinalCta from "../../components/FinalCta.astro";
+import StatusPill from "../../components/StatusPill.astro";
+import Page from "../../layouts/Page.astro";
+import { CTA } from "../../links.ts";
+import { SOLUTIONS, type Solution } from "../../solutions.ts";
+import "../../styles/landing.css";
+
+export function getStaticPaths() {
+  return SOLUTIONS.map((solution) => ({ params: { slug: solution.slug }, props: { solution } }));
+}
+
+interface Props {
+  solution: Solution;
+}
+const { solution } = Astro.props;
+
+const faqSchema = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: solution.questions.map((item) => ({
+    "@type": "Question",
+    name: item.q,
+    acceptedAnswer: { "@type": "Answer", text: item.a },
+  })),
+});
+---
+
+<Page title={solution.title} description={solution.description} call>
+  <script type="application/ld+json" slot="head" is:inline set:html={faqSchema} />
+
+  <section class="hero solo" aria-labelledby="hero-title">
+    <div class="wrap">
+      <span class="eyebrow">{solution.label}</span>
+      <h1 id="hero-title">{solution.heading}</h1>
+      <p class="lead">{solution.lead}</p>
+      <div class="actions">
+        <a class="btn" href="#call">{CTA}</a>
+        <a class="btn ghost" href="#pieces">See what's built</a>
+      </div>
+      <p class="fine">30 minutes about how your business runs. No slides.</p>
+    </div>
+  </section>
+
+  <div class="facts">
+    <div class="wrap">
+      <ul>{solution.facts.map((fact) => <li>{fact}</li>)}</ul>
+    </div>
+  </div>
+
+  <section id="problem" aria-labelledby="problem-title">
+    <div class="wrap">
+      <div class="reveal">
+        <span class="eyebrow">The problem</span>
+        <h2 id="problem-title" class="wide">{solution.problem.heading}</h2>
+      </div>
+      <div class="pains">
+        {
+          solution.problem.pains.map((pain) => (
+            <div class="reveal">
+              <h3>{pain.title}</h3>
+              <p>{pain.body}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <section id="pieces" class="tint" aria-labelledby="pieces-title">
+    <div class="wrap">
+      <div class="reveal">
+        <span class="eyebrow">What's in it</span>
+        <h2 id="pieces-title">{solution.pieces.heading}</h2>
+        <p class="lead">{solution.pieces.lead}</p>
+      </div>
+      <h3 class="group reveal">Built</h3>
+      <div class="grid">
+        {
+          solution.pieces.built.map((piece) => (
+            <div class="card reveal">
+              <StatusPill status={piece.status} />
+              <h3>{piece.title}</h3>
+              <p>{piece.body}</p>
+            </div>
+          ))
+        }
+        <div class="card own reveal">
+          <h3>The part only you have</h3>
+          <p>{solution.pieces.own}</p>
+        </div>
+      </div>
+      <h3 class="group reveal">Still to come</h3>
+      <p class="group-note reveal">{solution.pieces.notYetNote}</p>
+      <div class="grid two">
+        {
+          solution.pieces.notYet.map((piece) => (
+            <div class="card reveal">
+              <StatusPill status={piece.status} />
+              <h3>{piece.title}</h3>
+              <p>{piece.body}</p>
+            </div>
+          ))
+        }
+      </div>
+      <a class="btn group-cta" href="#call">{CTA}</a>
+    </div>
+  </section>
+
+  {
+    solution.first && (
+      <section id="first" aria-labelledby="first-title">
+        <div class="wrap">
+          <div class="first card reveal">
+            <span class="eyebrow">{solution.first.eyebrow}</span>
+            <h2 id="first-title">{solution.first.heading}</h2>
+            <p>{solution.first.body}</p>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  <Care />
+  <Faq questions={solution.questions} />
+  <FinalCta heading={solution.call.heading} lead={solution.call.lead} />
+</Page>

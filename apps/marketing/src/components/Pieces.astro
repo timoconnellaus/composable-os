@@ -6,9 +6,10 @@
 // say so. Courses' monthly subscription (stage 32a step 3) is built too, with the rest of the
 // card; moving subscribers from another platform (step 4) is still to come. The last card is the
 // piece built only for this business.
+import { STATUS } from "../status.ts";
 import Icon from "./Icon.astro";
 
-const BUILT = "Built, not yet live";
+const BUILT = STATUS.built;
 
 const pieces = [
   {
