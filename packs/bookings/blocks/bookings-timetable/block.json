@@ -7,7 +7,9 @@
     "x.bookings.mine",
     "x.bookings.family",
     "x.bookings.book",
-    "x.bookings.cancel"
+    "x.bookings.cancel",
+    "x.bookings.buy",
+    "order.checkout"
   ],
   "files": ["timetable.tsx", "LICENSE"],
   "dependsOn": ["ui-button"],

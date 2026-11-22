@@ -411,3 +411,54 @@ export async function resolveStateRequest(
     },
   );
 }
+
+/**
+ * The create rules a record made by the host for a caller must still meet (ADR 0560): what it is
+ * for is not closed (for everyone), and, unless the caller is staff, the create's window and
+ * staff-only rule (as a customer's own create would be judged). `order.startHeld` makes a drop-in
+ * booking as the host, in a state only the host may create, so the engine does not judge it as
+ * the caller's; this does, with the same code, before anything is written.
+ */
+export async function assertCreateRules(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  after: Record<string, unknown>,
+  by: "customer" | "staff",
+): Promise<void> {
+  const states = object.states;
+  if (!states?.create) return;
+  const labelOf = (name: string) => object.fields.find((f) => f.name === name)?.label ?? name;
+  const choices = object.fields.find((f) => f.name === states.field)?.options?.choices ?? [];
+  const wanted = after[states.field];
+  const toId = typeof wanted === "string" && wanted ? wanted : states.initial;
+  const state: StateRef = {
+    id: toId,
+    title: choices.find((c) => c.value === toId)?.label ?? toId,
+    final: states.moves.some((m) => m.final && m.to === toId),
+  };
+  const fail = (
+    rule: StateRuleDetails["rule"],
+    message: string,
+    times: Pick<StateRuleDetails, "opensAt" | "closesAt"> = {},
+  ) =>
+    new StateRuleError(message, {
+      ...ruleBase({ object, labelOf }, rule, [states.field]),
+      rule,
+      state,
+      from: null,
+      ...times,
+    });
+  const reader = pathReader(ctx, object, after);
+  if (states.create.closed && (await staffOnlySet(reader, states.create.closed))) {
+    throw fail("state_closed", `${object.label} cannot be made now: what it is for is closed`);
+  }
+  if (by === "staff") return;
+  const refusal = await customerRefusal(
+    ctx,
+    object,
+    after,
+    states.create,
+    `Creating ${object.label.toLowerCase()}`,
+  );
+  if (refusal) throw fail(refusal.rule, refusal.message, refusal.times);
+}

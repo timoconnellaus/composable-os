@@ -84,6 +84,21 @@ export function onRecordMove(object: string, hook: MoveHook): () => void {
   };
 }
 
+const everyMoveHooks: MoveHook[] = [];
+
+/**
+ * Registers a hook for every object's moves: a behaviour declared on objects the registry learns
+ * at run time (`sellable.moves`, ADR 0560), which reads the declaration itself and returns at once
+ * for an object without it. Platform code only, at module load, as `onRecordMove`.
+ */
+export function onEveryRecordMove(hook: MoveHook): () => void {
+  everyMoveHooks.push(hook);
+  return () => {
+    const at = everyMoveHooks.indexOf(hook);
+    if (at >= 0) everyMoveHooks.splice(at, 1);
+  };
+}
+
 /**
  * Applies `object`'s lifecycle to a write. `before` is the record's values before (null on
  * create); `written` the validated values being written. Throws a TransitionRuleError when the
@@ -110,7 +125,9 @@ export async function applyTransition(
       await claimantMove(ctx, object, id, before, after);
       await waitlistMove(ctx, object, id, before, after, options.by, "after");
     }
-    const hooks = outcome.moved ? moveHooks.get(object.name) : undefined;
+    const hooks = outcome.moved
+      ? [...(moveHooks.get(object.name) ?? []), ...everyMoveHooks]
+      : undefined;
     if (outcome.moved && hooks?.length) {
       const move: RecordMove = {
         object,
@@ -121,7 +138,7 @@ export async function applyTransition(
         before,
         after: { ...(before ?? {}), ...written, ...outcome.values },
       };
-      for (const hook of [...hooks]) await hook(ctx, move);
+      for (const hook of hooks) await hook(ctx, move);
     }
     return outcome;
   };

@@ -215,6 +215,11 @@ export async function priceLines(
     if (!object || !sellable || sellableProblems(sellable, object).length) {
       refuseLine("not_for_sale", index, "This cannot be bought");
     }
+    // A record an order moves (ADR 0560) is made with its order (order.startHeld), never put on
+    // another: a second order would pay for one held place twice.
+    if (sellable.moves) {
+      refuseLine("not_for_sale", index, "This is bought when it is made, not added to an order");
+    }
     // A plan is subscribed to (subscription.start), never put on an order (ADR 0485); and only a
     // plan is subscribed to.
     if (Boolean(sellable.recurring) !== Boolean(options.plans)) {
@@ -335,6 +340,13 @@ export interface NewOrder {
   pay: "full" | "deposit";
   /** SHA-256 of the token a guest is given for this one order. */
   accessHash?: string | null;
+  /**
+   * Platform code only (`order.startHeld`, ADR 0560): the order's id, and its lines as the host
+   * priced them for a record made in this same batch, which `priceLines` cannot read yet. No
+   * operation takes either from its input.
+   */
+  id?: string;
+  priced?: readonly PricedLine[];
 }
 
 export interface StartedOrder {
@@ -365,7 +377,9 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
   if (!currency) {
     throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
   }
-  const lines = await priceLines(ctx.db, input.lines, currency, ctx.now, callerOf(ctx));
+  const lines = input.priced
+    ? [...input.priced]
+    : await priceLines(ctx.db, input.lines, currency, ctx.now, callerOf(ctx));
   const total = lines.reduce((sum, line) => sum + line.total, 0);
   if (total <= 0) {
     throw new ValidationError("An order with nothing to pay cannot be started", { rule: "total" });
@@ -396,7 +410,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
   }
 
   const minutes = await loadOrderExpiryMinutes(ctx.db);
-  const id = newId("order");
+  const id = input.id ?? newId("order");
   const row: OrderRow = {
     id,
     person_id: input.personId,

@@ -23,12 +23,18 @@
 //     class type's "waitlist stops" time goes to the waitlist in the same batch, and the host
 //     moves the first waiter in, spending their use then, or passes them over when nothing they
 //     hold can pay (`claims.waitlist`, ADR 0520; step 5);
+//   - a visitor, or a member with nothing to spend, pays for one class on the web (a drop-in,
+//     decision 8): the host makes the booking held while its order is unpaid, priced from the
+//     class type's drop-in price or the organisation's, booked when the payment is verified and
+//     released when the order expires; a paid drop-in cancelled in time or by the gym owes the
+//     money back, which a person approves (`sellable.moves`, ADR 0560; step 8);
 //   - members read the timetable and how many places are left, never who is booked (decision 13).
 // The tools in tools.ts compose the host's operations and add no rules of their own.
 import { defineExtension } from "@composable-os/sdk";
 import {
   book,
   bookFor,
+  buy,
   cancel,
   cancelFor,
   classGet,
@@ -120,7 +126,9 @@ export default defineExtension({
     // duplicate.check: a walk-in is checked against the People on file before one is made.
     // waitlist.position: where a waiter stands in the queue (a member: their own only).
     // me.family: the member's own id, and the children staff linked to them (ADR 0540).
+    // order.startHeld: a drop-in, the booking made with its order by the host (ADR 0560).
     operations: [
+      "order.startHeld",
       "public.list",
       "public.get",
       "capacity.get",
@@ -170,6 +178,17 @@ export default defineExtension({
         "When members are reminded of a class. Empty: the organisation's setting. (Reminders " +
           "come in a later release.)",
       ),
+      dropInPrice: {
+        type: "number",
+        label: "Drop-in price",
+        description:
+          "What one class costs someone paying for it on the website, in the organisation's " +
+          "currency. Empty: the organisation's setting; empty there too, no drop-ins.",
+        min: 0,
+        max: 100_000,
+        step: 0.01,
+        personApproves: true,
+      },
       staffOnly: {
         type: "boolean",
         label: "Booked by staff only",
@@ -464,11 +483,24 @@ export default defineExtension({
         },
         paidOtherwise: {
           type: "boolean",
-          label: "Paid at the desk",
+          label: "Paid another way",
           readOnly: true,
           description:
-            "Booked by staff for someone who paid another way (a walk-in at the desk): it " +
+            "Paid at the desk (a walk-in staff booked) or as a drop-in on the website: it " +
             "spends no use. Set when it is made.",
+        },
+        // A drop-in (ADR 0560): what it cost and its order, written by the host at the buy.
+        dropInPrice: {
+          type: "number",
+          label: "Drop-in paid",
+          readOnly: true,
+          description: "What the drop-in cost, set by the host when it was bought.",
+        },
+        dropInOrder: {
+          type: "text",
+          label: "Drop-in order",
+          readOnly: true,
+          description: "The order that pays for this drop-in, set by the host.",
         },
         bookedBy: {
           type: "user",
@@ -606,6 +638,27 @@ export default defineExtension({
         },
       },
       unique: [{ fields: ["person", "class"], states: ACTIVE }],
+      // A drop-in (decision 8, ADR 0560): x.bookings.buy has the host make the booking held
+      // (`pending`, a place claimed) with its order, priced from the class type's drop-in price,
+      // else the organisation's. A verified payment books it; the order expiring or cancelled
+      // releases it (`expired`). A paid one cancelled in time, given back by a person, or
+      // cancelled by the gym owes its money back, which a person with orders:refund approves
+      // (decision 15). A late cancel and a no-show keep it (no fee, no refund).
+      sellable: {
+        price: "dropInPrice",
+        // Stripe's "Fee for Personal Training/Fitness Classes" (in-person group classes); a human
+        // admin may override it in Settings -> Orders.
+        tax: { code: "txcd_50021003" },
+        moves: {
+          held: "pending",
+          paid: "booked",
+          expired: "expired",
+          refund: ["cancelled", "excused", "cancelled_by_us"],
+          price: { field: "class.classType.dropInPrice", setting: "dropInPrice" },
+          title: "class.title",
+          order: "dropInOrder",
+        },
+      },
       // A spender of the Memberships pack's holders (stage 32b's ids, spec 32): booked spends,
       // an in-time cancel, a class the gym cancels and a move give back; a late cancel and a
       // no-show keep it. The period is the class's, and its type and local time are what a
@@ -637,6 +690,9 @@ export default defineExtension({
           "promotedAt",
           "passedOverAt",
           "passedOverReason",
+          "paidOtherwise",
+          "dropInPrice",
+          "dropInOrder",
         ],
         write: ["class", "state", "holder"],
         // Which class and which holder are chosen when it is made, never after (ADR 0507).
@@ -711,6 +767,7 @@ export default defineExtension({
           "state",
           "holder",
           "paidOtherwise",
+          "dropInPrice",
           "bookedBy",
           "promotedAt",
           "passedOverReason",
@@ -788,6 +845,16 @@ export default defineExtension({
       max: 10_080,
       personApproves: true,
     },
+    dropInPrice: {
+      type: "number",
+      label: "Drop-in price",
+      description:
+        "What one class costs someone paying for it on the website, in the organisation's " +
+        "currency, unless its class type sets its own. Empty: no drop-ins.",
+      min: 0,
+      max: 100_000,
+      personApproves: true,
+    },
     reminderMinutes: {
       type: "number",
       label: "Reminder (minutes before)",
@@ -802,6 +869,7 @@ export default defineExtension({
     timetable,
     classGet,
     book,
+    buy,
     cancel,
     leaveWaitlist,
     mine,

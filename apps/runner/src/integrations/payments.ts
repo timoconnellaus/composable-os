@@ -7,6 +7,7 @@ import {
   type PaymentEventDeps,
   parseFloor,
   queueEventSink,
+  runRefundsDue,
   SYSTEM_USER,
   sweepSubscriptions,
 } from "@composable-os/core";
@@ -45,5 +46,13 @@ export async function runOrdersTick(env: Env, at: Date) {
   )) as { expired: string[] };
   // Subscriptions with no event (stage 32a): past due too long, or events not arriving.
   const subscriptions = await sweepSubscriptions(deps.crm, at.toISOString());
-  return { events, expired: expired.expired.length, subscriptions };
+  // Refunds the host owes (ADR 0560): a paid drop-in cancelled in time or by the gym. Each is
+  // asked for as the gatekeeper's `payments.refund`, which waits for a person to approve.
+  const refunds = await runRefundsDue(deps.crm, {
+    integrations: deps.integrations,
+    floor: deps.floor,
+    events: deps.events,
+    clock: () => at,
+  });
+  return { events, expired: expired.expired.length, subscriptions, refunds };
 }

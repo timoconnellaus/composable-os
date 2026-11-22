@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { customerWritable, spendsOnList } from "./allowance.ts";
 import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifest.ts";
-import { moveOrigins } from "./states.ts";
+import { moveOrigins, resolveFieldPath } from "./states.ts";
 
 /**
  * Where a granted record's field gets its value, when the host creates it:
@@ -107,6 +107,40 @@ export interface SellableSpec {
    * "sign_in"`). Such a line holds one, and an order at most one such line. Not on a plan.
    */
   onePerPerson?: string;
+  /**
+   * A paid line moves a record that already exists (stage 31a step 8, ADR 0560), see MovesSpec.
+   * A record of such an object is bought once, when it is made: `order.startHeld` makes it in
+   * `held` and starts its order in one batch. It is never put on `order.start`. Not with
+   * `grants`, `deposit`, `recurring`, `onePerPerson`, `maxPerOrder` or `saleWindow`.
+   */
+  moves?: MovesSpec;
+}
+
+/**
+ * What an order does to the record it was started for (ADR 0560): a drop-in booking held while
+ * its order is unpaid. The host makes every move, as the host, in the batch that moves the order.
+ *
+ * - `held`: the state `order.startHeld` makes the record in (`states.create.in` lets the host,
+ *   and only the host, create it there). A capacity claimant holds its place in it.
+ * - `paid`: the order is paid: the record moves `held` -> `paid`.
+ * - `expired`: the order expired or was cancelled unpaid: `held` -> `expired`, a final state.
+ *   A record that leaves `held` any other way (a class the gym cancels) cancels its unpaid order.
+ * - `refund`: states that give the money back. A record whose order is paid entering one of them
+ *   queues the order's refund for a person with `orders:refund` to approve (never an AI).
+ * - `price`: where the price of one is read when the record is made: a number field through up
+ *   to two relations (`class.classType.dropInPrice`), else the extension's number setting. The
+ *   host writes it into the read-only `price` field, and the order's line is priced from it.
+ * - `title`: the order line's title, a text field through up to two relations (`class.title`).
+ * - `order`: a read-only text field the host writes the order's id into.
+ */
+export interface MovesSpec {
+  held: string;
+  paid: string;
+  expired: string;
+  refund?: readonly string[];
+  price?: { field?: string; setting?: string };
+  title?: string;
+  order?: string;
 }
 
 /**
@@ -264,6 +298,21 @@ export const sellableManifestSchema = z
       .strict()
       .optional(),
     onePerPerson: fieldName.optional(),
+    moves: z
+      .object({
+        held: z.string().min(1).max(100),
+        paid: z.string().min(1).max(100),
+        expired: z.string().min(1).max(100),
+        refund: z.array(z.string().min(1).max(100)).max(20).optional(),
+        price: z
+          .object({ field: z.string().max(130).optional(), setting: fieldName.optional() })
+          .strict()
+          .optional(),
+        title: z.string().max(130).optional(),
+        order: fieldName.optional(),
+      })
+      .strict()
+      .optional(),
     tax: z
       .object({
         code: z.string().regex(TAX_CODE_PATTERN, "A product tax code: txcd_ and eight digits"),
@@ -432,6 +481,7 @@ export function checkObjectSellable(
     }
   }
   if (sellable.grants) checkGrants(m, name, object, sellable.grants, `${path}.grants`, contract);
+  if (sellable.moves) checkMoves(m, name, object, sellable.moves, `${path}.moves`, contract);
   const place = sellable.tax?.place;
   if (place) {
     let holder: ObjectManifest | undefined = object;
@@ -466,6 +516,151 @@ export function checkObjectSellable(
         }
       }
     }
+  }
+}
+
+/**
+ * Checks `sellable.moves` (ADR 0560): each of these is a way the order's batch could otherwise fail
+ * (a payment the host could not apply), or a record someone could hold with no order.
+ */
+function checkMoves(
+  m: ExtensionManifest,
+  name: string,
+  object: ObjectManifest,
+  moves: NonNullable<SellableManifest["moves"]>,
+  path: string,
+  contract: (path: string, message: string) => void,
+): void {
+  const sellable = object.sellable as SellableManifest;
+  for (const key of [
+    "grants",
+    "deposit",
+    "recurring",
+    "onePerPerson",
+    "maxPerOrder",
+    "saleWindow",
+  ] as const) {
+    if (sellable[key] !== undefined) {
+      contract(
+        `objects.${name}.sellable.${key}`,
+        `A record bought with moves is one record on one order: it has no ${key}`,
+      );
+    }
+  }
+  const field = (local: string) =>
+    Object.hasOwn(object.fields, local) ? object.fields[local] : undefined;
+  const price = field(sellable.price);
+  if (price && !price.readOnly) {
+    contract(
+      `objects.${name}.fields.${sellable.price}`,
+      `"${sellable.price}" holds what the host priced it at: make it readOnly`,
+    );
+  }
+  if (moves.order !== undefined) {
+    const order = field(moves.order);
+    if (order?.type !== "text" || order.many || !order.readOnly) {
+      contract(`${path}.order`, `"${moves.order}" must be a readOnly text field of ${name}`);
+    }
+  }
+  if (moves.price) {
+    if (moves.price.field === undefined && moves.price.setting === undefined) {
+      contract(`${path}.price`, "price names a field, a setting or both");
+    }
+    if (moves.price.field !== undefined) {
+      const at = resolveFieldPath(m, object, moves.price.field);
+      if (!at || at.many || (at.type !== "number" && at.type !== "currency")) {
+        contract(
+          `${path}.price.field`,
+          `"${moves.price.field}" must be a number field of ${name}, or <relation>.<field> through up to two relations, every field on the way declared by this extension`,
+        );
+      }
+    }
+    if (moves.price.setting !== undefined) {
+      const settings = m.settings ?? {};
+      const setting = Object.hasOwn(settings, moves.price.setting)
+        ? settings[moves.price.setting]
+        : undefined;
+      if (setting?.type !== "number") {
+        contract(
+          `${path}.price.setting`,
+          `"${moves.price.setting}" must be a number setting of ${m.id}`,
+        );
+      }
+    }
+  }
+  if (moves.title !== undefined) {
+    const at = resolveFieldPath(m, object, moves.title);
+    if (!at || at.many || at.type !== "text") {
+      contract(
+        `${path}.title`,
+        `"${moves.title}" must be a text field of ${name}, or through up to two relations`,
+      );
+    }
+  }
+  if (!object.customer) contract(path, `${name} must declare customer: whose record it is`);
+  const states = object.states;
+  if (!states) {
+    contract(path, `${name} must declare states: the order moves it`);
+    return;
+  }
+  const values = new Set((object.fields[states.field]?.options ?? []).map((o) => o.value));
+  const finals = new Set(states.moves.filter((mv) => mv.final).map((mv) => mv.to));
+  for (const key of ["held", "paid", "expired"] as const) {
+    if (!values.has(moves[key])) {
+      contract(`${path}.${key}`, `"${moves[key]}" is not a state of ${name}`);
+    }
+  }
+  if (new Set([moves.held, moves.paid, moves.expired]).size !== 3) {
+    contract(path, "held, paid and expired are three different states");
+  }
+  const creators = states.create?.in?.[moves.held] ?? [];
+  if (!creators.includes("host")) {
+    contract(`${path}.held`, `states.create.in must let the host create ${name} in "${moves.held}"`);
+  }
+  if (creators.some((by) => by !== "host")) {
+    contract(
+      `${path}.held`,
+      `Only the host creates ${name} in "${moves.held}": anyone else would hold it with no order`,
+    );
+  }
+  const hostMove = (to: string) =>
+    states.moves.some(
+      (mv) => mv.to === to && moveOrigins(mv).includes(moves.held) && mv.by.includes("host"),
+    );
+  for (const key of ["paid", "expired"] as const) {
+    if (!hostMove(moves[key])) {
+      contract(
+        `${path}.${key}`,
+        `${name} needs a move from "${moves.held}" to "${moves[key]}" the host may make`,
+      );
+    }
+  }
+  if (!finals.has(moves.expired)) {
+    contract(`${path}.expired`, `"${moves.expired}" must be a final state of ${name}`);
+  }
+  for (const mv of states.moves) {
+    if (!moveOrigins(mv).includes(moves.held)) continue;
+    if (mv.by.some((by) => by !== "host")) {
+      contract(
+        `${path}.held`,
+        `Only the host moves ${name} out of "${moves.held}" (to "${mv.to}"): its order says where it goes`,
+      );
+    }
+  }
+  for (const [i, state] of (moves.refund ?? []).entries()) {
+    if (!values.has(state) || state === moves.held || state === moves.expired) {
+      contract(
+        `${path}.refund.${i}`,
+        `"${state}" must be a state of ${name} other than held and expired`,
+      );
+    }
+  }
+  const allowance = object.allowance;
+  if (allowance && "spends" in allowance && !allowance.spends.waived) {
+    contract(
+      path,
+      `${name} spends uses: declare allowance.spends.waived, which the host sets on a record its order pays for`,
+    );
   }
 }
 

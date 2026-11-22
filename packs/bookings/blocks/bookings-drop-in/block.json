@@ -1,0 +1,11 @@
+{
+  "name": "bookings-drop-in",
+  "pack": "bookings",
+  "skin": "web",
+  "operations": ["x.bookings.timetable", "x.bookings.buy", "order.checkout"],
+  "files": ["drop-in.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/pack-bookings": "*"
+  }
+}
