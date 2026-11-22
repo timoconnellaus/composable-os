@@ -28,6 +28,13 @@ export interface MergeLinkPlan {
   readonly history: number;
   /** The ids ended, and why. */
   readonly ends: readonly { readonly id: string; readonly reason: string }[];
+  /**
+   * Both People's live links when it was read, as one sorted string ("none" when there are
+   * none): what the approved preview is held to, so a link made meanwhile is a conflict.
+   */
+  readonly live: string;
+  /** The merged Person has a live link: the merge moves, ends or deletes it (needs people:link). */
+  readonly movesLive: boolean;
 }
 
 /** Any Person with a live link: whether a merge of them is a person's act (ADR 0540). */
@@ -89,7 +96,21 @@ export async function planMergeLinks(
     else if (live(d, g)) ends.push({ id: row.id, reason: "merged: the other way round is linked" });
     else moved += 1;
   }
-  return { moved, ended: ends.length, deleted, history, ends };
+  const liveIds = rows
+    .filter((r) => r.ended_at === null)
+    .map((r) => r.id)
+    .sort();
+  return {
+    moved,
+    ended: ends.length,
+    deleted,
+    history,
+    ends,
+    live: liveIds.length ? liveIds.join(",") : "none",
+    movesLive: rows.some(
+      (r) => r.ended_at === null && (r.guardian_id === mergedId || r.dependant_id === mergedId),
+    ),
+  };
 }
 
 /** Queues the statements that carry out `plan`: delete, end, then move the rest. */

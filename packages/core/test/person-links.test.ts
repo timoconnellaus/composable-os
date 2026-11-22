@@ -10,12 +10,16 @@ import { z } from "zod";
 import { fieldStorage, objectTableOf } from "../src/extensions/schema.ts";
 import {
   type ActingUser,
+  adjudicatePendingAction,
   type CustomerPrincipal,
   coreRegistry,
   createInvoker,
   createRegistry,
   defineOperation,
   invoke,
+  invokeByName,
+  type ModelRunner,
+  PendingApprovalError,
 } from "../src/index.ts";
 import {
   call,
@@ -27,7 +31,7 @@ import {
   TICKET,
   VISIT,
 } from "./customer-fixtures.ts";
-import { context, createUser, setPreset, unique } from "./helpers.ts";
+import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 
 let admin: ActingUser;
 let member: ActingUser;
@@ -605,6 +609,9 @@ describe("what a live link gives, and only that", () => {
     expect(made.warning).toContain(email);
     const listed = await invoke("person.link.list", { personId: child }, context(admin));
     expect(listed.items[0]?.warning).toContain(email);
+    // Only to staff who make links: a member reading the links is not told an account exists.
+    const asMember = await invoke("person.link.list", { personId: child }, context(member));
+    expect(asMember.items[0]?.warning).toBeNull();
     // No warning when the child has no such address.
     const other = await person("OtherChild");
     expect((await link(parent, other)).warning).toBeNull();
@@ -720,7 +727,7 @@ describe("merging and erasing People with links", () => {
       { survivorId: child, mergedId: childAgain },
       context(admin),
     );
-    expect(plan).toEqual({ moved: 0, ended: 1, deleted: 0, history: 0 });
+    expect(plan).toEqual({ moved: 0, ended: 1, deleted: 0, history: 0, needs: null });
     const merged = await invoke(
       "person.merge",
       { survivorId: child, mergedId: childAgain },
@@ -793,6 +800,143 @@ describe("merging and erasing People with links", () => {
     } finally {
       await setPreset("balanced");
     }
+  });
+
+  // Second review: who can move a link by merging.
+  const mcpCall = () =>
+    context(admin, {
+      actor: "mcp",
+      origin: { surface: "mcp", clientId: "c", clientName: "T", sessionId: `cap_${unique()}` },
+      reason: "These two are the same person",
+    } as never);
+  const queueMerge = async (survivorId: string, mergedId: string) => {
+    const error = await invoke("person.merge", { survivorId, mergedId }, mcpCall()).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(PendingApprovalError);
+    return (error as PendingApprovalError).pending.actionId;
+  };
+  const pending = (id: string) =>
+    env.DB.prepare("SELECT status, review_source FROM core_pending_action WHERE id = ?")
+      .bind(id)
+      .first<{ status: string; review_source: string | null }>();
+
+  it("a merge queued with no links, a link made after: the adjudicator leaves it for a person", async () => {
+    await setPreset("balanced");
+    await invoke(
+      "adjudicator.setPolicy",
+      { text: "- Merging duplicates is fine." },
+      context(admin),
+    );
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO core_settings (key, value, updated_at) VALUES ('adjudicator', ?, ?)",
+    )
+      .bind(
+        JSON.stringify({ mode: "active", threshold: 0.5, enabledAt: "2000-01-01T00:00:00.000Z" }),
+        new Date().toISOString(),
+      )
+      .run();
+    const approving: ModelRunner = {
+      async run() {
+        return {
+          text: JSON.stringify({ verdict: "approve", confidence: 1, reason: "A duplicate." }),
+          model: "fake",
+          provider: "fake",
+        };
+      },
+    } as unknown as ModelRunner;
+    try {
+      const stranger = await person("Stranger");
+      const parent = await person("Parent");
+      const child = await person("Child");
+      const actionId = await queueMerge(stranger, parent);
+      expect((await pending(actionId))?.review_source).toBe("policy");
+      // Meanwhile staff link the parent to a child.
+      await link(parent, child);
+      const result = await adjudicatePendingAction(
+        { db, models: approving, resolveOperation: (name) => coreRegistry.get(name) },
+        actionId,
+      );
+      expect(result).toMatchObject({ status: "judged", outcome: "escalated" });
+      expect(await pending(actionId)).toEqual({ status: "pending", review_source: "always" });
+      // Not applied: the stranger is nobody's guardian.
+      const strangerLinks = await links(stranger);
+      expect(strangerLinks).toEqual([]);
+      expect((await links(parent)).filter((l) => l.ended_at === null)).toHaveLength(1);
+    } finally {
+      await env.DB.prepare("DELETE FROM core_settings WHERE key = 'adjudicator'").run();
+    }
+  });
+
+  it("a person approving a merge after a link was made gets a conflict, not the link moved", async () => {
+    await setPreset("balanced");
+    const stranger = await person("Stranger");
+    const parent = await person("Parent");
+    const child = await person("Child");
+    const actionId = await queueMerge(stranger, parent);
+    await link(parent, child);
+    const approve = async () => {
+      try {
+        return (await invokeByName(
+          "approval.approve",
+          { actionIds: [actionId] },
+          context(admin),
+        )) as {
+          results: { status: string; statusReason?: string | null }[];
+        };
+      } catch (error) {
+        const label = (error as { details?: { confirmLabel?: string } }).details?.confirmLabel;
+        if (!label) throw error;
+        return (await invokeByName(
+          "approval.approve",
+          { actionIds: [actionId], confirm: label },
+          context(admin),
+        )) as { results: { status: string; statusReason?: string | null }[] };
+      }
+    };
+    const result = await approve();
+    expect(result.results[0]).toMatchObject({ status: "failed" });
+    expect(result.results[0]?.statusReason).toContain("changed after this was queued");
+    expect(await links(stranger)).toEqual([]);
+    // Asked again, the fresh preview names the link: it moves, and it now waits for a person.
+    const again = await queueMerge(stranger, parent);
+    expect((await pending(again))?.review_source).toBe("always");
+    const preview = await env.DB.prepare("SELECT preview FROM core_pending_action WHERE id = ?")
+      .bind(again)
+      .first<{ preview: string }>();
+    expect(preview?.preview).toContain("1 moved, 0 ended, 0 deleted");
+  });
+
+  it("a merge that moves a live link needs people:link: a member is refused, an admin is not", async () => {
+    const parent = await person("Parent");
+    const parentAgain = await person("ParentAgain");
+    const child = await person("Child");
+    await link(parentAgain, child);
+    const plan = await invoke(
+      "person.link.mergePlan",
+      { survivorId: parent, mergedId: parentAgain },
+      context(member),
+    );
+    expect(plan).toMatchObject({ moved: 1, needs: "people:link" });
+    expect(
+      await refusal(
+        invoke("person.merge", { survivorId: parent, mergedId: parentAgain }, context(member)),
+      ),
+    ).toMatchObject({ code: "forbidden", details: { permission: "people:link" } });
+    expect((await links(parentAgain)).filter((l) => l.ended_at === null)).toHaveLength(1);
+    // A merge that moves no live link is the member's to make, as before.
+    const a = await person("Lone");
+    const b = await person("LoneAgain");
+    await expect(
+      invoke("person.merge", { survivorId: a, mergedId: b }, context(member)),
+    ).resolves.toMatchObject({ id: a });
+    const done = await invoke(
+      "person.merge",
+      { survivorId: parent, mergedId: parentAgain },
+      context(admin),
+    );
+    expect(done.familyLinks).toMatchObject({ moved: 1 });
   });
 
   it("erasing a guardian leaves the child, with no guardian, and tells staff", async () => {

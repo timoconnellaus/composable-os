@@ -88,7 +88,17 @@ change in the approval card says what happens to the links. **A merge where eith
 live family link is a person's act**: from the assistant, an MCP client, an automation or extension
 code it always waits for a person's approval, whatever the preset and the floor (a deny still
 applies), as a `personApproves` field does (coordinator's decision on review, 2026-11-23, following
-AGENTS.md "identity and policy are not AI-configurable"). `person.erase`
+AGENTS.md "identity and policy are not AI-configurable"). This is asked again when an approved
+action is applied: one the adjudicator approved that now touches something only a person approves
+(a link made after it was queued) is left for a person as an "always" review, never applied by it
+(general for every `personApproves` change). And the survivor's change carries the two People's
+live links as its `before`, so a person approving a preview that no longer matches (a link made or
+ended meanwhile) gets a conflict and a fresh preview. **A merge that would move a live link needs
+`people:link`** as well as `records:write` (coordinator's decision, second review), so nobody
+without it can hand a child to another Person by merging the guardian into them; the merge preview
+says so before they try, and `duplicate.mergeMany` follows the same rule through its nested merge.
+The shared-email warning on `person.link.list` is shown only to a caller with `people:link`: it
+says whether an account exists for an address. `person.erase`
 deletes every link of the erased People, live and ended (the foreign keys would too), and a
 dependant left with no live guardian is not erased: the erase answers with them
 (`dependantsWithoutGuardian`) and a note on their timeline says they have no guardian linked, naming

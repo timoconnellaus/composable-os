@@ -40992,13 +40992,26 @@
           },
           "history": {
             "type": "number"
+          },
+          "needs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "people:link"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The permission the merge needs because it moves a live link, when the caller lacks it"
           }
         },
         "required": [
           "moved",
           "ended",
           "deleted",
-          "history"
+          "history",
+          "needs"
         ],
         "additionalProperties": false
       },

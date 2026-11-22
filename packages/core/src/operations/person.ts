@@ -13,13 +13,14 @@ import { personNameKey } from "../duplicates/normalise.ts";
 import { queueClosePairs } from "../duplicates/pairs.ts";
 import { possibleDuplicatesSchema } from "../duplicates/rules.ts";
 import { assertRecordCapacity } from "../entitlements.ts";
-import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { personObject } from "../fields/person.ts";
 import { newId } from "../ids.ts";
 import { listInputSchema, pageSchema, runListQuery, selectFields } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { queueMergeOrders } from "../orders/merge.ts";
+import { holdsPermission } from "../principals.ts";
 import { bulkTagListSchema, queueBulkTags } from "../records/bulk-tags.ts";
 import {
   assertUserExists,
@@ -1142,6 +1143,14 @@ export const personMerge = defineOperation({
     // Family links follow the Person; one between the two is deleted, a duplicate or one that
     // would become two-way is ended (ADR 0540).
     const plan = await planMergeLinks(ctx.db, survivor.id, merged.id);
+    // Moving a live link moves who may act for whom: as making or ending one, it needs
+    // people:link (ADR 0540).
+    if (plan.movesLive && !holdsPermission(ctx.user, ctx.permissionGrants, "people:link")) {
+      throw new ForbiddenError(
+        `${merged.displayName} has family links (a parent or a child), which a merge would move: merging them needs people:link`,
+        { permission: "people:link" },
+      );
+    }
     queueMergeLinks(ctx, survivor.id, merged.id, plan);
     const familyLinks = {
       moved: plan.moved,
@@ -1149,7 +1158,6 @@ export const personMerge = defineOperation({
       deleted: plan.deleted,
       history: plan.history,
     };
-    const touchesLinks = plan.moved + plan.ended + plan.deleted + plan.history > 0;
 
     const emailSet = new Set(survivor.emails.map((e) => e.email));
     after.emails = [
@@ -1243,16 +1251,14 @@ export const personMerge = defineOperation({
       object: "person",
       id: survivor.id,
       action: "merge",
-      before: personSnapshot(survivor),
+      // Family links (ADR 0540): before, the two People's live links as read; after, what the
+      // merge does to them. Shown in the approval card, and an approval is held to the before: a
+      // link made or ended after the preview makes applying it a conflict, never a surprise.
+      before: { ...personSnapshot(survivor), familyLinks: plan.live },
       after: {
         ...personSnapshot(after),
         absorbedId: merged.id,
-        // What the merge does to family links, shown in the approval card's preview (ADR 0540).
-        ...(touchesLinks
-          ? {
-              familyLinks: `${plan.moved} moved, ${plan.ended} ended, ${plan.deleted} deleted${plan.history ? `, ${plan.history} past moved` : ""}`,
-            }
-          : {}),
+        familyLinks: `${plan.moved} moved, ${plan.ended} ended, ${plan.deleted} deleted${plan.history ? `, ${plan.history} past moved` : ""}`,
       },
     });
     ctx.recordChange({

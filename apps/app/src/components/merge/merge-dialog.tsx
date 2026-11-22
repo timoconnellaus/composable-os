@@ -70,7 +70,12 @@ interface MovePreview {
   affiliations: number;
   children: number | null;
   /** What happens to a person's family links (ADR 0540); null for an organisation. */
-  familyLinks: { moved: number; ended: number; deleted: number } | null;
+  familyLinks: {
+    moved: number;
+    ended: number;
+    deleted: number;
+    needs: "people:link" | null;
+  } | null;
 }
 
 /** What would move from `id` onto the survivor: linked activities, tasks, affiliations, children. */
@@ -108,7 +113,7 @@ async function loadMovePreview(
     affiliations: affiliations.items.length,
     children: children ? children.items.length : null,
     familyLinks: family
-      ? { moved: family.moved, ended: family.ended, deleted: family.deleted }
+      ? { moved: family.moved, ended: family.ended, deleted: family.deleted, needs: family.needs }
       : null,
   };
 }
@@ -414,6 +419,12 @@ function MergeChooser({
                     {moves.data.familyLinks.ended} family link
                     {moves.data.familyLinks.ended === 1 ? "" : "s"} will end: a duplicate, or one
                     whose other way round is linked.
+                  </li>
+                )}
+                {moves.data.familyLinks.needs && (
+                  <li className="text-destructive" role="alert">
+                    This moves family links (a parent or a child): merging needs the people:link
+                    permission, which you do not hold.
                   </li>
                 )}
                 {moves.data.familyLinks.deleted > 0 && (

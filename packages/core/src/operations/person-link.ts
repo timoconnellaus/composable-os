@@ -17,6 +17,7 @@ import { z } from "zod";
 import { ConflictError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { holdsPermission } from "../principals.ts";
 import { planMergeLinks } from "../records/person-links.ts";
 import { GUARDIAN_LINK, recordsMadeFor, sharedEmailWarning } from "../visibility/guardians.ts";
 import { visibleSource } from "../visibility/index.ts";
@@ -283,11 +284,15 @@ export const personLinkList = defineOperation({
       ctx,
       rows.flatMap((row) => [row.guardian_id, row.dependant_id]),
     );
+    // The shared-email warning tells whether an account exists for an address: only for staff
+    // who make and end links (people:link), who act on it.
+    const linker = holdsPermission(ctx.user, ctx.permissionGrants, "people:link");
     const items: Link[] = [];
     for (const row of rows) {
-      const warning = row.ended_at
-        ? null
-        : await sharedEmailWarning(ctx.db, row.guardian_id, row.dependant_id);
+      const warning =
+        row.ended_at || !linker
+          ? null
+          : await sharedEmailWarning(ctx.db, row.guardian_id, row.dependant_id);
       items.push(toLink(row, names, warning));
     }
     return { items };
@@ -308,13 +313,29 @@ export const personLinkMergePlan = defineOperation({
     ended: z.number(),
     deleted: z.number(),
     history: z.number(),
+    needs: z
+      .literal("people:link")
+      .nullable()
+      .describe(
+        "The permission the merge needs because it moves a live link, when the caller lacks it",
+      ),
   }),
   permission: "records:read",
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const plan = await planMergeLinks(ctx.db, input.survivorId, input.mergedId);
-    return { moved: plan.moved, ended: plan.ended, deleted: plan.deleted, history: plan.history };
+    const needs =
+      plan.movesLive && !holdsPermission(ctx.user, ctx.permissionGrants, "people:link")
+        ? ("people:link" as const)
+        : null;
+    return {
+      moved: plan.moved,
+      ended: plan.ended,
+      deleted: plan.deleted,
+      history: plan.history,
+      needs,
+    };
   },
 });
 

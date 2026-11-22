@@ -29,6 +29,7 @@ import type { AnyOperation } from "../operation.ts";
 import { type InvocationContext, invokeOperation } from "../pipeline.ts";
 import { type ActingUser, type Origin, ROLES, type Role } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
+import { touchesPersonApproves } from "../records/person-approves.ts";
 import {
   ADJUDICATOR_PRINCIPAL,
   type AdjudicatorMode,
@@ -487,6 +488,20 @@ async function adjudicate(
     note: decision.note,
   };
   if (!act) return { ...result, outcome };
+  // What a person approves may have joined the action since it was queued (a family link on a
+  // merge, ADR 0540): asked again now, and if so the action is a person's, left for one as an
+  // "always" review the adjudicator never approves.
+  if (await touchesPersonApproves(db, row.operation, parse(row.input, {}))) {
+    await deps.db.batch([
+      db
+        .updateTable("core_pending_action")
+        .set({ review_source: "always" })
+        .where("id", "=", row.id)
+        .where("status", "=", "pending"),
+      db.updateTable("core_adjudication").set({ outcome: "escalated" }).where("id", "=", verdictId),
+    ]);
+    return { ...result, outcome: "escalated" };
+  }
   const applied = await applyApproved(deps, row, now);
   if (applied.ok) return { ...result, outcome: "approved" };
   await deps.db.batch([
