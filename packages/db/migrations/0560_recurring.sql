@@ -14,6 +14,9 @@ CREATE TABLE core_recurrence_series (
   next_run_at TEXT NOT NULL,
   -- The last local date (YYYY-MM-DD) it has made records up to, or none yet.
   generated_until TEXT,
+  -- Bumped by every write to the series and every run of it: a run or a change that read an
+  -- older version fails its batch (core_write_guard below), so neither leaves stale records.
+  version INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (object_type, record_id)
 ) WITHOUT ROWID;
@@ -34,6 +37,38 @@ CREATE TABLE core_recurrence_occurrence (
 ) WITHOUT ROWID;
 CREATE UNIQUE INDEX core_recurrence_occurrence_record_idx
   ON core_recurrence_occurrence (object_type, record_id);
+
+-- Guards for a batch that was planned from a read (stage 31, ADRs 0500 and 0501). A statement
+-- inserts one row saying what it read; the trigger compares it with what is there now, in the
+-- batch, and either drops the row silently (still true) or fails the whole batch. Nothing is ever
+-- stored here.
+--   kind 'claimed':      a capacity counter's held + taken is still `expected`
+--   kind 'claimant':     the claimant record still has `expected` live claims (held or confirmed)
+--   kind 'series':       a series' version is still `expected`
+CREATE TABLE core_write_guard (
+  kind TEXT NOT NULL CHECK (kind IN ('claimed', 'claimant', 'series')),
+  object_type TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  expected INTEGER NOT NULL
+);
+
+CREATE TRIGGER core_write_guard_check
+BEFORE INSERT ON core_write_guard
+BEGIN
+  SELECT CASE
+    WHEN NEW.kind = 'claimed' AND coalesce((SELECT held + taken FROM core_capacity
+        WHERE object_type = NEW.object_type AND record_id = NEW.record_id), 0) != NEW.expected
+      THEN RAISE(ABORT, 'core_recurrence_stale')
+    WHEN NEW.kind = 'series' AND coalesce((SELECT version FROM core_recurrence_series
+        WHERE object_type = NEW.object_type AND record_id = NEW.record_id), 0) != NEW.expected
+      THEN RAISE(ABORT, 'core_recurrence_stale')
+    WHEN NEW.kind = 'claimant' AND (SELECT count(*) FROM core_capacity_claim
+        WHERE for_type = NEW.object_type AND for_id = NEW.record_id
+          AND state IN ('held', 'confirmed')) != NEW.expected
+      THEN RAISE(ABORT, 'core_claim_live')
+    ELSE RAISE(IGNORE)
+  END;
+END;
 
 -- Guarded: migrations land out of order (docs/parallel-work.md).
 UPDATE core_meta SET value = '560'

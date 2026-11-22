@@ -49,3 +49,16 @@ start, and numbers a class type overrides over the organisation's defaults.
   the approval gate decides what they may do without a person.
 - The local-time opening the spec mentions ("00:00 seven days before") is a pack's field set by
   the host, read as `at`; the engine has only lengths of time and whole local days.
+
+## Amended 2026-11-22 (review, before merge)
+- **Changing what the create rules read is a create.** A customer's write that changes a field
+  the create rules read (the relation in `klass.startsAt`, or a field of the record itself) is
+  judged against them for the record as the write leaves it, whatever state it is in: waiting on
+  an open class and then pointing the booking at a closed or staff-only one is refused. A move's
+  window is always judged on the record as the write leaves it, so changing the relation in the
+  same write as the move is judged against the new one.
+- **The AI assistant is resolved by the clock.** Staff asking for `cancel` still get the first
+  state (a person on the staff may cancel late without keeping the use), but a call whose actor
+  is `assistant` (an AI acting for a member) is resolved as a customer's is. The actor is the
+  invocation's (`ctx.actor`), set by the pipeline, not by the caller's input.
+- `localDaysBefore` keeps the seconds and milliseconds past the minute.

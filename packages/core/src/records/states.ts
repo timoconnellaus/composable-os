@@ -148,6 +148,18 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       if (before === null && write.by === "customer" && states.create) {
         await customerRules(write, states.create, `Creating ${o.label.toLowerCase()}`, to, null);
       }
+      // A customer changing what the create rules read (the class it is for, or a field of its
+      // own they name) makes it again, in effect: judged as a create of the record as the write
+      // leaves it, whatever state it is in. Otherwise waiting on an open class, then pointing the
+      // booking at a closed or staff-only one, would get round them.
+      if (
+        before !== null &&
+        write.by === "customer" &&
+        states.create &&
+        ruleSources(states.create).some((f) => write.changed(f))
+      ) {
+        await customerRules(write, states.create, `Creating ${o.label.toLowerCase()}`, to, from);
+      }
       // A state a record may be created in is not a move from the initial state (ADR 0503).
       const createdIn =
         before === null && toId !== states.initial ? states.create?.in?.[toId] : undefined;
@@ -224,6 +236,24 @@ interface RuleSet {
   staffOnly?: string | undefined;
 }
 
+/** The record's own fields a rule set reads: each path's first part (a relation, or the field). */
+function ruleSources(rules: RuleSet): string[] {
+  const paths: string[] = [];
+  if (rules.staffOnly) paths.push(rules.staffOnly);
+  for (const bound of [rules.window?.from, rules.window?.until]) {
+    if (bound === undefined) continue;
+    if (typeof bound === "string") {
+      paths.push(bound);
+      continue;
+    }
+    paths.push(bound.at);
+    for (const part of [bound.daysBefore, bound.minutesBefore, bound.zone]) {
+      if (typeof part === "string") paths.push(part);
+    }
+  }
+  return [...new Set(paths.map((p) => p.split(".")[0] as string))];
+}
+
 /** Why a customer may not make this write now, or null when they may. */
 async function customerRefusal(
   ctx: HandlerContext,
@@ -257,7 +287,9 @@ async function customerRefusal(
  * Resolves a requested move (`requests`, ADR 0503): when `values` writes a request's name into
  * the state field, returns them with the state the host picks instead, the first of the
  * request's states whose move from where the record is `by` may make now, windows and staff-only
- * rules included. A member asking to "cancel" is cancelled in time or late by the host's clock.
+ * rules included. A member asking to "cancel" is cancelled in time or late by the host's clock;
+ * so is the AI assistant asking for them (actor `assistant`), while a person on the staff is not
+ * bound and gets the first state.
  * Values that ask for no request come back as they are. Refused when no listed state may be
  * entered. The record operations call it before validating, so a request is never stored; a
  * pack's dry run calls it to say which state a request would enter.
@@ -285,7 +317,9 @@ export async function resolveStateRequest(
   for (const to of requests[asked] ?? []) {
     const move = states.moves.find((m) => m.to === to && moveOrigins(m).includes(origin));
     if (!move?.by.includes(by)) continue;
-    if (by === "customer") {
+    // A customer, and the assistant (an AI acting for a member is told apart by its actor,
+    // `assistant`), are resolved by the clock; a person on the staff is not bound.
+    if (by === "customer" || ctx.actor === "assistant") {
       const refusal = await customerRefusal(
         ctx,
         object,

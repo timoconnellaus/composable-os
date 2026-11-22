@@ -9,7 +9,22 @@
 import { env } from "cloudflare:workers";
 import { validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type ActingUser, invoke, runRecurringDue } from "../src/index.ts";
+import { z } from "zod";
+import {
+  type ActingUser,
+  armSeriesStatement,
+  coreRegistry,
+  createInvoker,
+  createRecord,
+  createRegistry,
+  defineOperation,
+  generateSeries,
+  invoke,
+  localDaysBefore,
+  requireExtensionObject,
+  runRecurringDue,
+  updateRecord,
+} from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db } from "./helpers.ts";
 
@@ -66,6 +81,7 @@ const timetable = (id: string) =>
           ended: { field: "state", in: ["ended"] },
           closures: { object: "closure", from: "from", until: "until" },
           horizonDays: 56,
+          horizonAtLeast: { object: "rules", field: "opensDays" },
         },
       },
       klass: {
@@ -89,6 +105,7 @@ const timetable = (id: string) =>
               { value: "scheduled", label: "Scheduled" },
               { value: "cancelled", label: "Cancelled" },
               { value: "done", label: "Done" },
+              { value: "paused", label: "Paused" },
             ],
           },
         },
@@ -98,6 +115,9 @@ const timetable = (id: string) =>
           moves: [
             { from: "scheduled", to: "cancelled", by: ["staff", "host"], final: true },
             { from: "scheduled", to: "done", by: ["staff", "host"], final: true },
+            // A state the host has no move into "cancelled" from.
+            { from: "scheduled", to: "paused", by: ["staff"] },
+            { from: "paused", to: "scheduled", by: ["staff"] },
           ],
         },
         capacity: { places: "places" },
@@ -125,6 +145,16 @@ const timetable = (id: string) =>
           moves: [{ from: "booked", to: "cancelled", by: ["staff"], final: true }],
         },
         claims: { on: "klass", confirmed: ["booked"] },
+      },
+      // A class type's booking window, standing in for step 3's: the horizon is never less.
+      rules: {
+        label: "Rules",
+        plural: "Rules",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name", required: true },
+          opensDays: { type: "number", label: "Opens (days before)" },
+        },
       },
       closure: {
         label: "Closure",
@@ -170,8 +200,19 @@ async function series(values: Record<string, unknown>, now: string) {
 }
 
 /** The minute cron at `now`, until nothing more is due. */
+/** The minute cron at `now`, run until nothing is due (every series in this file shares it). */
 async function tick(now: string) {
-  return runRecurringDue(db, { clock: () => new Date(now) });
+  let total = { series: 0, made: 0, failed: 0 };
+  for (let i = 0; i < 30; i += 1) {
+    const result = await runRecurringDue(db, { clock: () => new Date(now) });
+    total = {
+      series: total.series + result.series,
+      made: total.made + result.made,
+      failed: total.failed + result.failed,
+    };
+    if (result.series === 0) break;
+  }
+  return total;
 }
 
 interface Made {
@@ -560,5 +601,251 @@ describe("classes with places taken", () => {
         { ...as(now), actor: "assistant" },
       ),
     ).rejects.toMatchObject({ code: "pending_approval" });
+  });
+});
+
+// --- Review fixes (2026-11-22) ---------------------------------------------------------------------
+
+// Platform code racing itself, in one batch: what two writes a moment apart would do.
+const bookThenChange = defineOperation({
+  name: "fixture.bookThenChange",
+  description: "Test fixture: books a class, then changes its series, planned from the same read.",
+  input: z.object({
+    klass: z.string(),
+    series: z.string(),
+    values: z.record(z.string(), z.unknown()),
+  }),
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    await createRecord(ctx, requireExtensionObject(`${ext}.booking`), { klass: input.klass });
+    await updateRecord(ctx, requireExtensionObject(SERIES), input.series, input.values);
+    return { ok: true };
+  },
+});
+const changeThenGenerate = defineOperation({
+  name: "fixture.changeThenGenerate",
+  description: "Test fixture: a series written, then a run planned from the version before.",
+  input: z.object({ series: z.string() }),
+  output: z.object({ made: z.number(), more: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    ctx.write(armSeriesStatement(SERIES, input.series, ctx.now, ctx.now));
+    return generateSeries(ctx, requireExtensionObject(SERIES), input.series);
+  },
+});
+const races = createInvoker(
+  createRegistry([...coreRegistry.list(), bookThenChange, changeThenGenerate]),
+);
+
+describe("review fixes: guarded plans, the horizon, from a date, Trash, cost", () => {
+  it("a class booked under a series change fails the change, which can be tried again", async () => {
+    const now = "2027-05-03T00:00:00.000Z";
+    const id = await series({ firstDate: "2027-05-03" }, now);
+    await tick(now);
+    const [first] = await made(id);
+    if (!first) throw new Error("expected a class");
+    // A new time, and the class's weekday dropped: each planned with no places taken.
+    const drop = new Date(`${first.date}T00:00:00Z`).getUTCDay() === 2 ? ["thu"] : ["tue"];
+    for (const values of [{ time: "08:00" }, { weekdays: drop }]) {
+      await expect(
+        races.invoke("fixture.bookThenChange", { klass: first.id, series: id, values }, as(now)),
+      ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_stale" } });
+    }
+    const after = await made(id);
+    expect(after[0]?.id).toBe(first.id);
+    expect(wallClock(after[0]?.values.startsAt, "Australia/Sydney")).toBe("06:00");
+  });
+
+  it("a run planned before a change to its series fails, and the next tick makes it fresh", async () => {
+    const now = "2027-06-01T00:00:00.000Z";
+    const id = await series({ firstDate: "2027-06-01" }, now);
+    await expect(
+      races.invoke(
+        "fixture.changeThenGenerate",
+        { series: id },
+        { ...as(now), actor: "automation" },
+      ),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_stale" } });
+    expect(await made(id)).toEqual([]);
+    await tick(now);
+    expect((await made(id)).length).toBeGreaterThan(0);
+  });
+
+  it("applies a change from a date: earlier classes keep the series as it was", async () => {
+    const now = "2027-07-01T00:00:00.000Z";
+    const id = await series({ firstDate: "2027-07-01" }, now);
+    await tick(now);
+    await invoke(
+      "recurring.change",
+      { object: SERIES, id, values: { time: "09:00" }, confirm: 1, from: "2027-07-20" },
+      as(now),
+    );
+    const classes = await made(id);
+    expect(classes.some((c) => c.date < "2027-07-20")).toBe(true);
+    for (const c of classes) {
+      const expected = c.date >= "2027-07-20" ? "09:00" : "06:00";
+      expect([c.date, wallClock(c.values.startsAt, "Australia/Sydney")]).toEqual([
+        c.date,
+        expected,
+      ]);
+    }
+  });
+
+  it("a series in Trash stops: its future classes go, booked ones refuse it, and restored it runs again", async () => {
+    const now = "2027-08-02T00:00:00.000Z";
+    const id = await series({ firstDate: "2027-08-02" }, now);
+    await tick(now);
+    expect((await made(id)).length).toBeGreaterThan(5);
+    await invoke("record.delete", { object: SERIES, id }, as(now));
+    expect(await made(id)).toEqual([]);
+    await tick("2027-08-03T00:00:00.000Z");
+    expect(await made(id)).toEqual([]);
+    await invoke("record.restore", { object: SERIES, id }, as("2027-08-03T00:00:00.000Z"));
+    await tick("2027-08-03T00:01:00.000Z");
+    const back = await made(id);
+    expect(back.length).toBeGreaterThan(5);
+    // With a class booked, Trash is refused: end the series with the count first.
+    await invoke(
+      "record.create",
+      { object: `${ext}.booking`, values: { klass: back[0]?.id } },
+      as(now),
+    );
+    await expect(
+      invoke("record.delete", { object: SERIES, id }, as("2027-08-03T00:02:00.000Z")),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_confirm", count: 1 } });
+  });
+
+  it("refuses up front, with the reason, a change that would cancel a class the host cannot cancel", async () => {
+    const now = "2027-09-01T00:00:00.000Z";
+    const id = await series({ firstDate: "2027-09-01" }, now);
+    await tick(now);
+    const [first] = await made(id);
+    await invoke(
+      "record.create",
+      { object: `${ext}.booking`, values: { klass: first?.id } },
+      as(now),
+    );
+    await invoke(
+      "record.update",
+      { object: KLASS, id: first?.id as string, values: { state: "paused" } },
+      as(now),
+    );
+    await expect(
+      invoke(
+        "recurring.change",
+        { object: SERIES, id, values: { state: "ended" }, confirm: 1 },
+        as(now),
+      ),
+    ).rejects.toMatchObject({
+      code: "conflict",
+      details: { rule: "recurring_cannot_cancel", records: [{ id: first?.id, state: "paused" }] },
+    });
+    expect((await made(id)).length).toBeGreaterThan(5);
+  });
+
+  it("a closure that cancels booked classes needs the count, from a person; renaming it cancels nothing", async () => {
+    const now = "2027-10-04T00:00:00.000Z";
+    const id = await series({ firstDate: "2027-10-04" }, now);
+    await tick(now);
+    const target = (await made(id)).find((c) => c.date === "2027-10-12");
+    await invoke(
+      "record.create",
+      { object: `${ext}.booking`, values: { klass: target?.id } },
+      as(now),
+    );
+    const values = { name: "Long weekend", from: "2027-10-12", until: "2027-10-14" };
+    await expect(
+      invoke("record.create", { object: CLOSURE, values }, as(now)),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_confirm", count: 1 } });
+    await expect(
+      invoke(
+        "recurring.close",
+        { object: CLOSURE, values, confirm: 1 },
+        { ...as(now), actor: "assistant" },
+      ),
+    ).rejects.toMatchObject({ code: "pending_approval" });
+    const closure = (await invoke(
+      "recurring.close",
+      { object: CLOSURE, values, confirm: 1 },
+      as(now),
+    )) as { id: string };
+    expect(
+      (await made(id)).filter((c) => c.values.state === "cancelled").map((c) => c.date),
+    ).toEqual(["2027-10-12", "2027-10-14"]);
+    // Staff put on a one-off class inside it; renaming the closure leaves it on.
+    const oneOff = await invoke(
+      "record.create",
+      {
+        object: KLASS,
+        values: {
+          name: "Open gym",
+          startsAt: "2027-10-12T23:00:00.000Z",
+          timezone: "Australia/Sydney",
+        },
+      },
+      as(now),
+    );
+    await invoke(
+      "record.update",
+      { object: CLOSURE, id: closure.id, values: { name: "Holiday" } },
+      as(now),
+    );
+    const kept = await invoke("record.get", { object: KLASS, id: oneOff.id }, as(now));
+    expect((kept.values as Record<string, unknown>).state).toBe("scheduled");
+  });
+
+  it("a tick makes at most its budget across series, the oldest due first, and finishes later", async () => {
+    const now = "2028-01-03T00:00:00.000Z";
+    await tick(now); // Every other series in this file is made first.
+    const every = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    // The small series was saved a moment before the big one: it is due first.
+    const small = await series({ firstDate: "2028-01-03" }, "2028-01-02T23:59:59.000Z");
+    const big = await series({ firstDate: "2028-01-03", weekdays: every }, now);
+    const first = await runRecurringDue(db, { clock: () => new Date(now), maxRecords: 30 });
+    expect(first.made).toBe(30);
+    expect((await made(small)).length).toBe(16);
+    expect((await made(big)).length).toBe(14);
+    for (let i = 1; i <= 4; i += 1) {
+      const at = new Date(Date.parse(now) + i * 60_000);
+      const tickResult = await runRecurringDue(db, { clock: () => at, maxRecords: 30 });
+      expect(tickResult.made).toBeLessThanOrEqual(30);
+    }
+    expect((await made(big)).length).toBe(56);
+    expect((await made(small)).length).toBe(16);
+  });
+
+  it("never makes the horizon shorter than the longest booking window", async () => {
+    const now = "2028-03-06T00:00:00.000Z";
+    await invoke(
+      "record.create",
+      { object: `${ext}.rules`, values: { name: "Kids", opensDays: 90 } },
+      as(now),
+    );
+    const id = await series({ firstDate: "2028-03-06" }, now);
+    for (let i = 0; i < 3; i += 1) await tick(new Date(Date.parse(now) + i * 60_000).toISOString());
+    // 90 days of window, plus the day it opens: up to 5 June 2028.
+    expect((await made(id)).map((c) => c.date)).toEqual(
+      tuesdaysAndThursdays("2028-03-07", "2028-06-05"),
+    );
+  });
+
+  it("refuses copying into the state, and keeps milliseconds when counting local days", () => {
+    const broken = timetable("cprec");
+    const objects = broken.objects as Record<
+      string,
+      { recurring?: { copy?: Record<string, string> } }
+    >;
+    const recurring = objects.series?.recurring;
+    if (recurring) recurring.copy = { ...recurring.copy, state: "state" };
+    expect(validateManifest(broken).issues.map((i) => i.path)).toContain(
+      "objects.series.recurring.copy.state",
+    );
+    const at = Date.parse("2026-10-07T19:00:12.345Z");
+    expect(new Date(localDaysBefore(at, 7, "Australia/Sydney")).toISOString()).toBe(
+      "2026-09-30T20:00:12.345Z",
+    );
   });
 });

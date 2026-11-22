@@ -106,6 +106,7 @@ export function localParts(at: number, timeZone: string): { date: string; minute
 /** The instant `days` local days before `at` (after, when negative), at the same wall clock. */
 export function localDaysBefore(at: number, days: number, timeZone: string): number {
   const { date, minutes } = localParts(at, timeZone);
-  const seconds = Math.floor((at + zoneOffset(at, timeZone)) / 1000) % 60;
-  return localInstant(addDays(date, -days), minutes, timeZone) + seconds * 1000;
+  // The seconds and milliseconds past the minute are kept as they are (offsets are whole minutes).
+  const withinMinute = ((at % 60_000) + 60_000) % 60_000;
+  return localInstant(addDays(date, -days), minutes, timeZone) + withinMinute;
 }

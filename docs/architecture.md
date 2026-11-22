@@ -1052,8 +1052,13 @@ clock change; a time in a change's gap moves forward by the gap, one that happen
 first. A record staff change (time, copied fields, state) is marked edited and left alone; a
 change to the series reaches the rest at once, in its batch, and moving or cancelling records
 with places taken needs `recurring.change` with the count confirmed. Closures cancel the records
-they cover and nothing is made in them. The wall-clock helper is shared with subscriptions'
-`paidUpMoment` and stage 32b's allowances.
+they cover and nothing is made in them (`recurring.close` with the count when they cover booked
+records). Runs and changes are planned from a read and guarded at commit (`core_write_guard`: the
+series' version, each planned record's places), so a race fails as a conflict instead of leaving
+stale or orphaned records. A tick makes at most 100 records, 25 per series run, sized from D1's
+1000 queries per invocation (ADR 0500). `horizonAtLeast` keeps the horizon at least the longest
+booking window; a series in Trash is handled as ended. The wall-clock helper is shared with
+subscriptions' `paidUpMoment` and stage 32b's allowances.
 
 `sellable` ([ADR 0435](adr/0435-sellable-what-may-be-bought-and-what-a-paid-line-grants.md),
 `packages/sdk/src/sellable.ts`, `packages/core/src/orders/sellable.ts` and `grants.ts`) is what

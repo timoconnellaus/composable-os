@@ -9,6 +9,8 @@
 // anywhere; their names as whole words only where the row is known to be about them.
 import { type CompiledQuery as Compiled, CompiledQuery, type SqlBool, sql } from "kysely";
 import { mentions } from "../assistant/scrub.ts";
+import { releaseAllClaimsOfStatements } from "../capacity/claimants.ts";
+import { getObject } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { chunk, jsonList } from "./common.ts";
 import {
@@ -291,6 +293,12 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
       const id = String(row.id);
       rows += 1;
       handled.add(`${table}|${id}`);
+      // A capacity claimant (ADR 0501) gives back every place it holds or takes, in this batch,
+      // whether the row is deleted or kept with its reference cleared: a place is never held for
+      // nobody. A kept row stays in its state, holding nothing; moving it later releases nothing.
+      if (object && getObject(object)?.claims) {
+        ctx.write(...releaseAllClaimsOfStatements(object, id, ctx.now));
+      }
       if (def.required && !def.many && object) {
         deleted.push({ object, id });
         ctx.write(CompiledQuery.raw(`DELETE FROM ${q(table)} WHERE id = ?`, [id]));

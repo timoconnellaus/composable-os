@@ -27,6 +27,7 @@ import {
   type FormulaFieldRef,
 } from "@composable-os/sdk/formula";
 import { type Kysely, sql } from "kysely";
+import { setDeclaredUniqueKeys } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFilterType } from "../fields/field-types.ts";
 import { CORE_OBJECTS, setExtensionObjects } from "../fields/index.ts";
 import type { FieldDefinition, FieldType, ObjectDefinition } from "../fields/types.ts";
@@ -702,6 +703,14 @@ function recurringDefinition(object: ObjectState): Pick<ObjectDefinition, "recur
         ? { closures: { ...declared.closures, object: named(declared.closures.object) } }
         : {}),
       horizonDays: declared.horizonDays ?? RECURRING_HORIZON_DAYS,
+      ...(declared.horizonAtLeast
+        ? {
+            horizonAtLeast: {
+              object: named(declared.horizonAtLeast.object),
+              field: declared.horizonAtLeast.field,
+            },
+          }
+        : {}),
     },
   };
 }
@@ -1025,6 +1034,27 @@ export async function refreshSchemaRegistry(db: Kysely<CoreDatabase>): Promise<v
   );
   cached = { stamp, objects, storage, tables };
   setExtensionObjects(objects);
+  // How D1 names a declared uniqueness rule's columns when it refuses (ADR 0502).
+  const keys = new Set<string>();
+  for (const object of state.objects) {
+    if (object.status !== "active") continue;
+    for (const rule of object.definition.unique ?? []) {
+      const columns = rule.fields.map(
+        (local) =>
+          state.fields.find(
+            (f) =>
+              f.object === object.name &&
+              f.extensionId === object.extensionId &&
+              f.localName === local &&
+              f.status === "active",
+          )?.columnName,
+      );
+      if (columns.every(Boolean)) {
+        keys.add(columns.map((c) => `${object.tableName}.${c}`).join(", "));
+      }
+    }
+  }
+  setDeclaredUniqueKeys(keys);
 }
 
 /** One declared or edited option of a select field. */

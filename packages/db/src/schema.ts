@@ -1031,7 +1031,16 @@ export interface CoreRecurrenceSeriesTable {
   record_id: string;
   next_run_at: string;
   generated_until: Defaulted<string | null>;
+  version: Defaulted<number>;
   updated_at: string;
+}
+
+/** Migration 0560: a guard on what a batch was planned from (never holds a row). */
+export interface CoreWriteGuardTable {
+  kind: "claimed" | "claimant" | "series";
+  object_type: string;
+  record_id: string;
+  expected: number;
 }
 
 /** Migration 0560: one record a series made, keyed on the series and its local date. */
@@ -2324,6 +2333,7 @@ export interface CoreDatabase {
   core_capacity_claim: CoreCapacityClaimTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
+  core_write_guard: CoreWriteGuardTable;
   core_publish_version: CorePublishVersionTable;
   core_publish_schedule: CorePublishScheduleTable;
   core_slug_redirect: CoreSlugRedirectTable;

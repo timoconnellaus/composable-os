@@ -391,6 +391,8 @@ export interface RecurringDefinition {
   /** The closure object's registry name and its date fields. */
   closures?: { object: string; from: string; until: string } | undefined;
   horizonDays: number;
+  /** The horizon is never less than the largest value of this object's number field (days). */
+  horizonAtLeast?: { object: string; field: string } | undefined;
 }
 
 export function defineObject<const O extends ObjectDefinition>(object: O): O {

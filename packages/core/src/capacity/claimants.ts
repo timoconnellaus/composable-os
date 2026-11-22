@@ -132,3 +132,12 @@ export function releaseAllClaimsStatements(object: string, now: string) {
     ...releaseStatements(target, now, { confirmed: true }),
   ];
 }
+
+/** The statements that give back every place one claimant record holds or takes (an erase). */
+export function releaseAllClaimsOfStatements(object: string, id: string, now: string) {
+  const target: ClaimTarget = { for: { type: object, id } };
+  return [
+    ...releaseStatements(target, now),
+    ...releaseStatements(target, now, { confirmed: true }),
+  ];
+}

@@ -19,7 +19,7 @@ import {
   isLosslessChange,
   type ObjectManifest,
 } from "@composable-os/sdk";
-import { CompiledQuery, type Kysely } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
@@ -80,7 +80,9 @@ export interface ReconcileIssue {
     | "unknown_target"
     | "formula"
     | "foreign_object"
-    | "seed";
+    | "seed"
+    | "unique_conflict"
+    | "claims_conflict";
   path: string;
   message: string;
   suggestion?: string;
@@ -145,7 +147,108 @@ export async function planReconcile(
   manifest: ExtensionManifest,
   options: { now: string },
 ): Promise<ReconcilePlan> {
-  return planFromState(db, await loadSchemaState(db), manifest, options.now);
+  const current = await loadSchemaState(db);
+  const plan = planFromState(db, current, manifest, options.now);
+  plan.issues.push(...(await dataIssues(db, current, plan.next, manifest.id)));
+  return plan;
+}
+
+/** A declared uniqueness rule's partial index (ADR 0502): its name, columns and condition. */
+function uniqueIndexes(state: SchemaState, object: ObjectState, ext: string) {
+  const out: { rule: number; name: string; columns: string[]; where: string }[] = [];
+  (object.definition.unique ?? []).forEach((rule, i) => {
+    const columnOf = (local: string) =>
+      state.fields.find(
+        (f) =>
+          f.object === object.name &&
+          f.extensionId === ext &&
+          f.localName === local &&
+          f.status === "active" &&
+          f.tableName === object.tableName,
+      )?.columnName ?? null;
+    const columns = rule.fields.map(columnOf);
+    const stateColumn =
+      rule.states && object.definition.states ? columnOf(object.definition.states.field) : null;
+    if (columns.some((c) => c === null) || (rule.states && !stateColumn)) return;
+    const named = (columns as string[]).map((c) => ident(c));
+    const filled = named.map((c) => `${c} IS NOT NULL`);
+    const states = rule.states
+      ? [`${ident(stateColumn as string)} IN (${rule.states.map(sqlString).join(", ")})`]
+      : [];
+    const where = ["deleted_at IS NULL", ...filled, ...states].join(" AND ");
+    const name = ident(`${object.tableName}__${named.join("__")}__u${shortHash(where)}`);
+    out.push({ rule: i, name, columns: named, where });
+  });
+  return out;
+}
+
+/**
+ * Refusals that depend on the records already there (stage 31): a uniqueness rule the live
+ * records already break (ADR 0502), and a claims declaration changed while records are in a
+ * state it names, before or after (ADR 0501: their claims would be missing or never given back).
+ * Each names the records to put right first.
+ */
+async function dataIssues(
+  db: Kysely<CoreDatabase>,
+  current: SchemaState,
+  next: SchemaState,
+  ext: string,
+): Promise<ReconcileIssue[]> {
+  const issues: ReconcileIssue[] = [];
+  for (const object of next.objects) {
+    if (object.extensionId !== ext || object.status !== "active") continue;
+    const before = current.objects.find(
+      (o) => o.name === object.name && o.tableName === object.tableName && o.status === "active",
+    );
+    if (!before) continue; // A new table has no records.
+    const table = ident(object.tableName);
+    for (const index of uniqueIndexes(next, object, ext)) {
+      if ((current.indexes ?? []).some((i) => i.name === index.name)) continue;
+      const clash = await sql<{ ids: string }>`
+        SELECT group_concat(id, ', ') AS ids FROM ${sql.raw(table)} WHERE ${sql.raw(index.where)}
+        GROUP BY ${sql.raw(index.columns.join(", "))} HAVING count(*) > 1 LIMIT 5
+      `.execute(db);
+      if (clash.rows.length) {
+        issues.push({
+          code: "unique_conflict",
+          path: `objects.${object.localName}.unique.${index.rule}`,
+          message: `${object.name}: live records already share these values: ${clash.rows.map((r) => r.ids).join("; ")}. Change or delete them first.`,
+        });
+      }
+    }
+    const was = before.definition.claims;
+    const now = object.definition.claims;
+    if (JSON.stringify(was ?? null) === JSON.stringify(now ?? null)) continue;
+    const stateField = object.definition.states?.field ?? before.definition.states?.field;
+    const column = next.fields.find(
+      (f) =>
+        f.object === object.name &&
+        f.extensionId === ext &&
+        f.localName === stateField &&
+        f.tableName === object.tableName,
+    )?.columnName;
+    const states = [
+      ...new Set([
+        ...(was?.held ?? []),
+        ...(was?.confirmed ?? []),
+        ...(now?.held ?? []),
+        ...(now?.confirmed ?? []),
+      ]),
+    ];
+    if (!column || !states.length) continue;
+    const live = await sql<{ id: string }>`
+      SELECT id FROM ${sql.raw(table)} WHERE deleted_at IS NULL
+        AND ${sql.raw(ident(column))} IN (${sql.join(states)}) LIMIT 10
+    `.execute(db);
+    if (live.rows.length) {
+      issues.push({
+        code: "claims_conflict",
+        path: `objects.${object.localName}.claims`,
+        message: `${object.name}: claims cannot change while records are in a state it names (${states.join(", ")}): ${live.rows.map((r) => r.id).join(", ")}. Move them out of those states first.`,
+      });
+    }
+  }
+  return issues;
 }
 
 export function planFromState(
@@ -551,31 +654,10 @@ export function planFromState(
     // in the rule's states. A partial unique index, so the database refuses the second record
     // (or a move back into a counted state), whoever writes it and however many at once. Its
     // name carries a hash of the rule, so a changed rule is a new index.
-    for (const rule of object.definition.unique ?? []) {
-      const columnOf = (local: string) =>
-        next.fields.find(
-          (f) =>
-            f.object === object.name &&
-            f.extensionId === ext &&
-            f.localName === local &&
-            f.status === "active" &&
-            f.tableName === object.tableName,
-        )?.columnName ?? null;
-      const columns = rule.fields.map(columnOf);
-      const stateColumn =
-        rule.states && object.definition.states ? columnOf(object.definition.states.field) : null;
-      if (columns.some((c) => c === null) || (rule.states && !stateColumn)) continue;
-      const filled = columns.map((c) => `${ident(c as string)} IS NOT NULL`);
-      const states = rule.states
-        ? [`${ident(stateColumn as string)} IN (${rule.states.map(sqlString).join(", ")})`]
-        : [];
-      const where = ["deleted_at IS NULL", ...filled, ...states].join(" AND ");
-      const name = ident(
-        `${object.tableName}__${(columns as string[]).join("__")}__u${shortHash(where)}`,
-      );
+    for (const index of uniqueIndexes(next, object, ext)) {
       wanted.set(
-        name,
-        `CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${columns.join(", ")}) WHERE ${where}`,
+        index.name,
+        `CREATE UNIQUE INDEX IF NOT EXISTS ${index.name} ON ${ident(object.tableName)} (${index.columns.join(", ")}) WHERE ${index.where}`,
       );
     }
     const existing = (current.indexes ?? []).filter(

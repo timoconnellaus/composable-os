@@ -36,3 +36,22 @@ A pack may not hook a write (ADR 0404), so this has to be a declaration the host
 - One place per record. A claimant that needs several (a group booking) is a later change.
 - The waitlist's hold (step 5) builds on this: the release that frees a place can hand it to the
   waitlist in the same statement.
+
+## Amended 2026-11-22 (review, before merge)
+- **A place is never held by nobody.** Erasing a Person releases every claim of every claimant
+  record the erase reaches, in its batch: one whose relation to the Person is required is deleted;
+  one whose relation is only cleared is kept, anonymous, in its state but holding nothing (its
+  history counts; moving it later releases nothing). Purge after Trash deletes only core records,
+  and a claimant cannot be in Trash holding a place, so it orphans no claim. Dropping a claimant
+  object releases its records' claims; dropping the claimed object deletes its counters and
+  claims (as before).
+- **Trash of a claimant holds at commit**: besides the read that gives the message,
+  `record.delete` (and the host's own removal of a series' record) guards in its batch that the
+  record has no live claim (`core_write_guard`, migration 0560), so a claim taken meanwhile fails
+  the Trash (`conflict`, `claim_live`).
+- **A claims declaration does not change under live records.** The reconciler refuses a change
+  to `claims` (added, removed, or its relation or states changed) while any live record is in a
+  state the old or the new declaration names (`claims_conflict`, naming up to ten records): their
+  claims would otherwise be missing (overbooking later) or never given back. Staff move those
+  records out first; backfilling claims within capacity was not chosen, since it would have to
+  refuse whenever the places do not fit anyway.

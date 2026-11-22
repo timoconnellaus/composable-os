@@ -44,8 +44,10 @@ import type { StageCache } from "../records/stages.ts";
 import { resolveStateRequest } from "../records/states.ts";
 import { type Mover, type TransitionOutcome, transitionTimeline } from "../records/transitions.ts";
 import { assertUnique } from "../records/unique.ts";
+import { guardStatement } from "../recurring/bookkeeping.ts";
 import {
   assertRuleValues,
+  claimedOn,
   closureWritten,
   generatedRecordEdited,
   seriesChanged,
@@ -556,6 +558,8 @@ export async function createRecord(
     checkReferences?: boolean;
     assignmentTimeline?: boolean;
     by?: Mover;
+    /** A closure's create cancelling records with places taken: their count, confirmed. */
+    recurringConfirm?: number | undefined;
   } = {},
 ): Promise<string> {
   const by = options.by ?? (object.states?.requests ? callerMover(ctx) : undefined);
@@ -606,7 +610,7 @@ export async function createRecord(
   ctx.write(...(await redirectWrites(ctx, object, id, null, valuesOf(prepared))));
   // A new series is due now; a new closure cancels what it covers (ADR 0500).
   seriesCreated(ctx, object, id);
-  await closureWritten(ctx, object, valuesOf(prepared));
+  await closureWritten(ctx, object, null, valuesOf(prepared), options.recurringConfirm);
   const assigned = assignment
     ? recordAssignment(ctx, object, id, assignment, {
         timeline: options.assignmentTimeline !== false,
@@ -805,7 +809,14 @@ export async function updateRecord(
   object: ObjectDefinition,
   id: string,
   values: Record<string, unknown>,
-  options: { by?: Mover; from?: string | undefined; recurringConfirm?: number | undefined } = {},
+  options: {
+    by?: Mover;
+    from?: string | undefined;
+    /** A series or closure change moving or cancelling records with places taken: their count. */
+    recurringConfirm?: number | undefined;
+    /** A series change applies from this local date (`recurring.change { from }`). */
+    recurringFrom?: string | undefined;
+  } = {},
 ): Promise<boolean> {
   const before = await loadRecord(ctx, object, id);
   if (!before) throw new NotFoundError(object.name, id);
@@ -875,8 +886,11 @@ export async function updateRecord(
   );
   if (counter) ctx.write(counter);
   // A series' future records follow it; a closure cancels what it covers (ADR 0500).
-  await seriesChanged(ctx, object, id, before.values, after, options.recurringConfirm);
-  await closureWritten(ctx, object, after);
+  await seriesChanged(ctx, object, id, before.values, after, {
+    confirm: options.recurringConfirm,
+    from: options.recurringFrom,
+  });
+  await closureWritten(ctx, object, before.values, after, options.recurringConfirm);
   // A published record's old address keeps pointing to it (ADR 0442).
   ctx.write(...(await redirectWrites(ctx, object, id, before.values, after)));
   const timeline = await timelineFor(ctx, object, id, before.values, after, outcome);
@@ -937,6 +951,18 @@ setRecordWriter({ create: createRecord, update: updateRecord });
 async function trashRecordAsHost(ctx: HandlerContext, object: ObjectDefinition, id: string) {
   const before = await loadRecord(ctx, object, id);
   if (!before) return;
+  // Never a record with places held or taken on it, nor a claimant holding one: refused here, and
+  // at commit by the guards (a booking made after this read fails the batch).
+  if ((await claimedOn(ctx, object, id)) > 0) {
+    throw new ConflictError(`${object.label} has places taken and cannot be removed`, {
+      rule: "capacity",
+      object: object.name,
+      record: id,
+    });
+  }
+  await assertNoLiveClaim(ctx, object, id);
+  if (object.capacity) ctx.write(guardStatement("claimed", object.name, id, 0));
+  if (object.claims) ctx.write(guardStatement("claimant", object.name, id, 0));
   const table = objectTableOf(object.name) as string;
   ctx.write(
     CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -1028,6 +1054,10 @@ export const recordDelete = defineOperation({
     await assertNoConfirmedClaims(ctx, object, input.id);
     // A claimant holding a place gives it back by moving out of its state, not by Trash.
     await assertNoLiveClaim(ctx, object, input.id);
+    // A series in Trash makes nothing more; its future records go as an ended series' do.
+    await seriesChanged(ctx, object, input.id, before.values, before.values, { trashed: true });
+    // The read above gives the message; this makes it hold at commit (a claim made meanwhile).
+    if (object.claims) ctx.write(guardStatement("claimant", object.name, input.id, 0));
     const table = objectTableOf(object.name) as string;
     ctx.write(
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -1076,6 +1106,8 @@ export const recordRestore = defineOperation({
       ]),
     );
     ctx.recordChange({ object: object.name, id: input.id, action: "restore", diff: {} });
+    // A series back from Trash is due now, so its records are made again (ADR 0500).
+    seriesCreated(ctx, object, input.id);
     return ctx.afterCommit(async () => {
       const record = (await loadRecord(ctx, object, input.id)) as RecordOutput;
       await ctx.db

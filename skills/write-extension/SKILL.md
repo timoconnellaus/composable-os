@@ -148,7 +148,8 @@ extension declares it; it never implements it. Each behaviour the platform has i
   it back to the series>", rule: { weekdays, time, length?, from, until?, zone? }, into: {
   starts, ends?, zone?, changed? }, copy?: { <generated field>: "<series field>" }, cancel:
   "<a state of the generated object with a host move into it>", ended?: { field, in },
-  closures?: { object, from, until }, horizonDays? }`. The host makes the records from the minute
+  closures?: { object, from, until }, horizonDays?, horizonAtLeast?: { object, field } }`
+  (`horizonAtLeast`: a number field in days, a booking window, the horizon never falls short of). The host makes the records from the minute
   cron, keeps 06:00 at 06:00 across a clock change, never overwrites one staff edited, applies a
   series change to the rest, and cancels what a closure covers. Never create the dated records
   in a tool or an automation. See `RecurringScheduleSpec` in `packages/sdk/src/recurring.ts` and

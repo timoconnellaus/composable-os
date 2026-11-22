@@ -1,13 +1,46 @@
 // The `recurring` behaviour's bookkeeping (stage 31, ADR 0500; migration 0560): one row per
-// series saying when it next runs, and one per record it made, keyed on the series and the local
-// date. The keys are the idempotency: a date is made once, however many runs there are.
+// series saying when it next runs and its version, and one per record it made, keyed on the
+// series and the local date. The keys are the idempotency: a date is made once, however many
+// runs there are. Guards (core_write_guard) fail a batch planned from a read that is no longer
+// true.
 import { CompiledQuery } from "kysely";
 
-/** The statement that makes a series due now (a write to it, or its first), or at `at`. */
+/**
+ * The statement that makes a series due at `at` (now, for a write to it) and bumps its version,
+ * so a run or a change planned from the version before fails its batch.
+ */
 export function armSeriesStatement(object: string, id: string, at: string, now: string) {
   return CompiledQuery.raw(
-    "INSERT INTO core_recurrence_series (object_type, record_id, next_run_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (object_type, record_id) DO UPDATE SET next_run_at = excluded.next_run_at, updated_at = excluded.updated_at",
+    "INSERT INTO core_recurrence_series (object_type, record_id, next_run_at, version, updated_at) VALUES (?, ?, ?, 1, ?) ON CONFLICT (object_type, record_id) DO UPDATE SET next_run_at = excluded.next_run_at, version = core_recurrence_series.version + 1, updated_at = excluded.updated_at",
     [object, id, at, now],
+  );
+}
+
+/** A series' version as read now (0 when it has no row yet). */
+export async function seriesVersion(
+  db: import("kysely").Kysely<import("@composable-os/db").CoreDatabase>,
+  object: string,
+  id: string,
+): Promise<number> {
+  const row = await db
+    .selectFrom("core_recurrence_series")
+    .select("version")
+    .where("object_type", "=", object)
+    .where("record_id", "=", id)
+    .executeTakeFirst();
+  return row?.version ?? 0;
+}
+
+/** A guard: the batch fails unless what `kind` names is still `expected` (migration 0560). */
+export function guardStatement(
+  kind: "claimed" | "claimant" | "series",
+  object: string,
+  record: string,
+  expected: number,
+) {
+  return CompiledQuery.raw(
+    "INSERT INTO core_write_guard (kind, object_type, record_id, expected) VALUES (?, ?, ?, ?)",
+    [kind, object, record, expected],
   );
 }
 

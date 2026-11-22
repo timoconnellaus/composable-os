@@ -40,6 +40,9 @@ export const RECURRING_HORIZON_MAX = 366;
  *   (`from`, `until`, both date fields, inclusive) in which nothing is made and records already
  *   made are cancelled.
  * - `horizonDays` (default 56): how far ahead records are made.
+ * - `horizonAtLeast` (optional): another of this extension's objects and a number field of it in
+ *   days (a class type's booking window): the horizon is never less than the largest value any
+ *   live record of it holds, so a class can be booked as soon as its window opens.
  *
  * Made records are never made twice (the host keys each on the series and its local date). A
  * record edited by staff (its time, copied fields or state) is never overwritten or made again;
@@ -62,6 +65,7 @@ export interface RecurringScheduleSpec {
   ended?: { field: string; in: readonly string[] };
   closures?: { object: string; from: string; until: string };
   horizonDays?: number;
+  horizonAtLeast?: { object: string; field: string };
 }
 
 const fieldName = z.string().max(40);
@@ -102,6 +106,7 @@ export const recurringManifestSchema = z
       .strict()
       .optional(),
     horizonDays: z.number().int().min(1).max(RECURRING_HORIZON_MAX).optional(),
+    horizonAtLeast: z.object({ object: fieldName, field: fieldName }).strict().optional(),
   })
   .strict();
 export type RecurringScheduleManifest = z.infer<typeof recurringManifestSchema>;
@@ -232,7 +237,9 @@ export function checkObjectRecurring(
       `"${recurring.into.changed}" must be read-only: the host sets it`,
     );
   }
-  const into = new Set(Object.values(recurring.into));
+  const into = new Set<string>(Object.values(recurring.into));
+  // The state is the host's to move and staff's to change; a series never copies one in.
+  if (generated.states) into.add(generated.states.field);
   for (const [target, source] of Object.entries(recurring.copy ?? {})) {
     const to = own(generated, target);
     const from = own(object, source);
@@ -269,6 +276,25 @@ export function checkObjectRecurring(
       contract(
         `${path}.cancel`,
         `${generatedName} needs a move into "${recurring.cancel}" that the host may make`,
+      );
+    }
+  }
+  if (recurring.horizonAtLeast) {
+    const h = recurring.horizonAtLeast;
+    const target = Object.hasOwn(m.objects, h.object) ? m.objects[h.object] : undefined;
+    if (!target) {
+      contract(
+        `${path}.horizonAtLeast.object`,
+        `"${h.object}" must be one of this extension's objects`,
+      );
+    } else {
+      expect(
+        target,
+        h.object,
+        `${path}.horizonAtLeast.field`,
+        h.field,
+        ["number"],
+        "a number field (days)",
       );
     }
   }

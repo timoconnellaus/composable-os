@@ -43712,7 +43712,7 @@
     },
     {
       "name": "recurring.change",
-      "description": "Change a series of a recurring schedule (a timetable line) when the change moves or cancels future records that have places taken: record.update refuses that change and says how many (rule recurring_confirm, count). Pass the same values and confirm with that count; the records nobody edited move to the new time, and dates no longer in the series are cancelled. Refused again if the count has changed. Returns the series.",
+      "description": "Change a series of a recurring schedule (a timetable line) when the change moves or cancels future records that have places taken: record.update refuses that change and says how many (rule recurring_confirm, count). Pass the same values and confirm with that count; the records nobody edited move to the new time, and dates no longer in the series are cancelled. With from (a local date), the change applies to records from that date on; earlier ones keep the series as it was. Refused again if the count has changed. Returns the series.",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -43743,11 +43743,79 @@
             "minimum": 1,
             "maximum": 9007199254740991,
             "description": "How many records with places taken the change moves or cancels."
+          },
+          "from": {
+            "description": "The local date (YYYY-MM-DD) the change applies from; default today.",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           }
         },
         "required": [
           "object",
           "id",
+          "values",
+          "confirm"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "id",
+          "values"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "recurring.close",
+      "description": "Add a closure (a date range, such as holidays) to a recurring schedule, or change one's dates, when it cancels future records that have places taken: record.create and record.update refuse that and say how many (rule recurring_confirm, count). Pass the same values and confirm with that count; every record it newly covers is cancelled. Omit id to add one. Returns the closure.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "confirm": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "How many records with places taken the closure cancels."
+          }
+        },
+        "required": [
+          "object",
           "values",
           "confirm"
         ]
@@ -43794,6 +43862,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "limit": {
+            "default": 25,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25
           }
         },
         "required": [

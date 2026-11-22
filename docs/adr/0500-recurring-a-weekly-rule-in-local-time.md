@@ -75,3 +75,40 @@ The wall-clock-to-instant conversion that survives a clock change existed only p
   it. The booking itself is never lost.
 - Trashing a series stops nothing by itself: its made records stay, and its daily run makes
   nothing while it is in Trash. Staff end a series to remove its classes.
+
+## Amended 2026-11-22 (review, before merge)
+- **Plans are guarded at commit.** A run and a change are each planned from a read and applied
+  in one batch; migration 0560's `core_write_guard` makes them hold. Every write to a series and
+  every run bumps `core_recurrence_series.version`; a run or a change guards on the version it
+  read, so of a run and a change racing one fails (`conflict`, `recurring_stale`) and the run is
+  made again on the next tick from the new series. Each record a change moves, cancels or removes
+  is guarded on the places held and taken it read: a booking made in between fails the change
+  rather than landing on a moved or trashed class. The consequence above about that race no
+  longer holds.
+- **The horizon is never less than the longest booking window**: `horizonAtLeast: { object,
+  field }` names a number field (days) of another object (step 3's class type); the horizon is
+  the largest live value plus one day, capped at 366, when that is more than `horizonDays`.
+- **A change applies from a date**: `recurring.change { from }` (a local date); records before
+  it keep the series as it was. Only occurrences from today (in the series' zone before or after
+  the change, whichever is earlier) or `from` are read.
+- **A series in Trash stops**: `record.delete` of a series deals with its future records as
+  ending it does (removed; with places taken, refused with the count: end it with
+  `recurring.change` first), and its runs make nothing. `record.restore` makes it due again.
+- **A record the host cannot cancel** (no host move into `cancel` from its state) with places
+  taken refuses the change up front (`recurring_cannot_cancel`, naming the records).
+- **Closures are confirmed like a change**: creating a closure, or moving its dates, that
+  cancels records with places taken is refused with the count; `recurring.close { confirm }`
+  (risk `destructive`: an AI asks, a person approves) makes it. An edit that leaves the dates as
+  they were cancels nothing, and a changed range cancels only the dates it did not cover before,
+  so a class staff reopened stays open.
+- **Cost.** Cloudflare's limits (developers.cloudflare.com/d1/platform/limits/ and
+  /workers/platform/limits/, read 2026-11-22): 1000 D1 queries per Worker invocation on Workers
+  Paid (50 on Free), and a `db.batch()` counts as one; 10,000 subrequests per invocation on Paid
+  (D1 queries count); 100 bound parameters and 100 KB per statement. A run's writes are one batch;
+  each record made costs about five individual reads. So a run makes at most 25 records
+  (`RECURRING_MAX_PER_RUN`) and a minute tick at most 100 across every series
+  (`RECURRING_MAX_PER_TICK`), about 500 queries, half the Paid limit, leaving room for the rest of
+  the minute cron. A Free-plan deployment would need smaller numbers. Fairness: due series run
+  oldest due first, and one with more to make is due again "now", behind every series due before
+  it, so a large timetable cannot starve the rest. A run that fails on a conflict is tried on the
+  next tick; any other failure in an hour.

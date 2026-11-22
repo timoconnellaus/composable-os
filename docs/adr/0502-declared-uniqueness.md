@@ -27,3 +27,11 @@ writes that both read "none yet".
   index; the records must be put right first.
 - Uniqueness across two objects, or "no two bookings that overlap in time" (the spec's other
   guess), is not this: an overlap is a range, which 31b's time-range claim answers.
+
+## Amended 2026-11-22 (review, before merge)
+- Declaring a rule over live records that already break it is refused before the index is built
+  (`unique_conflict`, naming the clashing records), instead of failing the install with the
+  database's message.
+- The refusal names `rule: "unique"` only for a declared rule: the field registry keeps the
+  columns of each rule as D1 names them, and any other unique index (a slug's) keeps the general
+  "A record with that value already exists".

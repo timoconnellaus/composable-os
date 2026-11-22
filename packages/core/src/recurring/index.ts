@@ -36,10 +36,23 @@ import {
   parseLocalTime,
 } from "../time/local.ts";
 import { visibleSource } from "../visibility/index.ts";
-import { armSeriesStatement, markEditedStatement, occurrenceStatement } from "./bookkeeping.ts";
+import {
+  armSeriesStatement,
+  guardStatement,
+  markEditedStatement,
+  occurrenceStatement,
+  seriesVersion,
+} from "./bookkeeping.ts";
 
-/** The most records one run of one series makes; the rest are made by the next tick. */
-export const RECURRING_MAX_PER_RUN = 60;
+/**
+ * The most records one run of one series makes, and one minute tick makes across every series
+ * (ADR 0500, "Cost"). A run's records go in one D1 batch, which counts as one query against the
+ * 1000 queries a Worker invocation may make on Workers Paid; the reads each record needs (about
+ * five) count one each. 25 a run and 100 a tick keep a tick near 500 queries, half the limit,
+ * with the rest of the minute cron beside it.
+ */
+export const RECURRING_MAX_PER_RUN = 25;
+export const RECURRING_MAX_PER_TICK = 100;
 /** Minutes after local midnight a series' daily run is due. */
 const DAILY_RUN_MINUTE = 5;
 
@@ -241,6 +254,25 @@ async function closureRanges(
 // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
 type AnyDb = import("kysely").Kysely<any>;
 
+/**
+ * A series' horizon in days: its declared `horizonDays`, never less than the largest value of
+ * `horizonAtLeast`'s field among that object's live records (a class type's booking window), so a
+ * class exists by the time its booking opens.
+ */
+export async function horizonOf(ctx: HandlerContext, def: RecurringDefinition): Promise<number> {
+  const floor = def.horizonAtLeast;
+  if (!floor) return def.horizonDays;
+  const target = getObject(floor.object);
+  const column = target?.fields.find((f) => f.name === floor.field)?.column;
+  if (!target || !column) return def.horizonDays;
+  const row = (await (ctx.db as AnyDb)
+    .selectFrom(visibleSource(ctx, target))
+    .select((eb) => eb.fn.max(column).as("days"))
+    .executeTakeFirst()) as { days: number | null } | undefined;
+  const days = Math.ceil(Number(row?.days ?? 0));
+  return Math.min(Math.max(def.horizonDays, Number.isFinite(days) ? days + 1 : 0), 366);
+}
+
 /** What one run of a series did. */
 export interface GenerateResult {
   made: number;
@@ -251,15 +283,20 @@ export interface GenerateResult {
 /**
  * Makes `series`' records that are due and not yet made, up to its horizon, as the host, in the
  * calling operation's batch, and sets when it next runs. Records whose start has passed, dates in
- * a closure and dates already made (edited, cancelled or deleted since) are not made.
+ * a closure and dates already made (edited, cancelled or deleted since) are not made. At most
+ * `limit` records. The batch is guarded on the series' version: a change to the series committed
+ * after this run read it fails the run, which the next tick makes again from the new series.
  */
 export async function generateSeries(
   ctx: HandlerContext,
   object: ObjectDefinition,
   id: string,
+  limit = RECURRING_MAX_PER_RUN,
 ): Promise<GenerateResult> {
   const def = object.recurring;
   if (!def) throw new ValidationError(`${object.label} has no recurring schedule`);
+  const version = await seriesVersion(ctx.db, object.name, id);
+  ctx.write(guardStatement("series", object.name, id, version));
   const now = Date.parse(ctx.now);
   const { timezone } = await loadGeneralSettings(ctx.db);
   const series = await records().load(ctx, object, id);
@@ -271,7 +308,7 @@ export async function generateSeries(
     ctx.write(armSeriesStatement(object.name, id, nextDaily, ctx.now));
     return { made: 0, more: false };
   }
-  const last = addDays(today, def.horizonDays);
+  const last = addDays(today, await horizonOf(ctx, def));
   const generated = generatedOf(def);
   const made = new Set(
     (
@@ -289,7 +326,7 @@ export async function generateSeries(
   const due = occurrencesBetween(rule, today, last).filter(
     (o) => o.starts > now && !made.has(o.date) && !closed(o.date),
   );
-  const batch = due.slice(0, RECURRING_MAX_PER_RUN);
+  const batch = due.slice(0, Math.max(0, limit));
   for (const occurrence of batch) {
     const values = {
       ...occurrenceValues(def, rule, occurrence, series),
@@ -366,7 +403,7 @@ export function generatedRecordEdited(
   return changed && before[changed] !== true ? { [changed]: true } : {};
 }
 
-/** A series created: due now, so the minute cron makes its records. */
+/** A series created or restored from Trash: due now, so the minute cron makes its records. */
 export function seriesCreated(ctx: HandlerContext, object: ObjectDefinition, id: string): void {
   if (!object.recurring) return;
   ctx.write(armSeriesStatement(object.name, id, ctx.now, ctx.now));
@@ -379,14 +416,54 @@ interface Planned {
   values: Record<string, unknown>;
   action: "update" | "remove" | "cancel";
   claimed: number;
+  state: string | null;
+}
+
+/** States of `object` the host may move into `cancel` from. */
+function cancellableFrom(object: ObjectDefinition, cancel: string): Set<string> {
+  return new Set(
+    (object.states?.moves ?? [])
+      .filter((m) => m.to === cancel && m.by.includes("host"))
+      .flatMap((m) => (typeof m.from === "string" ? [m.from] : [...m.from])),
+  );
+}
+
+/** Refused unless `confirm` is the number of records with places taken this would move or cancel. */
+function assertConfirmed(
+  plans: readonly { id: string; date: string; action: string; claimed: number }[],
+  confirm: number | undefined,
+  what: string,
+  how: string,
+): void {
+  if (!plans.length || confirm === plans.length) return;
+  throw new ConflictError(
+    `${plans.length} ${what} have places taken and would be moved or cancelled. Confirm with that count (${how}) to go ahead.`,
+    {
+      rule: "recurring_confirm",
+      count: plans.length,
+      records: plans.map((p) => ({ id: p.id, date: p.date, action: p.action })),
+    },
+  );
+}
+
+/** The options of a change to a series. */
+export interface SeriesChangeOptions {
+  /** How many records with places taken the caller confirms are moved or cancelled. */
+  confirm?: number | undefined;
+  /** The local date the change applies from (default today). Earlier records keep the old series. */
+  from?: string | undefined;
+  /** The series goes to Trash: its future records are dealt with as for an ended series. */
+  trashed?: boolean | undefined;
 }
 
 /**
  * A series changed (ADR 0500): its future records follow, in this batch, and it is due now so
  * new dates are made. Records nobody edited take the new copied fields and times; dates no longer
- * in the rule are removed, or cancelled when places are claimed on them; ending the series does
- * that to every future record. Moving or cancelling records with claimed places is refused unless
- * `confirm` is their count (`recurring.change`).
+ * in the rule are removed, or cancelled when places are claimed on them; ending (or trashing) the
+ * series does that to every future record. Moving or cancelling records with claimed places is
+ * refused unless `confirm` is their count (`recurring.change`). Only records from today (in the
+ * series' zone, or `from` when later) are read. The batch is guarded: the series' version and each
+ * planned record's claimed places must be as read, or it fails as a conflict to try again.
  */
 export async function seriesChanged(
   ctx: HandlerContext,
@@ -394,7 +471,7 @@ export async function seriesChanged(
   id: string,
   before: Record<string, unknown>,
   after: Record<string, unknown>,
-  confirm: number | undefined,
+  options: SeriesChangeOptions = {},
 ): Promise<void> {
   const def = object.recurring;
   if (!def) return;
@@ -403,21 +480,29 @@ export async function seriesChanged(
     ...Object.values(def.copy),
     ...(def.ended ? [def.ended.field] : []),
   ].filter((f): f is string => typeof f === "string");
-  const changed = watched.some(
-    (f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null),
-  );
+  const changed =
+    options.trashed ||
+    watched.some((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null));
+  const version = await seriesVersion(ctx.db, object.name, id);
+  ctx.write(guardStatement("series", object.name, id, version));
   ctx.write(armSeriesStatement(object.name, id, ctx.now, ctx.now));
   if (!changed) return;
   const generated = generatedOf(def);
   const { timezone } = await loadGeneralSettings(ctx.db);
-  const ended = isEnded(def, after);
+  const ended = options.trashed || isEnded(def, after);
   const rule = ended ? null : ruleOf(def, after, timezone);
   const now = Date.parse(ctx.now);
+  // Today in either zone (a change of zone moves it), or the date the change applies from.
+  const zones = [ruleOf(def, before, timezone)?.zone ?? timezone, rule?.zone ?? timezone];
+  const today = zones.map((z) => localParts(now, z).date).sort()[0] as string;
+  const first =
+    options.from && parseLocalDate(options.from) && options.from > today ? options.from : today;
   const rows = await ctx.db
     .selectFrom("core_recurrence_occurrence")
     .select(["local_date", "record_id", "edited_at"])
     .where("series_object", "=", object.name)
     .where("series_id", "=", id)
+    .where("local_date", ">=", first)
     .orderBy("local_date")
     .execute();
   const finals = new Set((generated.states?.moves ?? []).filter((m) => m.final).map((m) => m.to));
@@ -429,8 +514,9 @@ export async function seriesChanged(
     if (!record) continue;
     const starts = Date.parse(String(record[def.into.starts] ?? ""));
     if (!(starts > now)) continue;
-    const state = stateField ? record[stateField] : null;
-    if (typeof state === "string" && (state === def.cancel || finals.has(state))) continue;
+    const state =
+      stateField && typeof record[stateField] === "string" ? (record[stateField] as string) : null;
+    if (state !== null && (state === def.cancel || finals.has(state))) continue;
     const claimed = await claimedOn(ctx, generated, row.record_id);
     if (!rule || !ruleIncludes(rule, row.local_date)) {
       plans.push({
@@ -439,6 +525,7 @@ export async function seriesChanged(
         values: {},
         action: claimed > 0 ? "cancel" : "remove",
         claimed,
+        state,
       });
       continue;
     }
@@ -454,26 +541,46 @@ export async function seriesChanged(
       values[places] = claimed;
     }
     if (Object.keys(values).length) {
-      plans.push({ id: row.record_id, date: row.local_date, values, action: "update", claimed });
+      plans.push({
+        id: row.record_id,
+        date: row.local_date,
+        values,
+        action: "update",
+        claimed,
+        state,
+      });
     }
   }
-  const timeFields = [def.into.starts, def.into.ends, def.into.zone].filter(Boolean) as string[];
-  const needsConfirm = plans.filter(
-    (p) =>
-      p.claimed > 0 &&
-      (p.action === "cancel" || timeFields.some((f) => Object.hasOwn(p.values, f))),
+  // A record the host cannot move into the cancel state is refused before anything is written.
+  const cancellable = cancellableFrom(generated, def.cancel);
+  const stuck = plans.filter(
+    (p) => p.action === "cancel" && (!stateField || !cancellable.has(p.state ?? "")),
   );
-  if (needsConfirm.length && confirm !== needsConfirm.length) {
+  if (stuck.length) {
     throw new ConflictError(
-      `${needsConfirm.length} of this ${object.label.toLowerCase()}'s ${generated.plural?.toLowerCase() ?? "records"} have places taken and would be moved or cancelled. Confirm with that count (recurring.change) to go ahead.`,
+      `${stuck.length} ${generated.plural?.toLowerCase() ?? "records"} with places taken are in a state the platform cannot cancel them from; change them by hand first.`,
       {
-        rule: "recurring_confirm",
-        count: needsConfirm.length,
-        records: needsConfirm.map((p) => ({ id: p.id, date: p.date, action: p.action })),
+        rule: "recurring_cannot_cancel",
+        records: stuck.map((p) => ({ id: p.id, date: p.date, state: p.state })),
       },
     );
   }
+  const timeFields = [def.into.starts, def.into.ends, def.into.zone].filter(Boolean) as string[];
+  assertConfirmed(
+    plans.filter(
+      (p) =>
+        p.claimed > 0 &&
+        (p.action === "cancel" || timeFields.some((f) => Object.hasOwn(p.values, f))),
+    ),
+    options.confirm,
+    `of this ${object.label.toLowerCase()}'s ${generated.plural?.toLowerCase() ?? "records"}`,
+    options.trashed ? "end the series with recurring.change first" : "recurring.change",
+  );
   for (const plan of plans) {
+    // Booked meanwhile, or given back: the plan no longer holds and the change is tried again.
+    if (generated.capacity) {
+      ctx.write(guardStatement("claimed", generated.name, plan.id, plan.claimed));
+    }
     if (plan.action === "update") {
       await records().update(ctx, generated, plan.id, plan.values, { by: "host" });
     } else if (plan.action === "cancel" && stateField) {
@@ -492,7 +599,7 @@ export async function seriesChanged(
 }
 
 /** Places held and taken on a record (0 when its object has no capacity). */
-async function claimedOn(ctx: HandlerContext, object: ObjectDefinition, id: string) {
+export async function claimedOn(ctx: HandlerContext, object: ObjectDefinition, id: string) {
   if (!object.capacity) return 0;
   const row = await ctx.db
     .selectFrom("core_capacity")
@@ -503,31 +610,56 @@ async function claimedOn(ctx: HandlerContext, object: ObjectDefinition, id: stri
   return row ? row.held + row.taken : 0;
 }
 
+/** A closure's valid range, or null. */
+function rangeOf(
+  closure: { from: string; until: string },
+  values: Record<string, unknown> | null,
+): { from: string; until: string } | null {
+  if (!values) return null;
+  const from = text(values[closure.from]);
+  const until = text(values[closure.until]);
+  if (!from || !until || !parseLocalDate(from) || !parseLocalDate(until) || until < from) {
+    return null;
+  }
+  return { from, until };
+}
+
 /**
- * A closure written (ADR 0500): the future records it covers, of every object a series with this
- * closure object generates, are cancelled as the host (one-off records too). A closure's dates
- * are local dates, from and until inclusive, each record's in its own zone (`into.zone`; the
- * organisation's when it has none). Shortening or deleting a
- * closure cancels nothing more and brings nothing back: the dates it no longer covers are made by
- * the next run, if they were never made.
+ * A closure written (ADR 0500): the future records it newly covers, of every object a series
+ * with this closure object generates, are cancelled as the host (one-off records too). A
+ * closure's dates are local dates, from and until inclusive, each record's in its own zone
+ * (`into.zone`; the organisation's when it has none). An edit that leaves the dates as they were
+ * cancels nothing (a class staff reopened stays open); a changed range cancels only the dates it
+ * did not cover before. Shortening or deleting a closure brings nothing back: dates never made are
+ * made by the next run. Cancelling records with places taken is refused unless `confirm` is their
+ * count (`recurring.close`, destructive: an AI asks, a person approves).
  */
 export async function closureWritten(
   ctx: HandlerContext,
   object: ObjectDefinition,
+  before: Record<string, unknown> | null,
   after: Record<string, unknown>,
+  confirm?: number,
 ): Promise<void> {
   const defs = closuresOf(object.name);
   if (!defs.length) return;
   const { timezone } = await loadGeneralSettings(ctx.db);
   const seen = new Set<string>();
+  const targets: {
+    generated: ObjectDefinition;
+    stateField: string;
+    cancel: string;
+    id: string;
+    date: string;
+    claimed: number;
+  }[] = [];
   for (const def of defs) {
     const closure = def.closures;
     if (!closure || seen.has(def.generates)) continue;
     seen.add(def.generates);
-    const from = text(after[closure.from]);
-    const until = text(after[closure.until]);
-    if (!from || !until || !parseLocalDate(from) || !parseLocalDate(until) || until < from)
-      continue;
+    const range = rangeOf(closure, after);
+    const old = rangeOf(closure, before);
+    if (!range || (old && old.from === range.from && old.until === range.until)) continue;
     const generated = generatedOf(def);
     const startsCol = generated.fields.find((f) => f.name === def.into.starts)?.column;
     const stateField = generated.states?.field;
@@ -537,13 +669,7 @@ export async function closureWritten(
       ? generated.fields.find((f) => f.name === def.into.zone)?.column
       : undefined;
     // Only from states the host may move into the cancel state (a final state is left alone).
-    const movable = [
-      ...new Set(
-        (generated.states?.moves ?? [])
-          .filter((m) => m.to === def.cancel && m.by.includes("host"))
-          .flatMap((m) => (typeof m.from === "string" ? [m.from] : [...m.from])),
-      ),
-    ];
+    const movable = [...cancellableFrom(generated, def.cancel)];
     if (!movable.length) continue;
     // A record's local date is in its own zone; the text range is two days wider either side to
     // cover every offset, and each record's date is then worked out exactly.
@@ -551,17 +677,32 @@ export async function closureWritten(
     const rows = (await (ctx.db as AnyDb)
       .selectFrom(visibleSource(ctx, generated))
       .select(["id", `${startsCol} as starts`, ...(zoneCol ? [`${zoneCol} as zone`] : [])])
-      .where(startsCol, ">=", addDays(from, -2))
-      .where(startsCol, "<", addDays(until, 3))
+      .where(startsCol, ">=", addDays(range.from, -2))
+      .where(startsCol, "<", addDays(range.until, 3))
       .where(stateCol, "in", movable)
       .execute()) as { id: string; starts: string | null; zone?: string | null }[];
     for (const row of rows) {
       const starts = Date.parse(row.starts ?? "");
       if (!(starts > now)) continue;
       const date = localParts(starts, row.zone || timezone).date;
-      if (date < from || date > until) continue;
-      await records().update(ctx, generated, row.id, { [stateField]: def.cancel }, { by: "host" });
+      if (date < range.from || date > range.until) continue;
+      if (old && date >= old.from && date <= old.until) continue;
+      const claimed = await claimedOn(ctx, generated, row.id);
+      targets.push({ generated, stateField, cancel: def.cancel, id: row.id, date, claimed });
     }
+  }
+  assertConfirmed(
+    targets
+      .filter((t) => t.claimed > 0)
+      .map((t) => ({ id: t.id, date: t.date, action: "cancel", claimed: t.claimed })),
+    confirm,
+    "of the records this closure covers",
+    "recurring.close",
+  );
+  for (const t of targets) {
+    if (t.generated.capacity)
+      ctx.write(guardStatement("claimed", t.generated.name, t.id, t.claimed));
+    await records().update(ctx, t.generated, t.id, { [t.stateField]: t.cancel }, { by: "host" });
   }
 }
 
@@ -570,6 +711,17 @@ export function requireSeriesObject(name: string): ObjectDefinition {
   const object = getObject(name);
   if (!object?.recurring) {
     throw new ValidationError(`${name} has no recurring schedule`, { field: "object" });
+  }
+  return object;
+}
+
+/** Refuses `recurring.close` on an object that is no schedule's closures. */
+export function requireClosureObject(name: string): ObjectDefinition {
+  const object = getObject(name);
+  if (!object || !closuresOf(name).length) {
+    throw new ValidationError(`${name} is not the closures of a recurring schedule`, {
+      field: "object",
+    });
   }
   return object;
 }

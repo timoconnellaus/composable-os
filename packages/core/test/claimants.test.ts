@@ -20,13 +20,17 @@ import {
   defineOperation,
   invoke,
   loadRecord,
+  planReconcile,
+  recordDelete,
   requireExtensionObject,
   resolveStateRequest,
+  toOperationError,
+  updateRecord,
   updateRecordAsHost,
 } from "../src/index.ts";
 import { call, declareCustomers, outside } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, unique } from "./helpers.ts";
+import { context, createUser, db, unique } from "./helpers.ts";
 
 const ext = extId("clm");
 const KLASS = `${ext}.klass`;
@@ -119,6 +123,31 @@ const fixture = (id: string) =>
         unique: [
           { fields: ["person", "klass"], states: ["pending", "booked", "waiting", "attended"] },
         ],
+      },
+      // A claimant whose Person is required: erasing the Person deletes it.
+      pass: {
+        label: "Pass",
+        plural: "Passes",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name" },
+          klass: { type: "relation", label: "Class", to: `${id}.klass` },
+          person: { type: "relation", label: "Person", to: "person", required: true },
+          state: {
+            type: "select",
+            label: "State",
+            options: [
+              { value: "booked", label: "Booked" },
+              { value: "cancelled", label: "Cancelled" },
+            ],
+          },
+        },
+        states: {
+          field: "state",
+          initial: "booked",
+          moves: [{ from: "booked", to: "cancelled", by: ["staff"], final: true }],
+        },
+        claims: { on: "klass", confirmed: ["booked"] },
       },
     },
   });
@@ -251,8 +280,22 @@ const preview = defineOperation({
     return { state: values.state };
   },
 });
+// A claim taken and a Trash planned from the same read: what two writes a moment apart would do.
+const bookThenDelete = defineOperation({
+  name: "fixture.bookThenDelete",
+  description: "Test fixture: moves a waiting booking in, then moves it to Trash.",
+  input: z.object({ id: z.string() }),
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    await updateRecord(ctx, requireExtensionObject(BOOKING), input.id, { state: "booked" });
+    await recordDelete.handler({ object: BOOKING, id: input.id }, ctx);
+    return { ok: true };
+  },
+});
 const fixtures = createInvoker(
-  createRegistry([...coreRegistry.list(), hostCreate, hostUpdate, preview]),
+  createRegistry([...coreRegistry.list(), hostCreate, hostUpdate, preview, bookThenDelete]),
 );
 const asHost = {
   create: async (values: Record<string, unknown>) =>
@@ -552,4 +595,169 @@ describe("windows and staff-only classes bind customers, not staff", () => {
       error: { details: { rule: "state_window_unknown" } },
     });
   });
+
+  it("judges a customer's change of class as a create: no way round the window or staff-only", async () => {
+    const open = await klass();
+    const staffOnly = await klass({ staffOnly: true });
+    const closed = await klass({ startsAt: "2026-03-04T08:00:00.000Z" });
+    const waiting = await create(open, OPEN, { state: "waiting" });
+    expect(waiting).toMatchObject({ ok: true });
+    const id = (waiting as { value: { id: string } }).value.id;
+    expect(await move(id, { klass: staffOnly }, OPEN)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input", details: { rule: "state_staff_only" } },
+    });
+    expect(await move(id, { klass: closed }, OPEN)).toMatchObject({
+      ok: false,
+      error: { details: { rule: "state_window_closed" } },
+    });
+    // Naming the state it is already in changes nothing about that.
+    expect(await move(id, { klass: staffOnly, state: "waiting" }, OPEN)).toMatchObject({
+      ok: false,
+      error: { details: { rule: "state_staff_only" } },
+    });
+    // Nor does moving it in the same write: the window is judged on the class it goes to.
+    expect(await move(id, { klass: staffOnly, state: "left" }, OPEN)).toMatchObject({
+      ok: false,
+      error: { details: { rule: "state_staff_only" } },
+    });
+    // Another open class is fine; staff move it anywhere.
+    expect(await move(id, { klass: await klass() }, OPEN)).toMatchObject({ ok: true });
+    await invoke("record.update", { object: BOOKING, id, values: { klass: staffOnly } }, at(OPEN));
+  });
+
+  it("resolves the assistant's cancel for a member by the clock, as the member's own", async () => {
+    const k = await klass();
+    const id = await book(k, await person("ai"));
+    const assistant = context(admin, {
+      actor: "assistant",
+      clock: () => new Date("2026-03-10T07:30:00.000Z"),
+    });
+    await invoke("record.update", { object: BOOKING, id, values: { state: "cancel" } }, assistant);
+    expect(await state(id)).toBe("late_cancelled");
+  });
 });
+
+describe("review fixes: places are never held by nobody, and declarations follow the data", () => {
+  it("erasing a Person gives back the places their bookings held, kept or deleted", async () => {
+    const k = await klass({ places: 5 });
+    const p = await person("erase");
+    const kept = await book(k, p); // The booking's Person is not required: kept, anonymous.
+    await invoke(
+      "record.create",
+      { object: `${ext}.pass`, values: { klass: k, person: p } },
+      at(NOW),
+    );
+    expect(await counter(k)).toEqual({ places: 5, held: 0, taken: 2 });
+    await invoke("person.erase", { id: p }, context(admin));
+    expect(await counter(k)).toEqual({ places: 5, held: 0, taken: 0 });
+    const left = await invoke("record.get", { object: BOOKING, id: kept }, context(admin));
+    expect((left.values as Record<string, unknown>).person).toBeNull();
+    const { results } = await env.DB.prepare(
+      "SELECT state FROM core_capacity_claim WHERE object_type = ? AND record_id = ?",
+    )
+      .bind(KLASS, k)
+      .all<{ state: string }>();
+    expect(results.map((r) => r.state)).toEqual(["released", "released"]);
+  });
+
+  it("Trash of a claimant holds at commit: a place taken in the same batch fails it", async () => {
+    const k = await klass();
+    const id = await book(k, await person("tr"), { state: "waiting" });
+    await expect(fixtures.invoke("fixture.bookThenDelete", { id }, at(NOW))).rejects.toMatchObject({
+      code: "conflict",
+      details: { reason: "claim_live" },
+    });
+    expect(await state(id)).toBe("waiting");
+    expect(await counter(k)).toMatchObject({ taken: 0 });
+  });
+
+  it("refuses to change claims while records are in a state they name, naming them", async () => {
+    const id = extId("clmchg");
+    const base = fixture(id);
+    await reconcile(base);
+    const created = await invoke(
+      "record.create",
+      {
+        object: `${id}.klass`,
+        values: { name: "K", places: 3, startsAt: "2026-03-10T08:00:00.000Z" },
+      },
+      at(NOW),
+    );
+    const b = await invoke(
+      "record.create",
+      { object: `${id}.booking`, values: { klass: created.id, person: await person("c") } },
+      at(NOW),
+    );
+    const changed = fixture(id);
+    const booking = (changed.objects as Record<string, Record<string, unknown>>).booking as {
+      claims?: unknown;
+    };
+    booking.claims = undefined;
+    const plan = await planReconcile(db.query, changed, { now: NOW });
+    expect(plan.issues).toEqual([
+      expect.objectContaining({ code: "claims_conflict", message: expect.stringContaining(b.id) }),
+    ]);
+    // Once nothing is in those states, the change is made.
+    await invoke(
+      "record.update",
+      { object: `${id}.booking`, id: b.id, values: { state: "cancelled" } },
+      at(NOW),
+    );
+    expect((await planReconcile(db.query, changed, { now: NOW })).issues).toEqual([]);
+  });
+
+  it("refuses a uniqueness rule the live records already break, naming them", async () => {
+    const id = extId("uqchg");
+    const base = fixture(id);
+    const bookingOf = (m: typeof base) =>
+      (m.objects as Record<string, Record<string, unknown>>).booking as { unique?: unknown };
+    bookingOf(base).unique = undefined;
+    await reconcile(base);
+    const k = await invoke(
+      "record.create",
+      {
+        object: `${id}.klass`,
+        values: { name: "K", places: 3, startsAt: "2026-03-10T08:00:00.000Z" },
+      },
+      at(NOW),
+    );
+    const p = await person("dupe");
+    const one = await invoke(
+      "record.create",
+      { object: `${id}.booking`, values: { klass: k.id, person: p, state: "waiting" } },
+      at(NOW),
+    );
+    const two = await invoke(
+      "record.create",
+      { object: `${id}.booking`, values: { klass: k.id, person: p, state: "waiting" } },
+      at(NOW),
+    );
+    const plan = await planReconcile(db.query, fixture(id), { now: NOW });
+    const issue = plan.issues.find((i) => i.code === "unique_conflict");
+    expect(issue?.message).toContain(one.id);
+    expect(issue?.message).toContain(two.id);
+  });
+
+  it("names a declared rule's refusal, and keeps the general message for any other unique index", async () => {
+    const declared = toOperationError(
+      new Error(`UNIQUE constraint failed: ${await declaredColumns()}`),
+    );
+    expect(declared).toMatchObject({ code: "conflict", details: { rule: "unique" } });
+    const slug = toOperationError(new Error("UNIQUE constraint failed: x_other_post.slug"));
+    expect(slug.message).toBe("A record with that value already exists");
+    expect((slug.details as Record<string, unknown>).rule).toBeUndefined();
+  });
+});
+
+/** How D1 names the fixture booking's declared rule's columns in a refusal. */
+async function declaredColumns(): Promise<string> {
+  const column = async (name: string) =>
+    env.DB.prepare(
+      "SELECT table_name, column_name FROM core_extension_fields WHERE object = ? AND local_name = ? AND status = 'active'",
+    )
+      .bind(BOOKING, name)
+      .first<{ table_name: string; column_name: string }>();
+  const cols = [await column("person"), await column("klass")];
+  return cols.map((c) => `${c?.table_name}.${c?.column_name}`).join(", ");
+}
