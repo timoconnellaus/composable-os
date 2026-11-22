@@ -449,7 +449,8 @@ _Avoid_: workflow (that is the Cloudflare primitive a run executes on), rule, fl
 **Trigger**
 What starts an automation's runs: a record event (`created`, `updated`, `deleted`, `restored`), a
 field change (from / to), a `schedule` (cron in the automation timezone), `dateRelative` (N days
-before or after a date field, daily), `manual` (a record button or bulk action) or
+before or after a date field, daily; or some minutes before or after a datetime field, checked every
+minute, ADR 0570), `manual` (a record button or bulk action) or
 `approvalDecided`, a `webhook` (a verified delivery to an endpoint, optionally of given event types)
 or a `syncEvent` (email/calendar sync wrote, changed or removed an activity linked to a known
 person or organisation; the activity is the trigger record).

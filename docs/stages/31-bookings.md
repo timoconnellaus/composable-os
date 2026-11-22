@@ -991,6 +991,58 @@ no other ADR amended. Where the build read the spec one way, or decided what it 
   provider; each review fix broken in turn fails its test), `packages/sdk/test/sellable-moves.test.ts`, the pack's own tests (the declaration and
   `buy`), `scripts/check-blocks.test.mjs`, and the e2e journey "a visitor pays for a class".
 
+### Step 9: messages, the reminder, the dashboard (2026-11-23, `feat/stage-31a-messages`)
+ADRs [0570](../adr/0570-date-relative-triggers-in-minutes.md) (date-relative triggers in minutes),
+[0571](../adr/0571-a-calendar-file-made-by-the-email-gatekeeper.md) (the calendar file, made by
+email-send) and [0572](../adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md)
+(the pack's part); no migration (block AQ). Where the build read the spec one way, or decided what
+it left open:
+
+- **`dateRelative` in minutes** is `minutesBefore` / `minutesAfter` a datetime field, a number or
+  `{ field, setting }` read per record as a window's numbers are (ADR 0505), scanned every minute
+  with a 15-minute look-back, one run per record and start time. The spec said "hours and
+  minutes"; minutes say both. The reminder is `minutesBefore` the class's start from the class
+  type's `reminderMinutes`, else the organisation's (180). Both are now bounded to two days (2,880,
+  was 10,080): the bound keeps the minute scan to the next two days' classes.
+- **The calendar file is the gatekeeper's**, not core's: a message's `calendar` values, the file
+  made by email-send when the send is applied (UTC times, one event, the booking's id as its UID, a
+  change's later sequence, a cancellation's `METHOD:CANCEL`); nothing else can be attached.
+- **Who is written to**: the booking's Person and each guardian with a live link, one email each;
+  `madeBy` words it ("You booked Sam") and never adds anyone. The spec said "to whoever made it and
+  to the guardians": whoever made it is the Person or a guardian, so a parent whose link has ended
+  is not written to about the child.
+- **Which emails** (the owner's decision: on booking, change and reminder): booked (and a drop-in
+  paid, moved in from the waiting list, moved by staff), passed over and why, a place free after
+  the cut-off (to those waiting), a class's new time, day or room, a class cancelled by the gym
+  (with the reason, and a paid drop-in's refund once approved), the reminder, a drop-in's refund
+  made (to the order's own address). Not emailed: a coach swap, a member's own cancel, and a
+  `cancelled_by_us` for any reason but the class's cancel (the trigger is the class; 32b's pauses
+  are not emailed here).
+- **Staff told of classes with no attendance taken**: an in-app notice to the admins an hour after
+  a class ends (`minutesAfter` 60, after the no-show sweep's 30), when people were booked and
+  nobody was marked.
+- **Exactly once**: see ADR 0572. Two findings on the platform: a `record` trigger's updates coalesce
+  for 30 seconds into one run with the first change (so the two that read the change set
+  `debounceSeconds: 0`), and the record a run reads is current, not the event's (so a creation read
+  after the booking was moved in or paid for is left to that move's run).
+- **Approval**: under Balanced each email waits for a person (an automation's outbound action),
+  as Ticketing's do; nothing here loosens that. A reviewed kind for a pack's transactional mail
+  (as ADR 0456 did for sign-in codes) is the platform's to add, with the owner.
+- **The dashboard** (criterion 16): the spec's reports over the classes in the dates, a cancelled
+  class counting for none. Uses spent by plan stay on the Memberships dashboard (Bookings does not
+  require Memberships). Saved views: no-shows and late cancels this month; "Classes under half
+  full", "First class this week" and "Classes with no attendance taken" cannot be a view's filter
+  (a ratio, a comparison across bookings) and are the dashboard's and the staff notice's.
+- **The coach's screen in the app**: `bookings-native-class-list` (today's classes, a list, tick,
+  untick, not come) over the coach role's client, `noPurchase`, booking and cancelling nothing.
+- **Not built here**: a Person page tab beyond step 3's (it lists the person's bookings), "promote
+  by hand" (no tool), the import (step 10).
+- **Proof**: `packs/bookings/test/automations.test.ts` (17),
+  `packages/gatekeeper-email-send/test/calendar.test.ts`, `packages/core/test/moments.test.ts`,
+  `apps/runner/test/bookings-messages.test.ts` (criterion 13 on the shipped packs through a real
+  email-send gatekeeper and the fake Email Service) and `apps/runner/test/bookings-dashboard.test.ts`
+  (criterion 16, a fixture worked out by hand).
+
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.
 

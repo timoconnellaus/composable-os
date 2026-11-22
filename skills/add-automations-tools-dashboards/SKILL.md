@@ -76,7 +76,11 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    (`AutomationTrigger` lists every type; the README's "Triggers" table explains each),
    `conditions` on the trigger record when only some records should start a run, `steps` and
    `run`. A `dateRelative` trigger's `offsetDays` is negative before the date and positive
-   after it, in days only (a month before is `-30`). When the record's days belong to its own place (an
+   after it, in days (a month before is `-30`). For hours or minutes, give `minutesBefore` or
+   `minutesAfter` a datetime field instead: a number, or `{ field, setting }` read per record (a
+   class type's reminder, else the organisation's setting; each declaring a `max` of at most a
+   week), run within a minute of the moment, once per record and time (Bookings:
+   `classReminder`; ADR 0570). When the record's days belong to its own place (an
    event abroad), add `zoneField: "<a timezone field>"`: days are then counted in each record's
    zone, and the run starts in the first hour of that local day (ADR 0460; Ticketing:
    `eventReminder`, `eventEnded`). An automation the request itself asks for
@@ -112,7 +116,14 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    An automation that mails someone outside the org (a buyer) goes through the `email-send`
    gatekeeper: declare `connections: [{ id, gatekeeper: "email-send", purpose }]` and the module,
    and call `ctx.gatekeeper("email-send").call(id, resource, "send", message)` in a step; a person
-   binds the connection, and each send is an outbound action the approval policy decides.
+   binds the connection, and each send is an outbound action the approval policy decides. Send one
+   email per person (never several people in `to`), and read an address from `person.get`'s
+   `emails` (the one marked `primary`). For "add to calendar", pass `calendar: { uid, start, end,
+   title, location?, url?, sequence?, cancelled? }`: the gatekeeper makes the `.ics` file
+   (ADR 0571); nothing else can be attached (Bookings: `bookingConfirmed`).
+   A `record` trigger's updates of one record within 30 seconds coalesce into one run, whose
+   `event.change` is the first: an automation that reads the change sets `rails: {
+   debounceSeconds: 0 }`.
    Besides your own objects and the core ones, an automation may be started by an `order`
    (`fieldChanged` on `state`, from `{ in: ["pending", "expired"] }` to the first payment),
    with `order.get` in `permissions.operations` (Ticketing: `ticketsByEmail`).
