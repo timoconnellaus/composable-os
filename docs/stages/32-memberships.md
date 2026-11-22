@@ -624,12 +624,16 @@ check above. Where the build read the spec one way, or decided what it left open
 - **Sign-in:** the spec's "sign-up mode `buyers` or an invite lets them" is half right: `buyers`
   does not (an imported person has bought nothing here). `open` does, or an invite: the import's
   `--invite` invites each address (`users:manage`), so `invite_only` and `buyers` work too. No
-  sign-in change was made here.
+  sign-in change was made here. With the separate (unmerged) sign-in setting "anyone starting a
+  subscription" on, any address may get a code while a plan is on sale, so imported subscribers
+  sign in without invites; nothing here depends on it.
 - **Free time and the trial (decision 7 and the owner's):** the continuation replaces the trial, is
-  not the trial (no trial row), and a holder with an offer never gets the plan's trial afterwards
-  (`noTrial: "continuation"`). With under 48 hours (and 15 minutes) left, taking it is charged at
-  once with no trial; once the date has passed it cannot be taken and they subscribe as anyone,
-  charged at once, no trial. The import and the report say so.
+  not the trial (no trial row). No trial while the holder has an offer they can still take or a
+  subscription from one that has not ended (`noTrial: "continuation"`); after it has ended, or the
+  offer expired untaken, the one-trial rule applies, so a returning former subscriber can have the
+  trial once (the owner's answer, corrected before merge). With under 48 hours (and 15 minutes)
+  left, taking it is charged at once with no trial; once the date has passed it cannot be taken and
+  they subscribe as anyone. The import and the report say so.
 - **The paid-up date** is 00:00 that day in the organisation's time zone, or a moment with its
   offset.
 - **The report:** who took theirs and when their new subscription starts charging, who has not, a

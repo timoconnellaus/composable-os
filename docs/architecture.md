@@ -1321,7 +1321,8 @@ live Person, a plan, the paid-up date) with a dry run, the address as the key an
 the provider's page free until the date (`trialEnd`) and never with the plan's trial; the offer
 holds that page (a trigger refusing a second, so two takes open one) until the provider says it
 expired, and the verified event that makes the subscription marks it taken. A holder with an
-offer on a plan object gets no trial on it (`noTrial: "continuation"`). The report
+open offer on a plan object, or a subscription from one that has not ended, gets no trial on it
+(`noTrial: "continuation"`); after that the one-trial rule applies. The report
 (`subscription.offer.list`, `.export`; the Subscriptions section's Continuation offers) lists who
 took theirs and when they are charged from.
 

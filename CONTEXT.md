@@ -1097,8 +1097,8 @@ A person subscribed on another platform continuing here: an address (and the one
 it), a subscription plan and the date they have paid up to there, imported by staff
 (`cos subscriptions offers import`, a person with `subscriptions:manage`; people come in first).
 Only the customer signed in as that address takes it; the subscription is then free until the
-date and charged from it, with no free trial on top, and the holder never gets the plan's trial
-afterwards. Taken once, it expires on its date (with under 48 hours left it is taken charged at
+date and charged from it, with no free trial on top, and none while that subscription runs; the
+continuation is not the trial, so after it has ended the one-trial rule applies. Taken once, it expires on its date (with under 48 hours left it is taken charged at
 once), and staff can withdraw it. The report says who has taken theirs, so the company ends exactly
 those old subscriptions (stage 32a, ADRs 0491 and 0492).
 _Avoid_: trial, coupon, migration (moving card data between processors is stage 32b's option 1)

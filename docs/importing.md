@@ -365,15 +365,20 @@ A CSV with a header row; its columns may come in any order, and extra ones are i
   taken. An offer taken or withdrawn since, or holding an open checkout on the old date, is a
   conflict: reported, never overwritten.
 - **Dates too close, or past.** With under 48 hours to the date (the payment provider's floor for
-  free time), taking the offer is charged at once. A date that has passed is imported, so the
-  person gets no free trial instead, but cannot be taken: they subscribe as anyone does, charged at
-  once. The report notes both.
+  free time), taking the offer is charged at once. A date that has passed is imported (the report
+  shows it) but cannot be taken: the person subscribes as anyone does. The report notes both.
+- **The free trial.** No trial while a person has an offer they can still take, or while the
+  subscription from one has not ended. A continuation is not the trial: after it has ended, or if
+  the offer expired untaken, the plan's trial is theirs once, as for anyone who never had it.
 - **Signing in.** Only the person signed in as the offer's address can take it: never a guest who
   types it, never staff for them. An imported person has no customer account yet. With customer
   sign-up `open` they can sign up; with `invite_only` or `buyers` they cannot unless invited.
   `--invite` invites each address (it needs the `users:manage` permission, as inviting does), which
-  works under every setting. Nothing is emailed: tell your people to sign in on the site with that
-  address and continue their subscription there.
+  works under every setting. A separate change, not yet merged, adds a customer sign-in setting
+  "anyone starting a subscription" (any address may get a code while a plan is on sale, people
+  already in the records included); with it on, imported subscribers can sign in without invites.
+  Nothing is emailed: tell your people to sign in on the site with that address and continue their
+  subscription there.
 - **What they see.** The subscribe block shows a signed-in member their offer ("Continue, free
   until 15 Dec 2026") in place of the free trial. The provider's page takes the card now and
   charges it first on that date. No free trial is ever added.
