@@ -427,6 +427,38 @@ describe("a change or a cancellation by the gym", () => {
       "goes back to the card it was paid with, once the gym approves",
     );
   });
+
+  it("tells a visitor whose paid drop-in was not yet matched to anyone, at the order's address", async () => {
+    const h = host(
+      {
+        "bookings.class": [{ ...CLASS, state: "cancelled" }],
+        "bookings.booking": [
+          booking({ id: "bkg_g", person: null, state: "cancelled_by_us", dropInOrder: "ord_g" }),
+          booking({ id: "bkg_u", person: null, state: "cancelled_by_us", dropInOrder: "ord_u" }),
+        ],
+      },
+      {
+        "order.get": (input) =>
+          input.id === "ord_g"
+            ? { id: "ord_g", state: "paid", paid: 2500, email: "Visitor@Elsewhere.test" }
+            : { id: "ord_u", state: "cancelled", paid: 0, email: "unpaid@elsewhere.test" },
+      },
+    );
+    const run = await h.runAutomation("classCancelled", {
+      record: { object: "bookings.class", id: "cls_1" },
+    });
+    expect(run.undeclared).toEqual([]);
+    // The paid one is told its money is on its way; the unpaid hold is nobody's and hears nothing.
+    expect(mails(h)).toEqual([
+      expect.objectContaining({
+        to: ["visitor@elsewhere.test"],
+        subject: "Cancelled by the gym: Strength",
+        relatedRecords: ["bkg_g", "cls_1", "ord_g"],
+      }),
+    ]);
+    expect(mails(h)[0]?.text).toContain("which you paid for");
+    expect(mails(h)[0]?.calendar).toBeUndefined();
+  });
 });
 
 describe("classReminder", () => {

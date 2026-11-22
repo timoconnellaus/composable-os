@@ -623,17 +623,41 @@ export const classCancelled = defineAutomation({
       const bookings = await bookingsOf(ctx, classId, ["cancelled_by_us"]);
       const link = httpsLink((await settings(ctx)).bookingsUrl);
       const when = classTimeText(cls.startsAt, cls.timezone);
-      // Whether each drop-in's money was taken (its order paid), read once per order.
+      // Whether each drop-in's money was taken (its order paid), and the payer's own address,
+      // read once per order.
       const paid = new Map<string, boolean>();
+      const payer = new Map<string, string | null>();
       for (const booking of bookings) {
         const order = text(booking.values.dropInOrder);
         if (!order || paid.has(order)) continue;
         const read = await ctx.ops
-          .call<{ state: string; paid?: number }>("order.get", { id: order })
+          .call<{ state: string; paid?: number; email?: string | null }>("order.get", {
+            id: order,
+          })
           .catch(() => null);
         paid.set(order, Boolean(read && (read.paid ?? 0) > 0));
+        payer.set(order, text(read?.email)?.toLowerCase() ?? null);
       }
-      return lettersFor(ctx, bookings, (a, name, booking) => {
+      // A visitor's paid drop-in that staff had not yet matched to a Person (ADR 0560) has no
+      // addressee of its own: the payer is told at the order's address, about their own payment
+      // only, that the money is on its way (decision 15).
+      const unmatched: Letter[] = [];
+      for (const booking of bookings) {
+        const order = text(booking.values.dropInOrder);
+        const to = order ? payer.get(order) : null;
+        if (text(booking.values.person) || !order || !paid.get(order) || !to) continue;
+        unmatched.push({
+          to,
+          subject: `Cancelled by the gym: ${cls.title}`,
+          text: [
+            `The gym has cancelled ${cls.title} on ${when}, which you paid for.`,
+            ...(cls.reason ? [`The reason: ${cls.reason}`] : []),
+            "The money goes back to the card it was paid with, once the gym approves the refund: you will get an email when it has been made.",
+          ].join("\n"),
+          related: [booking.id, cls.id, order],
+        });
+      }
+      const letters = await lettersFor(ctx, bookings, (a, name, booking) => {
         const order = text(booking.values.dropInOrder);
         const money = order
           ? paid.get(order)
@@ -654,6 +678,7 @@ export const classCancelled = defineAutomation({
           calendar: calendarOf(booking, cls, link, { cancelled: true }),
         };
       });
+      return [...letters, ...unmatched];
     });
     if (!letters.length) return { sent: 0 };
     return step.do("send", () => sendAll(ctx, letters));
