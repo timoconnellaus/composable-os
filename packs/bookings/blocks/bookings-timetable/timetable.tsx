@@ -179,7 +179,10 @@ function ClassRow({
               onDone(refusalMessage(held, klass.timeZone));
               return;
             }
-            const page = await buy.checkout.mutateAsync({ id: held.orderId, returnUrl: payReturnUrl });
+            const page = await buy.checkout.mutateAsync({
+              id: held.orderId,
+              returnUrl: payReturnUrl,
+            });
             window.location.assign(page.url);
           }}
         >

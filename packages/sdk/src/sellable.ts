@@ -615,7 +615,10 @@ function checkMoves(
   }
   const creators = states.create?.in?.[moves.held] ?? [];
   if (!creators.includes("host")) {
-    contract(`${path}.held`, `states.create.in must let the host create ${name} in "${moves.held}"`);
+    contract(
+      `${path}.held`,
+      `states.create.in must let the host create ${name} in "${moves.held}"`,
+    );
   }
   if (creators.some((by) => by !== "host")) {
     contract(

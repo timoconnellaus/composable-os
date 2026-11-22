@@ -1178,9 +1178,22 @@ automation's or extension code's write of it waits for a person's approval (ADR 
 booking rules.
 
 **Paid another way** (a spender's `waived`)
-A spender created marked as paid outside the allowance (a walk-in at the desk, later a drop-in's
-order): it enters its spend states spending nothing, and the mark cannot change while it is in one
-(ADR 0506).
+A spender created marked as paid outside the allowance (a walk-in at the desk, or a drop-in paid
+by its own order): it enters its spend states spending nothing, and the mark cannot change while
+it is in one (ADR 0506).
+
+**Drop-in** (a booking paid for on its own)
+One class paid for on the website by a visitor, or a member with nothing to spend (decision 8,
+ADR 0560): the host makes the booking `pending`, holding a place, with its order; the verified
+payment books it, the order expiring releases it. Cancelled in time, or by the gym, the money goes
+back to the card once a person with `orders:refund` approves the refund; cancelled late or not
+come, it is kept. Not the Memberships pack's drop-in pass (a pass of one, bought first and spent
+by booking).
+
+**Refund owed**
+What the host writes when a record an order paid for (a drop-in) is cancelled in a way that gives
+the money back (`core_sellable_refund_due`): the minute cron then asks the payments gatekeeper for
+the refund, which waits for a person's approval (ADR 0560). Never asked twice.
 
 **Hold**
 A held claim: places taken out of a capacity while an order is unpaid. It has no clock of its own:
@@ -1204,7 +1217,8 @@ _Avoid_: purchase, sale, booking (a booking is a place in a class), invoice (sta
 **Sellable**
 The behaviour of an object whose records can be put on an order (stage 27, ADR 0435): its price
 field, and optionally its currency, sale window, most per order, deposit and what a paid line
-grants. Only an object that declares it can be bought. The host reads every price and rule from
+grants, or what a paid line moves (`sellable.moves`, ADR 0560: a record made held with its
+order, moved when it is paid or expires). Only an object that declares it can be bought. The host reads every price and rule from
 the record, so a caller sends none.
 _Avoid_: product (a product is what the platform is composed into, ADR 0400), SKU
 

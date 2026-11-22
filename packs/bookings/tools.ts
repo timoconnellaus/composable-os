@@ -683,7 +683,10 @@ export const buy = defineTool({
           return out("no_drop_in", "This class cannot be paid for online. Ask at the desk.");
         }
         if (rule === "buyer_unclear") {
-          return out("ask_desk", "We could not tell who you are from that address. Ask at the desk.");
+          return out(
+            "ask_desk",
+            "We could not tell who you are from that address. Ask at the desk.",
+          );
         }
         if ((error.details as { field?: unknown } | undefined)?.field === "email") {
           return out("ask_desk", error.message);

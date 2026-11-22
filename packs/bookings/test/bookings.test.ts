@@ -642,9 +642,10 @@ describe("bookings pack (test host)", () => {
     ];
     for (const [rule, reason] of cases) {
       const h = host({ "order.startHeld": () => refusal(rule) });
-      expect(
-        await h.runTool("buy", { classId: "cls_1" }, { caller: MEMBER }),
-      ).toMatchObject({ result: "refused", reason });
+      expect(await h.runTool("buy", { classId: "cls_1" }, { caller: MEMBER })).toMatchObject({
+        result: "refused",
+        reason,
+      });
     }
   });
 

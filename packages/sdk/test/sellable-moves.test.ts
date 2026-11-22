@@ -123,9 +123,9 @@ describe("sellable.moves", () => {
     expect(
       problems({ sellable: { moves: { ...moves, price: { setting: "nope" } } } }).join("\n"),
     ).toContain("must be a number setting");
-    expect(
-      problems({ sellable: { moves: { ...moves, order: "title" } } }).join("\n"),
-    ).toContain("must be a readOnly text field");
+    expect(problems({ sellable: { moves: { ...moves, order: "title" } } }).join("\n")).toContain(
+      "must be a readOnly text field",
+    );
   });
 
   it("refuses what one record on one order cannot have", () => {

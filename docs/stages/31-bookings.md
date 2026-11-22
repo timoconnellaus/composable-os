@@ -912,11 +912,57 @@ spec one way, or decided what it left open:
   another day's corrections are the desk's; the timed-move sweep pages past records that keep
   failing; a cascade cannot follow a pooled parent.
 - **Not built here** (later steps): promote by hand, the emails (a move, a cancel, the class list
-  "no attendance taken"), drop-in refunds on a cancel (no drop-ins yet), the coach's screen in the
+  "no attendance taken"), drop-in refunds on a cancel (no drop-ins yet: step 8 built them), the coach's screen in the
   gym's app (the web `bookings-class-list` block is the list; native is step 9).
 - **Proof**: `packs/bookings/test/bookings.test.ts` (29), `packages/core/test/attendance-platform.test.ts`
   (6), `apps/runner/test/bookings-attendance.test.ts` (11: criteria 6, 7 and 11 on the shipped
   packs), and the e2e journey "a coach ticks who came on a class's list".
+
+### Step 8: drop-ins (2026-11-23, `feat/stage-31a-drop-ins`)
+[ADR 0560](../adr/0560-a-paid-line-moves-a-record-that-exists.md) and migration 0690 (block AP);
+no other ADR amended. Where the build read the spec one way, or decided what it left open:
+
+- **`sellable.moves` as the spec sketched**, with what it needed: `{ held: "pending", paid:
+  "booked", expired: "expired", refund, price, title, order }`. The booking is made, held, and its
+  order started in one batch by a new core operation, `order.startHeld` (tool-only, staff,
+  customers and the public), which `x.bookings.buy` calls. The booking is made as the host (only
+  the host creates or leaves `pending`), after the host judges the caller's input with the
+  engine's own create rules (closed for everyone; the window and staff-only rule unless staff).
+- **The price**: the spec's table gave the class type "a drop-in price"; the build adds the
+  organisation's `dropInPrice` setting under it (ADR 0505's reading, in the write), both a person's
+  to change (`personApproves`). Neither set: the class is not offered online (`no_drop_in`). It is
+  in the deployment's currency, written onto the booking (`dropInPrice`, read only) and the line.
+- **Tax**: the booking declares `txcd_50021003` (Stripe's "Fee for Personal Training/Fitness
+  Classes"); a human admin may override it. Off unless tax at checkout is on (ADR 0479).
+- **A visitor cannot join a waiting list** (the spec did not say): joining is a member's, and
+  promotion spends a use a drop-in payer does not hold. A full class is refused to a buyer, a place
+  held for the waiting list included (the database counts it).
+- **An address several People share** is refused (`ask_desk`) rather than started with no Person:
+  an order may wait for staff to set its Person, a held booking cannot.
+- **A payment after the hold expired** is late (ADR 0429) and **cannot be honoured**: the place
+  went back and may be someone else's (`held_gone`); staff refund it.
+- **Refunds are asked for by the host, after the move commits**: a paid drop-in entering
+  `cancelled` (in time), `excused` (a person gave it back late) or `cancelled_by_us` (the class
+  cancelled, by staff or a closure, a late-cancelled, ticked or no-show one included, as step 7's
+  cascade takes them) writes a refund owed in its batch; the minute cron asks the payments
+  gatekeeper (`order.refundDue`), one refund per payment, each waiting for a person with
+  `orders:refund` (never an AI). A refund staff already made by hand is not asked again. A late
+  cancel and a no-show keep the money (decided: no fee, no refund). An unpaid drop-in on a class
+  the gym cancels has its order cancelled in the same batch.
+- **A member's cancel of a drop-in** says the money goes back once staff approve it (`cancel`'s
+  `dropIn`); `mine` gives a drop-in's order (`dropInOrderId`), so a pending one can still be paid.
+- **Blocks**: a web `bookings-drop-in` block (the week's classes, an email for a guest, then the
+  provider's page) and, on the web timetable, "Pay for" a class a member was refused for want of
+  a use (when the app passes `payReturnUrl`). Native blocks are `noPurchase`; the lint refuses
+  `x.bookings.buy` and `order.checkout` in them (criterion 8's last clause).
+- **Known gap** (for review): staff moving a paid drop-in to another class (step 7's `move`) makes
+  a desk-paid booking with no order, so a later in-time cancel of the new booking owes nothing
+  automatically; staff refund the original order by hand.
+- **Not run on Stripe**: everything is proved on the fake provider; the runbook's part 9 lists the
+  test-mode checks.
+- **Proof**: `apps/runner/test/bookings-drop-in.test.ts` (16, the shipped packs and the fake
+  provider), `packages/sdk/test/sellable-moves.test.ts`, the pack's own tests (the declaration and
+  `buy`), `scripts/check-blocks.test.mjs`, and the e2e journey "a visitor pays for a class".
 
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.

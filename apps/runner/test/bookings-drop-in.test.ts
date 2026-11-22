@@ -327,7 +327,11 @@ describe("a visitor pays for one class (criterion 8)", () => {
     expect(
       (
         await refusal(
-          run("order.startHeld", { object: BOOKING, values: { class: id }, email: visitor() }, guest),
+          run(
+            "order.startHeld",
+            { object: BOOKING, values: { class: id }, email: visitor() },
+            guest,
+          ),
         )
       ).code,
     ).toBe("unknown_operation");
@@ -446,11 +450,15 @@ describe("the place and the clock", () => {
       },
       staff(),
     );
-    expect(await run<{ result: string }>("x.bookings.book", { classId: id }, as(waiter))).toMatchObject(
-      { result: "waiting" },
-    );
+    expect(
+      await run<{ result: string }>("x.bookings.book", { classId: id }, as(waiter)),
+    ).toMatchObject({ result: "waiting" });
     // The place freed before the cut-off is held for the waiting list: no drop-in can take it.
-    await run("record.update", { object: BOOKING, id: a.bookingId, values: { state: "cancel" } }, staff());
+    await run(
+      "record.update",
+      { object: BOOKING, id: a.bookingId, values: { state: "cancel" } },
+      staff(),
+    );
     expect(await places(id)).toMatchObject({ available: 0 });
     expect(await buyAsGuest(id)).toMatchObject({ result: "refused", reason: "full" });
   });
@@ -508,9 +516,10 @@ describe("a parent pays for a child (ADR 0540)", () => {
       reason: "not_found",
     });
     // A guest cannot name anyone.
-    expect(
-      await buy(id, guest, { email: visitor(), forPersonId: kid }),
-    ).toMatchObject({ result: "refused", reason: "not_found" });
+    expect(await buy(id, guest, { email: visitor(), forPersonId: kid })).toMatchObject({
+      result: "refused",
+      reason: "not_found",
+    });
     // The parent reads the child's drop-in.
     const mine = await run<{ bookings: { id: string; dropInOrderId: string | null }[] }>(
       "x.bookings.mine",
@@ -572,11 +581,7 @@ describe("refunds through approval (decision 15, criterion 6's drop-in part)", (
     const waiting = await env.DB.prepare(
       "SELECT pending_action_id AS id FROM core_order_refund WHERE status = 'requested' AND pending_action_id IS NOT NULL ORDER BY pending_action_id",
     ).all<{ id: string }>();
-    await run(
-      "approval.approve",
-      { actionIds: waiting.results.map((r) => r.id) },
-      staff(),
-    );
+    await run("approval.approve", { actionIds: waiting.results.map((r) => r.id) }, staff());
     await vi.waitFor(async () => expect((await order(bought.orderId))?.state).toBe("refunded"), {
       timeout: 15_000,
     });
@@ -683,7 +688,9 @@ describe("refunds through approval (decision 15, criterion 6's drop-in part)", (
     expect((await owed(bought.orderId))?.state).toBe("due");
     expect(await sweep()).toMatchObject({ skipped: 1 });
     expect((await owed(bought.orderId))?.state).toBe("skipped");
-    const refunds = await env.DB.prepare("SELECT COUNT(*) AS n FROM core_order_refund WHERE order_id = ?")
+    const refunds = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM core_order_refund WHERE order_id = ?",
+    )
       .bind(bought.orderId)
       .first<{ n: number }>();
     expect(refunds?.n).toBe(1);

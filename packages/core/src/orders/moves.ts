@@ -394,7 +394,14 @@ const orderMoves: MoveHook = async (outer, move) => {
       }
       // Paid, but the record left its held place meanwhile (it should have cancelled the order):
       // the buyer is owed their money, and staff are told. The payment itself is applied.
-      oweRefund(ctx, move.id, object, line.record_id, state ?? "gone", "Paid after it was released");
+      oweRefund(
+        ctx,
+        move.id,
+        object,
+        line.record_id,
+        state ?? "gone",
+        "Paid after it was released",
+      );
       const plan = await notifyStatements(
         ctx.db,
         {

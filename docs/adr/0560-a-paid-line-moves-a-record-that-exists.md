@@ -119,7 +119,7 @@ timetable (for a member refused for want of a use) open the provider's page. Nat
   test-mode checks a person makes with Stripe.
 
 ## Proof
-`apps/runner/test/bookings-drop-in.test.ts` (15, the shipped packs, the real gatekeeper and its
+`apps/runner/test/bookings-drop-in.test.ts` (16, the shipped packs, the real gatekeeper and its
 fake provider): a visitor's place held while unpaid and booked by the verified payment with no use
 spent; the class type's price over the organisation's, neither refused; the caller setting the
 price, state or waived mark refused, `order.startHeld` unreachable but through a tool, a booking

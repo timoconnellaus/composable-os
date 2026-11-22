@@ -1,4 +1,5 @@
-// Stage 31a steps 3 and 6 end to end, one test per journey: a member books a class from the
+// Stage 31a steps 3, 6, 7 and 8 end to end, one test per journey (a visitor paying for a class
+// on the drop-in block is the last): a member books a class from the
 // timetable and cancels it in time, with the membership's use given back; staff book a walk-in
 // into a class type only staff book, paid at the desk; and staff link a parent to a child on the
 // parent's page, and the parent books the child a class with the child's own pass. The blocks are the pack's own web blocks, mounted
@@ -355,4 +356,74 @@ test("staff link a parent to their child, and the parent books the child a class
     );
     await op(page.request, "customer.settings.update", { signup: "invite_only" }, false);
   }
+});
+
+// Stage 31a step 8 (ADR 0560): a visitor pays for one class on the drop-in block, on the payments
+// gatekeeper's fake provider, and is booked once the payment is verified.
+test("a visitor pays for a class on the website and is booked", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  await setUp(page);
+  const origin = new URL(baseURL ?? "http://localhost").origin;
+  await op(page.request, "order.settings.update", { currency: "AUD", returnOrigins: [origin] });
+  await op(page.request, "integration.setVendor", { vendor: "payments", enabled: true });
+  const connections = await op<{ items: { id: string; vendor: string; status: string }[] }>(
+    page.request,
+    "connection.list",
+    {},
+  );
+  let payments = connections.items.find(
+    (c) => c.vendor === "payments" && c.status === "active",
+  )?.id;
+  if (!payments) {
+    payments = (
+      await op<{ connection: { id: string } }>(page.request, "connection.create", {
+        vendor: "payments",
+        scope: "org",
+      })
+    ).connection.id;
+  }
+  await op(page.request, "connection.bindResource", {
+    id: payments,
+    url: "payments://merchant/fake",
+  });
+  const klass = await oneOff(page, 5 * HOUR, { "bookings.dropInPrice": 22 });
+  // A visitor: no account, no cookies.
+  const visitor = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+  const visitorPage = await visitor.newPage();
+  await visitorPage.goto(
+    block("bookings-drop-in", "DropIn", { signedIn: false, returnUrl: `${origin}/blocks` }),
+  );
+  const list = visitorPage.getByRole("region", { name: "Pay for a class" });
+  await list.getByRole("button", { name: `Pay for ${klass.name}` }).click();
+  const email = `${unique("visitor").toLowerCase()}@dropin.test`;
+  await visitorPage.getByLabel("Your email").fill(email);
+  await visitorPage.getByRole("button", { name: "Pay", exact: true }).click();
+  await expect(visitorPage.getByRole("heading", { name: /Fake payment page/i })).toBeVisible({
+    timeout: 30_000,
+  });
+  // Held while they pay: the class shows the place taken out.
+  const held = await op<{ values: Record<string, unknown> }>(page.request, "record.get", {
+    object: "bookings.class",
+    id: klass.id,
+  });
+  expect(held.values).toMatchObject({ held: 1 });
+  await visitorPage.getByRole("button", { name: "Pay", exact: true }).click();
+  // Once the provider confirms it, the host books them: the place is taken, nothing held.
+  await expect
+    .poll(
+      async () => {
+        const bookings = await op<{ items: { values: Record<string, unknown> }[] }>(
+          page.request,
+          "record.list",
+          { object: "bookings.booking", filter: { field: "class", op: "eq", value: klass.id } },
+        );
+        return bookings.items.map((b) => b.values.state);
+      },
+      { timeout: 30_000 },
+    )
+    .toEqual(["booked"]);
+  await visitor.close();
 });

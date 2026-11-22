@@ -1102,6 +1102,16 @@ stale or orphaned records. A tick makes at most 100 records, 25 per series run, 
 booking window; a series in Trash is handled as ended. The wall-clock helper is shared with
 subscriptions' `paidUpMoment` and stage 32b's allowances.
 
+`sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
+`packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
+already exists: `order.startHeld` makes the record in its `held` state (a drop-in booking holding
+its place) and its order in one batch, as the host, after judging the caller's input with the
+record's own create rules, priced from a declared path or the extension's setting; the order's
+move hook moves it to `paid` or `expired`; a record leaving `held` another way cancels its unpaid
+order; entering a `refund` state with its order paid writes a refund owed
+(`core_sellable_refund_due`, migration 0690), which the minute cron asks the payments gatekeeper
+for, as `payments.refund`, approved only by a person with `orders:refund`.
+
 `sellable` ([ADR 0435](adr/0435-sellable-what-may-be-bought-and-what-a-paid-line-grants.md),
 `packages/sdk/src/sellable.ts`, `packages/core/src/orders/sellable.ts` and `grants.ts`) is what
 makes an object's records something an order line may point at: its price field and currency,
@@ -1319,7 +1329,10 @@ the desk) and a native timetable marked `noPurchase`. The booking declares its w
 reading classes), ticking from an hour before the class, no-shows by `states.after` 30 minutes
 after the end where the list was taken, `move` (the new booking's create with `movedFrom`) and
 `cancelClass` (a tool a person approves, the class's only staff way into `cancelled`), and a web
-`bookings-class-list` block. The family link, drop-ins and messages are steps 6, 8 and 9; the
+`bookings-class-list` block. Drop-ins (step 8, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)):
+the booking declares `sellable.moves`, `buy` (customers and the public) has the host make it
+`pending` with its order (`order.startHeld`), and a web `bookings-drop-in` block opens the
+provider's page. Messages are step 9; the
 states they use are declared, with no customer move into them. After the review ([ADR 0507](adr/0507-what-the-bookings-review-needed-of-the-platform.md)):
 a class the host cancels moves its live bookings to `cancelled_by_us` in its batch
 (`states.follows`, the state cascade), a closed class binds staff (`create.closed`), a member's
@@ -1570,7 +1583,7 @@ calculates a price, checks a capacity or checks a permission.
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
-| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); steps 7 to 10 to come |
+| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); steps 9 and 10 to come |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos

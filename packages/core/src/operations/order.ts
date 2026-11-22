@@ -43,6 +43,7 @@ import {
   resolveBuyer,
 } from "../orders/guests.ts";
 import { EXPIRE_BATCH, expireDueOrders, honourLatePayment, paidLate } from "../orders/late.ts";
+import { startHeld } from "../orders/moves.ts";
 import {
   changeOrder,
   createOrder,
@@ -54,7 +55,6 @@ import {
   type PricedLine,
   requireState,
 } from "../orders/orders.ts";
-import { startHeld } from "../orders/moves.ts";
 import { requestDueRefund } from "../orders/refund-due.ts";
 import { refundablePayments, requestRefund } from "../orders/refunds.ts";
 import {
@@ -1051,7 +1051,11 @@ export const orderStartHeld = defineOperation({
     "booked by staff only, places left, one per person). Returns the order; a guest also gets " +
     "`token`, shown once.",
   input: z.object({
-    object: z.string().min(1).max(80).describe("The object to make a record of, e.g. bookings.booking"),
+    object: z
+      .string()
+      .min(1)
+      .max(80)
+      .describe("The object to make a record of, e.g. bookings.booking"),
     values: z
       .record(z.string().max(80), z.unknown())
       .default({})

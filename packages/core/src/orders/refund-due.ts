@@ -12,16 +12,16 @@
 //      never asked again by itself: it is `skipped` with why, and admins are told to refund by
 //      hand. Asking twice could put two refunds in front of a person; telling them cannot.
 import type { CrmDb } from "@composable-os/db";
-import { errorForLog } from "../log.ts";
-import type { GateFloor } from "../gate.ts";
 import type { EventSink } from "../automations/types.ts";
+import type { GateFloor } from "../gate.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import { invokeByName } from "../invoke.ts";
-import type { HandlerContext } from "../operation.ts";
+import { errorForLog } from "../log.ts";
 import { notifyStatements } from "../notifications/send.ts";
+import type { HandlerContext } from "../operation.ts";
 import { SYSTEM_USER } from "../users.ts";
 import { loadOrderRow } from "./orders.ts";
-import { requestRefund, type RequestedRefund } from "./refunds.ts";
+import { type RequestedRefund, requestRefund } from "./refunds.ts";
 
 /** How many owed refunds one tick asks for. */
 export const REFUND_DUE_BATCH = 20;
