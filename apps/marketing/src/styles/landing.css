@@ -548,7 +548,18 @@ h2.wide {
     Menlo,
     monospace;
   overflow-x: auto;
-  white-space: pre;
+  /* A long command wraps between words, never inside one, and hangs under its first line, so
+     nothing scrolls out of sight at any width. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.term .l {
+  display: block;
+  padding-left: 2ch;
+  text-indent: -2ch;
+}
+.term .w {
+  white-space: nowrap;
 }
 .term .c {
   color: #8c9bbb;
@@ -664,6 +675,9 @@ h2.wide {
 .final .fine {
   margin-top: 4px;
 }
+.nowrap {
+  white-space: nowrap;
+}
 .final .stage {
   height: 150px;
   margin-top: 48px;
@@ -735,5 +749,76 @@ h2.wide {
   }
   .final {
     padding-top: 64px;
+  }
+}
+
+/* Phones: the same page, set for one column and a thumb. */
+@media (max-width: 600px) {
+  .hero .lead {
+    font-size: 17px;
+  }
+  .hero .lead,
+  .hero .fine,
+  .final .fine {
+    text-wrap: balance;
+  }
+  /* The picture: the change waiting for approval spans the board's width and sits at its foot,
+     so its buttons are in the picture and the first orders show above it. */
+  .app {
+    height: 440px;
+  }
+  .change {
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 14px;
+    width: auto;
+  }
+  /* The facts read as a list: their dots line up in one column, centred as a block. */
+  .facts ul {
+    display: grid;
+    justify-content: center;
+    justify-items: start;
+    gap: 10px;
+  }
+  /* Every action that stands alone in a column is as wide as the column, as in the hero. */
+  .split .btn,
+  .group-cta {
+    width: 100%;
+  }
+  .steps li {
+    gap: 14px;
+  }
+  .steps .n {
+    width: 36px;
+    height: 36px;
+  }
+  /* What's inside: the icon beside its title, so six cards take half the scroll. */
+  #inside .card {
+    display: grid;
+    grid-template-columns: 42px 1fr;
+    column-gap: 16px;
+    align-items: center;
+  }
+  #inside .ic {
+    margin-bottom: 0;
+  }
+  #inside .card p {
+    grid-column: 1 / -1;
+    margin-top: 12px;
+  }
+  .first {
+    padding: 26px 22px;
+  }
+  .band {
+    padding: 36px 22px;
+  }
+  .term {
+    padding: 20px;
+    font-size: 12.5px;
+    line-height: 1.75;
+  }
+  .call textarea {
+    border-radius: 18px;
   }
 }

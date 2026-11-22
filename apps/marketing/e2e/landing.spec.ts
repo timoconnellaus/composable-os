@@ -3,7 +3,7 @@
 // without JavaScript, the layout holds at phone, tablet and desktop widths, and the metadata is
 // served.
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import { SOLUTIONS } from "../src/solutions.ts";
 import { STATUS } from "../src/status.ts";
 
@@ -124,9 +124,16 @@ test.describe("the call form", () => {
 test.describe("layout", () => {
   const paths = ["/", ...SOLUTIONS.map((solution) => `/solutions/${solution.slug}/`)];
   for (const path of paths)
-    for (const width of [390, 834, 1280]) {
-      test(`no horizontal overflow on ${path} at ${width}px`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 900 });
+    for (const [width, height] of [
+      [320, 640],
+      [360, 740],
+      [390, 844],
+      [740, 360],
+      [834, 1100],
+      [1280, 900],
+    ] as const) {
+      test(`no horizontal overflow on ${path} at ${width}x${height}`, async ({ page }) => {
+        await page.setViewportSize({ width, height });
         await page.goto(path);
         // html and body clip overflow, so check every element against the viewport, skipping
         // anything inside a container that scrolls or clips on purpose (the frame's rounded sheet,
@@ -278,4 +285,93 @@ test("the header fits a narrow phone", async ({ page }) => {
   const menu = await page.getByRole("button", { name: "Open menu" }).boundingBox();
   expect(menu && menu.x + menu.width).toBeLessThanOrEqual(360);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+});
+
+// What a thumb needs on a phone: nothing in the header overlaps, every control is at least 44px
+// tall, form fields are at least 16px (or iOS zooms in on focus), and the commands wrap instead of
+// scrolling out of sight.
+test.describe("on a phone", () => {
+  const paths = ["/", ...SOLUTIONS.map((solution) => `/solutions/${solution.slug}/`)];
+  for (const path of paths)
+    for (const width of [320, 360, 390])
+      for (const font of ["Poppins", "a wide fallback font"]) {
+        test(`${path} at ${width}px in ${font}: the header's logo, action and menu sit side by side, 44px tall`, async ({
+          page,
+        }) => {
+          await page.setViewportSize({ width, height: 740 });
+          await page.goto(path);
+          // Before Poppins loads, or where it never does, a system font shows; DejaVu Sans (Linux)
+          // and Verdana are among the widest, so the bar has to hold with them too.
+          if (font !== "Poppins")
+            await page.addStyleTag({
+              content: ':root { --font: Verdana, "DejaVu Sans", sans-serif; }',
+            });
+          await page.evaluate(() => document.fonts.ready);
+          const header = page.locator("header.site");
+          const box = async (locator: Locator) => {
+            const found = await locator.boundingBox();
+            if (!found) throw new Error("not rendered");
+            return found;
+          };
+          const logo = await box(header.locator(".logo"));
+          const action = await box(header.getByRole("link", { name: CTA }));
+          const menu = await box(header.getByRole("button", { name: "Open menu" }));
+          // The logo's box can shrink while its name spills under the action, so check both.
+          expect(
+            await header.locator(".logo").evaluate((el) => el.scrollWidth <= el.clientWidth),
+          ).toBe(true);
+          expect(logo.x + logo.width).toBeLessThanOrEqual(action.x);
+          expect(action.x + action.width).toBeLessThanOrEqual(menu.x);
+          expect(menu.x + menu.width).toBeLessThanOrEqual(width);
+          expect(action.height).toBeGreaterThanOrEqual(44);
+          expect(menu.height).toBeGreaterThanOrEqual(44);
+          // In Poppins the whole name shows; a wide fallback may end it in an ellipsis.
+          if (font === "Poppins")
+            expect(
+              await header.locator(".logo-name").evaluate((el) => el.scrollWidth <= el.clientWidth),
+            ).toBe(true);
+        });
+      }
+
+  test("the call form's fields are 16px text and 44px targets, with the right keyboards", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    await page.goto("/#call");
+    const form = page.locator("form[data-form]");
+    for (const control of await form.locator("input:visible, textarea, button").all()) {
+      const box = await control.boundingBox();
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+      const size = await control.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize));
+      expect(size).toBeGreaterThanOrEqual(16);
+    }
+    const email = form.getByLabel("Work email");
+    await expect(email).toHaveAttribute("type", "email");
+    await expect(email).toHaveAttribute("autocomplete", "email");
+    await expect(email).toHaveAttribute("autocapitalize", "off");
+    await expect(form.getByLabel("Your name")).toHaveAttribute("autocomplete", "name");
+    await expect(form.getByLabel("Company")).toHaveAttribute("autocomplete", "organization");
+  });
+
+  test("the footer's links are 44px targets", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    await page.goto("/");
+    for (const link of await page
+      .getByRole("navigation", { name: "Footer" })
+      .getByRole("link")
+      .all())
+      expect((await link.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  });
+
+  test("the commands wrap instead of scrolling sideways", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.goto("/");
+    const term = page.locator(".term");
+    expect(await term.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    // Copying the block still gives one command per line.
+    // biome-ignore lint/performance/useDomNodeTextContent: the lines are blocks; only the rendered text has their line breaks.
+    expect((await term.innerText()).split("\n")[1]).toBe(
+      '$ npm create composable-os harbour -- --label "Harbour Roasters"',
+    );
+  });
 });
