@@ -358,6 +358,10 @@ export interface MovesDefinition {
   title?: string | undefined;
   /** A read-only text field: the order's id. */
   order?: string | undefined;
+  /** A guest's record is held with no Person until its order is paid (ADR 0560). */
+  guest?: boolean | undefined;
+  /** The extension's number setting: the percent of the claimed record's places guests may hold. */
+  holdCap?: { setting: string } | undefined;
 }
 
 /** The SDK's RecurringGrantSpec with the granted object's registry name (ADR 0510). */

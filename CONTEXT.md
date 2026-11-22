@@ -1185,7 +1185,8 @@ it is in one (ADR 0506).
 **Drop-in** (a booking paid for on its own)
 One class paid for on the website by a visitor, or a member with nothing to spend (decision 8,
 ADR 0560): the host makes the booking `pending`, holding a place, with its order; the verified
-payment books it, the order expiring releases it. Cancelled in time, or by the gym, the money goes
+payment books it, the order expiring releases it. A guest's held booking is nobody's until they
+pay: their address is matched to a Person only then. Cancelled in time, or by the gym, the money goes
 back to the card once a person with `orders:refund` approves the refund; cancelled late or not
 come, it is kept. Not the Memberships pack's drop-in pass (a pass of one, bought first and spent
 by booking).

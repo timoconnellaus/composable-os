@@ -92,7 +92,15 @@ export interface RequestedRefund {
 export async function requestRefund(
   ctx: HandlerContext,
   row: OrderRow,
-  input: { amount?: number | undefined; reason: string },
+  input: {
+    amount?: number | undefined;
+    reason: string;
+    /**
+     * The id of the n-th refund asked for, when the caller needs it known in advance (the host's
+     * owed refunds, ADR 0560): the provider's idempotency key, so one asked twice is one refund.
+     */
+    refundId?: ((n: number) => string) | undefined;
+  },
 ): Promise<{ refunds: RequestedRefund[]; pending: PendingApproval[] }> {
   if (row.state === "pending" || row.state === "part_paid") {
     throw new ConflictError(
@@ -124,7 +132,7 @@ export async function requestRefund(
     if (left <= 0) break;
     const amount = Math.min(left, payment.refundable);
     left -= amount;
-    const id = newId("refund");
+    const id = input.refundId ? input.refundId(refunds.length) : newId("refund");
     const result = await requestProviderRefund(
       ctx.integrations,
       target,

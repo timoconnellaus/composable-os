@@ -499,7 +499,9 @@ export default defineExtension({
       fields: {
         title: { type: "text", label: "Title" },
         class: { type: "relation", label: "Class", to: "bookings.class", required: true },
-        person: { type: "relation", label: "Person", to: "person", required: true },
+        // Set on every booking but a guest's drop-in held while unpaid, which is nobody's until the
+        // payment is verified (`sellable.moves.guest`: the host keeps it set in every other state).
+        person: { type: "relation", label: "Person", to: "person" },
         state: { type: "select", label: "State", track: "timeline", options: BOOKING_STATES },
         holder: {
           type: "text",
@@ -756,6 +758,11 @@ export default defineExtension({
           price: { field: "class.classType.dropInPrice", setting: "dropInPrice" },
           title: "class.title",
           order: "dropInOrder",
+          // A visitor is matched to no Person until they have paid (ADR 0560): their hold is
+          // nobody's, blocks nobody's own booking and says nothing about who has the address.
+          guest: true,
+          // How much of a class unpaid guest holds may take at once.
+          holdCap: { setting: "dropInHoldPercent" },
         },
       },
       // A spender of the Memberships pack's holders (stage 32b's ids, spec 32): booked spends,
@@ -954,6 +961,17 @@ export default defineExtension({
         "currency, unless its class type sets its own. Empty: no drop-ins.",
       min: 0,
       max: 100_000,
+      personApproves: true,
+    },
+    dropInHoldPercent: {
+      type: "number",
+      label: "Places held for unpaid drop-ins (percent)",
+      description:
+        "At most this share of a class's places (at least one) may be held at once for visitors " +
+        "who have not paid yet. More are told to try again shortly.",
+      default: 50,
+      min: 0,
+      max: 100,
       personApproves: true,
     },
     reminderMinutes: {

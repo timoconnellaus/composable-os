@@ -889,6 +889,8 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
             ...(declared.moves.price ? { price: { ...declared.moves.price } } : {}),
             ...(declared.moves.title ? { title: declared.moves.title } : {}),
             ...(declared.moves.order ? { order: nameOf(declared.moves.order) } : {}),
+            ...(declared.moves.guest ? { guest: true } : {}),
+            ...(declared.moves.holdCap ? { holdCap: { ...declared.moves.holdCap } } : {}),
           },
         }
       : {}),

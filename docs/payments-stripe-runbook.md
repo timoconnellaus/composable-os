@@ -157,8 +157,13 @@ a few hours ahead with 1 place. The site's `bookings-drop-in` block (or `x.booki
    inside the price, and the order's tax is Stripe's figure.
 3. Start a drop-in, open Stripe's page, do not pay; wait for the order to expire. **Check 22:** the
    booking is Expired and the place is free. Pay on the page you kept open: the order stays
-   Expired, appears under Paid late, and Honour is refused ("refund the payment instead"); refund
-   it as in part 6.
+   Expired, appears under Paid late, Honour is refused, and within a minute its refund waits in
+   Approvals, requested by the host; approve it.
+7. As a visitor (not signed in), start a drop-in with the address of a member who already booked
+   that class, and pay. **Check 26:** the visitor was told nothing different before paying; after
+   Stripe's event the drop-in is Expired, not a second booking, and its refund waits in Approvals.
+8. Reject one of these refunds in Approvals. **Check 27:** within a minute admins are told it was
+   not approved; Refund on the order asks again.
 4. Pay for a class, then cancel the booking in time from the member's account (or as staff).
    **Check 23:** within a minute a refund of the whole amount waits in Approvals, requested by the
    host; an AI assistant cannot approve it; a person with the refund permission approves it and

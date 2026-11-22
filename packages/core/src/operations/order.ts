@@ -43,7 +43,7 @@ import {
   resolveBuyer,
 } from "../orders/guests.ts";
 import { EXPIRE_BATCH, expireDueOrders, honourLatePayment, paidLate } from "../orders/late.ts";
-import { startHeld } from "../orders/moves.ts";
+import { movesFollowPerson, startHeld } from "../orders/moves.ts";
 import {
   changeOrder,
   createOrder,
@@ -514,8 +514,10 @@ export const orderSetPerson = defineOperation({
       { person_id: input.personId },
       callerMover(ctx),
     );
-    // What the order already granted to its buyer (a ticket's holder) follows, in this batch.
+    // What the order already granted to its buyer (a ticket's holder) follows, in this batch; so
+    // does a paid guest drop-in still held for it (ADR 0560).
     await grantsFollowPerson(ctx, row.id, input.personId);
+    await movesFollowPerson(ctx, row.id, input.personId);
     return fromRow(next, await linesOf(ctx, row.id), true);
   },
 });
@@ -1046,7 +1048,8 @@ export const orderStartHeld = defineOperation({
     "class) while it is unpaid, and the host prices it: a caller never sends a price. Paying on " +
     "the provider's page (order.checkout) moves it on; the order expiring unpaid releases it. " +
     "`values` are the record's fields a customer may set (its class); whose it is is the caller, " +
-    "or with forPersonId a child staff linked to them. A guest gives their email address. The " +
+    "or with forPersonId a child staff linked to them. A guest gives their email address and is " +
+    "matched to no one until the payment is verified (the answer is the same whatever it matches). The " +
     "record's own rules apply as for the caller's own booking (when booking opens and closes, " +
     "booked by staff only, places left, one per person). Returns the order; a guest also gets " +
     "`token`, shown once.",

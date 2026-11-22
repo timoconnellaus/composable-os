@@ -506,8 +506,13 @@ export async function assertCreateRules(
       ...times,
     });
   const reader = pathReader(ctx, object, after);
-  if (states.create.closed && (await staffOnlySet(reader, states.create.closed))) {
-    throw fail("state_closed", `${object.label} cannot be made now: what it is for is closed`);
+  if (states.create.closed) {
+    if (await staffOnlySet(reader, states.create.closed)) {
+      throw fail("state_closed", `${object.label} cannot be made now: what it is for is closed`);
+    }
+    // As the engine does for every other creator (migration 0670, ADR 0550): what the flag is
+    // read through must not move before this batch commits (a class cancelled meanwhile).
+    await queueUnmovedGuards(ctx, object, after, states.create.closed);
   }
   if (by === "staff") return;
   const refusal = await customerRefusal(

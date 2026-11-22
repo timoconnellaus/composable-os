@@ -4,7 +4,7 @@
 
 import { assertClaimRelationKept, claimantMove } from "../capacity/claimants.ts";
 import { waitlistMove } from "../capacity/waitlist.ts";
-import { ForbiddenError } from "../errors.ts";
+import { ForbiddenError, ValidationError } from "../errors.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { type StageCache, stagesLifecycle } from "./stages.ts";
@@ -84,6 +84,31 @@ export function onRecordMove(object: string, hook: MoveHook): () => void {
   };
 }
 
+/**
+ * A record an order moves that may be held for a guest (`sellable.moves.guest`, ADR 0560) has no
+ * Person while it is held for an unpaid guest order (and when that hold ends in a final state
+ * without being paid); in its paid state and every open state its customer field is set, for
+ * every writer.
+ */
+function assertGuestHeld(object: ObjectDefinition, after: Record<string, unknown>): void {
+  const moves = object.sellable?.moves;
+  const field = object.customer?.field;
+  const stateField = object.states?.field;
+  if (!moves?.guest || !field || !stateField) return;
+  const state = after[stateField];
+  const owner = after[field];
+  // Where a guest's unpaid hold may end without being anyone's: expired, or a final state the
+  // host moves it to (a class cancelled). Everywhere else (paid, and every open state) it is.
+  const finals = new Set((object.states?.moves ?? []).filter((m) => m.final).map((m) => m.to));
+  const ownerless = state === moves.held || (state !== moves.paid && finals.has(String(state)));
+  if (!ownerless && (owner === null || owner === undefined || owner === "")) {
+    throw new ValidationError(`${object.label} needs its ${field} outside "${moves.held}"`, {
+      field,
+      rule: "guest_held",
+    });
+  }
+}
+
 const everyMoveHooks: MoveHook[] = [];
 
 /**
@@ -116,6 +141,7 @@ export async function applyTransition(
   const run = async <P extends Placement>(lifecycle: Lifecycle<P>) => {
     assertClaimRelationKept(object, before, written);
     const outcome = await runTransition(lifecycle, ctx, object, id, before, written, options.by);
+    assertGuestHeld(object, { ...(before ?? {}), ...written, ...outcome.values });
     // A capacity claimant's states hold and give back its place (ADR 0501), in this batch.
     // Its waitlist (ADR 0520): a promotion's hold given back before its place is claimed; a
     // join checked, a place given back handed on to whoever waits, after.

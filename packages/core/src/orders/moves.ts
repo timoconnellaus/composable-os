@@ -7,7 +7,8 @@
 //                                   the create window and staff-only rule unless staff), and
 //                                   prices the line from the record's declared path or setting
 //
-//   the order's move hook           pending -> paid: the record `held` -> `paid`; pending ->
+//   the order's move hook           pending -> paid: the record `held` -> `paid` (a guest's given
+//                                   its Person then, or refunded as a second place); pending ->
 //                                   expired or cancelled: `held` -> `expired`; expired -> paid
 //                                   (a late payment staff honour): refused, what it held has gone
 //
@@ -18,7 +19,16 @@
 // No extension code runs, and nothing here moves money: an owed refund is asked of the payments
 // gatekeeper by the minute cron (`order.refundDue`), as the outbound action `payments.refund`,
 // which only a person with `orders:refund` approves (ADR 0429).
-import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
+import { normaliseCustomerEmail } from "../customers/accounts.ts";
+import {
+  ConfigError,
+  ConflictError,
+  NotFoundError,
+  RateLimitedError,
+  TRY_LATER,
+  UnknownOperationError,
+  ValidationError,
+} from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { MovesDefinition, ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
@@ -30,6 +40,8 @@ import { viewColumnOf } from "../records/columns.ts";
 import { type MoveHook, onEveryRecordMove, onRecordMove } from "../records/lifecycle.ts";
 import { assertCreateRules } from "../records/states.ts";
 import { pathReader, UNREADABLE } from "../records/windows.ts";
+import { guardStatement } from "../recurring/bookkeeping.ts";
+import { erasedAddresses } from "../sync/ingest.ts";
 import { isLiveDependant, linkGuardStatement } from "../visibility/guardians.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
 import { hashOrderToken, newOrderToken, resolveBuyer } from "./guests.ts";
@@ -116,11 +128,25 @@ function hostView(ctx: HandlerContext): HandlerContext {
   }) as HandlerContext;
 }
 
+/** How many drop-ins one address may start as a guest in GUEST_WINDOW_MINUTES (ADR 0560). */
+export const GUEST_STARTS_PER_ADDRESS = 3;
+export const GUEST_WINDOW_MINUTES = 15;
+/** The share of a class's places guests may hold unpaid when the setting is empty. */
+export const DEFAULT_HOLD_PERCENT = 50;
+
+const tryLater = () => new RateLimitedError(TRY_LATER, { rule: "try_later" });
+
 /**
  * Makes a record of an object that declares `sellable.moves` in its held state and starts its
  * order, in the calling operation's batch (ADR 0560). Refuses whatever the record's own rules
  * refuse, before anything is written; the database refuses the rest in the batch (places past
- * the class's, a second live booking for the Person).
+ * the class's, a second live booking for a signed-in Person, a class cancelled meanwhile, more
+ * unpaid guest holds than the class may carry).
+ *
+ * A guest (the public) is matched to no Person here: their record is held with no Person and
+ * their order with none, so the answer is the same whatever the address matches, and their hold
+ * is nobody's own and blocks nobody's own booking. The Person is found when the payment is
+ * verified (`settleGuest`).
  */
 export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Promise<StartedHeld> {
   const object = getObject(input.object);
@@ -130,6 +156,12 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
   if (!object || !moves || !states || !customer || !object.sellable) throw notForSale();
   const sellable = object.sellable;
   const caller = ctx.principal;
+  // For everyone a pack's tool only (ADR 0560): the pipeline holds customers and the public to it,
+  // and here staff, the assistant and MCP too.
+  if (caller.kind === "staff" && !ctx.extension) {
+    throw new UnknownOperationError("order.startHeld");
+  }
+  if (caller.kind === "public" && !moves.guest) throw notForSale();
 
   // What the caller may set: the fields a customer writes, never the state, whose record it is,
   // who made it, or what pays for it (a drop-in holds no allowance).
@@ -184,6 +216,30 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     if (!account) throw new NotFoundError("customer", caller.customerId);
     payer = caller.personId;
     email = account.email;
+  } else if (caller.kind === "public") {
+    // A guest: the address is checked as an address, never matched to a Person (ADR 0428).
+    if (input.forPersonId !== undefined) throw new NotFoundError("person", input.forPersonId);
+    const address = input.email ? normaliseCustomerEmail(input.email) : null;
+    if (!input.email) {
+      throw new ValidationError("An order needs the buyer's email address", { field: "email" });
+    }
+    if (!address || (await erasedAddresses(ctx.db, [address])).size > 0) {
+      throw new ValidationError("That email address cannot be used", { field: "email" });
+    }
+    // At most a few starts per address in a while (the host's limit, per address as a sign-in
+    // code's is; the edge limits per client address): the same answer as a full hold cap.
+    const since = new Date(Date.parse(ctx.now) - GUEST_WINDOW_MINUTES * 60_000).toISOString();
+    const recent = await ctx.db
+      .selectFrom("core_order")
+      .select((eb) => eb.fn.countAll<number>().as("n"))
+      .where("email", "=", address)
+      .where("placed_as", "=", "public")
+      .where("created_at", ">", since)
+      .executeTakeFirst();
+    if (Number(recent?.n ?? 0) >= GUEST_STARTS_PER_ADDRESS) throw tryLater();
+    payer = null;
+    email = address;
+    token = newOrderToken();
   } else {
     if (!input.email) {
       throw new ValidationError("An order needs the buyer's email address", { field: "email" });
@@ -192,12 +248,11 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     payer = buyer.personId;
     email = buyer.email;
     created = buyer.created;
-    if (caller.kind === "public") token = newOrderToken();
   }
   let holder: string | null = payer;
   if (input.forPersonId !== undefined && input.forPersonId !== payer) {
-    // A customer acts for a live dependant only, on an object that lets guardians write; a guest
-    // for no one else; staff for any live Person. Anyone else is a Person that is not there.
+    // A customer acts for a live dependant only, on an object that lets guardians write; staff
+    // for any live Person. Anyone else is a Person that is not there.
     const ok =
       caller.kind === "customer"
         ? customer.guardians?.write === true &&
@@ -215,13 +270,13 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     if (!ok) throw new NotFoundError("person", input.forPersonId);
     holder = input.forPersonId;
   }
-  if (!holder) {
-    // The address matched several People (ADR 0428): an order may wait for staff to say whose,
-    // a held place may not.
-    throw new ValidationError(
-      "That address belongs to more than one person here: ask the front desk to book you in",
-      { rule: "buyer_unclear", field: "email" },
-    );
+  if (!holder && caller.kind !== "public") {
+    // Staff naming an address several People share: an order may wait for staff to say whose,
+    // a held place for a known caller may not.
+    throw new ValidationError("That address belongs to more than one person: name the person", {
+      rule: "buyer_unclear",
+      field: "email",
+    });
   }
 
   const currency = await loadOrderCurrency(ctx.db);
@@ -232,13 +287,14 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
   const madeBy = customer.guardians?.madeBy;
   const after: Record<string, unknown> = {
     ...input.values,
-    [customer.field]: holder,
+    ...(holder ? { [customer.field]: holder } : {}),
     [states.field]: moves.held,
     ...(spender?.waived ? { [spender.waived]: true } : {}),
-    ...(madeBy && payer && caller.kind !== "staff" ? { [madeBy]: payer } : {}),
+    ...(madeBy && payer && caller.kind === "customer" ? { [madeBy]: payer } : {}),
     ...(moves.order ? { [moves.order]: orderId } : {}),
   };
-  // The record's own rules, judged as the caller's create would be (staff: only "closed").
+  // The record's own rules, judged as the caller's create would be (staff: only "closed"), with
+  // the guard that what they are read through does not move before this batch commits.
   await assertCreateRules(host, object, after, caller.kind === "staff" ? "staff" : "customer");
 
   // The price of one: the declared path, else the setting, read now (ADR 0505's reader).
@@ -263,12 +319,32 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
   const recordId = await createRecord(host, object, after, {
     by: "host",
     seamSet: new Set(madeBy ? [madeBy] : []),
-    // A guest's Person is made in this same batch, so it cannot be read yet; every reference was
-    // judged above (the class through the buyer's own read, the Person as theirs).
+    // A Person staff's address made in this same batch cannot be read yet; every reference was
+    // judged above.
     ...(created ? { checkReferences: false } : {}),
   });
+  // At most so many unpaid guest holds on what it claims (migration 0690): counted in the batch,
+  // after this one's claim, so two guests at once cannot both pass the last one.
+  if (caller.kind === "public" && moves.holdCap && object.claims) {
+    const on = after[object.claims.on];
+    const target = object.fields.find((f) => f.name === object.claims?.on)?.options?.to;
+    if (typeof on === "string" && target) {
+      const capacity = await ctx.db
+        .selectFrom("core_capacity")
+        .select("places")
+        .where("object_type", "=", target)
+        .where("record_id", "=", on)
+        .executeTakeFirst();
+      const raw = await reader.setting(moves.holdCap.setting);
+      const percent =
+        typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_HOLD_PERCENT;
+      const places = Number(capacity?.places ?? 0);
+      const cap = Math.max(1, Math.ceil((places * percent) / 100));
+      ctx.write(guardStatement("held_cap", target, on, cap));
+    }
+  }
   // A guardian's purchase for a child holds to the live link at commit (ADR 0540).
-  if (caller.kind === "customer" && holder !== caller.personId) {
+  if (caller.kind === "customer" && holder && holder !== caller.personId) {
     ctx.write(linkGuardStatement(caller.personId, holder));
   }
   const line: PricedLine = {
@@ -298,45 +374,56 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
 // --- What an order's moves do to the record ------------------------------------------------------
 
 /**
- * Records this invocation's order hook is moving itself, so the record's own hook does not cancel
- * the order that is moving it. Keyed by the write queue, which every view of one invocation's
- * context shares.
+ * Records being moved by the hooks below in the write now being planned, so the record's own hook
+ * does not cancel the order that is moving it, nor the order's hook move it again. Keyed by the
+ * write queue (every view of one invocation's context shares it), each id added for the one call
+ * that moves it and removed after. Two writes racing on one record are kept apart by the
+ * database, not by this: the transition history's unique current row fails the later batch.
  */
 const movingNow = new WeakMap<object, Set<string>>();
-const moving = (ctx: HandlerContext) => {
+async function whileMoving<T>(ctx: HandlerContext, id: string, run: () => Promise<T>): Promise<T> {
   const key = ctx.write as unknown as object;
   let set = movingNow.get(key);
   if (!set) {
     set = new Set();
     movingNow.set(key, set);
   }
-  return set;
-};
+  set.add(id);
+  try {
+    return await run();
+  } finally {
+    set.delete(id);
+  }
+}
+const isMoving = (ctx: HandlerContext, id: string) =>
+  movingNow.get(ctx.write as unknown as object)?.has(id) === true;
 
-/** The record's state as stored, read org-wide; null when it is gone or in the Trash. */
-async function storedState(
+/** The record's stored values by registry name, read org-wide; null when gone or in the Trash. */
+async function storedValues(
   ctx: HandlerContext,
   object: ObjectDefinition,
   id: string,
-): Promise<string | null> {
-  const field = object.states ? object.fields.find((f) => f.name === object.states?.field) : null;
-  const column = field ? viewColumnOf(field) : null;
-  if (!column) return null;
+): Promise<Record<string, unknown> | null> {
   // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
   const row = (await (ctx.db as any)
     .selectFrom(visibleSource(orgReader(ctx.db), object))
-    .select(column)
+    .selectAll()
     .where("id", "=", id)
     .executeTakeFirst()) as AnyRow | undefined;
-  const state = row?.[column];
-  return typeof state === "string" ? state : null;
+  if (!row) return null;
+  const values: Record<string, unknown> = {};
+  for (const field of object.fields) {
+    const column = viewColumnOf(field);
+    if (column && Object.hasOwn(row, column)) values[field.name] = row[column];
+  }
+  return values;
 }
 
 /** Writes, in this batch, the refund the host owes on `orderId` (one per order). */
 function oweRefund(
   ctx: HandlerContext,
   orderId: string,
-  object: ObjectDefinition,
+  object: { name: string },
   recordId: string,
   entered: string,
   reason: string,
@@ -359,6 +446,130 @@ function oweRefund(
   );
 }
 
+async function tellAdmins(ctx: HandlerContext, orderId: string, title: string, body: string) {
+  const plan = await notifyStatements(
+    ctx.db,
+    {
+      to: [{ role: "admin" }],
+      type: "system.message",
+      title,
+      body,
+      link: { kind: "record", object: "order", id: orderId },
+      dedupeKey: `order.moves:${orderId}:${title}`,
+      source: { actor: "system" },
+    },
+    ctx.now,
+  );
+  ctx.write(...plan.statements);
+}
+
+/**
+ * A late payment (ADR 0429) on an order whose line moves a record: its place went back, so the
+ * payment is owed back (the refund waits for a person, as every refund). In the payment's batch.
+ */
+export async function oweLateRefund(ctx: HandlerContext, orderId: string): Promise<boolean> {
+  const lines = await ctx.db
+    .selectFrom("core_order_line")
+    .select(["object_type", "record_id"])
+    .where("order_id", "=", orderId)
+    .execute();
+  const moved = lines.find((line) => movesOf(getObject(line.object_type)));
+  if (!moved) return false;
+  oweRefund(
+    ctx,
+    orderId,
+    { name: moved.object_type },
+    moved.record_id,
+    "late",
+    "Paid after its place went back",
+  );
+  return true;
+}
+
+/**
+ * The record paid for gets its Person and moves to `paid`, or, when that Person already has a live
+ * record where the object declares one per Person (they booked the class themselves), it is not
+ * kept as a second one: it goes to `expired` (its place back), the refund is owed, and staff are
+ * told. In the payment's (or order.setPerson's) batch.
+ */
+async function settle(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  moves: MovesDefinition,
+  orderId: string,
+  recordId: string,
+  values: Record<string, unknown>,
+  personId: string | null,
+  /** The Person was made in this same batch (no one had the address): not readable yet. */
+  made = false,
+): Promise<void> {
+  const states = object.states;
+  const ownerField = object.customer?.field;
+  if (!states || !ownerField) return;
+  const owner = personId ?? (values[ownerField] as string | null | undefined) ?? null;
+  if (owner && !values[ownerField]) {
+    const clash = await liveTwin(ctx, object, recordId, { ...values, [ownerField]: owner });
+    if (clash) {
+      await whileMoving(ctx, recordId, () =>
+        updateRecord(ctx, object, recordId, { [states.field]: moves.expired }, { by: "host" }),
+      );
+      oweRefund(ctx, orderId, object, recordId, "duplicate", "They already had a place on it");
+      await tellAdmins(
+        ctx,
+        orderId,
+        "A paid drop-in was a second booking",
+        `Order ${orderId} paid for a place its buyer already had: it was not kept, and its ` +
+          "refund is waiting in Approvals.",
+      );
+      return;
+    }
+  }
+  await whileMoving(ctx, recordId, () =>
+    updateRecord(
+      ctx,
+      object,
+      recordId,
+      {
+        ...(owner && !values[ownerField] ? { [ownerField]: owner } : {}),
+        [states.field]: moves.paid,
+      },
+      { by: "host", ...(made ? { checkReferences: false } : {}) },
+    ),
+  );
+}
+
+/** Another live record with the same values where the object declares one per Person. */
+async function liveTwin(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  values: Record<string, unknown>,
+): Promise<boolean> {
+  const ownerField = object.customer?.field;
+  for (const rule of object.unique ?? []) {
+    if (!ownerField || !rule.fields.includes(ownerField)) continue;
+    const stateField = object.states?.field;
+    const columnOf = (name: string) => {
+      const field = object.fields.find((f) => f.name === name);
+      return field ? viewColumnOf(field) : null;
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+    let q = (ctx.db as any)
+      .selectFrom(visibleSource(orgReader(ctx.db), object))
+      .select("id")
+      .where("id", "!=", id);
+    for (const name of rule.fields) {
+      const column = columnOf(name);
+      if (!column) return false;
+      q = q.where(column, "=", values[name] ?? null);
+    }
+    const stateColumn = stateField ? columnOf(stateField) : null;
+    if (stateColumn && rule.states?.length) q = q.where(stateColumn, "in", [...rule.states]);
+    if (await q.executeTakeFirst()) return true;
+  }
+  return false;
+}
+
 const orderMoves: MoveHook = async (outer, move) => {
   // On a buyer's own call (order.cancel) the host moves the record, not the buyer.
   const ctx = hostView(outer);
@@ -376,57 +587,103 @@ const orderMoves: MoveHook = async (outer, move) => {
     const moves = movesOf(object);
     if (!object?.states || !moves) continue;
     const field = object.states.field;
-    if (moving(ctx).has(line.record_id)) continue;
-    const state = await storedState(ctx, object, line.record_id);
+    if (isMoving(ctx, line.record_id)) continue;
+    const values = await storedValues(ctx, object, line.record_id);
+    const state = values?.[field] ?? null;
     if (paid) {
       if (from === "expired") {
         // Honoured late (ADR 0429): the place was given back at expiry and may be someone
-        // else's now. Refused whole: staff refund the payment instead.
+        // else's now. Refused whole: its refund is already owed.
         throw new ConflictError(
           `What this order held (${line.title}) went back when it expired: refund the payment instead`,
           { order: move.id, rule: "held_gone" },
         );
       }
-      if (state === moves.held) {
-        moving(ctx).add(line.record_id);
-        await updateRecord(ctx, object, line.record_id, { [field]: moves.paid }, { by: "host" });
+      if (state === moves.held && values) {
+        const ownerField = object.customer?.field;
+        let personId: string | null = null;
+        let made = false;
+        if (ownerField && !values[ownerField]) {
+          // A guest's (ADR 0560): the address is matched to a Person now, by the rule a guest's
+          // order uses (ADR 0428): one is theirs, none makes one, several wait for staff.
+          const order = move.after as { personId?: string | null; email?: string | null };
+          personId = order.personId ?? null;
+          if (!personId && order.email) {
+            const buyer = await resolveBuyer(ctx, order.email);
+            personId = buyer.personId;
+            made = buyer.created;
+            if (personId) {
+              ctx.write(
+                ctx.db
+                  .updateTable("core_order")
+                  .set({ person_id: personId })
+                  .where("id", "=", move.id)
+                  .where("person_id", "is", null),
+              );
+            }
+          }
+          // Several People have the address: paid, still held, until staff say whose
+          // (order.setPerson, then `movesFollowPerson`).
+          if (!personId) continue;
+        }
+        await settle(ctx, object, moves, move.id, line.record_id, values, personId, made);
         continue;
       }
-      // Paid, but the record left its held place meanwhile (it should have cancelled the order):
-      // the buyer is owed their money, and staff are told. The payment itself is applied.
+      // Paid, but the record left its held place meanwhile: the buyer is owed their money, and
+      // staff are told. The payment itself is applied.
       oweRefund(
         ctx,
         move.id,
         object,
         line.record_id,
-        state ?? "gone",
+        String(state ?? "gone"),
         "Paid after it was released",
       );
-      const plan = await notifyStatements(
-        ctx.db,
-        {
-          to: [{ role: "admin" }],
-          type: "system.message",
-          title: "A payment arrived for something no longer held",
-          body:
-            `Order ${move.id} was paid for "${line.title}", which was no longer held for it. Its ` +
-            "refund is waiting in Approvals.",
-          link: { kind: "record", object: "order", id: move.id },
-          dedupeKey: `order.moves_gone:${move.id}`,
-          source: { actor: "system" },
-        },
-        ctx.now,
+      await tellAdmins(
+        ctx,
+        move.id,
+        "A payment arrived for something no longer held",
+        `Order ${move.id} was paid for "${line.title}", which was no longer held for it. Its ` +
+          "refund is waiting in Approvals.",
       );
-      ctx.write(...plan.statements);
       continue;
     }
     // Expired, or cancelled with nothing paid: the held place goes back.
     if (from === "pending" && state === moves.held) {
-      moving(ctx).add(line.record_id);
-      await updateRecord(ctx, object, line.record_id, { [field]: moves.expired }, { by: "host" });
+      await whileMoving(ctx, line.record_id, () =>
+        updateRecord(ctx, object, line.record_id, { [field]: moves.expired }, { by: "host" }),
+      );
     }
   }
 };
+
+/**
+ * An order that belonged to no one has its Person now (`order.setPerson`, staff, after merging the
+ * People an address matched): a paid guest record still held for it is theirs and moves to
+ * `paid`, or is refunded when they already have a place. In that operation's batch.
+ */
+export async function movesFollowPerson(
+  ctx: HandlerContext,
+  orderId: string,
+  personId: string,
+): Promise<void> {
+  const order = await loadOrderRow(ctx.db, orderId);
+  if (order.state !== "paid") return;
+  const lines = await ctx.db
+    .selectFrom("core_order_line")
+    .select(["object_type", "record_id"])
+    .where("order_id", "=", orderId)
+    .execute();
+  for (const line of lines) {
+    const object = getObject(line.object_type);
+    const moves = movesOf(object);
+    const ownerField = object?.customer?.field;
+    if (!object?.states || !moves || !ownerField) continue;
+    const values = await storedValues(ctx, object, line.record_id);
+    if (!values || values[object.states.field] !== moves.held || values[ownerField]) continue;
+    await settle(ctx, object, moves, orderId, line.record_id, values, personId);
+  }
+}
 
 /** The order a record was made with (one per record: order.start refuses it). */
 async function orderOfRecord(
@@ -446,7 +703,7 @@ async function orderOfRecord(
 const recordMoves: MoveHook = async (ctx, move) => {
   const moves = movesOf(move.object);
   if (!moves || !move.from) return;
-  if (moving(ctx).has(move.id)) return;
+  if (isMoving(ctx, move.id)) return;
   const from = move.from.id;
   const to = move.to.id;
   const leavesHeld = from === moves.held && to !== moves.paid;
@@ -454,21 +711,25 @@ const recordMoves: MoveHook = async (ctx, move) => {
   if (!leavesHeld && !refunds) return;
   const order = await orderOfRecord(ctx, move.object, move.id);
   if (!order) return;
-  if (leavesHeld) {
-    // Released another way (its class cancelled): its unpaid order goes too, so the provider's
-    // page cannot take money for it; a payment made anyway is a late one staff refund.
-    if (order.state === "pending") {
-      // This write moves the record itself: the order's hook must not move it again.
-      moving(ctx).add(move.id);
-      await changeOrder(ctx, order, "cancelled", { cancelled_at: ctx.now }, "host");
-    }
-    return;
-  }
-  if (order.state !== "paid") return;
   const label =
     move.object.fields
       .find((f) => f.name === move.object.states?.field)
       ?.options?.choices?.find((c) => c.value === to)?.label ?? to;
+  if (leavesHeld) {
+    // Released another way (its class cancelled): its unpaid order goes too, so the provider's
+    // page cannot take money for it; a payment made anyway is a late one, owed back.
+    if (order.state === "pending") {
+      // This write moves the record itself: the order's hook must not move it again.
+      await whileMoving(ctx, move.id, () =>
+        changeOrder(ctx, order, "cancelled", { cancelled_at: ctx.now }, "host"),
+      );
+    } else if (order.state === "paid") {
+      // Paid and still held (waiting for staff to say whose): the money is owed back.
+      oweRefund(ctx, order.id, move.object, move.id, to, `${move.object.label}: ${label}`);
+    }
+    return;
+  }
+  if (order.state !== "paid") return;
   oweRefund(ctx, order.id, move.object, move.id, to, `${move.object.label}: ${label}`);
 };
 

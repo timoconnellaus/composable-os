@@ -895,6 +895,8 @@ export async function spenderWrite(
   // to the record it moves to: the move is not a new booking by whoever moved it (ADR 0553).
   const madeByField = object.customer?.guardians?.madeBy;
   let sourceMadeBy: unknown;
+  const orderField = object.sellable?.moves?.order;
+  let sourceOrder: unknown = null;
   if (def.movedFrom && moving) {
     if (by === "customer") {
       throw new ValidationError(
@@ -918,6 +920,9 @@ export async function spenderWrite(
     }
     sourceWaived = isWaived(source);
     if (madeByField) sourceMadeBy = source[madeByField] ?? null;
+    // A drop-in's order moves with it (ADR 0560): what it paid for is now the new record, so a
+    // later cancel of that one owes the refund, once, and the old one no longer does.
+    if (orderField) sourceOrder = source[orderField] ?? null;
     if (!sourceWaived && isWaived(after)) {
       // Moving a paid one into one paid another way would give its use back for nothing.
       throw new ValidationError(
@@ -936,8 +941,17 @@ export async function spenderWrite(
     ...read.values,
     ...(sourceWaived && def.waived ? { [def.waived]: true } : {}),
     ...(madeByField && moving ? { [madeByField]: sourceMadeBy ?? null } : {}),
+    ...(orderField && moving && sourceOrder ? { [orderField]: sourceOrder } : {}),
   };
   const statements: CompiledQuery[] = [];
+  if (object.sellable?.moves && moving) {
+    statements.push(
+      CompiledQuery.raw(
+        "UPDATE core_order_line SET record_id = ? WHERE object_type = ? AND record_id = ?",
+        [id, object.name, fromId as string],
+      ),
+    );
+  }
   const spenderValues = { ...after, ...values };
 
   if (returning && open) statements.push(...giveBack(ctx, ref, open, by));

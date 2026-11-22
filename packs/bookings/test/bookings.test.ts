@@ -589,8 +589,13 @@ describe("bookings pack (test host)", () => {
         price: { field: "class.classType.dropInPrice", setting: "dropInPrice" },
         title: "class.title",
         order: "dropInOrder",
+        guest: true,
+        holdCap: { setting: "dropInHoldPercent" },
       },
     });
+    // A guest's hold is nobody's until paid: the booking's Person is not required (ADR 0560).
+    expect(m.objects.booking?.fields.person?.required).toBeUndefined();
+    expect(m.settings?.dropInHoldPercent).toMatchObject({ default: 50, personApproves: true });
     // Only the host makes a booking held, and only the host moves it out of held.
     expect(m.objects.booking?.states?.create?.in?.pending).toEqual(["host"]);
     expect(m.fields?.["programs.classtype"]?.dropInPrice?.personApproves).toBe(true);
@@ -639,6 +644,7 @@ describe("bookings pack (test host)", () => {
       ["unique", "already_booked"],
       ["state_staff_only", "staff_only"],
       ["state_window_not_open", "not_open"],
+      ["try_later", "try_later"],
     ];
     for (const [rule, reason] of cases) {
       const h = host({ "order.startHeld": () => refusal(rule) });

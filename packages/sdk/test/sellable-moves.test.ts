@@ -134,6 +134,18 @@ describe("sellable.moves", () => {
     );
   });
 
+  it("a guest's hold needs a Person that is not required, and a hold cap a number setting", () => {
+    expect(problems({ sellable: { moves: { ...moves, guest: true } } }).join("\n")).toContain(
+      "cannot be required",
+    );
+    expect(
+      problems({ sellable: { moves: { ...moves, holdCap: { setting: "nope" } } } }).join("\n"),
+    ).toContain("must be a number setting");
+    expect(
+      problems({ sellable: { moves: { ...moves, holdCap: { setting: "price" } } } }).join("\n"),
+    ).toContain("declare guest");
+  });
+
   it("refuses refund states that are held or expired", () => {
     expect(
       problems({ sellable: { moves: { ...moves, refund: ["pending"] } } }).join("\n"),

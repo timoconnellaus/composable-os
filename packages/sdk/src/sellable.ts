@@ -132,6 +132,13 @@ export interface SellableSpec {
  *   host writes it into the read-only `price` field, and the order's line is priced from it.
  * - `title`: the order line's title, a text field through up to two relations (`class.title`).
  * - `order`: a read-only text field the host writes the order's id into.
+ * - `guest`: a buyer who is not signed in is matched to no Person before payment: their record is
+ *   held with its customer field empty (so it is no one's, blocks no one's own, and tells the
+ *   buyer nothing about who has that address), and is given its Person when the payment is
+ *   verified, by the rule a guest's order uses. The customer field must not be `required`; the
+ *   host keeps it set in every state but `held`. Without it, a guest cannot buy the object.
+ * - `holdCap`: a number setting of the extension: the percent of the claimed record's places that
+ *   unpaid guest holds may take at once (at least one). Over it a guest is told to try again soon.
  */
 export interface MovesSpec {
   held: string;
@@ -141,6 +148,8 @@ export interface MovesSpec {
   price?: { field?: string; setting?: string };
   title?: string;
   order?: string;
+  guest?: boolean;
+  holdCap?: { setting: string };
 }
 
 /**
@@ -310,6 +319,8 @@ export const sellableManifestSchema = z
           .optional(),
         title: z.string().max(130).optional(),
         order: fieldName.optional(),
+        guest: z.boolean().optional(),
+        holdCap: z.object({ setting: fieldName }).strict().optional(),
       })
       .strict()
       .optional(),
@@ -598,6 +609,29 @@ function checkMoves(
     }
   }
   if (!object.customer) contract(path, `${name} must declare customer: whose record it is`);
+  if (moves.guest && object.customer) {
+    const owner = field(object.customer.field);
+    if (owner?.required) {
+      contract(
+        `objects.${name}.fields.${object.customer.field}`,
+        `A guest's ${name} is held with no ${object.customer.field} until it is paid: it cannot be required (the host keeps it set outside "${moves.held}")`,
+      );
+    }
+  }
+  if (moves.holdCap) {
+    const settings = m.settings ?? {};
+    const setting = Object.hasOwn(settings, moves.holdCap.setting)
+      ? settings[moves.holdCap.setting]
+      : undefined;
+    if (setting?.type !== "number") {
+      contract(
+        `${path}.holdCap.setting`,
+        `"${moves.holdCap.setting}" must be a number setting of ${m.id}`,
+      );
+    }
+    if (!moves.guest) contract(`${path}.holdCap`, "holdCap limits guests' holds: declare guest");
+    if (!object.claims) contract(`${path}.holdCap`, `${name} must claim places (claims)`);
+  }
   const states = object.states;
   if (!states) {
     contract(path, `${name} must declare states: the order moves it`);

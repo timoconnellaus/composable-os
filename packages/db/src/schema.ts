@@ -1053,7 +1053,8 @@ export interface CoreSellableRefundDueTable {
   record_id: string;
   entered: string;
   reason: string;
-  state: Defaulted<"due" | "asking" | "asked" | "skipped">;
+  state: Defaulted<"due" | "asking" | "asked" | "done" | "lapsed" | "skipped">;
+  attempt: Defaulted<number>;
   note: Defaulted<string | null>;
   created_at: string;
   updated_at: string;

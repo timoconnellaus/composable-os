@@ -21,8 +21,10 @@ import {
   type InvocationContext,
   invokeByName,
   type OutsideInvocationContext,
+  onRecordMove,
   refreshSchemaRegistry,
   runRefundsDue,
+  runWaitlistDue,
 } from "@composable-os/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
@@ -181,6 +183,16 @@ const order = (id: string) =>
   env.DB.prepare("SELECT state, person_id, total, tax_amount FROM core_order WHERE id = ?")
     .bind(id)
     .first<{ state: string; person_id: string | null; total: number; tax_amount: number }>();
+const peopleWith = async (email: string) =>
+  Number(
+    (
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM core_person_emails e WHERE e.email = ? AND e.live = 1",
+      )
+        .bind(email)
+        .first<{ n: number }>()
+    )?.n ?? 0,
+  );
 const owed = (orderId: string) =>
   env.DB.prepare("SELECT state, entered FROM core_sellable_refund_due WHERE order_id = ?")
     .bind(orderId)
@@ -274,15 +286,20 @@ describe("a visitor pays for one class (criterion 8)", () => {
       dropInPrice: 25,
       dropInOrder: bought.orderId,
     });
-    // The order is the visitor's Person's (made from their address), and so is the booking.
+    // Before payment the guest is nobody on file: no Person was made from their address, and
+    // neither the booking nor the order is anyone's (ADR 0560, ADR 0428).
     const o = await order(bought.orderId);
-    expect(o).toMatchObject({ state: "pending", total: 2500 });
-    expect(row.person).toBe(o?.person_id);
-    expect(row.madeBy).toBe(o?.person_id);
+    expect(o).toMatchObject({ state: "pending", total: 2500, person_id: null });
+    expect(row.person ?? null).toBeNull();
+    expect(await peopleWith(email)).toBe(0);
 
     await pay(bought);
     await waitForBooked(bought.bookingId);
-    expect((await order(bought.orderId))?.state).toBe("paid");
+    // Paid: the address is matched now (none on file, so a Person is made), and both are theirs.
+    const paidOrder = await order(bought.orderId);
+    expect(paidOrder?.state).toBe("paid");
+    expect(await peopleWith(email)).toBe(1);
+    expect((await get(BOOKING, bought.bookingId)).person).toBe(paidOrder?.person_id);
     expect(await places(id)).toEqual({ held: 0, taken: 1, available: 3 });
     // Paid by its order: no holder, no use.
     expect((await get(BOOKING, bought.bookingId)).holder ?? null).toBeNull();
@@ -367,7 +384,7 @@ describe("a visitor pays for one class (criterion 8)", () => {
 });
 
 describe("the place and the clock", () => {
-  it("an order left unpaid expires and the place goes back; a payment after that cannot be honoured", async () => {
+  it("an order left unpaid expires and the place goes back; a payment after that is owed back, never honoured", async () => {
     const id = await klass(yoga, 5 * HOUR, 1);
     const bought = await buyAsGuest(id);
     const checkout = await run<{ url: string }>(
@@ -404,6 +421,86 @@ describe("the place and the clock", () => {
     expect(honour.details).toMatchObject({ rule: "held_gone" });
     expect((await order(bought.orderId))?.state).toBe("expired");
     expect(await places(id)).toMatchObject({ held: 1, available: 0 });
+    // The money is owed back, asked for by the host, for a person to approve.
+    expect(await owed(bought.orderId)).toEqual({ state: "due", entered: "late" });
+    await runRefundsDue(db, { integrations });
+    expect((await owed(bought.orderId))?.state).toBe("asked");
+  });
+
+  it("a payment for a hold whose class the gym cancelled meanwhile is owed back", async () => {
+    const id = await klass(yoga, 4 * DAY + 2 * HOUR, 3);
+    const bought = await buyAsGuest(id);
+    const checkout = await run<{ url: string }>(
+      "order.checkout",
+      { id: bought.orderId, token: bought.token, returnUrl: RETURN },
+      guest,
+    );
+    await run("x.bookings.cancelClass", { classId: id, reason: "Roof leak" }, staff());
+    expect((await get(BOOKING, bought.bookingId)).state).toBe("cancelled_by_us");
+    expect((await order(bought.orderId))?.state).toBe("cancelled");
+    const paid = await runner.gatekeeperFetch(
+      "payments",
+      new Request(checkout.url, {
+        method: "POST",
+        body: new URLSearchParams({ outcome: "pay" }),
+        redirect: "manual",
+      }),
+    );
+    expect(paid.status).toBe(303);
+    await vi.waitFor(
+      async () => expect(await owed(bought.orderId)).toMatchObject({ entered: "late" }),
+      {
+        timeout: 15_000,
+      },
+    );
+    expect((await get(BOOKING, bought.bookingId)).state).toBe("cancelled_by_us");
+  });
+
+  it("a class cancelled just before a hold commits: the hold is refused, never left on it", async () => {
+    // The class moves after the buy has read it and before its batch commits: a closure over its
+    // date committed from inside the buy's own planning (a test-only hook on the booking's create).
+    const when = Date.now() + 3 * DAY + 5 * HOUR;
+    const id = await klass(yoga, 3 * DAY + 5 * HOUR, 3);
+    const date = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(new Date(when));
+    let fired = false;
+    const off = onRecordMove(BOOKING, async (_ctx, move) => {
+      if (fired || move.from !== null || move.to.id !== "pending") return;
+      fired = true;
+      await run(
+        "recurring.close",
+        {
+          object: "bookings.closure",
+          values: { name: "Burst pipe", fromDate: date, untilDate: date },
+          confirm: 0,
+        },
+        staff(),
+      ).catch(async () =>
+        run(
+          "record.create",
+          {
+            object: "bookings.closure",
+            values: { name: "Burst pipe", fromDate: date, untilDate: date },
+          },
+          staff(),
+        ),
+      );
+    });
+    try {
+      const out = await buyAsGuest(id);
+      expect(fired).toBe(true);
+      expect(out).toMatchObject({ result: "refused", reason: "not_running" });
+    } finally {
+      off();
+    }
+    expect((await get(CLASS, id)).state).toBe("cancelled");
+    const live = await run<{ items: { values: Record<string, unknown> }[] }>(
+      "record.list",
+      { object: BOOKING, filter: { field: "class", op: "eq", value: id } },
+      staff(),
+    );
+    expect(live.items).toEqual([]);
+    // And the other way round: cancelled first, the buy is refused (the public no longer sees it).
+    expect(await buyAsGuest(id)).toMatchObject({ result: "refused", reason: "not_found" });
   });
 
   it("a buyer cancelling the unpaid order gives the place back", async () => {
@@ -463,21 +560,192 @@ describe("the place and the clock", () => {
     expect(await buyAsGuest(id)).toMatchObject({ result: "refused", reason: "full" });
   });
 
-  it("one live booking per Person: a pending drop-in counts", async () => {
+  it("one live booking per Person: a signed-in member's pending drop-in counts", async () => {
     const who = await member("once");
     const id = await klass(yoga, 5 * HOUR);
     const first = await buy(id, as(who));
     expect(first.result).toBe("pending");
     expect(await buy(id, as(who))).toMatchObject({ result: "refused", reason: "already_booked" });
-    // The same address as a guest is the same Person.
+    expect(await places(id)).toMatchObject({ held: 1 });
+  });
+
+  it("a guest learns nothing of who has an address, and holds nothing in their name", async () => {
+    const who = await member("privacy");
     const account = await env.DB.prepare("SELECT email FROM core_customer WHERE id = ?")
       .bind(who.customerId)
       .first<{ email: string }>();
-    expect(await buyAsGuest(id, account?.email)).toMatchObject({
-      result: "refused",
-      reason: "already_booked",
+    const email = account?.email as string;
+    const id = await klass(yoga, 5 * HOUR);
+    // A stranger starts a drop-in with the member's address: the same answer as for anyone.
+    const stranger = await buyAsGuest(id, email);
+    expect(stranger.result).toBe("pending");
+    expect(Object.keys(stranger).sort()).toEqual(
+      Object.keys(await buyAsGuest(id, visitor())).sort(),
+    );
+    // Nobody's: not in the member's bookings, and the member still books their own place.
+    const mine = await run<{ bookings: { id: string }[] }>(
+      "x.bookings.mine",
+      { upcoming: false },
+      as(who),
+    );
+    expect(mine.bookings.map((b) => b.id)).not.toContain(stranger.bookingId);
+    const own = await buy(id, as(who));
+    expect(own.result).toBe("pending");
+    await pay(own, as(who));
+    await waitForBooked(own.bookingId);
+    // The stranger pays: matched to the member now, who already has a place, so it is not kept
+    // as a second one: its place goes back, its refund is owed and staff are told.
+    await pay(stranger);
+    await vi.waitFor(
+      async () => expect((await get(BOOKING, stranger.bookingId)).state).toBe("expired"),
+      { timeout: 15_000 },
+    );
+    expect(await owed(stranger.orderId)).toEqual({ state: "due", entered: "duplicate" });
+    expect((await get(BOOKING, own.bookingId)).state).toBe("booked");
+    // An address several People share gets the same answer too.
+    const shared = `${unique("shared")}@dropin.test`.toLowerCase();
+    // Two live People with one address cannot be made through the operations (emails are unique),
+    // so one is put there the way an old import could have left it, as orders.test.ts does.
+    await run("person.create", { givenName: "Twin1", emails: [{ email: shared }] }, staff());
+    const second = await run<{ id: string }>(
+      "person.create",
+      { givenName: "Twin2", emails: [{ email: `${unique("twin")}@dropin.test`.toLowerCase() }] },
+      staff(),
+    );
+    await env.DB.prepare("DROP INDEX IF EXISTS core_person_emails_live_email_uq").run();
+    await env.DB.prepare("UPDATE core_person_emails SET email = ? WHERE person_id = ?")
+      .bind(shared, second.id)
+      .run();
+    const twin = await buyAsGuest(id, shared);
+    expect(twin.result).toBe("pending");
+    await pay(twin);
+    // Paid, still held, until staff say whose (as a guest order with several matches waits).
+    await vi.waitFor(async () => expect((await order(twin.orderId))?.state).toBe("paid"), {
+      timeout: 15_000,
     });
-    expect(await places(id)).toMatchObject({ held: 1 });
+    expect((await get(BOOKING, twin.bookingId)).state).toBe("pending");
+    const twins = await env.DB.prepare(
+      "SELECT e.person_id AS id FROM core_person_emails e WHERE e.email = ? ORDER BY e.person_id",
+    )
+      .bind(shared)
+      .all<{ id: string }>();
+    await run("order.setPerson", { id: twin.orderId, personId: twins.results[0]?.id }, staff());
+    expect(await get(BOOKING, twin.bookingId)).toMatchObject({
+      state: "booked",
+      person: twins.results[0]?.id,
+    });
+    await env.DB.prepare("UPDATE core_person_emails SET email = ? WHERE person_id = ?")
+      .bind(`${unique("twin")}@dropin.test`.toLowerCase(), second.id)
+      .run();
+    await env.DB.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS core_person_emails_live_email_uq ON core_person_emails (email) WHERE live = 1",
+    ).run();
+  });
+
+  it("unpaid guest holds are limited per class and per address; the answer is the same", async () => {
+    // Half of 4 places (the default): two unpaid guest holds at once.
+    const id = await klass(yoga, 5 * HOUR, 4);
+    const results = await Promise.all([1, 2, 3].map(() => buyAsGuest(id)));
+    expect(results.filter((r) => r.result === "pending")).toHaveLength(2);
+    expect(results.filter((r) => r.result === "refused").map((r) => r.reason)).toEqual([
+      "try_later",
+    ]);
+    expect(await places(id)).toMatchObject({ held: 2, available: 2 });
+    // A member is not held to it: they hold their own, one per Person.
+    const who = await member("capped");
+    expect((await buy(id, as(who))).result).toBe("pending");
+    // One address: at most three starts in a while, whatever the class.
+    const address = visitor();
+    const others = await Promise.all([1, 2, 3, 4].map(() => klass(yoga, 6 * HOUR)));
+    const runs: Bought[] = [];
+    for (const other of others) runs.push(await buyAsGuest(other, address));
+    expect(runs.map((r) => r.result)).toEqual(["pending", "pending", "pending", "refused"]);
+    expect(runs[3]?.reason).toBe("try_later");
+  });
+
+  it("a held drop-in is never put on another order, by its member or by staff", async () => {
+    const who = await member("second");
+    const id = await klass(yoga, 5 * HOUR);
+    const bought = await buy(id, as(who));
+    const asMember = await refusal(
+      run("order.start", { lines: [{ object: BOOKING, id: bought.bookingId }] }, as(who)),
+    );
+    expect(asMember.details).toMatchObject({ rule: "not_for_sale" });
+    const asStaff = await refusal(
+      run(
+        "order.start",
+        { lines: [{ object: BOOKING, id: bought.bookingId }], email: visitor() },
+        staff(),
+      ),
+    );
+    expect(asStaff.details).toMatchObject({ rule: "not_for_sale" });
+    // Nor is order.startHeld staff's to call but through a pack's tool.
+    const direct = await refusal(
+      run("order.startHeld", { object: BOOKING, values: { class: id }, email: visitor() }, staff()),
+    );
+    expect(direct.code).toBe("unknown_operation");
+  });
+
+  it("payment and expiry at the same moment: booked and paid, or expired and owed back", async () => {
+    for (let n = 0; n < 3; n += 1) {
+      const id = await klass(yoga, 5 * HOUR, 2);
+      const bought = await buyAsGuest(id);
+      await Promise.all([
+        pay(bought),
+        run(
+          "order.expireDue",
+          {},
+          staff({ actor: "automation", clock: () => new Date(Date.now() + 16 * 60_000) }),
+        ),
+      ]);
+      await vi.waitFor(
+        async () => {
+          const state = (await get(BOOKING, bought.bookingId)).state;
+          const o = await order(bought.orderId);
+          if (state === "booked") expect(o?.state).toBe("paid");
+          else {
+            expect(state).toBe("expired");
+            expect(o?.state).toBe("expired");
+            expect(await owed(bought.orderId)).toMatchObject({ entered: "late" });
+          }
+        },
+        { timeout: 15_000 },
+      );
+      const p = await places(id);
+      expect(Number(p.held) + Number(p.taken) + Number(p.available)).toBe(2);
+    }
+  });
+
+  it("a held place that expires goes to the waiting list first", async () => {
+    const id = await klass(yoga, 5 * HOUR, 1);
+    const held = await buyAsGuest(id);
+    const waiter = await member("nextup");
+    await run(
+      "x.memberships.givePass",
+      {
+        personId: waiter.personId,
+        passTypeId: await create("memberships.passtype", {
+          title: unique("Pack "),
+          price: 50,
+          uses: 5,
+          validDays: 60,
+          status: "on_sale",
+        }),
+        reason: "Integration test",
+      },
+      staff(),
+    );
+    const waits = await run<{ result: string; bookingId: string }>(
+      "x.bookings.book",
+      { classId: id },
+      as(waiter),
+    );
+    expect(waits.result).toBe("waiting");
+    await expire(held.orderId);
+    // Handed to the waiting list in the expiry's batch: no guest can take it.
+    expect(await buyAsGuest(id)).toMatchObject({ result: "refused", reason: "full" });
+    await runWaitlistDue(db);
+    expect((await get(BOOKING, waits.bookingId)).state).toBe("booked");
   });
 
   it("the booking's rules hold: not open yet, and a class booked by staff only", async () => {
@@ -671,6 +939,103 @@ describe("refunds through approval (decision 15, criterion 6's drop-in part)", (
       expect((await owed(b.orderId))?.state).toBe("asked");
       expect((await order(b.orderId))?.state).toBe("paid");
     }
+  });
+
+  it("an approval rejected: the owed refund lapses, staff are told once, and can ask again", async () => {
+    const who = await member("rejected");
+    const id = await klass(yoga, 5 * HOUR);
+    const bought = await buy(id, as(who));
+    await pay(bought, as(who));
+    await waitForBooked(bought.bookingId);
+    await run(
+      "x.bookings.cancel",
+      { bookingId: bought.bookingId, confirm: true, expect: "cancelled" },
+      as(who),
+    );
+    await sweep();
+    expect((await owed(bought.orderId))?.state).toBe("asked");
+    const refund = await env.DB.prepare(
+      "SELECT pending_action_id AS id FROM core_order_refund WHERE order_id = ?",
+    )
+      .bind(bought.orderId)
+      .first<{ id: string }>();
+    await run("approval.reject", { actionIds: [refund?.id] }, staff());
+    expect((await sweep()).lapsed).toBeGreaterThanOrEqual(1);
+    expect(await owed(bought.orderId)).toMatchObject({ state: "lapsed" });
+    const told = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM core_notifications WHERE title = ? AND body LIKE ?",
+    )
+      .bind("A refund owed was not approved", `%${bought.orderId}%`)
+      .first<{ n: number }>()
+      .catch(() => null);
+    if (told) expect(Number(told.n)).toBeGreaterThanOrEqual(1);
+    // Told once: another sweep does nothing more; and staff can ask again from the order.
+    expect((await sweep()).lapsed).toBe(0);
+    const again = await run<{ refunds: unknown[] }>(
+      "order.refund",
+      { id: bought.orderId, reason: "Asked again" },
+      staff(),
+    );
+    expect(again.refunds).toHaveLength(1);
+  });
+
+  it("an approval policy that denies the host's refund: nothing lost, staff told", async () => {
+    const who = await member("denied");
+    const id = await klass(yoga, 5 * HOUR);
+    const bought = await buy(id, as(who));
+    await pay(bought, as(who));
+    await waitForBooked(bought.bookingId);
+    await run(
+      "x.bookings.cancel",
+      { bookingId: bought.bookingId, confirm: true, expect: "cancelled" },
+      as(who),
+    );
+    const out = await runRefundsDue(db, {
+      integrations,
+      floor: { automation: { outbound: "deny" } },
+    });
+    expect(out.failed).toBeGreaterThanOrEqual(1);
+    const row = await owed(bought.orderId);
+    expect(row?.state).toBe("skipped");
+    const refunds = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM core_order_refund WHERE order_id = ?",
+    )
+      .bind(bought.orderId)
+      .first<{ n: number }>();
+    expect(Number(refunds?.n)).toBe(0);
+  });
+
+  it("a paid drop-in staff move to another class keeps its refund, once, on the new booking", async () => {
+    const who = await member("mover");
+    const from = await klass(yoga, 5 * HOUR);
+    const to = await klass(yoga, 7 * HOUR);
+    const bought = await buy(from, as(who));
+    await pay(bought, as(who));
+    await waitForBooked(bought.bookingId);
+    const moved = await run<{ result: string; bookingId: string }>(
+      "x.bookings.move",
+      { bookingId: bought.bookingId, toClassId: to },
+      staff(),
+    );
+    expect(moved.result).toBe("moved");
+    expect(await get(BOOKING, moved.bookingId)).toMatchObject({
+      state: "booked",
+      dropInOrder: bought.orderId,
+      paidOtherwise: true,
+    });
+    expect(await owed(bought.orderId)).toBeNull();
+    const preview = await run<{ dropIn: boolean; state: string }>(
+      "x.bookings.cancel",
+      { bookingId: moved.bookingId },
+      as(who),
+    );
+    expect(preview).toMatchObject({ dropIn: true, state: "cancelled" });
+    await run(
+      "x.bookings.cancel",
+      { bookingId: moved.bookingId, confirm: true, expect: "cancelled" },
+      as(who),
+    );
+    expect(await owed(bought.orderId)).toEqual({ state: "due", entered: "cancelled" });
   });
 
   it("a refund staff already made by hand is not asked for twice", async () => {

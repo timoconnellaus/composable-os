@@ -937,10 +937,22 @@ no other ADR amended. Where the build read the spec one way, or decided what it 
 - **A visitor cannot join a waiting list** (the spec did not say): joining is a member's, and
   promotion spends a use a drop-in payer does not hold. A full class is refused to a buyer, a place
   held for the waiting list included (the database counts it).
-- **An address several People share** is refused (`ask_desk`) rather than started with no Person:
-  an order may wait for staff to set its Person, a held booking cannot.
-- **A payment after the hold expired** is late (ADR 0429) and **cannot be honoured**: the place
-  went back and may be someone else's (`held_gone`); staff refund it.
+- **A guest is nobody until they pay** (the coordinator's decision on review, following ADR 0428
+  and decision 13): a buyer who is not signed in gets the same answer whatever their address
+  matches; their held booking has no Person (the booking's `person` is no longer required: the host
+  keeps it set outside a guest's unpaid hold), is in nobody's `mine` and blocks nobody's own
+  booking; the order belongs to no one. The verified payment matches the address as a guest's order
+  is matched: one Person is theirs, none makes one, several wait for staff (`order.setPerson` then
+  books it). A Person who already has a place on the class is not given a second: the paid drop-in
+  is released and refunded, and staff are told. A signed-in member buying for themselves or a
+  linked child is unchanged.
+- **Unpaid guest holds are limited**: a class carries at most `dropInHoldPercent` of its places
+  (default 50, at least one; a person's to change) in unpaid drop-in holds, counted by the database
+  in the buy's batch; one address starts at most 3 in 15 minutes. Either is "try again shortly".
+- **A class cancelled while a drop-in is being bought**: the buy carries the same guard a member's
+  booking does (ADR 0550), so it fails rather than leave a hold on a cancelled class.
+- **A payment after the hold expired**, or after its class was cancelled, is late (ADR 0429), is
+  **never honoured** (`held_gone`), and **its refund is owed** at once, for a person to approve.
 - **Refunds are asked for by the host, after the move commits**: a paid drop-in entering
   `cancelled` (in time), `excused` (a person gave it back late) or `cancelled_by_us` (the class
   cancelled, by staff or a closure, a late-cancelled, ticked or no-show one included, as step 7's
@@ -948,20 +960,25 @@ no other ADR amended. Where the build read the spec one way, or decided what it 
   gatekeeper (`order.refundDue`), one refund per payment, each waiting for a person with
   `orders:refund` (never an AI). A refund staff already made by hand is not asked again. A late
   cancel and a no-show keep the money (decided: no fee, no refund). An unpaid drop-in on a class
-  the gym cancels has its order cancelled in the same batch.
+  the gym cancels has its order cancelled in the same batch. An approval rejected or expired makes
+  the owed refund `lapsed`: staff are told once and refund from the order. A refund the cron could
+  not ask for (the approval policy denied it, payments not set up, a crash) is never asked again by
+  itself: staff are told, and told to approve the one waiting if a crash left one. Refund ids are
+  the provider's idempotency key, so one asked twice is one refund.
+- **A paid drop-in staff move** to another class carries its order with it (`dropInOrder` and the
+  order's line), so the new booking's in-time cancel or class cancel owes the refund once.
+- **`order.startHeld` is a tool's only, for everyone**: staff, the assistant and MCP are refused a
+  direct call as customers and the public are.
 - **A member's cancel of a drop-in** says the money goes back once staff approve it (`cancel`'s
   `dropIn`); `mine` gives a drop-in's order (`dropInOrderId`), so a pending one can still be paid.
 - **Blocks**: a web `bookings-drop-in` block (the week's classes, an email for a guest, then the
   provider's page) and, on the web timetable, "Pay for" a class a member was refused for want of
   a use (when the app passes `payReturnUrl`). Native blocks are `noPurchase`; the lint refuses
   `x.bookings.buy` and `order.checkout` in them (criterion 8's last clause).
-- **Known gap** (for review): staff moving a paid drop-in to another class (step 7's `move`) makes
-  a desk-paid booking with no order, so a later in-time cancel of the new booking owes nothing
-  automatically; staff refund the original order by hand.
 - **Not run on Stripe**: everything is proved on the fake provider; the runbook's part 9 lists the
   test-mode checks.
-- **Proof**: `apps/runner/test/bookings-drop-in.test.ts` (16, the shipped packs and the fake
-  provider), `packages/sdk/test/sellable-moves.test.ts`, the pack's own tests (the declaration and
+- **Proof**: `apps/runner/test/bookings-drop-in.test.ts` (26, the shipped packs and the fake
+  provider; each review fix broken in turn fails its test), `packages/sdk/test/sellable-moves.test.ts`, the pack's own tests (the declaration and
   `buy`), `scripts/check-blocks.test.mjs`, and the e2e journey "a visitor pays for a class".
 
 ## Questions for the interview

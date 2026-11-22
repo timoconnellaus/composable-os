@@ -1104,13 +1104,17 @@ subscriptions' `paidUpMoment` and stage 32b's allowances.
 
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
-already exists: `order.startHeld` makes the record in its `held` state (a drop-in booking holding
-its place) and its order in one batch, as the host, after judging the caller's input with the
-record's own create rules, priced from a declared path or the extension's setting; the order's
+already exists: `order.startHeld` (a tool's only) makes the record in its `held` state (a drop-in
+booking holding its place) and its order in one batch, as the host, after judging the caller's
+input with the record's own create rules and guards, priced from a declared path or the
+extension's setting; a guest's record (`guest`) has no Person until the verified payment matches
+their address, and unpaid guest holds are capped per record (`holdCap`, migration 0690's guard) and
+per address; the order's
 move hook moves it to `paid` or `expired`; a record leaving `held` another way cancels its unpaid
 order; entering a `refund` state with its order paid writes a refund owed
 (`core_sellable_refund_due`, migration 0690), which the minute cron asks the payments gatekeeper
-for, as `payments.refund`, approved only by a person with `orders:refund`.
+for, as `payments.refund`, approved only by a person with `orders:refund` (a rejected or expired
+approval is reported to staff, never dropped).
 
 `sellable` ([ADR 0435](adr/0435-sellable-what-may-be-bought-and-what-a-paid-line-grants.md),
 `packages/sdk/src/sellable.ts`, `packages/core/src/orders/sellable.ts` and `grants.ts`) is what

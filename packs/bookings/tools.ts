@@ -142,10 +142,11 @@ const refusalReason = z
     "waitlist_closed",
     "no_drop_in",
     "ask_desk",
+    "try_later",
   ])
   .describe(
     "no_drop_in: the class cannot be paid for online (no drop-in price). ask_desk: the address " +
-      "given cannot be used, or matches several people. " +
+      "given cannot be used. try_later: too many places are held for payment just now. " +
       "waitlist_closed: the class is full and it is too close to the start to wait for a place " +
       "(nobody is moved in from the waitlist then). " +
       "not_open: booking has not opened yet (see opensAt). closed: booking has closed. " +
@@ -681,6 +682,12 @@ export const buy = defineTool({
         });
         if (rule === "no_price" || rule === "not_for_sale") {
           return out("no_drop_in", "This class cannot be paid for online. Ask at the desk.");
+        }
+        if (rule === "try_later" || error.code === "rate_limited") {
+          return out(
+            "try_later",
+            "Too many places are being held for payment just now: try again shortly.",
+          );
         }
         if (rule === "buyer_unclear") {
           return out(
