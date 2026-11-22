@@ -42,6 +42,17 @@ export interface RunToolInput {
    * cycle, fan-out) hold across a tool (stage 42, ADR 0478).
    */
   cascade?: ToolCascade;
+  /**
+   * The tool is declared `risk: "read"`: its sandbox may only read (ADR 0022 amendment,
+   * 2026-11-22). Its operation calls must be reads, its storage is read-only and it has no
+   * gatekeeper. Set by the host from the manifest, never by the caller's input.
+   */
+  readOnly?: boolean;
+  /**
+   * Run inside a dry run (approvals/dry-run.ts): as `readOnly`, and it uses no model either.
+   * Only a read tool is ever run in one.
+   */
+  dryRun?: boolean;
 }
 
 /** An automation cascade's position, carried through a tool's own operation calls. */

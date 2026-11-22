@@ -168,6 +168,37 @@ describe("AC1: triggers", () => {
     expect(await tasksOn(item.id)).toEqual(["Before sleep", "After sleep"]);
   });
 
+  // ADR 0022 amendment (2026-11-22): the dry run of a queued automation.run started real runs.
+  it("manual: an automation.run queued for review starts nothing until it is approved", async () => {
+    const { result: item } = await createItem({ name: "Queued run", level: 1 });
+    await setPreset("cautious");
+    try {
+      const before = (await runsOf(`${FIXTURE_ID}.sleeper`)).length;
+      const queued = await withEvents(
+        admin,
+        "automation.run",
+        { id: `${FIXTURE_ID}.sleeper`, object: ITEM, recordIds: [item.id] },
+        { actor: "mcp", origin: { surface: "mcp", sessionId: `cap_run_${item.id}` } },
+      ).catch((error: { code?: string; pending?: { actionId: string } }) => error);
+      expect(queued).toMatchObject({ code: "pending_approval" });
+      expect((await runsOf(`${FIXTURE_ID}.sleeper`)).length).toBe(before);
+      expect(await tasksOn(item.id)).toEqual([]);
+      const actionId = (queued as { pending: { actionId: string } }).pending.actionId;
+      const preview = await env.DB.prepare("SELECT simulated FROM core_pending_action WHERE id = ?")
+        .bind(actionId)
+        .first<{ simulated: string }>();
+      expect(JSON.parse(preview?.simulated ?? "{}").notes?.join(" ")).toContain(
+        "Runs on approval: it uses automation runs",
+      );
+      await setPreset("balanced");
+      await runWorkflows(() => call(admin, "approval.approve", { actionIds: [actionId] }));
+      expect((await runsOf(`${FIXTURE_ID}.sleeper`)).length).toBe(before + 1);
+      expect(await tasksOn(item.id)).toEqual(["Before sleep", "After sleep"]);
+    } finally {
+      await setPreset("balanced");
+    }
+  });
+
   it("approvalDecided: approving an MCP change to a person starts a run", async () => {
     await setPreset("cautious");
     try {

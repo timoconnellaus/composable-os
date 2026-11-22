@@ -9246,6 +9246,18 @@
                     }
                   ]
                 },
+                "bulkSize": {
+                  "type": "number"
+                },
+                "notes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "toolRanAtQueue": {
+                  "type": "boolean"
+                },
                 "provisionalIds": {
                   "type": "array",
                   "items": {
@@ -9643,6 +9655,9 @@
                 "error",
                 "preview",
                 "simulatedOutput",
+                "bulkSize",
+                "notes",
+                "toolRanAtQueue",
                 "provisionalIds",
                 "bindings",
                 "dependsOn",
@@ -10415,6 +10430,18 @@
                           }
                         ]
                       },
+                      "bulkSize": {
+                        "type": "number"
+                      },
+                      "notes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "toolRanAtQueue": {
+                        "type": "boolean"
+                      },
                       "provisionalIds": {
                         "type": "array",
                         "items": {
@@ -10812,6 +10839,9 @@
                       "error",
                       "preview",
                       "simulatedOutput",
+                      "bulkSize",
+                      "notes",
+                      "toolRanAtQueue",
                       "provisionalIds",
                       "bindings",
                       "dependsOn",

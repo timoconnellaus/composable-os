@@ -27,8 +27,10 @@ import { deliverOutbox, emitDurably, outboxEntries, outboxInserts } from "../aut
 import type { ApprovalDecidedMessage, EventSink } from "../automations/types.ts";
 import {
   ForbiddenError,
+  NeedsOwnApprovalError,
   NotFoundError,
   OperationError,
+  PendingApprovalError,
   toOperationError,
   ValidationError,
 } from "../errors.ts";
@@ -103,6 +105,18 @@ export const pendingActionSchema = z.object({
   preview: z.array(previewSchema),
   /** What the session sees until it is decided. */
   simulatedOutput: z.unknown().nullable(),
+  /** How many records the call touches, as the gate counted them when it was queued. */
+  bulkSize: z.number(),
+  /**
+   * What the dry run could not show (ADR 0022 amendment, 2026-11-22): that the call runs, at
+   * least in part, only on approval, or that a call it makes will need its own approval.
+   */
+  notes: z.array(z.string()),
+  /**
+   * An extension tool queued before that amendment: its dry run ran the tool, so its changes may
+   * already have been made, and approving would make them again.
+   */
+  toolRanAtQueue: z.boolean(),
   provisionalIds: z.array(z.string()),
   /** Provisional id → real id, once applied. */
   bindings: z.record(z.string(), z.string()).nullable(),
@@ -253,10 +267,12 @@ export function effectiveStatus(
 }
 
 function toActionView(row: PendingRow, now: string): PendingActionView {
-  const simulated = parse<{ output?: unknown; truncated?: PendingActionView["truncated"] }>(
-    row.simulated,
-    {},
-  );
+  const simulated = parse<{
+    output?: unknown;
+    truncated?: PendingActionView["truncated"];
+    notes?: string[];
+    toolRanAtQueue?: boolean;
+  }>(row.simulated, {});
   const status = effectiveStatus(row, now);
   return {
     id: row.id,
@@ -276,6 +292,9 @@ function toActionView(row: PendingRow, now: string): PendingActionView {
     error: parse(row.error, null),
     preview: parse(row.preview, []),
     simulatedOutput: simulated.output ?? null,
+    bulkSize: row.bulk_size ?? 1,
+    notes: Array.isArray(simulated.notes) ? simulated.notes.map(String) : [],
+    toolRanAtQueue: simulated.toolRanAtQueue === true,
     provisionalIds: parse<{ id: string }[]>(row.provisional, []).map((p) => p.id),
     bindings: parse(row.bindings, null),
     dependsOn: parse(row.depends_on, []),
@@ -1040,6 +1059,9 @@ async function approveActions(
       }
     }
     const failed = new Set<string>();
+    // Not applied because a call it makes needs its own approval (NeedsOwnApprovalError), or it
+    // depends on one that was not: left pending.
+    const held = new Set<string>();
     const results: z.infer<typeof decisionResultSchema>["results"] = [];
     for (const action of targets) {
       if (!mine.has(action.id)) {
@@ -1050,6 +1072,28 @@ async function approveActions(
           operation: action.operation,
           status: other?.status ?? "pending",
           statusReason: other?.status_reason ?? "Another approval is applying this",
+          error: null,
+          bindings: null,
+        });
+        continue;
+      }
+      // It depends on an action that waits (above): not applied now, and still pending.
+      const waitsFor = parse<string[]>(action.depends_on, []).find((d) => held.has(d));
+      if (waitsFor) {
+        held.add(action.id);
+        const statusReason = `Waiting: ${waitsFor}, which it depends on, was not applied`;
+        await crm.batch([
+          ctx.db
+            .updateTable("core_pending_action")
+            .set({ status_reason: statusReason, execution_id: null, execution_at: null })
+            .where("id", "=", action.id)
+            .where("status", "=", "pending"),
+        ]);
+        results.push({
+          actionId: action.id,
+          operation: action.operation,
+          status: "pending",
+          statusReason,
           error: null,
           bindings: null,
         });
@@ -1157,9 +1201,54 @@ async function approveActions(
           bindings: own,
         });
       } catch (error) {
-        const typed = toOperationError(error);
+        if (error instanceof NeedsOwnApprovalError) {
+          // Nothing of it was applied (the pipeline checked before its first call committed):
+          // it stays pending, waiting, and is let go so it can be approved again later.
+          held.add(action.id);
+          const statusReason = `Waiting: ${error.message}`;
+          await crm.batch([
+            ctx.db
+              .updateTable("core_pending_action")
+              .set({ status_reason: statusReason, execution_id: null, execution_at: null })
+              .where("id", "=", action.id)
+              .where("status", "=", "pending"),
+          ]);
+          results.push({
+            actionId: action.id,
+            operation: action.operation,
+            status: "pending",
+            statusReason,
+            error: error.toJSON(),
+            bindings: null,
+          });
+          continue;
+        }
+        // A call it made needed review only once it ran (what it read changed after the check):
+        // the calls before it committed, and it stops there. Said as it is; what depends on it
+        // is skipped, and the call it reached waits as its own action.
+        const waiting = waitingOn(error);
+        const typed = waiting ?? toOperationError(error);
         failed.add(action.id);
-        const statusReason = `Failed: ${typed.message}`;
+        if (waiting) {
+          const nestedId = (waiting.details as { waitingOn: string }).waitingOn;
+          const nestedRow = await ctx.db
+            .selectFrom("core_pending_action")
+            .select("depends_on")
+            .where("id", "=", nestedId)
+            .executeTakeFirst();
+          const deps = parse<string[]>(nestedRow?.depends_on ?? "[]", []).filter(
+            (id) => id !== action.id,
+          );
+          await crm.batch([
+            ctx.db
+              .updateTable("core_pending_action")
+              .set({ depends_on: JSON.stringify(deps) })
+              .where("id", "=", nestedId),
+          ]);
+        }
+        const statusReason = waiting
+          ? `Partly applied: ${typed.message}`
+          : `Failed: ${typed.message}`;
         await crm.batch([
           ctx.db
             .updateTable("core_pending_action")
@@ -1209,14 +1298,33 @@ async function approveActions(
       integrations,
       [...targets, ...stranded].filter((r) => skippedIds.has(r.id)),
     );
+    // An action left pending (waiting) was not decided: no event for it.
     const decided = new Map<string, Decision>(
-      results.map((r) => [r.actionId, r.status === "applied" ? "approved" : "failed"]),
+      results
+        .filter((r) => r.status !== "pending")
+        .map((r) => [r.actionId, r.status === "applied" ? "approved" : "failed"]),
     );
     for (const s of stranded) decided.set(s.id, "failed");
     const bound = new Map(results.map((r) => [r.actionId, r.bindings ?? {}]));
     await emitDecisions(ctx, [...targets, ...stranded], (id) => decided.get(id) ?? null, bound);
     return { results, counts: counts(results) };
   });
+}
+
+/**
+ * Approving ran an action whose handler then reached a call that needed its own approval, after
+ * the check before its first call passed (what it read changed in between): that call is queued,
+ * the calls before it committed, and the rest of the action was not done. Said as it is.
+ */
+function waitingOn(error: unknown): OperationError | null {
+  if (!(error instanceof PendingApprovalError)) return null;
+  const { actionId, operation } = error.pending;
+  return new OperationError(
+    "pending_approval",
+    `it reached ${operation}, which needed its own approval once it ran: that is pending ` +
+      `action ${actionId}. The calls it made before it were applied; the rest of it was not.`,
+    { waitingOn: actionId, operation },
+  );
 }
 
 export const approvalApprove = defineOperation({
@@ -1422,7 +1530,7 @@ async function itemTitles(
         ? outboundTitle(v.outbound)
         : name
           ? `${verbOf(v.operation)} ${name}`
-          : actionTitle(v.operation, v.preview, v.input),
+          : actionTitle(v.operation, v.preview, v.input, v.bulkSize),
     );
   }
   return out;

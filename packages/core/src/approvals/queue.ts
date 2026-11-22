@@ -1,5 +1,5 @@
 // Recording a pending action (ADR 0022). When the gate says `review`, the pipeline dry-runs the
-// handler (its writes are discarded), turns the result into a diff preview and simulated records,
+// handler (approvals/dry-run.ts: nothing it does is real; an extension tool is not run), turns the result into a diff preview and simulated records,
 // finds the earlier pending actions it depends on, and queues it in the session's change set.
 import type { CrmDb, ReviewSource } from "@composable-os/db";
 import type { Compilable } from "kysely";
@@ -17,6 +17,7 @@ import {
 import type { AnyOperation, RecordChange, SimulatedRecord } from "../operation.ts";
 import { type Origin, type Permission, type Role, staffPrincipal } from "../principals.ts";
 import { capPreview, capSimulated, INPUT_MAX_BYTES } from "./caps.ts";
+import { toolOf } from "./describe.ts";
 import { type Overlay, SIMULATED_OBJECTS, titlesFor } from "./simulation.ts";
 
 export const DEFAULT_APPROVAL_EXPIRY_DAYS = 7;
@@ -27,6 +28,14 @@ export interface DryRunResult {
   /** The handler's output, validated, or null when it is read after commit. */
   output: unknown;
   changes: RecordChange[];
+  /** An extension tool that may write: not run, so nothing to preview (approvals/dry-run.ts). */
+  notRun?: boolean;
+  /** What the dry run refused to touch: the call runs, at least in part, only on approval. */
+  refused?: string[];
+  /** Notes for the reviewer (runs on approval, a call that will need its own approval). */
+  notes?: string[];
+  /** A call the handler makes would itself need approval (its operation): see NeedsOwnApprovalError. */
+  held?: string;
 }
 
 export interface QueueRequest {
@@ -415,6 +424,9 @@ export async function prepareQueuedAction(req: QueueRequest): Promise<QueuedActi
         output: storedSim.output,
         records: storedSim.records,
         ...truncated,
+        ...(dry.notes?.length ? { notes: dry.notes } : {}),
+        // Marks a tool queued by code that does not run it (migration 0600 tells the two apart).
+        ...(dry.notRun ? { notRun: true } : {}),
       }),
       provisional: JSON.stringify(provisional),
       depends_on: JSON.stringify(dependsOn),
@@ -442,6 +454,12 @@ export async function prepareQueuedAction(req: QueueRequest): Promise<QueuedActi
     (provisionalIds.length
       ? ` Use the provisional id ${provisionalIds.join(", ")} for follow-up actions in this session.`
       : "") +
+    // A tool is not dry-run (approvals/dry-run.ts): nothing of it has run, and its reads in this
+    // session do not show its changes.
+    (toolOf(req.op.name)
+      ? " The tool has not run: it runs once, when a person approves it, and what it changes is decided then."
+      : "") +
+    (dry.notes?.length ? ` ${dry.notes.join(" ")}` : "") +
     " Tell the user the change is waiting for approval.";
 
   return {

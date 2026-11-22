@@ -5,11 +5,12 @@ import type { CoreDatabase } from "@composable-os/db";
 import type { ExtensionManifest, ToolManifest } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
 import { z } from "zod";
-import { ForbiddenError, OperationError } from "../errors.ts";
+import { TOOL_OPERATION_RE } from "../approvals/describe.ts";
+import { ForbiddenError, OperationError, RunsOnApprovalError } from "../errors.ts";
 import { type AnyOperation, defineOperation, markHostTool } from "../operation.ts";
 import { requireHost } from "./install.ts";
 
-export const TOOL_OPERATION_RE = /^x\.([a-z][a-z0-9]{1,29})\.([a-z][a-zA-Z0-9]{0,39})$/;
+export { TOOL_OPERATION_RE };
 
 function schemaFrom(json: Record<string, unknown>, fallback: z.ZodType): z.ZodType {
   try {
@@ -52,6 +53,8 @@ export function toolOperation(
       ? { packPermissionGrantable: true }
       : {}),
     async handler(input, ctx) {
+      // The pipeline already never dry-runs a tool that may write (approvals/dry-run.ts: that is
+      // the guarantee); this keeps the handler safe if it is ever called with a simulation.
       // A dry run (the approval queue's, ADR 0022) must change nothing, and a tool's own
       // operation calls are real invocations the dry run cannot hold back: so the tool is not run
       // until it is approved (found by the Bookings review, 2026-11-22: a destructive tool queued
@@ -85,6 +88,7 @@ export function toolOperation(
         commit: row.commit_oid,
         tool: name,
         input,
+        ...(tool.risk === "read" ? { readOnly: true } : {}),
         ...(cascade ? { cascade } : {}),
         caller:
           ctx.principal.kind === "staff"
@@ -96,6 +100,13 @@ export function toolOperation(
               },
       });
       if (!result.ok) {
+        // A read tool in a dry run reached what the dry run does not touch: not run (dry-run.ts).
+        if (result.error.code === "runs_on_approval") {
+          const uses = (result.error.details as { uses?: unknown } | undefined)?.uses;
+          throw new RunsOnApprovalError(
+            typeof uses === "string" ? uses : `the extension tool ${manifest.id}.${name}`,
+          );
+        }
         throw new OperationError("extension_error", result.error.message, {
           extension: manifest.id,
           tool: name,

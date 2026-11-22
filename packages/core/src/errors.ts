@@ -17,6 +17,7 @@ export type OperationErrorCode =
   | "timeout"
   | "extension_error"
   | "integration_error"
+  | "runs_on_approval"
   | "internal";
 
 export class OperationError extends Error {
@@ -104,6 +105,23 @@ export class PendingApprovalError extends OperationError {
   }
 }
 
+/**
+ * A dry run (approvals/dry-run.ts) reached something it cannot simulate: another runtime (the
+ * automation host, the updater, a connected app, a model, mail…) or a direct database write.
+ * Nothing was done. A queued call that meets it is queued with "runs on approval" instead of a
+ * preview; a simulated read that meets it fails with this.
+ */
+export class RunsOnApprovalError extends OperationError {
+  override name = "RunsOnApprovalError";
+  constructor(readonly uses: string) {
+    super(
+      "runs_on_approval",
+      `This uses ${uses}, which a dry run does not touch: it runs only when it is approved`,
+      { uses },
+    );
+  }
+}
+
 /** Too many calls for this token in the current window. */
 export class RateLimitedError extends OperationError {
   override name = "RateLimitedError";
@@ -135,6 +153,21 @@ export class ConflictError extends OperationError {
   override name = "ConflictError";
   constructor(message: string, details?: unknown) {
     super("conflict", message, details);
+  }
+}
+
+/**
+ * Applying an approved action is refused, before anything of it is applied, because a call it
+ * makes would need its own approval (ADR 0022 amendment, 2026-11-22). The action stays pending.
+ */
+export class NeedsOwnApprovalError extends ConflictError {
+  override name = "NeedsOwnApprovalError";
+  constructor(operation: string, calls: string) {
+    super(
+      `${operation} calls ${calls}, which needs its own approval, so it cannot be applied as one ` +
+        `change: nothing of it was applied. Ask for ${calls} on its own, or reject this.`,
+      { needsOwnApproval: calls, operation },
+    );
   }
 }
 

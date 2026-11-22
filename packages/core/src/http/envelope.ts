@@ -27,6 +27,7 @@ const STATUS: Record<OperationErrorCode, number> = {
   timeout: 504,
   extension_error: 502,
   integration_error: 502,
+  runs_on_approval: 409,
   internal: 500,
 };
 

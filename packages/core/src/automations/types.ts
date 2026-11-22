@@ -252,6 +252,12 @@ export interface RunOperationRecord {
   records?: { object: string; id: string; action: string }[];
   /** Flagged when a write was not declared in the step's intents (still gated). */
   undeclared?: boolean;
+  /**
+   * Test mode: the call was not run, because a test cannot simulate it (an extension tool that
+   * may write, or a call that reaches another runtime): it would run for real. The step got a
+   * placeholder (`{ $notRunInTestMode: true, operation, note }`) instead of its output.
+   */
+  notRun?: string;
   ms: number;
 }
 
@@ -302,6 +308,8 @@ export interface AutomationTestReport {
   notifications: TestNotification[];
   /** Operations that would need approval under the current policy. */
   approvals: { operation: string; reason: string; bulkSize: number }[];
+  /** Calls test mode did not run, each with why: they would run for real (RunOperationRecord). */
+  notRun?: { operation: string; note: string }[];
   policyPreset: string;
   ok: boolean;
   error?: { code: string; message: string };

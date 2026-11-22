@@ -17,10 +17,11 @@ import { errorMessage, useOp } from "#/lib/query";
 import { ChangeSetExplanation } from "../ai/summary.tsx";
 import { TwoStepButton } from "../assistant/cards/parts.tsx";
 import { ChangePreview, RiskBadge, StatusBadge } from "./change-preview.tsx";
-import { actionTitle, groupPreview, outboundTitle, summariseDecision } from "./describe.ts";
+import { actionTitle, groupPreview, outboundTitle, summariseDecision, toolOf } from "./describe.ts";
 import { ExtensionProposal } from "./extension-proposal.tsx";
 import { decide, useRecordNames, useRefreshAfterDecision } from "./hooks.ts";
 import { OutboundPreview } from "./outbound-preview.tsx";
+import { DryRunNotes, ToolCallPreview } from "./tool-call-preview.tsx";
 import { VerdictNote } from "./verdict-note.tsx";
 
 type ChangeSet = CoreOutput<"approval.get">;
@@ -140,7 +141,9 @@ function ChangeSetView({
       new Map(
         actions.map((a) => [
           a.id,
-          a.outbound ? outboundTitle(a.outbound) : actionTitle(a.operation, a.preview, a.input),
+          a.outbound
+            ? outboundTitle(a.outbound)
+            : actionTitle(a.operation, a.preview, a.input, a.bulkSize),
         ]),
       ),
     [actions],
@@ -379,9 +382,26 @@ function ActionItem({
           <OutboundPreview outbound={action.outbound} />
         ) : action.operation === "extension.apply" ? (
           <ExtensionProposal actionId={action.id} status={action.status} />
+        ) : toolOf(action.operation) ? (
+          <ToolCallPreview
+            input={action.input}
+            pending={pending}
+            ranAtQueue={action.toolRanAtQueue}
+          />
         ) : (
-          <ChangePreview groups={groups} names={names} />
+          <>
+            <ChangePreview groups={groups} names={names} />
+            {(!action.preview.length || action.notes.length > 0) && (
+              <ToolCallPreview
+                input={action.input}
+                pending={pending}
+                ranAtQueue={false}
+                tool={false}
+              />
+            )}
+          </>
         )}
+        {pending && <DryRunNotes notes={action.notes} />}
         {!pending && action.statusReason && (
           <p
             className={cn(

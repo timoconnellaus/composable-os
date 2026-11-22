@@ -359,7 +359,13 @@ The human queue is built (stage 2, [ADR 0022](adr/0022-approval-queue-and-simula
 ([ADR 0204](adr/0204-policy-adjudicator.md)), described at the end of this section.
 A `review` decision dry-runs the operation and records a **pending action** (diff preview,
 simulated result, dependencies, the agent's reason) in a **change set**, then returns
-`pending_approval`. The originating MCP session's reads (`get`, `list`, `search.global`,
+`pending_approval`. The dry run causes no real effect (`approvals/dry-run.ts`, ADR 0022 amendment
+of 2026-11-22, which lists exactly what is and is not covered): the handler's database handle runs
+only single reads, every other runtime on its context answers only its read methods (anything else
+queues the call as "runs on approval"), an operation it runs through `pipeline.invoke` is
+simulated over its own overlay and joins the preview, and an extension tool that may write is not
+run at all until it is approved (the inbox shows the tool and its inputs instead of a diff). A
+read tool's sandbox can only read. The originating MCP session's reads (`get`, `list`, `search.global`,
 `activity.listForRecord`) see its pending actions applied, with **provisional IDs** for creates;
 everyone else reads real data. A person approves or rejects (`approval.approve` / `reject`):
 approval re-runs each action through the pipeline as the original actor, binding provisional to

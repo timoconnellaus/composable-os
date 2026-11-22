@@ -21,6 +21,7 @@ export {
   storedTerms,
 } from "./allowance/records.ts";
 export * from "./approvals/describe.ts";
+export { DRY_RUN_RUNTIMES, type DryRunRuntime } from "./approvals/dry-run.ts";
 export * from "./approvals/high-risk.ts";
 export { DEFAULT_APPROVAL_EXPIRY_DAYS, runSessionKey } from "./approvals/queue.ts";
 export { isSimulatedRead } from "./approvals/simulation.ts";
