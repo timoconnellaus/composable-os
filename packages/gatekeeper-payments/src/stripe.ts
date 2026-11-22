@@ -18,8 +18,10 @@ import { verifySignatureHeader } from "./signature.js";
 import { SUBSCRIPTION_STATUSES, subscriptionEvent } from "./subscription-shape.js";
 import type {
   PaymentsCancelSubscriptionInput,
+  PaymentsChangeSubscriptionInput,
   PaymentsEvent,
   PaymentsInvoice,
+  PaymentsPauseSubscriptionInput,
   PaymentsPayment,
   PaymentsPortalInput,
   PaymentsResumeSubscriptionInput,
@@ -27,6 +29,7 @@ import type {
   PaymentsSubscriptionStatus,
   PaymentsSubscriptionTrigger,
   PaymentsTaxPlace,
+  PaymentsUnpauseSubscriptionInput,
 } from "./types.js";
 
 /** Stripe's shortest Checkout Session lifetime is 30 minutes; one more absorbs clock skew. */
@@ -397,6 +400,192 @@ export class StripeProvider implements PaymentProvider {
       form,
       `cos-resume-${input.subscriptionId}-${Date.now()}`,
     );
+  }
+
+  /**
+   * A new price on the subscription's one item (stage 32b, ADR 0530; docs.stripe.com/billing/
+   * subscriptions/change-price, pending-updates and prorations, read 2026-11-22).
+   * - `now` (an upgrade): a Price is made on the item's own product (a pending update takes
+   *   `items[].price`, not `price_data`), then the item is moved to it with
+   *   `proration_behavior=always_invoice` and `payment_behavior=pending_if_incomplete`: the rest of
+   *   the period is invoiced at once, and the change applies only once that invoice is paid.
+   * - `next_period` (a downgrade): `items[].price_data` on the same product with
+   *   `proration_behavior=none`: nothing is credited or charged now, the next invoice is the new
+   *   price.
+   * The item's id is required (without it Stripe adds a second item), and its quantity is sent
+   * as 1 (a price change resets it to 1 anyway).
+   */
+  async changeSubscription(input: PaymentsChangeSubscriptionInput): Promise<void> {
+    const path = `/v1/subscriptions/${encodeURIComponent(input.subscriptionRef)}`;
+    const item = await this.#item(input.subscriptionRef);
+    const form = new URLSearchParams();
+    form.set("items[0][id]", item.id);
+    form.set("items[0][quantity]", "1");
+    if (input.when === "now") {
+      const price = new URLSearchParams();
+      price.set("currency", input.currency.toLowerCase());
+      price.set("unit_amount", String(input.amount));
+      price.set("product", item.product);
+      price.set("recurring[interval]", input.interval);
+      if (input.taxed) price.set("tax_behavior", "inclusive");
+      price.set("metadata[cos_change]", input.changeId);
+      let priceId: string | null = null;
+      try {
+        const { body } = await this.#call(
+          "POST",
+          "/v1/prices",
+          price,
+          `cos-change-price-${input.changeId}`,
+          STRIPE_BILLING_VERSION,
+        );
+        priceId = stringOrNull(body.id);
+      } catch (error) {
+        // A price alone charges nothing: whatever went wrong, the subscription did not change.
+        throw new ActionApplyError(
+          `Stripe did not make the new price, so nothing changed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (priceId === null) {
+        throw new ActionApplyError("Stripe answered the new price without an id: nothing changed.");
+      }
+      form.set("items[0][price]", priceId);
+      form.set("proration_behavior", "always_invoice");
+      form.set("payment_behavior", "pending_if_incomplete");
+    } else {
+      form.set("items[0][price_data][currency]", input.currency.toLowerCase());
+      form.set("items[0][price_data][product]", item.product);
+      form.set("items[0][price_data][unit_amount]", String(input.amount));
+      form.set("items[0][price_data][recurring][interval]", input.interval);
+      if (input.taxed) form.set("items[0][price_data][tax_behavior]", "inclusive");
+      form.set("proration_behavior", "none");
+    }
+    await this.#change("POST", path, form, `cos-change-${input.changeId}`);
+  }
+
+  /**
+   * The provider's pause, set as a pause schedule so the provider resumes it on its own (stage
+   * 32b, ADR 0531; docs.stripe.com/billing/subscriptions/pause and pause/schedules, read
+   * 2026-11-22): a schedule is made from the subscription, then given one pause schedule,
+   * `pause_at` now or a moment and `resume_at` the moment it ends (the resume's defaults: the
+   * billing cycle anchored at the resume, and resumed only once its payment succeeds). Status
+   * `paused`, not `pause_collection` (which keeps it active). If the second call is refused, the
+   * schedule is released again, so nothing changed.
+   */
+  async pauseSubscription(input: PaymentsPauseSubscriptionInput): Promise<void> {
+    const made = new URLSearchParams();
+    made.set("from_subscription", input.subscriptionRef);
+    let scheduleId: string | null = null;
+    try {
+      const { body } = await this.#call(
+        "POST",
+        "/v1/subscription_schedules",
+        made,
+        `cos-pause-schedule-${input.pauseId}`,
+        STRIPE_BILLING_VERSION,
+      );
+      scheduleId = stringOrNull(body.id);
+    } catch (error) {
+      if (error instanceof StripeCallError && error.outcome === "refused") {
+        throw new ActionApplyError(
+          `Stripe refused the pause, so nothing changed: ${error.message}`,
+        );
+      }
+      throw new ActionOutcomeUnknownError(
+        "The request to Stripe failed, so a schedule may or may not have been attached.",
+      );
+    }
+    if (scheduleId === null) {
+      throw new ActionOutcomeUnknownError("Stripe answered the schedule without an id.");
+    }
+    const form = new URLSearchParams();
+    const at = (iso: string) => String(Math.floor(Date.parse(iso) / 1000));
+    form.set("pause_schedules[0][key]", input.pauseId);
+    if (input.from) {
+      form.set("pause_schedules[0][pause][pause_at][type]", "timestamp");
+      form.set("pause_schedules[0][pause][pause_at][timestamp]", at(input.from));
+    } else {
+      form.set("pause_schedules[0][pause][pause_at][type]", "now");
+    }
+    form.set("pause_schedules[0][resume][resume_at][type]", "timestamp");
+    form.set("pause_schedules[0][resume][resume_at][timestamp]", at(input.until));
+    form.set("metadata[cos_pause]", input.pauseId);
+    const path = `/v1/subscription_schedules/${encodeURIComponent(scheduleId)}`;
+    try {
+      await this.#call("POST", path, form, `cos-pause-${input.pauseId}`, STRIPE_BILLING_VERSION);
+    } catch (error) {
+      if (error instanceof StripeCallError && error.outcome === "refused") {
+        await this.#change(
+          "POST",
+          `${path}/release`,
+          new URLSearchParams(),
+          `cos-pause-release-${input.pauseId}`,
+        );
+        throw new ActionApplyError(
+          `Stripe refused the pause, so nothing changed: ${error.message}`,
+        );
+      }
+      throw new ActionOutcomeUnknownError(
+        "The request to Stripe failed, so the subscription may or may not be paused.",
+      );
+    }
+  }
+
+  /**
+   * Ends a pause now, or withdraws one not yet started: the subscription's schedule (the pause's)
+   * is released, then a paused subscription is resumed with its billing anchored now and only once
+   * the payment succeeds (`payment_behavior=resume_on_payment_success`, the guide's recommended).
+   */
+  async unpauseSubscription(input: PaymentsUnpauseSubscriptionInput): Promise<void> {
+    const ref = encodeURIComponent(input.subscriptionRef);
+    const { body } = await this.#read(`/v1/subscriptions/${ref}`);
+    const schedule = idOf(body.schedule);
+    if (schedule !== null) {
+      await this.#change(
+        "POST",
+        `/v1/subscription_schedules/${encodeURIComponent(schedule)}/release`,
+        new URLSearchParams(),
+        `cos-unpause-release-${input.pauseId}`,
+      );
+    }
+    if (body.status !== "paused") return;
+    const form = new URLSearchParams();
+    form.set("billing_cycle_anchor[type]", "now");
+    form.set("payment_behavior", "resume_on_payment_success");
+    await this.#change(
+      "POST",
+      `/v1/subscriptions/${ref}/resume`,
+      form,
+      `cos-unpause-${input.pauseId}`,
+    );
+  }
+
+  /** The subscription's one item: its id and its product's. */
+  async #item(subscriptionRef: string): Promise<{ id: string; product: string }> {
+    const { body } = await this.#read(`/v1/subscriptions/${encodeURIComponent(subscriptionRef)}`);
+    const items = metadataOf(body.items).data;
+    if (!Array.isArray(items) || items.length !== 1) {
+      throw new ActionApplyError(
+        "The subscription does not have exactly one item: nothing changed.",
+      );
+    }
+    const item = metadataOf(items[0]);
+    const id = stringOrNull(item.id);
+    const product = idOf(metadataOf(item.price).product);
+    if (id === null || product === null) {
+      throw new ActionApplyError("The subscription's item could not be read: nothing changed.");
+    }
+    return { id, product };
+  }
+
+  /** A read before a change: any failure is a refusal, since nothing has been sent yet. */
+  async #read(path: string): Promise<StripeResponse> {
+    try {
+      return await this.#call("GET", path, undefined, undefined, STRIPE_BILLING_VERSION);
+    } catch (error) {
+      throw new ActionApplyError(
+        `Stripe could not be read, so nothing changed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   async openPortal(input: PaymentsPortalInput): Promise<{ url: string }> {

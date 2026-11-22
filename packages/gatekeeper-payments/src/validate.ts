@@ -4,9 +4,11 @@
 
 import type {
   PaymentsCancelSubscriptionInput,
+  PaymentsChangeSubscriptionInput,
   PaymentsCheckoutInput,
   PaymentsCheckoutTax,
   PaymentsInterval,
+  PaymentsPauseSubscriptionInput,
   PaymentsPortalInput,
   PaymentsProviderName,
   PaymentsRefundInput,
@@ -14,6 +16,7 @@ import type {
   PaymentsSubscriptionCheckoutInput,
   PaymentsTaxLine,
   PaymentsTaxPlace,
+  PaymentsUnpauseSubscriptionInput,
 } from "./types.js";
 
 export const PROVIDER_NAMES: readonly PaymentsProviderName[] = ["stripe", "fake"];
@@ -393,6 +396,93 @@ export function parseResumeSubscriptionInput(value: unknown): PaymentsResumeSubs
   return {
     subscriptionId: assertSubscriptionId(input.subscriptionId),
     subscriptionRef: assertProviderRef(input.subscriptionRef, "subscriptionRef"),
+  };
+}
+
+/** The longest pause this gatekeeper asks for (stage 32b, ADR 0531). */
+export const MAX_PAUSE_DAYS = 366;
+
+function moment(value: unknown, name: string): number {
+  const text = boundedString(value, name, 40);
+  const at = Date.parse(text);
+  if (Number.isNaN(at)) throw new TypeError(`${name} must be an ISO 8601 moment.`);
+  return at;
+}
+
+export function parseChangeSubscriptionInput(value: unknown): PaymentsChangeSubscriptionInput {
+  const input = record(value, "The plan change input");
+  refuseUnknownKeys(input, [
+    "subscriptionId",
+    "subscriptionRef",
+    "changeId",
+    "amount",
+    "currency",
+    "interval",
+    "description",
+    "when",
+    "taxed",
+    "reason",
+  ]);
+  if (input.when !== "now" && input.when !== "next_period") {
+    throw new TypeError('when must be "now" or "next_period".');
+  }
+  if (!INTERVALS.includes(input.interval as PaymentsInterval)) {
+    throw new TypeError('interval must be "week", "month" or "year".');
+  }
+  if (typeof input.taxed !== "boolean") throw new TypeError("taxed must be true or false.");
+  return {
+    subscriptionId: assertSubscriptionId(input.subscriptionId),
+    subscriptionRef: assertProviderRef(input.subscriptionRef, "subscriptionRef"),
+    changeId: assertSubscriptionId(input.changeId),
+    amount: assertAmount(input.amount),
+    currency: assertCurrency(input.currency),
+    interval: input.interval as PaymentsInterval,
+    description: singleLine(boundedString(input.description, "description", 200), "description"),
+    when: input.when,
+    taxed: input.taxed,
+    reason: boundedString(input.reason, "reason", 500),
+  };
+}
+
+export function parsePauseSubscriptionInput(
+  value: unknown,
+  nowMs: number = Date.now(),
+): PaymentsPauseSubscriptionInput {
+  const input = record(value, "The pause input");
+  refuseUnknownKeys(input, [
+    "subscriptionId",
+    "subscriptionRef",
+    "pauseId",
+    "from",
+    "until",
+    "reason",
+  ]);
+  const from = input.from === null ? null : moment(input.from, "from");
+  if (from !== null && from <= nowMs) throw new TypeError("from must be ahead of now, or null.");
+  const until = moment(input.until, "until");
+  const start = from ?? nowMs;
+  if (until <= start) throw new TypeError("until must be after the pause starts.");
+  if (until > start + MAX_PAUSE_DAYS * 86_400_000) {
+    throw new TypeError(`A pause is at most ${MAX_PAUSE_DAYS} days.`);
+  }
+  return {
+    subscriptionId: assertSubscriptionId(input.subscriptionId),
+    subscriptionRef: assertProviderRef(input.subscriptionRef, "subscriptionRef"),
+    pauseId: assertSubscriptionId(input.pauseId),
+    from: from === null ? null : new Date(from).toISOString(),
+    until: new Date(until).toISOString(),
+    reason: boundedString(input.reason, "reason", 500),
+  };
+}
+
+export function parseUnpauseSubscriptionInput(value: unknown): PaymentsUnpauseSubscriptionInput {
+  const input = record(value, "The unpause input");
+  refuseUnknownKeys(input, ["subscriptionId", "subscriptionRef", "pauseId", "reason"]);
+  return {
+    subscriptionId: assertSubscriptionId(input.subscriptionId),
+    subscriptionRef: assertProviderRef(input.subscriptionRef, "subscriptionRef"),
+    pauseId: assertSubscriptionId(input.pauseId),
+    reason: boundedString(input.reason, "reason", 500),
   };
 }
 

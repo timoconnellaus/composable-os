@@ -54,10 +54,12 @@ import { deliverFakeEvent, handleRequest } from "./routes.js";
 import { StripeProvider, type TaxLocationCache } from "./stripe.js";
 import type {
   PaymentsCancelSubscriptionInput,
+  PaymentsChangeSubscriptionInput,
   PaymentsCheckout,
   PaymentsCheckoutInput,
   PaymentsEvent,
   PaymentsEventHook,
+  PaymentsPauseSubscriptionInput,
   PaymentsPayment,
   PaymentsPortal,
   PaymentsPortalInput,
@@ -70,6 +72,7 @@ import type {
   PaymentsSubscriptionChangeReceipt,
   PaymentsSubscriptionCheckoutInput,
   PaymentsSubscriptionCheckoutStatus,
+  PaymentsUnpauseSubscriptionInput,
 } from "./types.js";
 import TYPES_CODE from "./types.txt";
 import {
@@ -79,11 +82,14 @@ import {
   merchantUrl,
   PROVIDER_NAMES,
   parseCancelSubscriptionInput,
+  parseChangeSubscriptionInput,
   parseCheckoutInput,
+  parsePauseSubscriptionInput,
   parsePortalInput,
   parseRefundInput,
   parseResumeSubscriptionInput,
   parseSubscriptionCheckoutInput,
+  parseUnpauseSubscriptionInput,
   providerFromUrl,
   validInstant,
 } from "./validate.js";
@@ -169,7 +175,18 @@ type StoredRefund = { provider: PaymentsProviderName; input: PaymentsRefundInput
 /** A subscription change (ADR 0485): the provider at submit time and the validated input. */
 type StoredCancel = { provider: PaymentsProviderName; input: PaymentsCancelSubscriptionInput };
 type StoredResume = { provider: PaymentsProviderName; input: PaymentsResumeSubscriptionInput };
-type Actions = { refund: StoredRefund; cancel: StoredCancel; resume: StoredResume };
+/** A plan change, a pause and its end (stage 32b, ADRs 0530 and 0531). */
+type StoredChange = { provider: PaymentsProviderName; input: PaymentsChangeSubscriptionInput };
+type StoredPause = { provider: PaymentsProviderName; input: PaymentsPauseSubscriptionInput };
+type StoredUnpause = { provider: PaymentsProviderName; input: PaymentsUnpauseSubscriptionInput };
+type Actions = {
+  refund: StoredRefund;
+  cancel: StoredCancel;
+  resume: StoredResume;
+  change: StoredChange;
+  pause: StoredPause;
+  unpause: StoredUnpause;
+};
 
 const REFUND_KIND: ActionKind = { tag: "payments.refund", label: "Refund a payment" };
 const CANCEL_KIND: ActionKind = {
@@ -180,12 +197,27 @@ const RESUME_KIND: ActionKind = {
   tag: "payments.subscription.resume",
   label: "Keep a subscription going",
 };
+const CHANGE_KIND: ActionKind = {
+  tag: "payments.subscription.change",
+  label: "Change a subscription's plan",
+};
+const PAUSE_KIND: ActionKind = {
+  tag: "payments.subscription.pause",
+  label: "Pause a subscription",
+};
+const UNPAUSE_KIND: ActionKind = {
+  tag: "payments.subscription.unpause",
+  label: "End a subscription's pause",
+};
 
 /** What the action handlers may do. Not the Durable Object: provider calls live behind approval. */
 type PaymentsHost = {
   sendRefund(refund: StoredRefund): Promise<void>;
   sendCancel(change: StoredCancel): Promise<void>;
   sendResume(change: StoredResume): Promise<void>;
+  sendChange(change: StoredChange): Promise<void>;
+  sendPause(change: StoredPause): Promise<void>;
+  sendUnpause(change: StoredUnpause): Promise<void>;
 };
 
 function describeCancel(change: StoredCancel) {
@@ -221,6 +253,69 @@ function describeResume(change: StoredResume) {
     .inline("Provider's reference", input.subscriptionRef);
   return {
     title: sanitizeTitle(`Keep subscription ${input.subscriptionId} going`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
+function describeChange(change: StoredChange) {
+  const { input } = change;
+  const amount = formatMinor(input.amount, input.currency);
+  const when =
+    input.when === "now"
+      ? `now: the rest of the current period is charged at once, prorated, and the change applies only once that is paid`
+      : "from the next period: nothing is prorated or refunded";
+  const builder = buildDescription(
+    `Changes subscription ${input.subscriptionId} through ${PROVIDER_TITLES[change.provider]} to ` +
+      `${amount} every ${input.interval}, ${when}. Money moves on the payer's card.`,
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Subscription", input.subscriptionId)
+    .inline("Provider's reference", input.subscriptionRef)
+    .verbatim("New plan", input.description)
+    .inline("New price", `${amount} (${input.amount} minor units) every ${input.interval}`)
+    .inline("When", input.when === "now" ? "Now, prorated" : "From the next period")
+    .verbatim("Reason", input.reason);
+  return {
+    title: sanitizeTitle(`Change subscription ${input.subscriptionId} to ${amount}`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
+function describePause(change: StoredPause) {
+  const { input } = change;
+  const builder = buildDescription(
+    `Pauses subscription ${input.subscriptionId} through ${PROVIDER_TITLES[change.provider]} ` +
+      `from ${input.from ?? "now"} until ${input.until}: nothing is charged and nothing is given ` +
+      "while it is paused; the provider resumes it then and charges a new period.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Subscription", input.subscriptionId)
+    .inline("Provider's reference", input.subscriptionRef)
+    .inline("From", input.from ?? "Now")
+    .inline("Until", input.until)
+    .verbatim("Reason", input.reason);
+  return {
+    title: sanitizeTitle(`Pause subscription ${input.subscriptionId}`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
+function describeUnpause(change: StoredUnpause) {
+  const { input } = change;
+  const builder = buildDescription(
+    `Ends the pause of subscription ${input.subscriptionId} through ` +
+      `${PROVIDER_TITLES[change.provider]} now (or withdraws one not yet started): the provider ` +
+      "charges a new period from today.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Subscription", input.subscriptionId)
+    .inline("Provider's reference", input.subscriptionRef)
+    .verbatim("Reason", input.reason);
+  return {
+    title: sanitizeTitle(`End the pause of subscription ${input.subscriptionId}`),
     ...builder.finish(),
     implementsRevert: false,
   };
@@ -288,6 +383,41 @@ const actions = defineActions<PaymentsHost, Actions>(
       },
       reject: async () => {},
     },
+    // A plan change and a pause change what the payer is charged (stage 32b): never
+    // auto-approvable, as a cancel is; the host's own call is applied at once by the host.
+    change: {
+      kind: CHANGE_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeChange(change),
+      apply: async (change, host) => {
+        await host.sendChange(change);
+      },
+      reject: async () => {},
+    },
+    pause: {
+      kind: PAUSE_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describePause(change),
+      apply: async (change, host) => {
+        await host.sendPause(change);
+      },
+      reject: async () => {},
+    },
+    unpause: {
+      kind: UNPAUSE_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeUnpause(change),
+      apply: async (change, host) => {
+        await host.sendUnpause(change);
+      },
+      reject: async () => {},
+    },
   },
   // The provider's keys are this Worker's own, not a user's connection: nothing to fence on.
   { fence: "none", vendorId: "payments" },
@@ -303,6 +433,9 @@ type SessionBackend = {
   submitRefund(queue: RpcStub<ApprovalQueue>, refund: StoredRefund): Promise<number>;
   submitCancel(queue: RpcStub<ApprovalQueue>, change: StoredCancel): Promise<number>;
   submitResume(queue: RpcStub<ApprovalQueue>, change: StoredResume): Promise<number>;
+  submitChange(queue: RpcStub<ApprovalQueue>, change: StoredChange): Promise<number>;
+  submitPause(queue: RpcStub<ApprovalQueue>, change: StoredPause): Promise<number>;
+  submitUnpause(queue: RpcStub<ApprovalQueue>, change: StoredUnpause): Promise<number>;
   wasApplied(id: number): boolean;
   subscribe(queue: RpcStub<ApprovalQueue>, hook: RpcStub<PaymentsHookTarget>): Promise<void>;
 };
@@ -479,6 +612,42 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
     return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
   }
 
+  async changeSubscription(
+    input: PaymentsChangeSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt> {
+    const parsed = parseChangeSubscriptionInput(input);
+    this.#backend.open();
+    const id = await this.#backend.submitChange(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
+  async pauseSubscription(
+    input: PaymentsPauseSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt> {
+    const parsed = parsePauseSubscriptionInput(input);
+    this.#backend.open();
+    const id = await this.#backend.submitPause(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
+  async unpauseSubscription(
+    input: PaymentsUnpauseSubscriptionInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt> {
+    const parsed = parseUnpauseSubscriptionInput(input);
+    this.#backend.open();
+    const id = await this.#backend.submitUnpause(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
   async openPortal(input: PaymentsPortalInput): Promise<PaymentsPortal> {
     const parsed = parsePortalInput(input);
     // A portal address shows a customer's invoices and lets their card and email be changed: it
@@ -529,6 +698,12 @@ export class PaymentsGatekeeper
       (await this.#openForApply(change.provider)).cancelSubscription(change.input),
     sendResume: async (change) =>
       (await this.#openForApply(change.provider)).resumeSubscription(change.input),
+    sendChange: async (change) =>
+      (await this.#openForApply(change.provider)).changeSubscription(change.input),
+    sendPause: async (change) =>
+      (await this.#openForApply(change.provider)).pauseSubscription(change.input),
+    sendUnpause: async (change) =>
+      (await this.#openForApply(change.provider)).unpauseSubscription(change.input),
   };
 
   /** The provider an approved action is sent through; a provider not set up sends nothing. */
@@ -599,6 +774,9 @@ export class PaymentsGatekeeper
       submitRefund: (queue, refund) => this.#actions().submit(queue, "refund", refund),
       submitCancel: (queue, change) => this.#actions().submit(queue, "cancel", change),
       submitResume: (queue, change) => this.#actions().submit(queue, "resume", change),
+      submitChange: (queue, change) => this.#actions().submit(queue, "change", change),
+      submitPause: (queue, change) => this.#actions().submit(queue, "pause", change),
+      submitUnpause: (queue, change) => this.#actions().submit(queue, "unpause", change),
       wasApplied: (id) => this.#journal.wasApplied(id),
       subscribe: (queue, hook) => this.#subscribe(queue, hook),
     };

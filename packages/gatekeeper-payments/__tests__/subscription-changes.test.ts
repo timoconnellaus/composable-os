@@ -1,0 +1,451 @@
+// Stage 32b (ADRs 0530, 0531): a plan change and a pause at the gatekeeper. Through the fake
+// provider end to end: an upgrade charged now, prorated, applied only once paid; a downgrade from
+// the next period with nothing prorated; a pause from now or later until a date, ended early; and
+// none of them reaching the provider until the action is applied (an agent's session waits for a
+// person). The Stripe provider's requests against recorded shapes (no real Stripe).
+import { env, exports } from "cloudflare:workers";
+import type { ActionDescription } from "@composable-os/gatekeeper-interface/gatekeeper";
+import { ActionApplyError } from "@composable-os/gatekeeper-kit/actions";
+import { describe, expect, it, vi } from "vitest";
+import { type FakeLedgerState, fakeLedger } from "../src/fake.js";
+import { advanceFakeSubscription } from "../src/routes.js";
+import { StripeProvider } from "../src/stripe.js";
+import type {
+  PaymentsCheckout,
+  PaymentsEvent,
+  PaymentsSubscriptionChangeReceipt,
+} from "../src/types.js";
+
+const RETURN_URL = "https://gym.example.com/account";
+const DAY = 86_400_000;
+
+let counter = 0;
+function unique(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}${(counter++).toString(36)}`;
+}
+
+async function host() {
+  const stub = env.TEST_HOST.getByName(unique("host"));
+  await stub.open("fake", false);
+  await stub.bindAndEnable();
+  return stub;
+}
+type Host = Awaited<ReturnType<typeof host>>;
+type SubscriptionEvent = Extract<PaymentsEvent, { kind: "subscription" }>;
+
+async function eventsFor(h: Host, id: string): Promise<SubscriptionEvent[]> {
+  return (await h.recorded()).received.filter(
+    (e): e is SubscriptionEvent =>
+      e.kind === "subscription" && e.subscription.subscriptionId === id,
+  );
+}
+
+async function ledgerSubscription(id: string) {
+  const state = (await fakeLedger(env as never).state()) as FakeLedgerState;
+  const sub = state.subscriptions.find((s) => s.subscriptionId === id);
+  if (!sub) throw new Error("no fake subscription");
+  return sub;
+}
+
+async function started(h: Host, id: string) {
+  const checkout = (await h.call("createSubscriptionCheckout", [
+    {
+      subscriptionId: id,
+      amount: 3000,
+      currency: "aud",
+      interval: "month",
+      description: "Three a week",
+      returnUrl: RETURN_URL,
+      customerEmail: "member@gym.test",
+      idempotencyKey: `sub-${id}`,
+    },
+  ])) as PaymentsCheckout;
+  const answer = await exports.default.fetch(
+    new Request(checkout.url, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ outcome: "pay" }).toString(),
+      redirect: "manual",
+    }),
+  );
+  expect(answer.status).toBe(303);
+  await vi.waitFor(async () => expect((await eventsFor(h, id)).length).toBeGreaterThanOrEqual(2));
+  return ledgerSubscription(id);
+}
+
+function change(id: string, ref: string, overrides: Record<string, unknown> = {}) {
+  return {
+    subscriptionId: id,
+    subscriptionRef: ref,
+    changeId: unique("sbc"),
+    amount: 6000,
+    currency: "AUD",
+    interval: "month",
+    description: "Unlimited",
+    when: "now",
+    taxed: false,
+    reason: "Wants more classes",
+    ...overrides,
+  };
+}
+
+async function submitted(h: Host, receipt: PaymentsSubscriptionChangeReceipt) {
+  const { submissions } = await h.recorded();
+  return submissions.find(([action]) => action === receipt.id)?.[1] as
+    | ActionDescription
+    | undefined;
+}
+
+describe("a plan change at the fake provider", () => {
+  it("sends nothing until it is applied: an agent's session waits for a person", async () => {
+    const h = await host();
+    const id = unique("sbs");
+    const sub = await started(h, id);
+    const receipt = (await h.call("changeSubscription", [
+      change(id, sub.ref),
+    ])) as PaymentsSubscriptionChangeReceipt;
+    expect(receipt.status).toBe("pending");
+    const action = await submitted(h, receipt);
+    expect(action?.actionKind?.tag).toBe("payments.subscription.change");
+    expect(action?.autoApprovable).toBe(false);
+    expect(action?.description).toContain("prorated");
+    // The provider has not been asked: same price, no new invoice, no event.
+    const before = await ledgerSubscription(id);
+    expect(before.amount).toBe(3000);
+    expect(before.invoices).toHaveLength(1);
+    expect(await eventsFor(h, id)).toHaveLength(2);
+    // The same for a pause.
+    const pause = (await h.call("pauseSubscription", [
+      {
+        subscriptionId: id,
+        subscriptionRef: sub.ref,
+        pauseId: unique("sbc"),
+        from: null,
+        until: new Date(Date.now() + 14 * DAY).toISOString(),
+        reason: "Injury",
+      },
+    ])) as PaymentsSubscriptionChangeReceipt;
+    expect(pause.status).toBe("pending");
+    expect((await submitted(h, pause))?.autoApprovable).toBe(false);
+    expect((await ledgerSubscription(id)).status).toBe("active");
+  });
+
+  it("upgrades now, charging the rest of the period prorated, applied once paid", async () => {
+    const h = await host();
+    const id = unique("sbs");
+    const sub = await started(h, id);
+    const receipt = (await h.call("changeSubscription", [
+      change(id, sub.ref),
+    ])) as PaymentsSubscriptionChangeReceipt;
+    await h.apply(receipt.id);
+    await vi.waitFor(async () => expect(await eventsFor(h, id)).toHaveLength(4));
+    const [updated, paid] = (await eventsFor(h, id)).slice(2);
+    expect(updated?.subscription.amount).toBe(6000);
+    expect(paid?.trigger).toBe("invoice_paid");
+    expect(paid?.invoice?.billingReason).toBe("subscription_update");
+    // Nearly a whole month was left: nearly the whole difference, never more.
+    expect(paid?.invoice?.amountPaid).toBeGreaterThan(2900);
+    expect(paid?.invoice?.amountPaid).toBeLessThanOrEqual(3000);
+    // The next renewal is the new price.
+    await advanceFakeSubscription(env as never, sub.ref, "renew");
+    await vi.waitFor(async () => expect(await eventsFor(h, id)).toHaveLength(6));
+    expect((await eventsFor(h, id))[5]?.invoice?.amountPaid).toBe(6000);
+  });
+
+  it("leaves the old price when the upgrade's charge is declined, until it is paid", async () => {
+    const h = await host();
+    const id = unique("sbs");
+    const sub = await started(h, id);
+    await advanceFakeSubscription(env as never, sub.ref, "card_declines");
+    const receipt = (await h.call("changeSubscription", [
+      change(id, sub.ref),
+    ])) as PaymentsSubscriptionChangeReceipt;
+    await h.apply(receipt.id);
+    await vi.waitFor(async () => expect(await eventsFor(h, id)).toHaveLength(3));
+    const failed = (await eventsFor(h, id))[2];
+    expect(failed?.trigger).toBe("invoice_payment_failed");
+    expect(failed?.subscription).toMatchObject({ status: "active", amount: 3000 });
+    await advanceFakeSubscription(env as never, sub.ref, "card_works");
+    await advanceFakeSubscription(env as never, sub.ref, "recover");
+    await vi.waitFor(async () => expect(await eventsFor(h, id)).toHaveLength(5));
+    expect((await eventsFor(h, id))[3]?.subscription.amount).toBe(6000);
+  });
+
+  it("downgrades from the next period, with nothing prorated", async () => {
+    const h = await host();
+    const id = unique("sbs");
+    const sub = await started(h, id);
+    const receipt = (await h.call("changeSubscription", [
+      change(id, sub.ref, { amount: 2000, when: "next_period", description: "Two a week" }),
+    ])) as PaymentsSubscriptionChangeReceipt;
+    await h.apply(receipt.id);
+    await vi.waitFor(async () => expect(await eventsFor(h, id)).toHaveLength(3));
+    expect((await eventsFor(h, id))[2]?.subscription.amount).toBe(2000);
+    expect((await ledgerSubscription(id)).invoices).toHaveLength(1);
+    await advanceFakeSubscription(env as never, sub.ref, "renew");
+    await vi.waitFor(async () => expect(await eventsFor(h, id)).toHaveLength(5));
+    expect((await eventsFor(h, id))[4]?.invoice?.amountPaid).toBe(2000);
+  });
+});
+
+describe("a pause at the fake provider", () => {
+  it("pauses now, credits the unused time, and resumes on its date with a new period", async () => {
+    const h = await host();
+    const id = unique("sbs");
+    const sub = await started(h, id);
+    const until = new Date(Date.now() + 21 * DAY).toISOString();
+    const receipt = (await h.call("pauseSubscription", [
+      {
+        subscriptionId: id,
+        subscriptionRef: sub.ref,
+        pauseId: unique("sbc"),
+        from: null,
+        until,
+        reason: "Travel",
+      },
+    ])) as PaymentsSubscriptionChangeReceipt;
+    await h.apply(receipt.id);
+    await vi.waitFor(async () => expect(await eventsFor(h, id)).toHaveLength(3));
+    expect((await eventsFor(h, id))[2]).toMatchObject({
+      trigger: "paused",
+      subscription: { status: "paused" },
+    });
+    // No renewal while paused.
+    await expect(advanceFakeSubscription(env as never, sub.ref, "renew")).rejects.toThrow(/paused/);
+    await advanceFakeSubscription(env as never, sub.ref, "pause_ends");
+    await vi.waitFor(async () => expect(await eventsFor(h, id)).toHaveLength(5));
+    const [resumed, paid] = (await eventsFor(h, id)).slice(3);
+    expect(resumed?.trigger).toBe("resumed");
+    expect(resumed?.subscription.currentPeriodStart).toBe(until);
+    // The new period less the unused time of the one paused in: nearly nothing was used.
+    expect(paid?.invoice?.amountPaid).toBeLessThan(200);
+  });
+
+  it("schedules a pause for later and withdraws it, and refuses one on trial", async () => {
+    const h = await host();
+    const id = unique("sbs");
+    const sub = await started(h, id);
+    const from = new Date(Date.now() + 3 * DAY).toISOString();
+    const pauseId = unique("sbc");
+    const scheduled = (await h.call("pauseSubscription", [
+      {
+        subscriptionId: id,
+        subscriptionRef: sub.ref,
+        pauseId,
+        from,
+        until: new Date(Date.parse(from) + 7 * DAY).toISOString(),
+        reason: "Holiday",
+      },
+    ])) as PaymentsSubscriptionChangeReceipt;
+    await h.apply(scheduled.id);
+    await vi.waitFor(async () => expect(await eventsFor(h, id)).toHaveLength(3));
+    expect((await eventsFor(h, id))[2]?.subscription.status).toBe("active");
+    expect((await ledgerSubscription(id)).pauseAt).toBe(from);
+    const withdrawn = (await h.call("unpauseSubscription", [
+      { subscriptionId: id, subscriptionRef: sub.ref, pauseId, reason: "Not going" },
+    ])) as PaymentsSubscriptionChangeReceipt;
+    await h.apply(withdrawn.id);
+    await vi.waitFor(async () => expect((await ledgerSubscription(id)).pauseAt).toBeNull());
+    await expect(advanceFakeSubscription(env as never, sub.ref, "pause_starts")).rejects.toThrow();
+  });
+
+  it("refuses malformed pauses and changes before anything is queued", async () => {
+    const h = await host();
+    const id = unique("sbs");
+    const base = { subscriptionId: id, subscriptionRef: "fsub_x", pauseId: "sbc_1", reason: "x" };
+    const count = async () => (await h.recorded()).submissions.length;
+    const before = await count();
+    await expect(
+      h.call("pauseSubscription", [
+        { ...base, from: null, until: new Date(Date.now() - DAY).toISOString() },
+      ]),
+    ).rejects.toThrow();
+    await expect(
+      h.call("pauseSubscription", [
+        { ...base, from: null, until: new Date(Date.now() + 400 * DAY).toISOString() },
+      ]),
+    ).rejects.toThrow(/at most/);
+    await expect(
+      h.call("changeSubscription", [change(id, "fsub_x", { when: "later" })]),
+    ).rejects.toThrow();
+    await expect(
+      h.call("changeSubscription", [change(id, "fsub_x", { amount: 0 })]),
+    ).rejects.toThrow();
+    expect(await count()).toBe(before);
+  });
+});
+
+// --- Stripe, against recorded shapes ----------------------------------------------------------
+
+type Recorded = { url: string; method: string; form: URLSearchParams; key: string | null };
+const ok = (body: unknown) =>
+  new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+
+function stripe(answer: (r: Recorded) => Response) {
+  const requests: Recorded[] = [];
+  const provider = new StripeProvider({
+    secretKey: "sk_test_key",
+    webhookSecret: "whsec_x",
+    apiBase: "https://stripe.test",
+    account: "",
+    fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      const recorded: Recorded = {
+        url: String(input),
+        method: init?.method ?? "GET",
+        form: new URLSearchParams(typeof init?.body === "string" ? init.body : ""),
+        key: headers.get("idempotency-key"),
+      };
+      requests.push(recorded);
+      return answer(recorded);
+    }) as typeof fetch,
+  });
+  return { provider, requests };
+}
+
+const SUB = {
+  id: "sub_1",
+  status: "active",
+  schedule: null,
+  items: { data: [{ id: "si_1", price: { id: "price_old", product: "prod_1" } }] },
+};
+
+describe("the Stripe provider's plan changes and pauses", () => {
+  const input = {
+    subscriptionId: "sbs_1",
+    subscriptionRef: "sub_1",
+    changeId: "sbc_1",
+    amount: 6000,
+    currency: "AUD",
+    interval: "month" as const,
+    description: "Unlimited",
+    taxed: true,
+    reason: "More",
+  };
+
+  it("upgrades with a new price on the item's product, as a pending update invoiced now", async () => {
+    const { provider, requests } = stripe((r) =>
+      ok(r.url.endsWith("/v1/prices") ? { id: "price_new" } : SUB),
+    );
+    await provider.changeSubscription({ ...input, when: "now" });
+    expect(requests.map((r) => [r.method, r.url])).toEqual([
+      ["GET", "https://stripe.test/v1/subscriptions/sub_1"],
+      ["POST", "https://stripe.test/v1/prices"],
+      ["POST", "https://stripe.test/v1/subscriptions/sub_1"],
+    ]);
+    expect(Object.fromEntries(requests[1]?.form ?? [])).toMatchObject({
+      currency: "aud",
+      unit_amount: "6000",
+      product: "prod_1",
+      "recurring[interval]": "month",
+      tax_behavior: "inclusive",
+    });
+    expect(Object.fromEntries(requests[2]?.form ?? [])).toEqual({
+      "items[0][id]": "si_1",
+      "items[0][quantity]": "1",
+      "items[0][price]": "price_new",
+      proration_behavior: "always_invoice",
+      payment_behavior: "pending_if_incomplete",
+    });
+    expect(requests[2]?.key).toBe("cos-change-sbc_1");
+  });
+
+  it("downgrades with inline price data and no proration", async () => {
+    const { provider, requests } = stripe(() => ok(SUB));
+    await provider.changeSubscription({
+      ...input,
+      amount: 2000,
+      when: "next_period",
+      taxed: false,
+    });
+    expect(Object.fromEntries(requests[1]?.form ?? [])).toEqual({
+      "items[0][id]": "si_1",
+      "items[0][quantity]": "1",
+      "items[0][price_data][currency]": "aud",
+      "items[0][price_data][product]": "prod_1",
+      "items[0][price_data][unit_amount]": "2000",
+      "items[0][price_data][recurring][interval]": "month",
+      proration_behavior: "none",
+    });
+  });
+
+  it("refuses a subscription of more than one item, and a refused price changes nothing", async () => {
+    const two = stripe(() =>
+      ok({ ...SUB, items: { data: [SUB.items.data[0], { id: "si_2", price: { product: "p" } }] } }),
+    );
+    await expect(two.provider.changeSubscription({ ...input, when: "now" })).rejects.toBeInstanceOf(
+      ActionApplyError,
+    );
+    const refused = stripe((r) =>
+      r.url.endsWith("/v1/prices") ? new Response("{}", { status: 400 }) : ok(SUB),
+    );
+    await expect(
+      refused.provider.changeSubscription({ ...input, when: "now" }),
+    ).rejects.toBeInstanceOf(ActionApplyError);
+    expect(refused.requests).toHaveLength(2);
+  });
+
+  it("pauses through a pause schedule, releasing it when the pause is refused", async () => {
+    const at = (iso: string) => String(Math.floor(Date.parse(iso) / 1000));
+    const until = "2030-02-01T00:00:00.000Z";
+    const { provider, requests } = stripe(() => ok({ id: "sub_sched_1" }));
+    await provider.pauseSubscription({
+      subscriptionId: "sbs_1",
+      subscriptionRef: "sub_1",
+      pauseId: "sbc_2",
+      from: null,
+      until,
+      reason: "Injury",
+    });
+    expect(requests.map((r) => r.url)).toEqual([
+      "https://stripe.test/v1/subscription_schedules",
+      "https://stripe.test/v1/subscription_schedules/sub_sched_1",
+    ]);
+    expect(requests[0]?.form.get("from_subscription")).toBe("sub_1");
+    expect(Object.fromEntries(requests[1]?.form ?? [])).toMatchObject({
+      "pause_schedules[0][pause][pause_at][type]": "now",
+      "pause_schedules[0][resume][resume_at][type]": "timestamp",
+      "pause_schedules[0][resume][resume_at][timestamp]": at(until),
+    });
+
+    const refusing = stripe((r) =>
+      r.url.endsWith("/sub_sched_1")
+        ? new Response("{}", { status: 400 })
+        : ok({ id: "sub_sched_1" }),
+    );
+    await expect(
+      refusing.provider.pauseSubscription({
+        subscriptionId: "sbs_1",
+        subscriptionRef: "sub_1",
+        pauseId: "sbc_3",
+        from: "2030-01-10T00:00:00.000Z",
+        until,
+        reason: "x",
+      }),
+    ).rejects.toBeInstanceOf(ActionApplyError);
+    expect(refusing.requests.at(-1)?.url).toBe(
+      "https://stripe.test/v1/subscription_schedules/sub_sched_1/release",
+    );
+  });
+
+  it("ends a pause by releasing its schedule and resuming once paid", async () => {
+    const { provider, requests } = stripe((r) =>
+      ok(r.method === "GET" ? { ...SUB, status: "paused", schedule: "sub_sched_1" } : {}),
+    );
+    await provider.unpauseSubscription({
+      subscriptionId: "sbs_1",
+      subscriptionRef: "sub_1",
+      pauseId: "sbc_2",
+      reason: "Back early",
+    });
+    expect(requests.map((r) => [r.method, r.url])).toEqual([
+      ["GET", "https://stripe.test/v1/subscriptions/sub_1"],
+      ["POST", "https://stripe.test/v1/subscription_schedules/sub_sched_1/release"],
+      ["POST", "https://stripe.test/v1/subscriptions/sub_1/resume"],
+    ]);
+    expect(Object.fromEntries(requests[2]?.form ?? [])).toEqual({
+      "billing_cycle_anchor[type]": "now",
+      payment_behavior: "resume_on_payment_success",
+    });
+  });
+});

@@ -118,6 +118,9 @@ export type SessionMethod =
   | "getSubscriptionCheckout"
   | "cancelSubscription"
   | "resumeSubscription"
+  | "changeSubscription"
+  | "pauseSubscription"
+  | "unpauseSubscription"
   | "openPortal";
 
 export class TestHost extends DurableObject<Cloudflare.Env> {
