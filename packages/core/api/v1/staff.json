@@ -39274,6 +39274,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -39762,6 +39763,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -40024,6 +40026,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -40073,6 +40076,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -40135,6 +40139,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -40240,6 +40245,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -40613,6 +40619,13 @@
               "string",
               "null"
             ]
+          },
+          "warning": {
+            "description": "Set when the child's record has an email that is also the parent's or another account's: signing in with it would open that account as the child's",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -40625,13 +40638,15 @@
           "createdBy",
           "endedAt",
           "endedBy",
-          "endReason"
+          "endReason",
+          "warning"
         ],
         "additionalProperties": false
       },
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -40739,6 +40754,13 @@
               "null"
             ]
           },
+          "warning": {
+            "description": "Set when the child's record has an email that is also the parent's or another account's: signing in with it would open that account as the child's",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "stays": {
             "type": "array",
             "items": {
@@ -40775,6 +40797,7 @@
           "endedAt",
           "endedBy",
           "endReason",
+          "warning",
           "stays"
         ],
         "additionalProperties": false
@@ -40782,6 +40805,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -40894,6 +40918,13 @@
                     "string",
                     "null"
                   ]
+                },
+                "warning": {
+                  "description": "Set when the child's record has an email that is also the parent's or another account's: signing in with it would open that account as the child's",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -40906,7 +40937,8 @@
                 "createdBy",
                 "endedAt",
                 "endedBy",
-                "endReason"
+                "endReason",
+                "warning"
               ],
               "additionalProperties": false
             }
@@ -40914,6 +40946,59 @@
         },
         "required": [
           "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "person.link.mergePlan",
+      "description": "What merging one person (mergedId) into another (survivorId) would do to their family links: how many move, how many end (a duplicate, or one whose other way round is linked: never a two-way link), how many are deleted (links between the two) and how many past links move as history. A merge that touches a live link waits for a person's approval when anyone but a person asks for it. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "survivorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "mergedId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "survivorId",
+          "mergedId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "number"
+          },
+          "ended": {
+            "type": "number"
+          },
+          "deleted": {
+            "type": "number"
+          },
+          "history": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "moved",
+          "ended",
+          "deleted",
+          "history"
         ],
         "additionalProperties": false
       },
@@ -41444,16 +41529,41 @@
               },
               "tasks": {
                 "type": "number"
-              },
-              "familyLinks": {
-                "description": "Live family links (guardians and dependants) moved to the survivor",
-                "type": "number"
               }
             },
             "required": [
               "affiliations",
               "activities",
               "tasks"
+            ],
+            "additionalProperties": false
+          },
+          "familyLinks": {
+            "description": "What happened to the duplicate's family links (guardians and children)",
+            "type": "object",
+            "properties": {
+              "moved": {
+                "type": "number",
+                "description": "Live family links that moved to the survivor"
+              },
+              "ended": {
+                "type": "number",
+                "description": "Live links ended: a duplicate, or one whose other way round is linked"
+              },
+              "deleted": {
+                "type": "number",
+                "description": "Links between the two People, deleted"
+              },
+              "history": {
+                "type": "number",
+                "description": "Links that had already ended, moved as history"
+              }
+            },
+            "required": [
+              "moved",
+              "ended",
+              "deleted",
+              "history"
             ],
             "additionalProperties": false
           }
@@ -41486,6 +41596,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -41744,6 +41855,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -42194,6 +42306,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
@@ -42309,6 +42422,7 @@
       "invalidates": [
         "person.get",
         "person.link.list",
+        "person.link.mergePlan",
         "person.list"
       ]
     },
