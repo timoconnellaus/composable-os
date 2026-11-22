@@ -759,38 +759,15 @@ Run this against two real programs from the hosted platform, after the outline c
   spec fits either answer.
 
 ## Sources
-Read 2026-11-22 and 2026-11-23. Some LearnWorlds facts come from the official help pages' search
-summaries where the page body would not load; the API reference (learnworlds.dev) could not be
+Read 2026-11-22 and 2026-11-23. Some facts about the hosted course platform come from its official
+help pages' search summaries where the page body would not load; its API reference could not be
 read.
 
-- LearnWorlds, course structure and activity kinds:
-  [learning activities](https://support.learnworlds.com/support/solutions/articles/5000652836-learning-activities-supported-by-learnworlds),
-  [creating courses](https://support.learnworlds.com/support/solutions/articles/12000079954-general-overview-creating-courses),
-  [free sections](https://support.learnworlds.com/support/solutions/articles/12000091420-how-to-offer-free-sections-in-a-paid-course),
-  [navigation and prerequisites](https://support.learnworlds.com/support/solutions/articles/12000106609-how-to-customize-courses-learning-paths-with-navigation-and-prerequisite-rules),
-  [drip feed](https://support.learnworlds.com/support/solutions/articles/12000041912-how-to-drip-feed-your-courses),
-  [course statuses](https://support.learnworlds.com/support/solutions/articles/12000040783-different-course-statuses-in-learnworlds).
-- LearnWorlds, completion:
-  [completion rules](https://support.learnworlds.com/support/solutions/articles/12000053453-how-to-customize-the-learning-activities-completion-rules),
-  [certificate of completion](https://support.learnworlds.com/support/solutions/articles/12000087212-how-to-create-a-certificate-of-completion).
-- LearnWorlds, selling:
-  [bundles](https://support.learnworlds.com/support/solutions/articles/5000688439-how-to-create-a-course-bundle),
-  [learning programs](https://support.learnworlds.com/support/solutions/articles/12000104343-how-to-create-learning-programs-in-learnworlds),
-  [subscription plans and trials](https://support.learnworlds.com/support/solutions/articles/12000085681-a-complete-guide-to-subscription-plans-in-learnworlds),
-  [cancelling a subscription](https://support.learnworlds.com/support/solutions/articles/12000056686-how-learners-can-cancel-their-subscription-plan),
-  [refunds](https://support.learnworlds.com/support/solutions/articles/12000051256-how-to-refund-your-users-payments-via-learnworlds),
-  [Stripe gateway](https://support.learnworlds.com/support/solutions/articles/12000030238-stripe-payment-gateway).
-- LearnWorlds, video:
-  [video storage](https://support.learnworlds.com/support/solutions/articles/5000687089-video-provider-storage-preferences-learnworlds-wistia-vimeo-),
-  [subtitles](https://support.learnworlds.com/support/solutions/articles/12000065858-how-to-add-subtitles-and-transcripts-to-your-videos),
-  [offline in the app](https://support.learnworlds.com/support/solutions/articles/12000089188-how-to-allow-mobile-app-users-to-download-and-watch-videos-offline),
-  [mobile app FAQ](https://support.learnworlds.com/support/solutions/articles/12000079754-mobile-apps-faqs).
-- LearnWorlds, export:
-  [exporting school data](https://support.learnworlds.com/support/solutions/articles/12000077153-how-to-download-export-your-school-data),
-  [users report](https://support.learnworlds.com/support/solutions/articles/12000024925-how-to-export-users-report),
-  [progress reports](https://support.learnworlds.com/support/solutions/articles/12000076855-user-progress-user-segments),
-  [payments export](https://support.learnworlds.com/support/solutions/articles/12000016424-how-to-track-and-review-your-users-payments),
-  [API](https://support.learnworlds.com/support/solutions/articles/12000017230).
+- The hosted course platform's own help pages: course structure and activity kinds, completion,
+  selling (bundles, programs, subscription plans and trials, cancelling, refunds, its Stripe
+  gateway), video (storage, subtitles, offline in its app), and export (school data, users,
+  progress, payments, its API). The links are kept out of this public repository (the owner's
+  decision, 2026-11-22: the repository does not name the client's suppliers).
 - Cloudflare Stream:
   [securing videos](https://developers.cloudflare.com/stream/viewing-videos/securing-your-stream/),
   [pricing](https://developers.cloudflare.com/stream/pricing/),
@@ -813,7 +790,7 @@ read.
   [tax reporting](https://docs.stripe.com/tax/reports) (a refund of a Checkout charge reduces the
   tax reported), [pricing](https://stripe.com/tax/pricing).
 
-Not found in a primary source, and marked as guesses above: whether LearnWorlds exports original
+Not found in a primary source, and marked as guesses above: whether the hosted course platform exports original
 video files; its users CSV's columns; its exact API paths and whether the API returns lesson
 content; the shape of its per-lesson progress export; the price of Stream's generated captions;
 how Stream counts MP4 downloads; the field a Stripe refund event carries the refunded tax in; and
