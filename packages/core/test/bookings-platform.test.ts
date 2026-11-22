@@ -286,7 +286,13 @@ beforeAll(async () => {
   await env.DB.prepare(
     "INSERT INTO core_extensions (id, source, status, version, commit_oid, manifest, user_id, installed_at, updated_at) VALUES (?, 'runtime', 'active', '1.0.0', 'c1', ?, ?, ?, ?)",
   )
-    .bind(ext, JSON.stringify(fixture(ext)), admin.id, new Date(T).toISOString(), new Date(T).toISOString())
+    .bind(
+      ext,
+      JSON.stringify(fixture(ext)),
+      admin.id,
+      new Date(T).toISOString(),
+      new Date(T).toISOString(),
+    )
     .run();
   const person = (await invoke(
     "person.create",
@@ -349,7 +355,11 @@ describe("a window's numbers two relations away, over the extension's setting", 
 describe("staff-only rules: any of several, a formula among them", () => {
   it("refuses a customer's create for a staff-only type or a class that is not scheduled; staff may", async () => {
     const make = (klassId: string) =>
-      fixtures.invoke("fixture.bkpCustomerCreate", { values: { klass: klassId, person: personId } }, at(T));
+      fixtures.invoke(
+        "fixture.bkpCustomerCreate",
+        { values: { klass: klassId, person: personId } },
+        at(T),
+      );
     const open = await klass(3 * 60 * MINUTE);
     await expect(make(open)).resolves.toMatchObject({ id: expect.any(String) });
     const staffOnly = await klass(3 * 60 * MINUTE, { staffOnly: true });
@@ -357,11 +367,19 @@ describe("staff-only rules: any of several, a formula among them", () => {
       details: { rule: "state_staff_only" },
     });
     const cancelled = await klass(3 * 60 * MINUTE);
-    await invoke("record.update", { object: KLASS, id: cancelled, values: { state: "cancelled" } }, at(T));
+    await invoke(
+      "record.update",
+      { object: KLASS, id: cancelled, values: { state: "cancelled" } },
+      at(T),
+    );
     expect(await refused(make(cancelled))).toMatchObject({ details: { rule: "state_staff_only" } });
     // Staff are not bound.
     await expect(
-      invoke("record.create", { object: BOOKING, values: { klass: staffOnly, person: personId } }, at(T)),
+      invoke(
+        "record.create",
+        { object: BOOKING, values: { klass: staffOnly, person: personId } },
+        at(T),
+      ),
     ).resolves.toMatchObject({ id: expect.any(String) });
   });
 });
@@ -383,7 +401,11 @@ describe("a spender paid another way (waived)", () => {
     expect(await usesOf(paid)).toBe(1);
     expect(
       await refused(
-        fixtures.invoke("fixture.bkpHostUpdate", { id: paid, values: { paidOtherwise: true } }, at(T)),
+        fixtures.invoke(
+          "fixture.bkpHostUpdate",
+          { id: paid, values: { paidOtherwise: true } },
+          at(T),
+        ),
       ),
     ).toMatchObject({ details: { rule: "allowance", reason: "waived_kept" } });
     // Cancelled in time, a desk booking gives nothing back, as it took nothing.
@@ -393,8 +415,6 @@ describe("a spender paid another way (waived)", () => {
 });
 
 async function loadPassLeft(): Promise<number> {
-  const record = (await invoke("record.get", { object: PASS, id: passId }, context(admin))) as {
-    values: { left: number };
-  };
+  const record = await invoke("record.get", { object: PASS, id: passId }, context(admin));
   return Number(record.values.left);
 }
