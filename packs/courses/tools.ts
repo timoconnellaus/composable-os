@@ -222,6 +222,50 @@ export const catalogue = defineTool({
   },
 });
 
+// --- Course plans --------------------------------------------------------------------------------
+
+export const PLAN = "courses.plan";
+
+export const plans = defineTool({
+  description:
+    "The course plans on offer: a subscription to every published course, paid every month. Each " +
+    "plan's title, description, price per month (in the major unit of `currency`) and the days of " +
+    "its free trial. Whether a person gets the trial is the host's, when they subscribe " +
+    "(subscription.start): one per person, signed in. Read-only.",
+  input: z.object({}),
+  output: z.object({
+    plans: z.array(
+      z.object({
+        id: z.string(),
+        title: z.string().nullable(),
+        description: z.string().nullable(),
+        price: z.number().nullable().describe("Per month, in the major unit of `currency`"),
+        trialDays: z.number().nullable(),
+      }),
+    ),
+    currency,
+  }),
+  risk: "read",
+  audiences: ["customer", "public"],
+  async handler(_input, ctx) {
+    const page = await ctx.ops.call<ListShape>("public.list", {
+      object: PLAN,
+      sort: { field: "price", direction: "asc" },
+      limit: 20,
+    });
+    return {
+      plans: page.items.map((p) => ({
+        id: p.id,
+        title: text(p.values.title),
+        description: text(p.values.description),
+        price: num(p.values.price),
+        trialDays: num(p.values.trialDays),
+      })),
+      currency: page.currency ?? null,
+    };
+  },
+});
+
 // --- One course ----------------------------------------------------------------------------------
 
 export const course = defineTool({
@@ -424,14 +468,14 @@ export const progress = defineTool({
 export const myCourses = defineTool({
   description:
     "Every course the signed-in student holds access to and why (bought, in a bundle, given by " +
-    "staff, imported), with how far they are (lessons done of those that count, complete) and " +
-    "the lesson to continue with. The host says which they hold; nothing here decides it. " +
-    "Read-only.",
+    "staff, imported, or through their course subscription), with how far they are (lessons " +
+    "done of those that count, complete) and the lesson to continue with. The host says which " +
+    "they hold; nothing here decides it. Read-only.",
   input: z.object({}),
   output: z.object({
     courses: z.array(
       courseCard.extend({
-        why: z.enum(["bought", "bundle", "given", "imported"]),
+        why: z.enum(["bought", "bundle", "given", "imported", "subscription"]),
         done: z.number(),
         counted: z.number(),
         complete: z.boolean(),
@@ -443,7 +487,7 @@ export const myCourses = defineTool({
   audiences: ["customer"],
   async handler(_input, ctx) {
     const enrolments = await ctx.ops.call<ListShape>("my.list", { object: ENROLMENT, limit: 200 });
-    const why = new Map<string, "bought" | "bundle" | "given" | "imported">();
+    const why = new Map<string, "bought" | "bundle" | "given" | "imported" | "subscription">();
     const completed = new Set<string>();
     const bundles = new Map<string, string[]>();
     for (const e of enrolments.items) {
@@ -472,6 +516,15 @@ export const myCourses = defineTool({
         }
       }
     }
+    // A course subscription covers every published course (ADR 0488): the published ones the host
+    // says they hold that no enrolment of theirs explains are through it.
+    const published = await ctx.ops.call<ListShape>("public.list", {
+      object: COURSE,
+      sort: { field: "title", direction: "asc" },
+      limit: 100,
+    });
+    const others = published.items.map((c) => c.id).filter((c) => !why.has(c));
+    for (const c of await held(ctx, others)) why.set(c, "subscription");
     // Which of these the host says they hold now (live, in its state, inside its until).
     const holding = await held(ctx, [...why.keys()]);
     const out = [];

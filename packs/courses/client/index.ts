@@ -22,6 +22,7 @@ import type {
   enrol,
   lesson,
   myCourses,
+  plans,
   progress,
   startSession,
   stats,
@@ -50,8 +51,82 @@ export interface Playback {
   captions: { language: string; label: string }[];
 }
 
+export const PLAN = "courses.plan";
+
+/** A subscription as its payer reads it (`subscription.list`, stage 32a). */
+export interface CourseSubscription {
+  id: string;
+  state:
+    | "incomplete"
+    | "expired"
+    | "trialing"
+    | "active"
+    | "past_due"
+    | "unpaid"
+    | "paused"
+    | "ended";
+  planObject: string;
+  planId: string;
+  planTitle: string;
+  /** One period's price, in the currency's minor unit, tax included. */
+  amount: number;
+  currency: string;
+  interval: "week" | "month" | "year";
+  trialEnd: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  cancelAt: string | null;
+  endedAt: string | null;
+  /** The provider's page to confirm a renewal on (3D Secure), while one waits. */
+  actionUrl: string | null;
+  createdAt: string;
+}
+
+/** What subscription.start answers. */
+export interface StartedSubscription {
+  subscriptionId: string;
+  url: string;
+  amount: number;
+  currency: string;
+  interval: "week" | "month" | "year";
+  trialDays: number | null;
+  noTrial: "sign_in" | "used" | null;
+  expiresAt: string | null;
+}
+
 /** The operations this entry calls, as the generated client types them. */
 export type CoursesOperations = {
+  "x.courses.plans": { kind: "query" } & Io<typeof plans>;
+  // The course subscription (stage 32a): the host's own operations, on the web only.
+  "subscription.start": {
+    kind: "mutation";
+    input: {
+      plan: { object: string; id: string };
+      returnUrl: string;
+      email?: string;
+    };
+    output: StartedSubscription;
+  };
+  "subscription.list": {
+    kind: "query";
+    input: { filter?: unknown; limit?: number };
+    output: { items: CourseSubscription[]; nextCursor: string | null };
+  };
+  "subscription.cancel": {
+    kind: "mutation";
+    input: { id: string; reason?: string };
+    output: { id: string; requested: true };
+  };
+  "subscription.resume": {
+    kind: "mutation";
+    input: { id: string };
+    output: { id: string; requested: true };
+  };
+  "subscription.portal": {
+    kind: "mutation";
+    input: { returnUrl: string };
+    output: { url: string };
+  };
   "x.courses.catalogue": { kind: "query" } & Io<typeof catalogue>;
   "x.courses.course": { kind: "query" } & Io<typeof course>;
   "x.courses.lesson": { kind: "query" } & Io<typeof lesson>;
@@ -140,6 +215,64 @@ export function formatPrice(
     return `${price}${currency ? ` ${currency}` : ""}`;
   }
 }
+
+/**
+ * An amount the host gave in the currency's minor unit (a subscription's price per period), in
+ * that currency: `29.00 AUD`. Display only: the minor unit's digits are the currency's own.
+ */
+export function formatMinor(minor: number, currency: string): string {
+  try {
+    const format = new Intl.NumberFormat(undefined, { style: "currency", currency });
+    const digits = format.resolvedOptions().maximumFractionDigits ?? 2;
+    return format.format(minor / 10 ** digits);
+  } catch {
+    return `${minor} ${currency}`;
+  }
+}
+
+/** A date as a reader sees it (`3 Dec 2026`), from the host's ISO timestamp. Display only. */
+export function day(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime())
+    ? ""
+    : at.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+/**
+ * What a subscription's state means to its member, in words, from what the host reports. Display
+ * only: whether it gives access is the host's (the seam), never worked out from this.
+ */
+export function subscriptionStatus(sub: CourseSubscription): string {
+  const ends = sub.cancelAtPeriodEnd ? sub.currentPeriodEnd : sub.cancelAt;
+  switch (sub.state) {
+    case "trialing":
+      return ends
+        ? `Free trial, ending on ${day(ends)}: nothing will be charged`
+        : `Free trial until ${day(sub.trialEnd ?? sub.currentPeriodEnd)}, then charged each ${sub.interval}`;
+    case "active":
+      return ends
+        ? `Active until ${day(ends)}, then it ends`
+        : `Active: next charge on ${day(sub.currentPeriodEnd)}`;
+    case "past_due":
+      return sub.actionUrl
+        ? "A payment needs you to confirm it"
+        : "A payment failed: the payment provider will try again";
+    case "unpaid":
+      return "Unpaid: update your card to keep watching";
+    case "paused":
+      return "Paused";
+    case "incomplete":
+      return "Waiting for its first payment";
+    case "expired":
+      return "Never started: its first payment did not go through";
+    case "ended":
+      return `Ended${sub.endedAt ? ` on ${day(sub.endedAt)}` : ""}`;
+  }
+}
+
+/** Whether a subscription is still the member's to cancel, resume or pay (not ended). */
+export const isLive = (sub: CourseSubscription) => sub.state !== "ended" && sub.state !== "expired";
 
 /** A lesson's length as a reader sees it: `12 min`. Display only. */
 export function minutes(duration: number | null | undefined): string {
@@ -295,6 +428,14 @@ export const COURSES_HOOKS_CALL = {
   useEnrol: ["x.courses.enrol"],
   useEndEnrolment: ["x.courses.endEnrolment"],
   useStats: ["x.courses.stats"],
+  // The course subscription (stage 32a). Every billing action is the web's: a native block may
+  // read the subscription only (the block lint's noPurchase).
+  usePlans: ["x.courses.plans"],
+  useSubscribe: ["subscription.start"],
+  useMySubscriptions: ["subscription.list"],
+  useCancelSubscription: ["subscription.cancel"],
+  useResumeSubscription: ["subscription.resume"],
+  useBillingPortal: ["subscription.portal"],
   useWorkingCopy: ["record.get"],
   useSaveOutline: ["record.update"],
   usePublishCourse: ["record.publish"],
@@ -413,6 +554,38 @@ function allCoursesHooks(
     /** Staff: enrolments and lessons done. */
     useStats(courseId?: string) {
       return useQuery(api.query("x.courses.stats", courseId ? { courseId } : {}));
+    },
+    /** The course plans on offer, with the host's prices and trial days. */
+    usePlans() {
+      return useQuery(api.query("x.courses.plans", {}));
+    },
+    /**
+     * Start a course subscription: the host opens the provider's page (web only). Whether the
+     * trial is given is the host's (`noTrial` says why not).
+     */
+    useSubscribe() {
+      return useMutation(api.mutation("subscription.start"));
+    },
+    /** The signed-in customer's own course subscriptions, newest first. */
+    useMySubscriptions() {
+      return useQuery(
+        api.query("subscription.list", {
+          filter: { field: "planObject", op: "eq", value: PLAN },
+          limit: 20,
+        }),
+      );
+    },
+    /** End their own subscription when its period ends (web only). */
+    useCancelSubscription() {
+      return useMutation(api.mutation("subscription.cancel"));
+    },
+    /** Undo that, before the period ends (web only). */
+    useResumeSubscription() {
+      return useMutation(api.mutation("subscription.resume"));
+    },
+    /** The provider's portal for their card and past invoices (web only, never in a frame). */
+    useBillingPortal() {
+      return useMutation(api.mutation("subscription.portal"));
     },
     /** Staff: a course's working copy, as the builder edits it. */
     useWorkingCopy(courseId: string) {

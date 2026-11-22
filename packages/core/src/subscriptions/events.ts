@@ -23,6 +23,7 @@ import type { PaymentsEvent, ProviderSubscription } from "../orders/gateway.ts";
 import { formatMoney } from "../orders/orders.ts";
 import { applyTransition } from "../records/lifecycle.ts";
 import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
+import { useTrial } from "./trial.ts";
 
 export type SubscriptionRow = Selectable<CoreSubscriptionTable>;
 type SubscriptionEvent = Extract<PaymentsEvent, { kind: "subscription" }>;
@@ -458,7 +459,28 @@ async function createFromCheckout(
     after: subscriptionSnapshot(row),
   });
   postSubscriptionMove(ctx, row, null);
+  await trialConfirmed(ctx, row);
   return { row };
+}
+
+/**
+ * The provider confirmed a subscription with a trial on it: the holder's trial on its plan object
+ * is used from now on (ADR 0489), in the event's batch. A second one the hold did not stop (a
+ * confirmation that arrived after its hold lapsed) tells staff, who can end its trial at the
+ * provider.
+ */
+async function trialConfirmed(ctx: HandlerContext, row: SubscriptionRow): Promise<void> {
+  const { second } = await useTrial(ctx, row);
+  if (!second) return;
+  await tellStaff(
+    ctx,
+    "A second free trial was confirmed",
+    `Subscription ${row.id} (${row.plan_title}) started with a free trial, and its holder has had ` +
+      "a trial on this plan before. The provider has given it: end the trial in the provider's " +
+      "dashboard if it should not run.",
+    row.id,
+    `subscription.second_trial:${row.provider}:${row.id}`,
+  );
 }
 
 /** Moves a subscription to what a later read says, as the host, in the calling batch. */
@@ -491,6 +513,7 @@ async function moveFromRead(
     after: subscriptionSnapshot(next),
   });
   if (next.state !== row.state) postSubscriptionMove(ctx, next, row.state);
+  if (next.trial_end && !row.trial_end) await trialConfirmed(ctx, next);
   return next;
 }
 

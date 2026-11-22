@@ -1631,6 +1631,21 @@ export interface CoreSubscriptionTable {
   version: Generated<number>;
 }
 
+/**
+ * Migration 0531: one free trial per holder per plan object (ADR 0489). A checkout opened with a
+ * trial holds it until `held_until`; the provider's confirmation uses it (`used_at`).
+ */
+export interface CoreSubscriptionTrialTable {
+  checkout_id: string;
+  holder_person_id: string;
+  plan_object: string;
+  plan_id: string;
+  url: string;
+  held_until: Timestamp;
+  used_at: Defaulted<Timestamp | null>;
+  created_at: Timestamp;
+}
+
 export interface CrmOrderView {
   id: string;
   person_id: string | null;
@@ -2205,6 +2220,7 @@ export interface CoreDatabase {
   core_payment_event: CorePaymentEventTable;
   core_subscription: CoreSubscriptionTable;
   core_subscription_checkout: CoreSubscriptionCheckoutTable;
+  core_subscription_trial: CoreSubscriptionTrialTable;
   core_order_refund: CoreOrderRefundTable;
   core_automations: CoreAutomationsTable;
   core_routine: CoreRoutineTable;

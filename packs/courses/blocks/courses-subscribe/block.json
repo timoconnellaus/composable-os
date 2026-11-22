@@ -1,0 +1,11 @@
+{
+  "name": "courses-subscribe",
+  "pack": "courses",
+  "skin": "web",
+  "operations": ["x.courses.plans", "subscription.start"],
+  "files": ["subscribe.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/pack-courses": "*"
+  }
+}

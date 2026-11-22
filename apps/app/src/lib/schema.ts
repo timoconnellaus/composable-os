@@ -95,6 +95,10 @@ export function recordHref(object: string, id: string): string {
       return "/tasks";
     case "activity":
       return "/activity";
+    case "order":
+      return `/orders/${id}`;
+    case "subscription":
+      return `/subscriptions/${id}`;
     default:
       return `/x/${object}/${id}`;
   }

@@ -49,6 +49,25 @@ test("a noPurchase block that buys or shows a price fails (stage 42: no buying i
   assert.deepEqual(lintNoPurchase('<Text>{"Find it on the website"}</Text>'), []);
 });
 
+test("no native block changes a subscription (stage 32a: billing on the web only)", () => {
+  const marked = lintBlocks([fixture("native-cancel")], root);
+  assert.ok(
+    marked.some((p) => /block\.json: no-purchase: the block lists subscription\.cancel/.test(p)),
+  );
+  assert.ok(marked.some((p) => /cancel-screen\.tsx:\d+: no-purchase/.test(p)));
+  // Not marked noPurchase: a native block is held to it all the same.
+  const unmarked = lintBlocks([fixture("native-portal")], root);
+  assert.ok(
+    unmarked.some((p) =>
+      /block\.json: native-billing: the block lists subscription\.portal/.test(p),
+    ),
+  );
+  assert.ok(unmarked.some((p) => /portal-screen\.tsx:\d+: native-billing/.test(p)));
+  assert.equal(lintNoPurchase("const go = courses.useSubscribe();")[0]?.rule, "no-purchase");
+  // Reading one is allowed: the app shows the subscription.
+  assert.deepEqual(lintNoPurchase("const { data } = courses.useMySubscriptions();"), []);
+});
+
 test("every native courses block is marked noPurchase", async () => {
   const { readFileSync } = await import("node:fs");
   const natives = blockFolders(root).filter((dir) => /courses-native-/.test(dir));

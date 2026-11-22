@@ -27,6 +27,7 @@ import {
 import { taxCodeOf } from "../orders/tax.ts";
 import { callerOf } from "../records/transitions.ts";
 import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
+import { decideTrial, holdTrialStatement, type NoTrial } from "./trial.ts";
 
 /** States in which a subscription still runs (and so can be ended at its period's end). */
 export const RUNNING: ReadonlySet<SubscriptionState> = new Set(["trialing", "active", "past_due"]);
@@ -47,6 +48,8 @@ export interface StartedSubscription {
   currency: string;
   interval: "week" | "month" | "year";
   trialDays: number | null;
+  /** Why the plan's trial was not given: a guest (`sign_in`), or the holder had one (`used`). */
+  noTrial: NoTrial | null;
   expiresAt: string | null;
 }
 
@@ -125,9 +128,28 @@ export async function startSubscription(
   const taxCode = (await loadOrderTax(ctx.db))
     ? taxCodeOf(getObject(plan.object), await loadOrderTaxCodes(ctx.db))
     : null;
-  // No rule yet on how many trials a Person may have: stage 32a's build step 3 adds one trial per
-  // holder per plan object before any pack declares a plan (ADR 0485).
-  const trialDays = plan.recurring.trialDays;
+  // One trial per holder per plan object, and only for a holder who proved who they are (ADR
+  // 0489): a guest pays from the start. The holder is the payer in 32a (ADR 0487).
+  const decision = await decideTrial(
+    ctx,
+    { holderPersonId: personId, planObject: plan.object, planId: plan.recordId, proved },
+    plan.recurring.trialDays,
+  );
+  if ("open" in decision) {
+    // The same holder's page for this plan, with its trial, is still open: that page again, so a
+    // second page cannot give a second trial.
+    return {
+      subscriptionId: decision.open.checkoutId,
+      url: decision.open.url,
+      amount: plan.unitPrice,
+      currency,
+      interval: plan.recurring.interval,
+      trialDays: plan.recurring.trialDays,
+      noTrial: null,
+      expiresAt: decision.open.expiresAt,
+    };
+  }
+  const trialDays = decision.give ? plan.recurring.trialDays : null;
   const id = newId("subscription");
   const request: SubscriptionCheckoutRequest = {
     subscriptionId: id,
@@ -179,6 +201,21 @@ export async function startSubscription(
       created_at: ctx.now,
     }),
   );
+  const expiresAt = typeof opened.expiresAt === "string" ? opened.expiresAt : null;
+  if (trialDays) {
+    // Held while the page can be completed; refused by the database if another start took it
+    // first (the whole batch fails, so nothing of this start is recorded).
+    ctx.write(
+      holdTrialStatement(ctx, {
+        checkoutId: id,
+        holderPersonId: personId,
+        planObject: plan.object,
+        planId: plan.recordId,
+        url: opened.url,
+        expiresAt,
+      }),
+    );
+  }
   return {
     subscriptionId: id,
     url: opened.url,
@@ -186,7 +223,8 @@ export async function startSubscription(
     currency,
     interval: plan.recurring.interval,
     trialDays,
-    expiresAt: typeof opened.expiresAt === "string" ? opened.expiresAt : null,
+    noTrial: decision.give ? null : decision.reason,
+    expiresAt,
   };
 }
 
@@ -235,6 +273,44 @@ export async function cancelAtPeriodEnd(
       when: "period_end",
       reason,
     },
+  );
+}
+
+/** States a subscription can be ended from at once: every one but the final two. */
+const ENDABLE: ReadonlySet<SubscriptionState> = new Set([
+  "incomplete",
+  "trialing",
+  "active",
+  "past_due",
+  "unpaid",
+  "paused",
+]);
+
+/**
+ * Asks the provider to end `row` now (staff only, `subscriptions:manage`): nothing more is
+ * charged, nothing is refunded, and what it gives stops once the provider's event says it ended.
+ */
+export async function cancelNow(
+  ctx: HandlerContext,
+  row: SubscriptionRow,
+  reason: string,
+): Promise<void> {
+  if (ctx.principal.kind !== "staff") {
+    throw new ValidationError("Only staff end a subscription at once; yours ends with its period", {
+      field: "now",
+    });
+  }
+  if (!ENDABLE.has(row.state)) {
+    throw new ConflictError(`A subscription that is ${row.state} cannot be ended`, {
+      subscription: row.id,
+      state: row.state,
+    });
+  }
+  await callSubscriptionGatekeeper(
+    ctx.integrations,
+    await targetFor(ctx, row),
+    "cancelSubscription",
+    { subscriptionId: row.id, subscriptionRef: row.provider_ref, when: "now", reason },
   );
 }
 

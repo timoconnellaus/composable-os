@@ -282,7 +282,12 @@ beforeAll(async () => {
   await run("extension.install", { id: "programs", shipped: true }, staff(admin));
   await run("extension.install", { id: "courses", shipped: true }, staff(admin));
   await refreshSchemaRegistry(db.query);
-  expect(getObject(COURSE)?.access?.sources).toHaveLength(2);
+  // Enrolments for a course, for a bundle, and a course subscription (stage 32a, ADR 0488).
+  expect(getObject(COURSE)?.access?.sources).toHaveLength(3);
+  expect(getObject("courses.plan")?.sellable?.recurring).toEqual({
+    interval: "month",
+    trialDays: "trialDays",
+  });
   // On-demand online courses, no place (ADR 0479): taxed once an admin turns tax on.
   expect(getObject(COURSE)?.sellable?.tax?.code).toBe("txcd_20060158");
   expect(getObject(BUNDLE)?.sellable?.tax?.code).toBe("txcd_20060158");
@@ -523,6 +528,131 @@ describe("buying one course (criteria 4 and 7)", () => {
         ),
       ),
     ).toMatchObject({ code: "invalid_input" });
+  });
+});
+
+describe("the course subscription (stage 32a, step 3: ADRs 0488 to 0490)", () => {
+  const subscriptionOf = (id: string) =>
+    env.DB.prepare("SELECT * FROM core_subscription WHERE id = ?")
+      .bind(id)
+      .first<Record<string, unknown>>();
+
+  it("a trial through the provider's page gives every published course, one published later too, until it ends", async () => {
+    const planId = await create("courses.plan", {
+      title: "Every course",
+      price: 29,
+      trialDays: 7,
+    });
+    const plans = await run<{ plans: { id: string; trialDays: number }[] }>(
+      "x.courses.plans",
+      {},
+      guest,
+    );
+    expect(plans.plans).toContainEqual(expect.objectContaining({ id: planId, trialDays: 7 }));
+    // A plan is subscribed to, never bought on an order.
+    expect(
+      await refusal(
+        run("x.courses.buy", { courseId: planId }, as((await createCustomer("x")).principal)),
+      ),
+    ).toBeTruthy();
+
+    const member = await createCustomer("member");
+    const stranger = await createCustomer("nonmember");
+    expect(await refusal(lesson(as(member.principal), "s1", thirdId))).toMatchObject(GONE);
+    const started = await run<{ subscriptionId: string; url: string; trialDays: number | null }>(
+      "subscription.start",
+      { plan: { object: "courses.plan", id: planId }, returnUrl: RETURN },
+      as(member.principal),
+    );
+    expect(started.trialDays).toBe(7);
+    // On the provider's page, nothing is held yet.
+    expect(await refusal(lesson(as(member.principal), "s1", thirdId))).toMatchObject(GONE);
+    const paid = await runner.gatekeeperFetch(
+      "payments",
+      new Request(started.url, {
+        method: "POST",
+        body: new URLSearchParams({ outcome: "pay" }),
+        redirect: "manual",
+      }),
+    );
+    expect(paid.status).toBe(303);
+    await vi.waitFor(
+      async () => expect((await subscriptionOf(started.subscriptionId))?.state).toBe("trialing"),
+      { timeout: 20_000 },
+    );
+
+    // Every published course's holders' parts, and its videos, with no enrolment.
+    expect(JSON.stringify(await lesson(as(member.principal), "s1", thirdId))).toContain(
+      "Splits-text",
+    );
+    const read = await lesson(as(member.principal));
+    const token = await run<{ hls: string }>(
+      "media.play",
+      { id: lessonVideo, record: read.video?.record, field: "outline" },
+      as(member.principal),
+    );
+    expect((await stream.fake.handle(new Request(token.hls))).status).toBe(200);
+    const later = await create(COURSE, {
+      title: "Published later",
+      price: 49,
+      outline: {
+        sections: [
+          {
+            key: "l",
+            title: "L",
+            lessons: [
+              {
+                kind: "text",
+                key: "l1",
+                title: "L1",
+                body: {
+                  blocks: [{ type: "paragraph", content: [{ type: "text", text: "Later-text" }] }],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    await publish(COURSE, later);
+    expect(JSON.stringify(await lesson(as(member.principal), "l1", later))).toContain("Later-text");
+    const mine = await run<{ courses: { id: string; why: string }[] }>(
+      "x.courses.myCourses",
+      {},
+      as(member.principal),
+    );
+    expect(mine.courses).toContainEqual(
+      expect.objectContaining({ id: later, why: "subscription" }),
+    );
+    // A stranger holds nothing of it.
+    expect(await refusal(lesson(as(stranger.principal), "l1", later))).toMatchObject(GONE);
+    expect(await refusal(play(as(stranger.principal), lessonVideo))).toMatchObject(NOT_FOUND);
+
+    // One trial per person: a second start is charged from the start.
+    const again = await run<{ trialDays: number | null; noTrial: string | null }>(
+      "subscription.start",
+      { plan: { object: "courses.plan", id: planId }, returnUrl: RETURN },
+      as(member.principal),
+    );
+    expect(again).toMatchObject({ trialDays: null, noTrial: "used" });
+
+    // Another customer cannot cancel it; staff end it now, and access stops once the provider says.
+    expect(
+      await refusal(
+        run("subscription.cancel", { id: started.subscriptionId }, as(stranger.principal)),
+      ),
+    ).toMatchObject(NOT_FOUND);
+    await run(
+      "subscription.cancel",
+      { id: started.subscriptionId, reason: "Asked by email", now: true },
+      staff(admin),
+    );
+    await vi.waitFor(
+      async () => expect((await subscriptionOf(started.subscriptionId))?.state).toBe("ended"),
+      { timeout: 20_000 },
+    );
+    expect(await refusal(lesson(as(member.principal), "l1", later))).toMatchObject(GONE);
+    expect(await refusal(play(as(member.principal), lessonVideo))).toMatchObject(NOT_FOUND);
   });
 });
 

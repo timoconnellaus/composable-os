@@ -971,7 +971,7 @@
     },
     {
       "name": "subscription.start",
-      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
+      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff starting it for a person): a guest is charged from the start. Starting again while your page with a trial is open gives the same page. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
       "risk": "write",
       "audiences": ["public"],
       "kind": "mutation",
@@ -1031,7 +1031,20 @@
             "enum": ["week", "month", "year"]
           },
           "trialDays": {
+            "description": "The free days given; null: charged from the start",
             "type": ["number", "null"]
+          },
+          "noTrial": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["sign_in", "used"]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already). Null otherwise"
           },
           "expiresAt": {
             "type": ["string", "null"]
@@ -1044,6 +1057,7 @@
           "currency",
           "interval",
           "trialDays",
+          "noTrial",
           "expiresAt"
         ],
         "additionalProperties": false
@@ -1147,7 +1161,7 @@
         "required": ["id", "state", "currency", "total", "token"],
         "additionalProperties": false
       },
-      "invalidates": ["x.courses.catalogue", "x.courses.course"],
+      "invalidates": ["x.courses.catalogue", "x.courses.course", "x.courses.plans"],
       "pack": "courses"
     },
     {
@@ -1533,6 +1547,57 @@
           "done",
           "complete"
         ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "courses"
+    },
+    {
+      "name": "x.courses.plans",
+      "description": "The course plans on offer: a subscription to every published course, paid every month. Each plan's title, description, price per month (in the major unit of `currency`) and the days of its free trial. Whether a person gets the trial is the host's, when they subscribe (subscription.start): one per person, signed in. Read-only. (Extension tool from Courses 0.1.0.)",
+      "risk": "read",
+      "audiences": ["public"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "plans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "price": {
+                  "description": "Per month, in the major unit of `currency`",
+                  "type": ["number", "null"]
+                },
+                "trialDays": {
+                  "type": ["number", "null"]
+                }
+              },
+              "required": ["id", "title", "description", "price", "trialDays"],
+              "additionalProperties": false
+            }
+          },
+          "currency": {
+            "description": "The currency prices are in (ISO 4217), the deployment's one; null until it is set",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["plans", "currency"],
         "additionalProperties": false
       },
       "invalidates": [],

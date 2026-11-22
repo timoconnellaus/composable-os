@@ -9,7 +9,9 @@
 //
 // A block marked `"noPurchase": true` in its block.json (stage 42: the app's course screens, as
 // the owner decided buying is on the web only) may also not buy: no order or checkout operation
-// in its `operations`, and no price, buy hook or checkout in its code.
+// in its `operations`, and no price, buy hook or checkout in its code. Stage 32a adds the
+// subscription's billing operations (start, cancel, resume, the portal) and their hooks, and holds
+// every native block to them whether marked or not: in the app a subscription is read only.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -82,8 +84,13 @@ export const RULES = [
 
 /** What a `noPurchase` block may not name, in its operations or its code. */
 const PURCHASE_OPERATION =
-  /^(?:order\.(?:start|checkout|cancel)|x\.[a-z0-9]+\.(?:buy|orderStart|checkout))$/;
-const PURCHASE_CODE = /\b(?:price|prices|useBuy|checkout|orderStart|formatPrice)\b/;
+  /^(?:order\.(?:start|checkout|cancel)|subscription\.(?:start|cancel|resume|portal|change|pause)|x\.[a-z0-9]+\.(?:buy|orderStart|checkout|subscribe))$/;
+const PURCHASE_CODE =
+  /\b(?:price|prices|useBuy|checkout|orderStart|formatPrice|formatMinor|useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal)\b/;
+/** A subscription's billing operations: never in a native block (stage 32a, ADR 0490). */
+const BILLING_OPERATION = /^subscription\.(?:start|cancel|resume|portal|change|pause)$/;
+const NATIVE_BILLING =
+  "is a native block that changes a subscription: in the app a subscription is read only; billing is on the web";
 const NO_PURCHASE =
   "buys or shows a price in a block marked noPurchase: buying is on the web only; show no price and no buy button";
 
@@ -95,6 +102,21 @@ export function lintNoPurchase(source) {
     .forEach((line, index) => {
       if (PURCHASE_CODE.test(line))
         problems.push({ line: index + 1, rule: "no-purchase", message: NO_PURCHASE });
+    });
+  return problems;
+}
+
+const BILLING_CODE =
+  /\b(?:useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal)\b/;
+
+/** The problems of a native block's code that changes a subscription: `{ line, rule, message }`. */
+export function lintNativeBilling(source) {
+  const problems = [];
+  codeOnly(source)
+    .split("\n")
+    .forEach((line, index) => {
+      if (BILLING_CODE.test(line))
+        problems.push({ line: index + 1, rule: "native-billing", message: NATIVE_BILLING });
     });
   return problems;
 }
@@ -136,6 +158,15 @@ export function lintBlocks(folders, root) {
   for (const dir of folders) {
     const spec = JSON.parse(readFileSync(join(dir, "block.json"), "utf8"));
     const noPurchase = spec.noPurchase === true;
+    if (spec.skin === "native" && !noPurchase) {
+      for (const op of spec.operations ?? []) {
+        if (BILLING_OPERATION.test(op)) {
+          out.push(
+            `${relative(root, join(dir, "block.json"))}: native-billing: the block lists ${op}: it ${NATIVE_BILLING}`,
+          );
+        }
+      }
+    }
     if (noPurchase) {
       for (const op of spec.operations ?? []) {
         if (PURCHASE_OPERATION.test(op)) {
@@ -149,7 +180,12 @@ export function lintBlocks(folders, root) {
       if (!/\.(tsx?|jsx?)$/.test(name)) continue;
       const file = join(dir, name);
       const text = readFileSync(file, "utf8");
-      for (const p of [...lintSource(text), ...(noPurchase ? lintNoPurchase(text) : [])]) {
+      const native = spec.skin === "native" && !noPurchase ? lintNativeBilling(text) : [];
+      for (const p of [
+        ...lintSource(text),
+        ...(noPurchase ? lintNoPurchase(text) : []),
+        ...native,
+      ]) {
         out.push(`${relative(root, file)}:${p.line}: ${p.rule}: the block ${p.message}`);
       }
     }

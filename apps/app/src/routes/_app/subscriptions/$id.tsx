@@ -1,0 +1,321 @@
+// One subscription (stage 32a): its plan and price as agreed, its state, trial, period and end,
+// who pays and who holds it, and the paid order of each period. Staff with subscriptions:manage
+// cancel it at its period's end or now, with a reason, or keep it going; each asks the payment
+// provider, and the state changes only once the provider confirms (the host refuses the rest).
+// A period's refund is the order's own (order.refund, through approval).
+import type { CoreOutput } from "@composable-os/core";
+import { Button } from "@composable-os/ui/components/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@composable-os/ui/components/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@composable-os/ui/components/dialog";
+import { Input } from "@composable-os/ui/components/input";
+import { Label } from "@composable-os/ui/components/label";
+import { Skeleton } from "@composable-os/ui/components/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@composable-os/ui/components/table";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { type FormEvent, type ReactNode, useState } from "react";
+import { toast } from "sonner";
+import { ErrorState } from "#/components/empty-state";
+import { PageLayout } from "#/components/layout/page-layout";
+import { OrderStateBadge } from "#/components/orders/order-state-badge";
+import { SubscriptionStateBadge } from "#/components/subscriptions/subscription-state-badge";
+import { formatDate, formatDateTime } from "#/lib/format";
+import { formatMoney } from "#/lib/money";
+import { errorMessage, useOp, useOpMutation } from "#/lib/query";
+
+export const Route = createFileRoute("/_app/subscriptions/$id")({ component: SubscriptionPage });
+
+type SubscriptionData = CoreOutput<"subscription.get">;
+
+const RUNNING = new Set(["trialing", "active", "past_due"]);
+const FINAL = new Set(["ended", "expired"]);
+
+function SubscriptionPage() {
+  const { id } = Route.useParams();
+  const sub = useOp("subscription.get", { id });
+  const back = { to: "/subscriptions", label: "Subscriptions" } as const;
+  if (sub.isPending) {
+    return (
+      <PageLayout title="Subscription" width="lg" back={back}>
+        <Skeleton className="h-40" aria-busy="true" />
+      </PageLayout>
+    );
+  }
+  if (sub.isError) {
+    return (
+      <PageLayout title="Subscription" width="lg" back={back}>
+        <ErrorState
+          title="Could not load this subscription"
+          error={sub.error}
+          onRetry={() => void sub.refetch()}
+        />
+      </PageLayout>
+    );
+  }
+  const s = sub.data;
+  return (
+    <PageLayout
+      title={s.planTitle}
+      titleAddon={<SubscriptionStateBadge state={s.state} testId="subscription-state" />}
+      width="lg"
+      back={back}
+      actions={<SubscriptionActions subscription={s} />}
+    >
+      <div className="grid gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Subscription {s.id}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid gap-2 text-sm">
+              <Detail label="Price">
+                {`${formatMoney(s.amount, s.currency)} every ${s.interval}${s.taxed ? ", tax included" : ""}`}
+              </Detail>
+              <Detail label="Payer">
+                <PersonLink id={s.payerPersonId ?? null} fallback={s.email ?? ""} />
+              </Detail>
+              <Detail label="Holder">
+                <PersonLink id={s.holderPersonId} fallback="" />
+              </Detail>
+              {s.trialEnd && <Detail label="Trial ends">{formatDateTime(s.trialEnd)}</Detail>}
+              <Detail label="Period">
+                {`${formatDate(s.currentPeriodStart)} to ${formatDate(s.currentPeriodEnd)}`}
+              </Detail>
+              {s.cancelAtPeriodEnd && (
+                <Detail label="Ends">
+                  {`When this period does (${formatDateTime(s.currentPeriodEnd)})`}
+                </Detail>
+              )}
+              {s.cancelAt && <Detail label="Ends on">{formatDateTime(s.cancelAt)}</Detail>}
+              {s.failingSince && (
+                <Detail label="Failing since">{formatDateTime(s.failingSince)}</Detail>
+              )}
+              {s.endedAt && (
+                <Detail label="Ended">
+                  {`${formatDateTime(s.endedAt)}${s.endReason ? ` (${s.endReason})` : ""}`}
+                </Detail>
+              )}
+              <Detail label="Started">{formatDateTime(s.createdAt)}</Detail>
+            </dl>
+          </CardContent>
+        </Card>
+        <PeriodOrders subscriptionId={s.id} />
+      </div>
+    </PageLayout>
+  );
+}
+
+function Detail({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex justify-between gap-4 sm:justify-start">
+      <dt className="text-muted-foreground sm:w-28 sm:shrink-0">{label}</dt>
+      <dd className="min-w-0 break-words text-right sm:text-left">{children}</dd>
+    </div>
+  );
+}
+
+function PersonLink({ id, fallback }: { id: string | null; fallback: string }) {
+  if (!id) return <>{fallback}</>;
+  return (
+    <Link to="/people/$id" params={{ id }} className="hover:underline">
+      {fallback || id}
+    </Link>
+  );
+}
+
+function PeriodOrders({ subscriptionId }: { subscriptionId: string }) {
+  const orders = useOp("order.list", {
+    filter: { field: "subscriptionId", op: "eq", value: subscriptionId },
+    sort: { field: "createdAt", direction: "desc" },
+    limit: 50,
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Paid periods</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {orders.isPending ? (
+          <Skeleton className="h-10" />
+        ) : orders.isError ? (
+          <p className="text-sm text-destructive">{errorMessage(orders.error)}</p>
+        ) : !orders.data.items.length ? (
+          <p className="text-sm text-muted-foreground" data-testid="subscription-orders">
+            No period has been paid yet.
+          </p>
+        ) : (
+          <Table aria-label="Paid periods" data-testid="subscription-orders">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Order</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead className="text-right">Paid</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {orders.data.items.map((o) => (
+                <TableRow key={o.id}>
+                  <TableCell>
+                    <Link
+                      to="/orders/$id"
+                      params={{ id: o.id }}
+                      className="font-mono text-xs hover:underline"
+                    >
+                      {o.id}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <OrderStateBadge state={o.state} />
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatMoney(o.paid, o.currency)}
+                  </TableCell>
+                  <TableCell>{formatDate(o.createdAt)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+type Asking = "period_end" | "now" | null;
+
+function SubscriptionActions({ subscription: s }: { subscription: SubscriptionData }) {
+  const cancel = useOpMutation("subscription.cancel");
+  const resume = useOpMutation("subscription.resume");
+  const [asking, setAsking] = useState<Asking>(null);
+  const [error, setError] = useState<string | null>(null);
+  const ending = s.cancelAtPeriodEnd || s.cancelAt !== null;
+
+  async function onResume() {
+    setError(null);
+    try {
+      await resume.mutateAsync({ id: s.id });
+      toast.success("Asked the payment provider to keep it going");
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  if (FINAL.has(s.state)) return null;
+  return (
+    <>
+      {error && (
+        <p className="w-full text-sm text-destructive sm:w-auto" role="alert">
+          {error}
+        </p>
+      )}
+      {s.cancelAtPeriodEnd && RUNNING.has(s.state) && (
+        <Button size="sm" onClick={() => void onResume()} disabled={resume.isPending}>
+          Keep it going
+        </Button>
+      )}
+      {RUNNING.has(s.state) && !ending && (
+        <Button size="sm" variant="outline" onClick={() => setAsking("period_end")}>
+          Cancel at period end
+        </Button>
+      )}
+      <Button size="sm" variant="outline" onClick={() => setAsking("now")}>
+        End now
+      </Button>
+      <CancelDialog
+        subscription={s}
+        when={asking}
+        onDone={() => setAsking(null)}
+        pending={cancel.isPending}
+        onCancel={async (reason) => {
+          await cancel.mutateAsync({ id: s.id, reason, now: asking === "now" });
+          toast.success(
+            asking === "now"
+              ? "Asked the payment provider to end it now"
+              : "Asked the payment provider to end it when the period does",
+          );
+        }}
+      />
+    </>
+  );
+}
+
+function CancelDialog({
+  subscription: s,
+  when,
+  onDone,
+  onCancel,
+  pending,
+}: {
+  subscription: SubscriptionData;
+  when: Asking;
+  onDone: () => void;
+  onCancel: (reason: string) => Promise<void>;
+  pending: boolean;
+}) {
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    try {
+      await onCancel(reason.trim());
+      setReason("");
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  return (
+    <Dialog open={when !== null} onOpenChange={(open) => !open && onDone()}>
+      <DialogContent>
+        <form onSubmit={(e) => void onSubmit(e)} className="grid gap-4">
+          <DialogHeader>
+            <DialogTitle>{when === "now" ? "End it now?" : "Cancel at period end?"}</DialogTitle>
+            <DialogDescription>
+              {when === "now"
+                ? "Nothing more is charged and what it gives stops once the payment provider confirms. Nothing is refunded: refund a period from its order."
+                : `Nothing more is charged; what it gives lasts until ${formatDateTime(s.currentPeriodEnd)}. It can be kept going until then.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="subscription-cancel-reason">Reason</Label>
+            <Input
+              id="subscription-cancel-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              required
+              maxLength={500}
+            />
+          </div>
+          {error && (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onDone}>
+              Keep it
+            </Button>
+            <Button type="submit" disabled={pending || !reason.trim()}>
+              {when === "now" ? "End now" : "Cancel at period end"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

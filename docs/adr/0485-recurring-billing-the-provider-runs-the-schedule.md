@@ -211,3 +211,10 @@ test that fails without it.
 - Turning tax on later does not reach subscriptions already running (the spec's guess at an
   update of every live subscription is not built: the provider's page on it was not read). Recorded
   in the spec as left for step 4.
+
+## Note (2026-11-22, build step 3)
+The one-trial rule is built ([ADR 0489](0489-one-free-trial-per-person-per-plan.md)): a trial only
+for a proved holder, once per holder per plan object, held while its page is open and used when
+the provider confirms it. The `subscription` access kind is [ADR 0488](0488-the-subscription-access-source.md);
+`courses.plan`, the members' blocks and the staff side (with ending one at once, `now`) are
+[ADR 0490](0490-the-course-plan-self-service-and-the-staff-side.md).

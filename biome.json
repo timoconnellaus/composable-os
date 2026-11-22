@@ -69,7 +69,9 @@
         "packs/courses/blocks/courses-course/**",
         "packs/courses/blocks/courses-player/**",
         "packs/courses/blocks/courses-my-courses/**",
-        "packs/courses/blocks/courses-builder/**"
+        "packs/courses/blocks/courses-builder/**",
+        "packs/courses/blocks/courses-subscribe/**",
+        "packs/courses/blocks/courses-subscription/**"
       ],
       "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
     },

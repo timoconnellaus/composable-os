@@ -548,6 +548,37 @@ documentation alone:
 - the company's provider settings: retries exhausted → "cancel the subscription"; failed-payment
   and expiring-card emails on (decisions 4 and 6).
 
+## Built: 32a step 3 (2026-11-22)
+ADRs [0488](../adr/0488-the-subscription-access-source.md) (the `subscription` access source),
+[0489](../adr/0489-one-free-trial-per-person-per-plan.md) (one trial per Person per plan object)
+and [0490](../adr/0490-the-course-plan-self-service-and-the-staff-side.md) (`courses.plan`,
+members' self-service, the staff side), migration 0531. Where the build read the spec one way, or
+decided what it left open:
+
+- **Access** follows the holder; on trial, active and past due (decision 4); set to end, until the
+  period's end and not a minute after, even before the provider's event; nothing while unpaid,
+  paused or incomplete. `plans` must be a plan object of the same extension; `covers: "all"` only.
+  The seam, the holders' flag and `media.play` are unchanged.
+- **The trial is a proved holder's only** (a signed-in customer, or staff for a Person). A guest
+  who typed an address is charged from the start (`noTrial: "sign_in"`): otherwise a guest could
+  spend someone else's trial, and the page would tell a stranger whether that person had one. A
+  company offering trials to new visitors turns customer sign-up to `open` or invites them.
+- **When the trial counts**: when the provider's verified event confirms a subscription with a
+  trial, not when a page is opened. A checkout with a trial holds it while its page can be
+  completed (its expiry plus 15 minutes), and the database refuses a second hold, so two starts at
+  once give one trial; the same person starting again gets the same page. A confirmation that
+  arrives after its hold lapsed can still give a second trial (the provider gave it): staff are
+  told.
+- **Staff** end one at once with `subscription.cancel { now: true }` (`subscriptions:manage`;
+  a customer is refused). Deviation: an AI does not propose a cancel (the spec said it may):
+  cancel and resume stay `actors: ["human"]`, as steps 1 and 2 built them.
+- **The app** is read only for billing, and the block lint now holds every native block to it
+  (not only those marked `noPurchase`).
+- **Staff views** are the admin's Subscriptions section (all, trials, failing, ending) and a
+  Person's page, not saved views of the generic list (the subscription is outside it, as Order is).
+- **Not built in this step:** continuation offers and the subscribers' move (step 4); whether a
+  continuation's free period counts as the trial (as built, any confirmed trial end counts).
+
 ## Questions for the interview
 Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:
 1 to 7 as recommended; 8 with every option (time-of-day limits are stage 31's to carry).
