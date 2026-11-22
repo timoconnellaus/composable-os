@@ -225,6 +225,25 @@ export interface CustomerDeclaration {
   readonly requireAccess?: readonly string[] | undefined;
   /** Fields of `write` a customer sets only on create (ADR 0507). */
   readonly createOnly?: readonly string[] | undefined;
+  /**
+   * The family link (ADR 0540): a customer's scope on this object is their own Person's records
+   * or a live dependant's. Left out, a guardian reads nothing of a dependant's here.
+   */
+  readonly guardians?: GuardiansDeclaration | undefined;
+}
+
+/** What a guardian may do with a dependant's records of an object (ADR 0540). */
+export interface GuardiansDeclaration {
+  /**
+   * The guardian also writes them, through the same `customer.write` fields as their own: makes
+   * one for a dependant (`for`) and changes the dependant's. Left out or false: read only.
+   */
+  readonly write?: boolean | undefined;
+  /**
+   * A relation to one person the host sets, on every record a customer makes, to the Person who
+   * made it (the guardian, for a dependant's). Never a customer's or a tool's to set.
+   */
+  readonly madeBy?: string | undefined;
 }
 
 /** One condition of a holder's `spendsOn` (the SDK's AllowanceCondition), validated. */

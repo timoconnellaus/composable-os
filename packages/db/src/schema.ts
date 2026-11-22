@@ -1025,6 +1025,29 @@ export interface CoreCapacityClaimTable {
 }
 export type CapacityClaimState = "held" | "confirmed" | "released";
 
+/**
+ * Migration 0650 (ADR 0540): a family link. While live (`ended_at` null) the guardian, signed in
+ * as a customer, reads and acts for the dependant where an object's customer declaration opts in.
+ */
+export interface CorePersonLinkTable {
+  id: string;
+  kind: Defaulted<"guardian">;
+  guardian_id: string;
+  dependant_id: string;
+  note: Defaulted<string | null>;
+  created_by: string;
+  created_at: string;
+  ended_at: Defaulted<string | null>;
+  ended_by: Defaulted<string | null>;
+  end_reason: Defaulted<string | null>;
+}
+
+/** Migration 0650: a guardian's write's guard; its trigger stores nothing. */
+export interface CorePersonLinkGuardTable {
+  guardian_id: string;
+  dependant_id: string;
+}
+
 /** Migration 0560 (ADR 0500): a series of the `recurring` behaviour, and when it next runs. */
 export interface CoreRecurrenceSeriesTable {
   object_type: string;
@@ -2415,6 +2438,8 @@ export interface CoreDatabase {
   core_native_sign_in_confirm: CoreNativeSignInConfirmTable;
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
+  core_person_link: CorePersonLinkTable;
+  core_person_link_guard: CorePersonLinkGuardTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
   core_write_guard: CoreWriteGuardTable;

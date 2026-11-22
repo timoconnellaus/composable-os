@@ -15,6 +15,7 @@ import {
   restorableUntil,
   TRASH_RETENTION_DAYS,
 } from "../records/common.ts";
+import { queueEraseLinks } from "../records/person-links.ts";
 import { visibleTable } from "../visibility/index.ts";
 
 /**
@@ -249,6 +250,12 @@ export const trashPurge = defineOperation({
         );
       }
     }
+    // A purged Person's family links go as an erased Person's do (ADR 0540); while they were in
+    // the Trash their links gave nothing.
+    queueEraseLinks(
+      ctx,
+      purged.filter((r) => r.object === "person").map((r) => r.id),
+    );
     // A purged Person's passes' and memberships' uses go as an erased Person's do (ADR 0494).
     queueEraseAllowances(
       ctx,

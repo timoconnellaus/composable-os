@@ -10,6 +10,7 @@
 import { ValidationError } from "../errors.ts";
 import type { CustomerDeclaration, FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";
+import { guardianProblems } from "./guardians.ts";
 import { type Condition, resolveCondition, signedInProblems } from "./public.ts";
 
 /** What is wrong with an object's `customer` declaration (empty when nothing is). */
@@ -53,6 +54,7 @@ export function customerProblems(object: ObjectDefinition): string[] {
       problems.push(`customer.write lists "${name}", which customer.read does not`);
     }
   }
+  problems.push(...guardianProblems(object));
   return problems;
 }
 
@@ -69,6 +71,12 @@ export interface CustomerScope {
   /** Names of the fields the customer may set. */
   readonly writable: ReadonlySet<string>;
   readonly declaration: CustomerDeclaration;
+  /**
+   * The family link (ADR 0540): the caller's records include a live dependant's (the object's
+   * `guardians`), and of those they change only what `dependantsWrite` allows.
+   */
+  readonly dependants: boolean;
+  readonly dependantsWrite: boolean;
   /**
    * Records every signed-in customer reads beside their own (the object's `signedIn`, ADR
    * 0447): the condition they meet (null: every live record) and the view columns shown of
@@ -99,6 +107,8 @@ export function customerScope(object: ObjectDefinition, personId: string): Custo
     columns,
     writable: new Set(declared.write),
     declaration: declared,
+    dependants: declared.guardians !== undefined,
+    dependantsWrite: declared.guardians?.write === true,
     ...(shared ? { shared } : {}),
   };
 }

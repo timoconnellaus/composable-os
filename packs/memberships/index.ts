@@ -131,6 +131,8 @@ export default defineExtension({
       "allowance.get",
       "allowance.list",
       "order.start",
+      // The member's own id and the children staff linked to them (ADR 0540).
+      "me.family",
     ],
     modules: ["ops"],
   },
@@ -294,9 +296,13 @@ export default defineExtension({
         },
       },
       states: { field: "status", initial: "active", moves: followMoves },
+      // A member reads their own; a parent or guardian staff linked to a child reads the child's
+      // too, read only (ADR 0540): what the child has left to book with.
       customer: {
         field: "person",
+        guardians: {},
         read: [
+          "person",
           "title",
           "plan",
           "uses",
@@ -460,9 +466,12 @@ export default defineExtension({
           { from: "active", to: "void", by: ["host"], tools: ["voidPass"], final: true },
         ],
       },
+      // As a membership: their own, and a linked child's for a guardian, read only (ADR 0540).
       customer: {
         field: "person",
+        guardians: {},
         read: [
+          "person",
           "title",
           "passtype",
           "uses",

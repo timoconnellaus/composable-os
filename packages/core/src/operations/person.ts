@@ -40,6 +40,12 @@ import {
 } from "../records/erase.ts";
 import { personSubject } from "../records/erase-subject.ts";
 import { countLinks, queueClearTags, queueMoveLinks } from "../records/links.ts";
+import {
+  countMergedLinks,
+  dependantsLeftAlone,
+  queueEraseLinks,
+  queueMergeLinks,
+} from "../records/person-links.ts";
 import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
 import { queueMergeSubscriptions } from "../subscriptions/merge.ts";
@@ -1091,7 +1097,15 @@ export const personMerge = defineOperation({
       .describe("Which record's value to keep for each field (default survivor)"),
   }),
   output: personSchema.extend({
-    moved: z.object({ affiliations: z.number(), activities: z.number(), tasks: z.number() }),
+    moved: z.object({
+      affiliations: z.number(),
+      activities: z.number(),
+      tasks: z.number(),
+      familyLinks: z
+        .number()
+        .optional()
+        .describe("Live family links (guardians and dependants) moved to the survivor"),
+    }),
   }),
   permission: "records:write",
   risk: "destructive",
@@ -1118,6 +1132,9 @@ export const personMerge = defineOperation({
     await queueMergeSubscriptions(ctx, survivor.id, merged.id);
     // Passes' and memberships' terms and uses follow the Person too (stage 32b, ADR 0494).
     queueMergeAllowances(ctx, survivor.id, merged.id);
+    // Family links follow the Person; one between the two, or a duplicate, is dropped (ADR 0540).
+    const familyLinks = await countMergedLinks(ctx, merged.id);
+    queueMergeLinks(ctx, survivor.id, merged.id);
 
     const emailSet = new Set(survivor.emails.map((e) => e.email));
     after.emails = [
@@ -1239,6 +1256,7 @@ export const personMerge = defineOperation({
       affiliations: Number(affiliations?.n ?? 0),
       activities: links.activities,
       tasks: links.tasks,
+      familyLinks,
     };
     return ctx.afterCommit(async () => ({ ...(await requirePerson(ctx, survivor.id)), moved }));
   },
@@ -1273,6 +1291,13 @@ export const personErase = defineOperation({
     auditRowsRedacted: z.number(),
     conversationsScrubbed: z.number(),
     ...eraseCountsOutput,
+    dependantsWithoutGuardian: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "People this person was the only live guardian of (ADR 0540): they stay, with no guardian " +
+          "linked, and a note on their timeline",
+      ),
   }),
   permission: "records:erase",
   risk: "destructive",
@@ -1281,6 +1306,9 @@ export const personErase = defineOperation({
     await requirePerson(ctx, input.id, { includeDeleted: true });
     const ids = await withMergedRecords(ctx, "person", input.id);
     const subject = await personSubject(ctx.db, ids);
+    // Their family links go with them; a child left with no guardian stays, and staff are told.
+    const leftAlone = await dependantsLeftAlone(ctx, ids);
+    queueEraseLinks(ctx, ids, leftAlone);
     const counts = await queueErase(ctx, {
       object: "person",
       recordId: input.id,
@@ -1298,6 +1326,7 @@ export const personErase = defineOperation({
       auditRowsRedacted: await countRedactions(ctx.db, "person", input.id),
       conversationsScrubbed: counts.conversations,
       ...(await afterErase(ctx, counts)),
+      dependantsWithoutGuardian: leftAlone,
     }));
   },
 });

@@ -1,5 +1,6 @@
 // Writes at the visibility seam (ADR 0402, ADR 0412). A caller outside the org changes a record
-// only when the seam would show it to them, and only in the fields its object lists as writable.
+// only when the seam would show it to them as their own (or, where an object lets guardians write,
+// a live dependant's: ADR 0540), and only in the fields its object lists as writable.
 // The pipeline runs this on every change a customer's or the public's call recorded, before
 // anything is committed, so an operation's handler never checks whose record it is.
 import { diffRecords } from "../diff.ts";
@@ -11,6 +12,7 @@ import { viewColumnOf } from "../records/columns.ts";
 import { jsonList } from "../records/common.ts";
 import { holdsAccess } from "./access.ts";
 import { unknownObject } from "./customer.ts";
+import { isLiveDependant, linkGuardStatement } from "./guardians.ts";
 import {
   type AnyRow,
   ownedSource,
@@ -57,6 +59,12 @@ export async function assertVisibleWrites(
   }
   const personId = ctx.principal.personId;
   const existing = new Map<string, string[]>();
+  /** A new record's Person: the caller, or a live dependant where guardians write (ADR 0540). */
+  const mayOwn = async (scope: Extract<Scope, { kind: "customer" }>, owner: unknown) =>
+    owner === personId ||
+    (scope.dependantsWrite &&
+      typeof owner === "string" &&
+      (await isLiveDependant(ctx.db, personId, owner)));
   for (const change of changes) {
     const object = getObject(change.object);
     if (!object) throw unknownObject(change.object);
@@ -72,7 +80,7 @@ export async function assertVisibleWrites(
       if (name === owner) {
         // Whose record it is: the caller's on create, and never changed after.
         if (change.action !== "create") throw new NotFoundError(object.name, change.id);
-        if (values.after !== personId) {
+        if (!(await mayOwn(scope, values.after))) {
           throw new ValidationError(`A new ${object.name} must belong to its caller`);
         }
         continue;
@@ -92,7 +100,7 @@ export async function assertVisibleWrites(
       throw new ValidationError(`Unknown field "${name}" on ${object.name}`, { field: name });
     }
     if (change.action === "create") {
-      if (owner !== "id" && diff[owner]?.after !== personId) {
+      if (owner !== "id" && !(await mayOwn(scope, diff[owner]?.after))) {
         throw new ValidationError(`A new ${object.name} must belong to its caller`);
       }
       // A person is their own customer: a customer never creates one.
@@ -180,8 +188,12 @@ function assertSettable(
 ): void {
   const widened = writer.widened?.get(object.name);
   for (const name of Object.keys(values)) {
-    // Whose record it is, and its id, are never a caller's or a tool's to set.
-    const reserved = name === scope.declaration.field || name === "id";
+    // Whose record it is, who made it (ADR 0540) and its id are never a caller's or a tool's to
+    // set.
+    const reserved =
+      name === scope.declaration.field ||
+      name === "id" ||
+      name === scope.declaration.guardians?.madeBy;
     if (!reserved && (scope.writable.has(name) || widened?.has(name))) continue;
     if (!reserved && scope.fields.some((field) => field.name === name)) {
       throw new ValidationError(`${object.name}.${name} cannot be changed`, { field: name });
@@ -268,22 +280,54 @@ async function recording<T>(
 }
 
 /**
+ * The Person a customer's new record is for (ADR 0540): the caller, or the one they name in
+ * `forPersonId` when that is a live dependant of theirs and the object lets guardians write
+ * its records. Anyone else (another member, an ended link, a Person who does not exist, an object
+ * that does not open to guardians) is answered as a Person that is not there.
+ */
+async function ownerFor(
+  writer: SeamWriter,
+  scope: Extract<Scope, { kind: "customer" }>,
+  forPersonId: string | undefined,
+): Promise<string> {
+  if (forPersonId === undefined || forPersonId === scope.personId) return scope.personId;
+  if (
+    !scope.dependantsWrite ||
+    !(await isLiveDependant(writer.reader.db, scope.personId, forPersonId))
+  ) {
+    throw new NotFoundError("person", forPersonId);
+  }
+  return forPersonId;
+}
+
+/**
  * Creates a record of `object` for the caller: the customer field is the caller, whatever was
- * asked, and the other values must be fields the caller (or the tool calling for them) may set.
+ * asked, or a live dependant they name (`forPersonId`, ADR 0540), and the other values must be
+ * fields the caller (or the tool calling for them) may set. A record made for a dependant carries
+ * the link's guard in its batch, so it is not made if the link ended meanwhile. The object's
+ * `guardians.madeBy`, when declared, is set to the caller.
  */
 export async function createVisible(
   writer: SeamWriter,
   name: string,
   values: Record<string, unknown>,
+  options: { forPersonId?: string | undefined } = {},
 ): Promise<{ id: string }> {
   const { object, scope } = customerScopeFor(writer, name);
   assertSettable(writer, object, scope, values);
   if (isCoreObject(object.name) || !recordWriter) {
     throw new ForbiddenError(`A customer cannot create a ${object.name}`);
   }
+  const owner = await ownerFor(writer, scope, options.forPersonId);
   await assertRelationsVisible(writer.reader, object, values);
   await assertAccessRequired(writer.reader, object, values, null);
-  const owned = { ...values, [scope.declaration.field]: scope.personId };
+  const madeBy = scope.declaration.guardians?.madeBy;
+  const owned = {
+    ...values,
+    [scope.declaration.field]: owner,
+    ...(madeBy ? { [madeBy]: scope.personId } : {}),
+  };
+  if (owner !== scope.personId) writer.host.write(linkGuardStatement(scope.personId, owner));
   const create = recordWriter.create;
   return { id: await recording(writer, (host) => create(host, object, owned)) };
 }
@@ -307,12 +351,17 @@ export async function updateVisible(
   // The record must be the caller's own: otherwise it is not there. One shared with them is
   // theirs to read only (ADR 0447).
   // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-  const row = await (writer.reader.db as any)
+  const row = (await (writer.reader.db as any)
     .selectFrom(ownedSource(writer.reader, object))
-    .select("id")
+    .select(["id", "owner"])
     .where("id", "=", id)
-    .executeTakeFirst();
+    .executeTakeFirst()) as AnyRow | undefined;
   if (!row) throw new NotFoundError(object.name, id);
+  // A dependant's record (ADR 0540): written only while the link is live when the batch commits.
+  const owner = row.owner === null || row.owner === undefined ? null : String(row.owner);
+  if (owner !== null && owner !== scope.personId) {
+    writer.host.write(linkGuardStatement(scope.personId, owner));
+  }
   await assertRelationsVisible(writer.reader, object, values);
   if (object.customer?.requireAccess?.length) {
     // What the row points to now, through the caller's own source (its listed columns).

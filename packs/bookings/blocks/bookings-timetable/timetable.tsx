@@ -1,5 +1,6 @@
 // The timetable for a gym's site (stage 31a): the week's classes, and for a signed-in member a
-// Book or Cancel button on each. Whether booking is open, whether the gym books a class, the places
+// Book or Cancel button on each. A parent the gym linked to a child picks who they are booking
+// for (ADR 0540); the child's own membership or pass pays. Whether booking is open, whether the gym books a class, the places
 // left, whether a cancel is in time and what it spends are the host's: this shows its answers.
 import type { BookingsHooks, TimetableClass } from "@composable-os/pack-bookings/client";
 import {
@@ -11,7 +12,10 @@ import {
 import { useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 
-type Hooks = Pick<BookingsHooks, "useTimetable" | "useMyBookings" | "useBook" | "useCancel">;
+type Hooks = Pick<
+  BookingsHooks,
+  "useTimetable" | "useMyBookings" | "useBook" | "useCancel" | "useFamily"
+>;
 
 export function Timetable({
   bookings,
@@ -24,7 +28,12 @@ export function Timetable({
   to?: string;
 }) {
   const timetable = bookings.useTimetable({ ...(from ? { from } : {}), ...(to ? { to } : {}) });
-  const mine = bookings.useMyBookings({});
+  const family = bookings.useFamily();
+  const people = family.data?.people ?? [];
+  // Whose bookings are shown and made: the member's own unless they pick a child.
+  const [personId, setPersonId] = useState<string | null>(null);
+  const chosen = people.find((p) => p.personId === personId && !p.self);
+  const mine = bookings.useMyBookings(chosen ? { personId: chosen.personId } : {});
   const [message, setMessage] = useState<string | null>(null);
   if (timetable.isPending) return <p aria-busy="true">Loading the timetable…</p>;
   if (timetable.error || !timetable.data) {
@@ -36,6 +45,25 @@ export function Timetable({
   };
   return (
     <section className="grid gap-4" aria-label="Timetable">
+      {people.length > 1 ? (
+        <label className="grid gap-1 text-sm">
+          Booking for
+          <select
+            className="rounded-md border p-2"
+            value={chosen?.personId ?? ""}
+            onChange={(event) => {
+              setPersonId(event.target.value || null);
+              setMessage(null);
+            }}
+          >
+            {people.map((person) => (
+              <option key={person.personId} value={person.self ? "" : person.personId}>
+                {person.self ? "Me" : person.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       {message ? <p role="status">{message}</p> : null}
       {timetable.data.classes.length === 0 ? <p>No classes in these days.</p> : null}
       <ul className="grid gap-2">
@@ -44,6 +72,7 @@ export function Timetable({
             key={klass.id}
             klass={klass}
             booking={bookingFor(klass.id, mine.data?.bookings)}
+            forPerson={chosen ? { id: chosen.personId, name: chosen.name } : null}
             bookings={bookings}
             onDone={(text) => {
               setMessage(text);
@@ -59,11 +88,14 @@ export function Timetable({
 function ClassRow({
   klass,
   booking,
+  forPerson,
   bookings,
   onDone,
 }: {
   klass: TimetableClass;
   booking: { id: string } | undefined;
+  /** A child the member is booking for, or null for themselves. */
+  forPerson: { id: string; name: string } | null;
   bookings: Pick<BookingsHooks, "useBook" | "useCancel">;
   onDone: (message: string) => void;
 }) {
@@ -129,10 +161,13 @@ function ClassRow({
         <Button
           disabled={book.isPending}
           onClick={async () => {
-            const done = await book.mutateAsync({ classId: klass.id });
+            const done = await book.mutateAsync({
+              classId: klass.id,
+              ...(forPerson ? { forPersonId: forPerson.id } : {}),
+            });
             onDone(
               done.result === "booked"
-                ? `Booked: ${name}, ${classTime(klass)}.`
+                ? `Booked${forPerson ? ` for ${forPerson.name}` : ""}: ${name}, ${classTime(klass)}.`
                 : done.result === "waiting"
                   ? `${name}: ${done.message}`
                   : refusalMessage(done, klass.timeZone),

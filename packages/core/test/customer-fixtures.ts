@@ -59,6 +59,14 @@ export const LOG = `${SHOP}.log`;
  * version, only the declared fields. Its working copy, a draft and an unpublished one are hidden.
  */
 export const POST = `${SHOP}.post`;
+/**
+ * Stage 31a step 6 (ADR 0540): the family link. A visit (as a booking is) its Person's guardian
+ * reads and writes for them; a holding (as a pass is) a guardian reads only; and the day a visit
+ * is on, read through the visit (as a booking's class is).
+ */
+export const VISIT = `${SHOP}.visit`;
+export const HOLDING = `${SHOP}.holding`;
+export const DAY = `${SHOP}.day`;
 /** The shapes of programs.* the isolation suite aims at. */
 export const PROGRAM_OBJECTS = [ASSIGNMENT, SESSION, LOG] as const;
 
@@ -227,6 +235,50 @@ export async function installShop(): Promise<void> {
           publishable: { content: ["name", "teaser", "body", "date"], slug: "slug", date: "date" },
           public: { read: ["name", "slug", "teaser", "body", "date"] },
         },
+        visit: {
+          label: "Visit",
+          plural: "Visits",
+          titleField: "note",
+          fields: {
+            note: { type: "text", label: "Note" },
+            person: { type: "relation", label: "Person", to: "person" },
+            madeBy: { type: "relation", label: "Made by", to: "person" },
+            day: { type: "relation", label: "Day", to: `${SHOP}.day` },
+            staffNote: { type: "text", label: "Staff note" },
+          },
+          customer: {
+            field: "person",
+            read: ["person", "note", "day"],
+            write: ["note", "day"],
+            guardians: { write: true, madeBy: "madeBy" },
+          },
+        },
+        holding: {
+          label: "Holding",
+          plural: "Holdings",
+          titleField: "label",
+          fields: {
+            label: { type: "text", label: "Label" },
+            person: { type: "relation", label: "Person", to: "person" },
+            staffNote: { type: "text", label: "Staff note" },
+          },
+          customer: {
+            field: "person",
+            read: ["person", "label"],
+            write: ["label"],
+            guardians: {},
+          },
+        },
+        day: {
+          label: "Day",
+          plural: "Days",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name", required: true },
+            staffNote: { type: "text", label: "Staff note" },
+          },
+          customerVia: { from: `${SHOP}.visit`, field: "day", read: ["name"] },
+        },
         supplier: {
           label: "Supplier",
           plural: "Suppliers",
@@ -371,6 +423,8 @@ export async function giveOrders(admin: ActingUser, customer: Customer): Promise
 
 export interface Customer {
   principal: CustomerPrincipal;
+  /** Children staff linked to them (ADR 0540), when made with `family`. */
+  dependants: string[];
   /** A letter for messages: A or B. */
   label: string;
   /** Record ids by object. */
@@ -387,8 +441,17 @@ const secretNumber = () => {
   return numbers;
 };
 
-/** A person, their customer principal, and two orders and two tickets of their own. */
-export async function createCustomer(admin: ActingUser, label: string): Promise<Customer> {
+/**
+ * A person, their customer principal, and two orders and two tickets of their own. With
+ * `family`, also a child staff linked to them (ADR 0540) with a visit and a holding of the
+ * child's, and a visit and a holding of their own: every value of the child's is the customer's
+ * secret too (no one else may learn it).
+ */
+export async function createCustomer(
+  admin: ActingUser,
+  label: string,
+  options: { family?: boolean } = {},
+): Promise<Customer> {
   const tag = unique(label);
   const email = `${tag}@customers.example`;
   const person = await invoke(
@@ -414,6 +477,7 @@ export async function createCustomer(admin: ActingUser, label: string): Promise<
   const customer: Customer = {
     label,
     principal: { kind: "customer", customerId: `cus_${tag}`, personId: person.id },
+    dependants: [],
     records: { [ORDER]: [], [TICKET]: [], [REQUEST]: [], [SHOW]: [held.id] },
     secrets: [
       `Given-${tag}`,
@@ -470,7 +534,64 @@ export async function createCustomer(admin: ActingUser, label: string): Promise<
     }
   }
   await givePrograms(admin, customer, person.id, tag);
+  if (options.family) await giveFamily(admin, customer, person.id, tag);
   return customer;
+}
+
+/**
+ * Stage 31a step 6 (ADR 0540): a child with no email, linked by staff to the customer, and a
+ * visit (on a day of its own) and a holding each, the customer's and the child's.
+ */
+async function giveFamily(
+  admin: ActingUser,
+  customer: Customer,
+  personId: string,
+  tag: string,
+): Promise<void> {
+  const child = await invoke(
+    "person.create",
+    { givenName: `Child-${tag}`, familyName: `ChildFamily-${tag}` },
+    context(admin),
+  );
+  const link = await invoke(
+    "person.link.add",
+    { guardianId: personId, dependantId: child.id },
+    context(admin),
+  );
+  customer.dependants.push(child.id);
+  customer.secrets.push(child.id, `Child-${tag}`, `ChildFamily-${tag}`, link.id);
+  const make = async (object: string, values: Record<string, unknown>) => {
+    const created = await invoke("record.create", { object, values }, context(admin));
+    customer.records[object] = [...(customer.records[object] ?? []), created.id];
+    customer.secrets.push(created.id);
+    customer.values[object] ??= values;
+    return created.id;
+  };
+  for (const [who, owner] of [
+    ["Own", personId],
+    ["Kid", child.id],
+  ] as const) {
+    const day = await make(DAY, { name: `Day${who}-${tag}`, staffNote: `DayStaff${who}-${tag}` });
+    await make(VISIT, {
+      note: `Visit${who}-${tag}`,
+      person: owner,
+      day,
+      staffNote: `VisitStaff${who}-${tag}`,
+    });
+    await make(HOLDING, {
+      label: `Holding${who}-${tag}`,
+      person: owner,
+      staffNote: `HoldingStaff${who}-${tag}`,
+    });
+    customer.secrets.push(
+      `Day${who}-${tag}`,
+      `DayStaff${who}-${tag}`,
+      `Visit${who}-${tag}`,
+      `VisitStaff${who}-${tag}`,
+      `Holding${who}-${tag}`,
+      `HoldingStaff${who}-${tag}`,
+    );
+  }
 }
 
 /**
@@ -718,6 +839,19 @@ export async function snapshot(customer: Customer): Promise<string> {
         .all()
     ).results,
   );
+  // Their children and the links (ADR 0540): no one else's call may change them either.
+  for (const id of customer.dependants) {
+    rows.push(await env.DB.prepare("SELECT * FROM core_person WHERE id = ?").bind(id).first());
+  }
+  rows.push(
+    (
+      await env.DB.prepare(
+        "SELECT * FROM core_person_link WHERE guardian_id = ? OR dependant_id = ? ORDER BY id",
+      )
+        .bind(customer.principal.personId, customer.principal.personId)
+        .all()
+    ).results,
+  );
   return JSON.stringify(rows);
 }
 
@@ -795,10 +929,15 @@ const myCreate = defineOperation({
   ...customerOnly,
   name: "fixture.myCreate",
   description: "Fixture: creates a record for the caller from the values given.",
-  input: z.object({ object: objectName, values: valuesIn }),
+  input: z.object({
+    object: objectName,
+    values: valuesIn,
+    forPersonId: z.string().max(64).optional(),
+  }),
   output: z.object({ id: z.string() }),
   risk: "write",
-  handler: (input, ctx) => ctx.records.create(input.object, input.values),
+  handler: (input, ctx) =>
+    ctx.records.create(input.object, input.values, { forPersonId: input.forPersonId }),
 });
 
 /**

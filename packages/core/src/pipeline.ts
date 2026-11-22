@@ -1826,6 +1826,9 @@ function outsideError(error: unknown): OperationError {
   if (typed.code === "conflict" && (offerRule === "offer_held" || offerRule === "offer_changed")) {
     return typed;
   }
+  // A guardian's write whose link ended before it committed (migration 0650's guard, ADR 0540):
+  // the Person is not there for them, as the seam would have said a moment later.
+  if (typed.code === "not_found") return typed;
   console.error("outside call failed", errorForLog(error));
   if (typed.code === "conflict")
     return new ConflictError("A record with that value already exists");
@@ -2024,7 +2027,7 @@ async function invokeOutside<O extends AnyOperation>(
     },
   };
   const records = recordAccess(reader, {
-    create: (object, values) => createVisible(seam, object, values),
+    create: (object, values, options) => createVisible(seam, object, values, options),
     update: (object, id, values, options) => updateVisible(seam, object, id, values, options),
   });
   // The caller's own account's sign-in address: read for the verified principal, never for an

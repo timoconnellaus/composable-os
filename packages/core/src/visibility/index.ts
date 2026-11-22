@@ -22,6 +22,7 @@ import { BASE_TABLES, type CoreObjectName, getObject, isCoreObject } from "../fi
 import type { ObjectDefinition } from "../fields/types.ts";
 import { type Principal, staffPrincipal } from "../principals.ts";
 import { type CustomerScope, customerObject, customerScope, unknownObject } from "./customer.ts";
+import { ownersWhere } from "./guardians.ts";
 import {
   type Condition,
   type PublicScope,
@@ -32,6 +33,7 @@ import {
 import { customerViaScope, type ViaScope, viaObject } from "./via.ts";
 
 export { type CustomerScope, customerProblems } from "./customer.ts";
+export { type Family, type FamilyMember, familyOf, guardianProblems } from "./guardians.ts";
 export { type PublicScope, publicProblems, signedInProblems } from "./public.ts";
 export { customerViaProblems, type ViaScope } from "./via.ts";
 
@@ -48,7 +50,8 @@ export interface Reader extends Viewer {
 /**
  * What a caller may see of one object.
  * - `all`: every row and every field. Staff, until stage 14a restricts an object.
- * - `customer`: the rows whose customer field is the caller's Person, the listed fields only.
+ * - `customer`: the rows whose customer field is the caller's Person (or a live dependant's, on
+ *   an object that opens to guardians, ADR 0540), the listed fields only.
  * - `public`: the rows the object's `public` declaration covers, its listed fields only.
  * - `via`: for a customer, the rows one of their own records points to, the fields the object's
  *   `customerVia` lists, and what the public may read of it too (ADR 0439).
@@ -202,7 +205,10 @@ export function buyableSource(
  */
 function reachedWhere(scope: ViaScope): RawBuilder<unknown> {
   const { link } = scope;
-  return sql`id IN (SELECT ${sql.ref(link.pointer)} FROM ${sql.table(link.source)} WHERE ${sql.ref(link.owner)} = ${scope.personId} AND ${sql.ref(link.pointer)} IS NOT NULL)`;
+  // Their own records, and a live dependant's where the `from` object opens to guardians
+  // (ADR 0540): a child's booking's class.
+  const owners = ownersWhere(link.owner, scope.personId, link.dependants);
+  return sql`id IN (SELECT ${sql.ref(link.pointer)} FROM ${sql.table(link.source)} WHERE ${owners} AND ${sql.ref(link.pointer)} IS NOT NULL)`;
 }
 
 function sourceOf(
@@ -216,8 +222,9 @@ function sourceOf(
     case "customer": {
       // Only the caller's rows, and only the listed columns: a column that is not listed is not
       // in the source at all, so no filter, sort or select can reach it. Registry columns are
-      // trusted identifiers (fields/types.ts); the person id is a bound parameter.
-      const own = sql`${sql.ref(scope.column)} = ${scope.personId}`;
+      // trusted identifiers (fields/types.ts); the person id is a bound parameter. On an object
+      // that opens to guardians, a live dependant's rows are the caller's too (ADR 0540).
+      const own = ownersWhere(scope.column, scope.personId, scope.dependants);
       if (!scope.shared) {
         const columns = sql.join(scope.columns.map((column) => sql.ref(column)));
         return sql<AnyRow>`(SELECT ${columns} FROM ${sql.table(definition.source)} WHERE ${own})`.as(
@@ -298,9 +305,10 @@ function conditionSql(condition: Condition | null) {
 
 /**
  * The ids of the records of `object` that are the caller's own: for a customer, the rows whose
- * customer field is their Person, without what is shared with them (ADR 0447); for staff, every
- * live row. What a customer may change is read from here, never from what they may only read.
- * Anyone else has none.
+ * customer field is their Person, or a live dependant's where the object lets guardians write
+ * them (ADR 0540), without what is shared with them (ADR 0447); for staff, every live row. What a
+ * customer may change is read from here, never from what they may only read. Anyone else has
+ * none. A customer's rows also carry `owner`: whose Person's record it is.
  */
 export function ownedSource(
   ctx: Viewer,
@@ -313,7 +321,7 @@ export function ownedSource(
     case "all":
       return sql<AnyRow>`${sql.table(object.source)}`.as(name);
     case "customer":
-      return sql<AnyRow>`(SELECT id FROM ${sql.table(object.source)} WHERE ${sql.ref(scope.column)} = ${scope.personId})`.as(
+      return sql<AnyRow>`(SELECT id, ${sql.ref(scope.column)} AS owner FROM ${sql.table(object.source)} WHERE ${ownersWhere(scope.column, scope.personId, scope.dependantsWrite)})`.as(
         name,
       );
     default:

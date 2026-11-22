@@ -80,6 +80,8 @@ export const ID_PREFIXES = {
   userInvite: "uin",
   // Stage 28 (ADR 0444): a picture of the media library.
   media: "med",
+  /** A family link: a guardian and a dependant (stage 31a, ADR 0540). */
+  personLink: "pln",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
