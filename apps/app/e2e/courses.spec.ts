@@ -309,7 +309,7 @@ test("a student starts a course subscription with a free trial, holds every cour
       block("courses-subscription", "MySubscription", { returnUrl: `${origin}/blocks` }),
     );
     const mine = studentPage.getByRole("region", { name: "My subscription" });
-    await expect(mine.getByTestId("subscription-status").first()).toContainText("Free trial until");
+    await expect(mine.getByTestId("subscription-status").first()).toContainText("Free until");
     studentPage.once("dialog", (dialog) => void dialog.accept());
     await mine.getByRole("button", { name: "Cancel subscription" }).first().click();
     await expect(mine.getByRole("status")).toContainText("Asked to cancel");
@@ -339,14 +339,145 @@ test("a student starts a course subscription with a free trial, holds every cour
   }
 });
 
+test("an imported subscriber signs in, takes their continuation offer, holds every course, and is charged nothing until their paid-up date", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(300_000);
+  const origin = new URL(baseURL ?? "").origin;
+  await setUp(page, baseURL ?? "");
+  const course = await op<{ id: string }>(page.request, "record.create", {
+    object: "courses.course",
+    values: {
+      title: unique("Mobility "),
+      price: 39,
+      outline: {
+        sections: [
+          {
+            key: "s",
+            title: "S",
+            lessons: [
+              {
+                kind: "text",
+                key: "t",
+                title: "T",
+                body: { blocks: [{ type: "paragraph", content: [{ type: "text", text: "x" }] }] },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  await op(page.request, "record.publish", { object: "courses.course", id: course.id });
+  const plan = await op<{ id: string }>(page.request, "record.create", {
+    object: "courses.plan",
+    values: { title: unique("Continuing "), price: 29, trialDays: 7 },
+  });
+  // The person comes first (the people import), then their offer: paid up elsewhere until a date
+  // three weeks away. The import invites the address, so they can sign in with sign-up invite only.
+  const email = `${unique("moving")}@students.test`.toLowerCase();
+  await op(page.request, "person.create", { givenName: "Moving", emails: [{ email }] });
+  const paidUpTo = new Date(Date.now() + 21 * 86_400_000).toISOString().slice(0, 10);
+  const imported = await op<{
+    results: {
+      outcome: string;
+      offerId: string;
+      signIn: string;
+      personId: string;
+      freeUntil: string;
+    }[];
+  }>(page.request, "subscription.offer.import", {
+    plan: { object: "courses.plan", id: plan.id },
+    rows: [{ email, freeUntil: paidUpTo, reference: "old-sub-1" }],
+    invite: true,
+  });
+  expect(imported.results[0]).toMatchObject({ outcome: "created", signIn: "invited" });
+  try {
+    const student = await signInStudent(page, browser, baseURL ?? "", {
+      email,
+      signup: "invite_only",
+    });
+    const studentPage = await student.newPage();
+
+    // The subscribe block shows their offer in place of the trial.
+    await studentPage.goto(
+      block("courses-subscribe", "Subscribe", { returnUrl: `${origin}/blocks`, signedIn: true }),
+    );
+    const card = studentPage.getByRole("region", { name: "Subscribe" });
+    await expect(card.getByTestId("continuation-offer")).toContainText("Continue it here");
+    await expect(card.getByRole("button", { name: /free trial/ })).toHaveCount(0);
+    await card
+      .getByRole("button", { name: /^Continue, free until/ })
+      .first()
+      .click();
+    await expect(studentPage.getByRole("heading", { name: /Fake payment page/i })).toBeVisible({
+      timeout: 30_000,
+    });
+    const freeUntil = imported.results[0]?.freeUntil as string;
+    await expect(
+      studentPage.getByText(`Nothing is charged until ${freeUntil.slice(0, 10)}`),
+    ).toBeVisible();
+    await studentPage.getByRole("button", { name: "Pay", exact: true }).click();
+
+    // Once the provider confirms, every published course is theirs, through the subscription.
+    await expect
+      .poll(
+        async () =>
+          (
+            await op<{ courses: { id: string; why: string }[] }>(
+              student.request,
+              "x.courses.myCourses",
+              {},
+            )
+          ).courses.find((c) => c.id === course.id)?.why,
+        { timeout: 30_000 },
+      )
+      .toBe("subscription");
+    // Free until the paid-up date, then charged; no trial on top.
+    const mine = await op<{ items: { id: string; state: string; trialEnd: string }[] }>(
+      student.request,
+      "subscription.list",
+      {},
+    );
+    expect(mine.items).toHaveLength(1);
+    expect(mine.items[0]?.state).toBe("trialing");
+    expect(mine.items[0]?.trialEnd).toBe(freeUntil);
+    // Nothing was charged: no paid order for them.
+    const person = imported.results[0];
+    const orders = await op<{ items: { paid: number }[] }>(page.request, "order.list", {
+      filter: { field: "personId", op: "eq", value: person?.personId },
+    });
+    expect(orders.items.filter((o) => o.paid > 0)).toEqual([]);
+    // The offer is used: it is not shown again.
+    await studentPage.goto(
+      block("courses-subscribe", "Subscribe", { returnUrl: `${origin}/blocks`, signedIn: true }),
+    );
+    await expect(
+      studentPage.getByRole("region", { name: "Subscribe" }).getByTestId("continuation-offer"),
+    ).toHaveCount(0);
+    await student.close();
+
+    // Staff see it taken in the report, charged from the paid-up date.
+    await open(page, "/subscriptions?view=offers");
+    const row = page.getByTestId("offer-row").filter({ hasText: email });
+    await expect(row).toHaveAttribute("data-status", "taken");
+    await expect(row).toContainText("old-sub-1");
+  } finally {
+    await resetSignUp(page);
+  }
+});
+
 /**
- * Sign-up open, the org's outbox sending the sign-in mail, and a student signed in with an emailed
- * code, in a context of their own.
+ * Sign-up open (or as given), the org's outbox sending the sign-in mail, and a student signed in
+ * with an emailed code (to a new address, or the one given), in a context of their own.
  */
 async function signInStudent(
   page: Page,
   browser: Browser,
   baseURL: string,
+  as: { email?: string; signup?: "open" | "invite_only" | "buyers" } = {},
 ): Promise<BrowserContext> {
   const origin = new URL(baseURL).origin;
   const outbox = fakeAddress("students");
@@ -354,7 +485,7 @@ async function signInStudent(
   const connection = await connectFake(page, outbox, "org");
   await addFakeResource(page, connection, "Outbox", outbox);
   await op(page.request, "customer.settings.update", {
-    signup: "open",
+    signup: as.signup ?? "open",
     emailConnectionId: await connectionId(connection),
   });
   await open(page, "/settings/users");
@@ -367,7 +498,7 @@ async function signInStudent(
       .click();
   }
   await expect(signInMail).toHaveAttribute("data-ready", "true");
-  const email = `${unique("student")}@students.test`.toLowerCase();
+  const email = as.email ?? `${unique("student")}@students.test`.toLowerCase();
   const student = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
   const asked = await student.request.post("/api/customer-auth/email-otp/send-verification-otp", {
     data: { email, type: "sign-in" },

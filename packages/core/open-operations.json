@@ -157,6 +157,12 @@
       "risk": "read"
     },
     {
+      "name": "subscription.offer.mine",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "subscription.portal",
       "audiences": ["customer"],
       "risk": "read",

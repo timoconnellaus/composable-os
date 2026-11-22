@@ -83,7 +83,7 @@ export interface CourseSubscription {
 }
 
 /** Why the host gave no free trial on a plan that has one (subscription.start's `noTrial`). */
-export type NoTrial = "sign_in" | "used" | "permission" | "held" | "unconfirmed";
+export type NoTrial = "sign_in" | "used" | "permission" | "held" | "unconfirmed" | "continuation";
 
 /** What a member is told about a trial the host did not give. Display only. */
 export function noTrialWords(reason: NoTrial): string {
@@ -98,7 +98,39 @@ export function noTrialWords(reason: NoTrial): string {
       return "We could not check your earlier checkout with the payment provider just now, so no free trial can be given yet. Try again in a few minutes, or continue and pay from today.";
     case "permission":
       return "A free trial cannot be given from here; this one is paid from today.";
+    case "continuation":
+      return "You are continuing a subscription you had with us before, so there is no free trial: this one is paid from today.";
   }
+}
+
+/**
+ * A continuation offer (stage 32a, ADR 0491): a subscriber moving from another platform continues
+ * here, free until the date they had paid up to, then charged. Only its own person, signed in as
+ * its address, reads or takes it (`subscription.offer.mine`, `subscription.start { offerId }`).
+ */
+export interface ContinuationOffer {
+  id: string;
+  planObject: string;
+  planId: string;
+  /** Free until this moment, then charged. */
+  freeUntil: string;
+  /** Under 48 hours left: taking it now is charged at once. */
+  chargedNow: boolean;
+}
+
+/** The member's offer for `planId`, if they have one. */
+export function offerFor(
+  offers: readonly ContinuationOffer[] | undefined,
+  planId: string,
+): ContinuationOffer | undefined {
+  return offers?.find((o) => o.planObject === PLAN && o.planId === planId);
+}
+
+/** What a member is told about their offer, in words. Display only. */
+export function offerWords(offer: ContinuationOffer): string {
+  return offer.chargedNow
+    ? `Your subscription with us was paid up to ${day(offer.freeUntil)}, which is too soon for free time here: continuing is charged from today.`
+    : `Your subscription with us is paid up to ${day(offer.freeUntil)}. Continue it here: nothing is charged until then.`;
 }
 
 /** What subscription.start answers. */
@@ -109,6 +141,8 @@ export interface StartedSubscription {
   currency: string;
   interval: "week" | "month" | "year";
   trialDays: number | null;
+  /** Free until this moment (a continuation offer taken), then charged. */
+  freeUntil: string | null;
   noTrial: NoTrial | null;
   expiresAt: string | null;
 }
@@ -123,8 +157,14 @@ export type CoursesOperations = {
       plan: { object: string; id: string };
       returnUrl: string;
       email?: string;
+      offerId?: string;
     };
     output: StartedSubscription;
+  };
+  "subscription.offer.mine": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { offers: ContinuationOffer[] };
   };
   "subscription.list": {
     kind: "query";
@@ -266,9 +306,10 @@ export function subscriptionStatus(sub: CourseSubscription): string {
   const ends = sub.cancelAtPeriodEnd ? sub.currentPeriodEnd : sub.cancelAt;
   switch (sub.state) {
     case "trialing":
+      // A trial, or a continuation's free time until its paid-up date: both are free until then.
       return ends
-        ? `Free trial, ending on ${day(ends)}: nothing will be charged`
-        : `Free trial until ${day(sub.trialEnd ?? sub.currentPeriodEnd)}, then charged each ${sub.interval}`;
+        ? `Free, ending on ${day(ends)}: nothing will be charged`
+        : `Free until ${day(sub.trialEnd ?? sub.currentPeriodEnd)}, then charged each ${sub.interval}`;
     case "active":
       return ends
         ? `Active until ${day(ends)}, then it ends`
@@ -452,6 +493,7 @@ export const COURSES_HOOKS_CALL = {
   usePlans: ["x.courses.plans"],
   useSubscribe: ["subscription.start"],
   useMySubscriptions: ["subscription.list"],
+  useMyOffers: ["subscription.offer.mine"],
   useCancelSubscription: ["subscription.cancel"],
   useResumeSubscription: ["subscription.resume"],
   useBillingPortal: ["subscription.portal"],
@@ -593,6 +635,16 @@ function allCoursesHooks(
           limit: 20,
         }),
       );
+    },
+    /**
+     * The signed-in customer's own continuation offers (moving from another platform): free until
+     * their paid-up date. Read only; taking one is `useSubscribe` with `offerId` (web only).
+     */
+    useMyOffers(options: { enabled?: boolean } = {}) {
+      return useQuery({
+        ...api.query("subscription.offer.mine", {}),
+        enabled: options.enabled ?? true,
+      });
     },
     /** End their own subscription when its period ends (web only). */
     useCancelSubscription() {

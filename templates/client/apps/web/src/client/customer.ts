@@ -181,6 +181,14 @@ export type Operations = {
     output: { items: ({ id: string; state: ("incomplete") | ("expired") | ("trialing") | ("active") | ("past_due") | ("unpaid") | ("paused") | ("ended"); planObject: string; planId: string; planTitle: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); taxed: boolean; trialEnd: (string) | (null); currentPeriodStart: (string) | (null); currentPeriodEnd: (string) | (null); cancelAtPeriodEnd: boolean; cancelAt: (string) | (null); canceledAt: (string) | (null); endedAt: (string) | (null); actionUrl: (string) | (null); createdAt: string; holderPersonId: (string) | (null); payerPersonId?: (string) | (null); email?: (string) | (null); endReason?: (string) | (null); failingSince?: (string) | (null) })[]; nextCursor: (string) | (null) };
   };
   /**
+   * The signed-in customer's own continuation offers they can still take: a plan, free until the date they have paid up to on another platform, then charged. Take one with subscription.start { offerId }. chargedNow: under 48 hours are left, so taking it now is charged at once. Read-only.
+   */
+  "subscription.offer.mine": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { offers: { id: string; planObject: string; planId: string; freeUntil: string; chargedNow: boolean }[] };
+  };
+  /**
    * Open the payment provider's customer portal for the signed-in customer: the card they pay with, their billing details and past invoices. Cancelling and plan changes are not there (subscription.cancel). The address is short-lived and opens in its own page, never a frame.
    */
   "subscription.portal": {
@@ -197,12 +205,12 @@ export type Operations = {
     output: { id: string; requested: true };
   };
   /**
-   * Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.
+   * Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. A signed-in customer with a continuation offer (moving their subscription from another platform) takes it with `offerId`: free until their paid-up date, then charged, with no trial on top; with under 48 hours left it is charged at once. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.
    */
   "subscription.start": {
     kind: "mutation";
-    input: { plan: { object: string; id: string }; returnUrl: string; email?: string };
-    output: { subscriptionId: string; url: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); trialDays: (number) | (null); noTrial: (("sign_in") | ("used") | ("permission") | ("held") | ("unconfirmed")) | (null); expiresAt: (string) | (null) };
+    input: { plan: { object: string; id: string }; returnUrl: string; email?: string; offerId?: string };
+    output: { subscriptionId: string; url: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); trialDays: (number) | (null); freeUntil: (string) | (null); noTrial: (("sign_in") | ("used") | ("permission") | ("held") | ("unconfirmed") | ("continuation")) | (null); expiresAt: (string) | (null) };
   };
 };
 
@@ -227,12 +235,13 @@ export const operations = {
   "order.get": { kind: "query", invalidates: [] },
   "order.start": { kind: "mutation", invalidates: ["order.get","order.view"] },
   "order.view": { kind: "query", invalidates: [] },
-  "subscription.cancel": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.portal"] },
+  "subscription.cancel": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
   "subscription.get": { kind: "query", invalidates: [] },
   "subscription.list": { kind: "query", invalidates: [] },
+  "subscription.offer.mine": { kind: "query", invalidates: [] },
   "subscription.portal": { kind: "query", invalidates: [] },
-  "subscription.resume": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.portal"] },
-  "subscription.start": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.portal"] },
+  "subscription.resume": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.start": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
 } as const;
 
 export const API_VERSION = "v1";

@@ -66,6 +66,8 @@ export const ID_PREFIXES = {
   refund: "rfd",
   /** A subscription the payment provider runs (stage 32a, ADR 0485). */
   subscription: "sbs",
+  /** A continuation offer: free until a date for a subscriber moving from elsewhere (ADR 0491). */
+  subscriptionOffer: "sof",
   /** A native app's signed-in session on the HTTP surface (stage 23, ADR 0419). */
   deviceSession: "dvs",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */

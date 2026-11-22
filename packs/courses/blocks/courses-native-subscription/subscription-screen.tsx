@@ -1,9 +1,11 @@
 // A member's course subscription in the studio's app (stage 32a), read only: its state, the next
-// charge date or when it ends, and that it gives every course. Starting, cancelling, resuming and
-// the card are on the web only (`noPurchase`: the block lint refuses a subscription operation or a
-// price here). What the subscription gives is the host's; this only says what the host reports.
+// charge date or when it ends, and that it gives every course; and a continuation offer they have
+// not taken yet (moving from another platform), in words, to take on the web. Starting,
+// cancelling, resuming and the card are on the web only (`noPurchase`: the block lint refuses a
+// subscription operation or a price here). What the subscription gives is the host's; this only
+// says what the host reports.
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
-import { isLive, subscriptionStatus } from "@composable-os/pack-courses/client";
+import { day, isLive, subscriptionStatus } from "@composable-os/pack-courses/client";
 import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
@@ -12,10 +14,12 @@ import { Screen } from "../native-base/screen.tsx";
 export function SubscriptionScreen({
   courses,
 }: {
-  courses: Pick<CoursesHooks, "useMySubscriptions">;
+  courses: Pick<CoursesHooks, "useMySubscriptions" | "useMyOffers">;
 }) {
   const { data, isPending, error } = courses.useMySubscriptions();
+  const offers = courses.useMyOffers();
   const live = data?.items.filter(isLive) ?? [];
+  const offer = offers.data?.offers[0];
   return (
     <Screen title="My subscription">
       {isPending ? <Text accessibilityRole="progressbar">Loading your subscription…</Text> : null}
@@ -30,6 +34,13 @@ export function SubscriptionScreen({
             />
           ))}
         </List>
+      ) : null}
+      {offer && !live.length ? (
+        <Text>
+          {offer.chargedNow
+            ? `Your subscription with us was paid up to ${day(offer.freeUntil)}. Continue it on the studio's website.`
+            : `Your subscription with us is paid up to ${day(offer.freeUntil)}. Continue it on the studio's website, free until then.`}
+        </Text>
       ) : null}
       {live.length ? <Text>Manage your subscription on the studio's website.</Text> : null}
     </Screen>

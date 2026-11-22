@@ -36,9 +36,19 @@ export const TRIAL_HOLD_AFTER_EXPIRY_MS = 15 * 60_000;
  * - `permission`: staff starting it without `subscriptions:manage`, or not a person;
  * - `held`: another page with the trial is open for the holder (someone else opened it, or for
  *   another plan record);
- * - `unconfirmed`: the provider could not be asked whether an earlier page was completed.
+ * - `unconfirmed`: the provider could not be asked whether an earlier page was completed;
+ * - `continuation`: the holder has a continuation offer on this plan object (ADR 0492): they are
+ *   continuing a subscription from elsewhere, not trying the plan, so they get its free time (until
+ *   their paid-up date) and never the trial, even once the offer has expired or been taken.
  */
-export const NO_TRIAL_REASONS = ["sign_in", "used", "permission", "held", "unconfirmed"] as const;
+export const NO_TRIAL_REASONS = [
+  "sign_in",
+  "used",
+  "permission",
+  "held",
+  "unconfirmed",
+  "continuation",
+] as const;
 export type NoTrial = (typeof NO_TRIAL_REASONS)[number];
 
 export interface OpenPage {
@@ -85,8 +95,28 @@ export async function trialUsed(
   return Boolean(had);
 }
 
+/**
+ * Whether `holderPersonId` has a continuation offer on `planObject` that staff have not withdrawn
+ * (open, held, taken or expired): a continuing subscriber, who never gets the plan's trial (ADR
+ * 0492; owner decision 7: the continuation replaces the trial).
+ */
+export async function hasContinuation(
+  ctx: Pick<HandlerContext, "db">,
+  holderPersonId: string,
+  planObject: string,
+): Promise<boolean> {
+  const offer = await ctx.db
+    .selectFrom("core_subscription_offer")
+    .select("id")
+    .where("person_id", "=", holderPersonId)
+    .where("plan_object", "=", planObject)
+    .where("withdrawn_at", "is", null)
+    .executeTakeFirst();
+  return Boolean(offer);
+}
+
 /** The provider's word on one page: open, complete, expired, or null when it cannot be asked. */
-async function pageStatus(
+export async function pageStatus(
   ctx: HandlerContext,
   target: PaymentsTarget,
   ref: string,
@@ -128,6 +158,9 @@ export async function decideTrial(
   if (start.allowed === "no_permission") return { give: false, reason: "permission" };
   if (await trialUsed(ctx, start.holderPersonId, start.planObject)) {
     return { give: false, reason: "used" };
+  }
+  if (await hasContinuation(ctx, start.holderPersonId, start.planObject)) {
+    return { give: false, reason: "continuation" };
   }
   const pending = await ctx.db
     .selectFrom("core_subscription_trial")

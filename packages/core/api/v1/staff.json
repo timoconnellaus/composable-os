@@ -48768,7 +48768,9 @@
       },
       "invalidates": [
         "subscription.get",
-        "subscription.list"
+        "subscription.list",
+        "subscription.offer.export",
+        "subscription.offer.list"
       ]
     },
     {
@@ -49242,6 +49244,501 @@
       "invalidates": []
     },
     {
+      "name": "subscription.offer.export",
+      "description": "The continuation offers report as a CSV file (every offer, or those of one status): email, name, the old platform's reference, paid up to, status, when it was taken, when the new subscription starts charging, and the subscription. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "taken",
+              "expired",
+              "withdrawn"
+            ]
+          },
+          "planObject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "csv": {
+            "type": "string"
+          },
+          "rowCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "filename",
+          "csv",
+          "rowCount"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "subscription.offer.import",
+      "description": "Import up to 50 continuation offers for one plan: people subscribed on another platform, each an email address and the date they have paid up to there. Each person signs in as that address and subscribes again, free until the date, then charged; never a trial on top. Addresses are matched to the one live person who has them (import the people first; none is created). The address is the key: a re-run changes nothing, a changed date updates an offer not yet taken, and an offer taken or withdrawn since is a conflict, kept. A date is the start of that day in the organisation's time zone. dryRun checks everything and says what would happen, writing nothing. invite also invites each address to sign in (customer.invite; needs users:manage). A person's door: cos subscriptions offers import runs it.",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "description": "The plan's object (one sold every period)"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The plan"
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ]
+          },
+          "rows": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "maxLength": 320
+                },
+                "freeUntil": {
+                  "type": "string",
+                  "maxLength": 40,
+                  "description": "The date they have paid up to (YYYY-MM-DD), or a moment with its offset"
+                },
+                "reference": {
+                  "description": "The other platform's reference for the old subscription",
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "email",
+                "freeUntil"
+              ]
+            }
+          },
+          "dryRun": {
+            "default": false,
+            "type": "boolean"
+          },
+          "invite": {
+            "default": false,
+            "description": "Invite each matched address to sign in as a customer (needs users:manage)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "plan",
+          "rows"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": [
+                    "created",
+                    "updated",
+                    "unchanged",
+                    "unmatched",
+                    "several_people",
+                    "invalid",
+                    "conflict"
+                  ]
+                },
+                "offerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "personId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "freeUntil": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "signIn": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "invited",
+                        "invited_before",
+                        "has_account"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "email",
+                "outcome",
+                "offerId",
+                "personId",
+                "freeUntil",
+                "note",
+                "signIn"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "subscription.get",
+        "subscription.list",
+        "subscription.offer.export",
+        "subscription.offer.list"
+      ]
+    },
+    {
+      "name": "subscription.offer.list",
+      "description": "The continuation offers report, by address: who has taken their offer (with the date their new subscription starts charging), so the company ends exactly those old subscriptions on the other platform at their period's end, and who has not, to chase before their date. Filter by status (taken, open, expired, withdrawn) and plan object. counts gives every status's total. Pass nextCursor back as cursor for the next page. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "taken",
+              "expired",
+              "withdrawn"
+            ]
+          },
+          "planObject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "personName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "planObject": {
+                  "type": "string"
+                },
+                "planId": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "freeUntil": {
+                  "type": "string",
+                  "description": "The date they paid up to elsewhere: free until then"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "taken",
+                    "expired",
+                    "withdrawn"
+                  ],
+                  "description": "taken (end their old subscription), open (not yet: chase them before the date), expired (the date passed untaken), withdrawn"
+                },
+                "held": {
+                  "type": "boolean",
+                  "description": "A checkout from it is open at the provider"
+                },
+                "takenAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "subscriptionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "subscriptionState": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "chargesFrom": {
+                  "description": "When the new subscription starts charging (taken offers only)",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "chargedFromStart": {
+                  "type": "boolean",
+                  "description": "Taken with under 48 hours left, so charged at once with no free time"
+                },
+                "subscribedWithout": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "state",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Not taken, but subscribed to the plan another way (charged, no free time)"
+                },
+                "withdrawnAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "withdrawReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "email",
+                "personId",
+                "personName",
+                "planObject",
+                "planId",
+                "reference",
+                "freeUntil",
+                "status",
+                "held",
+                "takenAt",
+                "subscriptionId",
+                "subscriptionState",
+                "chargesFrom",
+                "chargedFromStart",
+                "subscribedWithout",
+                "withdrawnAt",
+                "withdrawReason",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "open": {
+                "type": "number"
+              },
+              "taken": {
+                "type": "number"
+              },
+              "expired": {
+                "type": "number"
+              },
+              "withdrawn": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "open",
+              "taken",
+              "expired",
+              "withdrawn"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor",
+          "counts"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "subscription.offer.withdraw",
+      "description": "Withdraw a continuation offer that has not been taken, with a reason: it can no longer be taken. A checkout already open from it can still be completed at the provider; staff are told if it is. A person decides, not an AI assistant.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Offer id (sof_…)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "pageOpen": {
+            "type": "boolean",
+            "description": "A checkout from it was open and may still be completed"
+          }
+        },
+        "required": [
+          "id",
+          "pageOpen"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "subscription.get",
+        "subscription.list",
+        "subscription.offer.export",
+        "subscription.offer.list"
+      ]
+    },
+    {
       "name": "subscription.resume",
       "description": "Keep a subscription going that was set to end when its period does, before that happens: the provider charges the next period as usual. A signed-in customer resumes their own; staff any, with the subscriptions:manage permission. An end date set at the provider another way is refused: staff change it there. Asked of the payment provider: the subscription shows it once the provider confirms. A person decides, not an AI assistant.",
       "risk": "write",
@@ -49283,12 +49780,14 @@
       },
       "invalidates": [
         "subscription.get",
-        "subscription.list"
+        "subscription.list",
+        "subscription.offer.export",
+        "subscription.offer.list"
       ]
     },
     {
       "name": "subscription.start",
-      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
+      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. A signed-in customer with a continuation offer (moving their subscription from another platform) takes it with `offerId`: free until their paid-up date, then charged, with no trial on top; with under 48 hours left it is charged at once. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -49328,6 +49827,12 @@
             "description": "The payer's email. Required unless the caller is a signed-in customer.",
             "type": "string",
             "maxLength": 320
+          },
+          "offerId": {
+            "description": "Take your continuation offer (subscription.offer.mine): free until its date, then charged. A signed-in customer's own offer only.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           }
         },
         "required": [
@@ -49366,6 +49871,13 @@
               "null"
             ]
           },
+          "freeUntil": {
+            "description": "Free until this moment (a continuation offer taken), then charged; else null",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "noTrial": {
             "anyOf": [
               {
@@ -49375,14 +49887,15 @@
                   "used",
                   "permission",
                   "held",
-                  "unconfirmed"
+                  "unconfirmed",
+                  "continuation"
                 ]
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already), permission (staff without subscriptions:manage), held (another page with the trial is open for this person), unconfirmed (the payment provider could not say whether an earlier page was completed; try again later for the trial). Null otherwise"
+            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already), permission (staff without subscriptions:manage), held (another page with the trial is open for this person), unconfirmed (the payment provider could not say whether an earlier page was completed; try again later for the trial), continuation (this person has a continuation offer on this plan: they get its free time, never the trial). Null otherwise"
           },
           "expiresAt": {
             "type": [
@@ -49398,6 +49911,7 @@
           "currency",
           "interval",
           "trialDays",
+          "freeUntil",
           "noTrial",
           "expiresAt"
         ],
@@ -49405,7 +49919,9 @@
       },
       "invalidates": [
         "subscription.get",
-        "subscription.list"
+        "subscription.list",
+        "subscription.offer.export",
+        "subscription.offer.list"
       ]
     },
     {

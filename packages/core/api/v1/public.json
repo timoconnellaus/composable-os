@@ -971,7 +971,7 @@
     },
     {
       "name": "subscription.start",
-      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
+      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. A signed-in customer with a continuation offer (moving their subscription from another platform) takes it with `offerId`: free until their paid-up date, then charged, with no trial on top; with under 48 hours left it is charged at once. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
       "risk": "write",
       "audiences": ["public"],
       "kind": "mutation",
@@ -1006,6 +1006,12 @@
             "description": "The payer's email. Required unless the caller is a signed-in customer.",
             "type": "string",
             "maxLength": 320
+          },
+          "offerId": {
+            "description": "Take your continuation offer (subscription.offer.mine): free until its date, then charged. A signed-in customer's own offer only.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           }
         },
         "required": ["plan", "returnUrl"]
@@ -1034,17 +1040,21 @@
             "description": "The free days given; null: charged from the start",
             "type": ["number", "null"]
           },
+          "freeUntil": {
+            "description": "Free until this moment (a continuation offer taken), then charged; else null",
+            "type": ["string", "null"]
+          },
           "noTrial": {
             "anyOf": [
               {
                 "type": "string",
-                "enum": ["sign_in", "used", "permission", "held", "unconfirmed"]
+                "enum": ["sign_in", "used", "permission", "held", "unconfirmed", "continuation"]
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already), permission (staff without subscriptions:manage), held (another page with the trial is open for this person), unconfirmed (the payment provider could not say whether an earlier page was completed; try again later for the trial). Null otherwise"
+            "description": "Why the plan's trial was not given: sign_in (a guest: only a signed-in customer gets a trial), used (one trial per person per plan, had already), permission (staff without subscriptions:manage), held (another page with the trial is open for this person), unconfirmed (the payment provider could not say whether an earlier page was completed; try again later for the trial), continuation (this person has a continuation offer on this plan: they get its free time, never the trial). Null otherwise"
           },
           "expiresAt": {
             "type": ["string", "null"]
@@ -1057,6 +1067,7 @@
           "currency",
           "interval",
           "trialDays",
+          "freeUntil",
           "noTrial",
           "expiresAt"
         ],

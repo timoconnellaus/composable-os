@@ -2,7 +2,7 @@
   "name": "courses-native-subscription",
   "pack": "courses",
   "skin": "native",
-  "operations": ["subscription.list"],
+  "operations": ["subscription.list", "subscription.offer.mine"],
   "files": ["subscription-screen.tsx", "LICENSE"],
   "dependsOn": ["native-base"],
   "packages": {

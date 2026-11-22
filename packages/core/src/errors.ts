@@ -176,6 +176,21 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "trial_held" },
     );
   }
+  // A continuation offer's page held by another take a moment before, or the offer taken or
+  // withdrawn meanwhile (migration 0532, ADR 0491). Nothing of this take was recorded.
+  if (message.includes("core_subscription_offer_held")) {
+    return new ConflictError(
+      "A checkout for this offer was opened at the same moment, or the offer was taken or withdrawn. Start again.",
+      { rule: "offer_held" },
+    );
+  }
+  // Two imports writing one address's offer at once: the other one's is kept; run again.
+  if (message.includes("UNIQUE constraint failed: core_subscription_offer")) {
+    return new ConflictError(
+      "Another import wrote one of these offers at the same moment. Run the import again.",
+      { rule: "offer_key" },
+    );
+  }
   // A move judged from a position the record has since left (ADR 0437): another write moved it
   // first, and this one's history row would be a second current one. Nothing was applied.
   if (

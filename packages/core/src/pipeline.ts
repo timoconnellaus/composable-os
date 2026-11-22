@@ -1503,6 +1503,10 @@ function outsideError(error: unknown): OperationError {
   if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "trial_held") {
     return typed;
   }
+  // The same for a continuation offer's page (migration 0532, ADR 0491): the caller's own offer.
+  if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "offer_held") {
+    return typed;
+  }
   console.error("outside call failed", errorForLog(error));
   if (typed.code === "conflict")
     return new ConflictError("A record with that value already exists");

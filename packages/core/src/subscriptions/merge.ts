@@ -57,5 +57,12 @@ export async function queueMergeSubscriptions(
       .updateTable("core_subscription_trial")
       .set({ holder_person_id: survivorId })
       .where("holder_person_id", "=", mergedId),
+    // Continuation offers (ADR 0491): still tied to their address, now the survivor's Person. One
+    // is taken only by a customer signed in as that address, so an offer under an address the
+    // survivor's account does not sign in with waits for staff to import it under that one.
+    ctx.db
+      .updateTable("core_subscription_offer")
+      .set({ person_id: survivorId })
+      .where("person_id", "=", mergedId),
   );
 }

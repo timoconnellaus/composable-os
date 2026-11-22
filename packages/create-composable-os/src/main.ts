@@ -116,6 +116,16 @@ A client repo (stage 24)
                                          old course platform, as you; checks first, uploads nothing
                                          twice on a re-run, keeps a student's own progress
                                          (docs/importing.md)
+  cos subscriptions offers import <offers.csv> --host <url> --plan <object>[:<id>]
+                     [--email <you>] [--dry-run] [--invite]
+                                         continuation offers for people subscribed on another
+                                         platform (email, paid-up date): each signs in and
+                                         subscribes again, free until that date; people come
+                                         first, none is created; --invite lets them sign in under
+                                         any sign-up setting (docs/importing.md)
+  cos subscriptions offers report --host <url> [--status taken] [--out <file.csv>]
+                                         who has taken their offer and when they are charged from,
+                                         so you end exactly those old subscriptions
 
 Installing a product with no client repo
   cos install [options]                  install, or repair an existing install (idempotent)
@@ -214,6 +224,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "with-mobile",
       "dry-run",
       "publish",
+      "invite",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {
@@ -1384,10 +1395,58 @@ async function courses(argv: string[], deps: Deps): Promise<number> {
   }
 }
 
+/**
+ * `cos subscriptions offers import <offers.csv>` and `cos subscriptions offers report` (stage 32a,
+ * ADRs 0491 and 0492): continuation offers for subscribers moving from another platform.
+ */
+async function subscriptions(argv: string[], deps: Deps): Promise<number> {
+  const { OFFERS_USAGE, offersImport, offersReport } = await import("./offers-import/run.ts");
+  if (argv[0] !== "offers" || (argv[1] !== "import" && argv[1] !== "report")) {
+    deps.io.err(OFFERS_USAGE);
+    return 2;
+  }
+  const rest = argv.slice(2);
+  const positional = argv[1] === "import" && rest[0] && !rest[0].startsWith("-") ? [rest[0]] : [];
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs([argv[1] as string, ...rest.slice(positional.length)]);
+  } catch (error) {
+    deps.io.err((error as Error).message);
+    return 2;
+  }
+  const flag = (name: string) => {
+    const value = str(parsed.flags, name);
+    return value !== undefined ? { [name]: value } : {};
+  };
+  try {
+    if (argv[1] === "report") {
+      return await offersReport(
+        { ...flag("host"), ...flag("email"), ...flag("status"), ...flag("out") },
+        deps.io,
+      );
+    }
+    return await offersImport(
+      positional,
+      {
+        ...flag("host"),
+        ...flag("email"),
+        ...flag("plan"),
+        dryRun: Boolean(parsed.flags["dry-run"]),
+        invite: Boolean(parsed.flags.invite),
+      },
+      deps.io,
+    );
+  } catch (error) {
+    deps.io.err(`Error: ${(error as Error).message}`);
+    return 1;
+  }
+}
+
 export async function runCli(argv: string[], input: Deps): Promise<number> {
   const deps = input;
   if (argv[0] === "content") return content(argv.slice(1), deps);
   if (argv[0] === "courses") return courses(argv.slice(1), deps);
+  if (argv[0] === "subscriptions") return subscriptions(argv.slice(1), deps);
   if (argv[0] === "ext") return ext(argv.slice(1), deps);
   if (argv[0] === "client") return client(argv.slice(1), deps);
   // Commands that take one argument before their flags (stage 24).

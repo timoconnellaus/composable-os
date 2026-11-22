@@ -28,7 +28,14 @@ import { taxCodeOf } from "../orders/tax.ts";
 import { holdsPermission } from "../principals.ts";
 import { callerOf } from "../records/transitions.ts";
 import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
-import { decideTrial, holdTrialStatement, type NoTrial, readableInstant } from "./trial.ts";
+import { holdOfferStatements, prepareOfferTake } from "./offers.ts";
+import {
+  decideTrial,
+  holdTrialStatement,
+  type NoTrial,
+  readableInstant,
+  type TrialDecision,
+} from "./trial.ts";
 
 /** States in which a subscription still runs (and so can be ended at its period's end). */
 export const RUNNING: ReadonlySet<SubscriptionState> = new Set(["trialing", "active", "past_due"]);
@@ -49,6 +56,8 @@ export interface StartedSubscription {
   currency: string;
   interval: "week" | "month" | "year";
   trialDays: number | null;
+  /** Free until this moment (a continuation offer taken), then charged; null otherwise. */
+  freeUntil: string | null;
   /** Why the plan's trial was not given: a guest (`sign_in`), or the holder had one (`used`). */
   noTrial: NoTrial | null;
   expiresAt: string | null;
@@ -62,10 +71,23 @@ export interface StartedSubscription {
  */
 export async function startSubscription(
   ctx: HandlerContext,
-  input: { plan: { object: string; id: string }; returnUrl: string; email?: string | undefined },
+  input: {
+    plan: { object: string; id: string };
+    returnUrl: string;
+    email?: string | undefined;
+    offerId?: string | undefined;
+  },
 ): Promise<StartedSubscription> {
   requireReturnUrl(input.returnUrl, await loadReturnOrigins(ctx.db));
   const caller = ctx.principal;
+  // A continuation offer is taken by its own person only, signed in as its address (ADR 0491):
+  // never a guest who typed it, never staff for someone.
+  if (input.offerId !== undefined && caller.kind !== "customer") {
+    throw new ValidationError(
+      "A continuation offer is taken by its own person, signed in as the address it is for",
+      { field: "offerId", rule: "offer_sign_in" },
+    );
+  }
   let personId: string | null;
   let email: string;
   if (caller.kind === "customer") {
@@ -147,18 +169,43 @@ export async function startSubscription(
       : caller.kind === "staff"
         ? `staff:${caller.userId}`
         : "public";
-  const decision = await decideTrial(
-    ctx,
-    {
-      holderPersonId: personId,
-      planObject: plan.object,
-      planId: plan.recordId,
-      caller: openedBy,
-      allowed,
-      target,
-    },
-    plan.recurring.trialDays,
-  );
+  // Taking a continuation offer: free until its date, never the plan's trial (ADR 0492).
+  const offer = input.offerId
+    ? await prepareOfferTake(ctx, {
+        offerId: input.offerId,
+        personId,
+        email,
+        plan: { object: plan.object, id: plan.recordId },
+        target,
+      })
+    : null;
+  if (offer && "open" in offer) {
+    return {
+      subscriptionId: offer.open.checkoutId,
+      url: offer.open.url,
+      amount: offer.open.amount,
+      currency,
+      interval: plan.recurring.interval,
+      trialDays: null,
+      freeUntil: offer.open.freeUntil,
+      noTrial: null,
+      expiresAt: offer.open.expiresAt,
+    };
+  }
+  const decision: TrialDecision = offer
+    ? { give: false, reason: null }
+    : await decideTrial(
+        ctx,
+        {
+          holderPersonId: personId,
+          planObject: plan.object,
+          planId: plan.recordId,
+          caller: openedBy,
+          allowed,
+          target,
+        },
+        plan.recurring.trialDays,
+      );
   if ("open" in decision) {
     // The caller's own page for this plan, with its trial, is still open at the provider: that
     // page again, with the terms it was opened with, so a second page cannot give a second trial.
@@ -169,11 +216,13 @@ export async function startSubscription(
       currency,
       interval: plan.recurring.interval,
       trialDays: decision.open.trialDays,
+      freeUntil: null,
       noTrial: null,
       expiresAt: decision.open.expiresAt,
     };
   }
   const trialDays = decision.give ? plan.recurring.trialDays : null;
+  const trialEnd = offer && "offerId" in offer ? offer.trialEnd : null;
   const id = newId("subscription");
   const request: SubscriptionCheckoutRequest = {
     subscriptionId: id,
@@ -186,6 +235,7 @@ export async function startSubscription(
     ...(earlier ? { customerRef: earlier } : {}),
     customerEmail: email,
     ...(trialDays ? { trialDays } : {}),
+    ...(trialEnd ? { trialEnd } : {}),
     idempotencyKey: id,
     ...(taxCode ? { tax: { behavior: "inclusive" as const, taxCode } } : {}),
   };
@@ -221,13 +271,30 @@ export async function startSubscription(
       currency,
       interval: plan.recurring.interval,
       trial_days: trialDays,
+      trial_end: trialEnd,
       tax_code: taxCode,
+      offer_id: offer && "offerId" in offer ? offer.offerId : null,
       created_at: ctx.now,
     }),
   );
   // Read defensively: a moment that is not one is reported as none, never thrown on after the
   // page was opened (the gatekeeper validates it too).
   const expiresAt = readableInstant(opened.expiresAt);
+  if (offer && "offerId" in offer) {
+    // The offer holds this page; refused by the database if another take held one first, or the
+    // offer was taken or withdrawn meanwhile (the whole batch fails: nothing of this start is
+    // recorded, and the page is never handed out).
+    ctx.write(
+      ...holdOfferStatements(ctx, {
+        offerId: offer.offerId,
+        releaseCheckoutId: offer.releaseCheckoutId,
+        checkoutId: id,
+        checkoutRef: opened.ref,
+        url: opened.url,
+        expiresAt,
+      }),
+    );
+  }
   if (trialDays) {
     // Held while the page can be completed; refused by the database if another start took it
     // first (the whole batch fails, so nothing of this start is recorded).
@@ -253,6 +320,7 @@ export async function startSubscription(
     currency,
     interval: plan.recurring.interval,
     trialDays,
+    freeUntil: trialEnd,
     noTrial: decision.give ? null : decision.reason,
     expiresAt,
   };

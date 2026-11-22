@@ -460,7 +460,63 @@ async function createFromCheckout(
   });
   postSubscriptionMove(ctx, row, null);
   await trialConfirmed(ctx, row);
+  if (checkout.offer_id) await offerConfirmed(ctx, checkout.offer_id, checkout.trial_end, row);
   return { row };
+}
+
+/**
+ * The provider confirmed a subscription opened from a continuation offer: the offer is taken,
+ * by this subscription, in the event's batch (ADR 0491). One the hold could not stop (taken by
+ * another subscription already, or withdrawn while its page was open) tells staff.
+ */
+async function offerConfirmed(
+  ctx: HandlerContext,
+  offerId: string,
+  trialEnd: string | null,
+  row: SubscriptionRow,
+): Promise<void> {
+  const offer = await ctx.db
+    .selectFrom("core_subscription_offer")
+    .select(["id", "email", "subscription_id", "withdrawn_at"])
+    .where("id", "=", offerId)
+    .executeTakeFirst();
+  // Erased since: nothing to mark.
+  if (!offer) return;
+  if (offer.subscription_id && offer.subscription_id !== row.id) {
+    await tellStaff(
+      ctx,
+      "A continuation offer was taken twice",
+      `Subscription ${row.id} (${row.plan_title}) was opened from the continuation offer for ` +
+        `${offer.email}, which subscription ${offer.subscription_id} had already taken. The ` +
+        "provider has given its free time: end it in the provider's dashboard if it should not run.",
+      row.id,
+      `subscription.offer_twice:${row.provider}:${row.id}`,
+    );
+    return;
+  }
+  ctx.write(
+    ctx.db
+      .updateTable("core_subscription_offer")
+      .set({
+        subscription_id: row.id,
+        taken_at: ctx.now,
+        charged_from_start: trialEnd ? 0 : 1,
+        updated_at: ctx.now,
+      })
+      .where("id", "=", offerId)
+      .where("subscription_id", "is", null),
+  );
+  if (offer.withdrawn_at) {
+    await tellStaff(
+      ctx,
+      "A withdrawn continuation offer was taken",
+      `The continuation offer for ${offer.email} was withdrawn while its checkout was open, and ` +
+        `the checkout was completed: subscription ${row.id} (${row.plan_title}) has its free ` +
+        "time. End it in the provider's dashboard if it should not run.",
+      row.id,
+      `subscription.offer_withdrawn_taken:${row.provider}:${row.id}`,
+    );
+  }
 }
 
 /**
