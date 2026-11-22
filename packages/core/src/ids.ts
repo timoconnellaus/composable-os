@@ -68,6 +68,8 @@ export const ID_PREFIXES = {
   subscription: "sbs",
   /** A continuation offer: free until a date for a subscriber moving from elsewhere (ADR 0491). */
   subscriptionOffer: "sof",
+  /** A plan change or a pause the host asked a subscription's provider for (ADRs 0530, 0531). */
+  subscriptionChange: "sbc",
   /** A native app's signed-in session on the HTTP surface (stage 23, ADR 0419). */
   deviceSession: "dvs",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */

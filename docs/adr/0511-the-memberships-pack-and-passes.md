@@ -90,3 +90,10 @@ admission does) is an open check for the test-mode runbook.
 ## Not done here
 Plan changes and pauses, the Memberships dashboard and the rest of the Person tab, `cos memberships
 import` and the subscription import (steps 7 and 8).
+
+## Note (2026-11-22, stage 32b steps 6 and 7)
+Plan changes and pauses are [ADR 0530](0530-plan-changes-upgrade-now-downgrade-next-period.md) and
+[ADR 0531](0531-staff-pause-a-membership-for-a-set-time.md): the plan gains `pauseMinDays` and
+`pauseMaxDays` (`sellable.recurring.pause`). The dashboard, the new views and the blocks' plan
+change and pause are [ADR 0532](0532-the-memberships-dashboard-and-staff-side.md). The import
+(step 8) is still to come.

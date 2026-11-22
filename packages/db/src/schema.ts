@@ -1749,6 +1749,38 @@ export interface CoreSubscriptionGrantTable {
 }
 
 /**
+ * Migration 0630 (stage 32b, ADRs 0530 and 0531): a plan change or a pause the host asked the
+ * provider for, and how far it has got.
+ */
+export interface CoreSubscriptionChangeTable {
+  id: string;
+  subscription_id: string;
+  kind: "upgrade" | "downgrade" | "pause";
+  state: "requested" | "waiting" | "applied" | "lapsed" | "withdrawn";
+  from_plan_id: string;
+  from_plan_title: string;
+  from_amount: number;
+  to_plan_id: string | null;
+  to_plan_title: string | null;
+  to_amount: number | null;
+  pause_from: Timestamp | null;
+  pause_until: Timestamp | null;
+  effective_at: Timestamp | null;
+  expires_at: Timestamp;
+  call_outcome: "sent" | "pending" | "unknown" | "refused" | null;
+  call_error: string | null;
+  action_url: string | null;
+  end_outcome: "sent" | "pending" | "unknown" | "refused" | null;
+  end_error: string | null;
+  end_at: Timestamp | null;
+  reason: string;
+  requested_by: string;
+  requested_at: Timestamp;
+  applied_at: Timestamp | null;
+  updated_at: Timestamp;
+}
+
+/**
  * Migration 0581 (stage 32b, ADR 0512): a Person's one purchase of something sold once per Person
  * (an intro offer), held from the order's start, used when it is paid, released when it expires.
  */
@@ -2374,6 +2406,7 @@ export interface CoreDatabase {
   core_subscription_trial: CoreSubscriptionTrialTable;
   core_subscription_offer: CoreSubscriptionOfferTable;
   core_subscription_grant: CoreSubscriptionGrantTable;
+  core_subscription_change: CoreSubscriptionChangeTable;
   core_sellable_once: CoreSellableOnceTable;
   core_order_refund: CoreOrderRefundTable;
   core_automations: CoreAutomationsTable;

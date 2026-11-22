@@ -4,9 +4,11 @@
   "skin": "web",
   "operations": [
     "x.memberships.mine",
+    "x.memberships.plans",
     "subscription.list",
     "subscription.cancel",
     "subscription.resume",
+    "subscription.change",
     "subscription.portal"
   ],
   "files": ["mine.tsx", "LICENSE"],

@@ -36,6 +36,15 @@ export interface Gateway {
   statusAsks: string[];
   /** What the next subscription checkout reports as its expiry (a test may make it malformed). */
   nextExpiresAt: unknown;
+  /**
+   * Stage 32b: how the next plan change, pause or unpause goes at the gatekeeper: applied (the
+   * default), refused with nothing changed, an unknown outcome, or the call itself failing.
+   */
+  nextChange: "applied" | "refused" | "unknown" | "throw";
+  /** Stage 32b second review: what the provider's subscription reads as (getSubscription). */
+  providerReads: Map<string, Record<string, unknown>>;
+  /** Run before the next plan change, pause or unpause answers (a verified read landing meanwhile). */
+  beforeAnswer: (() => Promise<void>) | null;
 }
 
 export interface PaymentsDouble {
@@ -89,6 +98,9 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
     pages: new Map(),
     statusAsks: [],
     nextExpiresAt: null,
+    nextChange: "applied",
+    providerReads: new Map(),
+    beforeAnswer: null,
   };
   let connectionId = "";
   const no = () => Promise.reject(new Error("not used in this test"));
@@ -139,22 +151,71 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
         if (status === "error") throw new Error("the provider did not answer");
         return { value: { ref, status }, pending: [], applied: [] };
       }
+      if (input.method === "getSubscription") {
+        const ref = String(input.args[0]);
+        const read = gw.providerReads.get(ref);
+        if (!read) throw new Error("the provider has no such subscription");
+        return { value: read, pending: [], applied: [] };
+      }
       if (
         input.method === "cancelSubscription" ||
         input.method === "resumeSubscription" ||
+        input.method === "changeSubscription" ||
+        input.method === "pauseSubscription" ||
+        input.method === "unpauseSubscription" ||
+        input.method === "voidPendingUpdate" ||
         input.method === "openPortal"
       ) {
         gw.changes.push({
           method: input.method,
           request: input.args[0] as Record<string, unknown>,
         });
+        const changing =
+          input.method === "changeSubscription" ||
+          input.method === "pauseSubscription" ||
+          input.method === "unpauseSubscription" ||
+          input.method === "voidPendingUpdate";
+        const how = changing ? gw.nextChange : "applied";
+        if (changing) gw.nextChange = "applied";
+        if (changing && gw.beforeAnswer) {
+          const hook = gw.beforeAnswer;
+          gw.beforeAnswer = null;
+          await hook();
+        }
+        if (how === "throw") throw new Error("the gatekeeper did not answer");
+        const action = {
+          action: gw.changes.length,
+          actionKind: `payments.${input.method}`,
+          title: "x",
+        };
         return {
           value:
             input.method === "openPortal"
               ? { url: "https://billing.example/portal" }
-              : { status: "sent", id: gw.changes.length },
+              : { status: how === "applied" ? "sent" : "pending", id: gw.changes.length },
           pending: [],
-          applied: [],
+          applied: changing && how !== "applied" ? [] : [action],
+          ...(how === "refused"
+            ? {
+                failed: [
+                  {
+                    ...action,
+                    outcome: "refused" as const,
+                    message: "Refused by the provider.",
+                  },
+                ],
+              }
+            : how === "unknown"
+              ? {
+                  failed: [
+                    {
+                      ...action,
+                      outcome: "unknown" as const,
+                      message: "The provider did not answer.",
+                    },
+                  ],
+                }
+              : {}),
         };
       }
       if (input.method === "send") {

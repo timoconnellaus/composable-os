@@ -237,6 +237,14 @@ hours and 15 minutes left, and charges at once below that. The checks this ADR l
 test mode are in [`docs/subscriptions-stripe-runbook.md`](../subscriptions-stripe-runbook.md), with
 what each answer means.
 
+## Note (2026-11-22, stage 32b plan changes and pauses)
+The gatekeeper gains `changeSubscription`, `pauseSubscription` and `unpauseSubscription`, outbound
+actions `payments.subscription.change`, `.pause` and `.unpause`, never auto-approvable, applied at
+once for the host's own call as cancel is ([ADRs 0530](0530-plan-changes-upgrade-now-downgrade-next-period.md)
+and [0531](0531-staff-pause-a-membership-for-a-set-time.md)). A read at the price of a plan change
+the host asked for is not "terms changed at the provider". The host's own calls for both are made
+after the operation's batch commits (`afterCommit`), so a refused batch and a dry run ask nothing.
+
 ## Note (2026-11-22, stage 32b build step 6)
 "32b adds what a subscription grants" is built: `sellable.recurring.grants` ([ADR
 0510](0510-what-a-subscription-grants.md)), a record of the plan's pack made and moved by the

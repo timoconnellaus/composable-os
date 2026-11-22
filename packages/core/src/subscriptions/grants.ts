@@ -104,6 +104,8 @@ async function tellStaff(ctx: HandlerContext, row: SubscriptionRow, title: strin
 export async function followSubscriptionGrant(
   ctx: HandlerContext,
   row: SubscriptionRow,
+  /** `planChanged`: the member now holds another plan (ADR 0530): its terms are copied again. */
+  options: { planChanged?: boolean } = {},
 ): Promise<void> {
   const declared = grantsOf(row.plan_object);
   if (!declared) return;
@@ -185,6 +187,17 @@ export async function followSubscriptionGrant(
   if (typeof now === "string" && finals.has(now)) return;
   const change: Record<string, unknown> = {};
   if (state && now !== state) change[object.states.field] = state;
+  if (options.planChanged) {
+    // The plan's terms as they are now, for every field the grant fills from the plan (the plan
+    // itself, its uses, its period, its limits): the allowance follows the plan from the change.
+    const planRow = await readGrantItem(ctx, plan, row.plan_id);
+    for (const [field, source] of Object.entries(grants.set)) {
+      if (source === "item") change[field] = row.plan_id;
+      else if (source.startsWith("item.")) {
+        change[field] = grantFieldValue(plan, planRow, source.slice(5));
+      }
+    }
+  }
   if (grants.until && untilColumn) {
     const stored = current[untilColumn];
     // Compared as moments: the stored text and the read's may differ in their milliseconds.

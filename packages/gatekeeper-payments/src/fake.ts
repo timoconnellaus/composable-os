@@ -12,10 +12,12 @@ import { randomId, verifySignatureHeader } from "./signature.js";
 import { subscriptionEvent } from "./subscription-shape.js";
 import type {
   PaymentsCancelSubscriptionInput,
+  PaymentsChangeSubscriptionInput,
   PaymentsCheckoutTax,
   PaymentsEvent,
   PaymentsInterval,
   PaymentsInvoice,
+  PaymentsPauseSubscriptionInput,
   PaymentsPayment,
   PaymentsPortalInput,
   PaymentsResumeSubscriptionInput,
@@ -24,6 +26,8 @@ import type {
   PaymentsSubscriptionStatus,
   PaymentsSubscriptionTrigger,
   PaymentsTaxReport,
+  PaymentsUnpauseSubscriptionInput,
+  PaymentsVoidUpdateInput,
 } from "./types.js";
 
 const CHECKOUT_LIFETIME_MS = 30 * 60 * 1000;
@@ -143,6 +147,15 @@ export type FakeSubscription = {
   billingCountry: string | null;
   createdAt: string;
   invoices: FakeInvoice[];
+  /** Stage 32b (ADR 0530): the payer's card declines every charge until told otherwise. */
+  declines?: boolean;
+  /** An upgrade waiting on its prorated charge (Stripe's pending update): the price it applies. */
+  pendingAmount?: number | null;
+  /** A pause (ADR 0531): when it starts (null once it has) and when the provider resumes it. */
+  pauseAt?: string | null;
+  resumeAt?: string | null;
+  /** The unused time of the period paused in, credited on the resumption invoice. */
+  pauseCredit?: number;
 };
 
 /**
@@ -160,7 +173,13 @@ export type FakeSubscriptionStep =
   | "recover"
   | "action_required"
   | "give_up"
-  | "trial_will_end";
+  | "trial_will_end"
+  // Stage 32b: the card starts or stops declining; a scheduled pause starts; the pause ends on
+  // its date and the provider charges the new period.
+  | "card_declines"
+  | "card_works"
+  | "pause_starts"
+  | "pause_ends";
 
 /** The period after `from`, in UTC. */
 export function addInterval(from: string, interval: PaymentsInterval): string {
@@ -487,6 +506,152 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     return { ok: true, deliveries: [this.#delivery("updated", sub)] };
   }
 
+  /**
+   * A new price (stage 32b, ADR 0530). `now`: the rest of the period is invoiced at once, prorated
+   * on the time left, and the price changes only once that invoice is paid (Stripe's pending
+   * update); a decline leaves the old price and an open invoice. `next_period`: the price changes
+   * now and is charged from the next invoice, nothing prorated (Stripe's `proration_behavior=none`).
+   */
+  async changePrice(
+    input: PaymentsChangeSubscriptionInput,
+  ): Promise<{ ok: true; deliveries: FakeWebhookBody[] } | { ok: false; reason: string }> {
+    const sub = await this.getSubscription(input.subscriptionRef);
+    if (!sub) return { ok: false, reason: "no subscription has that reference" };
+    if (sub.status !== "active") return { ok: false, reason: `the subscription is ${sub.status}` };
+    // As Stripe's host-made schedule with a pause still to come refuses it (review of 32b).
+    if (sub.pauseAt) return { ok: false, reason: "a pause is scheduled" };
+    if (input.currency !== sub.currency || input.interval !== sub.interval) {
+      return { ok: false, reason: "the currency and interval stay the subscription's" };
+    }
+    const now = this.#tick();
+    if (input.when === "next_period") {
+      sub.amount = input.amount;
+      sub.pendingAmount = null;
+      this.#putSubscription(sub);
+      return { ok: true, deliveries: [this.#delivery("updated", sub)] };
+    }
+    if (sub.invoices.some((invoice) => invoice.status === "open")) {
+      return { ok: false, reason: "an invoice is still open" };
+    }
+    const start = Date.parse(sub.currentPeriodStart);
+    const end = Date.parse(sub.currentPeriodEnd);
+    const left = Math.max(0, end - Date.parse(now)) / Math.max(1, end - start);
+    const invoice = this.#invoice(sub, "subscription_update");
+    invoice.amountDue = Math.max(0, Math.round((input.amount - sub.amount) * left));
+    invoice.periodStart = now;
+    sub.invoices.push(invoice);
+    if (sub.declines) {
+      invoice.attemptCount = 1;
+      sub.pendingAmount = input.amount;
+      this.#putSubscription(sub);
+      return { ok: true, deliveries: [this.#delivery("invoice_payment_failed", sub, invoice)] };
+    }
+    this.#settle(sub, invoice);
+    sub.amount = input.amount;
+    sub.pendingAmount = null;
+    this.#putSubscription(sub);
+    return {
+      ok: true,
+      deliveries: [this.#delivery("updated", sub), this.#delivery("invoice_paid", sub, invoice)],
+    };
+  }
+
+  /**
+   * The provider's pause (stage 32b, ADR 0531): refused on trial, unpaid, paused, incomplete or
+   * ended, as Stripe's. Now: `paused` at once, the period cut at the pause and its unused time
+   * credited on the resumption invoice. Later: scheduled, nothing changes until `pause_starts`.
+   */
+  async pause(
+    input: PaymentsPauseSubscriptionInput,
+  ): Promise<{ ok: true; deliveries: FakeWebhookBody[] } | { ok: false; reason: string }> {
+    const sub = await this.getSubscription(input.subscriptionRef);
+    if (!sub) return { ok: false, reason: "no subscription has that reference" };
+    if (sub.status !== "active" && sub.status !== "past_due") {
+      return { ok: false, reason: `a ${sub.status} subscription cannot be paused` };
+    }
+    if (sub.pauseAt || sub.resumeAt) return { ok: false, reason: "a pause is already scheduled" };
+    sub.resumeAt = input.until;
+    if (input.from) {
+      sub.pauseAt = input.from;
+      this.#tick();
+      this.#putSubscription(sub);
+      return { ok: true, deliveries: [this.#delivery("updated", sub)] };
+    }
+    this.#startPause(sub);
+    this.#putSubscription(sub);
+    return { ok: true, deliveries: [this.#delivery("paused", sub)] };
+  }
+
+  /** Cancels an upgrade's pending update: voids its open invoice; refused when none is pending. */
+  async voidUpdate(
+    input: PaymentsVoidUpdateInput,
+  ): Promise<{ ok: true; deliveries: FakeWebhookBody[] } | { ok: false; reason: string }> {
+    const sub = await this.getSubscription(input.subscriptionRef);
+    if (!sub) return { ok: false, reason: "no subscription has that reference" };
+    // Nothing pending: nothing left to void (round three).
+    if (!sub.pendingAmount) return { ok: true, deliveries: [] };
+    const open = sub.invoices.find(
+      (invoice) => invoice.status === "open" && invoice.billingReason === "subscription_update",
+    );
+    if (sub.status !== "active" || !open) {
+      return { ok: false, reason: "the pending update is not an active subscription's upgrade" };
+    }
+    sub.invoices = sub.invoices.filter((invoice) => invoice !== open);
+    sub.pendingAmount = null;
+    this.#tick();
+    this.#putSubscription(sub);
+    return { ok: true, deliveries: [this.#delivery("updated", sub)] };
+  }
+
+  /** Ends a pause now, or withdraws one that has not started. */
+  async unpause(
+    input: PaymentsUnpauseSubscriptionInput,
+  ): Promise<{ ok: true; deliveries: FakeWebhookBody[] } | { ok: false; reason: string }> {
+    const sub = await this.getSubscription(input.subscriptionRef);
+    if (!sub) return { ok: false, reason: "no subscription has that reference" };
+    if (sub.status !== "paused") {
+      if (!sub.pauseAt) return { ok: false, reason: "the subscription is not paused" };
+      sub.pauseAt = null;
+      sub.resumeAt = null;
+      this.#tick();
+      this.#putSubscription(sub);
+      return { ok: true, deliveries: [this.#delivery("updated", sub)] };
+    }
+    return { ok: true, deliveries: this.#endPause(sub, this.#tick()) };
+  }
+
+  #startPause(sub: FakeSubscription): void {
+    const now = this.#tick();
+    const start = Date.parse(sub.currentPeriodStart);
+    const end = Date.parse(sub.currentPeriodEnd);
+    const left = Math.max(0, end - Date.parse(now)) / Math.max(1, end - start);
+    sub.pauseCredit = Math.round(sub.amount * left);
+    sub.status = "paused";
+    sub.pauseAt = null;
+    sub.currentPeriodEnd = now;
+  }
+
+  /** The pause ends at `at`: a new period from then, charged less the credit for the paused one. */
+  #endPause(sub: FakeSubscription, at: string): FakeWebhookBody[] {
+    sub.currentPeriodStart = at;
+    sub.currentPeriodEnd = addInterval(at, sub.interval);
+    sub.resumeAt = null;
+    const invoice = this.#invoice(sub, "subscription_cycle");
+    invoice.amountDue = Math.max(0, sub.amount - (sub.pauseCredit ?? 0));
+    sub.pauseCredit = 0;
+    sub.invoices.push(invoice);
+    if (sub.declines) {
+      // Stripe's resume_on_payment_success: a resumption whose payment fails stays paused.
+      invoice.attemptCount = 1;
+      invoice.status = "open";
+      this.#putSubscription(sub);
+      return [this.#delivery("invoice_payment_failed", sub, invoice)];
+    }
+    this.#settle(sub, invoice);
+    this.#putSubscription(sub);
+    return [this.#delivery("resumed", sub), this.#delivery("invoice_paid", sub, invoice)];
+  }
+
   /** Moves a subscription's schedule on by one step (tests and development only). */
   async stepSubscription(
     ref: string,
@@ -502,6 +667,24 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
       this.#tick();
       return { ok: true, deliveries: [this.#delivery("trial_will_end", sub)] };
     }
+    if (step === "card_declines" || step === "card_works") {
+      sub.declines = step === "card_declines";
+      this.#putSubscription(sub);
+      return { ok: true, deliveries: [] };
+    }
+    if (step === "pause_starts") {
+      if (!sub.pauseAt) return { ok: false, reason: "no pause is scheduled" };
+      this.#startPause(sub);
+      this.#putSubscription(sub);
+      return { ok: true, deliveries: [this.#delivery("paused", sub)] };
+    }
+    if (step === "pause_ends") {
+      if (sub.status !== "paused" || !sub.resumeAt) return { ok: false, reason: "not paused" };
+      const at = sub.resumeAt;
+      this.#tick();
+      return { ok: true, deliveries: this.#endPause(sub, at) };
+    }
+    if (sub.status === "paused") return { ok: false, reason: "the subscription is paused" };
     if (step === "give_up") {
       const now = this.#tick();
       Object.assign(sub, {
@@ -522,6 +705,11 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
         return { ok: true, deliveries: [this.#delivery("invoice_payment_failed", sub, open)] };
       }
       this.#settle(sub, open);
+      // An upgrade's pending update applies once its charge is paid.
+      if (open.billingReason === "subscription_update" && sub.pendingAmount) {
+        sub.amount = sub.pendingAmount;
+        sub.pendingAmount = null;
+      }
       this.#putSubscription(sub);
       out.push(this.#delivery("updated", sub), this.#delivery("invoice_paid", sub, open));
       return { ok: true, deliveries: out };
@@ -539,7 +727,7 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     sub.currentPeriodEnd = addInterval(end, sub.interval);
     const invoice = this.#invoice(sub, "subscription_cycle");
     sub.invoices.push(invoice);
-    if (step === "renew") {
+    if (step === "renew" && !sub.declines) {
       this.#settle(sub, invoice);
       this.#putSubscription(sub);
       out.push(this.#delivery("updated", sub), this.#delivery("invoice_paid", sub, invoice));
@@ -864,13 +1052,35 @@ export class FakeProvider implements PaymentProvider {
     await this.#change(input.subscriptionRef, "resume");
   }
 
+  async changeSubscription(input: PaymentsChangeSubscriptionInput): Promise<void> {
+    await this.#send(await this.#options.ledger.changePrice(input));
+  }
+
+  async pauseSubscription(input: PaymentsPauseSubscriptionInput): Promise<void> {
+    await this.#send(await this.#options.ledger.pause(input));
+  }
+
+  async unpauseSubscription(input: PaymentsUnpauseSubscriptionInput): Promise<void> {
+    await this.#send(await this.#options.ledger.unpause(input));
+  }
+
+  async voidPendingUpdate(input: PaymentsVoidUpdateInput): Promise<void> {
+    await this.#send(await this.#options.ledger.voidUpdate(input));
+  }
+
   async openPortal(input: PaymentsPortalInput): Promise<{ url: string }> {
     return { url: `${this.#options.baseUrl}/fake/portal/${encodeURIComponent(input.customerRef)}` };
   }
 
   /** Changes the subscription, then confirms it by webhook once this call has returned. */
   async #change(ref: string, change: "period_end" | "now" | "resume"): Promise<void> {
-    const result = await this.#options.ledger.changeSubscription(ref, change);
+    await this.#send(await this.#options.ledger.changeSubscription(ref, change));
+  }
+
+  /** Throws a refusal as nothing changed; otherwise delivers its events once this call returns. */
+  async #send(
+    result: { ok: true; deliveries: FakeWebhookBody[] } | { ok: false; reason: string },
+  ): Promise<void> {
     if (!result.ok) {
       throw new ActionApplyError(
         `The fake provider refused the change, so nothing changed: ${result.reason}.`,

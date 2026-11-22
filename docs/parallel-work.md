@@ -47,6 +47,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | AJ | 0580–0599 | 0510–0519 | Stage 32b step 6, `recurring.grants` and the Memberships pack with passes (`feat/stage-32b-memberships-pack`): migrations 0580 and 0581, ADRs 0510 to 0513 | in flight |
 | AK | 0600–0609 | — | The dry run causes no real effect (`fix/tool-dry-run-executes`, ADR 0022 amended): migration 0600 marks tool actions queued before it; no ADRs | in flight |
 | AL | 0610–0629 | 0520–0529 | Stage 31a steps 4 and 5, spending and the waitlist (`feat/stage-31a-spending-waitlist`) | in flight |
+| AM | 0630–0649 | 0530–0539 | Stage 32b, plan changes, pauses and the Memberships dashboard, views and blocks (`feat/stage-32b-memberships-changes`, build steps 6 and 7): migration 0630, ADRs 0530 to 0532 | in flight |
 | AO | 0670–0689 | 0550–0559 | Stage 31a step 7, attendance, the coach role, no-shows, moves and cancelling a class (`feat/stage-31a-attendance`): migration 0670, ADRs 0550 to 0553 (AM and AN are claimed on their branches) | in flight |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;

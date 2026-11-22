@@ -166,6 +166,12 @@
       "hostInternal": true
     },
     {
+      "name": "subscription.change",
+      "audiences": ["staff", "customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "subscription.get",
       "audiences": ["staff", "customer"],
       "risk": "read"

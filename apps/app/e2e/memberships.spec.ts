@@ -1,6 +1,7 @@
 // Stage 32b end to end, one test per journey: a member subscribes to a membership on the payments
 // gatekeeper's fake provider and sees their classes left; a member buys a class pack and sees it;
-// the intro offer is refused the second time. The blocks are the pack's own web blocks, mounted
+// the intro offer is refused the second time; a member upgrades their plan on the web and holds
+// the new plan once the provider confirms; staff pause a membership from its subscription's page. The blocks are the pack's own web blocks, mounted
 // where they sit (`/blocks`, development only), calling the host's HTTP surface from the browser
 // as a client app would. In local dev Memberships and Programs are the org's own extensions
 // (scripts/dev-setup.mjs).
@@ -279,6 +280,140 @@ test("the intro offer is one per person: refused the second time", async ({
     const card = await buyPass(memberPage, origin, title);
     await expect(card.getByRole("alert")).toContainText("you have had yours");
     await member.close();
+  } finally {
+    await resetSignUp(page);
+  }
+});
+
+/** A member subscribed to `title`'s plan (no trial) and paid on the fake provider's page. */
+async function joined(memberPage: Page, origin: string, title: string) {
+  await memberPage.goto(
+    block("memberships-plans", "Plans", { returnUrl: `${origin}/blocks`, signedIn: true }),
+  );
+  const plans = memberPage.getByRole("region", { name: "Memberships" });
+  await plans
+    .locator("[data-slot=card]", { hasText: title })
+    .getByRole("button", { name: "Join" })
+    .click();
+  await expect(memberPage.getByRole("heading", { name: /Fake payment page/i })).toBeVisible({
+    timeout: 30_000,
+  });
+  await memberPage.getByRole("button", { name: "Pay", exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (
+          await op<{ items: { planTitle: string; state: string }[] }>(
+            memberPage.request,
+            "subscription.list",
+            {},
+          )
+        ).items.find((s) => s.planTitle === title)?.state ?? null,
+      { timeout: 60_000 },
+    )
+    .toBe("active");
+}
+
+test("a member upgrades their plan on the web and holds the new plan once the provider confirms", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(300_000);
+  const origin = new URL(baseURL ?? "").origin;
+  await setUp(page, baseURL ?? "");
+  const three = unique("Three a week ");
+  const unlimited = unique("Unlimited ");
+  await op(page.request, "record.create", {
+    object: "memberships.plan",
+    values: { title: three, price: 30, uses: 3, per: "week", status: "on_sale" },
+  });
+  const target = await op<{ id: string }>(page.request, "record.create", {
+    object: "memberships.plan",
+    values: { title: unlimited, price: 70, per: "week", status: "on_sale" },
+  });
+  try {
+    const member = await signInMember(page, browser, baseURL ?? "");
+    const memberPage = await member.newPage();
+    await joined(memberPage, origin, three);
+    await memberPage.goto(
+      block("memberships-mine", "MyMemberships", { returnUrl: `${origin}/blocks` }),
+    );
+    const mine = memberPage.getByRole("region", { name: "My memberships" });
+    await mine.getByRole("button", { name: "Change plan" }).first().click();
+    await mine.getByLabel("Move to").selectOption(target.id);
+    await mine.getByRole("button", { name: "Change plan" }).first().click();
+    await expect(mine.getByRole("status")).toContainText("charged to your card");
+    // The provider charged the rest of the month: the host gives the member the new plan.
+    await expect
+      .poll(
+        async () => {
+          await memberPage.reload();
+          return mine
+            .locator("[data-kind=membership]", { hasText: unlimited })
+            .getByTestId("holding-left")
+            .textContent({ timeout: 10_000 })
+            .catch(() => null);
+        },
+        { timeout: 60_000 },
+      )
+      .toBe("Unlimited");
+    await member.close();
+  } finally {
+    await resetSignUp(page);
+  }
+});
+
+test("staff pause a membership from its subscription's page", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(300_000);
+  const origin = new URL(baseURL ?? "").origin;
+  await setUp(page, baseURL ?? "");
+  const title = unique("Pausable ");
+  await op(page.request, "record.create", {
+    object: "memberships.plan",
+    values: {
+      title,
+      price: 30,
+      uses: 3,
+      per: "week",
+      pauseMinDays: 7,
+      pauseMaxDays: 60,
+      status: "on_sale",
+    },
+  });
+  try {
+    const member = await signInMember(page, browser, baseURL ?? "");
+    const memberPage = await member.newPage();
+    await joined(memberPage, origin, title);
+    const subs = await op<{ items: { id: string; planTitle: string }[] }>(
+      memberPage.request,
+      "subscription.list",
+      {},
+    );
+    const id = subs.items.find((s) => s.planTitle === title)?.id ?? "";
+    await member.close();
+
+    await open(page, `/subscriptions/${id}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+    const until = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Until").fill(until);
+    await dialog.getByLabel("Reason").fill("Injury");
+    await dialog.getByRole("button", { name: "Pause" }).click();
+    await expect
+      .poll(
+        async () => {
+          await page.reload();
+          return page.getByTestId("subscription-state").textContent();
+        },
+        { timeout: 60_000 },
+      )
+      .toContain("Paused");
+    await expect(page.getByRole("button", { name: "End the pause now" })).toBeVisible();
   } finally {
     await resetSignUp(page);
   }

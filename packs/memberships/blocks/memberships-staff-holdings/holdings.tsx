@@ -1,9 +1,17 @@
 // For staff (stage 32b): one person's memberships and passes, with what each allows and what is
-// left, as the host counts it; and giving a pass by hand or voiding one given by hand, with a
-// reason. Both are a person's own act: the host refuses the assistant, an MCP client and an
+// left, as the host counts it; giving a pass by hand or voiding one given by hand, with a reason;
+// and pausing their membership for a set time or ending a pause (stage 32b, decision 10: the host
+// holds the plan's shortest and longest pause and asks the provider; the membership shows paused
+// once the provider confirms). Both are a person's own act: the host refuses the assistant, an MCP client and an
 // automation (the tools are human only), and staff without the memberships:passes permission.
 import type { MembershipsHooks } from "@composable-os/pack-memberships/client";
-import { allowsWords, day, leftWords } from "@composable-os/pack-memberships/client";
+import {
+  allowsWords,
+  changeWords,
+  day,
+  leftWords,
+  subscriptionStatus,
+} from "@composable-os/pack-memberships/client";
 import { useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui-card/card.tsx";
@@ -15,7 +23,15 @@ export function PersonHoldings({
   personId,
   passTypes,
 }: {
-  memberships: Pick<MembershipsHooks, "useHoldings" | "useGivePass" | "useVoidPass">;
+  memberships: Pick<
+    MembershipsHooks,
+    | "useHoldings"
+    | "useGivePass"
+    | "useVoidPass"
+    | "useSubscriptionsOf"
+    | "usePauseSubscription"
+    | "useUnpauseSubscription"
+  >;
   personId: string;
   /** The pass types staff may give, as the admin lists them (id and title). */
   passTypes: readonly { id: string; title: string }[];
@@ -23,6 +39,10 @@ export function PersonHoldings({
   const held = memberships.useHoldings(personId);
   const give = memberships.useGivePass();
   const voided = memberships.useVoidPass();
+  const subs = memberships.useSubscriptionsOf(personId);
+  const pause = memberships.usePauseSubscription();
+  const unpause = memberships.useUnpauseSubscription();
+  const [until, setUntil] = useState("");
   const [type, setType] = useState(passTypes[0]?.id ?? "");
   const [reason, setReason] = useState("");
   const [said, setSaid] = useState<string | null>(null);
@@ -66,6 +86,67 @@ export function PersonHoldings({
           </CardContent>
         </Card>
       ))}
+      {(subs.data?.items ?? [])
+        .filter((s) => s.state !== "ended" && s.state !== "expired")
+        .map((s) => (
+          <Card key={s.id} data-kind="subscription">
+            <CardHeader>
+              <CardTitle>{s.planTitle}</CardTitle>
+              <CardDescription>{subscriptionStatus(s)}</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              {changeWords(s) ? <p>{changeWords(s)}</p> : null}
+              {s.state === "paused" || s.change?.kind === "pause" ? (
+                <Button
+                  variant="outline"
+                  disabled={unpause.isPending || reason.trim().length < 3}
+                  onClick={() =>
+                    void act(
+                      () => unpause.mutateAsync({ id: s.id, reason }),
+                      "Asked to end the pause. It shows here once the payment provider confirms.",
+                    )
+                  }
+                >
+                  {s.state === "paused" ? "End the pause now" : "Withdraw the pause"}
+                </Button>
+              ) : s.state === "active" ? (
+                <form
+                  className="flex flex-wrap items-end gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void act(
+                      () =>
+                        pause.mutateAsync({
+                          id: s.id,
+                          until: new Date(`${until}T00:00:00`).toISOString(),
+                          reason,
+                        }),
+                      "Asked to pause it. It shows paused once the payment provider confirms.",
+                    );
+                  }}
+                >
+                  <div className="grid gap-1">
+                    <Label htmlFor={`pause-until-${s.id}`}>Pause until</Label>
+                    <Input
+                      id={`pause-until-${s.id}`}
+                      type="date"
+                      required
+                      value={until}
+                      onChange={(e) => setUntil(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    disabled={pause.isPending || !until || reason.trim().length < 3}
+                  >
+                    Pause membership
+                  </Button>
+                </form>
+              ) : null}
+            </CardContent>
+          </Card>
+        ))}
       <form
         className="grid max-w-sm gap-2"
         onSubmit={(e) => {
@@ -89,7 +170,7 @@ export function PersonHoldings({
             </option>
           ))}
         </select>
-        <Label htmlFor="give-pass-reason">Why (kept on the pass)</Label>
+        <Label htmlFor="give-pass-reason">Why (kept on the pass, or the pause)</Label>
         <Input
           id="give-pass-reason"
           required
