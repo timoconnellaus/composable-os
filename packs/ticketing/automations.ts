@@ -228,10 +228,14 @@ export const eventReminder = defineAutomation({
       } while (cursor);
       const out: { email: string; tickets: string[] }[] = [];
       for (const [personId, tickets] of emails) {
-        const person = await ctx.ops.call<{ primaryEmail?: string | null } | null>("person.get", {
-          id: personId,
-        });
-        if (person?.primaryEmail) out.push({ email: person.primaryEmail, tickets });
+        // person.get answers with the person's addresses, the primary one marked (issue #257:
+        // there is no `primaryEmail`, so this once found nobody).
+        const person = await ctx.ops.call<{
+          emails?: { email: string; primary?: boolean | null }[] | null;
+        } | null>("person.get", { id: personId });
+        const emails = person?.emails ?? [];
+        const email = (emails.find((e) => e.primary) ?? emails[0])?.email;
+        if (email) out.push({ email, tickets });
       }
       return out;
     });

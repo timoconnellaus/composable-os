@@ -803,3 +803,13 @@ describe("classTimeText", () => {
     );
   });
 });
+
+describe("the dashboard's click-throughs", () => {
+  it("open only what a widget counted: no booking list wider than the dates", async () => {
+    const { bookingsOverview } = await import("../dashboards.ts");
+    const opens = bookingsOverview.widgets
+      .filter((w) => "clickThrough" in w && w.clickThrough)
+      .map((w) => [w.id, (w as { clickThrough: { object: string } }).clickThrough.object]);
+    expect(opens).toEqual([["first-visits", "person"]]);
+  });
+});

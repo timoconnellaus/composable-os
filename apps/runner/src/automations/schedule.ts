@@ -135,6 +135,13 @@ export async function runMomentDateRelative(
       },
       at,
       FAN_OUT_BUDGET,
+      // Its conditions and the runs it already made are left out in the query, so a busy tick
+      // never starves the records after the first page.
+      {
+        ...(a.spec.conditions ? { conditions: a.spec.conditions } : {}),
+        automationId: a.id,
+        userId: a.ownerUserId ?? `extension:${a.extensionId}`,
+      },
     );
     for (const { id, anchor, moment } of matches) {
       candidates.push({

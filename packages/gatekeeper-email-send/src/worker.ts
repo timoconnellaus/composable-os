@@ -91,6 +91,9 @@ const SENDER_RESOURCE: SupportedResource = {
 const SEND_KIND: ActionKind = { tag: "email.send", label: "Send email" };
 const INTERNAL_KIND: ActionKind = { tag: "email.internal", label: "Send email to colleagues" };
 
+/** Sends that may wait for approval at once, per sender (the journal's default is 50). */
+const MAX_PENDING_SENDS = 500;
+
 /** How many sent and rejected emails the facet remembers for `listSent()`. */
 const HISTORY_LIMIT = 200;
 /** How many rows `listSent()` returns. */
@@ -299,8 +302,11 @@ export class EmailSendGatekeeper
   extends DurableObject<Cloudflare.Env, SenderProps>
   implements Gatekeeper<EmailSendSession>
 {
+  // Members' booking emails (ADR 0572) each wait for a person under Balanced: room for a day's
+  // worth of them before new sends are refused (as back-pressure, ADR 0573).
   readonly #journal = new ActionJournal<TaggedAction<Actions>>(this.ctx.storage.kv, {
     namespace: "email",
+    maxPending: MAX_PENDING_SENDS,
   });
 
   readonly #host: EmailHost = {

@@ -219,3 +219,51 @@ describe("the contract check", () => {
     expect(issues[5]?.join()).toMatch(/zoneField counts days/);
   });
 });
+
+describe("only due rows are read (the review's finding)", () => {
+  const before = { object: KLASS, field: "startsAt", minutesBefore: 180 };
+
+  it("checks the conditions and leaves out records already run, in the query itself", async () => {
+    const start = "2027-05-01T08:00:00.000Z";
+    const at = shift(start, -180);
+    const keep = await klass({ startsAt: start, name: "Keep" });
+    const other = await klass({ startsAt: start, name: "Other" });
+    const ran = await klass({ startsAt: start, name: "Keep" });
+    const conditions = { field: "name", op: "eq", value: "Keep" } as const;
+    expect((await due(before, at)).map((m) => m.id).sort()).toEqual([keep, other, ran].sort());
+    const filtered = await recordsAtMoment(db.query, before, new Date(at), 100, { conditions });
+    expect(
+      filtered
+        .map((m) => m.id)
+        .filter((id) => ids.has(id))
+        .sort(),
+    ).toEqual([keep, ran].sort());
+    // A run the automation already made for this start is left out; one for another start is not.
+    const now = new Date().toISOString();
+    for (const [id, key] of [
+      [ran, `${ran}:${start}`],
+      [keep, `${keep}:2027-04-01T08:00:00.000Z`],
+    ] as const) {
+      await env.DB.prepare(
+        "INSERT INTO core_automation_runs (id, automation_id, extension_id, trigger, record_object, record_id, status, started_at, updated_at) VALUES (?, 'mom.remind', ?, ?, ?, ?, 'completed', ?, ?)",
+      )
+        .bind(`arn_${unique("m")}`, ext, JSON.stringify({ key }), KLASS, id, now, now)
+        .run();
+    }
+    const fresh = await recordsAtMoment(db.query, before, new Date(at), 100, {
+      conditions,
+      automationId: "mom.remind",
+    });
+    expect(fresh.map((m) => m.id).filter((id) => ids.has(id))).toEqual([keep]);
+  });
+
+  it("finds the due ones among many records not due", async () => {
+    // 60 classes in the window's range whose moments are not due yet, and one that is: a page of
+    // one still finds it, as nothing not due is read ahead of it.
+    const base = "2027-06-01T08:00:00.000Z";
+    for (let i = 0; i < 60; i++) await klass({ startsAt: shift(base, 5 + i) });
+    const dueOne = await klass({ startsAt: base });
+    const found = await recordsAtMoment(db.query, before, new Date(shift(base, -180)), 1);
+    expect(found.map((m) => m.id)).toEqual([dueOne]);
+  });
+});

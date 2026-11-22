@@ -5,6 +5,11 @@
 // cancelled counts for none of them). A class's places are the host's counters (rec_capacity).
 // Uses spent by plan are the Memberships dashboard's ("Classes taken per week"): Bookings does not
 // require Memberships, so its SQL names none of its views.
+//
+// A widget opens the records it counted only where a list filter can say exactly which: the
+// bookings counted are those of classes in the dates, and a booking's list cannot filter on its
+// class's start, so the booking counts open nothing (rather than a wider list); the first visits
+// open the member.
 import type { DashboardDeclaration } from "@composable-os/sdk";
 
 /** Classes starting in the period, not cancelled by the gym. */
@@ -18,10 +23,6 @@ const HELD = "b.state IN ('booked', 'attended', 'no_show')";
 /** A booking that ever waited: waiting now, left, moved in or passed over. */
 const WAITED =
   "(b.state IN ('waiting', 'left') OR b.promoted_at IS NOT NULL OR b.passed_over_at IS NOT NULL)";
-const state = (value: string) => ({
-  object: "bookings.booking",
-  filter: { field: "state", op: "eq" as const, value },
-});
 
 export const bookingsOverview: DashboardDeclaration = {
   title: "Bookings",
@@ -39,7 +40,6 @@ export const bookingsOverview: DashboardDeclaration = {
       sql: `SELECT count(*) AS value ${BOOKINGS} AND b.state = 'attended'`,
       mapping: { value: "value" },
       options: { compare: true },
-      clickThrough: state("attended"),
       layout: { w: 3, h: 1 },
     },
     {
@@ -50,7 +50,6 @@ export const bookingsOverview: DashboardDeclaration = {
       sql: `SELECT count(*) AS value ${BOOKINGS} AND b.state = 'no_show'`,
       mapping: { value: "value" },
       options: { compare: true },
-      clickThrough: state("no_show"),
       layout: { w: 3, h: 1 },
     },
     {
@@ -61,7 +60,6 @@ export const bookingsOverview: DashboardDeclaration = {
       sql: `SELECT count(*) AS value ${BOOKINGS} AND b.state = 'late_cancelled'`,
       mapping: { value: "value" },
       options: { compare: true },
-      clickThrough: state("late_cancelled"),
       layout: { w: 3, h: 1 },
     },
     {
@@ -89,10 +87,6 @@ WHERE ${IN_PERIOD}`,
 ${BOOKINGS.replace("WHERE", "LEFT JOIN rec_x_programs_classtype t ON t.id = c.class_type WHERE")}
 GROUP BY t.id, t.name ORDER BY came DESC, type LIMIT 20`,
       mapping: { x: "type", y: ["came", "booked"] },
-      clickThrough: {
-        object: "bookings.booking",
-        filter: { field: "classType", op: "eq", value: { $row: "type_id" } },
-      },
       layout: { w: 6, h: 2 },
     },
     {
@@ -177,10 +171,6 @@ ORDER BY f.first, p.display_name LIMIT 100`,
 ${BOOKINGS.replace("WHERE", "JOIN rec_person p ON p.id = b.person WHERE")} AND b.state IN ('late_cancelled', 'no_show')
 GROUP BY p.id, p.display_name ORDER BY late_cancels + no_shows DESC, member LIMIT 50`,
       mapping: { columns: ["member", "late_cancels", "no_shows"] },
-      clickThrough: {
-        object: "bookings.booking",
-        filter: { field: "person", op: "eq", value: { $row: "id" } },
-      },
       layout: { w: 12, h: 2 },
     },
   ],

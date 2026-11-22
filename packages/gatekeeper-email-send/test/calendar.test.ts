@@ -197,3 +197,16 @@ describe("an idempotency key (ADR 0574)", () => {
     expect(submissions).toEqual([]);
   });
 });
+
+describe("room for a day's emails waiting for approval (ADR 0573)", () => {
+  it("holds more than the journal's default 50 sends pending", async () => {
+    const h = await host();
+    for (let i = 0; i < 60; i++) {
+      const receipt = (await h.call("send", [
+        { ...message, subject: `Booked ${i}`, idempotencyKey: `run_many:${i}` },
+      ])) as EmailSendReceipt;
+      expect(receipt.status).toBe("pending");
+    }
+    expect(submissions).toHaveLength(60);
+  });
+});

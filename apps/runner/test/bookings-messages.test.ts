@@ -11,6 +11,7 @@
 // runs to finish. The minute scan of the triggers counted in minutes is run with a chosen clock
 // (`runMomentDateRelative`). A redelivered message, or a second tick over the same moment, starts
 // nothing more.
+import { introspectWorkflow } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import {
   type ActingUser,
@@ -20,12 +21,15 @@ import {
   type ExtensionHost,
   type InvocationContext,
   invokeByName,
+  memoryEventSink,
+  memoryRateLimit,
   type OutsideInvocationContext,
   queueEventSink,
   refreshSchemaRegistry,
   runWaitlistDue,
 } from "@composable-os/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { dispatchAutomationMessages, runDeferredDue } from "../src/automations/dispatch.ts";
 import { runMomentDateRelative } from "../src/automations/schedule.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { dispatch, setPreset } from "./automation-fixture.ts";
@@ -95,8 +99,11 @@ const AUTOMATIONS = [
   "classChanged",
   "classCancelled",
   "classReminder",
-  "dropInRefunded",
+  "dropInOrder",
 ];
+
+/** Workflows started in this file skip their waits (a class change settles for two minutes). */
+let introspector: Awaited<ReturnType<typeof introspectWorkflow>>;
 
 let admin: ActingUser;
 /** The events queue, as the app's own calls send to it; what was sent is kept for redelivery. */
@@ -235,6 +242,11 @@ async function runsFor(automation: string, recordId: string) {
 let type: string;
 
 beforeAll(async () => {
+  introspector = await introspectWorkflow(env.AUTOMATION_WORKFLOW);
+  await introspector.modifyAll(async (m) => {
+    await m.disableSleeps();
+    await m.disableRetryDelays();
+  });
   admin = await createAdmin();
   // Sends are outbound actions: under Autonomous an automation's are applied at once, so they
   // reach the outbox; Balanced (each waits for a person) is tested at the end.
@@ -271,7 +283,10 @@ beforeAll(async () => {
   type = await create("programs.classtype", { name: unique("Strength") });
 }, 120_000);
 
-afterAll(() => setPreset("balanced"));
+afterAll(async () => {
+  await setPreset("balanced");
+  await introspector[Symbol.asyncDispose]();
+});
 
 describe("booked (criterion 13)", () => {
   it("emails the member once, with a valid calendar file; a redelivery sends nothing more", async () => {
@@ -518,4 +533,155 @@ describe("under Balanced", () => {
       await setPreset("autonomous");
     }
   });
+});
+
+describe("the family link at send time (ADR 0540)", () => {
+  it("a parent whose link ended, or who is in the Trash, is not written to", async () => {
+    const k = await klass(type, 2 * DAY);
+    const live = await member("live");
+    const ended = await member("ended");
+    const trashed = await member("trashed");
+    const childId = (await run<{ id: string }>("person.create", { givenName: "Kai" }, staff())).id;
+    const links: Record<string, string> = {};
+    for (const parent of [live, ended, trashed]) {
+      links[parent.personId] = (
+        await run<{ id: string }>(
+          "person.link.add",
+          { guardianId: parent.personId, dependantId: childId },
+          staff(),
+        )
+      ).id;
+    }
+    await run("person.link.end", { id: links[ended.personId], reason: "Test" }, staff());
+    await run("person.delete", { id: trashed.personId }, staff());
+    await givePass(childId);
+    const out = await book(live, k, { forPersonId: childId });
+    expect(out.result).toBe("booked");
+    await finished("bookingConfirmed", out.bookingId as string);
+    expect((await mailsOnce(live.email, 1))[0]?.subject).toMatch(/\(Kai\)$/);
+    expect(await mailTo(ended.email)).toEqual([]);
+    expect(await mailTo(trashed.email)).toEqual([]);
+  });
+});
+
+describe("a reminder for a class moved after its reminder went", () => {
+  it("is sent again for the new time, once", async () => {
+    const k = await klass(type, 2 * DAY);
+    const who = await member("moved");
+    await givePass(who.personId);
+    await book(who, k);
+    await mailsOnce(who.email, 1);
+    const first = Date.parse(String((await get(CLASS, k)).startsAt));
+    await runMomentDateRelative(env, new Date(first - 180 * MINUTE));
+    await finished("classReminder", k);
+    const later = first + DAY;
+    await run(
+      "record.update",
+      {
+        object: CLASS,
+        id: k,
+        values: {
+          startsAt: new Date(later).toISOString(),
+          endsAt: new Date(later + HOUR).toISOString(),
+        },
+      },
+      staff(),
+    );
+    await finished("classChanged", k);
+    // The old moment again: nothing. The new one: a second reminder.
+    await runMomentDateRelative(env, new Date(first - 180 * MINUTE + MINUTE));
+    await runMomentDateRelative(env, new Date(later - 180 * MINUTE));
+    await runMomentDateRelative(env, new Date(later - 180 * MINUTE + MINUTE));
+    await finished("classReminder", k, 2);
+    expect(await runsFor("classReminder", k)).toHaveLength(2);
+    const reminders = (await mailsOnce(who.email, 4)).filter((m) =>
+      m.subject.startsWith("Reminder:"),
+    );
+    expect(reminders).toHaveLength(2);
+  });
+});
+
+describe("the booking link is a person's to change", () => {
+  it("an assistant's change waits for a person", async () => {
+    const asked = await run(
+      "extensionSettings.update",
+      { extension: "bookings", values: { bookingsUrl: "https://elsewhere.test/phish" } },
+      staff({ actor: "assistant" }),
+    ).catch((e: { code?: string }) => e);
+    expect((asked as { code?: string }).code).toBe("pending_approval");
+  });
+});
+
+describe("a closure of more classes than the runs-per-minute rail (ADR 0573)", () => {
+  it("tells every member once: the runs past the rail wait their turn, none is lost", async () => {
+    const COUNT = 70;
+    // Ten days ahead, in UTC, a day no other class of this file is on.
+    const day = new Date(Date.now() + 10 * DAY);
+    day.setUTCHours(0, 0, 0, 0);
+    const date = day.toISOString().slice(0, 10);
+    const people: { personId: string; email: string }[] = [];
+    for (let i = 0; i < COUNT; i++) {
+      const startsAt = new Date(day.getTime() + (6 * 60 + i * 10) * MINUTE).toISOString();
+      const classId = await create(CLASS, {
+        classType: type,
+        startsAt,
+        endsAt: new Date(Date.parse(startsAt) + 5 * MINUTE).toISOString(),
+        timezone: "UTC",
+        places: 5,
+      });
+      const email = `${unique("closed").toLowerCase()}@members.test`;
+      const personId = (
+        await run<{ id: string }>(
+          "person.create",
+          { givenName: `Closed ${i}`, emails: [{ email }] },
+          staff(),
+        )
+      ).id;
+      const booked = await run<Out>(
+        "x.bookings.bookFor",
+        { classId, personId, paidAtDesk: true },
+        staff(),
+      );
+      expect(booked.result).toBe("booked");
+      people.push({ personId, email });
+    }
+    // The closure's own events, dispatched with a rail of 60 runs a minute.
+    const closureSink = memoryEventSink();
+    const closure = { name: "Holiday", fromDate: date, untilDate: date };
+    const asked = await run(
+      "record.create",
+      { object: "bookings.closure", values: closure },
+      staff(),
+    ).catch((e: { details?: { count?: number } }) => e);
+    const count = (asked as { details?: { count?: number } }).details?.count ?? COUNT;
+    await run(
+      "recurring.close",
+      { object: "bookings.closure", values: closure, confirm: count },
+      staff({ events: closureSink }),
+    );
+    const limiter = memoryRateLimit(60);
+    const limited = { ...env, AUTOMATION_RATE_LIMIT: limiter };
+    const result = await dispatchAutomationMessages(limited, closureSink.messages);
+    expect(result.paused).toEqual([]);
+    expect(result.deferred).toBeGreaterThanOrEqual(COUNT - 60);
+    // The next tick, the rail allows the rest.
+    limiter.reset();
+    const drained = await runDeferredDue(limited, new Date(Date.now() + 2 * MINUTE));
+    expect(drained.started).toBeGreaterThanOrEqual(COUNT - 60);
+    for (const person of people) {
+      await vi.waitFor(
+        async () =>
+          expect(
+            (await mailTo(person.email)).filter((m) =>
+              m.subject.startsWith("Cancelled by the gym"),
+            ),
+          ).toHaveLength(1),
+        { timeout: 60_000, interval: 250 },
+      );
+    }
+    const row = await env.DB.prepare(
+      "SELECT paused_reason FROM core_automations WHERE id = 'bookings.classCancelled'",
+    ).first<{ paused_reason: string | null }>();
+    expect(row?.paused_reason).toBeNull();
+  }, 600_000);
 });

@@ -22,12 +22,15 @@ due" and "was it already sent" in pack code, which every pack would write again.
   it is empty the extension's number setting. The field and the setting must declare a `max` of at
   most a week (the SDK checks it): the bound is what keeps the scan small.
 - **The minute cron scans them every tick** (`runMomentDateRelative`, `recordsAtMoment` in core).
-  A record is due once its moment has passed and for 15 minutes after it (missed ticks are caught
-  up; a record made after its moment, a class added two hours before its start with a three-hour
-  reminder, is not run). The rows read are the records whose field is within the largest minutes
-  any record can have (for a relation, the related records' values are read once a tick, for every
-  record of that object: class types are few), each compared with `julianday` so stored offsets
-  compare correctly.
+  A record is due once its moment has passed and for 15 minutes after it: missed ticks are caught
+  up, and a record made within those 15 minutes is still run; one made later (a class added two
+  hours before its start with a three-hour reminder) is not. The query reads only due rows: the
+  field's range for the largest minutes any record can have (the index), then the moment itself
+  (the record's number, the related record's through a join, else the setting) compared in SQL
+  with `julianday` so stored offsets compare correctly, the trigger's conditions, and leaving out
+  records this automation already ran for at this value of the field (amended after the review of
+  PR #256: the first version read every row of the range, cancelled classes included, and could
+  return the same first page every tick).
 - **One run per record and value of the field**: the idempotency key is the record id and the
   field's value as an instant. Every tick that sees a moment starts the same run, so it runs once;
   a class whose time changes is due again at its new time (a second reminder, correctly, for the
