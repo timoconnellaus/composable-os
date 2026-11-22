@@ -10,6 +10,7 @@
 // time of day, across a clock change) and then minutes. Each part may be a number or a number
 // field, so the pack decides where the numbers come from (a class type's override over the
 // organisation's default, copied by the host onto the class).
+import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { registryFieldName } from "../extensions/naming.ts";
 import { getObject } from "../fields/index.ts";
@@ -75,35 +76,7 @@ export function pathReader(
     ext ? registryFieldName(ext, on.name, local) : local;
   let settings: Promise<Record<string, unknown>> | undefined;
   const loadSettings = () => {
-    settings ??= (async () => {
-      if (!ext) return {};
-      const [stored, declared] = await Promise.all([
-        ctx.db
-          .selectFrom("core_extension_settings")
-          .select("value")
-          .where("extension_id", "=", ext)
-          .executeTakeFirst(),
-        ctx.db
-          .selectFrom("core_extensions")
-          .select("manifest")
-          .where("id", "=", ext)
-          .executeTakeFirst(),
-      ]);
-      const defaults = Object.fromEntries(
-        Object.entries(
-          (declared
-            ? (JSON.parse(declared.manifest) as {
-                settings?: Record<string, { default?: unknown }>;
-              })
-            : {}
-          ).settings ?? {},
-        ).map(([name, s]) => [name, s.default ?? null]),
-      );
-      return {
-        ...defaults,
-        ...(stored ? (JSON.parse(stored.value) as Record<string, unknown>) : {}),
-      };
-    })();
+    settings ??= ext ? extensionSettingValues(ctx.db, ext) : Promise.resolve({});
     return settings;
   };
   return {
@@ -130,6 +103,30 @@ export function pathReader(
       return (await loadSettings())[name] ?? null;
     },
   };
+}
+
+/** An extension's settings by name: each stored value, else its declared default (ADR 0505). */
+export async function extensionSettingValues(
+  db: Kysely<CoreDatabase>,
+  ext: string,
+): Promise<Record<string, unknown>> {
+  const [stored, declared] = await Promise.all([
+    db
+      .selectFrom("core_extension_settings")
+      .select("value")
+      .where("extension_id", "=", ext)
+      .executeTakeFirst(),
+    db.selectFrom("core_extensions").select("manifest").where("id", "=", ext).executeTakeFirst(),
+  ]);
+  const defaults = Object.fromEntries(
+    Object.entries(
+      (declared
+        ? (JSON.parse(declared.manifest) as { settings?: Record<string, { default?: unknown }> })
+        : {}
+      ).settings ?? {},
+    ).map(([name, s]) => [name, s.default ?? null]),
+  );
+  return { ...defaults, ...(stored ? (JSON.parse(stored.value) as Record<string, unknown>) : {}) };
 }
 
 /**

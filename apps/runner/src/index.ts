@@ -39,7 +39,7 @@ import {
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
-import { dispatchAutomationMessages } from "./automations/dispatch.ts";
+import { dispatchAutomationMessages, runDeferredDue } from "./automations/dispatch.ts";
 import { automationHost } from "./automations/host.ts";
 import { pollIntegrationEvents } from "./automations/integration-events.ts";
 import { runAutomationCron } from "./automations/schedule.ts";
@@ -310,9 +310,12 @@ export async function minuteTick(env: Env, at: Date) {
       waitlist: null,
       timedMoves: null,
       customerSignup: null,
+      deferredRuns: null,
     };
   }
   const schedules = await minuteStep("schedules", () => runAutomationCron(env, at));
+  // Runs held back by the runs-per-minute rail start as it allows (ADR 0573): shaped, not lost.
+  const deferredRuns = await minuteStep("deferred runs", () => runDeferredDue(env, at));
   const outbox = await minuteStep("outbox", () =>
     retryOutbox(
       createCrmDb(env.DB),
@@ -388,6 +391,7 @@ export async function minuteTick(env: Env, at: Date) {
     waitlist,
     timedMoves,
     customerSignup,
+    deferredRuns,
   };
 }
 

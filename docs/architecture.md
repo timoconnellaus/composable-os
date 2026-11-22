@@ -275,7 +275,9 @@ How stage 5 runs automations ([ADR 0130](adr/0130-automation-runtime.md), test m
         TriggerSource per message kind (record, approval, integration)
         ─► rails: kill switch, depth ≤ 3, cycle, bulk, debounce, conditions, fan-out, rate limits
         ─► run row (INSERT … ON CONFLICT DO NOTHING on the Workflow id) ─► createBatch
- cos-runner cron (* * * * *) ─► schedules in the automation timezone, daily date-relative scan,
+ cos-runner cron (* * * * *) ─► schedules in the automation timezone, daily date-relative scan
+                                (and every minute, date-relative triggers in minutes, ADR 0570;
+                                runs held back by the runs-per-minute rail, ADR 0573),
         outbox retry (rows left by failed sends, dispatched directly), integration events
         (unconsumed core_integration_event rows → webhook / syncEvent triggers, ADR 0173)
  AutomationWorkflow: start ─► advance:<n> (executor.runAutomation via LOADER.get) ─► sleep / wait
@@ -1339,8 +1341,14 @@ after the end where the list was taken, `move` (the new booking's create with `m
 `bookings-class-list` block. Drop-ins (step 8, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)):
 the booking declares `sellable.moves`, `buy` (customers and the public) has the host make it
 `pending` with its order (`order.startHeld`), and a web `bookings-drop-in` block opens the
-provider's page. Messages are step 9; the
-states they use are declared, with no customer move into them. After the review ([ADR 0507](adr/0507-what-the-bookings-review-needed-of-the-platform.md)):
+provider's page. Messages (step 9, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md)):
+automations through `email-send` to a booking's Person and their live guardians, one recipient an
+email (booked, paid, moved in or moved; passed over; a place free after the cut-off; a class's new
+time or room; a class cancelled by the gym; the reminder `minutesBefore` its start, [ADR 0570](adr/0570-date-relative-triggers-in-minutes.md);
+a drop-in's refund made), with the calendar file email-send makes ([ADR 0571](adr/0571-a-calendar-file-made-by-the-email-gatekeeper.md)),
+and admins told in the app of a class whose list was not taken. The Bookings dashboard, saved views
+of this month's no-shows and late cancels, and a native `bookings-native-class-list` for the coach
+role. After the review ([ADR 0507](adr/0507-what-the-bookings-review-needed-of-the-platform.md)):
 a class the host cancels moves its live bookings to `cancelled_by_us` in its batch
 (`states.follows`, the state cascade), a closed class binds staff (`create.closed`), a member's
 class and holder are create-only (`customer.createOnly`), the booking rules are a person's
@@ -1590,7 +1598,7 @@ calculates a price, checks a capacity or checks a permission.
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
-| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); steps 9 and 10 to come |
+| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos

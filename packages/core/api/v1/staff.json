@@ -13666,6 +13666,9 @@
         "properties": {
           "runId": {
             "type": "string"
+          },
+          "deferred": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -13707,6 +13710,10 @@
         "properties": {
           "runId": {
             "type": "string"
+          },
+          "deferred": {
+            "description": "It waits its turn over the runs-per-minute rail, and starts on a later minute",
+            "type": "boolean"
           }
         },
         "required": [
@@ -13768,6 +13775,13 @@
           },
           "skipped": {
             "type": "number"
+          },
+          "deferredRunIds": {
+            "description": "Runs over the runs-per-minute rail: recorded, and started on a later minute",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -45451,6 +45465,56 @@
                         "minimum": -365,
                         "maximum": 365
                       },
+                      "minutesBefore": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10080
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "setting": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "minutesAfter": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10080
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "setting": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
                       "zoneField": {
                         "type": "string",
                         "minLength": 1,
@@ -45460,8 +45524,7 @@
                     "required": [
                       "type",
                       "object",
-                      "field",
-                      "offsetDays"
+                      "field"
                     ],
                     "additionalProperties": false
                   },
@@ -46182,6 +46245,56 @@
                         "minimum": -365,
                         "maximum": 365
                       },
+                      "minutesBefore": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10080
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "setting": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "minutesAfter": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10080
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "setting": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
                       "zoneField": {
                         "type": "string",
                         "minLength": 1,
@@ -46191,8 +46304,7 @@
                     "required": [
                       "type",
                       "object",
-                      "field",
-                      "offsetDays"
+                      "field"
                     ],
                     "additionalProperties": false
                   },
@@ -46986,6 +47098,56 @@
                         "minimum": -365,
                         "maximum": 365
                       },
+                      "minutesBefore": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10080
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "setting": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "minutesAfter": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10080
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "setting": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
                       "zoneField": {
                         "type": "string",
                         "minLength": 1,
@@ -46995,8 +47157,7 @@
                     "required": [
                       "type",
                       "object",
-                      "field",
-                      "offsetDays"
+                      "field"
                     ],
                     "additionalProperties": false
                   },
@@ -48312,6 +48473,56 @@
                         "minimum": -365,
                         "maximum": 365
                       },
+                      "minutesBefore": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10080
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "setting": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "minutesAfter": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10080
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "setting": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
                       "zoneField": {
                         "type": "string",
                         "minLength": 1,
@@ -48321,8 +48532,7 @@
                     "required": [
                       "type",
                       "object",
-                      "field",
-                      "offsetDays"
+                      "field"
                     ],
                     "additionalProperties": false
                   },

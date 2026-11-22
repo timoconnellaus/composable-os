@@ -693,7 +693,7 @@ export const automationRun = defineOperation({
 function runOperation(
   name: "automation.retry" | "automation.replay" | "automation.cancel",
   description: string,
-  call: (h: AutomationHost, runId: string) => Promise<{ runId: string }>,
+  call: (h: AutomationHost, runId: string) => Promise<{ runId: string; deferred?: boolean }>,
 ) {
   return defineOperation({
     name,

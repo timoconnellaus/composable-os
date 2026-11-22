@@ -1,0 +1,18 @@
+{
+  "name": "bookings-native-class-list",
+  "pack": "bookings",
+  "skin": "native",
+  "operations": [
+    "x.bookings.day",
+    "x.bookings.roster",
+    "x.bookings.markAttended",
+    "x.bookings.undoAttended",
+    "x.bookings.markNoShow"
+  ],
+  "files": ["class-list-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-bookings": "*"
+  },
+  "noPurchase": true
+}

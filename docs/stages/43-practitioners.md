@@ -112,10 +112,12 @@ is going with it, never the notes. The client can end it at any time, and it end
 | 23 | **A coach sees a member's current restrictions on the class list**: a flag beside the name, only for restrictions the client agreed to share | question 7, (a) |
 | 24 | **New installs ask Cloudflare to store data in Oceania where it can**: a preference, not a guarantee | the privacy section's proposal |
 
-**Stage 44 (Agreements)**, whose spec is being written now (`docs/stages/44-agreements.md`, on
-another branch), is intended to hold the care link's consent as an accepted document. This stage
-does not wait for it: it builds its own consent record (below) so that it can become one, with no
-change to what a client agreed to.
+**Stage 44 (Agreements)** ([spec](44-agreements.md), proposed) is intended to hold the care link's
+consent as an accepted document (its "Stage 43: the care link's consent becomes an acceptance").
+This stage does not wait for it: it builds its own consent record (below) so that it can become
+one, with no change to what a client agreed to; if stage 44 is not there when step 4 is built, the
+consent is written through one narrow function with the same fields, which stage 44 replaces with a
+migration that copies the rows across.
 
 ## The design in one page
 

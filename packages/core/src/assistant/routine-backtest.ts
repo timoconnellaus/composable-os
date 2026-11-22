@@ -314,7 +314,8 @@ export async function backtestRoutine(input: {
       object = trigger.object;
       for (let i = 0; i < BACKTEST_DAYS; i++) {
         const date = addDaysToDate(startDate, i);
-        const target = addDaysToDate(date, -trigger.offsetDays);
+        // A moment in minutes (ADR 0570) is tried on the day it falls on.
+        const target = addDaysToDate(date, -(trigger.offsetDays ?? 0));
         const ids = await recordsOnDate(db, trigger.object, trigger.field, target, 50);
         past.unshift(...ids.map((id) => ({ date, id })));
       }

@@ -24,7 +24,16 @@ function host(records: Record<string, Record<string, unknown>[]> = {}, extra = {
       "extensionSettings.list": () => settings,
       "order.get": (input) => ({ id: input.id, email: "ann@buyers.test", state: "paid" }),
       "person.get": (input) =>
-        input.id === "per_ann" ? { id: "per_ann", primaryEmail: "ann@buyers.test" } : null,
+        // As the host's person.get answers: the addresses, the primary one marked (issue #257).
+        input.id === "per_ann"
+          ? {
+              id: "per_ann",
+              emails: [
+                { email: "old@buyers.test", primary: false },
+                { email: "ann@buyers.test", primary: true },
+              ],
+            }
+          : null,
       ...extra,
     },
   });

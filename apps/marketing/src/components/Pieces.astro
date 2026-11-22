@@ -7,8 +7,10 @@
 // platform (continuation offers, step 4) are built too, with the rest of the card. Bookings is
 // being built: its spine (stage 31a step 3: the timetable, booking and cancelling within each
 // class type's rules, staff bookings), spending a membership's use and the waitlist (steps 4
-// and 5), parents booking for their children (step 6, the family link), and attendance, moves
-// and cancelling a class (step 7) are merged, the rest is in progress. Memberships (stage 32b) is
+// and 5), parents booking for their children (step 6, the family link), attendance, moves
+// and cancelling a class (step 7), drop-ins (step 8), and the emails with their calendar file and
+// the reminder, the dashboard and the coach's list in the app (step 9) are merged; the import
+// (step 10) and one-to-one sessions (31b) are not yet. Memberships (stage 32b) is
 // being built: its plans, memberships and passes, spent by bookings (step 6), plan changes, staff
 // pauses and its dashboard (steps 6 and 7) are merged; the import of members (step 8) is not yet.
 // The last card is the piece built only for this business.
@@ -47,7 +49,7 @@ const pieces = [
   {
     soon: BUILDING,
     title: "Bookings",
-    body: "Classes made from a weekly timetable, booked and cancelled on the web and in the app within each class type's rules: when booking opens and closes, and when a cancel is late. A full class has a waiting list that moves people in on their own. Parents book for their children. A visitor pays for a single class on the website, no account needed, their place held while they pay. Staff book anyone, walk-ins too, move a member to another class and cancel a class before it ends, giving back the class of everyone on it who booked with a membership or pass, even those already ticked or who cancelled late, and refunding to the card anyone who paid for that class on the website once a member of staff approves it. Coaches tick who came.",
+    body: "Classes made from a weekly timetable, booked and cancelled on the web and in the app within each class type's rules: when booking opens and closes, and when a cancel is late. A full class has a waiting list that moves people in on their own. Parents book for their children. A visitor pays for a single class on the website, no account needed, their place held while they pay. Staff book anyone, walk-ins too, move a member to another class and cancel a class before it ends, giving back the class of everyone on it who booked with a membership or pass, even those already ticked or who cancelled late, and refunding to the card anyone who paid for that class on the website once a member of staff approves it. An email is prepared for each booking, change or cancellation by the gym and reminder before a class, with a file that adds the class to the member's calendar, and staff approve what is sent. Coaches tick who came, on the web or in the app.",
   },
   {
     soon: STATUS.building,

@@ -9,6 +9,7 @@ import {
   loadAutomationSettings,
   loadEnabledAutomations,
   type RunCandidate,
+  recordsAtMoment,
   recordsOnDate,
   recordsOnLocalDate,
   zonedTime,
@@ -28,10 +29,13 @@ export async function runAutomationCron(
   schedule: StartResult | null;
   dateRelative: StartResult | null;
   zonedDateRelative: StartResult | null;
+  moments: StartResult | null;
 }> {
   const crm = createCrmDb(env.DB);
   const settings = await loadAutomationSettings(crm.query);
-  if (settings.killSwitch) return { schedule: null, dateRelative: null, zonedDateRelative: null };
+  if (settings.killSwitch) {
+    return { schedule: null, dateRelative: null, zonedDateRelative: null, moments: null };
+  }
   const local = zonedTime(at, settings.timezone);
   const iso = at.toISOString();
 
@@ -93,7 +97,75 @@ export async function runAutomationCron(
         .execute();
     }
   }
-  return { schedule, dateRelative, zonedDateRelative };
+  // Triggers counted in minutes (ADR 0570): every tick.
+  const moments = await runMomentDateRelative(env, at, settings);
+  return { schedule, dateRelative, zonedDateRelative, moments };
+}
+
+/**
+ * Date-relative matches of the triggers counted in minutes (ADR 0570): records whose moment (some
+ * minutes before or after a datetime field) has passed within the look-back. The idempotency key
+ * is the record and the field's value, so every tick that sees a moment starts one run for it,
+ * and a record whose time changed is due again at its new one. Null when no trigger counts in
+ * minutes (one read of the enabled automations, as the day scans make).
+ */
+export async function runMomentDateRelative(
+  env: DispatchEnv,
+  at: Date,
+  settings?: Awaited<ReturnType<typeof loadAutomationSettings>>,
+): Promise<StartResult | null> {
+  const db = createCrmDb(env.DB).query;
+  const automations = (await loadEnabledAutomations(db, ["dateRelative"])).filter(
+    (a) =>
+      a.spec.trigger.type === "dateRelative" &&
+      (a.spec.trigger.minutesBefore !== undefined || a.spec.trigger.minutesAfter !== undefined),
+  );
+  if (!automations.length) return null;
+  const candidates: RunCandidate[] = [];
+  for (const a of automations) {
+    const t = a.spec.trigger;
+    if (t.type !== "dateRelative") continue;
+    const matches = await recordsAtMoment(
+      db,
+      {
+        object: t.object,
+        field: t.field,
+        ...(t.minutesBefore !== undefined ? { minutesBefore: t.minutesBefore } : {}),
+        ...(t.minutesAfter !== undefined ? { minutesAfter: t.minutesAfter } : {}),
+      },
+      at,
+      FAN_OUT_BUDGET,
+      // Its conditions and the runs it already made are left out in the query, so a busy tick
+      // never starves the records after the first page.
+      {
+        ...(a.spec.conditions ? { conditions: a.spec.conditions } : {}),
+        automationId: a.id,
+        userId: a.ownerUserId ?? `extension:${a.extensionId}`,
+      },
+    );
+    for (const { id, anchor, moment } of matches) {
+      candidates.push({
+        automation: a,
+        idempotencyKey: `${id}:${anchor}`,
+        record: { object: t.object, id },
+        period: moment,
+      });
+    }
+  }
+  const iso = at.toISOString();
+  return startRuns(
+    env,
+    candidates,
+    {
+      depth: 0,
+      chain: [],
+      rootEventId: `dateRelativeMoment:${iso.slice(0, 16)}`,
+      eventId: `dateRelativeMoment:${iso.slice(0, 16)}`,
+      at: iso,
+    },
+    { now: at },
+    settings,
+  );
 }
 
 /**
@@ -112,7 +184,7 @@ export async function runZonedDateRelative(
   const candidates: RunCandidate[] = [];
   for (const a of automations) {
     const t = a.spec.trigger;
-    if (t.type !== "dateRelative" || !t.zoneField) continue;
+    if (t.type !== "dateRelative" || !t.zoneField || t.offsetDays === undefined) continue;
     const matches = await recordsOnLocalDate(
       db,
       { object: t.object, field: t.field, zoneField: t.zoneField, offsetDays: t.offsetDays },
@@ -158,7 +230,8 @@ export async function runDateRelative(
   for (const a of automations) {
     const t = a.spec.trigger;
     // A trigger counted in each record's own zone is the hourly scan's (runZonedDateRelative).
-    if (t.type !== "dateRelative" || t.zoneField) continue;
+    // Counted in minutes: the minute scan's (runMomentDateRelative).
+    if (t.type !== "dateRelative" || t.zoneField || t.offsetDays === undefined) continue;
     const target = addDaysToDate(date, -t.offsetDays);
     const ids = await recordsOnDate(db, t.object, t.field, target, FAN_OUT_BUDGET);
     for (const id of ids) {

@@ -170,7 +170,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
   // Memberships pack is connected (step 4), local dev's Bookings also lets the e2e spec's fixture
   // holder (`bkfixture.pass`) pay; the shipped pack names only the Memberships pack's holders.
   const bookings = Object.fromEntries(
-    ["index.ts", "tools.ts"].map((file) => [
+    ["index.ts", "tools.ts", "automations.ts", "dashboards.ts"].map((file) => [
       file,
       readFileSync(join(root, "packs/bookings", file), "utf8").replace(
         'paidBy: ["memberships.membership", "memberships.pass"]',

@@ -25,6 +25,7 @@ export interface SignInCandidate {
   text?: string | undefined;
   html?: string | undefined;
   relatedRecords?: readonly string[] | undefined;
+  calendar?: unknown;
 }
 
 const SUBJECT_RE = /^Your ([^\n\r]{1,100}) sign-in code$/;
@@ -36,6 +37,7 @@ export function isSignInCodeMessage(message: SignInCandidate): boolean {
   if (message.to.length !== 1) return false;
   if (message.cc?.length || message.bcc?.length || message.replyTo !== undefined) return false;
   if (message.html !== undefined || message.relatedRecords?.length) return false;
+  if (message.calendar !== undefined) return false;
   if (typeof message.text !== "string") return false;
   const subject = SUBJECT_RE.exec(message.subject);
   const body = BODY_RE.exec(message.text);

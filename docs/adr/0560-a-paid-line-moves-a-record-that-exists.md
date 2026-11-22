@@ -245,3 +245,9 @@ cancelling a class (a late-cancelled drop-in included); a refund staff made by h
 twice. Each fix of the review was broken in turn and its test failed (the guard, the cap, the
 second-order rule, the lapse, the move's order). `packages/sdk/test/sellable-moves.test.ts`,
 `packs/bookings/test`, `scripts/check-blocks.test.mjs`.
+
+## Amended 2026-11-23 (stage 31a step 9, ADR 0572)
+A guest's booking is nobody's until it is paid for, and stays so: once paid, and until staff settle
+whose it is, its messages (payment received and the place held, a change, a cancellation by the
+gym, the reminder, the refund) go to the order's own address, about that booking only. A hold not
+paid for hears nothing.
