@@ -2456,6 +2456,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "holderPersonId": {
+            "description": "Staff only: the Person who holds what it gives (a child whose parent pays), when not the payer. The payer, named by email, is billed; the trial and access are the holder's.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           }
         },
         "required": ["plan", "returnUrl"]
@@ -3452,6 +3458,393 @@
       },
       "invalidates": [],
       "pack": "courses"
+    },
+    {
+      "name": "x.memberships.buy",
+      "description": "Start an order for one pass (a class pack, a drop-in or an intro offer). A signed-in customer buys as themselves; a guest gives their email address, and may not buy an intro offer (the host refuses it: one per person, signed in). The host prices it from the pass type, refuses one not on sale, and refuses a second intro offer for the same person. Nothing is paid here: the buyer then calls order.checkout with the order's id (and a guest's token) to pay on the provider's page; the pass is granted when the provider confirms the payment. Amounts in the minor unit. (Extension tool from Memberships 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "passTypeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "description": "A guest's email address"
+          }
+        },
+        "required": ["passTypeId"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "token": {
+            "description": "A guest's key to this order, shown once",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "state", "currency", "total", "token"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.memberships.mine",
+        "x.memberships.passTypes",
+        "x.memberships.plans"
+      ],
+      "pack": "memberships"
+    },
+    {
+      "name": "x.memberships.mine",
+      "description": "The signed-in member's own memberships and passes: each one's title, state, what it allows (classes per week or month, or in all; class types, days and times), when it started and when it stops or expires, and the host's count for now: classes used and left this week, this month or in all (left null: unlimited). Read-only. (Extension tool from Memberships 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "holdings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "classTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Class type ids; empty: every class type"
+                },
+                "weekdays": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "1 Monday to 7 Sunday; empty: every day"
+                },
+                "fromMinute": {
+                  "description": "Classes starting at or after, minutes after midnight",
+                  "type": ["number", "null"]
+                },
+                "untilMinute": {
+                  "description": "Classes starting before, minutes after midnight",
+                  "type": ["number", "null"]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["membership", "pass"]
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "status": {
+                  "type": "string",
+                  "description": "The record's own state, as the host keeps it"
+                },
+                "uses": {
+                  "description": "Per period for a membership, in all for a pass; null: unlimited",
+                  "type": ["number", "null"]
+                },
+                "per": {
+                  "type": "string",
+                  "enum": ["total", "week", "month"]
+                },
+                "from": {
+                  "type": ["string", "null"]
+                },
+                "until": {
+                  "description": "When it stops or expires",
+                  "type": ["string", "null"]
+                },
+                "live": {
+                  "type": "boolean",
+                  "description": "It can pay for a class now (the host's answer)"
+                },
+                "period": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "startsAt": {
+                          "type": "string"
+                        },
+                        "endsAt": {
+                          "type": "string"
+                        },
+                        "used": {
+                          "type": "number"
+                        },
+                        "left": {
+                          "description": "Null: unlimited",
+                          "type": ["number", "null"]
+                        }
+                      },
+                      "required": ["key", "startsAt", "endsAt", "used", "left"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "This week, this month or in all, as the host counts it"
+                }
+              },
+              "required": [
+                "classTypes",
+                "weekdays",
+                "fromMinute",
+                "untilMinute",
+                "id",
+                "kind",
+                "title",
+                "status",
+                "uses",
+                "per",
+                "from",
+                "until",
+                "live",
+                "period"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["holdings"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "memberships"
+    },
+    {
+      "name": "x.memberships.passTypes",
+      "description": "The passes on sale, bought once: class packs, drop-ins and intro offers. Each one's title, a line on what it gives, description, price (in the major unit of `currency`), its classes, how many days it is valid for from the day it is bought (null: it does not expire), the class types, days and times it allows, and whether it is an intro offer (one per person, bought signed in; the host refuses a second). Read-only. (Extension tool from Memberships 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "passTypes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "classTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Class type ids; empty: every class type"
+                },
+                "weekdays": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "1 Monday to 7 Sunday; empty: every day"
+                },
+                "fromMinute": {
+                  "description": "Classes starting at or after, minutes after midnight",
+                  "type": ["number", "null"]
+                },
+                "untilMinute": {
+                  "description": "Classes starting before, minutes after midnight",
+                  "type": ["number", "null"]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "summary": {
+                  "type": ["string", "null"]
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "price": {
+                  "type": ["number", "null"]
+                },
+                "uses": {
+                  "type": ["number", "null"]
+                },
+                "validDays": {
+                  "type": ["number", "null"]
+                },
+                "onePerPerson": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "classTypes",
+                "weekdays",
+                "fromMinute",
+                "untilMinute",
+                "id",
+                "title",
+                "summary",
+                "description",
+                "price",
+                "uses",
+                "validDays",
+                "onePerPerson"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "currency": {
+            "description": "The currency prices are in (ISO 4217), the deployment's one; null until it is set",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["passTypes", "currency"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "memberships"
+    },
+    {
+      "name": "x.memberships.plans",
+      "description": "The membership plans on sale: each plan's title, a line on what it gives, description, price per month (in the major unit of `currency`), classes per week or month (null: unlimited), the class types, days and times it allows, and the days of its free trial. Whether a person gets the trial is the host's, when they subscribe (subscription.start): one per person, signed in. Read-only. (Extension tool from Memberships 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "plans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "classTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Class type ids; empty: every class type"
+                },
+                "weekdays": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "1 Monday to 7 Sunday; empty: every day"
+                },
+                "fromMinute": {
+                  "description": "Classes starting at or after, minutes after midnight",
+                  "type": ["number", "null"]
+                },
+                "untilMinute": {
+                  "description": "Classes starting before, minutes after midnight",
+                  "type": ["number", "null"]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "summary": {
+                  "type": ["string", "null"]
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "price": {
+                  "description": "Per month, in the major unit of `currency`",
+                  "type": ["number", "null"]
+                },
+                "uses": {
+                  "description": "Classes per period; null: unlimited",
+                  "type": ["number", "null"]
+                },
+                "per": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["week", "month"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "trialDays": {
+                  "type": ["number", "null"]
+                }
+              },
+              "required": [
+                "classTypes",
+                "weekdays",
+                "fromMinute",
+                "untilMinute",
+                "id",
+                "title",
+                "summary",
+                "description",
+                "price",
+                "uses",
+                "per",
+                "trialDays"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "currency": {
+            "description": "The currency prices are in (ISO 4217), the deployment's one; null until it is set",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["plans", "currency"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "memberships"
     },
     {
       "name": "x.programs.classToday",
