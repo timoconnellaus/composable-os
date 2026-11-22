@@ -101,10 +101,12 @@ describe("rows read on the AI paths", () => {
     // and their indexes (migration 0460) to about 480; stage 42's media tables (migration 0510)
     // to about 501; stage 32a's offers (migration 0532) to about 524; stage 32b's allowances
     // (migration 0533) and stage 31's recurring bookkeeping and write guard (migration 0560:
-    // three tables, two indexes, a trigger) to about 544.
+    // three tables, two indexes, a trigger) to about 544; stage 32b's plan changes (migration 0630)
+    // and stage 31a's family link (migration 0650: two tables, two indexes, three triggers) to
+    // about 565.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
-    ).toBeLessThan(560);
+    ).toBeLessThan(580);
     expect(
       await measure("summary.get", {
         subject: { kind: "record", object: "organisation", id: orgId },

@@ -74,6 +74,12 @@ function host(operations: Record<string, (input: Record<string, unknown>) => unk
       }),
       "person.get": (input) =>
         input.id === "per_ann" ? { id: "per_ann", displayName: "Ann" } : null,
+      // The member and the child staff linked to them (ADR 0540), as the host says.
+      "me.family": () => ({
+        self: { personId: "per_me", name: "Mo" },
+        dependants: [{ personId: "per_kid", name: "Kit" }],
+        guardians: [],
+      }),
       ...operations,
     },
   });
@@ -221,6 +227,7 @@ describe("bookings pack (test host)", () => {
       "capacity.get",
       "duplicate.check",
       "waitlist.position",
+      "me.family",
     ]);
     const rules = m.fields["programs.classtype"] ?? {};
     for (const name of [
@@ -252,7 +259,52 @@ describe("bookings pack (test host)", () => {
       ["cancel", ["customer"], "write"],
       ["leaveWaitlist", ["customer"], "write"],
       ["mine", ["customer"], "read"],
+      ["family", ["customer"], "read"],
     ]);
+    // A parent or guardian staff linked reads and books for the child (ADR 0540).
+    expect(m.objects.booking?.customer?.guardians).toEqual({ write: true, madeBy: "madeBy" });
+  });
+
+  it("family: the member and the children staff linked to them, as the host says", async () => {
+    const out = await host().runTool("family", {}, { caller: MEMBER });
+    expect(out).toEqual({
+      people: [
+        { personId: "per_me", name: "Mo", self: true },
+        { personId: "per_kid", name: "Kit", self: false },
+      ],
+    });
+  });
+
+  it("book for a child asks the host to make it the child's; the host checks the link", async () => {
+    const asked: Record<string, unknown>[] = [];
+    const h = host({
+      "my.create": (input) => {
+        asked.push(input);
+        return { id: "bkg_kid", values: { holder: "pass_kid" } };
+      },
+    });
+    expect(
+      await h.runTool("book", { classId: "cls_1", forPersonId: "per_kid" }, { caller: MEMBER }),
+    ).toMatchObject({ result: "booked", bookingId: "bkg_kid", holderId: "pass_kid" });
+    expect(asked).toEqual([
+      { object: "bookings.booking", values: { class: "cls_1" }, forPersonId: "per_kid" },
+    ]);
+    // A Person the host says is not there for them: told so, as for any unknown Person.
+    const refused = host({
+      "my.create": () => {
+        throw new ExtensionToolError("not_found", "No person with id per_x", {
+          object: "person",
+          id: "per_x",
+        });
+      },
+    });
+    expect(
+      await refused.runTool("book", { classId: "cls_1", forPersonId: "per_x" }, { caller: MEMBER }),
+    ).toMatchObject({
+      result: "refused",
+      reason: "not_found",
+      message: "You cannot book for that person.",
+    });
   });
 
   it("declares a waitlist on the booking's place, stopping at the class type's or the org's time", () => {
@@ -386,6 +438,11 @@ describe("bookings pack (test host)", () => {
     expect(writes).toEqual([
       { object: "bookings.booking", id: "bkg_w", from: "waiting", values: { state: "booked" } },
     ]);
+    // Their own waiting booking, not a child's on the same class.
+    const listed = free.calls.find((c) => c.operation === "my.list")?.input as {
+      filter: { and: { field: string; value: unknown }[] };
+    };
+    expect(listed.filter.and).toContainEqual({ field: "person", op: "eq", value: "per_me" });
   });
 
   it("bookFor refuses paid at the desk with the waitlist: nobody pays for a place they may not get", async () => {
@@ -592,6 +649,16 @@ describe("bookings pack (test host)", () => {
       }),
     ]);
     expect(h.calls.some((c) => c.operation === "record.list")).toBe(false);
+    // Their own by default; a child's with personId (the seam decides whether they may).
+    const asked = h.calls.find((c) => c.operation === "my.list")?.input as {
+      filter: { and: unknown[] };
+    };
+    expect(asked.filter.and).toEqual([{ field: "person", op: "eq", value: "per_me" }]);
+    await h.runTool("mine", { personId: "per_kid" }, { caller: MEMBER });
+    const forKid = h.calls.filter((c) => c.operation === "my.list").at(-2)?.input as {
+      filter: { and: unknown[] };
+    };
+    expect(forKid.filter.and).toEqual([{ field: "person", op: "eq", value: "per_kid" }]);
   });
 
   it("bookFor books a walk-in and their booking in one call, after the duplicate check", async () => {

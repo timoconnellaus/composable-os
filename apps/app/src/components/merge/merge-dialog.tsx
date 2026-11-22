@@ -69,11 +69,22 @@ interface MovePreview {
   tasksMore: boolean;
   affiliations: number;
   children: number | null;
+  /** What happens to a person's family links (ADR 0540); null for an organisation. */
+  familyLinks: {
+    moved: number;
+    ended: number;
+    deleted: number;
+    needs: "people:link" | null;
+  } | null;
 }
 
 /** What would move from `id` onto the survivor: linked activities, tasks, affiliations, children. */
-async function loadMovePreview(object: MergeObject, id: string): Promise<MovePreview> {
-  const [activities, tasks, affiliations, children] = await Promise.all([
+async function loadMovePreview(
+  object: MergeObject,
+  id: string,
+  survivorId: string,
+): Promise<MovePreview> {
+  const [activities, tasks, affiliations, children, family] = await Promise.all([
     callOp("activity.listForRecord", { object, recordId: id, limit: 100 }),
     callOp("task.list", {
       filter: { field: "linkedRecordId", op: "eq", value: id },
@@ -91,6 +102,8 @@ async function loadMovePreview(object: MergeObject, id: string): Promise<MovePre
           fields: ["id"],
         })
       : null,
+    // A person's family links: the host's plan of what moves, ends and is deleted (ADR 0540).
+    object === "person" ? callOp("person.link.mergePlan", { survivorId, mergedId: id }) : null,
   ]);
   return {
     activities: activities.items.length,
@@ -99,6 +112,9 @@ async function loadMovePreview(object: MergeObject, id: string): Promise<MovePre
     tasksMore: Boolean(tasks.nextCursor),
     affiliations: affiliations.items.length,
     children: children ? children.items.length : null,
+    familyLinks: family
+      ? { moved: family.moved, ended: family.ended, deleted: family.deleted, needs: family.needs }
+      : null,
   };
 }
 
@@ -202,9 +218,9 @@ function MergeChooser({
   );
 
   const moves = useQuery({
-    queryKey: ["merge-preview", object, merged?.id],
-    queryFn: () => loadMovePreview(object, merged?.id as string),
-    enabled: Boolean(merged),
+    queryKey: ["merge-preview", object, merged?.id, survivor?.id],
+    queryFn: () => loadMovePreview(object, merged?.id as string, survivor?.id as string),
+    enabled: Boolean(merged && survivor),
     staleTime: 0,
   });
 
@@ -391,6 +407,35 @@ function MergeChooser({
               many="tasks"
             />
             <MoveLine count={moves.data.affiliations} one="affiliation" many="affiliations" />
+            {moves.data.familyLinks !== null && (
+              <>
+                <MoveLine
+                  count={moves.data.familyLinks.moved}
+                  one="family link (a parent or child)"
+                  many="family links (parents or children)"
+                />
+                {moves.data.familyLinks.ended > 0 && (
+                  <li className="text-amber-700 dark:text-amber-400">
+                    {moves.data.familyLinks.ended} family link
+                    {moves.data.familyLinks.ended === 1 ? "" : "s"} will end: a duplicate, or one
+                    whose other way round is linked.
+                  </li>
+                )}
+                {moves.data.familyLinks.needs && (
+                  <li className="text-destructive" role="alert">
+                    This moves family links (a parent or a child): merging needs the people:link
+                    permission, which you do not hold.
+                  </li>
+                )}
+                {moves.data.familyLinks.deleted > 0 && (
+                  <li className="text-amber-700 dark:text-amber-400">
+                    {moves.data.familyLinks.deleted} family link
+                    {moves.data.familyLinks.deleted === 1 ? "" : "s"} between these two will be
+                    deleted.
+                  </li>
+                )}
+              </>
+            )}
             {moves.data.children !== null && (
               <MoveLine
                 count={moves.data.children}

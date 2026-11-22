@@ -1125,6 +1125,18 @@ paused) is **passed over**: they stay waiting, first in line, with the reason re
 next is tried. A hold nobody can take goes back to everyone (ADR 0520).
 _Avoid_: upgrade, moving up
 
+**Guardian** and **Dependant** (the family link)
+A **guardian** (a parent) is a Person a person on the staff linked, with `people:link`, to a
+**dependant** (a child) they may act for: a **family link** (`core_person_link`, ADR 0540). While
+it is live, the guardian, signed in, reads the dependant's records of every object that opens to
+guardians (`customer.guardians`: a child's bookings, and what their memberships and passes have
+left) and, where the object says so, makes and changes them (books, cancels and joins waitlists for
+the child, under the same rules; the child's own membership or pass pays). One hop, one direction;
+nothing on other objects. A dependant may have several guardians and no email or account. Ending a
+link stops it at once; a merge re-points links, an erase deletes them. Decided at the visibility
+seam alone.
+_Avoid_: parent account, family account, sub-account, linked member
+
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).

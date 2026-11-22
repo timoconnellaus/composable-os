@@ -293,13 +293,20 @@ export const mine = defineTool({
     "The signed-in member's own memberships and passes: each one's title, state, what it allows " +
     "(classes per week or month, or in all; class types, days and times), when it started and " +
     "when it stops or expires, and the host's count for now: classes used and left this week, " +
-    "this month or in all (left null: unlimited). Read-only.",
-  input: z.object({}),
+    "this month or in all (left null: unlimited). With personId, a child's the gym linked to " +
+    "them instead (their parent or guardian reads what the child has left). Read-only.",
+  input: z.object({
+    personId: id.optional().describe("A child linked to them; left out, their own"),
+  }),
   output: z.object({ holdings: z.array(holding) }),
   risk: "read",
   audiences: ["customer"],
-  async handler(_input, ctx) {
-    return { holdings: await holdingsOf(ctx, "my.list", null) };
+  async handler(input, ctx) {
+    // The seam gives them their own and a linked child's (ADR 0540); the filter picks whose.
+    const whose =
+      input.personId ??
+      (await ctx.ops.call<{ self: { personId: string } }>("me.family", {})).self.personId;
+    return { holdings: await holdingsOf(ctx, "my.list", whose) };
   },
 });
 

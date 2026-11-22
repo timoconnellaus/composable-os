@@ -34,6 +34,7 @@ import {
   classGet,
   classList,
   day,
+  family,
   findPeople,
   leaveWaitlist,
   mine,
@@ -118,12 +119,14 @@ export default defineExtension({
     // own, and the read and write lists above), and a listed one would reach every object.
     // duplicate.check: a walk-in is checked against the People on file before one is made.
     // waitlist.position: where a waiter stands in the queue (a member: their own only).
+    // me.family: the member's own id, and the children staff linked to them (ADR 0540).
     operations: [
       "public.list",
       "public.get",
       "capacity.get",
       "duplicate.check",
       "waitlist.position",
+      "me.family",
     ],
     modules: ["ops"],
   },
@@ -473,6 +476,15 @@ export default defineExtension({
           readOnly: true,
           description: "The staff account that booked it. Empty when the member booked.",
         },
+        madeBy: {
+          type: "relation",
+          label: "Booked by (member)",
+          to: "person",
+          readOnly: true,
+          description:
+            "The member who made it, set by the host: the person themselves, or the parent or " +
+            "guardian who booked for them. Empty when staff booked. Nobody edits it.",
+        },
         movedFrom: {
           type: "relation",
           label: "Moved from",
@@ -612,10 +624,12 @@ export default defineExtension({
           waived: "paidOtherwise",
         },
       },
-      // A member reads and changes only their own bookings; never anyone else's (decision 13).
+      // A member reads and changes only their own bookings, and a parent or guardian staff linked
+      // to a child the child's too (ADR 0540); never anyone else's (decision 13).
       customer: {
         field: "person",
         read: [
+          "person",
           "class",
           "state",
           "holder",
@@ -627,6 +641,10 @@ export default defineExtension({
         write: ["class", "state", "holder"],
         // Which class and which holder are chosen when it is made, never after (ADR 0507).
         createOnly: ["class", "holder"],
+        // A guardian books, cancels and joins waitlists for a live dependant, under the same
+        // windows and rules, and reads their bookings (ADR 0540). The use is the child's: the
+        // allowance spends the booking's Person's holders only.
+        guardians: { write: true, madeBy: "madeBy" },
       },
       timelineLinks: ["person"],
       indexes: [["class", "state"], ["person", "state"], ["state"]],
@@ -793,5 +811,6 @@ export default defineExtension({
     returnUse,
     day,
     classList,
+    family,
   },
 });

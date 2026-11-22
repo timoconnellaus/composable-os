@@ -4,9 +4,13 @@
 // an MCP client, an automation, extension code), the call waits for a person's approval, exactly
 // as an AI's publish request does (ADR 0480, `ALWAYS_REVIEWED_PUBLISHERS`). A person approving it
 // is the change being made by a person.
+//
+// The same holds for a merge of People where either has a live family link (ADR 0540): who may act
+// for whom is identity, and a merge moves, ends or deletes links.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { getObject } from "../fields/index.ts";
+import { hasLiveLink } from "./person-links.ts";
 
 type Values = Record<string, unknown>;
 
@@ -57,6 +61,12 @@ export async function touchesPersonApproves(
       return Object.keys(input.values).some(
         (name) => Object.hasOwn(settings, name) && settings[name]?.personApproves === true,
       );
+    }
+    case "person.merge": {
+      const ids = [input.survivorId, input.mergedId].filter(
+        (id): id is string => typeof id === "string",
+      );
+      return hasLiveLink(db, ids);
     }
     default:
       return false;

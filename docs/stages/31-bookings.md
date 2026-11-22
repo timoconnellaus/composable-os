@@ -807,6 +807,71 @@ or decided what it left open:
   down across ticks; the cut-off is read on the real clock; `bookFor` refuses paid at the desk
   with the waitlist.
 
+### Step 6: the family link (2026-11-23, `feat/stage-31a-family-link`)
+[ADR 0540](../adr/0540-the-family-link.md) and migration 0650 (block AN); ADRs 0402, 0494 and 0504
+amended. Where the build read the spec one way, or decided what it left open:
+
+- **The seam's shape.** `customer.guardians: { write?, madeBy? }`, with the customer's own
+  `read` and `write` lists, not lists of its own (the spec's guess): a guardian reads what the
+  child would, and with `write` changes what the child could. Read-only openings (the Memberships
+  pack's memberships and passes) leave `write` out. The whole decision is in
+  `packages/core/src/visibility/guardians.ts`; every read through `visibleSource`, `ownedSource`
+  and `customerVia`, and every write through the seam's helpers, asks it.
+- **Live** means not ended and both People out of the Trash (the spec did not say); a Person
+  restored from the Trash gets the link back. A child's record with the parent's email, or an
+  account's sign-in address, is linked with a warning to staff (sign-in links an account by its
+  address); sign-in is unchanged. One hop, one
+  direction: a child's own child is not their parent's, and a child never acts for a parent.
+- **Never a two-way link** (A guardian of B while B is guardian of A): `person.link.add` refuses
+  it, the database refuses it for every writer (two opposite links at once get one), and a merge
+  that would make one ends the moved link instead.
+- **`people:link`** is the permission's name (the spec's guess), admins by default and grantable.
+- **Who made a booking**: `madeBy` (a Person, set by the seam on every booking a member makes:
+  themselves, or the parent for a child) beside step 3's `bookedBy` (a staff account). A read-only
+  field that only the seam's create sets (the record code takes it from `seamSet`); nobody edits
+  it, staff and the pack's own tools included.
+- **Booking for a child** is `book { forPersonId }` (the spec's shape) through `my.create`'s new
+  `forPersonId`; `mine { personId? }` is the member's own by default and a child's when named
+  (not both at once); a new customer tool, `family`, lists who a member may book for, over a new
+  core customer read, `me.family` (themselves, their children and their guardians, by name). The
+  web and native timetables show "Booking for" when a child is linked.
+- **The child's own holders only**: the allowance already spent only the booking's Person's
+  (built in step 4); a parent naming their own pass for a child is refused as one that cannot pay.
+- **A guardian's write carries a guard in its batch** (`core_person_link_guard`), so a link
+  ended between the check and the commit is not written through (the spec said "the host checks a
+  live link in the write").
+- **Ending a link**: bookings the parent made stay, and `person.link.end` answers how many
+  (`stays`, read from every object that records `madeBy`), which the admin shows.
+- **Erasing a guardian deletes their links** rather than ending them (an ended row would keep the
+  erased Person's id); "staff are told" is the erase's answer (`dependantsWithoutGuardian`) and
+  a note on each such child's timeline naming no one. Erasing a dependant, and a purge from the
+  Trash, delete their links too.
+- **Merge**: a link between the two is deleted, a live duplicate the survivor already has is ended
+  (`merged: a duplicate`), and so is one whose other way round is live (`merged: the other way round
+  is linked`); the rest (ended ones too) move. The answer (`familyLinks: { moved, ended, deleted,
+  history }`), the merge preview (`person.link.mergePlan`) and the approval card say so. **A merge
+  touching a live link is a person's act**: from any other actor it waits for a person's approval
+  whatever the preset (the coordinator's decision on the security review).
+- **Staff link on the Person page** (a Family card: add as parent or child, end), ahead of step 9's
+  Person tab; the merge preview counts family links. Emails naming the child (to whoever made it and
+  the guardians) are step 9's; `madeBy` is what they read.
+- **Not widened**: access sources (`holdsAccess`, a course a child holds stays the child's), and
+  every object that does not opt in (tickets, orders, Programs' logs).
+- **"Across organisations"**: each organisation is its own deployment with its own database
+  (architecture, section 10: "no shared database and no tenant id"), so a link and the People it names exist in one only; a
+  Person id from anywhere else is a Person that does not exist, and is answered so (tested with
+  made-up ids, another member's child and the isolation suite's guesses).
+- **Proof**: the platform's fixtures (`packages/core/test/person-links.test.ts`: who makes and
+  ends a link, actor by actor; what a live link gives and only that, one hop and one direction;
+  ending, the Trash and the guard in the batch; merge and erase); stage 22's isolation suite with a
+  child per customer and three objects that open to guardians, read-write, read-only and through
+  `customerVia`, over `invoke` and over HTTP; the shipped packs together
+  (`apps/runner/test/bookings-family.test.ts`: a parent books, cancels, joins and leaves a waitlist
+  for a child with the child's pass, a staff-only class refused, the child's uses read; another
+  member naming the child answered as a made-up id; an ended link stops everything); the packs'
+  own tests; and one e2e test (staff link a parent on the Person page, the parent books the child
+  from the timetable).
+
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.
 

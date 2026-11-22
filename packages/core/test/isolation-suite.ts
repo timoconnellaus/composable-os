@@ -11,8 +11,10 @@
 // inputs are built from each operation's input schema. A newly opened operation is covered
 // without being added here. If one is opened whose input this cannot fill, the test fails and
 // says so.
+import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { objectTableOf } from "../src/extensions/schema.ts";
 import {
   type ActingUser,
   type AnyOperation,
@@ -32,9 +34,11 @@ import {
   createPosts,
   createShows,
   createSupplier,
+  DAY,
   DECLARATIONS,
   fixtureRegistry,
   giveOrders,
+  HOLDING,
   ITEM,
   installShop,
   type call as invokeCall,
@@ -51,6 +55,7 @@ import {
   snapshot,
   TICKET,
   TIER,
+  VISIT,
 } from "./customer-fixtures.ts";
 import { extId } from "./extension-helpers.ts";
 import { context, createUser } from "./helpers.ts";
@@ -75,8 +80,9 @@ export function isolationSuite(how: string, call: CallFn): void {
   beforeAll(async () => {
     admin = await createUser("admin");
     await installShop();
-    a = await createCustomer(admin, "A");
-    b = await createCustomer(admin, "B");
+    // Each with a child staff linked to them (stage 31a step 6, ADR 0540).
+    a = await createCustomer(admin, "A", { family: true });
+    b = await createCustomer(admin, "B", { family: true });
     supplier = await createSupplier(admin);
     // Stage 27 (ADR 0438): what the public may read, and what it may not.
     shows = await createShows(admin);
@@ -106,6 +112,11 @@ export function isolationSuite(how: string, call: CallFn): void {
     ASSIGNMENT,
     SESSION,
     LOG,
+    // The family link (ADR 0540): a visit a guardian writes for a child, a holding they only
+    // read, and a day read through a visit.
+    VISIT,
+    HOLDING,
+    DAY,
     "person",
     "organisation",
     "activity",
@@ -162,6 +173,7 @@ export function isolationSuite(how: string, call: CallFn): void {
         // at B's real orders and lines whatever object the rest of the input names.
         ...Object.values(b.records).flat(),
         b.principal.personId,
+        ...b.dependants,
         b.principal.customerId,
         supplier.id,
         GUESS,
@@ -285,6 +297,8 @@ export function isolationSuite(how: string, call: CallFn): void {
         .flat()
         .map((id, i): [string, string] => [id, `${GUESS.slice(0, -1)}${i}`]),
       [b.principal.personId, GUESS_PERSON],
+      // B's children are People that do not exist for A (ADR 0540).
+      ...b.dependants.map((id, i): [string, string] => [id, `${GUESS_PERSON.slice(0, -2)}D${i}`]),
       [supplier.id, `${GUESS.slice(0, -2)}S1`],
       // A record the public may not read now answers as one that does not exist.
       ...shows.hidden.ids.map((id, i): [string, string] => [id, `${GUESS.slice(0, -2)}H${i}`]),
@@ -329,7 +343,8 @@ export function isolationSuite(how: string, call: CallFn): void {
 
     it("is not vacuous: the same operations show A their own records, and B theirs", async () => {
       for (const customer of [a, b]) {
-        for (const object of [ORDER, TICKET, REQUEST, "order", "orderLine"]) {
+        // A visit and a holding: their own and their child's (ADR 0540).
+        for (const object of [ORDER, TICKET, REQUEST, "order", "orderLine", VISIT, HOLDING]) {
           const page = await call("fixture.myList", { object }, outside(customer.principal));
           expect(page.ok, JSON.stringify(page)).toBe(true);
           const items = (page as { value: { items: { id: string }[] } }).value.items;
@@ -653,6 +668,119 @@ export function isolationSuite(how: string, call: CallFn): void {
       );
       expect(write).toMatchObject({ ok: false, error: { code: "invalid_input" } });
       expect(await snapshot(b)).toBe(before);
+    });
+  });
+
+  // Stage 31a step 6 (ADR 0540): the family link. A and B each have a child staff linked to them.
+  // A reads and acts for A's child where an object opens to guardians, and only there; B's child
+  // is a Person that does not exist for A, by id, by filter and as `forPersonId`.
+  describe(`isolation ${how}: the family link (stage 31a)`, () => {
+    const items = (outcome: Outcome) =>
+      (outcome as { value: { items: { id: string; values: Record<string, unknown> }[] } }).value
+        .items;
+
+    it("a guardian reads their child's records where the object opens to guardians, and nothing of another's", async () => {
+      const kid = a.dependants[0] as string;
+      for (const object of [VISIT, HOLDING]) {
+        const page = items(await call("fixture.myList", { object }, outside(a.principal)));
+        const owners = new Set(page.map((item) => item.values.person));
+        expect([...owners].sort()).toEqual([a.principal.personId, kid].sort());
+        // Filtering on B's child finds nothing, as a Person that does not exist.
+        const probe = await call(
+          "fixture.myList",
+          { object, filter: { field: "person", op: "eq", value: b.dependants[0] } },
+          outside(a.principal),
+        );
+        expect(items(probe)).toEqual([]);
+      }
+      // Not on an object that does not open to guardians: the child's own records stay theirs.
+      const tickets = items(await call("fixture.myList", { object: TICKET }, outside(a.principal)));
+      expect(tickets.map((t) => t.id).sort()).toEqual([...(a.records[TICKET] ?? [])].sort());
+      // The day of the child's visit, through the visit (customerVia), and not B's child's.
+      const days = items(await call("fixture.myList", { object: DAY }, outside(a.principal)));
+      expect(days.map((d) => d.id).sort()).toEqual([...(a.records[DAY] ?? [])].sort());
+    });
+
+    it("a guardian makes a record for their child, never for anyone else's, and the host says who made it", async () => {
+      const kid = a.dependants[0] as string;
+      const made = await call(
+        "fixture.myCreate",
+        { object: VISIT, values: { note: "Booked by A for their child" }, forPersonId: kid },
+        outside(a.principal),
+      );
+      expect(made.ok, JSON.stringify(made)).toBe(true);
+      const id = (made as { value: { id: string } }).value.id;
+      const row = await env.DB.prepare(`SELECT * FROM ${objectTableOf(VISIT)} WHERE id = ?`)
+        .bind(id)
+        .first<Record<string, unknown>>();
+      expect(Object.values(row ?? {})).toContain(kid);
+      expect(Object.values(row ?? {})).toContain(a.principal.personId);
+      // B's child, B, a guessed Person, A's child on an object that is read only to guardians,
+      // and A's child on an object with no guardians: one answer, a Person that is not there.
+      const before = await snapshot(b);
+      const answers = new Set<string>();
+      for (const [object, forPersonId] of [
+        [VISIT, b.dependants[0]],
+        [VISIT, b.principal.personId],
+        [VISIT, GUESS_PERSON],
+        [HOLDING, kid],
+        [REQUEST, kid],
+      ] as const) {
+        const outcome = await call(
+          "fixture.myCreate",
+          {
+            object,
+            values: { [object === VISIT ? "note" : object === HOLDING ? "label" : "text"]: "x" },
+            forPersonId,
+          },
+          outside(a.principal),
+        );
+        expect(outcome).toMatchObject({ ok: false, error: { code: "not_found" } });
+        answers.add(shape(outcome));
+      }
+      expect(answers.size).toBe(1);
+      expect(await snapshot(b)).toBe(before);
+    });
+
+    it("a guardian changes their child's records only where guardians write", async () => {
+      const kidVisit = a.records[VISIT]?.[1] as string;
+      const kidHolding = a.records[HOLDING]?.[1] as string;
+      const done = await call(
+        "fixture.myUpdate",
+        { object: VISIT, id: kidVisit, values: { note: "Changed by A" } },
+        outside(a.principal),
+      );
+      expect(done).toMatchObject({ ok: true, value: { values: { note: "Changed by A" } } });
+      const readOnly = await call(
+        "fixture.myUpdate",
+        { object: HOLDING, id: kidHolding, values: { label: "Changed by A" } },
+        outside(a.principal),
+      );
+      expect(readOnly).toMatchObject({ ok: false, error: { code: "not_found" } });
+      // B's child's visit: not there.
+      const theirs = await call(
+        "fixture.myUpdate",
+        { object: VISIT, id: b.records[VISIT]?.[1] as string, values: { note: "x" } },
+        outside(a.principal),
+      );
+      expect(theirs).toMatchObject({ ok: false, error: { code: "not_found" } });
+    });
+
+    it("me.family names A's child to A only", async () => {
+      const family = await call("me.family", {}, outside(a.principal));
+      expect(family).toMatchObject({
+        ok: true,
+        value: {
+          self: { personId: a.principal.personId },
+          dependants: [{ personId: a.dependants[0] }],
+          guardians: [],
+        },
+      });
+      expect(JSON.stringify(family)).not.toContain(b.dependants[0] as string);
+      expect(await call("me.family", {}, outside(PUBLIC))).toMatchObject({
+        ok: false,
+        error: { code: "unknown_operation" },
+      });
     });
   });
 

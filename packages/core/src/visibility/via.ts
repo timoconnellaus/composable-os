@@ -4,8 +4,9 @@
 // An object declares it:
 //   customerVia: { from: "ticketing.ticket", field: "event", read: ["name", "startsAt", "venue"] }
 // A signed-in customer then sees a record of the object only while one of their own records of
-// `from` (an object that declares a customer, whose customer field is the caller's Person) points
-// to it through `field`, and of it only the fields in `read`. A ticket's holder reads its event's
+// `from` (an object that declares a customer, whose customer field is the caller's Person, or a
+// live dependant's where `from` opens to guardians, ADR 0540) points to it through `field`, and
+// of it only the fields in `read`. A ticket's holder reads its event's
 // name and date whatever state the event is in: ended, or no longer on sale. Nothing by default:
 // an object that declares nothing is read this way by no one.
 //
@@ -45,6 +46,8 @@ interface Link {
   readonly source: string;
   readonly pointer: string;
   readonly owner: string;
+  /** The `from` object opens to guardians (ADR 0540): a live dependant's records point here too. */
+  readonly dependants: boolean;
 }
 
 function resolveLink(object: ObjectDefinition, declared: CustomerViaDeclaration): Link | string {
@@ -73,7 +76,12 @@ function resolveLink(object: ObjectDefinition, declared: CustomerViaDeclaration)
   if (!from.customer.read.includes(declared.field)) {
     return `customerVia.field "${declared.field}" must be one the customer of ${from.name} may read`;
   }
-  return { source: from.source, pointer: pointer.column, owner: owner.column };
+  return {
+    source: from.source,
+    pointer: pointer.column,
+    owner: owner.column,
+    dependants: from.customer.guardians !== undefined,
+  };
 }
 
 /** Which records a column of the source shows its value on. */

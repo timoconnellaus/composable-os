@@ -305,6 +305,22 @@ export function toOperationError(error: unknown): OperationError {
       reason: "not_full",
     });
   }
+  // A guardian's write after their link ended, or the dependant went to the Trash (migration
+  // 0650, ADR 0540): as if the Person were not there.
+  if (message.includes("core_person_link_not_live")) {
+    return new OperationError("not_found", "Not found", { object: "person" });
+  }
+  // A link whose other way round is live (migration 0650): never a two-way link.
+  if (message.includes("core_person_link_reverse")) {
+    return new ConflictError(
+      "The other way round is already linked: a child cannot also be their guardian's guardian.",
+      { rule: "person_link_reverse" },
+    );
+  }
+  // Two staff linking the same pair at once (migration 0650): the other one linked them.
+  if (message.includes("UNIQUE constraint failed: core_person_link")) {
+    return new ConflictError("These two are already linked.", { rule: "person_link" });
+  }
   // Two series runs making one date at once (migration 0560, ADR 0500): the other one made it.
   if (message.includes("UNIQUE constraint failed: core_recurrence_occurrence")) {
     return new ConflictError(

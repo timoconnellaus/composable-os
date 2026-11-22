@@ -24,17 +24,32 @@ export const myCreate = defineOperation({
   name: "my.create",
   description:
     "From a tool called by a customer: create a record that belongs to that customer. The " +
-    "customer field is set by the host to the caller and cannot be given. Other values must be " +
-    "fields the object lists as writable by its customer, or that the tool lists in " +
-    "customerFields. Returns the record as the customer may see it.",
-  input: z.object({ object: objectName, values: valuesSchema.default({}) }),
+    "customer field is set by the host to the caller and cannot be given; with forPersonId it " +
+    "is set to that Person instead, only when they are a live dependant of the caller (a child " +
+    "staff linked to them) and the object lets guardians write its records; anyone else is not " +
+    "found. Other values must be fields the object lists as writable by its customer, or that " +
+    "the tool lists in customerFields. Returns the record as the customer may see it.",
+  input: z.object({
+    object: objectName,
+    values: valuesSchema.default({}),
+    forPersonId: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe(
+        "A dependant of the caller to make it for (ADR 0540); left out, it is the caller's own",
+      ),
+  }),
   output: recordSchema,
   permission: "records:write",
   risk: "write",
   audiences: ["customer"],
   toolOnly: true,
   async handler(input, ctx) {
-    const { id } = await ctx.records.create(input.object, input.values);
+    const { id } = await ctx.records.create(input.object, input.values, {
+      forPersonId: input.forPersonId,
+    });
     return ctx.afterCommit(() => ctx.records.get(input.object, id));
   },
 });
