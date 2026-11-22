@@ -94,7 +94,11 @@ SELECT
     ELSE c.state
   END AS change_state,
   c.call_outcome AS change_call_outcome,
-  c.action_url AS change_action_url,
+  -- Only while the change is open: a lapsed or withdrawn upgrade shows no page to pay.
+  CASE
+    WHEN c.state = 'requested' AND c.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      THEN c.action_url
+  END AS change_action_url,
   c.end_outcome AS change_end_outcome,
   c.to_plan_id AS change_to_plan_id,
   c.to_plan_title AS change_to_plan_title,

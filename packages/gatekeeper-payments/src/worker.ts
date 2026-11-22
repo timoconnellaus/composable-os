@@ -32,6 +32,7 @@ import { buildDescription, sanitizeTitle } from "@composable-os/gatekeeper-kit/a
 import {
   ActionApplyError,
   ActionJournal,
+  ActionOutcomeUnknownError,
   defineActions,
   type TaggedAction,
 } from "@composable-os/gatekeeper-kit/actions";
@@ -73,6 +74,7 @@ import type {
   PaymentsSubscriptionCheckoutInput,
   PaymentsSubscriptionCheckoutStatus,
   PaymentsUnpauseSubscriptionInput,
+  PaymentsVoidUpdateInput,
 } from "./types.js";
 import TYPES_CODE from "./types.txt";
 import {
@@ -90,6 +92,7 @@ import {
   parseResumeSubscriptionInput,
   parseSubscriptionCheckoutInput,
   parseUnpauseSubscriptionInput,
+  parseVoidUpdateInput,
   providerFromUrl,
   validInstant,
 } from "./validate.js";
@@ -179,6 +182,7 @@ type StoredResume = { provider: PaymentsProviderName; input: PaymentsResumeSubsc
 type StoredChange = { provider: PaymentsProviderName; input: PaymentsChangeSubscriptionInput };
 type StoredPause = { provider: PaymentsProviderName; input: PaymentsPauseSubscriptionInput };
 type StoredUnpause = { provider: PaymentsProviderName; input: PaymentsUnpauseSubscriptionInput };
+type StoredVoid = { provider: PaymentsProviderName; input: PaymentsVoidUpdateInput };
 type Actions = {
   refund: StoredRefund;
   cancel: StoredCancel;
@@ -186,6 +190,7 @@ type Actions = {
   change: StoredChange;
   pause: StoredPause;
   unpause: StoredUnpause;
+  void_update: StoredVoid;
 };
 
 const REFUND_KIND: ActionKind = { tag: "payments.refund", label: "Refund a payment" };
@@ -205,6 +210,10 @@ const PAUSE_KIND: ActionKind = {
   tag: "payments.subscription.pause",
   label: "Pause a subscription",
 };
+const VOID_UPDATE_KIND: ActionKind = {
+  tag: "payments.subscription.void_update",
+  label: "Withdraw a subscription's upgrade",
+};
 const UNPAUSE_KIND: ActionKind = {
   tag: "payments.subscription.unpause",
   label: "End a subscription's pause",
@@ -218,6 +227,7 @@ type PaymentsHost = {
   sendChange(change: StoredChange): Promise<void>;
   sendPause(change: StoredPause): Promise<void>;
   sendUnpause(change: StoredUnpause): Promise<void>;
+  sendVoid(change: StoredVoid): Promise<void>;
 };
 
 function describeCancel(change: StoredCancel) {
@@ -321,6 +331,24 @@ function describeUnpause(change: StoredUnpause) {
   };
 }
 
+function describeVoid(change: StoredVoid) {
+  const { input } = change;
+  const builder = buildDescription(
+    `Withdraws the upgrade of subscription ${input.subscriptionId} through ` +
+      `${PROVIDER_TITLES[change.provider]}: voids the open invoice its pending update made, so it ` +
+      "can no longer be paid and the subscription stays on its plan.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Subscription", input.subscriptionId)
+    .inline("Provider's reference", input.subscriptionRef)
+    .verbatim("Reason", input.reason);
+  return {
+    title: sanitizeTitle(`Withdraw the upgrade of subscription ${input.subscriptionId}`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
 /** The approver's view of one refund: how much, to which payment, on which order, and why. */
 function describeRefund(refund: StoredRefund) {
   const { input } = refund;
@@ -407,6 +435,17 @@ const actions = defineActions<PaymentsHost, Actions>(
       },
       reject: async () => {},
     },
+    void_update: {
+      kind: VOID_UPDATE_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeVoid(change),
+      apply: async (change, host) => {
+        await host.sendVoid(change);
+      },
+      reject: async () => {},
+    },
     unpause: {
       kind: UNPAUSE_KIND,
       autoApprovable: false,
@@ -436,6 +475,7 @@ type SessionBackend = {
   submitChange(queue: RpcStub<ApprovalQueue>, change: StoredChange): Promise<number>;
   submitPause(queue: RpcStub<ApprovalQueue>, change: StoredPause): Promise<number>;
   submitUnpause(queue: RpcStub<ApprovalQueue>, change: StoredUnpause): Promise<number>;
+  submitVoid(queue: RpcStub<ApprovalQueue>, change: StoredVoid): Promise<number>;
   wasApplied(id: number): boolean;
   subscribe(queue: RpcStub<ApprovalQueue>, hook: RpcStub<PaymentsHookTarget>): Promise<void>;
 };
@@ -453,6 +493,16 @@ async function isHostOrdersQueue(queue: unknown): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * The tag an apply failure's message starts with (stage 32b review): `[apply-outcome:refused] `.
+ * Core reads it (`packages/core/src/integrations/outcome.ts`, the same text): the one place the two
+ * agree, since RPC carries an error's message and not its class.
+ */
+const APPLY_OUTCOME_TAG = "[apply-outcome:";
+function applyOutcomeTag(outcome: "refused" | "unknown" | "retryable"): string {
+  return `${APPLY_OUTCOME_TAG}${outcome}] `;
 }
 
 /**
@@ -665,6 +715,19 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
     return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
   }
 
+  async voidPendingUpdate(
+    input: PaymentsVoidUpdateInput,
+  ): Promise<PaymentsSubscriptionChangeReceipt> {
+    const parsed = parseVoidUpdateInput(input);
+    await requireHostQueue(this.#queue);
+    this.#backend.open();
+    const id = await this.#backend.submitVoid(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
   async openPortal(input: PaymentsPortalInput): Promise<PaymentsPortal> {
     const parsed = parsePortalInput(input);
     // A portal address shows a customer's invoices and lets their card and email be changed: it
@@ -721,6 +784,8 @@ export class PaymentsGatekeeper
       (await this.#openForApply(change.provider)).pauseSubscription(change.input),
     sendUnpause: async (change) =>
       (await this.#openForApply(change.provider)).unpauseSubscription(change.input),
+    sendVoid: async (change) =>
+      (await this.#openForApply(change.provider)).voidPendingUpdate(change.input),
   };
 
   /** The provider an approved action is sent through; a provider not set up sends nothing. */
@@ -794,6 +859,7 @@ export class PaymentsGatekeeper
       submitChange: (queue, change) => this.#actions().submit(queue, "change", change),
       submitPause: (queue, change) => this.#actions().submit(queue, "pause", change),
       submitUnpause: (queue, change) => this.#actions().submit(queue, "unpause", change),
+      submitVoid: (queue, change) => this.#actions().submit(queue, "void_update", change),
       wasApplied: (id) => this.#journal.wasApplied(id),
       subscribe: (queue, hook) => this.#subscribe(queue, hook),
     };
@@ -840,8 +906,27 @@ export class PaymentsGatekeeper
   }
 
   /** Sends an approved refund, exactly once. */
+  /**
+   * Applies an action. A failure is thrown with what came of it in front of its message
+   * (`APPLY_OUTCOME_TAG`): RPC carries an error's message only, not its class, so the host's own
+   * call reads the outcome from this tag, never from the wording (review of 32b): `refused`
+   * (`ActionApplyError`: nothing changed), `unknown` (`ActionOutcomeUnknownError`: it may have),
+   * `retryable` (anything else: the action is pending again, nothing was sent).
+   */
   async applyAction(action: number): Promise<void> {
-    await this.#actions().apply(requireActionId(action));
+    try {
+      await this.#actions().apply(requireActionId(action));
+    } catch (error) {
+      const outcome =
+        error instanceof ActionApplyError
+          ? "refused"
+          : error instanceof ActionOutcomeUnknownError
+            ? "unknown"
+            : "retryable";
+      throw new Error(
+        `${applyOutcomeTag(outcome)}${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /** Drops a rejected refund; nothing is sent. */

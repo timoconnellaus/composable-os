@@ -495,3 +495,42 @@ describe("ending a pause", () => {
     expect(flagged?.n).toBe(0);
   });
 });
+
+describe("the gatekeeper's typed refusal (second review)", () => {
+  it("a refusal at the real gatekeeper reaches the host as refused, never by its wording", async () => {
+    const dee = await subscribed("dee", three);
+    const from = new Date(Date.now() + 3 * DAY).toISOString();
+    await run(
+      "subscription.pause",
+      {
+        id: dee.id,
+        from,
+        until: new Date(Date.parse(from) + 10 * DAY).toISOString(),
+        reason: "Trip",
+      },
+      staff(admin),
+    );
+    // The host's row lapses (as a day passing would) while the provider still holds the pause.
+    await env.DB.prepare(
+      "UPDATE core_subscription_change SET expires_at = ? WHERE subscription_id = ? AND state = 'requested'",
+    )
+      .bind(new Date(Date.now() - 60_000).toISOString(), dee.id)
+      .run();
+    const refused = await refusal(
+      run(
+        "subscription.pause",
+        { id: dee.id, until: new Date(Date.now() + 14 * DAY).toISOString(), reason: "Again" },
+        staff(admin),
+      ),
+    );
+    expect(refused.details).toMatchObject({ rule: "provider_refused" });
+    const row = await env.DB.prepare(
+      "SELECT state, call_outcome, call_error FROM core_subscription_change WHERE subscription_id = ? ORDER BY requested_at DESC LIMIT 1",
+    )
+      .bind(dee.id)
+      .first<Record<string, unknown>>();
+    expect(row).toMatchObject({ state: "lapsed", call_outcome: "refused" });
+    // The tag is read and removed: the words kept are the provider's.
+    expect(String(row?.call_error)).not.toContain("[apply-outcome:");
+  });
+});

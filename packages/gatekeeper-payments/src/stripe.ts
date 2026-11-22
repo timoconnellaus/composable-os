@@ -30,6 +30,7 @@ import type {
   PaymentsSubscriptionTrigger,
   PaymentsTaxPlace,
   PaymentsUnpauseSubscriptionInput,
+  PaymentsVoidUpdateInput,
 } from "./types.js";
 
 /** Stripe's shortest Checkout Session lifetime is 30 minutes; one more absorbs clock skew. */
@@ -416,6 +417,11 @@ export class StripeProvider implements PaymentProvider {
    * as 1 (a price change resets it to 1 anyway).
    */
   async changeSubscription(input: PaymentsChangeSubscriptionInput): Promise<void> {
+    // Items changed under an attached schedule may make a phase, and a phase change discards a
+    // pending update and voids its invoice (docs.stripe.com/billing/subscriptions/pending-updates):
+    // a schedule left by a pause that ran its course is released first; one with a pause still to
+    // come refuses the change, nothing changed.
+    await this.#releaseFinishedSchedule(input.subscriptionRef, `change-${input.changeId}`);
     const path = `/v1/subscriptions/${encodeURIComponent(input.subscriptionRef)}`;
     const item = await this.#item(input.subscriptionRef);
     const form = new URLSearchParams();
@@ -472,6 +478,9 @@ export class StripeProvider implements PaymentProvider {
    * schedule is released again, so nothing changed.
    */
   async pauseSubscription(input: PaymentsPauseSubscriptionInput): Promise<void> {
+    // A schedule left by an earlier pause that ran its course is released first (a subscription
+    // holds one schedule); one with a pause still to come refuses this one.
+    await this.#releaseFinishedSchedule(input.subscriptionRef, `pause-${input.pauseId}`);
     const made = new URLSearchParams();
     made.set("from_subscription", input.subscriptionRef);
     let scheduleId: string | null = null;
@@ -514,12 +523,20 @@ export class StripeProvider implements PaymentProvider {
       await this.#call("POST", path, form, `cos-pause-${input.pauseId}`, STRIPE_BILLING_VERSION);
     } catch (error) {
       if (error instanceof StripeCallError && error.outcome === "refused") {
-        await this.#change(
-          "POST",
-          `${path}/release`,
-          new URLSearchParams(),
-          `cos-pause-release-${input.pauseId}`,
-        );
+        try {
+          await this.#change(
+            "POST",
+            `${path}/release`,
+            new URLSearchParams(),
+            `cos-pause-release-${input.pauseId}`,
+          );
+        } catch {
+          // The pause was refused, and the schedule made for it may still be attached: not a clean
+          // refusal (review of 32b), so the host keeps it open and staff can withdraw it.
+          throw new ActionOutcomeUnknownError(
+            "Stripe refused the pause, and the schedule made for it could not be released: it may still be attached.",
+          );
+        }
         throw new ActionApplyError(
           `Stripe refused the pause, so nothing changed: ${error.message}`,
         );
@@ -550,7 +567,7 @@ export class StripeProvider implements PaymentProvider {
    */
   async unpauseSubscription(input: PaymentsUnpauseSubscriptionInput): Promise<void> {
     const ref = encodeURIComponent(input.subscriptionRef);
-    const { body } = await this.#read(`/v1/subscriptions/${ref}`);
+    const { body } = await this.#read(`/v1/subscriptions/${ref}?expand[]=latest_invoice`);
     const schedule = idOf(body.schedule);
     const attempt = `${input.pauseId}-${crypto.randomUUID()}`;
     if (body.status === "paused") {
@@ -565,6 +582,14 @@ export class StripeProvider implements PaymentProvider {
           `cos-unpause-${attempt}`,
         );
         return;
+      }
+      // A resume already asked and waiting for its payment (an open latest invoice) is not asked
+      // again: said, nothing changed (review of 32b).
+      const latest = metadataOf(body.latest_invoice);
+      if (stringOrNull(latest.status) === "open") {
+        throw new ActionApplyError(
+          "A resume is waiting for its payment at Stripe, so nothing changed: the payer pays it, or it is voided.",
+        );
       }
       form.set("billing_cycle_anchor[type]", "now");
       form.set("payment_behavior", "resume_on_payment_success");
@@ -594,6 +619,65 @@ export class StripeProvider implements PaymentProvider {
     } catch {
       // The pause is withdrawn already; a schedule left attached shows as a refusal of a later change.
     }
+  }
+
+  /**
+   * Cancels an upgrade's pending update (review of 32b): Stripe's way is to void the invoice the
+   * update made (docs.stripe.com/billing/subscriptions/pending-updates: "To cancel a pending
+   * update, you need to void the invoice the update created", found as the subscription's
+   * `latest_invoice`; docs.stripe.com/api/invoices/void: `POST /v1/invoices/:id/void`, finalized
+   * invoices only, "This cannot be undone"). Refused, nothing changed, when no update is pending
+   * or its invoice is no longer open (paid, so the upgrade applies; or voided already).
+   */
+  async voidPendingUpdate(input: PaymentsVoidUpdateInput): Promise<void> {
+    const { body } = await this.#read(
+      `/v1/subscriptions/${encodeURIComponent(input.subscriptionRef)}?expand[]=latest_invoice`,
+    );
+    const pending = body.pending_update;
+    const latest = metadataOf(body.latest_invoice);
+    const invoice = stringOrNull(latest.id);
+    if (!pending || invoice === null || stringOrNull(latest.status) !== "open") {
+      throw new ActionApplyError(
+        "No upgrade is pending at Stripe with an open invoice, so nothing changed.",
+      );
+    }
+    await this.#change(
+      "POST",
+      `/v1/invoices/${encodeURIComponent(invoice)}/void`,
+      new URLSearchParams(),
+      `cos-void-${input.changeId}`,
+    );
+  }
+
+  /**
+   * Releases a subscription's schedule when it holds only pauses that have run their course
+   * (resumed: `pause_schedules[].resume.status.type` `succeeded`, or no pause left), as the pause
+   * guide advises once a resume succeeds. A schedule with a pause still to come, or one this host
+   * did not make, refuses what was asked (nothing changed).
+   */
+  async #releaseFinishedSchedule(subscriptionRef: string, key: string): Promise<void> {
+    const { body } = await this.#read(
+      `/v1/subscriptions/${encodeURIComponent(subscriptionRef)}?expand[]=schedule`,
+    );
+    const schedule = metadataOf(body.schedule);
+    const scheduleId = idOf(body.schedule);
+    if (scheduleId === null) return;
+    const pauses = Array.isArray(schedule.pause_schedules) ? schedule.pause_schedules : [];
+    const ours = stringOrNull(metadataOf(schedule.metadata).cos_pause) !== null;
+    const finished = pauses.every(
+      (p) => stringOrNull(metadataOf(metadataOf(metadataOf(p).resume).status).type) === "succeeded",
+    );
+    if (!ours || !finished || body.status === "paused") {
+      throw new ActionApplyError(
+        "The subscription has a schedule at Stripe with a pause not over (or one this host did not make), so nothing changed: end or withdraw the pause first.",
+      );
+    }
+    await this.#change(
+      "POST",
+      `/v1/subscription_schedules/${encodeURIComponent(scheduleId)}/release`,
+      new URLSearchParams(),
+      `cos-release-${key}`,
+    );
   }
 
   /** The subscription's one item: its id and its product's. */

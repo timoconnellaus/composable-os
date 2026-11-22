@@ -128,7 +128,7 @@ export const SOLUTIONS: readonly Solution[] = [
         },
         {
           title: "Memberships and passes",
-          body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins and an intro offer, one per person. Members see what they have left, used up as they book classes, and change plan on your website: a dearer plan at once, a cheaper one from the next month. Staff pause a membership for a set time, with nothing charged meanwhile.",
+          body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins and an intro offer, one per person. Members see what they have left, used up as they book classes, and change plan on your website: a dearer plan at once, a cheaper one from the next billing period. Staff pause a membership for a set time, with nothing charged meanwhile.",
           status: "building",
         },
         {

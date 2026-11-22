@@ -226,6 +226,20 @@ Use a membership plan of 30.00 and two more (70.00, 15.00), with `pauseMinDays` 
    each such invoice, and a read at the new price is reported as a change at the provider.
 6c. **Withdraw a waiting downgrade.** **Check 41:** staff Withdraw the change; Stripe accepts the
    old price as `price_data` with `proration_behavior=none`; the next renewal is the old price.
+6d. **Withdraw an upgrade not yet paid.** With a declining card, ask an upgrade, then Withdraw the
+   change. **Check 42:** `POST /v1/invoices/:id/void` on the subscription's `latest_invoice` is
+   accepted, the `pending_update` is gone, and paying that invoice is no longer possible.
+6e. **A plan change after a pause.** After a pause has run its course, ask a plan change.
+   **Check 43:** the expanded `schedule` shows `pause_schedules[].resume.status.type` `succeeded`,
+   the release is accepted, and the change then applies; with a pause still to come, the change is
+   refused and nothing changes. Record whether Stripe would have accepted the item update with the
+   schedule attached (not documented).
+6f. **A late webhook.** Disable the endpoint for a day, ask an upgrade and pay it, re-enable it.
+   **Check 44:** the redelivered events (after the change's day) are followed as the upgrade, the
+   proration order is not flagged.
+6g. **Renewal order.** Ask a downgrade minutes before a renewal (a test clock). **Check 45:** the
+   renewal's `invoice.paid` (`billing_reason` `subscription_cycle`) bills the new price and the
+   member holds the new plan from that period.
 7. **Nobody pauses collection.** **Check 36:** the dashboard's "pause payment collection" is not
    used: it keeps a subscription active, and the host keeps giving access.
 

@@ -894,7 +894,14 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
         eb
           .selectFrom("core_subscription")
           .select("id")
-          .where((w) => w.or([w("payer_person_id", "in", ids), w("holder_person_id", "in", ids)])),
+          // A guest's, known only by the address it was started with, too.
+          .where((w) =>
+            w.or([
+              w("payer_person_id", "in", ids),
+              w("holder_person_id", "in", ids),
+              w("email", "in", addresses),
+            ]),
+          ),
       ),
   );
   const orders = await ctx.db

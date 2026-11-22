@@ -29,6 +29,7 @@ import {
   declinedUpgradeWords,
   expectedPart,
   followChange,
+  lateChange,
   openChange,
   upgradeNeedsAction,
 } from "./changes.ts";
@@ -283,7 +284,18 @@ export async function applySubscriptionEvent(
     // as lapsed in this batch, and a read at its price is a change at the provider.
     const found = await openChange(ctx.db, existing.id, ctx.now);
     change = found.open;
-    closeStale(ctx, found.stale);
+    // A late read (second review) that shows a change which lapsed meanwhile is that change: the
+    // provider took it in time and its event came after. Otherwise a stale one is closed.
+    if (!change && read.observedAt >= existing.observed_at && !FINAL.has(existing.state)) {
+      change = await lateChange(
+        ctx,
+        existing,
+        read,
+        event.invoice,
+        event.trigger === "invoice_paid" && event.invoice?.status === "paid",
+      );
+    }
+    if (!change) closeStale(ctx, found.stale);
     // Its price, currency or interval changed at the provider (its dashboard): staff are told
     // once for the subscription, and only what reduces what the member holds is applied.
     terms = termsDiffer(existing, read, alsoAgreed(change));
@@ -308,7 +320,7 @@ export async function applySubscriptionEvent(
         // The plan the member holds after this read: a change asked for, once the read shows it.
         const followed = terms
           ? { row: existing, planChanged: false }
-          : followChange(ctx, existing, read, change);
+          : followChange(ctx, existing, read, change, event.invoice);
         row = await moveFromRead(ctx, existing, applied, followed.row, followed.planChanged);
         moved = true;
       }
@@ -325,7 +337,7 @@ export async function applySubscriptionEvent(
       if (!invoice) break;
       // Part of a period the host asked for (an upgrade's prorated charge, the first period after
       // a pause) is not flagged.
-      const part = terms ? null : await expectedPart(ctx.db, row, invoice, ctx.now);
+      const part = terms ? null : await expectedPart(ctx.db, row, invoice, ctx.now, change);
       const period = await recordPaidPeriod(ctx, row, event, invoice, terms, part);
       // A subscription update's charge paid with no upgrade open to take it (its pending update
       // expired, or it was withdrawn): money was taken and nothing here moved. Staff are told for

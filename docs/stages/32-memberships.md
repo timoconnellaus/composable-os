@@ -841,6 +841,12 @@ the change). Block AM. Where the build read the spec one way, or decided what it
   read; an upgrade's 3D Secure page shown to the member; ending a pause early as one call to the
   pause schedule, retryable, its outcome shown; plan changes and pauses taken at the gatekeeper only
   from the host's own call; a pause's reason blanked on erasure.
+- **After the second review (2026-11-22, before merge; ADRs 0530 to 0532 amended):** a withdraw
+  closes a change only once its undo at the provider is sent (an upgrade's pending invoice voided,
+  a downgrade's price put back); a late event that shows a lapsed change is followed as it; a
+  downgrade's first period decided from the renewal invoice; a lost renewal answered by one read
+  at the provider; a pause's leftover schedule released before the next change; the provider's
+  outcome typed, not read from its words; the outcome's audit says what was written.
 
 ## Questions for the interview
 Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:

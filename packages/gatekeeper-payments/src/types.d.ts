@@ -309,6 +309,15 @@ export interface PaymentsUnpauseSubscriptionInput {
   reason: string;
 }
 
+/** What `voidPendingUpdate()` takes: cancel an upgrade not yet paid (its pending update). */
+export interface PaymentsVoidUpdateInput {
+  subscriptionId: string;
+  subscriptionRef: string;
+  /** The host's id of the upgrade withdrawn (`sbc_…`). */
+  changeId: string;
+  reason: string;
+}
+
 /** A submitted change to a subscription: `pending` until the host applies it. */
 export interface PaymentsSubscriptionChangeReceipt {
   status: "pending" | "sent";
@@ -463,6 +472,11 @@ export interface PaymentsSession {
   unpauseSubscription(
     input: PaymentsUnpauseSubscriptionInput,
   ): Promise<PaymentsSubscriptionChangeReceipt>;
+  /**
+   * Submits `payments.subscription.void_update`: cancels an upgrade's pending update by voiding the
+   * open invoice it made. The host's own call only.
+   */
+  voidPendingUpdate(input: PaymentsVoidUpdateInput): Promise<PaymentsSubscriptionChangeReceipt>;
   /**
    * Opens the provider's customer portal for one customer, with only the card, billing details and
    * past invoices on (no cancelling or plan changes there). Records an observation first.

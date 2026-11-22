@@ -119,3 +119,46 @@ without it (`packages/core/test/subscription-changes.test.ts`, "the review of 32
   (`isHostOrders`, as the portal): the host writes what it asks before asking, so one asked another
   way would be a change it never asked for. An agent's session is refused before anything is queued.
 - A change of a subscription with nothing to pay is refused before anything is written.
+
+## Amended after the second review (2026-11-22, before merge)
+Each item has a test that fails without it (`subscription-changes.test.ts`, "the second review of
+32b"; the gatekeeper's and the runner's tests).
+- **A withdraw closes the change only once its undo is sent.** A downgrade's put-back, or an
+  upgrade's void (below), is asked after the commit; until the gatekeeper says it was sent the
+  change stays open, showing what came of it (`end_outcome`), and staff ask again. With nothing at
+  the provider to undo it is closed in the operation's batch.
+- **Withdrawing an upgrade voids its pending update's invoice** (`payments.subscription.void_update`,
+  the host's own call only; docs.stripe.com/billing/subscriptions/pending-updates: "To cancel a
+  pending update, you need to void the invoice the update created", the subscription's
+  `latest_invoice`; docs.stripe.com/api/invoices/void, finalized invoices only, "This cannot be
+  undone"). Refused, nothing changed, when no update is pending with an open invoice.
+- **A late event is followed as its change.** The short life still decides what may be claimed and
+  what a reader takes as agreed in advance; a verified read that arrives after a change lapsed, and
+  shows it, is followed as that change for 3 days after its life ended (`lateChange`): a downgrade
+  when the read shows its price, a pause when it shows paused, an upgrade only with its
+  subscription-update invoice paid in that event (at most the price difference). A refused or
+  withdrawn change is never revived.
+- **A downgrade's first period is decided by the renewal.** A renewal invoice in the event for the
+  read's period (`billing_reason` `subscription_cycle`) says it: billed at the new price, the member
+  holds the new plan from that period; at the old one, from its end. With no such invoice, a read
+  period begun after the change was asked is the first at the new price (it was invoiced after the
+  provider took it); one begun before, the next.
+- **A lost renewal event no longer blocks a change.** When the host's period has ended, the
+  subscription is read once at the provider through the gatekeeper (an observation, as the host),
+  and the change goes on from that period if it is active as agreed; the host's record is not
+  moved by that read.
+- **A schedule left by a pause** is released before a plan change or a new pause, when every pause
+  on it has resumed and the host made it (`metadata.cos_pause`); one with a pause still to come, or
+  one the host did not make, refuses the change (nothing changed). Stripe: a phase change discards a
+  pending update and voids its invoice, so a change under a schedule is not made.
+- **The outcome is typed.** The gatekeeper puts what came of a failed action in front of its
+  message, `[apply-outcome:refused|unknown|retryable] ` (RPC carries an error's message, not its
+  class); the integration host reads it into `IntegrationCallResult.failed[].outcome`
+  (`integrations/outcome.ts`). A retryable failure sent nothing and is read as refused.
+- **The outcome's audit says what was written**: the conditional update runs first, and the audit
+  row says `written: false` when the change had moved on.
+- **An upgrade's confirm-payment page** is shown only while it is open; closing it clears it.
+- **Erasure** blanks the reasons on the changes of the Person's subscriptions as payer or holder,
+  and of a guest's known only by the address it was started with.
+- Migration 0630 was edited in place while unmerged: a preview database that applied an earlier
+  version must be rebuilt.

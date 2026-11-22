@@ -27,6 +27,7 @@ import type {
   PaymentsSubscriptionTrigger,
   PaymentsTaxReport,
   PaymentsUnpauseSubscriptionInput,
+  PaymentsVoidUpdateInput,
 } from "./types.js";
 
 const CHECKOUT_LIFETIME_MS = 30 * 60 * 1000;
@@ -517,6 +518,8 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     const sub = await this.getSubscription(input.subscriptionRef);
     if (!sub) return { ok: false, reason: "no subscription has that reference" };
     if (sub.status !== "active") return { ok: false, reason: `the subscription is ${sub.status}` };
+    // As Stripe's host-made schedule with a pause still to come refuses it (review of 32b).
+    if (sub.pauseAt) return { ok: false, reason: "a pause is scheduled" };
     if (input.currency !== sub.currency || input.interval !== sub.interval) {
       return { ok: false, reason: "the currency and interval stay the subscription's" };
     }
@@ -577,6 +580,23 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     this.#startPause(sub);
     this.#putSubscription(sub);
     return { ok: true, deliveries: [this.#delivery("paused", sub)] };
+  }
+
+  /** Cancels an upgrade's pending update: voids its open invoice; refused when none is pending. */
+  async voidUpdate(
+    input: PaymentsVoidUpdateInput,
+  ): Promise<{ ok: true; deliveries: FakeWebhookBody[] } | { ok: false; reason: string }> {
+    const sub = await this.getSubscription(input.subscriptionRef);
+    if (!sub) return { ok: false, reason: "no subscription has that reference" };
+    const open = sub.invoices.find(
+      (invoice) => invoice.status === "open" && invoice.billingReason === "subscription_update",
+    );
+    if (!sub.pendingAmount || !open) return { ok: false, reason: "no upgrade is pending" };
+    sub.invoices = sub.invoices.filter((invoice) => invoice !== open);
+    sub.pendingAmount = null;
+    this.#tick();
+    this.#putSubscription(sub);
+    return { ok: true, deliveries: [this.#delivery("updated", sub)] };
   }
 
   /** Ends a pause now, or withdraws one that has not started. */
@@ -1038,6 +1058,10 @@ export class FakeProvider implements PaymentProvider {
 
   async unpauseSubscription(input: PaymentsUnpauseSubscriptionInput): Promise<void> {
     await this.#send(await this.#options.ledger.unpause(input));
+  }
+
+  async voidPendingUpdate(input: PaymentsVoidUpdateInput): Promise<void> {
+    await this.#send(await this.#options.ledger.voidUpdate(input));
   }
 
   async openPortal(input: PaymentsPortalInput): Promise<{ url: string }> {

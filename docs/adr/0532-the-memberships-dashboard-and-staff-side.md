@@ -54,3 +54,8 @@ The subscription's change also shows what the provider answered (`changeCallOutc
 staff. The admin's subscription page says them in words and has **Withdraw the change**
 (`subscription.change.withdraw`); the member's block shows **Confirm the new plan's payment** when
 an upgrade's charge waits on them, and says when the provider's answer was lost.
+
+## Amended after the second review (2026-11-22, before merge)
+A withdraw that did not finish keeps the change shown, with "Withdrawing it did not finish: try
+again", and the admin's toast says so instead of "withdrawn". The confirm-payment button shows only
+for an upgrade still open.

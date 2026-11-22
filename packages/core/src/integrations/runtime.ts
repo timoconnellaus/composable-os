@@ -48,7 +48,14 @@ export interface IntegrationCallResult {
    * Actions that were to apply at once and failed, with the gatekeeper's message (stage 32b):
    * the host's own subscription calls tell a refusal (nothing changed) from an unknown outcome.
    */
-  failed?: { action: number; actionKind: string | null; title: string; message: string }[];
+  failed?: {
+    action: number;
+    actionKind: string | null;
+    title: string;
+    /** What came of it, from the gatekeeper's typed tag (`integrations/outcome.ts`). */
+    outcome: "refused" | "unknown" | "retryable";
+    message: string;
+  }[];
 }
 
 export interface ConnectStart {

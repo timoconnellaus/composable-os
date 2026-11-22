@@ -12,11 +12,13 @@
 import { RpcTarget } from "cloudflare:workers";
 import {
   type ActingUser,
+  type ApplyOutcome,
   auditOutboundApplied,
   type IntegrationCaller,
   type OutboundDescription,
   type OutboundSubmission,
   type PendingApproval,
+  parseApplyOutcome,
   parseFloor,
   readCountHour,
   type SignInMailOrigin,
@@ -96,6 +98,8 @@ export class HostQueue extends RpcTarget {
     action: number;
     actionKind: string | null;
     title: string;
+    /** From the gatekeeper's tag (`parseApplyOutcome`): refused, unknown or retryable. */
+    outcome: ApplyOutcome;
     message: string;
   }[] = [];
   /** Work that must finish before the call returns (auto-applies, hook enables). */
@@ -237,7 +241,7 @@ export class HostQueue extends RpcTarget {
           action,
           actionKind: description.actionKind?.tag ?? null,
           title: description.title,
-          message: error instanceof Error ? error.message : String(error),
+          ...parseApplyOutcome(error instanceof Error ? error.message : String(error)),
         });
         await auditOutboundApplied(
           db,

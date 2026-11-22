@@ -79,3 +79,16 @@ first period's order is not flagged when it is at most the price.
 - A pause's reason (free text) is blanked when its payer or holder is erased.
 - Not in the documentation, left for the runbook: whether a release keeps a subscription paused,
   and whether a schedule made `from_subscription` lingers after the resume.
+
+## Amended after the second review (2026-11-22, before merge)
+- **The schedule is released once the pause is over.** The guide says a schedule may be released
+  once its resume succeeds, in a separate request. The gatekeeper releases it before the next plan
+  change or pause, when a fresh read shows the subscription not paused and every pause on the
+  schedule resumed (`resume.status.type` `succeeded`) and the schedule is the host's; a pause still
+  to come refuses a plan change. A schedule is not released straight after ending a pause early,
+  because that resume may still be waiting for its payment.
+- **A resume waiting for its payment is not asked again.** On the no-schedule path, an open latest
+  invoice refuses it ("waiting for its payment"), nothing changed.
+- **A refused pause whose schedule cannot then be released** is an unknown outcome, not a refusal:
+  the schedule may still be attached; the host keeps the pause asked for, and staff withdraw it.
+- A late paused read, for a pause that lapsed meanwhile, is followed as that pause (ADR 0530).

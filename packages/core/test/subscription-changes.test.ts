@@ -775,16 +775,16 @@ describe("the review of 32b: a change is trusted only while it is open", () => {
     expect((await changeRow(other.id))?.state).toBe("withdrawn");
   });
 
-  it("a downgrade takes effect from the period the provider showed it in, not a period early", async () => {
+  it("without a renewal invoice, a downgrade keeps the plan to the end of the period the read shows, begun before it was asked", async () => {
     const { buyer, id } = await member("early");
     await run("subscription.change", { id, planId: one }, as(buyer));
-    // The provider had renewed already (at the old price): its read is of the next period.
-    const next = new Date(Date.parse(PERIOD_END) + 30 * DAY).toISOString();
+    const start = new Date(Date.now() - 3_600_000).toISOString();
+    const end = new Date(Date.now() + 20 * DAY).toISOString();
     await deliver(
       "updated",
-      read(id, { amount: 1500, currentPeriodStart: PERIOD_END, currentPeriodEnd: next }),
+      read(id, { amount: 1500, currentPeriodStart: start, currentPeriodEnd: end }),
     );
-    expect(await changeRow(id)).toMatchObject({ state: "waiting", effective_at: next });
+    expect(await changeRow(id)).toMatchObject({ state: "waiting", effective_at: end });
     expect(await membershipOf(id)).toMatchObject({ uses: 3, plan: three });
   });
 
@@ -925,5 +925,220 @@ describe("the review of 32b: a change is trusted only while it is open", () => {
     expect((await changeRow(id))?.state).toBe("requested");
     await run("subscription.unpause", { id, reason: "Not going" }, staff());
     expect((await changeRow(id))?.state).toBe("withdrawn");
+  });
+});
+
+describe("the second review of 32b", () => {
+  it("withdrawing a downgrade closes it only once the put-back is sent; until then it shows and is asked again", async () => {
+    const { buyer, id } = await member("putbackunknown");
+    await run("subscription.change", { id, planId: one }, as(buyer));
+    await deliver("updated", read(id, { amount: 1500 }));
+    gw.nextChange = "unknown";
+    const first = await run<{ asked: string }>(
+      "subscription.change.withdraw",
+      { id, reason: "Changed mind" },
+      staff(),
+    );
+    expect(first.asked).toBe("unknown");
+    expect(await changeRow(id)).toMatchObject({ state: "waiting", end_outcome: "unknown" });
+    expect((await subscription(id)).change).toMatchObject({
+      state: "waiting",
+      endOutcome: "unknown",
+    });
+    gw.nextChange = "refused";
+    expect(
+      (await refusal(run("subscription.change.withdraw", { id, reason: "Again" }, staff())))
+        .details,
+    ).toMatchObject({ rule: "provider_refused" });
+    expect((await changeRow(id))?.state).toBe("waiting");
+    const done = await run<{ asked: string }>(
+      "subscription.change.withdraw",
+      { id, reason: "Again" },
+      staff(),
+    );
+    expect(done.asked).toBe("sent");
+    expect(await changeRow(id)).toMatchObject({ state: "withdrawn", end_outcome: "sent" });
+    expect(calls("changeSubscription", id).filter((c) => c.request.amount === 3000)).toHaveLength(
+      3,
+    );
+  });
+
+  it("withdrawing an upgrade voids its pending invoice first, and only then closes it", async () => {
+    const { buyer, id } = await member("voidup");
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    gw.nextChange = "unknown";
+    expect(
+      (await run<{ asked: string }>("subscription.change.withdraw", { id, reason: "x" }, staff()))
+        .asked,
+    ).toBe("unknown");
+    expect((await changeRow(id))?.state).toBe("requested");
+    await run("subscription.change.withdraw", { id, reason: "x" }, staff());
+    expect(calls("voidPendingUpdate", id)).toHaveLength(2);
+    expect((await changeRow(id))?.state).toBe("withdrawn");
+  });
+
+  it("the audit says when a recorded outcome found the change moved on", async () => {
+    const { buyer, id } = await member("movedon");
+    gw.beforeAnswer = async () => {
+      // The provider's verified read lands while the call is answered: applied first.
+      await deliver("updated", read(id, { amount: 6000 }));
+    };
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    const changeId = (await changeRow(id))?.id;
+    expect((await changeRow(id))?.state).toBe("applied");
+    const audit = await env.DB.prepare(
+      "SELECT result FROM core_audit WHERE operation = 'subscription.change.outcome' AND input LIKE ?",
+    )
+      .bind(`%${changeId}%`)
+      .first<{ result: string }>();
+    expect(JSON.parse(audit?.result ?? "{}")).toMatchObject({ written: false });
+  });
+
+  it("a late upgrade event, paid before its life ran out, is followed as the upgrade", async () => {
+    const { buyer, id } = await member("lateup");
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    await expire(id);
+    const prorated = invoice({
+      amountPaid: 2800,
+      amountDue: 2800,
+      billingReason: "subscription_update",
+    });
+    const paid = await deliver("invoice_paid", read(id, { amount: 6000 }), prorated);
+    expect(paid.result.outcome).toBe("period_paid");
+    expect(await membershipOf(id)).toMatchObject({ plan: unlimited });
+    expect(await orderOf(prorated.ref)).toMatchObject({ period_flag: null, record_id: unlimited });
+    expect(await told(`subscription.terms_changed:fake:${id}`)).toBe(0);
+    // Without its invoice paid, a late read at the upgrade's price is never the upgrade.
+    const other = await member("lateunpaid");
+    await run("subscription.change", { id: other.id, planId: unlimited }, as(other.buyer));
+    await expire(other.id);
+    await deliver("updated", read(other.id, { amount: 6000 }));
+    expect(await membershipOf(other.id)).toMatchObject({ plan: three });
+    expect(await told(`subscription.terms_changed:fake:${other.id}`)).toBe(1);
+  });
+
+  it("a late downgrade read and a late paused read are followed as their change", async () => {
+    const down = await member("latedown");
+    await run("subscription.change", { id: down.id, planId: one }, as(down.buyer));
+    await expire(down.id);
+    await deliver("updated", read(down.id, { amount: 1500 }));
+    expect((await changeRow(down.id))?.state).toBe("waiting");
+    expect(await told(`subscription.terms_changed:fake:${down.id}`)).toBe(0);
+
+    const p = await member("latepause");
+    await run(
+      "subscription.pause",
+      { id: p.id, until: new Date(Date.now() + 14 * DAY).toISOString(), reason: "Travel" },
+      staff(),
+    );
+    await expire(p.id);
+    await deliver("paused", read(p.id, { status: "paused" }));
+    expect((await changeRow(p.id))?.state).toBe("applied");
+    // Too late (past the grace): lapsed, not followed.
+    const old = await member("toolate");
+    await run("subscription.change", { id: old.id, planId: one }, as(old.buyer));
+    await env.DB.prepare(
+      "UPDATE core_subscription_change SET expires_at = ? WHERE subscription_id = ?",
+    )
+      .bind(new Date(Date.now() - 4 * DAY).toISOString(), old.id)
+      .run();
+    await deliver("updated", read(old.id, { amount: 1500 }));
+    expect((await changeRow(old.id))?.state).toBe("lapsed");
+  });
+
+  it("a downgrade's first period is the one its renewal invoice billed at the new price", async () => {
+    const next = new Date(Date.parse(PERIOD_END) + 30 * DAY).toISOString();
+    // Asked just before the renewal, processed after: the renewal billed the new price.
+    const a = await member("billednew");
+    await run("subscription.change", { id: a.id, planId: one }, as(a.buyer));
+    const renewal = invoice({
+      amountPaid: 1500,
+      amountDue: 1500,
+      periodStart: PERIOD_END,
+      periodEnd: next,
+    });
+    await deliver(
+      "invoice_paid",
+      read(a.id, { amount: 1500, currentPeriodStart: PERIOD_END, currentPeriodEnd: next }),
+      renewal,
+    );
+    expect(await membershipOf(a.id)).toMatchObject({ plan: one, uses: 1 });
+    expect(await orderOf(renewal.ref)).toMatchObject({ period_flag: null });
+    // The renewal billed the old price (taken before the change): from the end of that period.
+    const b = await member("billedold");
+    await run("subscription.change", { id: b.id, planId: one }, as(b.buyer));
+    const old = invoice({
+      amountPaid: 3000,
+      amountDue: 3000,
+      periodStart: PERIOD_END,
+      periodEnd: next,
+    });
+    await deliver(
+      "invoice_paid",
+      read(b.id, { amount: 1500, currentPeriodStart: PERIOD_END, currentPeriodEnd: next }),
+      old,
+    );
+    expect(await changeRow(b.id)).toMatchObject({ state: "waiting", effective_at: next });
+    expect(await membershipOf(b.id)).toMatchObject({ plan: three });
+  });
+
+  it("a lost renewal event: the provider is read once and the change goes on from its period", async () => {
+    const { buyer, id } = await member("lostrenewal");
+    const ended = new Date(Date.now() - 60_000).toISOString();
+    await env.DB.prepare(
+      "UPDATE core_subscription SET current_period_end = ?, version = version + 1 WHERE id = ?",
+    )
+      .bind(ended, id)
+      .run();
+    const fresh = new Date(Date.now() + 29 * DAY).toISOString();
+    gw.providerReads.set(
+      `fsub_${id}`,
+      read(id, { currentPeriodStart: ended, currentPeriodEnd: fresh }) as never,
+    );
+    const asked = await run<{ effectiveAt: string }>(
+      "subscription.change",
+      { id, planId: one },
+      as(buyer),
+    );
+    expect(asked.effectiveAt).toBe(fresh);
+    // The host's record is not moved by that read.
+    expect(
+      ((await subscription(id)) as unknown as { currentPeriodEnd: string }).currentPeriodEnd,
+    ).toBe(ended);
+  });
+
+  it("a lapsed upgrade shows no page to pay", async () => {
+    const { buyer, id } = await member("lapsedpage");
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    await deliver(
+      "invoice_action_required",
+      read(id),
+      invoice({
+        status: "open",
+        amountPaid: 0,
+        amountDue: 2800,
+        billingReason: "subscription_update",
+        hostedUrl: "https://fake-provider.invalid/x",
+      }),
+    );
+    expect((await subscription(id)).change?.actionUrl).toBe("https://fake-provider.invalid/x");
+    await expire(id);
+    expect((await subscription(id)).change).toMatchObject({ state: "lapsed", actionUrl: null });
+  });
+
+  it("erasing the payer blanks the reasons on their subscription's changes", async () => {
+    const { buyer, id } = await member("erased");
+    await run(
+      "subscription.change",
+      { id, planId: one, reason: "Moving house, lower income" },
+      as(buyer),
+    );
+    await run("person.erase", { id: buyer.principal.personId }, staff());
+    const row = await env.DB.prepare(
+      "SELECT reason FROM core_subscription_change WHERE subscription_id = ?",
+    )
+      .bind(id)
+      .first<{ reason: string }>();
+    expect(row?.reason).toBe("");
   });
 });

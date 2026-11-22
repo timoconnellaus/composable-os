@@ -145,14 +145,21 @@ function changeText(s: SubscriptionData): string {
       : `Pause asked: from ${c.pauseFrom ? formatDateTime(c.pauseFrom) : "now"} until ${formatDateTime(c.pauseUntil)}.${answer}${ending}`;
   }
   const to = `${c.toPlanTitle} (${formatMoney(c.toAmount ?? 0, s.currency)})`;
+  // A withdraw whose undo at the provider did not finish keeps the change open (second review).
+  const withdrawing =
+    c.endOutcome === "refused"
+      ? " Withdrawing it was refused by the payment provider: try again."
+      : c.endOutcome === "unknown"
+        ? " Withdrawing it did not finish (the provider's answer was lost): try again."
+        : "";
   if (c.state === "lapsed")
     return `The change to ${to} was never shown by the provider, so it did not happen`;
   if (c.kind === "upgrade") {
     return c.actionUrl
-      ? `Upgrading to ${to}: the payer must confirm its charge on the provider's page.${answer}`
-      : `Upgrading to ${to}, once its prorated charge is paid.${answer}`;
+      ? `Upgrading to ${to}: the payer must confirm its charge on the provider's page.${answer}${withdrawing}`
+      : `Upgrading to ${to}, once its prorated charge is paid.${answer}${withdrawing}`;
   }
-  return `Changes to ${to} on ${formatDateTime(c.effectiveAt)}.${answer}`;
+  return `Changes to ${to} on ${formatDateTime(c.effectiveAt)}.${answer}${withdrawing}`;
 }
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
@@ -299,7 +306,13 @@ function SubscriptionActions({ subscription: s }: { subscription: SubscriptionDa
             setError(null);
             withdraw
               .mutateAsync({ id: s.id, reason: "Withdrawn by staff" })
-              .then(() => toast.success("The change is withdrawn"))
+              .then((out) =>
+                out.asked === "sent" || out.asked === "not_needed"
+                  ? toast.success("The change is withdrawn")
+                  : toast.warning(
+                      "Asked the payment provider to undo it; its answer was lost. It shows here until it is undone: try again",
+                    ),
+              )
               .catch((err: unknown) => setError(errorMessage(err)));
           }}
         >

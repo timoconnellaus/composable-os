@@ -299,6 +299,9 @@ export function changeWords(sub: MembershipSubscription): string | null {
   }
   if (c.state === "lapsed")
     return `The change to ${c.toPlanTitle} was not paid, so it did not happen`;
+  if (c.endOutcome === "refused" || c.endOutcome === "unknown") {
+    return `Withdrawing the change to ${c.toPlanTitle} did not finish: staff are asking again`;
+  }
   if (c.kind === "upgrade") {
     return c.actionUrl
       ? `Changing to ${c.toPlanTitle}: confirm its payment to finish`

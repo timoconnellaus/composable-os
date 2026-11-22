@@ -121,6 +121,7 @@ export type SessionMethod =
   | "changeSubscription"
   | "pauseSubscription"
   | "unpauseSubscription"
+  | "voidPendingUpdate"
   | "openPortal";
 
 export class TestHost extends DurableObject<Cloudflare.Env> {

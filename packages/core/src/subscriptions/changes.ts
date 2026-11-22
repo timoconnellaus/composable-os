@@ -48,6 +48,11 @@ export const ASKED_LIFE_MS = DAY;
 export const WAITING_LIFE_MS = 7 * DAY;
 /** A paid upgrade's prorated charge is matched for two days after the upgrade applied. */
 const PRORATION_MATCH_MS = 2 * DAY;
+/**
+ * A verified read that arrives late (the provider retries a webhook for days) and matches a change
+ * that lapsed meanwhile is followed as that change, for this long after it lapsed (review of 32b).
+ */
+export const LATE_READ_MS = 3 * DAY;
 /** The longest pause the host asks for (the gatekeeper's limit too). */
 export const MAX_PAUSE_DAYS = 366;
 
@@ -87,10 +92,70 @@ export function closeStale(ctx: HandlerContext, stale: ChangeRow | null): void {
   ctx.write(
     ctx.db
       .updateTable("core_subscription_change")
-      .set({ state: "lapsed", updated_at: ctx.now })
+      .set({ state: "lapsed", action_url: null, updated_at: ctx.now })
       .where("id", "=", stale.id)
       .where("state", "=", stale.state),
   );
+}
+
+/**
+ * A change that stopped being trusted (past its life, or lapsed) that a late verified read still
+ * shows (review of 32b): the provider took it before its life ran out, and the event that says so
+ * arrived after. Followed as that change, within `LATE_READ_MS` of its life's end, and never one the
+ * provider refused or staff withdrew:
+ * - an upgrade, only with its subscription-update invoice paid in this event, at most the price
+ *   difference (the pending update applies only once paid);
+ * - a downgrade, when the read shows its price;
+ * - a pause, when the read shows the subscription paused.
+ * Returns the change as it is to be followed (asked again, with a fresh life), and writes that in
+ * the event's batch, or null.
+ */
+export async function lateChange(
+  ctx: HandlerContext,
+  row: SubscriptionRow,
+  read: ProviderSubscription,
+  invoice: Pick<ProviderInvoice, "amountPaid" | "billingReason" | "status"> | undefined,
+  paid: boolean,
+): Promise<ChangeRow | null> {
+  const change =
+    (await ctx.db
+      .selectFrom("core_subscription_change")
+      .selectAll()
+      .where("subscription_id", "=", row.id)
+      .where("state", "in", ["requested", "waiting", "lapsed"])
+      .where((eb) => eb.or([eb("call_outcome", "is", null), eb("call_outcome", "!=", "refused")]))
+      .orderBy("requested_at", "desc")
+      .executeTakeFirst()) ?? null;
+  if (!change || isOpen(change, ctx.now)) return null;
+  if (Date.parse(change.expires_at) + LATE_READ_MS < Date.parse(ctx.now)) return null;
+  const sameTerms =
+    read.currency === row.currency && (read.interval === null || read.interval === row.interval);
+  const shows =
+    change.kind === "pause"
+      ? read.status === "paused"
+      : change.kind === "downgrade"
+        ? sameTerms && read.amount === change.to_amount
+        : sameTerms &&
+          read.amount === change.to_amount &&
+          paid &&
+          invoice?.billingReason === "subscription_update" &&
+          change.to_amount !== null &&
+          invoice.amountPaid > 0 &&
+          invoice.amountPaid <= change.to_amount - change.from_amount;
+  if (!shows) return null;
+  const revived: ChangeRow = {
+    ...change,
+    state: change.kind === "downgrade" && change.state === "waiting" ? "waiting" : "requested",
+    expires_at: plus(ctx.now, ASKED_LIFE_MS),
+  };
+  ctx.write(
+    ctx.db
+      .updateTable("core_subscription_change")
+      .set({ state: revived.state, expires_at: revived.expires_at, updated_at: ctx.now })
+      .where("id", "=", change.id)
+      .where("state", "=", change.state),
+  );
+  return revived;
 }
 
 function requestedBy(ctx: HandlerContext): string {
@@ -118,10 +183,16 @@ async function claimChangeSlot(ctx: HandlerContext, row: SubscriptionRow): Promi
 }
 
 /**
- * Refused unless the subscription is active, not set to end, priced, and in a period the provider
- * has not renewed past yet (a renewal not yet arrived would put a downgrade a period early).
+ * Refused unless the subscription is active, not set to end and priced. When the host's period has
+ * ended (a renewal event not arrived, or lost), the provider is read once through the gatekeeper,
+ * as the host (review of 32b), and the change proceeds from its period; the host's record is not
+ * moved by it (only a verified event moves it). Returns the subscription as the change is to read it.
  */
-function requireActive(ctx: HandlerContext, row: SubscriptionRow, what: string): void {
+async function requireActive(
+  ctx: HandlerContext,
+  row: SubscriptionRow,
+  what: string,
+): Promise<SubscriptionRow> {
   if (row.state !== "active") {
     throw new ConflictError(`A subscription that is ${row.state} cannot be ${what}`, {
       subscription: row.id,
@@ -140,12 +211,49 @@ function requireActive(ctx: HandlerContext, row: SubscriptionRow, what: string):
       rule: "total",
     });
   }
-  if (!row.current_period_end || row.current_period_end <= ctx.now) {
-    throw new ConflictError(
-      "This subscription's period has ended and the payment provider's renewal has not arrived " +
-        "yet: try again in a few minutes",
-      { subscription: row.id, rule: "period_ended" },
+  if (row.current_period_end && row.current_period_end > ctx.now) return row;
+  const fresh = await readFromProvider(ctx, row);
+  if (
+    fresh &&
+    fresh.status === "active" &&
+    fresh.amount === row.amount &&
+    fresh.currency === row.currency &&
+    !fresh.cancelAtPeriodEnd &&
+    fresh.cancelAt === null &&
+    fresh.currentPeriodEnd !== null &&
+    fresh.currentPeriodEnd > ctx.now
+  ) {
+    return {
+      ...row,
+      current_period_start: fresh.currentPeriodStart,
+      current_period_end: fresh.currentPeriodEnd,
+    };
+  }
+  throw new ConflictError(
+    "This subscription's period has ended and the payment provider does not show it renewed as " +
+      "agreed yet: try again once it has",
+    { subscription: row.id, rule: "period_ended" },
+  );
+}
+
+/** One read of the subscription at the provider, through the gatekeeper (an observation), or null. */
+async function readFromProvider(
+  ctx: HandlerContext,
+  row: SubscriptionRow,
+): Promise<ProviderSubscription | null> {
+  try {
+    const target = await paymentsTarget(ctx.db);
+    if (target.provider !== row.provider) return null;
+    const result = await callSubscriptionGatekeeper(
+      ctx.integrations,
+      target,
+      "getSubscription",
+      row.provider_ref,
     );
+    const read = result.value as ProviderSubscription | null;
+    return read && read.ref === row.provider_ref ? read : null;
+  } catch {
+    return null;
   }
 }
 
@@ -175,7 +283,7 @@ export async function requestPlanChange(
   row: SubscriptionRow,
   input: { planId: string; reason: string },
 ): Promise<AfterCommit<RequestedChange>> {
-  requireActive(ctx, row, "changed");
+  row = await requireActive(ctx, row, "changed");
   if (input.planId === row.plan_id) {
     throw new ValidationError("This is the plan the subscription is on", {
       field: "planId",
@@ -264,9 +372,14 @@ export async function requestPlanChange(
 
 /**
  * Staff close a subscription's open plan change (review of 32b): one stuck asked, one whose call's
- * outcome is unknown, or a downgrade waiting for its period (undoing it). A downgrade the provider
- * may already show is put back at the provider (the old price from the next invoice, nothing
- * prorated), through the gatekeeper, after the commit. A pause is ended with `subscription.unpause`.
+ * outcome is unknown, or a downgrade waiting for its period (undoing it). A pause is ended with
+ * `subscription.unpause`. Where the provider may hold it, it is undone there first, through the
+ * gatekeeper, after the commit, and the change is closed only once that is sent (second review):
+ * - a downgrade the provider may show: its old price put back, from the next invoice, nothing
+ *   prorated;
+ * - an upgrade whose pending update may be open: its invoice voided, so it can no longer be paid.
+ * While that is refused or its outcome unknown the change stays open, showing what came of it, and
+ * staff ask again. With nothing at the provider to undo, it is closed in the operation's batch.
  */
 export async function withdrawPlanChange(
   ctx: HandlerContext,
@@ -291,41 +404,54 @@ export async function withdrawPlanChange(
       rule: "pause",
     });
   }
-  ctx.write(
-    ctx.db
-      .updateTable("core_subscription_change")
-      .set({ state: "withdrawn", updated_at: ctx.now })
-      .where("id", "=", change.id)
-      .where("state", "=", change.state),
-  );
-  // The provider may show a downgrade's price: shown (waiting, not the same price), or asked and
-  // not known to be refused. An upgrade is never put back: its pending update applies only if it
-  // is paid, and expires within 23 hours otherwise; one paid after this reads as a change at the
-  // provider, which staff are told of.
-  const mayShow =
+  const asked = change.call_outcome !== "refused";
+  const putBack =
     change.kind === "downgrade" &&
     change.to_amount !== change.from_amount &&
-    (change.state === "waiting" || change.call_outcome !== "refused");
-  if (!mayShow)
+    (change.state === "waiting" || asked);
+  const voidIt =
+    change.kind === "upgrade" && change.state === "requested" && asked && open !== null;
+  if (!putBack && !voidIt) {
+    ctx.write(
+      ctx.db
+        .updateTable("core_subscription_change")
+        .set({ state: "withdrawn", action_url: null, updated_at: ctx.now })
+        .where("id", "=", change.id)
+        .where("state", "=", change.state),
+    );
     return afterCommit(async () => ({
       id: row.id,
       changeId: change.id,
       asked: "not_needed" as const,
     }));
+  }
   return afterCommit(async () => {
-    const asked = await askProvider(ctx, row, change.id, "end", "changeSubscription", {
-      subscriptionId: row.id,
-      subscriptionRef: row.provider_ref,
-      changeId: `${change.id}_back`,
-      amount: change.from_amount,
-      currency: row.currency,
-      interval: row.interval,
-      description: change.from_plan_title.slice(0, 200) || change.from_plan_id,
-      when: "next_period",
-      taxed: row.tax_code !== null,
-      reason,
-    });
-    return { id: row.id, changeId: change.id, asked };
+    const outcome = putBack
+      ? await askProvider(ctx, row, change.id, "end", "changeSubscription", {
+          subscriptionId: row.id,
+          subscriptionRef: row.provider_ref,
+          changeId: `${change.id}_back`,
+          amount: change.from_amount,
+          currency: row.currency,
+          interval: row.interval,
+          description: change.from_plan_title.slice(0, 200) || change.from_plan_id,
+          when: "next_period",
+          taxed: row.tax_code !== null,
+          reason,
+        })
+      : await askProvider(ctx, row, change.id, "end", "voidPendingUpdate", {
+          subscriptionId: row.id,
+          subscriptionRef: row.provider_ref,
+          changeId: change.id,
+          reason,
+        });
+    if (outcome === "sent") {
+      await recordOutcome(ctx, change.id, "withdraw", { state: "withdrawn", action_url: null }, [
+        "requested",
+        "waiting",
+      ]);
+    }
+    return { id: row.id, changeId: change.id, asked: outcome };
   });
 }
 
@@ -381,7 +507,7 @@ export async function requestPause(
   if (!bounds) {
     throw new ValidationError("Subscriptions to this plan are not paused", { rule: "no_pause" });
   }
-  requireActive(ctx, row, "paused");
+  row = await requireActive(ctx, row, "paused");
   const from = input.from ? moment(input.from, "from") : null;
   if (from !== null && from <= ctx.now) {
     throw new ValidationError("A pause starts now or later", { field: "from", rule: "past" });
@@ -509,18 +635,19 @@ export async function requestUnpause(
 /**
  * What came of an at-once action, from the integration host's answer: applied (`sent`), waiting for
  * approval (`pending`), refused by the gatekeeper with nothing changed (`refused`), or anything else
- * (`unknown`: it may have reached the provider). The gatekeeper's refusals say "nothing changed"
- * (ActionApplyError); an unknown outcome never does (ActionOutcomeUnknownError).
+ * (`unknown`: it may have reached the provider).
  */
 function outcomeOf(result: {
   pending: unknown[];
   applied: unknown[];
-  failed?: { message: string }[];
+  failed?: { outcome: "refused" | "unknown" | "retryable"; message: string }[];
 }): { outcome: CallOutcome; error: string | null } {
   if (result.applied.length) return { outcome: "sent", error: null };
   if (result.pending.length) return { outcome: "pending", error: null };
   const failed = result.failed?.[0];
-  if (failed && /nothing changed/i.test(failed.message)) {
+  // The gatekeeper's typed outcome (`integrations/outcome.ts`), never its wording. A retryable
+  // failure sent nothing (the action is pending again at the gatekeeper): nothing changed.
+  if (failed && (failed.outcome === "refused" || failed.outcome === "retryable")) {
     return { outcome: "refused", error: failed.message.slice(0, 500) };
   }
   return {
@@ -532,8 +659,10 @@ function outcomeOf(result: {
 }
 
 /**
- * Writes what came of a call on the change, with an audit row of the host's (review of 32b), in
- * one batch. Conditional on the change's state, so a verified read applied meanwhile is not undone.
+ * Writes what came of a call on the change, with an audit row of the host's (review of 32b).
+ * Conditional on the change's state, so a verified read applied meanwhile is not undone; the audit
+ * row says whether it was written (second review: it never claims a write that matched nothing).
+ * Two statements, not a batch: a member's call has no pipeline after the commit.
  */
 async function recordOutcome(
   ctx: HandlerContext,
@@ -541,10 +670,15 @@ async function recordOutcome(
   what: "call" | "end" | "withdraw",
   values: Partial<ChangeRow>,
   fromStates: ChangeRow["state"][],
-): Promise<void> {
+): Promise<boolean> {
   const at = new Date().toISOString();
-  // The audit row first, then the change: a member's call has no batch of its own after the commit
-  // (outside callers have no pipeline), so the record of what was asked never goes missing.
+  const updated = await ctx.db
+    .updateTable("core_subscription_change")
+    .set({ ...values, updated_at: at })
+    .where("id", "=", changeId)
+    .where("state", "in", fromStates)
+    .executeTakeFirst();
+  const written = Number(updated.numUpdatedRows ?? 0) > 0;
   await ctx.db
     .insertInto("core_audit")
     .values({
@@ -557,18 +691,17 @@ async function recordOutcome(
       user_id: null,
       origin: JSON.stringify({ surface: "system", automationId: "subscription.change.outcome" }),
       input: JSON.stringify({ changeId, what, by: ctx.operation ?? null }),
-      result: JSON.stringify(values),
+      result: JSON.stringify(
+        written
+          ? { written: true, values }
+          : { written: false, values, why: "the change had moved on: nothing was written" },
+      ),
       gate_decision: "auto",
       outcome: "ok",
       error: null,
     })
     .execute();
-  await ctx.db
-    .updateTable("core_subscription_change")
-    .set({ ...values, updated_at: at })
-    .where("id", "=", changeId)
-    .where("state", "in", fromStates)
-    .execute();
+  return written;
 }
 
 /**
@@ -582,7 +715,7 @@ async function askProvider(
   row: SubscriptionRow,
   changeId: string,
   which: "call" | "end",
-  method: "changeSubscription" | "pauseSubscription" | "unpauseSubscription",
+  method: "changeSubscription" | "pauseSubscription" | "unpauseSubscription" | "voidPendingUpdate",
   request: Record<string, unknown>,
 ): Promise<"sent" | "pending" | "unknown"> {
   const at = new Date().toISOString();
@@ -604,7 +737,7 @@ async function askProvider(
           changeId,
           "end",
           { end_outcome: outcome, end_error: error, end_at: at },
-          ["requested", "waiting", "applied", "withdrawn"],
+          ["requested", "waiting", "applied"],
         );
   const target = await paymentsTarget(ctx.db);
   if (target.provider !== row.provider) {
@@ -661,6 +794,7 @@ export function followChange(
   row: SubscriptionRow,
   read: ProviderSubscription,
   change: ChangeRow | null,
+  invoice?: Pick<ProviderInvoice, "billingReason" | "periodStart" | "amountDue" | "amountPaid">,
 ): FollowedChange {
   if (!change || !isOpen(change, ctx.now)) return { row, planChanged: false };
   const set = (values: Partial<ChangeRow>) =>
@@ -700,10 +834,29 @@ export function followChange(
   }
   if (change.state === "requested") {
     if (!shown) return { row, planChanged: false };
-    // Shown at the provider: the new price from the next invoice of the period this read is in.
-    // Its end, from this verified read, is when the member holds the new plan (review of 32b: a
-    // renewal the host had not seen yet would otherwise put it a period early).
-    const effective = read.currentPeriodEnd ?? change.effective_at ?? ctx.now;
+    // Shown at the provider. Which period was the first billed at the new price (second review):
+    // - a renewal invoice in this event for the read's period says it: billed the new price, the
+    //   member holds the new plan from that period; billed the old one, from its end;
+    // - otherwise the read's period: begun after the change was asked, it was invoiced after the
+    //   provider took the new price, so it is the first at it; begun before, the next one is.
+    const renewal =
+      invoice?.billingReason === "subscription_cycle" &&
+      invoice.periodStart !== null &&
+      invoice.periodStart === read.currentPeriodStart
+        ? invoice
+        : null;
+    const billedNew = renewal
+      ? renewal.amountDue === change.to_amount
+      : read.currentPeriodStart !== null &&
+        Date.parse(read.currentPeriodStart) > Date.parse(change.requested_at);
+    const effective = billedNew
+      ? (read.currentPeriodStart ?? ctx.now)
+      : (read.currentPeriodEnd ?? change.effective_at ?? ctx.now);
+    if (billedNew) {
+      set({ state: "applied", applied_at: ctx.now, effective_at: effective });
+      postChange(ctx, row, change);
+      return { row: toPlan(), planChanged: true };
+    }
     set({
       state: "waiting",
       effective_at: effective,
@@ -783,16 +936,19 @@ export async function expectedPart(
   row: SubscriptionRow,
   invoice: Pick<ProviderInvoice, "amountPaid" | "currency" | "periodStart" | "billingReason">,
   now: string,
+  /** A change this event revived or applied (written in its batch, not yet in the database). */
+  known: ChangeRow | null = null,
 ): Promise<{ title: string; planId: string } | null> {
   if (invoice.currency !== row.currency || invoice.amountPaid <= 0) return null;
-  const changes = await db
+  const stored = await db
     .selectFrom("core_subscription_change")
     .selectAll()
     .where("subscription_id", "=", row.id)
-    .where("state", "in", ["requested", "applied"])
+    .where("state", "in", ["requested", "applied", "lapsed"])
     .orderBy("requested_at", "desc")
     .limit(5)
     .execute();
+  const changes = stored.map((c) => (known && c.id === known.id ? known : c));
   for (const change of changes) {
     if (
       change.kind === "upgrade" &&

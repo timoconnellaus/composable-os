@@ -298,6 +298,8 @@ export async function callSubscriptionGatekeeper(
     | "changeSubscription"
     | "pauseSubscription"
     | "unpauseSubscription"
+    | "voidPendingUpdate"
+    | "getSubscription"
     | "openPortal",
   request: unknown,
 ): Promise<IntegrationCallResult> {

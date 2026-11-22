@@ -130,7 +130,7 @@ export function MyMemberships({
           <CardContent className="grid gap-3">
             <p data-testid="subscription-status">{subscriptionStatus(sub)}</p>
             {changeWords(sub) ? <p data-testid="subscription-change">{changeWords(sub)}</p> : null}
-            {sub.change?.actionUrl ? (
+            {sub.change?.actionUrl && sub.change.state === "requested" ? (
               <Button onClick={() => window.location.assign(sub.change?.actionUrl ?? "")}>
                 Confirm the new plan's payment
               </Button>

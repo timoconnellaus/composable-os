@@ -17,6 +17,7 @@ import type {
   PaymentsTaxLine,
   PaymentsTaxPlace,
   PaymentsUnpauseSubscriptionInput,
+  PaymentsVoidUpdateInput,
 } from "./types.js";
 
 export const PROVIDER_NAMES: readonly PaymentsProviderName[] = ["stripe", "fake"];
@@ -482,6 +483,17 @@ export function parseUnpauseSubscriptionInput(value: unknown): PaymentsUnpauseSu
     subscriptionId: assertSubscriptionId(input.subscriptionId),
     subscriptionRef: assertProviderRef(input.subscriptionRef, "subscriptionRef"),
     pauseId: assertSubscriptionId(input.pauseId),
+    reason: boundedString(input.reason, "reason", 500),
+  };
+}
+
+export function parseVoidUpdateInput(value: unknown): PaymentsVoidUpdateInput {
+  const input = record(value, "The void input");
+  refuseUnknownKeys(input, ["subscriptionId", "subscriptionRef", "changeId", "reason"]);
+  return {
+    subscriptionId: assertSubscriptionId(input.subscriptionId),
+    subscriptionRef: assertProviderRef(input.subscriptionRef, "subscriptionRef"),
+    changeId: assertSubscriptionId(input.changeId),
     reason: boundedString(input.reason, "reason", 500),
   };
 }
