@@ -338,6 +338,28 @@ export async function holderWrite(
 }
 
 /**
+ * A holder's terms (ADR 0513): the fields that say whose uses they are, how many, over what,
+ * between which dates and in which zone, and the holder fields its conditions compare with. Only
+ * the host writes them, or the holder's own extension through a tool only a person with a
+ * permission may call (`personsTool`), never any other code of the extension.
+ */
+export function holderTerms(object: ObjectDefinition): ReadonlySet<string> {
+  const def = holderOf(object);
+  if (!def) return new Set();
+  const out = new Set<string>([def.person, def.uses]);
+  if ("field" in def.per) out.add(def.per.field);
+  for (const f of [def.from, def.until, def.zone]) if (f) out.add(f);
+  for (const target of def.spendsOn) {
+    for (const clause of target.when) {
+      for (const v of [clause.in, clause.atLeast, clause.below]) {
+        if (typeof v === "string") out.add(v);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Refuses a customer creating a holder (ADR 0494): passes and memberships are granted by the host
  * (a paid order, a subscription) or made by staff, never by a customer, whatever a tool allows.
  */

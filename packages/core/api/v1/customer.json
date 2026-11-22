@@ -70,6 +70,10 @@
             "type": "string",
             "description": "The time the period was read for"
           },
+          "payable": {
+            "type": "boolean",
+            "description": "It can pay for something at `at`: live, out of the Trash and within its dates (uses aside)"
+          },
           "period": {
             "type": "object",
             "properties": {
@@ -95,7 +99,124 @@
             "additionalProperties": false
           }
         },
-        "required": ["object", "id", "at", "period"],
+        "required": ["object", "id", "at", "payable", "period"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "allowance.list",
+      "description": "allowance.get for up to 50 holders of one object at once (a member's passes): each one's numbers in the period containing `at` (default now), and whether it can pay then. Staff any; a signed-in customer their own only: an id they cannot see is left out. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81,
+            "description": "An extension object that holds an allowance"
+          },
+          "ids": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["object", "ids"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "personId": {
+                  "description": "Staff only",
+                  "type": ["string", "null"]
+                },
+                "uses": {
+                  "description": "Uses per period; null is unlimited. Left out when the caller may not read it",
+                  "type": ["number", "null"]
+                },
+                "per": {
+                  "type": "string",
+                  "enum": ["total", "week", "month"]
+                },
+                "zone": {
+                  "description": "The time zone weeks and months are counted in",
+                  "type": "string"
+                },
+                "validFrom": {
+                  "type": ["string", "null"]
+                },
+                "validUntil": {
+                  "description": "A spender's time must be before this",
+                  "type": ["string", "null"]
+                },
+                "live": {
+                  "description": "Its state lets it be spent (not paused, used up, ended or void)",
+                  "type": "boolean"
+                },
+                "at": {
+                  "type": "string",
+                  "description": "The time the period was read for"
+                },
+                "payable": {
+                  "type": "boolean",
+                  "description": "It can pay for something at `at`: live, out of the Trash and within its dates (uses aside)"
+                },
+                "period": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "description": "total, week:<Monday's local date> or month:<YYYY-MM>"
+                    },
+                    "startsAt": {
+                      "type": "string"
+                    },
+                    "endsAt": {
+                      "type": "string"
+                    },
+                    "used": {
+                      "type": "number"
+                    },
+                    "left": {
+                      "description": "Uses that can still be spent in it; 0 when the holder cannot pay then, null when unlimited",
+                      "type": ["number", "null"]
+                    }
+                  },
+                  "required": ["key", "startsAt", "endsAt", "used", "left"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["object", "id", "at", "payable", "period"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
         "additionalProperties": false
       },
       "invalidates": []
@@ -1898,11 +2019,6 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 500
-          },
-          "now": {
-            "default": false,
-            "description": "Staff only: end it now instead of when its period ends",
-            "type": "boolean"
           }
         },
         "required": ["id"]
@@ -2453,12 +2569,6 @@
           },
           "offerId": {
             "description": "Take your continuation offer (subscription.offer.mine): free until its date, then charged. A signed-in customer's own offer only.",
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
-          },
-          "holderPersonId": {
-            "description": "Staff only: the Person who holds what it gives (a child whose parent pays), when not the payer. The payer, named by email, is billed; the trial and access are the holder's.",
             "type": "string",
             "minLength": 1,
             "maxLength": 64

@@ -1757,8 +1757,11 @@ export interface CoreSellableOnceTable {
   person_id: string;
   object_type: string;
   record_id: string;
-  order_id: string;
+  /** Null when given by hand (ADR 0513). */
+  order_id: string | null;
   state: "held" | "used" | "released";
+  source: Defaulted<"order" | "by_hand">;
+  given_by: Defaulted<string | null>;
   created_at: Timestamp;
   updated_at: Timestamp;
 }

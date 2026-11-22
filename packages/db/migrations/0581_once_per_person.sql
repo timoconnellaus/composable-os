@@ -7,15 +7,21 @@
 -- the order expires or is cancelled unpaid. The unique index refuses a second row that is held or
 -- used, so two orders started at once give one: the second start's whole batch fails, and no
 -- order exists for it. A late payment staff honour on an expired order takes it again, and is
--- refused the same way when the Person has had theirs since (staff refund instead).
+-- refused the same way when the Person has had theirs since (staff refund instead). A pass of
+-- such a type given by hand (a person, with the pack's permission) is the Person's one too: a
+-- row `used` at once, with who gave it (ADR 0513).
 CREATE TABLE core_sellable_once (
   id TEXT PRIMARY KEY NOT NULL,
   person_id TEXT NOT NULL REFERENCES core_person (id) ON DELETE CASCADE,
   -- The sellable object: one per Person across all of its records with the flag on.
   object_type TEXT NOT NULL,
   record_id TEXT NOT NULL,
-  order_id TEXT NOT NULL REFERENCES core_order (id) ON DELETE CASCADE,
+  -- The order it was bought on; null when a person on the staff gave it by hand (ADR 0513).
+  order_id TEXT REFERENCES core_order (id) ON DELETE CASCADE,
   state TEXT NOT NULL CHECK (state IN ('held', 'used', 'released')),
+  -- How it was had: bought on an order, or given by hand by the staff user named.
+  source TEXT NOT NULL DEFAULT 'order' CHECK (source IN ('order', 'by_hand')),
+  given_by TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

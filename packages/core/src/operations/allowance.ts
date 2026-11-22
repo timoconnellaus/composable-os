@@ -47,6 +47,11 @@ export const allowanceViewSchema = z.object({
     .optional()
     .describe("Its state lets it be spent (not paused, used up, ended or void)"),
   at: z.string().describe("The time the period was read for"),
+  payable: z
+    .boolean()
+    .describe(
+      "It can pay for something at `at`: live, out of the Trash and within its dates (uses aside)",
+    ),
   period,
 });
 export type AllowanceView = z.infer<typeof allowanceViewSchema>;
@@ -105,6 +110,7 @@ export async function readAllowance(
     validUntil: terms.validUntil ?? (terms.untilDate ? `${terms.untilDate}` : null),
     live: terms.live && !terms.trashed,
     at,
+    payable,
     period: numbers,
   };
   if (ctx.principal.kind === "staff") return full;
@@ -121,6 +127,7 @@ export async function readAllowance(
     ...(may(def.until) ? { validUntil: full.validUntil } : {}),
     ...(may(object.states?.field) ? { live: full.live } : {}),
     at,
+    payable,
     period: numbers,
   };
 }
@@ -155,4 +162,35 @@ export const allowanceGet = defineOperation({
   },
 });
 
-export const allowanceOperations = [allowanceGet] as const;
+export const allowanceList = defineOperation({
+  name: "allowance.list",
+  description:
+    "allowance.get for up to 50 holders of one object at once (a member's passes): each one's " +
+    "numbers in the period containing `at` (default now), and whether it can pay then. Staff any; " +
+    "a signed-in customer their own only: an id they cannot see is left out. Read-only.",
+  input: z.object({
+    object: z.string().min(1).max(81).describe("An extension object that holds an allowance"),
+    ids: z.array(z.string().min(1).max(64)).min(1).max(50),
+    at: z.string().datetime({ offset: true }).optional(),
+  }),
+  output: z.object({ items: z.array(allowanceViewSchema) }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["staff", "customer"],
+  hostInternal: true,
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    const at = new Date(input.at ?? ctx.now).toISOString();
+    const items: AllowanceView[] = [];
+    for (const id of new Set(input.ids)) {
+      try {
+        items.push(await readAllowance(ctx, input.object, id, at));
+      } catch (error) {
+        if (!(error instanceof NotFoundError)) throw error;
+      }
+    }
+    return { items };
+  },
+});
+
+export const allowanceOperations = [allowanceGet, allowanceList] as const;

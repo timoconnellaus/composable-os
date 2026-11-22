@@ -129,6 +129,7 @@ export default defineExtension({
       "record.get",
       "record.list",
       "allowance.get",
+      "allowance.list",
       "order.start",
     ],
     modules: ["ops"],
@@ -164,6 +165,7 @@ export default defineExtension({
         per: {
           type: "select",
           label: "Per",
+          required: true,
           default: "week",
           options: [
             { value: "week", label: "A week" },
@@ -455,7 +457,7 @@ export default defineExtension({
         moves: [
           // A full refund of its order (the host), or a person on the staff with this pack's
           // permission (`voidPass`, a person only); never a customer.
-          { from: "active", to: "void", by: ["staff", "host"], final: true },
+          { from: "active", to: "void", by: ["host"], tools: ["voidPass"], final: true },
         ],
       },
       customer: {

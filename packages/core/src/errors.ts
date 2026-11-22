@@ -202,7 +202,7 @@ export function toOperationError(error: unknown): OperationError {
   if (message.includes("UNIQUE constraint failed: core_subscription_grant")) {
     return new ConflictError(
       "This subscription's grant was made by another event at the same moment. Try again.",
-      { rule: "subscription_grant" },
+      { reason: "subscription_grant" },
     );
   }
   // A continuation offer's page held by another take a moment before, or the offer taken or

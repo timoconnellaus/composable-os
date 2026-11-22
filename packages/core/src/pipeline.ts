@@ -1633,6 +1633,23 @@ async function invokeOutside<O extends AnyOperation>(
   // Counted once the call is one this caller may make at all, and before any work is done for it.
   // A tool's own calls are part of the one call that started the tool.
   if (!ctx.tool) await checkOutsideRateLimit(ctx.rateLimit, principal, op.name);
+  // An option only staff may pass is not the customer's or the public's to send (it is not in
+  // their contract either).
+  const staffKeys = (op.staffInput ?? []).filter(
+    (key) =>
+      rawInput !== null &&
+      typeof rawInput === "object" &&
+      (rawInput as Record<string, unknown>)[key] !== undefined,
+  );
+  if (staffKeys.length) {
+    throw new ValidationError(
+      `Invalid input for ${op.name}: ${staffKeys.join(", ")} is for staff`,
+      {
+        field: staffKeys[0],
+        rule: "staff_input",
+      },
+    );
+  }
   const parsed = op.input.safeParse(rawInput);
   if (!parsed.success) {
     throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });

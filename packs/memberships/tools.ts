@@ -222,9 +222,14 @@ const holding = limitsOut.extend({
 type Holding = z.infer<typeof holding>;
 
 interface AllowanceView {
-  live?: boolean;
+  id: string;
+  /** It can pay for a class now: live, out of the Trash, within its dates (the host's answer). */
+  payable: boolean;
   period: { key: string; startsAt: string; endsAt: string; used: number; left: number | null };
 }
+
+/** At most this many of each: what one call reads (review of 32b step 6). */
+const HOLDINGS_MAX = 50;
 
 async function holdingsOf(
   ctx: ExtensionContext,
@@ -232,34 +237,39 @@ async function holdingsOf(
   personId: string | null,
 ): Promise<Holding[]> {
   const filter = personId ? { filter: { field: "person", op: "eq", value: personId } } : {};
-  const [memberships, passes] = await Promise.all([
+  const list = (object: string) =>
     ctx.ops.call<ListShape>(read, {
-      object: MEMBERSHIP,
+      object,
       ...filter,
       sort: { field: "from", direction: "desc" },
-      limit: 20,
-    }),
-    ctx.ops.call<ListShape>(read, {
-      object: PASS,
-      ...filter,
-      sort: { field: "from", direction: "desc" },
-      limit: 50,
-    }),
+      limit: HOLDINGS_MAX,
+    });
+  const [memberships, passes] = await Promise.all([list(MEMBERSHIP), list(PASS)]);
+  // The host's count for every holding of an object in one call (allowance.list), never worked
+  // out here; one the caller cannot see is left out of its answer.
+  const counts = async (object: string, items: RecordShape[]) =>
+    items.length
+      ? new Map(
+          (
+            await ctx.ops.call<{ items: AllowanceView[] }>("allowance.list", {
+              object,
+              ids: items.map((r) => r.id),
+            })
+          ).items.map((v) => [v.id, v]),
+        )
+      : new Map<string, AllowanceView>();
+  const [membershipCounts, passCounts] = await Promise.all([
+    counts(MEMBERSHIP, memberships.items),
+    counts(PASS, passes.items),
   ]);
   const out: Holding[] = [];
-  for (const [kind, object, items] of [
-    ["membership", MEMBERSHIP, memberships.items],
-    ["pass", PASS, passes.items],
+  for (const [kind, items, views] of [
+    ["membership", memberships.items, membershipCounts],
+    ["pass", passes.items, passCounts],
   ] as const) {
     for (const r of items) {
       const v = r.values;
-      // The host's count: uses spent and left now (allowance.get), never worked out here.
-      let view: AllowanceView | null = null;
-      try {
-        view = await ctx.ops.call<AllowanceView>("allowance.get", { object, id: r.id });
-      } catch {
-        view = null;
-      }
+      const view = views.get(r.id);
       out.push({
         id: r.id,
         kind,
@@ -269,7 +279,7 @@ async function holdingsOf(
         per: kind === "pass" ? "total" : v.per === "month" ? "month" : "week",
         from: text(v.from),
         until: text(v.until),
-        live: view?.live ?? (view ? view.period.left !== 0 : false),
+        live: view?.payable ?? false,
         period: view?.period ?? null,
         ...limitsOf(v),
       });
@@ -315,22 +325,22 @@ const signed = (reason: string, ctx: ExtensionContext) =>
 
 export const givePass = defineTool({
   description:
-    "Give a person a pass by hand, free, with the reason: a pass type's classes and validity, " +
-    "or fewer classes or days if given. Recorded as given by staff, with who gave it. A person on " +
-    "the staff only (never the assistant or an automation), with the memberships:passes " +
-    "permission. Returns the pass.",
+    "Give a person a pass by hand, free, with the reason: a pass type's classes, or fewer if " +
+    "given (never more), valid from now for the type's days, as the host works them out for a " +
+    "pass bought. An intro offer given this way is the person's one: refused if they have had " +
+    "it. Recorded as given by staff, with who gave it and why. A person on the staff only (never " +
+    "the assistant or an automation), with the memberships:passes permission. Returns the pass.",
   input: z.object({
     personId: id,
     passTypeId: id,
     reason: z.string().trim().min(3).max(500),
-    uses: z.number().int().min(1).max(1000).optional().describe("Default: the pass type's"),
-    validDays: z
+    uses: z
       .number()
       .int()
       .min(1)
-      .max(3650)
+      .max(1000)
       .optional()
-      .describe("Default: the pass type's; from today"),
+      .describe("Fewer classes than the pass type gives; default: the type's"),
   }),
   output: passOut,
   risk: "write",
@@ -342,18 +352,24 @@ export const givePass = defineTool({
       id: input.passTypeId,
     });
     const v = type.values;
-    const days = input.validDays ?? num(v.validDays);
-    const now = new Date();
+    const most = num(v.uses);
+    if (input.uses !== undefined && most !== null && input.uses > most) {
+      throw new OpsCallError(
+        "invalid_input",
+        `A pass of this type gives at most ${most} classes; give fewer, or choose another type`,
+        { field: "uses", max: most },
+      );
+    }
+    // Its dates (valid from now for the type's days) and, for an intro offer, the person's one
+    // per person are the host's (ADR 0513): this tool sends neither.
     const created = await ctx.ops.call<RecordShape>("record.create", {
       object: PASS,
       values: {
         title: text(v.title) ?? "Pass",
         person: input.personId,
         passtype: input.passTypeId,
-        uses: input.uses ?? num(v.uses),
+        uses: input.uses ?? most,
         ...limitsOf(v),
-        from: now.toISOString(),
-        ...(days ? { until: new Date(now.getTime() + days * 86_400_000).toISOString() } : {}),
         source: "staff",
         reason: signed(input.reason, ctx),
       },

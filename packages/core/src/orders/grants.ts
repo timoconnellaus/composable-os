@@ -15,9 +15,12 @@
 // again, so the declaration's checks (packages/sdk/src/sellable.ts) keep a grant from failing.
 
 import { moveOrigins } from "@composable-os/sdk";
+import { NotFoundError, ValidationError } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { GrantDefinition, ObjectDefinition } from "../fields/types.ts";
+import { newId } from "../ids.ts";
+import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
 import { createRecord, updateRecord } from "../operations/record.ts";
 import { viewColumnOf } from "../records/columns.ts";
@@ -115,7 +118,105 @@ export async function validFrom(
   return out;
 }
 
-async function grant(ctx: HandlerContext, orderId: string, order: Record<string, unknown>) {
+/**
+ * What a paid line would grant, given by hand by a person's tool (a pass, ADR 0513): the record
+ * bought is named by the grant's `item` field; its dates are the host's (`grants.valid`, from now
+ * for the item's days, whatever the tool sent); and when the item is sold once per Person (an
+ * intro offer) the Person's one is used now, with who gave it, or the write is refused when they
+ * have had theirs. Returns the values to create the record with.
+ */
+export async function handGrantValues(
+  ctx: HandlerContext,
+  granted: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const item = listObjects().find((o) => o.sellable?.grants?.object === granted.name);
+  const grants = item?.sellable?.grants;
+  if (!item || !grants) return values;
+  const sourceField = (source: string) =>
+    Object.entries(grants.set).find(([, s]) => s === source)?.[0];
+  const itemField = sourceField("item");
+  const itemId = itemField ? values[itemField] : undefined;
+  if (typeof itemId !== "string" || !itemId) {
+    throw new ValidationError(`${granted.label} given by hand names its ${item.label}`, {
+      field: itemField ?? null,
+    });
+  }
+  const itemRow = await readGrantItem(ctx, item, itemId);
+  if (!itemRow) throw new NotFoundError(item.name, itemId);
+  const out = { ...values };
+  if (grants.valid) {
+    const valid = await validFrom(ctx, granted, grants.valid, (field) =>
+      grantFieldValue(item, itemRow, field),
+    );
+    for (const key of [grants.valid.from, grants.valid.until]) {
+      if (key) out[key] = valid[key] ?? null;
+    }
+  }
+  const once = item.sellable?.onePerPerson;
+  if (once && grantFieldValue(item, itemRow, once) === true) {
+    const personField = sourceField("order.person");
+    const personId = personField ? out[personField] : undefined;
+    if (typeof personId !== "string" || !personId) {
+      throw new ValidationError("This is one per person: name the person it is given to", {
+        rule: "once_per_person",
+        reason: "no_person",
+      });
+    }
+    const had = await ctx.db
+      .selectFrom("core_sellable_once")
+      .select("state")
+      .where("person_id", "=", personId)
+      .where("object_type", "=", item.name)
+      .where("state", "in", ["held", "used"])
+      .executeTakeFirst();
+    if (had) {
+      throw new ValidationError(
+        had.state === "used"
+          ? "This is one per person, and this person has had theirs"
+          : "This is one per person, and an order for this person's is waiting to be paid",
+        { rule: "once_per_person", reason: had.state },
+      );
+    }
+    // Refused by the unique index if another write took it a moment before.
+    ctx.write(
+      ctx.db.insertInto("core_sellable_once").values({
+        id: newId("sellableOnce"),
+        person_id: personId,
+        object_type: item.name,
+        record_id: itemId,
+        order_id: null,
+        state: "used",
+        source: "by_hand",
+        // The person who called the tool, or the staff caller when platform code gives it.
+        given_by:
+          ctx.extension?.tool?.startedBy ??
+          (ctx.principal.kind === "staff" ? ctx.principal.userId : null),
+        created_at: ctx.now,
+        updated_at: ctx.now,
+      }),
+    );
+  }
+  return out;
+}
+
+async function grant(
+  ctx: HandlerContext,
+  orderId: string,
+  order: Record<string, unknown>,
+  from: string | null,
+) {
+  // Lines sold once per Person whose hold a person merge gave up (orders/merge.ts): the survivor
+  // already had theirs, so the line grants nothing and staff are told to refund it.
+  const onceRows = await ctx.db
+    .selectFrom("core_sellable_once")
+    .select(["object_type", "state"])
+    .where("order_id", "=", orderId)
+    .execute();
+  const lostOnce = (object: string) =>
+    from === "pending" &&
+    onceRows.some((r) => r.object_type === object && r.state === "released") &&
+    !onceRows.some((r) => r.object_type === object && r.state !== "released");
   const lines = (await ctx.db
     .selectFrom("core_order_line")
     .select(["id", "object_type", "record_id", "title", "quantity", "unit_price"])
@@ -127,6 +228,10 @@ async function grant(ctx: HandlerContext, orderId: string, order: Record<string,
     const item = getObject(line.object_type);
     const grants = item?.sellable?.grants;
     if (!item || !grants) continue;
+    if (lostOnce(item.name)) {
+      await tellStaffOnce(ctx, orderId, line.title);
+      continue;
+    }
     const granted = getObject(grants.object);
     if (!granted?.states) {
       // The contract check refuses this; a registry out of step grants nothing rather than
@@ -272,11 +377,31 @@ export async function grantsFollowPerson(
   }
 }
 
+/** Staff are told a paid line sold once per Person granted nothing: refund it (ADR 0512). */
+async function tellStaffOnce(ctx: HandlerContext, orderId: string, title: string): Promise<void> {
+  const plan = await notifyStatements(
+    ctx.db,
+    {
+      to: [{ role: "admin" }],
+      type: "system.message",
+      title: "A one-per-person purchase granted nothing",
+      body:
+        `Order ${orderId} was paid for "${title}", which is one per person, and its person (merged ` +
+        "with another since it was started) has had theirs. Nothing was granted for it: refund it.",
+      link: { kind: "record", object: "order", id: orderId },
+      dedupeKey: `order.once_lost:${orderId}`,
+      source: { actor: "system" },
+    },
+    ctx.now,
+  );
+  ctx.write(...plan.statements);
+}
+
 const orderGrants: MoveHook = async (ctx, move) => {
   const from = move.from?.id ?? null;
   const to = move.to.id;
   if ((to === "paid" || to === "part_paid") && (from === "pending" || from === "expired")) {
-    await grant(ctx, move.id, move.after);
+    await grant(ctx, move.id, move.after, from);
     return;
   }
   if (to === "refunded" || to === "cancelled") await voidGrants(ctx, move.id);

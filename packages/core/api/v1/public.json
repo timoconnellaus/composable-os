@@ -1012,12 +1012,6 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
-          },
-          "holderPersonId": {
-            "description": "Staff only: the Person who holds what it gives (a child whose parent pays), when not the payer. The payer, named by email, is billed; the trial and access are the holder's.",
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
           }
         },
         "required": ["plan", "returnUrl"]

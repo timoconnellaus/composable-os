@@ -109,21 +109,32 @@ function hostWith(): TestHost {
         })),
         nextCursor: null,
       }),
-      "allowance.get": (input) => ({
-        object: input.object,
-        id: input.id,
-        live: true,
-        at: "2026-11-24T00:00:00.000Z",
-        period:
-          input.object === "memberships.membership"
-            ? {
-                key: "week:2026-11-23",
-                startsAt: "2026-11-22T13:00:00.000Z",
-                endsAt: "2026-11-29T13:00:00.000Z",
-                used: 1,
-                left: 2,
-              }
-            : { key: "total", startsAt: "x", endsAt: "y", used: 4, left: 6 },
+      // The host's count for every holding of an object in one call; the staff-given pass is
+      // live in its terms and still cannot pay now (it has not started): payable false.
+      "allowance.list": (input) => ({
+        items: (input.ids as string[]).map((id) => ({
+          object: input.object,
+          id,
+          live: true,
+          payable: id !== "rec_given",
+          at: "2026-11-24T00:00:00.000Z",
+          period:
+            input.object === "memberships.membership"
+              ? {
+                  key: "week:2026-11-23",
+                  startsAt: "2026-11-22T13:00:00.000Z",
+                  endsAt: "2026-11-29T13:00:00.000Z",
+                  used: 1,
+                  left: 2,
+                }
+              : {
+                  key: "total",
+                  startsAt: "x",
+                  endsAt: "y",
+                  used: 4,
+                  left: id === "rec_given" ? 0 : 6,
+                },
+        })),
       }),
       "order.start": (input) => ({
         id: "ord_1",
@@ -188,6 +199,12 @@ describe("the manifest", () => {
     expect(host.manifest.tools?.voidPass?.humanOnly).toBe(true);
     expect(host.manifest.tools?.givePass?.permission).toBe("memberships:passes");
     expect(host.manifest.grantable).toEqual(["memberships:passes"]);
+    // Voiding is the host's (a refund) or voidPass's, never another staff write (review 2).
+    expect(pass.states.moves).toEqual([
+      { from: "active", to: "void", by: ["host"], tools: ["voidPass"], final: true },
+    ]);
+    // A plan names its period: empty is not "in all" (review 5).
+    expect(plan.fields.per.required).toBe(true);
   });
 });
 
@@ -241,7 +258,11 @@ describe("the tools", () => {
     expect(membership && leftWords(membership)).toBe("2 of 3 left this week");
     const pass = out.holdings.find((h) => h.id === "rec_p");
     expect(pass && leftWords(pass)).toBe("6 of 10 left");
-    expect(host.calls.filter((c) => c.operation === "allowance.get")).toHaveLength(3);
+    // One call per object, not one per holding (review 10).
+    expect(host.calls.filter((c) => c.operation === "allowance.list")).toHaveLength(2);
+    // Live is "can pay for a class now", the host's answer, not the record's state (review 6).
+    expect(out.holdings.find((h) => h.id === "rec_given")?.live).toBe(false);
+    expect(out.holdings.find((h) => h.id === "rec_p")?.live).toBe(true);
     expect(host.calls.filter((c) => c.operation === "my.list")).toHaveLength(2);
   });
 
@@ -281,7 +302,17 @@ describe("the tools", () => {
         reason: "Sorry for the cancelled class (Sam)",
       }),
     );
-    expect(typeof created.values.until).toBe("string");
+    // Its dates are the host's (local days, as a pass bought), never the tool's (review 8).
+    expect(created.values).not.toHaveProperty("until");
+    expect(created.values).not.toHaveProperty("from");
+    // Never more classes than the pass type gives.
+    await expect(
+      host.runTool(
+        "givePass",
+        { personId: "per_member", passTypeId: "rec_pack", reason: "Too many", uses: 11 },
+        { caller: STAFF },
+      ),
+    ).rejects.toMatchObject({ code: "invalid_input" });
   });
 
   it("voidPass: voids a pass staff gave, from a current read; a bought one is refused", async () => {

@@ -177,6 +177,8 @@ export const subscriptionStart = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["staff", "customer", "public"],
+  // Naming another holder is staff's until the family link (ADR 0487, amended).
+  staffInput: ["holderPersonId"],
   hostInternal: true,
   mcp: { expose: false },
   auditSummary: (output, input) => ({
@@ -265,6 +267,8 @@ export const subscriptionCancel = defineOperation({
   permission: "subscriptions:manage",
   risk: "write",
   audiences: ["staff", "customer"],
+  // Ending it at once is staff's: not in the customer's contract, refused from a customer.
+  staffInput: ["now"],
   actors: ["human"],
   hostInternal: true,
   mcp: { expose: false },

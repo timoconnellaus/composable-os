@@ -1114,7 +1114,7 @@ export const personMerge = defineOperation({
       ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),
     ]);
     // Orders, subscriptions, their checkouts and trials follow the Person (stage 32a, #221).
-    queueMergeOrders(ctx, survivor.id, merged.id);
+    await queueMergeOrders(ctx, survivor.id, merged.id);
     await queueMergeSubscriptions(ctx, survivor.id, merged.id);
     // Passes' and memberships' terms and uses follow the Person too (stage 32b, ADR 0494).
     queueMergeAllowances(ctx, survivor.id, merged.id);

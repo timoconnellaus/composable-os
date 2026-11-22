@@ -14,7 +14,7 @@
 //     expires or is cancelled unpaid (`released`). A refund keeps it used. A late payment staff
 //     honour on an expired order takes it again, and is refused (the batch fails, the order stays
 //     expired, staff refund) when the Person has had one since.
-import { ValidationError } from "../errors.ts";
+import { ConflictError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -50,7 +50,7 @@ export async function holdOncePerPerson(
     if (!buyer.personId) {
       refuse(
         "no_person",
-        "This is one per person, and the order's address belongs to more than one person here",
+        "This is one per person, and the order is not for one person yet: its address belongs to several people here. Merge them, or start it for one of them",
         line.position,
       );
     }
@@ -122,6 +122,20 @@ const orderOnce: MoveHook = async (ctx, move) => {
       .execute();
     for (const row of released) {
       if (!getObject(row.object_type)?.sellable?.onePerPerson) continue;
+      const since = await ctx.db
+        .selectFrom("core_sellable_once")
+        .select("id")
+        .where("person_id", "=", row.person_id)
+        .where("object_type", "=", row.object_type)
+        .where("state", "in", ["held", "used"])
+        .executeTakeFirst();
+      if (since) {
+        throw new ConflictError(
+          "This late payment cannot be honoured: it is for something one per person, and the " +
+            "person has had theirs since the order expired. Refund the payment instead",
+          { rule: "once_per_person", reason: "had_since", order: move.id },
+        );
+      }
       ctx.write(
         ctx.db.insertInto("core_sellable_once").values({
           id: newId("sellableOnce"),

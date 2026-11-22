@@ -26,9 +26,11 @@ import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
 import { createRecord, updateRecord } from "../operations/record.ts";
 import { grantFieldValue, readGrantItem } from "../orders/grants.ts";
+import { loadOrderRow } from "../orders/orders.ts";
 import { viewColumnOf } from "../records/columns.ts";
+import { type MoveHook, onRecordMove } from "../records/lifecycle.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
-import type { SubscriptionRow } from "./events.ts";
+import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
 import { PAST_DUE_GRACE_DAYS } from "./sweep.ts";
 
 const GRANTING: ReadonlySet<string> = new Set([
@@ -185,9 +187,36 @@ export async function followSubscriptionGrant(
   if (state && now !== state) change[object.states.field] = state;
   if (grants.until && untilColumn) {
     const stored = current[untilColumn];
-    const storedIso = typeof stored === "string" && stored ? new Date(stored).toISOString() : null;
-    if (storedIso !== until) change[grants.until] = until;
+    // Compared as moments: the stored text and the read's may differ in their milliseconds.
+    const storedAt = typeof stored === "string" && stored ? Date.parse(stored) : null;
+    const untilAt = until ? Date.parse(until) : null;
+    if (storedAt !== untilAt) change[grants.until] = until;
   }
   if (!Object.keys(change).length) return;
   await updateRecord(ctx, object, existing.record_id, change, { by: "host" });
 }
+
+/**
+ * A paid period of a subscription that grants something refunded in full (stage 32b review): the
+ * refund does not end the subscription (ADR 0486), so what it granted keeps running. Staff are
+ * told, in the refund's batch, so ending the subscription is a decision someone makes.
+ */
+const periodRefunded: MoveHook = async (ctx, move) => {
+  if (move.to.id !== "refunded") return;
+  const order = await loadOrderRow(ctx.db, move.id);
+  if (!order.subscription_id) return;
+  const sub = await loadSubscriptionRow(ctx.db, order.subscription_id).catch(() => null);
+  if (!sub || !grantsOf(sub.plan_object) || sub.state === "ended" || sub.state === "expired") {
+    return;
+  }
+  await tellStaff(
+    ctx,
+    sub,
+    "A refunded period's membership keeps running",
+    `Order ${move.id}, a paid period of subscription ${sub.id} (${sub.plan_title}), was refunded ` +
+      "in full. The subscription, and what it grants, keep running: end the subscription if they " +
+      "should not.",
+  );
+};
+
+onRecordMove("order", periodRefunded);

@@ -200,7 +200,7 @@ function fixture(id: string): ExtensionManifest {
         states: {
           field: "status",
           initial: "active",
-          moves: [{ from: "active", to: "void", by: ["staff", "host"], final: true }],
+          moves: [{ from: "active", to: "void", by: ["host"], final: true }],
         },
         customer: { field: "person", read: ["uses", "until", "status"], write: [] },
         allowance: {
@@ -498,7 +498,7 @@ describe("a subscription's grant follows it (recurring.grants, ADR 0510)", () =>
         as(parent),
       ),
     );
-    expect(refused).toMatchObject({ code: "invalid_input", details: { rule: "holder" } });
+    expect(refused).toMatchObject({ code: "invalid_input", details: { rule: "staff_input" } });
     expect(gw.subscriptions.at(-1)?.subscriptionId).toBe(started.subscriptionId);
   });
 
@@ -761,6 +761,363 @@ describe("the declarations' checks", () => {
     };
     const op = toolOperation(fixture(extId("tool")), "givePass", tool, "shipped");
     expect(op.actors).toEqual(["human"]);
+  });
+});
+
+// --- The independent review of step 6 (ADR 0513) -------------------------------------------------
+
+/** A running membership: its subscription, its record id, its member. */
+async function runningMembership(label: string) {
+  const buyer = await createBuyer(admin, label);
+  const id = await subscribe(buyer);
+  await deliver("checkout_completed", read(id, { status: "active" }));
+  const granted = await grantOf(id);
+  return { buyer, id, record: granted?.record_id as string };
+}
+
+/** A pass bought and paid, of a fresh pass type. */
+async function boughtPass(buyer: Buyer, values: Record<string, unknown> = {}) {
+  const type = await create(PASSTYPE, { title: unique("Pack"), price: 50, uses: 5, ...values });
+  const order = await run<{ id: string }>(
+    "order.start",
+    { lines: [{ object: PASSTYPE, id: type, quantity: 1 }], pay: "full" },
+    as(buyer),
+  );
+  await run("order.checkout", { id: order.id, returnUrl: RETURN }, as(buyer));
+  await providerPays(order.id);
+  const row = await env.DB.prepare("SELECT record_id FROM core_order_grant WHERE order_id = ?")
+    .bind(order.id)
+    .first<{ record_id: string }>();
+  return { type, order: order.id, pass: row?.record_id as string };
+}
+
+async function stateOf(object: string, id: string) {
+  const table = object === PASS ? `x_${GYM}_pass` : `x_${GYM}_membership`;
+  return env.DB.prepare(`SELECT status, deleted_at FROM ${table} WHERE id = ?`)
+    .bind(id)
+    .first<{ status: string; deleted_at: string | null }>();
+}
+
+describe("a granted holder and the Trash (review 1)", () => {
+  it("a running membership cannot go to the Trash; an ended one can, and comes back ended", async () => {
+    const { id, record } = await runningMembership("trash");
+    const refused = await refusal(
+      run("record.delete", { object: MEMBERSHIP, id: record }, staff()),
+    );
+    expect(refused.details).toMatchObject({ rule: "allowance", reason: "holder_live" });
+    await deliver("deleted", read(id, { status: "canceled", endedAt: later() }));
+    await run("record.delete", { object: MEMBERSHIP, id: record }, staff());
+    await run("record.restore", { object: MEMBERSHIP, id: record }, staff());
+    expect((await stateOf(MEMBERSHIP, record))?.status).toBe("ended");
+  });
+
+  it("one put in the Trash while it ran (before this rule) is not restored once its grant moved on", async () => {
+    const { id, record } = await runningMembership("trashed-early");
+    // As data from before the rule: in the Trash while active.
+    await env.DB.prepare(`UPDATE x_${GYM}_membership SET deleted_at = ? WHERE id = ?`)
+      .bind(new Date().toISOString(), record)
+      .run();
+    await deliver("deleted", read(id, { status: "canceled", endedAt: later() }));
+    const refused = await refusal(
+      run("record.restore", { object: MEMBERSHIP, id: record }, staff()),
+    );
+    expect(refused.details).toMatchObject({ reason: "holder_granted" });
+    expect((await stateOf(MEMBERSHIP, record))?.deleted_at).not.toBeNull();
+  });
+
+  it("an active pass cannot go to the Trash; a pass trashed before the rule is not restored live after its refund", async () => {
+    const buyer = await createBuyer(admin, "passtrash");
+    const { order, pass } = await boughtPass(buyer);
+    expect(
+      (await refusal(run("record.delete", { object: PASS, id: pass }, staff()))).details,
+    ).toMatchObject({ reason: "holder_live" });
+    await env.DB.prepare(`UPDATE x_${GYM}_pass SET deleted_at = ? WHERE id = ?`)
+      .bind(new Date().toISOString(), pass)
+      .run();
+    const asked = await run<{ refunds: { pendingActionId: string }[] }>(
+      "order.refund",
+      { id: order, reason: "Moved away" },
+      staff(),
+    );
+    await run("approval.approve", { actionIds: [asked.refunds[0]?.pendingActionId] }, staff());
+    await providerRefunds(gw.action);
+    expect(
+      (await refusal(run("record.restore", { object: PASS, id: pass }, staff()))).details,
+    ).toMatchObject({ reason: "holder_granted" });
+  });
+});
+
+describe("only the host (or a person's tool) voids a pass (review 2)", () => {
+  it("staff cannot void a pass through the generic record operations, as a person or over MCP", async () => {
+    const buyer = await createBuyer(admin, "novoid");
+    const { pass } = await boughtPass(buyer);
+    for (const ctx of [
+      staff(),
+      context(admin, {
+        integrations: runtime,
+        events,
+        actor: "mcp",
+        origin: { surface: "mcp", clientId: "c", clientName: "C", sessionId: unique("s") },
+      }),
+    ]) {
+      const refused = await refusal(
+        run("record.update", { object: PASS, id: pass, values: { status: "void" } }, ctx),
+      );
+      expect(refused.code).toBe("invalid_input");
+    }
+    expect((await stateOf(PASS, pass))?.status).toBe("active");
+  });
+});
+
+describe("a merge and the intro offer (review 3)", () => {
+  let intro: string;
+  beforeAll(async () => {
+    intro = await create(PASSTYPE, { title: "Intro M", price: 20, uses: 3, intro: true });
+  });
+  const startIntro = (buyer: Buyer) =>
+    run<{ id: string }>(
+      "order.start",
+      { lines: [{ object: PASSTYPE, id: intro, quantity: 1 }], pay: "full" },
+      as(buyer),
+    );
+  async function merge(survivor: Buyer, merged: Buyer) {
+    await run("customer.disable", { id: merged.principal.customerId }, staff());
+    await run(
+      "person.merge",
+      { survivorId: survivor.principal.personId, mergedId: merged.principal.personId },
+      staff(),
+    );
+  }
+  async function onceStates(personId: string) {
+    const { results } = await env.DB.prepare(
+      "SELECT state FROM core_sellable_once WHERE person_id = ? AND object_type = ? ORDER BY state",
+    )
+      .bind(personId, PASSTYPE)
+      .all<{ state: string }>();
+    return results.map((r) => r.state);
+  }
+  async function passesOf(orderId: string) {
+    const row = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_order_grant WHERE order_id = ?",
+    )
+      .bind(orderId)
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
+  it("survivor used, merged held: the merged order, paid later, grants nothing and staff are told", async () => {
+    const survivor = await createBuyer(admin, "m-su");
+    const merged = await createBuyer(admin, "m-mh");
+    const first = await startIntro(survivor);
+    await run("order.checkout", { id: first.id, returnUrl: RETURN }, as(survivor));
+    await providerPays(first.id);
+    const pending = await startIntro(merged);
+    await run("order.checkout", { id: pending.id, returnUrl: RETURN }, as(merged));
+    await merge(survivor, merged);
+    expect(await onceStates(survivor.principal.personId)).toEqual(["released", "used"]);
+    await providerPays(pending.id);
+    expect(await passesOf(pending.id)).toBe(0);
+    const told = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE title = ? AND body LIKE ?",
+    )
+      .bind("A one-per-person purchase granted nothing", `%${pending.id}%`)
+      .first<{ n: number }>();
+    expect(told?.n).toBeGreaterThan(0);
+  });
+
+  it("survivor held, merged used: the survivor ends with the used one, and its own pending order grants nothing", async () => {
+    const survivor = await createBuyer(admin, "m-sh");
+    const merged = await createBuyer(admin, "m-mu");
+    const had = await startIntro(merged);
+    await run("order.checkout", { id: had.id, returnUrl: RETURN }, as(merged));
+    await providerPays(had.id);
+    const pending = await startIntro(survivor);
+    await run("order.checkout", { id: pending.id, returnUrl: RETURN }, as(survivor));
+    await merge(survivor, merged);
+    expect(await onceStates(survivor.principal.personId)).toEqual(["released", "used"]);
+    await providerPays(pending.id);
+    expect(await passesOf(pending.id)).toBe(0);
+  });
+
+  it("both held: one hold is kept", async () => {
+    const survivor = await createBuyer(admin, "m-hh1");
+    const merged = await createBuyer(admin, "m-hh2");
+    await startIntro(survivor);
+    await startIntro(merged);
+    await merge(survivor, merged);
+    expect(await onceStates(survivor.principal.personId)).toEqual(["held", "released"]);
+  });
+
+  it("a late payment for an intro offer had since is refused with words saying so", async () => {
+    const buyer = await createBuyer(admin, "m-late");
+    const late = await startIntro(buyer);
+    await run("order.checkout", { id: late.id, returnUrl: RETURN }, as(buyer));
+    await run("fixture.moveOrderAs", { id: late.id, to: "expired", by: "host" }, staff());
+    const second = await startIntro(buyer);
+    await run("order.checkout", { id: second.id, returnUrl: RETURN }, as(buyer));
+    await providerPays(second.id);
+    await providerPays(late.id);
+    const refused = await refusal(run("order.honourLate", { id: late.id }, staff()));
+    expect(refused.details).toMatchObject({ rule: "once_per_person", reason: "had_since" });
+    expect(refused.message).toMatch(/Refund the payment/);
+  });
+});
+
+describe("a granted holder's terms (review 4)", () => {
+  it("the contract refuses a granted holder whose terms are writable, or that staff move into a live state", () => {
+    const m = fixture(extId("bad"));
+    const pass = m.objects.pass as NonNullable<(typeof m.objects)[string]>;
+    pass.fields.uses = { type: "number", label: "Uses" };
+    (pass.states as { moves: unknown[] }).moves = [
+      { from: "active", to: "void", by: ["host"], final: true },
+      { from: "void", to: "active", by: ["staff"] },
+    ];
+    const issues = validateManifest(m)
+      .issues.map((i) => i.message)
+      .join("\n");
+    expect(issues).toMatch(/"uses" is one of its terms, so it must be readOnly/);
+    expect(issues).toMatch(/only the host moves it into "active"/);
+  });
+
+  it("the extension's own code writes a holder's terms only from a tool only a person with a permission calls", async () => {
+    const buyer = await createBuyer(admin, "ownterms");
+    const { pass } = await boughtPass(buyer);
+    const own = (tool?: { name: string; humanOnly: boolean; permission: string | null }) =>
+      context(admin, {
+        actor: "extension",
+        origin: { surface: "extension", extensionId: GYM },
+        extension: {
+          id: GYM,
+          permissions: { read: [], write: [], operations: [], modules: [] },
+          ...(tool ? { tool } : {}),
+        },
+      } as never);
+    for (const ctx of [own(), own({ name: "anyTool", humanOnly: false, permission: null })]) {
+      const refused = await refusal(
+        run("record.update", { object: PASS, id: pass, values: { uses: 99 } }, ctx),
+      );
+      expect(refused.code).toBe("invalid_input");
+    }
+    await run(
+      "record.update",
+      { object: PASS, id: pass, values: { uses: 4 } },
+      own({ name: "givePass", humanOnly: true, permission: `${GYM}:passes` }),
+    );
+  });
+});
+
+describe("dropping what a plan grants (review 7)", () => {
+  it("is refused while a subscription still running holds one, naming it", async () => {
+    const { id } = await runningMembership("drop");
+    const m = fixture(GYM);
+    const p = m.objects.plan as NonNullable<(typeof m.objects)[string]>;
+    const sellable = p.sellable as { recurring: { grants?: unknown } };
+    delete sellable.recurring.grants;
+    const { plan: planOf } = await import("./extension-helpers.ts");
+    const planned = await planOf(m);
+    const issue = planned.issues.find((i) => i.code === "grants_conflict");
+    expect(issue?.message).toContain(id);
+  });
+});
+
+describe("staff-only input (review 9)", () => {
+  it("a customer cannot pass holderPersonId, and their contract does not offer it", async () => {
+    const buyer = await createBuyer(admin, "staffinput");
+    const refused = await refusal(
+      run(
+        "subscription.start",
+        { plan: { object: PLAN, id: plan }, returnUrl: RETURN, holderPersonId: "per_x" },
+        as(buyer),
+      ),
+    );
+    expect(refused.details).toMatchObject({ rule: "staff_input" });
+    const { buildContract, contractFor, coreRegistry } = await import("../src/index.ts");
+    const contract = buildContract(coreRegistry.list());
+    const props = (audience: "staff" | "customer" | "public") =>
+      Object.keys(
+        (contractFor(contract, audience).operations.find((o) => o.name === "subscription.start")
+          ?.input.properties as Record<string, unknown>) ?? {},
+      );
+    expect(props("staff")).toContain("holderPersonId");
+    expect(props("customer")).not.toContain("holderPersonId");
+    expect(props("public")).not.toContain("holderPersonId");
+  });
+});
+
+describe("events and refunds (review 10, 11)", () => {
+  it("the same read again changes nothing on the membership (no write when its until is the same moment)", async () => {
+    const buyer = await createBuyer(admin, "same");
+    const id = await subscribe(buyer);
+    const end = new Date(Date.now() + 12 * DAY);
+    end.setUTCMilliseconds(0);
+    const ending = read(id, {
+      status: "active",
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: end.toISOString().replace(".000Z", "Z"),
+    });
+    await deliver("checkout_completed", ending);
+    const record = (await grantOf(id))?.record_id as string;
+    const before = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_audit_log WHERE record_id = ?",
+    )
+      .bind(record)
+      .first<{ n: number }>()
+      .catch(() => null);
+    const history = async () =>
+      (
+        await env.DB.prepare(`SELECT updated_at FROM x_${GYM}_membership WHERE id = ?`)
+          .bind(record)
+          .first<{ updated_at: string }>()
+      )?.updated_at;
+    const was = await history();
+    await deliver("updated", { ...ending, observedAt: later() });
+    expect(await history()).toBe(was);
+    void before;
+  });
+
+  it("refunding a paid period in full tells staff the membership keeps running", async () => {
+    const { id } = await runningMembership("refundperiod");
+    const sub = await env.DB.prepare("SELECT * FROM core_subscription WHERE id = ?")
+      .bind(id)
+      .first<Record<string, string>>();
+    await payments.deliver({
+      kind: "subscription",
+      provider: "fake",
+      eventId: `fevt_${unique("p")}`,
+      trigger: "invoice_paid",
+      subscription: read(id, { status: "active" }),
+      invoice: {
+        ref: `fin_${unique("i")}`,
+        status: "paid",
+        amountPaid: 4500,
+        amountDue: 4500,
+        currency: CURRENCY,
+        paymentRef: `fpi_${unique("p")}`,
+        periodStart: sub?.current_period_start ?? new Date().toISOString(),
+        periodEnd: sub?.current_period_end ?? new Date().toISOString(),
+        billingReason: "subscription_cycle",
+        attemptCount: 1,
+        nextAttemptAt: null,
+        hostedUrl: null,
+      },
+      occurredAt: new Date().toISOString(),
+    });
+    const order = await env.DB.prepare("SELECT id FROM core_order WHERE subscription_id = ?")
+      .bind(id)
+      .first<{ id: string }>();
+    const asked = await run<{ refunds: { pendingActionId: string }[] }>(
+      "order.refund",
+      { id: order?.id, reason: "Goodwill" },
+      staff(),
+    );
+    await run("approval.approve", { actionIds: [asked.refunds[0]?.pendingActionId] }, staff());
+    await providerRefunds(gw.action);
+    const told = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE title = ? AND body LIKE ?",
+    )
+      .bind("A refunded period's membership keeps running", `%${id}%`)
+      .first<{ n: number }>();
+    expect(told?.n).toBeGreaterThan(0);
   });
 });
 

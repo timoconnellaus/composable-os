@@ -17,6 +17,7 @@ import {
   assertHolderCreatable,
   assertSpenderDeletable,
   followSpenders,
+  holderTerms,
   holderTrash,
   holderWrite,
   hostFilled,
@@ -41,7 +42,7 @@ import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
 import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
 import type { RecordRef } from "../operation.ts";
-import { defineOperation, type HandlerContext } from "../operation.ts";
+import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
@@ -232,10 +233,14 @@ async function prepareValues(
     }
     // Read-only fields are maintained by the host, or by the declaring extension's own code
     // (a tool or automation of that extension, ADR 0246): Leads sets a lead's deal on conversion.
+    // A holder's terms (its uses, its dates, whose they are) only through a tool only a person
+    // with a permission may call (ADR 0513): never any other code of the extension.
+    const term = holderTerms(object).has(name);
     const ownCode =
       field.fieldType !== "formula" &&
       field.extension !== undefined &&
-      ctx.extension?.id === field.extension;
+      ctx.extension?.id === field.extension &&
+      (!term || personsTool(ctx, field.extension) !== null);
     // Platform code making a host move sets them too (a payment's reference and time).
     const hostCode = field.fieldType !== "formula" && options.by === "host";
     // What a holder's conditions read on a spender is the host's alone, even for the
@@ -602,8 +607,14 @@ export async function createRecord(
   const asked = requester
     ? await resolveStateRequest(ctx, object, null, values, requester)
     : values;
+  // What an order line grants, given by a person's tool instead (a pass by hand, ADR 0513): its
+  // dates are the host's, as a paid line's are, and an intro offer's one per Person is used.
+  const handed =
+    options.by !== "host" && personsTool(ctx, object.extension) !== null && isGranted(object)
+      ? await (await import("../orders/grants.ts")).handGrantValues(ctx, object, asked)
+      : asked;
   // A slug left empty is made from the title; one given must be free (ADR 0442).
-  const withDefaults = await slugsForCreate(ctx, object, await applyDefaults(ctx, object, asked));
+  const withDefaults = await slugsForCreate(ctx, object, await applyDefaults(ctx, object, handed));
   let prepared = await prepareValues(ctx, object, withDefaults, "create", options);
   assertOneOf(object, valuesOf(prepared));
   assertRuleValues(object, valuesOf(prepared));
@@ -1099,6 +1110,64 @@ export async function updateRecordAsHost(
   await updateRecord(ctx, object, id, values, { by: "host" });
 }
 
+/** Whether an object is what some sellable object's paid line grants (ADR 0435). */
+function isGranted(object: ObjectDefinition): boolean {
+  return listObjects().some((o) => o.sellable?.grants?.object === object.name);
+}
+
+/** Whether a holder record was granted by a paid order line or a subscription (ADRs 0435, 0510). */
+async function grantedBy(ctx: HandlerContext, object: string, id: string): Promise<boolean> {
+  const [order, subscription] = await Promise.all([
+    ctx.db
+      .selectFrom("core_order_grant")
+      .select("record_id")
+      .where("object_type", "=", object)
+      .where("record_id", "=", id)
+      .executeTakeFirst(),
+    ctx.db
+      .selectFrom("core_subscription_grant")
+      .select("record_id")
+      .where("object_type", "=", object)
+      .where("record_id", "=", id)
+      .executeTakeFirst(),
+  ]);
+  return Boolean(order ?? subscription);
+}
+
+/**
+ * A holder's Trash rule (ADR 0513): a holder that can be spent (its state is live) cannot go to
+ * the Trash, and neither can a granted one that has not reached a final state (a membership its
+ * subscription still moves, a pass not void): void or end it first. Its grant, not the Trash,
+ * decides what it gives. `restoring`: a granted holder in the Trash that is not final (put there
+ * before this rule) is not restored, since its grant may no longer give what it held.
+ */
+async function assertHolderTrashRule(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  state: unknown,
+  restoring: boolean,
+): Promise<void> {
+  const def = object.allowance;
+  if (def?.kind !== "holder" || !object.states) return;
+  const finals = new Set(object.states.moves.filter((m) => m.final).map((m) => m.to));
+  const final = typeof state === "string" && finals.has(state);
+  const live = typeof state === "string" && (def.live ?? []).includes(state);
+  const granted = !final && (await grantedBy(ctx, object.name, id));
+  if (!restoring && (live || granted)) {
+    throw new ValidationError(
+      `${object.label} can still be spent or is kept by what granted it: void or end it before deleting it`,
+      { rule: "allowance", reason: "holder_live", object: object.name, record: id },
+    );
+  }
+  if (restoring && granted) {
+    throw new ValidationError(
+      `${object.label} was granted and is not ended or void: what granted it decides its state, so it is not restored`,
+      { rule: "allowance", reason: "holder_granted", object: object.name, record: id },
+    );
+  }
+}
+
 export const recordDelete = defineOperation({
   name: "record.delete",
   description:
@@ -1116,6 +1185,10 @@ export const recordDelete = defineOperation({
     // a spender holds (ADR 0493).
     await assertNoConfirmedClaims(ctx, object, input.id);
     await assertSpenderDeletable(ctx, object, input.id);
+    // A holder that can be spent, or that its grant still moves, is voided or ended first.
+    if (object.states) {
+      await assertHolderTrashRule(ctx, object, input.id, before.values[object.states.field], false);
+    }
     // A claimant holding a place gives it back by moving out of its state, not by Trash.
     await assertNoLiveClaim(ctx, object, input.id);
     // A series in Trash makes nothing more; its future records go as an ended series' do.
@@ -1166,6 +1239,16 @@ export const recordRestore = defineOperation({
     if (deletedAt === null) throw new ValidationError(`${input.id} is not in Trash`);
     // Its slug may have been taken while it was in the Trash (stage 28, ADR 0444).
     await assertRestorable(ctx, object, input.id);
+    // A granted holder comes back only in a final state (ADR 0513).
+    const stateColumn = object.states
+      ? fieldStorage(object.name, object.states.field)?.column
+      : undefined;
+    if (stateColumn) {
+      const stored = await sql<Record<string, unknown>>`
+        SELECT * FROM ${visibleTable(ctx, object)} WHERE id = ${input.id}
+      `.execute(ctx.db);
+      await assertHolderTrashRule(ctx, object, input.id, stored.rows[0]?.[stateColumn], true);
+    }
     ctx.write(
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ?`, [
         input.id,

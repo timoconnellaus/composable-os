@@ -419,11 +419,81 @@ describe("passes", () => {
       run("record.update", { object: PASS, id: given.passId, values: { uses: 50 } }, staff(admin)),
     );
     expect(direct.code).toBe("invalid_input");
+    // Its dates are the host's: valid from now for the type's 90 local days (review 8).
+    const days =
+      (Date.parse(held.find((h) => h.id === given.passId)?.until ?? "") - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(89);
+    expect(days).toBeLessThan(91);
+    // Never more classes than the type gives.
+    expect(
+      (
+        await refusal(
+          run(
+            "x.memberships.givePass",
+            { personId: member.personId, passTypeId: pack, reason: "Too many", uses: 11 },
+            staff(admin),
+          ),
+        )
+      ).inner,
+    ).toBe("invalid_input");
+    // Voiding is a person's act through voidPass (review 2): not a staff record write, not the
+    // assistant, not the generic delete of a live pass.
+    for (const values of [{ status: "void" }]) {
+      const generic = await refusal(
+        run("record.update", { object: PASS, id: given.passId, values }, staff(admin)),
+      );
+      expect(generic.code).toBe("invalid_input");
+    }
+    const trash = await refusal(
+      run("record.delete", { object: PASS, id: given.passId }, staff(admin)),
+    );
+    expect(trash.details).toMatchObject({ reason: "holder_live" });
+    const voidByAssistant = await refusal(
+      run(
+        "x.memberships.voidPass",
+        { passId: given.passId, reason: "Given in error" },
+        staff(admin, { actor: "assistant", origin: { surface: "assistant" } as never }),
+      ),
+    );
+    expect(voidByAssistant.code).toBe("forbidden");
     await run(
       "x.memberships.voidPass",
       { passId: given.passId, reason: "Given in error" },
       staff(admin),
     );
     expect((await mine(member)).find((h) => h.id === given.passId)?.status).toBe("void");
+  });
+
+  it("an intro offer given by hand is the person's one (review 8)", async () => {
+    const intro = await create(PASSTYPE, {
+      title: unique("Intro by hand "),
+      price: 20,
+      uses: 3,
+      validDays: 7,
+      onePerPerson: true,
+      status: "on_sale",
+    });
+    const member = await createMember("handintro");
+    await run(
+      "x.memberships.givePass",
+      { personId: member.personId, passTypeId: intro, reason: "Welcome" },
+      staff(admin),
+    );
+    const again = await refusal(
+      run(
+        "x.memberships.givePass",
+        { personId: member.personId, passTypeId: intro, reason: "Welcome again" },
+        staff(admin),
+      ),
+    );
+    expect(JSON.stringify(again)).toContain("once_per_person");
+    const bought = await refusal(run("x.memberships.buy", { passTypeId: intro }, as(member)));
+    expect(JSON.stringify(bought)).toContain("once_per_person");
+    const row = await env.DB.prepare(
+      "SELECT state, source, given_by, order_id FROM core_sellable_once WHERE person_id = ?",
+    )
+      .bind(member.personId)
+      .first();
+    expect(row).toEqual({ state: "used", source: "by_hand", given_by: admin.id, order_id: null });
   });
 });

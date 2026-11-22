@@ -391,6 +391,8 @@ export interface StatesDefinition {
     final?: boolean | undefined;
     window?: WindowDefinition | undefined;
     staffOnly?: string | undefined;
+    /** This extension's tools that may also make it, for the person who called them (ADR 0513). */
+    tools?: readonly string[] | undefined;
   }[];
   /** Rules on every create (ADR 0503). */
   create?:

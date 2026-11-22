@@ -4,6 +4,7 @@
 // ticket per place) in the batch that marks it paid. Its declaration, its manifest schema and its
 // contract checks live here; the host's side is packages/core/src/orders/ (sellable.ts, grants.ts).
 import { z } from "zod";
+import { customerWritable, spendsOnList } from "./allowance.ts";
 import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifest.ts";
 import { moveOrigins } from "./states.ts";
 
@@ -573,6 +574,7 @@ function checkGrants(
     }
   }
   if (codes > 1) contract(`${path}.set`, "A grant has at most one code");
+  checkGrantedHolder(m, local, granted, contract);
   if (grants.valid) {
     const { from, until, days } = grants.valid;
     if (from === undefined && until === undefined) {
@@ -829,4 +831,58 @@ function checkRecurringGrants(
       );
     }
   });
+  checkGrantedHolder(m, local, granted, contract);
+}
+
+/**
+ * A granted holder (a pass a paid line grants, a membership a subscription grants) keeps the
+ * terms it was granted (ADR 0513): its Person, uses, period, dates, zone and the fields its
+ * conditions compare with are read-only and never a customer's to write, and nobody but the host
+ * (or a tool only a person with a permission may call) moves it into a state it can be spent in.
+ * Otherwise a staff write, an assistant or an automation could give someone uses nobody paid for.
+ */
+export function checkGrantedHolder(
+  m: ExtensionManifest,
+  local: string,
+  granted: ObjectManifest,
+  contract: (path: string, message: string) => void,
+): void {
+  const allowance = granted.allowance;
+  if (!allowance || !("holds" in allowance)) return;
+  const h = allowance.holds;
+  const op = `objects.${local}`;
+  const terms = new Set<string>([h.person, h.uses]);
+  if (typeof h.per === "object") terms.add(h.per.field);
+  for (const f of [h.from, h.until, h.zone]) if (f) terms.add(f);
+  for (const target of spendsOnList(h)) {
+    for (const clause of target.when ?? []) {
+      for (const v of [clause.in, clause.atLeast, clause.below]) {
+        if (typeof v === "string") terms.add(v);
+      }
+    }
+  }
+  const customer = customerWritable(m, local);
+  for (const term of terms) {
+    const field = Object.hasOwn(granted.fields, term) ? granted.fields[term] : undefined;
+    if (field && !field.readOnly) {
+      contract(
+        `${op}.fields.${term}`,
+        `${local} is granted: "${term}" is one of its terms, so it must be readOnly (only the host writes it)`,
+      );
+    }
+    if (customer.has(term) && term !== granted.customer?.field) {
+      contract(`${op}.fields.${term}`, `${local} is granted: a customer cannot write "${term}"`);
+    }
+  }
+  const live = new Set(h.live ?? []);
+  for (const [i, move] of (granted.states?.moves ?? []).entries()) {
+    if (!live.has(move.to)) continue;
+    const open = move.by.filter((by) => by === "staff" || by === "customer");
+    if (open.length) {
+      contract(
+        `${op}.states.moves.${i}`,
+        `${local} is granted: only the host moves it into "${move.to}", where it can be spent (not ${open.join(" or ")})`,
+      );
+    }
+  }
 }
