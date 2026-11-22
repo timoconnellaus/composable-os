@@ -1037,7 +1037,7 @@ export interface CoreRecurrenceSeriesTable {
 
 /** Migration 0560: a guard on what a batch was planned from (never holds a row). */
 export interface CoreWriteGuardTable {
-  kind: "claimed" | "claimant" | "series";
+  kind: "claimed" | "claimant" | "series" | "full";
   object_type: string;
   record_id: string;
   expected: number;

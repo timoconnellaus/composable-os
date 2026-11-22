@@ -123,12 +123,12 @@ export const SOLUTIONS: readonly Solution[] = [
       notYet: [
         {
           title: "Class bookings",
-          body: "Classes made from your weekly timetable, booked and cancelled on your site and app within each class type's rules: when booking opens and closes, when a cancel is late, and classes only staff book. Staff book anyone, walk-ins too. Still to come: waitlists that move people in on their own, parents booking for their children, and one-to-one sessions booked by staff.",
+          body: "Classes made from your weekly timetable, booked and cancelled on your site and app within each class type's rules: when booking opens and closes, when a cancel is late, and classes only staff book. A full class has a waiting list: a place freed in time goes to the first person waiting who has a membership or pass to pay with, moved in on their own and paid from it then. Staff book anyone, walk-ins too. Still to come: parents booking for their children, and one-to-one sessions booked by staff.",
           status: "building",
         },
         {
           title: "Memberships and passes",
-          body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins and an intro offer, one per person. Members see what they have left and change plan on your website: a dearer plan at once, a cheaper one from the next month. Staff pause a membership for a set time, with nothing charged meanwhile. Used up as people book, once class bookings are built.",
+          body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins and an intro offer, one per person. Members see what they have left, used up as they book classes, and change plan on your website: a dearer plan at once, a cheaper one from the next month. Staff pause a membership for a set time, with nothing charged meanwhile.",
           status: "building",
         },
         {

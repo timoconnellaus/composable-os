@@ -56,7 +56,7 @@ describe("solutions", () => {
       [...(gyms?.pieces.built ?? []), ...(gyms?.pieces.notYet ?? [])].find(
         (piece) => piece.title === title,
       )?.status;
-    // Stage 31a: the Bookings pack's spine is merged; waitlists, families and the rest to come.
+    // Stage 31a: the spine, spending and the waitlist are merged; families and the rest to come.
     expect(status("Class bookings")).toBe("building");
     // Stage 32b step 6: plans, memberships and passes are merged; the rest is in progress.
     expect(status("Memberships and passes")).toBe("building");

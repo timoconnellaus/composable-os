@@ -55,3 +55,11 @@ A pack may not hook a write (ADR 0404), so this has to be a declaration the host
   claims would otherwise be missing (overbooking later) or never given back. Staff move those
   records out first; backfilling claims within capacity was not chosen, since it would have to
   refuse whenever the places do not fit anyway.
+
+## Amended 2026-11-22 (stage 31a step 5, the waitlist)
+- The waitlist's hold builds on this as the Consequences said: a claimant may declare
+  `claims.waitlist`, and a place it gives back before the cut-off is handed to whoever waits, in
+  the same batch, as a claim `for_type 'waitlist'` ([ADR 0520](0520-a-waitlist-on-a-claimant.md)).
+- The reconciler's refusal of a claims change under live records now compares only `on`, `held`
+  and `confirmed`: a waitlist added to, or changed on, a claimant with live records holds no
+  record's place, so it is allowed. Dropping a waitlist that holds places is refused.

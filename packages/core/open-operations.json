@@ -206,6 +206,12 @@
       "hostInternal": true
     },
     {
+      "name": "waitlist.position",
+      "audiences": ["staff", "customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "x.bookings.book",
       "audiences": ["customer"],
       "risk": "write",
@@ -221,6 +227,12 @@
       "name": "x.bookings.classGet",
       "audiences": ["customer", "public"],
       "risk": "read",
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.leaveWaitlist",
+      "audiences": ["customer"],
+      "risk": "write",
       "pack": "bookings"
     },
     {

@@ -755,6 +755,58 @@ the spec one way, or decided what it left open:
   by object only. This replaces the notes above on the "a person only" settings and on staff
   cancelling a class: the host's cancels cascade now; staff's own cancel is step 7's, with emails.
 
+### Steps 4 and 5: spending and the waitlist (2026-11-22, `feat/stage-31a-spending-waitlist`)
+[ADR 0520](../adr/0520-a-waitlist-on-a-claimant.md) (a waitlist on a capacity claimant) and
+migration 0610 (block AL); ADRs 0493, 0501 and 0504 amended. Where the build read the spec one way,
+or decided what it left open:
+
+- **Spending (step 4) needed no new code.** Step 3 and 32b's step 5 already built the six
+  amendments (spend on entering `booked`, the class's time as the period, the class type and local
+  weekday and minute copied, `movedFrom`, the holder `auto` or chosen and always the booking's
+  Person's, unlimited holders writing a use). This step proves them on the shipped Bookings and
+  Memberships packs together, through the fake provider (acceptance criterion 3): a membership of 3
+  a week counted in the class's week, a fourth refused and the next week booked, two bookings at
+  once for the last use (one booked), an 18:00 class and another class type refused, an unlimited
+  membership spent before a pass and still writing a use, a named pass spent, a pass ending before
+  the class refused. **A move with its use** (amendment 4) stays proved on the platform's fixture:
+  the staff `move` tool that makes one is step 7's ("moving people").
+- **The waitlist is declared on the booking, not the class** (`claims.waitlist`, ADR 0520): the
+  spec guessed `capacity: { waitlist }` on the class; its states are the booking's, as `claims`
+  already was (ADR 0501). Its cut-off is read in each write from the class type's
+  `promotionMinutes`, else the organisation's (ADR 0505), not copied onto the class.
+- **"While a class has anyone waiting, a new booking joins the waitlist"** is kept by the hold: a
+  place owed to the waitlist is held, so a direct booking finds the class full and joins behind.
+  A free place with people waiting happens only after the cut-off, after every waiter was passed
+  over for that place, or when staff raise a class's places; it goes to whoever books first (raised
+  places are not handed to the waitlist; staff promote by hand in step 7).
+- **Joining** is refused when a place is free (book it) and **from the cut-off** (the spec said
+  nobody is promoted then; waiting would be pointless). A member whose booking was refused for want
+  of a use may still join a full class: joining spends nothing (decision 7), and they are passed
+  over at promotion if they still cannot pay. `book` joins by default (`waitlist: false` refuses
+  instead); staff's `bookFor` joins only with `waitlist: true`.
+- **Promotion runs on the minute cron** (`runWaitlistDue`), not on the booking's move event: the
+  place is held meanwhile, so the minute costs nobody their place. A waiter passed over stays first
+  and is tried again for the next freed place.
+- **Messages are step 9.** Criterion 5's emails (promoted, passed over and why, a place free after
+  the cut-off) are not sent yet; the host records what they will say on the booking
+  (`promotedAt`, `passedOverAt`, `passedOverReason`), which step 9's automations read.
+- **Blocks**: the web and native timetables show a "waiting" answer as a message; the client entry
+  has `useLeaveWaitlist`. Showing a waiter's position and a Leave button in the blocks is step 9's.
+- **Proof**: the platform's fixture tests (`packages/core/test/waitlist.test.ts`: joining only when
+  full and before the cut-off, the hand-on in the release's batch, promotion and the cut-off by an
+  injected clock, the last waiter leaving, 50 at once into 12, a cancel, a direct booking and two
+  promotions at once, two promotions of one waiter, a pack's automation refused); the shipped
+  packs together (`apps/runner/test/bookings-waitlist.test.ts`: criterion 3, and criterion 5 with a
+  waiter passed over for want of a use, the use spent on promotion, the cut-off, and 12 at once into
+  4 then a cancel, a direct booking and two promotions at once); the pack's own tests.
+- **After the review** (ADR 0520's amendment): promotion is a host step the approval gate never
+  queues from the system origin (a deny is counted and logged); the hand-on happens only for a
+  place really given back, and an erase hands on; a waiting booking cannot change class; a member
+  already waiting takes a free place with `book` (never a place held for the queue); every refusal
+  in the step passes the waiter over or gives the holds back, logged, and a long queue is worked
+  down across ticks; the cut-off is read on the real clock; `bookFor` refuses paid at the desk
+  with the waitlist.
+
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.
 

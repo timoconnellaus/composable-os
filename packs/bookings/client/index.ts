@@ -19,6 +19,7 @@ import type {
   classList,
   day,
   findPeople,
+  leaveWaitlist,
   mine,
   returnUse,
   timetable,
@@ -36,6 +37,7 @@ export type BookingsOperations = {
   "x.bookings.mine": { kind: "query" } & Io<typeof mine>;
   "x.bookings.book": { kind: "mutation" } & Io<typeof book>;
   "x.bookings.cancel": { kind: "mutation" } & Io<typeof cancel>;
+  "x.bookings.leaveWaitlist": { kind: "mutation" } & Io<typeof leaveWaitlist>;
   "x.bookings.day": { kind: "query" } & Io<typeof day>;
   "x.bookings.classList": { kind: "query" } & Io<typeof classList>;
   "x.bookings.bookFor": { kind: "mutation" } & Io<typeof bookFor>;
@@ -155,6 +157,7 @@ export const BOOKINGS_HOOKS_CALL = {
   useMyBookings: ["x.bookings.mine"],
   useBook: ["x.bookings.book"],
   useCancel: ["x.bookings.cancel"],
+  useLeaveWaitlist: ["x.bookings.leaveWaitlist"],
   useDay: ["x.bookings.day"],
   useClassList: ["x.bookings.classList"],
   useBookFor: ["x.bookings.bookFor"],
@@ -195,13 +198,17 @@ function allBookingsHooks(
     useMyBookings(input: In<"x.bookings.mine"> = {}) {
       return useQuery(api.query("x.bookings.mine", input));
     },
-    /** Books the member into a class; the host answers booked or why not. */
+    /** Books the member into a class; the host answers booked, waiting (full) or why not. */
     useBook() {
       return useMutation(api.mutation("x.bookings.book"));
     },
     /** Cancels a booking: first the host's preview (in time or late), then with confirm. */
     useCancel() {
       return useMutation(api.mutation("x.bookings.cancel"));
+    },
+    /** Takes the member off a class's waitlist (a booking that is waiting). */
+    useLeaveWaitlist() {
+      return useMutation(api.mutation("x.bookings.leaveWaitlist"));
     },
     /** Staff: one local date's classes. */
     useDay(input: In<"x.bookings.day">) {

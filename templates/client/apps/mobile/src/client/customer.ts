@@ -236,6 +236,14 @@ export type Operations = {
     input: { plan: { object: string; id: string }; returnUrl: string; email?: string; offerId?: string; holderPersonId?: string };
     output: { subscriptionId: string; url: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); trialDays: (number) | (null); freeUntil: (string) | (null); noTrial: (("sign_in") | ("used") | ("permission") | ("held") | ("unconfirmed") | ("continuation")) | (null); expiresAt: (string) | (null) };
   };
+  /**
+   * Where a waiting record (a booking on a class's waitlist) stands: its position (1 is next) and how many are waiting. Staff any; a signed-in customer only their own record (anyone else's is not found). Never who the others are. Null position when it is not waiting.
+   */
+  "waitlist.position": {
+    kind: "query";
+    input: { object: string; id: string };
+    output: { position: (number) | (null); waiting: (number) | (null) };
+  };
 };
 
 /** What the runtime needs: each operation's kind, and what a mutation makes stale. */
@@ -269,6 +277,7 @@ export const operations = {
   "subscription.portal": { kind: "query", invalidates: [] },
   "subscription.resume": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
   "subscription.start": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "waitlist.position": { kind: "query", invalidates: [] },
 } as const;
 
 export const API_VERSION = "v1";

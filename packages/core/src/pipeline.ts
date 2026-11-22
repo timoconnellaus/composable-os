@@ -728,6 +728,8 @@ async function invokeOnce<O extends AnyOperation>(
   let decision: GateDecision = gate.decision;
   // Bookkeeping (opening a change set, revoking a token) is never queued; deny still applies.
   if (op.bookkeeping && decision === "review") decision = "auto";
+  // The host's own system step (ADR 0520): never queued from the system origin; deny applies.
+  if (op.hostStep && ctx.origin.surface === "system" && decision === "review") decision = "auto";
   // Some changes always wait for a person (extension installs and upgrades, ADR 0041).
   // A person's own fields and settings (a gym's booking rules, ADR 0507): anyone else's write of
   // one waits for a person, as an AI's publish does (ADR 0480).

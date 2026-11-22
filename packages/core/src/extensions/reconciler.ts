@@ -271,7 +271,28 @@ async function dataIssues(
     }
     const was = before.definition.claims;
     const now = object.definition.claims;
-    if (JSON.stringify(was ?? null) === JSON.stringify(now ?? null)) continue;
+    // A waitlist added or changed holds no record's place (ADR 0520): only what holds and takes
+    // places must not change under live records. Its holds are given back if it is dropped.
+    const placesOf = (c: typeof was) =>
+      c ? JSON.stringify({ on: c.on, held: c.held ?? [], confirmed: c.confirmed ?? [] }) : null;
+    if (was?.waitlist && !now?.waitlist) {
+      const holds = await anyDb
+        .selectFrom("core_capacity_claim")
+        .select("id")
+        .where("for_type", "=", "waitlist")
+        .where("for_id", "=", object.name)
+        .where("state", "=", "held")
+        .limit(1)
+        .execute();
+      if (holds.length) {
+        issues.push({
+          code: "claims_conflict",
+          path: `objects.${object.localName}.claims.waitlist`,
+          message: `${object.name}: its waitlist holds places for people waiting; it cannot be dropped until they are promoted or the holds are given back (within a minute of nobody waiting).`,
+        });
+      }
+    }
+    if (placesOf(was) === placesOf(now)) continue;
     const column = columnOf(object.definition.states?.field ?? before.definition.states?.field);
     const states = [
       ...new Set([

@@ -298,6 +298,13 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "capacity", reason: "claim_live" },
     );
   }
+  // A waiter joining a waitlist after a place came free (migration 0610, ADR 0520).
+  if (message.includes("core_waitlist_not_full")) {
+    return new ConflictError("A place came free meanwhile: claim it instead of waiting.", {
+      rule: "waitlist",
+      reason: "not_full",
+    });
+  }
   // Two series runs making one date at once (migration 0560, ADR 0500): the other one made it.
   if (message.includes("UNIQUE constraint failed: core_recurrence_occurrence")) {
     return new ConflictError(

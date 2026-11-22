@@ -33,7 +33,7 @@ export async function seriesVersion(
 
 /** A guard: the batch fails unless what `kind` names is still `expected` (migration 0560). */
 export function guardStatement(
-  kind: "claimed" | "claimant" | "series",
+  kind: "claimed" | "claimant" | "series" | "full",
   object: string,
   record: string,
   expected: number,

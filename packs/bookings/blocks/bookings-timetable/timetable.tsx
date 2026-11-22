@@ -133,7 +133,9 @@ function ClassRow({
             onDone(
               done.result === "booked"
                 ? `Booked: ${name}, ${classTime(klass)}.`
-                : refusalMessage(done, klass.timeZone),
+                : done.result === "waiting"
+                  ? `${name}: ${done.message}`
+                  : refusalMessage(done, klass.timeZone),
             );
           }}
         >

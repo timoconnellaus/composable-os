@@ -1,4 +1,5 @@
-// Bookings (stage 31a, build step 3: the spine; ADR 0504): a gym's or studio's timetable and the
+// Bookings (stage 31a, build steps 3 to 5: the spine, spending and the waitlist; ADRs 0504 and
+// 0520): a gym's or studio's timetable and the
 // bookings members make on it. Staff set a weekly timetable once (series), the host makes each
 // week's classes from it, and members book and cancel them on the web and in the app.
 //
@@ -18,6 +19,10 @@
 //   - a booking entering `booked` spends a use of its Person's membership or pass and an in-time
 //     cancel gives it back (`allowance`, ADRs 0493 and 0494), unless staff booked it paid at the
 //     desk (`waived`, ADR 0506). The holders are the Memberships pack's (stage 32b);
+//   - a member joins a full class's waitlist, spending nothing; a place given back before the
+//     class type's "waitlist stops" time goes to the waitlist in the same batch, and the host
+//     moves the first waiter in, spending their use then, or passes them over when nothing they
+//     hold can pay (`claims.waitlist`, ADR 0520; step 5);
 //   - members read the timetable and how many places are left, never who is booked (decision 13).
 // The tools in tools.ts compose the host's operations and add no rules of their own.
 import { defineExtension } from "@composable-os/sdk";
@@ -30,6 +35,7 @@ import {
   classList,
   day,
   findPeople,
+  leaveWaitlist,
   mine,
   returnUse,
   timetable,
@@ -111,7 +117,14 @@ export default defineExtension({
     // record.*, my.* and state.resolve are not listed: they are granted by object (Bookings'
     // own, and the read and write lists above), and a listed one would reach every object.
     // duplicate.check: a walk-in is checked against the People on file before one is made.
-    operations: ["public.list", "public.get", "capacity.get", "duplicate.check"],
+    // waitlist.position: where a waiter stands in the queue (a member: their own only).
+    operations: [
+      "public.list",
+      "public.get",
+      "capacity.get",
+      "duplicate.check",
+      "waitlist.position",
+    ],
     modules: ["ops"],
   },
   // Bookings' fields on Programs' class type: how it shows, and its booking rules when they
@@ -146,8 +159,8 @@ export default defineExtension({
       ),
       promotionMinutes: minutes(
         "Waitlist stops (minutes before)",
-        "Nobody is moved in from the waitlist after this. Empty: the organisation's setting. " +
-          "(The waitlist comes in a later release.)",
+        "Nobody is moved in from the waitlist after this: a place freed later goes to whoever " +
+          "books first. Empty: the organisation's setting.",
       ),
       reminderMinutes: minutes(
         "Reminder (minutes before)",
@@ -468,14 +481,34 @@ export default defineExtension({
           description: "The booking this one replaced when staff moved it to this class.",
         },
         note: { type: "longText", label: "Staff note" },
+        // The waitlist's record of what the host did (ADR 0520), for the class list and messages.
+        promotedAt: {
+          type: "datetime",
+          label: "Moved in from the waitlist",
+          readOnly: true,
+          description: "When the host moved them in from the waitlist.",
+        },
+        passedOverAt: {
+          type: "datetime",
+          label: "Passed over",
+          readOnly: true,
+          description:
+            "When a place was free but nothing they hold could pay for it: they stay waiting.",
+        },
+        passedOverReason: {
+          type: "text",
+          label: "Why passed over",
+          readOnly: true,
+          description: "The host's reason (no_uses_left, ended, not_live, not_covered…).",
+        },
       },
       states: {
         field: "state",
         initial: "booked",
         create: {
-          // Waiting (step 5) and held while paying (step 8) are not reachable by anyone but the
-          // host yet: nothing a customer does lands a booking in them.
-          in: { waiting: ["host"], pending: ["host"] },
+          // A member or staff join a full class's waitlist (ADR 0520: only while it is full,
+          // before the cut-off). Held while paying (step 8) is the host's alone.
+          in: { waiting: ["staff", "customer", "host"], pending: ["host"] },
           window: { from: opens, until: closes },
           // A class type booked by staff only (staff may book it).
           staffOnly: "class.classType.staffOnly",
@@ -494,7 +527,16 @@ export default defineExtension({
         moves: [
           { from: "pending", to: "booked", by: ["host"] },
           { from: "pending", to: "expired", by: ["host"], final: true },
-          { from: "waiting", to: "booked", by: ["host"] },
+          // The host promotes (taking the waitlist's hold); a member waiting on a class with a
+          // free place (after the cut-off, say) takes it themselves, inside the booking window
+          // and the staff-only rule, never a place held for the queue (ADR 0520).
+          {
+            from: "waiting",
+            to: "booked",
+            by: ["host", "customer"],
+            window: { from: opens, until: closes },
+            staffOnly: "class.classType.staffOnly",
+          },
           { from: "waiting", to: "left", by: ["staff", "customer"], final: true },
           {
             from: "booked",
@@ -530,7 +572,27 @@ export default defineExtension({
         ],
       },
       // A place on the class while held, booked, attended or a no-show (ADR 0501).
-      claims: { on: "class", held: ["pending"], confirmed: ["booked", "attended", "no_show"] },
+      // Its waitlist (ADR 0520): a place given back before the class type's "waitlist stops"
+      // time (else the organisation's) goes to the first waiter, whom the host moves in.
+      claims: {
+        on: "class",
+        held: ["pending"],
+        confirmed: ["booked", "attended", "no_show"],
+        waitlist: {
+          state: "waiting",
+          promote: "booked",
+          until: {
+            at: "class.startsAt",
+            minutesBefore: {
+              field: "class.classType.promotionMinutes",
+              setting: "promotionMinutes",
+            },
+          },
+          promotedAt: "promotedAt",
+          passedOverAt: "passedOverAt",
+          passedOverReason: "passedOverReason",
+        },
+      },
       unique: [{ fields: ["person", "class"], states: ACTIVE }],
       // A spender of the Memberships pack's holders (stage 32b's ids, spec 32): booked spends,
       // an in-time cancel, a class the gym cancels and a move give back; a late cancel and a
@@ -553,7 +615,15 @@ export default defineExtension({
       // A member reads and changes only their own bookings; never anyone else's (decision 13).
       customer: {
         field: "person",
-        read: ["class", "state", "holder", "classType"],
+        read: [
+          "class",
+          "state",
+          "holder",
+          "classType",
+          "promotedAt",
+          "passedOverAt",
+          "passedOverReason",
+        ],
         write: ["class", "state", "holder"],
         // Which class and which holder are chosen when it is made, never after (ADR 0507).
         createOnly: ["class", "holder"],
@@ -594,6 +664,13 @@ export default defineExtension({
       sort: { field: "time", direction: "asc" },
       columns: ["title", "weekdays", "time", "length", "coach", "room", "places", "firstDate"],
     },
+    waitlists: {
+      label: "Waiting",
+      object: "bookings.booking",
+      filter: { field: "state", op: "eq", value: "waiting" },
+      sort: { field: "createdAt", direction: "asc" },
+      columns: ["title", "class", "person", "createdAt", "passedOverAt", "passedOverReason"],
+    },
     lateCancels: {
       label: "Late cancels",
       object: "bookings.booking",
@@ -611,7 +688,16 @@ export default defineExtension({
         type: "table",
         object: "bookings.booking",
         relation: "class",
-        columns: ["person", "state", "holder", "paidOtherwise", "bookedBy", "createdAt"],
+        columns: [
+          "person",
+          "state",
+          "holder",
+          "paidOtherwise",
+          "bookedBy",
+          "promotedAt",
+          "passedOverReason",
+          "createdAt",
+        ],
         sort: { field: "createdAt", direction: "asc" },
       },
       order: 10,
@@ -676,7 +762,9 @@ export default defineExtension({
     promotionMinutes: {
       type: "number",
       label: "Waitlist stops (minutes before)",
-      description: "Nobody is moved in from the waitlist after this (a later release).",
+      description:
+        "Nobody is moved in from the waitlist after this: a place freed later goes to whoever " +
+        "books first.",
       default: 120,
       min: 0,
       max: 10_080,
@@ -697,6 +785,7 @@ export default defineExtension({
     classGet,
     book,
     cancel,
+    leaveWaitlist,
     mine,
     findPeople,
     bookFor,

@@ -456,6 +456,18 @@ export interface ClaimsDefinition {
   object: string;
   held: readonly string[];
   confirmed: readonly string[];
+  /** A waitlist on the claimed record's places (ADR 0520). */
+  waitlist?: WaitlistDefinition | undefined;
+}
+
+/** The SDK's WaitlistSpec, with registry field names. */
+export interface WaitlistDefinition {
+  state: string;
+  promote: string;
+  until: WindowBoundDefinition;
+  promotedAt?: string | undefined;
+  passedOverAt?: string | undefined;
+  passedOverReason?: string | undefined;
 }
 
 /** The SDK's UniqueSpec: fields and states by name. */

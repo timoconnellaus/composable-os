@@ -540,6 +540,10 @@
       "sha256": "1e19800116e6930c0dd5cbea308f5c4109e6a11d486abe338c8c7cf9b9ab9e34"
     },
     {
+      "name": "0610_waitlists.sql",
+      "sha256": "79889a3b2942c2235449fd270bdcda7913b7ab32ada36f9cb4e2c2c911ac0612"
+    },
+    {
       "name": "0630_subscription_changes.sql",
       "sha256": "2823d17ed42fd65a560fd640cf2ef75f8c42f8ba8ebf9dad92057e4f51cbb5fb"
     }

@@ -890,8 +890,8 @@ as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**) and
 and claims, ADRs 0430 to 0433) and `sellable` (prices, sale rules and what a paid line grants,
 ADR 0435), which exist; `publishable` (a working copy and published versions, ADR 0446), whose
 half without a public exists; `recurring` (a weekly series that makes dated records, ADR 0500), capacity **claimants**
-(ADR 0501) and declared uniqueness (ADR 0502), which exist since stage 31; `allowance`, which is
-designed.
+(ADR 0501, with waitlists, ADR 0520) and declared uniqueness (ADR 0502), which exist since stage
+31; `allowance` (ADR 0493), which exists since stage 32b.
 _Avoid_: hook, trigger (a trigger starts an automation), plugin
 
 **Pack**
@@ -1072,7 +1072,7 @@ owner's own write.
 A record whose own states hold, take and give back one place on the record its relation points to
 (a booking on its class), declared `claims: { on, held, confirmed }`. The host makes the claim in
 the batch of each move, refused by the database past the places, as an order's line is (stage 31,
-ADR 0501).
+ADR 0501). A claimant may declare a **waitlist** (`claims.waitlist`, below, ADR 0520).
 
 **Series** (of a recurring schedule)
 A record that declares `recurring`: a weekly rule in local wall-clock time (weekdays, a time, a
@@ -1108,6 +1108,22 @@ book anyone, into any class, and mark a walk-in **paid at the desk** (it spends 
 (stage 31, ADRs 0503 to 0506). A class the gym cancels cancels its live bookings with it, their
 uses given back (**cancelled by the gym**, ADR 0507).
 _Avoid_: reservation, appointment (31b's one-to-one), ticket
+
+**Waitlist** (Bookings)
+The bookings of a full class that are `waiting`: they hold no place and spend nothing. A member
+joins only while every place is held or taken and before the class type's **cut-off** ("waitlist
+stops", 2 hours before by default). Until the cut-off, a place given back while anyone waits is the
+waitlist's at once, in the same batch: a hold nobody booking directly can take (stage 31,
+ADR 0520). After it, a freed place goes to whoever books first.
+_Avoid_: queue, standby
+
+**Promotion** (Bookings)
+The host moving the first waiter (by when they joined) into the place the waitlist holds, from a
+current read, within about a minute (the minute cron): they are `booked`, their use spent then, and
+the time recorded. A waiter whose spend is refused (nothing left, a pass ended, a membership
+paused) is **passed over**: they stay waiting, first in line, with the reason recorded, and the
+next is tried. A hold nobody can take goes back to everyone (ADR 0520).
+_Avoid_: upgrade, moving up
 
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a

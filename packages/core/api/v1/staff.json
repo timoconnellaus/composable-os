@@ -62846,6 +62846,230 @@
       "invalidates": []
     },
     {
+      "name": "waitlist.passOver",
+      "description": "Platform use only (the minute cron, as the host): note on a waiter that it could not be moved in when a place was free, and why (its spend was refused). It stays waiting.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "on": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "on",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "waitlist.position"
+      ]
+    },
+    {
+      "name": "waitlist.position",
+      "description": "Where a waiting record (a booking on a class's waitlist) stands: its position (1 is next) and how many are waiting. Staff any; a signed-in customer only their own record (anyone else's is not found). Never who the others are. Null position when it is not waiting.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "waiting": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "position",
+          "waiting"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "waitlist.promote",
+      "description": "Platform use only (the minute cron, as the host): move one waiter of a waitlist into the place the waitlist holds for it, from waiting or not at all, before the cut-off. Spends what the move spends. Refused when the record is no longer waiting, the cut-off has passed (rule waitlist, reason closed), there is no place (rule capacity) or the spend is refused (rule allowance).",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "on": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The record it waits on (the class): it must still be"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "on"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "promoted": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "id",
+          "promoted"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "waitlist.position"
+      ]
+    },
+    {
+      "name": "waitlist.release",
+      "description": "Platform use only (the minute cron, as the host): give back to everyone the places a waitlist holds on one record (a class) that were held at or before `before` and that nobody waiting could take, or that the cut-off has reached.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81,
+            "description": "The claimant object whose waitlist it is"
+          },
+          "on": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The record whose places are held"
+          },
+          "before": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "object",
+          "on",
+          "before"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "on": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "waitlist.position"
+      ]
+    },
+    {
       "name": "widget.describe",
       "description": "Turn a plain-language description (\"tasks by status as a bar chart\") into a widget spec with the `build` model role, then validate and preview it. Nothing is saved. Says the AI is not configured when the deployment has no model.",
       "risk": "read",
@@ -64839,7 +65063,7 @@
     },
     {
       "name": "x.bookings.bookFor",
-      "description": "Staff book a person into a class: someone on file (`personId`; look them up with findPeople first), or a walk-in not on file yet (`newPerson`). A walk-in and their booking are made in one batch, so a refused booking leaves nobody behind; the platform's duplicate check runs first, and a match is answered (person_exists or possible_duplicates, with who) rather than made twice: book them, or pass confirmNew when you checked it is someone else. Staff are not bound by the booking windows or by 'booked by staff only'; a class that was cancelled or is over, the places, one booking per person per class and the use it spends still hold. With `paidAtDesk` it spends no use (they paid at the desk). Audited. (Extension tool from Bookings 0.1.0.)",
+      "description": "Staff book a person into a class: someone on file (`personId`; look them up with findPeople first), or a walk-in not on file yet (`newPerson`). A walk-in and their booking are made in one batch, so a refused booking leaves nobody behind; the platform's duplicate check runs first, and a match is answered (person_exists or possible_duplicates, with who) rather than made twice: book them, or pass confirmNew when you checked it is someone else. Staff are not bound by the booking windows or by 'booked by staff only'; a class that was cancelled or is over, the places, one booking per person per class and the use it spends still hold. With `paidAtDesk` it spends no use (they paid at the desk). With `waitlist`, a person on file is put on a full class's waitlist instead of being refused (it spends nothing until the host moves them in). Audited. (Extension tool from Bookings 0.1.0.)",
       "risk": "write",
       "audiences": [
         "staff"
@@ -64903,6 +65127,11 @@
             "default": false,
             "type": "boolean"
           },
+          "waitlist": {
+            "default": false,
+            "description": "A person on file, a full class: put them on its waitlist instead",
+            "type": "boolean"
+          },
           "note": {
             "type": "string",
             "maxLength": 2000
@@ -64953,6 +65182,51 @@
             "properties": {
               "result": {
                 "type": "string",
+                "const": "waiting"
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "classId": {
+                "type": "string"
+              },
+              "position": {
+                "description": "Their place in the queue: 1 is next",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "waiting": {
+                "description": "How many are waiting, them included",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "personId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "classId",
+              "position",
+              "waiting",
+              "message",
+              "personId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
                 "const": "refused"
               },
               "reason": {
@@ -64969,9 +65243,10 @@
                   "changed",
                   "not_running",
                   "person_exists",
-                  "possible_duplicates"
+                  "possible_duplicates",
+                  "waitlist_closed"
                 ],
-                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -65120,9 +65395,10 @@
                   "changed",
                   "not_running",
                   "person_exists",
-                  "possible_duplicates"
+                  "possible_duplicates",
+                  "waitlist_closed"
                 ],
-                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -65195,7 +65471,7 @@
     },
     {
       "name": "x.bookings.classList",
-      "description": "A class's list for staff and coaches: the class (as on the day view) and every booking of it with the person's name, its state (booked, cancelled, cancelled late…), whether they paid at the desk, the membership or pass it spent from and who booked it. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "description": "A class's list for staff and coaches: the class (as on the day view) and every booking of it with the person's name, its state (booked, waiting, cancelled, cancelled late…), whether they paid at the desk, the membership or pass it spent from, who booked it, and for the waitlist when they were moved in or why they were passed over. Waiters are in the order they joined. Read-only. (Extension tool from Bookings 0.1.0.)",
       "risk": "read",
       "audiences": [
         "staff"
@@ -65389,6 +65665,20 @@
                     "string",
                     "null"
                   ]
+                },
+                "promotedAt": {
+                  "description": "When they were moved in from the waitlist",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "passedOver": {
+                  "description": "While waiting: why a free place could not be theirs (what they hold)",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -65397,7 +65687,9 @@
                 "state",
                 "paidAtDesk",
                 "holderId",
-                "bookedBy"
+                "bookedBy",
+                "promotedAt",
+                "passedOver"
               ],
               "additionalProperties": false
             }
@@ -65713,9 +66005,10 @@
                   "changed",
                   "not_running",
                   "person_exists",
-                  "possible_duplicates"
+                  "possible_duplicates",
+                  "waitlist_closed"
                 ],
-                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
