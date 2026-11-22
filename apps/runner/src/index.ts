@@ -25,6 +25,7 @@ import {
   runDuplicateCron,
   runPublishDue,
   runRecurringDue,
+  runWaitlistDue,
   type ShippedExtension,
   type ShippedInstallResult,
   type StartRunInput,
@@ -305,6 +306,7 @@ export async function minuteTick(env: Env, at: Date) {
       orders: null,
       publishing: null,
       recurring: null,
+      waitlist: null,
       customerSignup: null,
     };
   }
@@ -348,6 +350,15 @@ export async function minuteTick(env: Env, at: Date) {
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
     }),
   );
+  // Waitlists (stage 31a, ADR 0520): places handed to a waitlist go to its first waiters, as the
+  // host, one batch each; holds nobody can take, and from the cut-off on, go back to everyone.
+  // The real clock, not the tick's: a tick that runs late must not promote after the cut-off.
+  const waitlist = await minuteStep("waitlist", () =>
+    runWaitlistDue(createCrmDb(env.DB), {
+      floor: parseFloor(env.APPROVAL_FLOOR),
+      ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
+    }),
+  );
   // Customer sign-in (ADR 0459): admins hear within a minute when a plan going on sale opened
   // sign-up to anyone ("anyone starting a subscription" on). Nothing while the switch is off.
   const customerSignup = await minuteStep("customer sign-up", async () => {
@@ -364,6 +375,7 @@ export async function minuteTick(env: Env, at: Date) {
     orders,
     publishing,
     recurring,
+    waitlist,
     customerSignup,
   };
 }

@@ -99,6 +99,8 @@ describe("default closed (criterion 1)", () => {
       "subscription.portal",
       "subscription.resume",
       "subscription.start",
+      // Stage 31a step 5 (ADR 0520): a waiter's own place in the queue.
+      "waitlist.position",
     ]);
     // Stage 25: a guest starts, opens and pays an order. Stage 26: places left (ADR 0433).
     expect([...openTo("public")].sort()).toEqual([
@@ -414,6 +416,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "subscription.portal",
       "subscription.resume",
       "subscription.start",
+      // Stage 31a step 5 (ADR 0520): counts the class's waiters after the seam shows the booking.
+      "waitlist.position",
     ]);
     expect(listed.find((op) => op.name === "fixture.myUpdate")).toEqual({
       name: "fixture.myUpdate",

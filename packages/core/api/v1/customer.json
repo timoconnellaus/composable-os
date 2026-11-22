@@ -2641,8 +2641,63 @@
       ]
     },
     {
+      "name": "waitlist.position",
+      "description": "Where a waiting record (a booking on a class's waitlist) stands: its position (1 is next) and how many are waiting. Staff any; a signed-in customer only their own record (anyone else's is not found). Never who the others are. Null position when it is not waiting.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "waiting": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["position", "waiting"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "x.bookings.book",
-      "description": "Book the signed-in member into a class with what they already hold (a membership or a pass): the host spends one use of the one whose use would lapse first, or of `holderId` when they name one. No money moves. Answers booked, or refused with the reason the host gave: booking not open yet (with when it opens), closed, booked by the gym only, nothing to pay with, already booked, or full. (Extension tool from Bookings 0.1.0.)",
+      "description": "Book the signed-in member into a class with what they already hold (a membership or a pass): the host spends one use of the one whose use would lapse first, or of `holderId` when they name one. No money moves. When the class is full they join its waitlist (unless `waitlist` is false): that spends nothing, and if a place frees before the class type's cut-off the host moves the first waiter in and spends their use then. Asked again by a member already waiting, it books them if a place is free to them (never one held for the queue), else says where they stand. Answers booked, waiting (with their position), or refused with the reason the host gave: booking not open yet (with when it opens), closed, booked by the gym only, nothing to pay with, already booked or waiting, full, or too close to the start to wait. (Extension tool from Bookings 0.1.0.)",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -2659,6 +2714,11 @@
             "minLength": 1,
             "maxLength": 64,
             "description": "A membership or pass of theirs to spend, when they hold several"
+          },
+          "waitlist": {
+            "default": true,
+            "description": "When the class is full, join its waitlist (default) rather than be refused",
+            "type": "boolean"
           }
         },
         "required": ["classId"],
@@ -2692,6 +2752,34 @@
             "properties": {
               "result": {
                 "type": "string",
+                "const": "waiting"
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "classId": {
+                "type": "string"
+              },
+              "position": {
+                "description": "Their place in the queue: 1 is next",
+                "type": ["number", "null"]
+              },
+              "waiting": {
+                "description": "How many are waiting, them included",
+                "type": ["number", "null"]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["result", "bookingId", "classId", "position", "waiting", "message"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
                 "const": "refused"
               },
               "reason": {
@@ -2708,9 +2796,10 @@
                   "changed",
                   "not_running",
                   "person_exists",
-                  "possible_duplicates"
+                  "possible_duplicates",
+                  "waitlist_closed"
                 ],
-                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -2837,9 +2926,10 @@
                   "changed",
                   "not_running",
                   "person_exists",
-                  "possible_duplicates"
+                  "possible_duplicates",
+                  "waitlist_closed"
                 ],
-                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -3040,8 +3130,121 @@
       "pack": "bookings"
     },
     {
+      "name": "x.bookings.leaveWaitlist",
+      "description": "Take the signed-in member off a class's waitlist (one of their bookings that is waiting). Nothing was spent, so nothing is given back. Refused when it is no longer waiting (they were moved in meanwhile: cancel that booking instead). (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["bookingId"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "left"
+              },
+              "bookingId": {
+                "type": "string"
+              }
+            },
+            "required": ["result", "bookingId"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_open",
+                  "closed",
+                  "staff_only",
+                  "no_use",
+                  "already_booked",
+                  "full",
+                  "too_late",
+                  "not_found",
+                  "changed",
+                  "not_running",
+                  "person_exists",
+                  "possible_duplicates",
+                  "waitlist_closed"
+                ],
+                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, ended, not_covered…)",
+                "type": ["string", "null"]
+              },
+              "opensAt": {
+                "type": ["string", "null"]
+              },
+              "closesAt": {
+                "type": ["string", "null"]
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["id", "name", "reasons"],
+                  "additionalProperties": false
+                },
+                "description": "For person_exists and possible_duplicates: who is already on file"
+              }
+            },
+            "required": ["result", "reason", "message", "detail", "opensAt", "closesAt"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.bookings.classGet",
+        "x.bookings.mine",
+        "x.bookings.timetable"
+      ],
+      "pack": "bookings"
+    },
+    {
       "name": "x.bookings.mine",
-      "description": "The signed-in member's own bookings, soonest class first: each with its state (booked, cancelled, cancelled late…), the membership or pass it spent from, and its class (name, start and end in its own time zone, coach, room, whether it still runs). Only their own bookings exist here. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "description": "The signed-in member's own bookings, soonest class first: each with its state (booked, waiting, cancelled, cancelled late…), for one waiting its place on the waitlist, the membership or pass it spent from, and its class (name, start and end in its own time zone, coach, room, whether it still runs). Only their own bookings exist here. Read-only. (Extension tool from Bookings 0.1.0.)",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -3050,7 +3253,7 @@
         "properties": {
           "state": {
             "type": "string",
-            "enum": ["booked", "cancelled", "late_cancelled"]
+            "enum": ["booked", "waiting", "cancelled", "late_cancelled", "left"]
           },
           "upcoming": {
             "default": true,
@@ -3079,6 +3282,10 @@
                 },
                 "state": {
                   "type": ["string", "null"]
+                },
+                "position": {
+                  "description": "While waiting: their place on the waitlist (1 is next); otherwise null",
+                  "type": ["number", "null"]
                 },
                 "holderId": {
                   "type": ["string", "null"]
@@ -3113,6 +3320,7 @@
               "required": [
                 "id",
                 "state",
+                "position",
                 "holderId",
                 "classId",
                 "title",

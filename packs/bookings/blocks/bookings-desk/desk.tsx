@@ -59,6 +59,10 @@ export function Desk({
         setQuery("");
         return;
       }
+      if (done.result === "waiting") {
+        setMessage(done.message);
+        return;
+      }
       setMatches(done.people ?? []);
       setMessage(done.message);
     } catch {

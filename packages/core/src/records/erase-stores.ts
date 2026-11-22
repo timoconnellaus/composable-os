@@ -10,6 +10,7 @@
 import { type CompiledQuery as Compiled, CompiledQuery, type SqlBool, sql } from "kysely";
 import { mentions } from "../assistant/scrub.ts";
 import { releaseAllClaimsOfStatements } from "../capacity/claimants.ts";
+import { erasedWaiter, handOnAfterRelease } from "../capacity/waitlist.ts";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { chunk, jsonList } from "./common.ts";
@@ -296,8 +297,20 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
       // A capacity claimant (ADR 0501) gives back every place it holds or takes, in this batch,
       // whether the row is deleted or kept with its reference cleared: a place is never held for
       // nobody. A kept row stays in its state, holding nothing; moving it later releases nothing.
-      if (object && getObject(object)?.claims) {
+      const claimant = object ? getObject(object) : undefined;
+      // A waiter leaves the queue with its Person (ADR 0520): deleted, whether or not its relation
+      // is required, so nobody is promoted into a place for no one and those behind move up; the
+      // waitlist's holds go back if nobody else waits. (It holds and spends nothing.)
+      const waiter = object && claimant?.claims ? await erasedWaiter(ctx, claimant, id) : null;
+      if (object && waiter) {
+        deleted.push({ object, id });
+        ctx.write(CompiledQuery.raw(`DELETE FROM ${q(table)} WHERE id = ?`, [id]), ...waiter);
+        continue;
+      }
+      if (object && claimant?.claims) {
         ctx.write(...releaseAllClaimsOfStatements(object, id, ctx.now));
+        // A place given back before its cut-off is the waitlist's, as a cancel's is (ADR 0520).
+        await handOnAfterRelease(ctx, claimant, id);
       }
       if (def.required && !def.many && object) {
         deleted.push({ object, id });

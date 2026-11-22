@@ -445,6 +445,16 @@ export interface OperationDefinition<
    */
   bookkeeping?: boolean;
   /**
+   * The host carrying out a rule a declaration already fixed (a waitlist's promotion, ADR 0520),
+   * as the platform's own system step: on a call whose origin is `system`, the gate never queues
+   * it for review (a queued system step could not be applied: its user is no one's, and the
+   * place it holds would sit). This overrides a `review` from the org's policy and from the deploy
+   * floor (APPROVAL_FLOOR) alike: the floor's "never looser" does not hold for these steps. A
+   * `deny` from either still applies. The audit row records the decision as `auto` (the shape
+   * has no field for why). Any other origin is judged as usual (and the handler should refuse it).
+   */
+  hostStep?: boolean;
+  /**
    * Always queue for human review, whatever the actor, preset or floor says (a `deny` still
    * applies). Used where a change must never auto-apply: extension.apply (an extension install
    * or upgrade, including any widening of its permissions, ADR 0041). `true` for every actor,

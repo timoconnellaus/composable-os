@@ -766,12 +766,27 @@ function claimsDefinition(
   if (!declared) return {};
   const on = own.find((f) => f.localName === declared.on);
   if (!on?.definition.to) return {};
+  const waitlist = declared.waitlist;
+  const named = (local: string | undefined) =>
+    local === undefined ? undefined : (own.find((f) => f.localName === local)?.name ?? local);
   return {
     claims: {
       on: on.name,
       object: on.definition.to,
       held: [...(declared.held ?? [])],
       confirmed: [...(declared.confirmed ?? [])],
+      ...(waitlist
+        ? {
+            waitlist: {
+              state: waitlist.state,
+              promote: waitlist.promote,
+              until: waitlist.until,
+              promotedAt: named(waitlist.promotedAt),
+              passedOverAt: named(waitlist.passedOverAt),
+              passedOverReason: named(waitlist.passedOverReason),
+            },
+          }
+        : {}),
     },
   };
 }
