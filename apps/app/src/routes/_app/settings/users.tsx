@@ -736,6 +736,41 @@ function CustomerSignupCard() {
             </div>
           ))}
         </RadioGroup>
+        {/* On top of the mode (ADR 0459): a new visitor confirms their address to start a plan. */}
+        <div className="mt-4 flex items-start gap-2 border-t pt-4">
+          <Checkbox
+            id="signup-starting-subscription"
+            checked={settings.data?.startingSubscription ?? false}
+            disabled={settings.isPending || save.isPending || value === "open"}
+            onCheckedChange={async (checked) => {
+              const on = checked === true;
+              try {
+                await save.mutateAsync({ startingSubscription: on });
+                toast.success(
+                  on
+                    ? "Customer sign-in: also anyone starting a subscription"
+                    : "Customer sign-in: no longer anyone starting a subscription",
+                );
+              } catch (error) {
+                toast.error(errorMessage(error));
+              }
+            }}
+            className="mt-1"
+          />
+          <Label htmlFor="signup-starting-subscription" className="grid gap-0.5 font-normal">
+            <span className="font-medium">Also anyone starting a subscription</span>
+            <span className="text-xs text-muted-foreground">
+              A new visitor confirms their address with a code, then starts a plan signed in, with
+              its free trial (one per person). While a plan is on sale this means anyone can make a
+              customer account.
+              {value === "open"
+                ? " Anyone can already sign in."
+                : settings.data && !settings.data.planOnSale
+                  ? " No plan is on sale now, so nobody new gets a code by this."
+                  : ""}
+            </span>
+          </Label>
+        </div>
       </CardContent>
     </Card>
   );

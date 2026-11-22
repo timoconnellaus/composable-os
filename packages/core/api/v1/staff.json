@@ -18121,7 +18121,7 @@
     },
     {
       "name": "customer.settings.get",
-      "description": "Get the customer account settings: whether customer sign-up is open or invite only, how many days staff have to action a deleted account's erase request, which email connection the host's mail goes out from, and whether sign-in codes go out through it now (signInMail: not until an admin lets its sign-in kind apply without review). Read-only.",
+      "description": "Get the customer account settings: whether customer sign-up is open or invite only, whether anyone starting a subscription may sign in too (and whether a plan is on sale), how many days staff have to action a deleted account's erase request, which email connection the host's mail goes out from, and whether sign-in codes go out through it now (signInMail: not until an admin lets its sign-in kind apply without review). Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -18142,6 +18142,10 @@
               "invite_only"
             ],
             "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
+          },
+          "startingSubscription": {
+            "type": "boolean",
+            "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale. No effect when signup is open."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18208,13 +18212,19 @@
               "problem"
             ],
             "additionalProperties": false
+          },
+          "planOnSale": {
+            "type": "boolean",
+            "description": "A subscription plan is on sale to the public now, so startingSubscription lets new addresses sign in"
           }
         },
         "required": [
           "signup",
+          "startingSubscription",
           "eraseDueDays",
           "emailConnectionId",
-          "signInMail"
+          "signInMail",
+          "planOnSale"
         ],
         "additionalProperties": false
       },
@@ -18222,7 +18232,7 @@
     },
     {
       "name": "customer.settings.update",
-      "description": "Change whether customer sign-up is open or invite only, the days staff have to action an erase request, or the email connection customer mail goes out from. Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Change whether customer sign-up is open or invite only, whether anyone starting a subscription may sign in too, the days staff have to action an erase request, or the email connection customer mail goes out from. Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -18239,6 +18249,10 @@
               "invite_only"
             ],
             "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
+          },
+          "startingSubscription": {
+            "type": "boolean",
+            "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale. No effect when signup is open."
           },
           "eraseDueDays": {
             "type": "integer",
@@ -18273,6 +18287,10 @@
             ],
             "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
           },
+          "startingSubscription": {
+            "type": "boolean",
+            "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale. No effect when signup is open."
+          },
           "eraseDueDays": {
             "type": "integer",
             "minimum": 1,
@@ -18304,6 +18322,10 @@
                 ],
                 "description": "Who may sign in as a customer. invite_only (the default): an address staff invited or that has an account. buyers: those, and the buyer's address of any order that was paid (in full or in part, even if refunded since). open: anyone who verifies an email address."
               },
+              "startingSubscription": {
+                "type": "boolean",
+                "description": "On top of signup: anyone starting a subscription (default false). While the host has a subscription plan on sale to the public, any address with no account may get a sign-in code and so a customer account, to start the plan signed in with its free trial. In effect, anyone can make an account while a plan is on sale. No effect when signup is open."
+              },
               "eraseDueDays": {
                 "type": "integer",
                 "minimum": 1,
@@ -18326,6 +18348,7 @@
             },
             "required": [
               "signup",
+              "startingSubscription",
               "eraseDueDays",
               "emailConnectionId"
             ],
@@ -18334,6 +18357,7 @@
         },
         "required": [
           "signup",
+          "startingSubscription",
           "eraseDueDays",
           "emailConnectionId",
           "previous"

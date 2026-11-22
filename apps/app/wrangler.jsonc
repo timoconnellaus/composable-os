@@ -97,6 +97,13 @@
       "name": "CUSTOMER_CODE_ADDRESS_RATE_LIMIT",
       "namespace_id": "4106",
       "simple": { "limit": 10, "period": 60 }
+    },
+    // Customer sign-in codes sent to new addresses that only "anyone starting a subscription"
+    // lets sign in, for the whole host: one key (ADR 0459).
+    {
+      "name": "CUSTOMER_CODE_NEW_RATE_LIMIT",
+      "namespace_id": "4107",
+      "simple": { "limit": 20, "period": 60 }
     }
   ],
   "vars": {

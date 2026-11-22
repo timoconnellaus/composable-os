@@ -843,6 +843,15 @@
           "type": "ratelimit"
         },
         {
+          "name": "CUSTOMER_CODE_NEW_RATE_LIMIT",
+          "namespace_id": "4107",
+          "simple": {
+            "limit": 20,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
           "name": "AI_FAKE_MODEL",
           "text": "",
           "type": "plain_text"
@@ -1169,7 +1178,7 @@
           "source": "user"
         }
       ],
-      "sha256": "c0abf892657e820a34e3138e30a2cec62e6fdfc8e3bc053250ab56afe72fca19"
+      "sha256": "75e422166839ba3966380d92c12e42a329c8b6bca5a22c5cef2b11aeba7f279a"
     },
     {
       "bindings": [

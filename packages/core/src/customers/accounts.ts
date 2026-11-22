@@ -14,7 +14,7 @@ import { newId } from "../ids.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { ActingUser, Role } from "../principals.ts";
 import { erasedAddresses } from "../sync/ingest.ts";
-import { loadCustomerSignup } from "./settings.ts";
+import { loadCustomerSignup, loadCustomerSignupSubscribers } from "./settings.ts";
 
 const emailSchema = z.string().trim().toLowerCase().pipe(z.email().max(320));
 
@@ -107,33 +107,70 @@ async function isErased(db: Kysely<CoreDatabase>, address: string): Promise<bool
 }
 
 /**
- * Whether a sign-in code may be sent to `email`, and so whether it may sign in or sign up. The
- * caller answers the same whatever this says, and sends nothing when it is false, so the form
- * cannot tell anyone who is a customer.
+ * Why a sign-in code may be sent to an address, or null when it may not:
+ * - `account`: it has an active account;
+ * - `open`: sign-up is open to anyone;
+ * - `invite`: staff invited it;
+ * - `buyer`: sign-up is `buyers` and it bought (ADR 0458);
+ * - `subscription`: "anyone starting a subscription" is on and a plan is on sale (ADR 0459). The
+ *   only reason that a stranger can bring about for an address with no account and no history,
+ *   so sign-in limits how many codes go out for it host-wide (`CUSTOMER_CODE_NEW_RATE_LIMIT`).
+ */
+export type CustomerCodeReason = "account" | "open" | "invite" | "buyer" | "subscription";
+
+/**
+ * Whether a sign-in code may be sent to `email`, and so whether it may sign in or sign up, and
+ * why. The caller answers the same whatever this says, and sends nothing when it is null, so the
+ * form cannot tell anyone who is a customer.
  *
  * - An erased person's address: never (checked as `sync.ingest` does).
  * - An address with an account: while the account is active.
  * - Any other address: when sign-up is `open`, or staff invited it, or, when sign-up is `buyers`
- *   (ADR 0458), it is the buyer's address of an order a verified payment was applied to.
+ *   (ADR 0458), it is the buyer's address of an order a verified payment was applied to; or,
+ *   whatever the mode, when "anyone starting a subscription" is on and the host has a plan on
+ *   sale to the public (ADR 0459). Nothing is written for any of them.
  */
-export async function customerMayGetCode(
+export async function customerCodeReason(
   db: Kysely<CoreDatabase>,
   email: string,
-): Promise<boolean> {
+  now: string = new Date().toISOString(),
+): Promise<CustomerCodeReason | null> {
   const address = normaliseCustomerEmail(email);
-  if (!address) return false;
-  if (await isErased(db, address)) return false;
+  if (!address) return null;
+  if (await isErased(db, address)) return null;
   const account = await loadCustomerByEmail(db, address);
-  if (account) return account.status === "active";
+  if (account) return account.status === "active" ? "account" : null;
   const signup = await loadCustomerSignup(db);
-  if (signup === "open") return true;
+  if (signup === "open") return "open";
   const invite = await db
     .selectFrom("core_customer_invite")
     .select("email")
     .where("email", "=", address)
     .executeTakeFirst();
-  if (invite) return true;
-  return signup === "buyers" && (await hasBought(db, address));
+  if (invite) return "invite";
+  if (signup === "buyers" && (await hasBought(db, address))) return "buyer";
+  if (await loadCustomerSignupSubscribers(db)) {
+    // Loaded lazily: it prices plans through the orders module, which reaches this one.
+    const { hasPlanOnSale } = await import("./plan-on-sale.ts");
+    try {
+      if (await hasPlanOnSale(db, now)) return "subscription";
+    } catch (error) {
+      // A plan that cannot be read or priced now gives no new address a code: shut, not open.
+      console.error(
+        "customer sign-in: could not tell whether a plan is on sale",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+  return null;
+}
+
+/** Whether a sign-in code may be sent to `email` (`customerCodeReason` is not null). */
+export async function customerMayGetCode(
+  db: Kysely<CoreDatabase>,
+  email: string,
+): Promise<boolean> {
+  return (await customerCodeReason(db, email)) !== null;
 }
 
 /**
@@ -233,7 +270,8 @@ export async function sameEmailPeople(
 /**
  * The staff user a Person created at sign-in is created for. `core_person.created_by` names a
  * `core_user`, so the system user cannot create one: it is created for the admin who invited the
- * address, or, when sign-up is open or the inviter is gone, for the first active admin. The call
+ * address, or, when sign-up is open, the account came by another rule (a buyer, anyone starting a
+ * subscription) or the inviter is gone, for the first active admin. The call
  * is made with actor `automation` and origin `customer.link`, as notification delivery acts for a
  * connection's owner.
  */

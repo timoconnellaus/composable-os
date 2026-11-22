@@ -1,16 +1,20 @@
 // customer.settings.* operations (stage 22, ADR 0402): whether customers sign up freely or only
-// when invited, and how long staff have to action an erase request. Staff only. Changing them is
-// admins only and humans only: no assistant, MCP client, automation or extension may open or close
-// sign-up or give staff longer to erase someone.
+// when invited (or as buyers, ADR 0458, and anyone starting a subscription, ADR 0459), and how
+// long staff have to action an erase request. Staff only. Changing them is admins only and humans
+// only: no assistant, MCP client, automation or extension may open or close sign-up or give staff
+// longer to erase someone.
 import { z } from "zod";
+import { hasPlanOnSale } from "../customers/plan-on-sale.ts";
 import {
   CUSTOMER_EMAIL_CONNECTION_SETTING,
   CUSTOMER_ERASE_DUE_SETTING,
   CUSTOMER_SIGNUP_SETTING,
+  CUSTOMER_SIGNUP_SUBSCRIBERS_SETTING,
   customerSignupModeSchema,
   eraseDueDaysSchema,
   loadCustomerEmailConnection,
   loadCustomerSignup,
+  loadCustomerSignupSubscribers,
   loadEraseDueDays,
 } from "../customers/settings.ts";
 import { signInKindStatement, signInMailState } from "../customers/sign-in-mail.ts";
@@ -23,6 +27,14 @@ const signup = customerSignupModeSchema.describe(
     "has an account. buyers: those, and the buyer's address of any order that was paid (in " +
     "full or in part, even if refunded since). open: anyone who verifies an email address.",
 );
+const startingSubscription = z
+  .boolean()
+  .describe(
+    "On top of signup: anyone starting a subscription (default false). While the host has a " +
+      "subscription plan on sale to the public, any address with no account may get a sign-in " +
+      "code and so a customer account, to start the plan signed in with its free trial. In " +
+      "effect, anyone can make an account while a plan is on sale. No effect when signup is open.",
+  );
 const eraseDueDays = eraseDueDaysSchema.describe(
   "Days staff have to erase the person or decline, after a customer deletes their account " +
     "(default 30). Admins are notified daily about a request past it.",
@@ -37,7 +49,12 @@ const emailConnectionId = z
       "sign-in codes, invite notices and a declined erase request. The host sends it itself, as " +
       "no staff member. Null: nobody can sign in by code, and is told sign-in is not set up.",
   );
-const customerSettings = z.object({ signup, eraseDueDays, emailConnectionId });
+const customerSettings = z.object({
+  signup,
+  startingSubscription,
+  eraseDueDays,
+  emailConnectionId,
+});
 /** Whether sign-in codes go out at once through that connection now (ADR 0456). */
 const signInMail = z.object({
   kind: z.object({ tag: z.string(), label: z.string() }).nullable(),
@@ -49,6 +66,7 @@ const signInMail = z.object({
 async function load(ctx: HandlerContext) {
   return {
     signup: await loadCustomerSignup(ctx.db),
+    startingSubscription: await loadCustomerSignupSubscribers(ctx.db),
     eraseDueDays: await loadEraseDueDays(ctx.db),
     emailConnectionId: await loadCustomerEmailConnection(ctx.db),
   };
@@ -58,28 +76,43 @@ export const customerSettingsGet = defineOperation({
   name: "customer.settings.get",
   description:
     "Get the customer account settings: whether customer sign-up is open or invite only, " +
+    "whether anyone starting a subscription may sign in too (and whether a plan is on sale), " +
     "how many days staff have to action a deleted account's erase request, which email " +
     "connection the host's mail goes out from, and whether sign-in codes go out through it " +
     "now (signInMail: not until an admin lets its sign-in kind apply without review). Read-only.",
   input: z.object({}),
-  output: customerSettings.extend({ signInMail }),
+  output: customerSettings.extend({
+    signInMail,
+    planOnSale: z
+      .boolean()
+      .describe(
+        "A subscription plan is on sale to the public now, so startingSubscription lets new " +
+          "addresses sign in",
+      ),
+  }),
   permission: "records:read",
   risk: "read",
   mcp: { idempotent: true },
   async handler(_input, ctx) {
-    return { ...(await load(ctx)), signInMail: await signInMailState(ctx.db, ctx.floor) };
+    return {
+      ...(await load(ctx)),
+      signInMail: await signInMailState(ctx.db, ctx.floor),
+      planOnSale: await hasPlanOnSale(ctx.db, ctx.now),
+    };
   },
 });
 
 export const customerSettingsUpdate = defineOperation({
   name: "customer.settings.update",
   description:
-    "Change whether customer sign-up is open or invite only, the days staff have to action " +
+    "Change whether customer sign-up is open or invite only, whether anyone starting a " +
+    "subscription may sign in too, the days staff have to action " +
     "an erase request, or the email connection customer mail goes out from. Only what you " +
     "pass changes. Admins only, and only a human can call it: " +
     "AI assistants, MCP clients, automations and extensions are refused.",
   input: z.object({
     signup: signup.optional(),
+    startingSubscription: startingSubscription.optional(),
     eraseDueDays: eraseDueDays.optional(),
     emailConnectionId: emailConnectionId.optional(),
   }),
@@ -91,10 +124,13 @@ export const customerSettingsUpdate = defineOperation({
   async handler(input, ctx) {
     if (
       input.signup === undefined &&
+      input.startingSubscription === undefined &&
       input.eraseDueDays === undefined &&
       input.emailConnectionId === undefined
     ) {
-      throw new ValidationError("Pass signup, eraseDueDays, emailConnectionId or any of them");
+      throw new ValidationError(
+        "Pass signup, startingSubscription, eraseDueDays, emailConnectionId or any of them",
+      );
     }
     if (input.emailConnectionId) {
       // Only a connection that can send: an org email-send connection with a sender bound.
@@ -108,13 +144,17 @@ export const customerSettingsUpdate = defineOperation({
     const previous = await load(ctx);
     const next = {
       signup: input.signup ?? previous.signup,
+      startingSubscription: input.startingSubscription ?? previous.startingSubscription,
       eraseDueDays: input.eraseDueDays ?? previous.eraseDueDays,
       emailConnectionId:
         input.emailConnectionId === undefined
           ? previous.emailConnectionId
           : input.emailConnectionId,
     };
-    const store = (key: string, field: "signup" | "eraseDueDays" | "emailConnectionId") => {
+    const store = (
+      key: string,
+      field: "signup" | "startingSubscription" | "eraseDueDays" | "emailConnectionId",
+    ) => {
       const value = JSON.stringify(next[field]);
       ctx.write(
         ctx.db
@@ -133,6 +173,9 @@ export const customerSettingsUpdate = defineOperation({
       });
     };
     if (input.signup !== undefined) store(CUSTOMER_SIGNUP_SETTING, "signup");
+    if (input.startingSubscription !== undefined) {
+      store(CUSTOMER_SIGNUP_SUBSCRIBERS_SETTING, "startingSubscription");
+    }
     if (input.eraseDueDays !== undefined) store(CUSTOMER_ERASE_DUE_SETTING, "eraseDueDays");
     if (input.emailConnectionId !== undefined) {
       store(CUSTOMER_EMAIL_CONNECTION_SETTING, "emailConnectionId");

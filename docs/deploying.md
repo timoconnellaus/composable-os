@@ -100,13 +100,14 @@ and it needs Wrangler 4.36.0 or later.
 | `CUSTOMER_RATE_LIMIT` | customer account and operation | 60 per 60 s | a customer's calls over the HTTP surface (`rate_limited`, HTTP 429) |
 | `CUSTOMER_CODE_RATE_LIMIT` | email address asked for | 3 per 60 s | customer sign-in code requests |
 | `CUSTOMER_CODE_ADDRESS_RATE_LIMIT` | client address, hashed | 10 per 60 s | customer sign-in code requests |
+| `CUSTOMER_CODE_NEW_RATE_LIMIT` | one key for the whole host | 20 per 60 s | codes sent to new addresses that only "anyone starting a subscription" lets sign in (ADR 0459); over it, nothing is sent and the answer is unchanged |
 
 To change a limit, edit its `simple.limit` (any positive integer) or `simple.period` (`10` or
 `60` seconds only) and redeploy. Limits are **approximate**: Cloudflare counts per location and
 syncs counts eventually, so a client can briefly go over, and a client whose requests reach
 several locations gets roughly the limit in each. That is enough to stop a runaway agent; it is
 not an exact quota. Each `namespace_id` must be an integer that is unique in your account
-(`4101`–`4106` by default): change them if another Worker in the account already uses those ids,
+(`4101`–`4107` by default): change them if another Worker in the account already uses those ids,
 since bindings that share a namespace share counters. If a binding is missing, requests are not
 limited and the Worker logs a warning. Rate-limited requests show up in Workers Logs as 429s.
 
@@ -147,8 +148,12 @@ customer", `customer.settings.update` `signup`, ADR 0458): **only people you inv
 default), **people you invite and anyone who has bought** (the buyer's address of an order that was
 paid, in full or in part, even if refunded since; a checkout only started does not count), or
 **anyone**. A business that sells to guests and wants them to see their tickets later picks the
-middle one. Every address is answered the same whichever is chosen. `cos deploy` and `product.ts`
-never set it.
+middle one. On top of any of them, **also anyone starting a subscription**
+(`startingSubscription`, ADR 0459): while a plan is on sale to the public, any new address may get
+a code, so a new visitor confirms their address and starts the plan signed in, with its free
+trial. In effect anyone can make a customer account while a plan is on sale; codes this sends are
+also limited for the whole host (`CUSTOMER_CODE_NEW_RATE_LIMIT`). Every address is answered the
+same whichever is chosen. `cos deploy` and `product.ts` never set any of it.
 
 #### A company's web app on its own hostname (stage 24)
 

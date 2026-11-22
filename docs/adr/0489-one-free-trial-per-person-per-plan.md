@@ -90,3 +90,11 @@ test that fails without it (`packages/core/test/subscription-access.test.ts`).
   until a date (`trialEnd`, step 4) writes no trial row, uses nothing and tells no one of a second
   trial. Tested with a checkout as step 4 will write it. The Consequences above saying any
   confirmed trial end counts are superseded.
+
+## Note (2026-11-22, ADR 0459)
+Built: "anyone starting a subscription" is a switch on top of the customer sign-up mode
+([ADR 0459](0459-anyone-starting-a-subscription.md)). With it on and a plan on sale to the public,
+a new visitor confirms their address with a code on the plan (the subscribe block's `signIn`) and
+starts it signed in, so the trial rule above applies unchanged: one trial per Person per plan
+object, which is one per confirmed address until staff merge two People. "A company that wants new
+visitors to try a plan turns customer sign-up to `open`" above is superseded by this switch.

@@ -64,10 +64,13 @@ describe("the sign-up setting", () => {
   it("is invite only by default, and when the stored value is unreadable", async () => {
     expect(await invoke("customer.settings.get", {}, context(member))).toEqual({
       signup: "invite_only",
+      // Nobody new signs in by starting a subscription unless an admin says so (ADR 0459).
+      startingSubscription: false,
       eraseDueDays: 30,
       emailConnectionId: null,
       // Nothing to send sign-in codes through yet (ADR 0456).
       signInMail: { kind: null, autoApproved: false, ready: false, problem: expect.any(String) },
+      planOnSale: false,
     });
     await env.DB.prepare(
       "INSERT INTO core_settings (key, value, updated_at) VALUES ('customer_signup', '\"wide-open\"', ?)",
@@ -80,9 +83,15 @@ describe("the sign-up setting", () => {
   it("a human admin changes it, and the change is audited", async () => {
     expect(await invoke("customer.settings.update", { signup: "open" }, context(admin))).toEqual({
       signup: "open",
+      startingSubscription: false,
       eraseDueDays: 30,
       emailConnectionId: null,
-      previous: { signup: "invite_only", eraseDueDays: 30, emailConnectionId: null },
+      previous: {
+        signup: "invite_only",
+        startingSubscription: false,
+        eraseDueDays: 30,
+        emailConnectionId: null,
+      },
     });
     expect(await loadCustomerSignup(db.query)).toBe("open");
     const changes = await auditChanges("customer_signup");
