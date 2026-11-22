@@ -71,6 +71,8 @@ export type StripeOptions = {
  */
 export const STRIPE_BILLING_VERSION = "2026-11-18.endive";
 const PORTAL_CONFIGURATION_KEY = "portal:configuration:v1";
+/** A period's refund made whose credit note is still owed, by the host's refund id. */
+const CREDIT_NOTE_OWED = "credit-note-owed:";
 
 type StripeResponse = { status: number; body: Record<string, unknown> };
 
@@ -80,6 +82,9 @@ class StripeCallError extends Error {
     message: string,
     /** "refused": Stripe answered 4xx. "retry": rate limited. "unknown": 5xx or network. */
     readonly outcome: "refused" | "retry" | "unknown",
+    /** Stripe's error code and the parameter it names, when it says (never its message). */
+    readonly code: string | null = null,
+    readonly param: string | null = null,
   ) {
     super(message);
   }
@@ -163,6 +168,15 @@ export class StripeProvider implements PaymentProvider {
   async refund(
     input: RefundInput,
   ): Promise<{ refundRef: string; status: "pending" | "succeeded" }> {
+    // A period's refund already made, whose credit note is still owed (an earlier apply that
+    // failed at the credit note): only the credit note is tried again (ADR 0486).
+    const owedKey = `${CREDIT_NOTE_OWED}${input.refundId}`;
+    const owed = input.invoiceRef ? this.#options.store?.get(owedKey) : undefined;
+    if (owed) {
+      await this.#creditNote(input, owed);
+      this.#options.store?.put(owedKey, "");
+      return { refundRef: owed, status: "pending" };
+    }
     const form = new URLSearchParams();
     form.set("payment_intent", input.paymentRef);
     form.set("amount", String(input.amount));
@@ -196,7 +210,12 @@ export class StripeProvider implements PaymentProvider {
         "Stripe answered the refund without an id, so it may or may not have gone through.",
       );
     }
-    if (input.invoiceRef) await this.#creditNote(input, refundRef);
+    if (input.invoiceRef) {
+      // Recorded before the credit note is asked for: if it fails, the refund is not made again.
+      this.#options.store?.put(owedKey, refundRef);
+      await this.#creditNote(input, refundRef);
+      this.#options.store?.put(owedKey, "");
+    }
     return { refundRef, status: body.status === "succeeded" ? "succeeded" : "pending" };
   }
 
@@ -223,11 +242,13 @@ export class StripeProvider implements PaymentProvider {
         `${input.refundId}-credit-note`,
         STRIPE_BILLING_VERSION,
       );
-    } catch {
-      // The money has gone back; only the invoice's record of it is missing.
-      throw new ActionOutcomeUnknownError(
-        "Stripe made the refund but not its credit note on the invoice: the money went back, and " +
-          "the tax it gave back is not recorded. Credit the invoice in Stripe by hand.",
+    } catch (error) {
+      // The money has gone back; the invoice's credit note is owed. A plain error keeps the
+      // action pending, so applying it again sends only the credit note (its own idempotency key;
+      // the refund is remembered above and not made again).
+      throw new Error(
+        "The refund went through; its credit note on the invoice is still owed and is tried again " +
+          `when this is applied again${error instanceof StripeCallError ? ` (${error.message})` : ""}.`,
       );
     }
   }
@@ -286,13 +307,33 @@ export class StripeProvider implements PaymentProvider {
     if (input.customerRef) form.set("customer", input.customerRef);
     else if (input.customerEmail) form.set("customer_email", input.customerEmail);
     form.set("expires_at", String(expiresAt));
-    const { body } = await this.#call(
-      "POST",
-      "/v1/checkout/sessions",
-      form,
-      input.idempotencyKey,
-      STRIPE_BILLING_VERSION,
-    );
+    let body: Record<string, unknown>;
+    try {
+      ({ body } = await this.#call(
+        "POST",
+        "/v1/checkout/sessions",
+        form,
+        input.idempotencyKey,
+        STRIPE_BILLING_VERSION,
+      ));
+    } catch (error) {
+      // The payer's earlier provider customer is gone (deleted in Stripe): start with a new one
+      // from their email rather than refuse every start from now on.
+      const missing =
+        error instanceof StripeCallError &&
+        error.code === "resource_missing" &&
+        (error.param === null || error.param === "customer");
+      if (!missing || !input.customerRef || !input.customerEmail) throw error;
+      form.delete("customer");
+      form.set("customer_email", input.customerEmail);
+      ({ body } = await this.#call(
+        "POST",
+        "/v1/checkout/sessions",
+        form,
+        `${input.idempotencyKey}:new-customer`,
+        STRIPE_BILLING_VERSION,
+      ));
+    }
     const ref = body.id;
     const url = body.url;
     if (typeof ref !== "string" || typeof url !== "string") {
@@ -364,8 +405,26 @@ export class StripeProvider implements PaymentProvider {
    * The current subscription (and invoice) a verified event names, read now (ADR 0485). Null when
    * the subscription cannot be read in a shape this understands.
    */
-  async readSubscriptionEvent(eventId: string, read: PendingRead): Promise<PaymentsEvent | null> {
-    const subscription = await this.getSubscription(read.subscriptionRef);
+  async readSubscriptionEvent(
+    eventId: string,
+    read: PendingRead,
+  ): Promise<{ event: PaymentsEvent } | { ignored: "foreign" | "unreadable" }> {
+    const { body: raw } = await this.#call(
+      "GET",
+      `/v1/subscriptions/${encodeURIComponent(read.subscriptionRef)}`,
+      undefined,
+      undefined,
+      STRIPE_BILLING_VERSION,
+    );
+    // Whose it is comes from the read, never the payload: a subscription this host did not start
+    // (no `cos_subscription`) is someone else's in the same account, ignored, never retried.
+    if (stringOrNull(metadataOf(raw.metadata).cos_subscription) === null) {
+      return { ignored: "foreign" };
+    }
+    // A shape this cannot read (a tiered, metered or decimal price) will not read better on a
+    // redelivery: ignored and counted, so Stripe does not retry it until it disables the endpoint.
+    const subscription = stripeSubscriptionRead(raw, new Date().toISOString());
+    if (!subscription) return { ignored: "unreadable" };
     let invoice: PaymentsInvoice | undefined;
     if (read.invoiceRef) {
       const { body } = await this.#call(
@@ -376,10 +435,10 @@ export class StripeProvider implements PaymentProvider {
         STRIPE_BILLING_VERSION,
       );
       const mapped = stripeInvoiceRead(body);
-      if (!mapped) throw new Error("Stripe answered the invoice in a shape this cannot read.");
+      if (!mapped) return { ignored: "unreadable" };
       invoice = mapped;
     }
-    return subscriptionEvent(
+    const event = subscriptionEvent(
       "stripe",
       eventId,
       read.trigger,
@@ -387,6 +446,7 @@ export class StripeProvider implements PaymentProvider {
       invoice,
       read.occurredAt,
     );
+    return event ? { event } : { ignored: "unreadable" };
   }
 
   /**
@@ -540,7 +600,13 @@ export class StripeProvider implements PaymentProvider {
     const detail = stripeErrorSummary(response.status, body);
     if (response.status === 429) throw new StripeCallError(detail, "retry");
     if (response.status >= 400 && response.status < 500) {
-      throw new StripeCallError(detail, "refused");
+      const error = metadataOf(body.error);
+      throw new StripeCallError(
+        detail,
+        "refused",
+        typeof error.code === "string" ? error.code.slice(0, 60) : null,
+        typeof error.param === "string" ? error.param.slice(0, 60) : null,
+      );
     }
     throw new StripeCallError(detail, "unknown");
   }
@@ -733,9 +799,11 @@ export function stripeSubscriptionRead(
     currency,
     interval: interval === "week" || interval === "month" || interval === "year" ? interval : null,
     // `cancel_at_period_end` is deprecated in favour of `cancel_at` but still set and honoured
-    // (changelog 2025-05-28.basil); either says it is ending.
-    cancelAtPeriodEnd:
-      body.cancel_at_period_end === true || nonNegativeInteger(body.cancel_at) !== null,
+    // (changelog 2025-05-28.basil), and setting it false is Stripe's documented way to stop a
+    // pending cancellation (docs.stripe.com/billing/subscriptions/cancel). A `cancel_at` date set
+    // another way (the dashboard, a schedule) is reported apart: the host's resume cannot undo it.
+    cancelAtPeriodEnd: body.cancel_at_period_end === true,
+    cancelAt: body.cancel_at_period_end === true ? null : seconds(body.cancel_at),
     trialEnd: seconds(body.trial_end),
     // Since 2025-03-31.basil a subscription's period is on its items.
     currentPeriodStart: seconds(item.current_period_start),
@@ -906,7 +974,10 @@ export function mapStripeEvent(
       amount,
       currency,
       occurredAt,
-      tax: { amount: tax },
+      // No tax rows is "not said", never zero: the host keeps a refund's tax unknown then (to
+      // check in test mode: whether an amount-only credit note on an automatic-tax invoice comes
+      // back with `total_taxes` filled).
+      ...(taxes.length > 0 ? { tax: { amount: tax } } : {}),
       creditNote: true,
     };
   }

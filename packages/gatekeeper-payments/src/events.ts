@@ -41,7 +41,13 @@ type HookRecord = {
   enabledAt: number;
 };
 
-type Stats = { accepted: number; duplicates: number; rejected: number };
+type Stats = {
+  accepted: number;
+  duplicates: number;
+  rejected: number;
+  /** Verified subscription events not delivered, by why (ADR 0485). */
+  ignored?: { foreign?: number; unreadable?: number };
+};
 
 export type EventsStatus = Stats & { hookEnabled: boolean };
 
@@ -132,6 +138,16 @@ export class PaymentsEvents extends DurableObject<Cloudflare.Env> {
   async countRejected(): Promise<void> {
     const stats = this.#stats();
     stats.rejected++;
+    this.ctx.storage.kv.put(STATS, stats);
+  }
+
+  /**
+   * Counts a verified subscription event that is not delivered (ADR 0485): a subscription this
+   * host did not start, or one whose shape cannot be read. Nothing else is stored.
+   */
+  async countIgnored(why: "foreign" | "unreadable"): Promise<void> {
+    const stats = this.#stats();
+    stats.ignored = { ...stats.ignored, [why]: (stats.ignored?.[why] ?? 0) + 1 };
     this.ctx.storage.kv.put(STATS, stats);
   }
 

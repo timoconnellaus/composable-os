@@ -6,6 +6,7 @@ import type { ActionDescription } from "@composable-os/gatekeeper-interface/gate
 import { ActionApplyError, ActionOutcomeUnknownError } from "@composable-os/gatekeeper-kit/actions";
 import { describe, expect, it, vi } from "vitest";
 import { type FakeLedgerState, fakeLedger } from "../src/fake.js";
+import { fakeEnabled, unavailableReason } from "../src/provider.js";
 import { advanceFakeSubscription } from "../src/routes.js";
 import { signatureHeader } from "../src/signature.js";
 import {
@@ -34,9 +35,9 @@ function unique(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${(counter++).toString(36)}`;
 }
 
-async function host() {
+async function host(asHost = false) {
   const stub = env.TEST_HOST.getByName(unique("host"));
-  await stub.open("fake");
+  await stub.open("fake", asHost);
   await stub.bindAndEnable();
   return stub;
 }
@@ -92,6 +93,20 @@ async function started(h: Host, id: string, overrides: Record<string, unknown> =
   await vi.waitFor(async () => expect((await eventsFor(h, id)).length).toBeGreaterThanOrEqual(2));
   return ledgerSubscription(id);
 }
+
+describe("the fake provider's switch", () => {
+  it("runs off localhost only with its own signing secret: the default one is public", () => {
+    const on = { PAYMENTS_FAKE_PROVIDER: "true" } as const;
+    const staging = { ...on, BASE_URL: "https://staging.example.com/gatekeeper/payments" };
+    expect(fakeEnabled(staging as never)).toBe(false);
+    expect(unavailableReason(staging as never, "fake")).toMatch(/FAKE_WEBHOOK_SECRET/);
+    expect(fakeEnabled({ ...staging, FAKE_WEBHOOK_SECRET: "s3cret" } as never)).toBe(true);
+    // The CRM's dev server and e2e: localhost, no secret needed.
+    expect(fakeEnabled({ ...on, BASE_URL: "http://localhost:5173/gatekeeper/payments" } as never)).toBe(true);
+    expect(fakeEnabled(on as never)).toBe(true);
+    expect(fakeEnabled({ PAYMENTS_FAKE_PROVIDER: "false", FAKE_WEBHOOK_SECRET: "s" } as never)).toBe(false);
+  });
+});
 
 describe("the fake provider's subscriptions", () => {
   it("opens the page after an observation, takes the card and starts a trial", async () => {
@@ -272,8 +287,13 @@ describe("the fake provider's subscriptions", () => {
     });
   });
 
-  it("opens the portal for one customer after an observation", async () => {
-    const h = await host();
+  it("opens the portal only for the host's own call, after an observation", async () => {
+    // A session any other caller holds (Code Mode, an extension's tool, MCP): refused.
+    const other = await host();
+    await expect(
+      other.call("openPortal", [{ customerRef: "fcus_abc", returnUrl: RETURN_URL }]),
+    ).rejects.toThrow(/only by the host/);
+    const h = await host(true);
     const portal = (await h.call("openPortal", [
       { customerRef: "fcus_abc", returnUrl: RETURN_URL },
     ])) as PaymentsPortal;
@@ -477,6 +497,7 @@ describe("the Stripe provider's subscriptions", () => {
       currency: "AUD",
       interval: "month",
       cancelAtPeriodEnd: false,
+      cancelAt: null,
       trialEnd: new Date(1_900_000_000_000).toISOString(),
       currentPeriodStart: new Date(1_900_000_000_000).toISOString(),
       currentPeriodEnd: new Date(1_902_592_000_000).toISOString(),
@@ -485,9 +506,17 @@ describe("the Stripe provider's subscriptions", () => {
       endReason: null,
       observedAt: "2030-01-01T00:00:00.000Z",
     });
+    // A `cancel_at` date (the dashboard's) is reported apart from cancel_at_period_end: the
+    // host's resume, which sets cancel_at_period_end=false, cannot undo it.
     expect(
-      stripeSubscriptionRead({ ...SUBSCRIPTION, cancel_at: 1_902_592_000 }, "x")?.cancelAtPeriodEnd,
-    ).toBe(true);
+      stripeSubscriptionRead({ ...SUBSCRIPTION, cancel_at: 1_902_592_000 }, "x"),
+    ).toMatchObject({ cancelAtPeriodEnd: false, cancelAt: new Date(1_902_592_000_000).toISOString() });
+    expect(
+      stripeSubscriptionRead(
+        { ...SUBSCRIPTION, cancel_at_period_end: true, cancel_at: 1_902_592_000 },
+        "x",
+      ),
+    ).toMatchObject({ cancelAtPeriodEnd: true, cancelAt: null });
     expect(stripeSubscriptionRead({ ...SUBSCRIPTION, status: "weird" }, "x")).toBeNull();
     expect(stripeInvoiceRead(INVOICE)).toMatchObject({
       ref: "in_1",
@@ -580,7 +609,8 @@ describe("the Stripe provider's subscriptions", () => {
     const { provider, requests } = stripe((r) =>
       ok(r.url.includes("/v1/invoices/") ? INVOICE : SUBSCRIPTION),
     );
-    const event = await provider.readSubscriptionEvent("evt_9", good.reads?.[0] as never);
+    const outcome = await provider.readSubscriptionEvent("evt_9", good.reads?.[0] as never);
+    const event = "event" in outcome ? outcome.event : null;
     expect(requests.map((r) => r.url)).toEqual([
       "https://stripe.test/v1/subscriptions/sub_1",
       "https://stripe.test/v1/invoices/in_1?expand[]=payments",
@@ -624,23 +654,149 @@ describe("the Stripe provider's subscriptions", () => {
     });
     expect(requests[1]?.headers.get("idempotency-key")).toBe("rfd_1-credit-note");
 
-    // A credit note Stripe will not make after the refund went through: not "nothing happened".
-    const failing = stripe((r) =>
-      r.url.endsWith("/v1/refunds")
-        ? ok({ id: "re_2", status: "succeeded" })
-        : new Response("{}", { status: 400 }),
+    // A credit note Stripe will not make after the refund went through: neither "nothing
+    // happened" nor "unknown", but a plain (retriable) error saying the credit note is owed; the
+    // next apply sends only the credit note, never a second refund.
+    let creditNoteAnswers = 0;
+    const failing = stripe((r) => {
+      if (r.url.endsWith("/v1/refunds")) return ok({ id: "re_2", status: "succeeded" });
+      creditNoteAnswers += 1;
+      return creditNoteAnswers === 1 ? new Response("{}", { status: 500 }) : ok({ id: "cn_2" });
+    });
+    const input = {
+      orderId: "ord_1",
+      paymentRef: "pi_1",
+      amount: 100,
+      currency: "AUD",
+      reason: "x",
+      refundId: "rfd_2",
+      invoiceRef: "in_1",
+    };
+    const first = await failing.provider.refund(input).then(
+      () => null,
+      (error: unknown) => error,
     );
+    expect(first).toBeInstanceOf(Error);
+    expect(first).not.toBeInstanceOf(ActionOutcomeUnknownError);
+    expect(first).not.toBeInstanceOf(ActionApplyError);
+    expect(String((first as Error).message)).toMatch(/refund went through; its credit note/);
+    expect(await failing.provider.refund(input)).toEqual({ refundRef: "re_2", status: "pending" });
+    expect(failing.requests.map((r) => r.url)).toEqual([
+      "https://stripe.test/v1/refunds",
+      "https://stripe.test/v1/credit_notes",
+      "https://stripe.test/v1/credit_notes",
+    ]);
+    expect(failing.requests[2]?.form.get("refunds[0][refund]")).toBe("re_2");
+  });
+
+  it("starts with a new provider customer when the payer's earlier one is gone", async () => {
+    const { provider, requests } = stripe((r) =>
+      r.form.get("customer") === "cus_gone"
+        ? new Response(
+            JSON.stringify({
+              error: { type: "invalid_request_error", code: "resource_missing", param: "customer" },
+            }),
+            { status: 400 },
+          )
+        : ok({ id: "cs_2", url: "https://checkout.stripe.test/c/2" }),
+    );
+    const checkout = await provider.createSubscriptionCheckout({
+      subscriptionId: "sbs_3",
+      amount: 2900,
+      currency: "AUD",
+      interval: "month",
+      description: "Every course",
+      returnUrl: RETURN_URL,
+      customerRef: "cus_gone",
+      customerEmail: "payer@customer.test",
+      idempotencyKey: "k3",
+    });
+    expect(checkout.ref).toBe("cs_2");
+    expect(requests.map((r) => [r.form.get("customer"), r.form.get("customer_email")])).toEqual([
+      ["cus_gone", null],
+      [null, "payer@customer.test"],
+    ]);
+    expect(requests[1]?.headers.get("idempotency-key")).toBe("k3:new-customer");
+    // Any other refusal is not retried.
+    const refusing = stripe(() => new Response("{}", { status: 400 }));
     await expect(
-      failing.provider.refund({
-        orderId: "ord_1",
-        paymentRef: "pi_1",
-        amount: 100,
+      refusing.provider.createSubscriptionCheckout({
+        subscriptionId: "sbs_4",
+        amount: 2900,
         currency: "AUD",
-        reason: "x",
-        refundId: "rfd_2",
-        invoiceRef: "in_1",
+        interval: "month",
+        description: "Every course",
+        returnUrl: RETURN_URL,
+        customerRef: "cus_x",
+        customerEmail: "payer@customer.test",
+        idempotencyKey: "k4",
       }),
-    ).rejects.toBeInstanceOf(ActionOutcomeUnknownError);
+    ).rejects.toThrow();
+    expect(refusing.requests).toHaveLength(1);
+  });
+
+  it("ignores, never retries, a subscription it did not start or cannot read", async () => {
+    const read = {
+      trigger: "updated" as const,
+      subscriptionRef: "sub_1",
+      invoiceRef: null,
+      occurredAt: new Date().toISOString(),
+    };
+    const foreign = stripe(() => ok({ ...SUBSCRIPTION, metadata: {} }));
+    expect(await foreign.provider.readSubscriptionEvent("evt_f", read)).toEqual({
+      ignored: "foreign",
+    });
+    const tiered = stripe(() =>
+      ok({
+        ...SUBSCRIPTION,
+        items: { data: [{ price: { unit_amount: null, currency: "aud", recurring: { interval: "month" } } }] },
+      }),
+    );
+    expect(await tiered.provider.readSubscriptionEvent("evt_t", read)).toEqual({
+      ignored: "unreadable",
+    });
+    // A read that failed is retried: it throws, and the route answers 500.
+    const down = stripe(() => new Response("{}", { status: 503 }));
+    await expect(down.provider.readSubscriptionEvent("evt_d", read)).rejects.toThrow();
+  });
+
+  it("answers a foreign subscription's event 200, counted, and a failed read 500", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      const deliver = async (id: string) => {
+        const body = JSON.stringify({
+          id,
+          type: "customer.subscription.updated",
+          created: Math.floor(Date.now() / 1000),
+          data: { object: { id: "sub_foreign", metadata: { cos_subscription: "sbs_forged" } } },
+        });
+        const header = await signatureHeader(
+          "whsec_test_0123456789abcdef",
+          body,
+          Math.floor(Date.now() / 1000),
+        );
+        return exports.default.fetch(
+          new Request("https://crm.example.com/gatekeeper/payments/in/stripe", {
+            method: "POST",
+            headers: { "content-type": "application/json", "stripe-signature": header },
+            body,
+          }),
+        );
+      };
+      // The payload claims to be ours; the read says it is not: ignored.
+      fetchSpy.mockResolvedValueOnce(ok({ ...SUBSCRIPTION, id: "sub_foreign", metadata: {} }));
+      const ignored = await deliver(unique("evt_foreign"));
+      expect(ignored.status).toBe(200);
+      expect(await ignored.json()).toMatchObject({ ok: true, ignored: true });
+      fetchSpy.mockRejectedValueOnce(new Error("network"));
+      expect((await deliver(unique("evt_down"))).status).toBe(500);
+      const status = await env.PAYMENTS_EVENTS.get(
+        env.PAYMENTS_EVENTS.idFromName("stripe"),
+      ).status();
+      expect(status.ignored?.foreign).toBeGreaterThanOrEqual(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("maps a credit note to the tax its refund gave back, confirming nothing", () => {
@@ -670,6 +826,26 @@ describe("the Stripe provider's subscriptions", () => {
       tax: { amount: 132 },
       creditNote: true,
     });
+    // No tax rows: the tax is not said (unknown), never a precise zero.
+    const silent = mapStripeEvent(
+      {
+        id: "evt_cn2",
+        type: "credit_note.created",
+        created: 1_900_000_000,
+        data: {
+          object: {
+            id: "cn_2",
+            currency: "aud",
+            total_taxes: [],
+            refunds: [{ refund: "re_2", amount_refunded: 1450 }],
+            metadata: { cos_refund_id: "rfd_2" },
+          },
+        },
+      },
+      "evt_cn2",
+    );
+    expect(silent).toMatchObject({ kind: "refund", creditNote: true });
+    expect(silent).not.toHaveProperty("tax");
   });
 
   it("cancels at period end, now, resumes, and makes the portal's configuration once", async () => {

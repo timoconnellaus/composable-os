@@ -17,7 +17,7 @@ import type {
 
 // vitest.config.ts sets BASE_URL with a trailing slash, which the Worker strips.
 const BASE = "https://crm.example.com/gatekeeper/payments";
-const FAKE_SECRET = "fake-payments-dev-secret";
+const FAKE_SECRET = "fake-payments-test-secret";
 const STRIPE_SECRET = "whsec_test_0123456789abcdef";
 const RETURN_URL = "https://shop.example.com/orders/return?o=1";
 

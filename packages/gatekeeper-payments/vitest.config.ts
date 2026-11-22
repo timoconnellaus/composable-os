@@ -24,7 +24,8 @@ export default defineConfig({
           STRIPE_API_BASE: "",
           STRIPE_ACCOUNT: "",
           PAYMENTS_FAKE_PROVIDER: "true",
-          FAKE_WEBHOOK_SECRET: "",
+          // The fake runs off localhost only with its own secret (ADR 0485).
+          FAKE_WEBHOOK_SECRET: "fake-payments-test-secret",
           // Test values only. The Stripe provider's HTTP calls are tested with an injected fetch.
           STRIPE_SECRET_KEY: "sk_test_not_a_real_key",
           STRIPE_WEBHOOK_SECRET: "whsec_test_0123456789abcdef",

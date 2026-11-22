@@ -76,6 +76,7 @@ export function subscriptionOf(
   const interval = s.interval === null ? null : (s.interval as PaymentsInterval);
   const times = {
     trialEnd: when(s.trialEnd ?? null),
+    cancelAt: when(s.cancelAt ?? null),
     currentPeriodStart: when(s.currentPeriodStart ?? null),
     currentPeriodEnd: when(s.currentPeriodEnd ?? null),
     canceledAt: when(s.canceledAt ?? null),
@@ -109,6 +110,7 @@ export function subscriptionOf(
     currency: currency.toUpperCase(),
     interval,
     cancelAtPeriodEnd: s.cancelAtPeriodEnd,
+    cancelAt: times.cancelAt as string | null,
     trialEnd: times.trialEnd as string | null,
     currentPeriodStart: times.currentPeriodStart as string | null,
     currentPeriodEnd: times.currentPeriodEnd as string | null,

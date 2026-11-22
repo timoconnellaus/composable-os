@@ -199,11 +199,15 @@ export async function handleInbound(
   if (provider === "stripe" && reads.length > 0) {
     // A subscription event is stored as a current read of the subscription (and its invoice),
     // made now with the pinned version, not as the event's own copy (ADR 0485).
+    // Only a read that failed answers 500 (Stripe delivers it again). A subscription this host did
+    // not start, or one in a shape it cannot read, is answered 200 and counted: retrying it would
+    // never succeed, and Stripe disables an endpoint that keeps failing, one-off payments too.
     const client = stripe();
     try {
       for (const read of reads) {
-        const event = await client.readSubscriptionEvent(verified.eventId, read);
-        if (event) received = [...received, event];
+        const outcome = await client.readSubscriptionEvent(verified.eventId, read);
+        if ("event" in outcome) received = [...received, outcome.event];
+        else await events.countIgnored(outcome.ignored);
       }
     } catch {
       return json(500, { ok: false, error: "try again" });

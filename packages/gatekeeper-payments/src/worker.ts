@@ -305,6 +305,21 @@ type SessionBackend = {
   subscribe(queue: RpcStub<ApprovalQueue>, hook: RpcStub<PaymentsHookTarget>): Promise<void>;
 };
 
+/**
+ * Whether the session's approval queue is the host's own orders call (`callAsHost`, purpose
+ * `orders`). Asked of the queue the host opened the session with, as the email gatekeeper asks
+ * whether a send is the host's sign-in mail (ADR 0456); a queue without the method is not.
+ */
+async function isHostOrdersQueue(queue: unknown): Promise<boolean> {
+  try {
+    const target = queue as { isHostOrders?: () => Promise<unknown> };
+    if (typeof target.isHostOrders !== "function") return false;
+    return (await target.isHostOrders()) === true;
+  } catch {
+    return false;
+  }
+}
+
 class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
   readonly #backend: SessionBackend;
   readonly #queue: RpcStub<ApprovalQueue>;
@@ -453,6 +468,15 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
 
   async openPortal(input: PaymentsPortalInput): Promise<PaymentsPortal> {
     const parsed = parsePortalInput(input);
+    // A portal address shows a customer's invoices and lets their card and email be changed: it
+    // is opened only by the host, for the signed-in payer's own customer, which the host's
+    // operation has established (ADR 0485). Code Mode, an extension's tool, an automation and MCP
+    // reach this session through queues that answer no.
+    if (!(await isHostOrdersQueue(this.#queue))) {
+      throw new Error(
+        "The billing portal is opened only by the host, for a signed-in customer's own billing.",
+      );
+    }
     const provider = this.#backend.open();
     await this.#queue.authorizeObservation({
       title: "Open the customer portal",

@@ -53,14 +53,21 @@ class RecordingQueue extends RpcTarget {
   readonly controllers: Controller[] = [];
   readonly hooks: { title: string; description: string }[] = [];
   readonly #firing: boolean;
+  readonly #host: boolean;
 
-  constructor(firing = false) {
+  constructor(firing = false, host = false) {
     super();
     this.#firing = firing;
+    this.#host = host;
   }
 
   async authorizeObservation(description: ObservationDescription): Promise<void> {
     (this.#firing ? firingObservations : observations).push(description);
+  }
+
+  /** As the runner's HostQueue: true only for the host's own orders call. */
+  async isHostOrders(): Promise<boolean> {
+    return this.#host;
   }
 
   async submitAction(action: number, description: ActionDescription): Promise<void> {
@@ -113,7 +120,7 @@ export type SessionMethod =
   | "openPortal";
 
 export class TestHost extends DurableObject<Cloudflare.Env> {
-  readonly #queue = new RecordingQueue();
+  #queue = new RecordingQueue();
   #facet: Facet | undefined;
   #session: (PaymentsSession & Partial<Disposable>) | undefined;
 
@@ -122,7 +129,9 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
   }
 
   /** Resolves the provider's URL through a fresh account, creates the facet and opens a session. */
-  async open(provider: PaymentsProviderName): Promise<ResourceDescription> {
+  /** `asHost`: the session is the host's own orders call (`callAsHost`), as the runner's queue says. */
+  async open(provider: PaymentsProviderName, asHost = false): Promise<ResourceDescription> {
+    this.#queue = new RecordingQueue(false, asHost);
     const account = this.#exports.PaymentsAccount({});
     const { class: cls } = await account.getGatekeeperClassFor(`payments://merchant/${provider}`);
     const facet = this.ctx.facets.get(`gatekeeper-${provider}`, () => ({

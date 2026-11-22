@@ -25,7 +25,7 @@ const runner = exports.default as unknown as {
 };
 const RETURN = "https://shop.test/account";
 /** The fake provider's signing secret when none is set (FAKE_WEBHOOK_SECRET is empty here). */
-const FAKE_SECRET = "fake-payments-dev-secret";
+const FAKE_SECRET = "fake-payments-test-secret";
 const ext = unique("sub").slice(0, 20);
 const PLAN = `${ext}.plan`;
 let admin: ActingUser;

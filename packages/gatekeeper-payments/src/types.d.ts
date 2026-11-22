@@ -193,8 +193,13 @@ export interface PaymentsSubscription {
   amount: number;
   currency: string;
   interval: PaymentsInterval | null;
-  /** Whether it is set to end when the current period ends. */
+  /** Whether it is set to end when the current period ends (`cancel_at_period_end`). */
   cancelAtPeriodEnd: boolean;
+  /**
+   * A date it is set to end on, set some other way (Stripe's `cancel_at`, from its dashboard or a
+   * schedule), or null. Resuming undoes only `cancelAtPeriodEnd`.
+   */
+  cancelAt: string | null;
   trialEnd: string | null;
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;

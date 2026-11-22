@@ -105,8 +105,32 @@ export function stripeWebhookSecret(env: Env): string {
   return stringVar(env.STRIPE_WEBHOOK_SECRET);
 }
 
-export function fakeEnabled(env: Env): boolean {
-  return stringVar(env.PAYMENTS_FAKE_PROVIDER) === "true";
+/**
+ * Whether the fake provider is on: asked for (PAYMENTS_FAKE_PROVIDER=true), and either given its
+ * own signing secret (FAKE_WEBHOOK_SECRET) or served on this machine only (a localhost base, as
+ * the CRM's dev server and e2e run it). The default secret is public, so with it anyone who can
+ * reach the webhook could report a fake payment or a paid subscription period; a deployment
+ * reachable from elsewhere (a staging host) must set a secret of its own (ADR 0485).
+ */
+export function fakeEnabled(env: FakeEnv): boolean {
+  return stringVar(env.PAYMENTS_FAKE_PROVIDER) === "true" && fakeSecretOrLocal(env);
+}
+
+/** The environment the fake's switch reads. */
+export type FakeEnv = Pick<Env, "PAYMENTS_FAKE_PROVIDER"> & {
+  FAKE_WEBHOOK_SECRET?: string | undefined;
+  BASE_URL?: string | undefined;
+};
+
+function fakeSecretOrLocal(env: FakeEnv): boolean {
+  if (stringVar(env.FAKE_WEBHOOK_SECRET) !== "") return true;
+  const base = stringVar(env.BASE_URL) || "http://localhost:5173/gatekeeper/payments";
+  try {
+    const { protocol, hostname } = new URL(base);
+    return protocol === "http:" && (hostname === "localhost" || hostname === "127.0.0.1");
+  } catch {
+    return false;
+  }
 }
 
 export function fakeWebhookSecret(env: Env): string {
@@ -114,7 +138,7 @@ export function fakeWebhookSecret(env: Env): string {
 }
 
 /** The environment the availability check reads, so a test can pass a hand-made one. */
-export type AvailabilityEnv = Pick<Env, "PAYMENTS_FAKE_PROVIDER"> & {
+export type AvailabilityEnv = FakeEnv & {
   STRIPE_SECRET_KEY?: string | undefined;
 };
 
@@ -124,10 +148,16 @@ export function unavailableReason(
   provider: PaymentsProviderName,
 ): string | undefined {
   if (provider === "fake") {
-    return stringVar(env.PAYMENTS_FAKE_PROVIDER) === "true"
+    if (stringVar(env.PAYMENTS_FAKE_PROVIDER) !== "true") {
+      return (
+        "The fake payment provider is off in this deployment. It is for development and tests " +
+        "only, and is turned on with PAYMENTS_FAKE_PROVIDER=true."
+      );
+    }
+    return fakeSecretOrLocal(env)
       ? undefined
-      : "The fake payment provider is off in this deployment. It is for development and tests " +
-          "only, and is turned on with PAYMENTS_FAKE_PROVIDER=true.";
+      : "The fake payment provider needs its own signing secret here: set FAKE_WEBHOOK_SECRET on " +
+          "cos-gatekeeper-payments. Without one it runs only on localhost.";
   }
   return stringVar(env.STRIPE_SECRET_KEY)
     ? undefined

@@ -230,6 +230,7 @@ export function fakeSubscriptionRead(
     currency: sub.currency,
     interval: sub.interval,
     cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+    cancelAt: null,
     trialEnd: sub.trialEnd,
     currentPeriodStart: sub.currentPeriodStart,
     currentPeriodEnd: sub.currentPeriodEnd,

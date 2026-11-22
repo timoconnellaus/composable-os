@@ -150,6 +150,16 @@ export class HostQueue extends RpcTarget {
     return this.#caller.kind === "system" && this.#caller.purpose === "sign-in";
   }
 
+  /**
+   * Whether this session is the host's own orders call (`callAsHost`, purpose `orders`): an
+   * order's checkout, a subscription's, its portal (ADR 0485). The payments gatekeeper opens a
+   * customer's billing portal only for such a session; the answer comes from how the host opened
+   * the queue, never from anything the caller sent.
+   */
+  async isHostOrders(): Promise<boolean> {
+    return this.#caller.kind === "system" && this.#caller.purpose === "orders";
+  }
+
   async submitAction(action: number, description: OutboundDescription): Promise<void> {
     const host = this.#host;
     const caller =
