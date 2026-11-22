@@ -107,6 +107,7 @@ export const fieldManifestSchema = z.object({
   editableOptions: z.boolean().optional(),
   default: z.union([z.string().max(1000), z.number(), z.boolean()]).optional(),
   defaultSetting: z.string().max(40).optional(),
+  humanOnly: z.boolean().optional(),
   to: z.string().max(80).optional(),
   many: z.boolean().optional(),
   expression: z.string().max(2000).optional(),
@@ -212,6 +213,7 @@ export const objectManifestSchema = z.object({
       read: z.array(z.string().max(40)).max(100),
       write: z.array(z.string().max(40)).max(100),
       requireAccess: z.array(z.string().max(40)).max(10).optional(),
+      createOnly: z.array(z.string().max(40)).max(100).optional(),
     })
     .strict()
     .optional(),
@@ -406,6 +408,7 @@ export const settingManifestSchema = z.object({
   min: z.number().optional(),
   max: z.number().optional(),
   options: z.array(optionSchema).max(200).optional(),
+  humanOnly: z.boolean().optional(),
 });
 export type SettingManifest = z.infer<typeof settingManifestSchema>;
 
@@ -1274,6 +1277,18 @@ export function validateManifest(
     if (required === m.id) contract(`requires.${i}`, "An extension does not require itself");
     if ((m.requires ?? []).indexOf(required) !== i) {
       contract(`requires.${i}`, `"${required}" is listed twice`);
+    }
+  }
+
+  // Fields a customer sets only when they make the record (ADR 0507): each one of its write list.
+  for (const [name, object] of Object.entries(m.objects)) {
+    for (const fieldName of object.customer?.createOnly ?? []) {
+      if (!object.customer?.write.includes(fieldName)) {
+        contract(
+          `objects.${name}.customer.createOnly`,
+          `"${fieldName}" must be one the customer writes (customer.write)`,
+        );
+      }
     }
   }
 

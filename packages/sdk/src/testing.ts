@@ -180,7 +180,11 @@ function riskOf(operation: string): string {
 
 function objectOf(operation: string, input: Record<string, unknown>): string | null {
   // As the host's operationObject: record.* and my.* name their object in the input.
-  if (operation.startsWith("record.") || operation.startsWith("my."))
+  if (
+    operation.startsWith("record.") ||
+    operation.startsWith("my.") ||
+    operation === "state.resolve"
+  )
     return typeof input.object === "string" ? input.object : null;
   const prefix = operation.split(".")[0] ?? "";
   return (CORE_OBJECT_NAMES as readonly string[]).includes(prefix) ? prefix : null;

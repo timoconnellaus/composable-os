@@ -166,11 +166,16 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       readFileSync(join(root, "packs/courses", file), "utf8"),
     ]),
   );
-  // And Bookings (stage 31a), which requires Programs, the same way, for its e2e spec.
+  // And Bookings (stage 31a), which requires Programs, the same way, for its e2e spec. Until the
+  // Memberships pack is connected (step 4), local dev's Bookings also lets the e2e spec's fixture
+  // holder (`bkfixture.pass`) pay; the shipped pack names only the Memberships pack's holders.
   const bookings = Object.fromEntries(
     ["index.ts", "tools.ts"].map((file) => [
       file,
-      readFileSync(join(root, "packs/bookings", file), "utf8"),
+      readFileSync(join(root, "packs/bookings", file), "utf8").replace(
+        'paidBy: ["memberships.membership", "memberships.pass"]',
+        'paidBy: ["memberships.membership", "memberships.pass", "bkfixture.pass"]',
+      ),
     ]),
   );
   // And Content (stage 28), the same way, for its e2e spec.

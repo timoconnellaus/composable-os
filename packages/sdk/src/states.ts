@@ -101,14 +101,32 @@ export interface StatesSpec {
     in?: Readonly<Record<string, readonly Mover[]>>;
     window?: MoveWindow;
     staffOnly?: string | readonly string[];
+    /**
+     * Booleans named as `staffOnly` is (ADR 0507): while any is true, nobody but the host creates
+     * one, staff included (no booking into a class that was cancelled or is over).
+     */
+    closed?: string | readonly string[];
   };
   /**
    * Moves a caller asks for by name, resolved by the host (ADR 0503): writing the name (`cancel`)
    * into the state field moves the record to the first of the listed states whose move from where
    * it is the caller may make now, windows included (`["cancelled", "late_cancelled"]`). A name
-   * is not a state.
+   * is not a state. A person on the staff is not bound; every other caller (a customer, the
+   * assistant, an MCP client, an automation, extension code) is resolved by the clock (ADR 0507).
    */
   requests?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * A cascade from the record a relation points to (ADR 0507): when that record moves into a
+   * state named in `when`, the host moves every live record of this object pointing at it, and in
+   * one of `from`, to the state `when` gives, in the same batch, as the host (a class cancelled
+   * moves its bookings to `cancelled_by_us`: their places released, their uses given back). Each
+   * target needs a `host` move from each of `from`.
+   */
+  follows?: {
+    relation: string;
+    when: Readonly<Record<string, string>>;
+    from: readonly string[];
+  };
 }
 
 const fieldName = z.string().max(40);
@@ -164,12 +182,23 @@ export const statesManifestSchema = z.object({
         .optional(),
       window: moveWindow.optional(),
       staffOnly: staffOnlyPaths.optional(),
+      closed: staffOnlyPaths.optional(),
     })
     .strict()
     .optional(),
   requests: z
     .record(z.string().regex(/^[a-z][a-z0-9_]{0,39}$/), z.array(stateValue).min(1).max(10))
     .refine((r) => Object.keys(r).length <= 10, "At most 10 requests")
+    .optional(),
+  follows: z
+    .object({
+      relation: fieldName,
+      when: z
+        .record(stateValue, stateValue)
+        .refine((r) => Object.keys(r).length >= 1 && Object.keys(r).length <= 10, "1 to 10 states"),
+      from: z.array(stateValue).min(1).max(20),
+    })
+    .strict()
     .optional(),
 });
 export type StatesManifest = z.infer<typeof statesManifestSchema>;
@@ -328,6 +357,45 @@ export function checkObjectStates(
     checkWindow(states.create.window, `${sp}.create.window`);
     for (const p of staffOnlyPathsOf(states.create.staffOnly)) {
       checkPath(p, `${sp}.create.staffOnly`, "boolean");
+    }
+    for (const p of staffOnlyPathsOf(states.create.closed)) {
+      checkPath(p, `${sp}.create.closed`, "boolean");
+    }
+  }
+  if (states.follows) {
+    const fp = `${sp}.follows`;
+    const f = states.follows;
+    const rel = fieldOf(f.relation);
+    const target =
+      rel?.type === "relation" && !rel.many && rel.to?.startsWith(`${m.id}.`)
+        ? m.objects[rel.to.slice(m.id.length + 1)]
+        : undefined;
+    if (!target?.states) {
+      contract(
+        `${fp}.relation`,
+        `"${f.relation}" must be a relation (one record) of ${name} to another of this extension's objects that declares states`,
+      );
+    } else {
+      const parentStates = new Set(
+        (target.fields[target.states.field]?.options ?? []).map((o) => o.value),
+      );
+      for (const [when, to] of Object.entries(f.when)) {
+        if (!parentStates.has(when)) {
+          contract(`${fp}.when`, `"${when}" is not a state of ${rel?.to ?? f.relation}`);
+        }
+        for (const from of f.from) {
+          if (!isState(from))
+            contract(`${fp}.from`, `"${from}" is not an option of ${states.field}`);
+          else if (
+            !states.moves.some(
+              (move) =>
+                move.to === to && move.by.includes("host") && moveOrigins(move).includes(from),
+            )
+          ) {
+            contract(`${fp}.when`, `${name} needs a host move from "${from}" to "${to}"`);
+          }
+        }
+      }
     }
   }
   for (const [request, targets] of Object.entries(states.requests ?? {})) {

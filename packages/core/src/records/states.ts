@@ -47,6 +47,7 @@ export interface StateRuleDetails extends TransitionRuleBase {
     | "state_window_unknown"
     | "state_staff_only"
     | "state_request_refused"
+    | "state_closed"
     | "no_state";
   /** A window's refusals: when it opens and closes (ISO instants), where they apply. */
   opensAt?: string;
@@ -144,6 +145,44 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       }
       const to = position(toId);
       const base = { fromId, from, to, group: () => null };
+      // Closed to everyone but the host (ADR 0507): no booking into a class that was cancelled
+      // or is over, by staff either. Judged on create, and when a write changes what it reads.
+      const closedPaths = states.create?.closed;
+      if (
+        closedPaths &&
+        write.by !== "host" &&
+        (before === null || ruleSources({ staffOnly: closedPaths }).some((f) => write.changed(f)))
+      ) {
+        const reader = pathReader(write.ctx, o, after);
+        if (await staffOnlySet(reader, closedPaths)) {
+          throw refuse(
+            write,
+            "state_closed",
+            `${o.label} cannot be made now: what it is for is closed`,
+            [field],
+            to,
+            from,
+          );
+        }
+      }
+      // A customer creates a record only in its initial state, or in one `create.in` lists for
+      // them (ADR 0507): never straight into a later one (a booking made already cancelled).
+      if (
+        before === null &&
+        write.by === "customer" &&
+        toId !== states.initial &&
+        !states.create?.in?.[toId]?.includes("customer")
+      ) {
+        throw refuse(
+          write,
+          "state_move_not_permitted",
+          `A customer creates ${o.label.toLowerCase()} in ${position(states.initial).title} only`,
+          [field],
+          to,
+          null,
+          { by: [] },
+        );
+      }
       // A customer's create meets the create rules, whatever state it starts in (ADR 0503).
       if (before === null && write.by === "customer" && states.create) {
         await customerRules(write, states.create, `Creating ${o.label.toLowerCase()}`, to, null);
@@ -285,6 +324,15 @@ async function customerRefusal(
   };
 }
 
+/** Whether the write's actor is a person (`human`); a context without one is not. */
+function isPerson(ctx: HandlerContext): boolean {
+  try {
+    return ctx.actor === "human";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolves a requested move (`requests`, ADR 0503): when `values` writes a request's name into
  * the state field, returns them with the state the host picks instead, the first of the
@@ -319,9 +367,10 @@ export async function resolveStateRequest(
   for (const to of requests[asked] ?? []) {
     const move = states.moves.find((m) => m.to === to && moveOrigins(m).includes(origin));
     if (!move?.by.includes(by)) continue;
-    // A customer, and the assistant (an AI acting for a member is told apart by its actor,
-    // `assistant`), are resolved by the clock; a person on the staff is not bound.
-    if (by === "customer" || ctx.actor === "assistant") {
+    // A customer, and every staff caller that is not a person (the assistant, an MCP client, an
+    // automation, extension code), are resolved by the clock; a person on the staff is not bound
+    // (ADR 0507; the assistant alone before it, ADR 0503).
+    if (by === "customer" || (by === "staff" && !isPerson(ctx))) {
       const refusal = await customerRefusal(
         ctx,
         object,

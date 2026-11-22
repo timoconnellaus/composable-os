@@ -52,6 +52,7 @@ import { notificationDeliveryOperations } from "./notification-delivery.ts";
 import { orderOperations } from "./order.ts";
 import { organisationOperations } from "./organisation.ts";
 import { personOperations } from "./person.ts";
+import { personWithRecordOperations } from "./person-with-record.ts";
 import { planOperations } from "./plan.ts";
 import { policyOperations } from "./policy.ts";
 import { publicReadOperations } from "./public-read.ts";
@@ -82,6 +83,7 @@ import { voiceOperations } from "./voice.ts";
 // biome-ignore format: one spread per line keeps parallel additions conflict-free.
 export const coreOperations = [
   ...personOperations,
+  ...personWithRecordOperations,
   ...policyOperations,
   ...organisationOperations,
   ...affiliationOperations,

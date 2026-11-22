@@ -119,7 +119,7 @@ describe("bookings pack (test host)", () => {
       cancel: "cancelled",
       ended: { field: "state", in: ["ended"] },
       closures: { object: "closure", from: "fromDate", until: "untilDate" },
-      horizonDays: 56,
+      horizonDays: 57,
       horizonAtLeast: { object: "programs.classtype", field: "opensDays" },
     });
   });
@@ -149,7 +149,15 @@ describe("bookings pack (test host)", () => {
         minutesBefore: { field: "class.classType.closesMinutes", setting: "closesMinutes" },
       },
     });
-    expect(states?.create?.staffOnly).toEqual(["class.classType.staffOnly", "class.closed"]);
+    expect(states?.create?.staffOnly).toEqual("class.classType.staffOnly");
+    // A class that is not scheduled binds staff too (ADR 0507).
+    expect(states?.create?.closed).toEqual("class.closed");
+    // A class the host cancels moves its live bookings with it.
+    expect(states?.follows).toEqual({
+      relation: "class",
+      when: { cancelled: "cancelled_by_us" },
+      from: ["booked", "waiting", "pending"],
+    });
     // Nothing a customer does creates a booking waiting or held (steps 5 and 8).
     expect(states?.create?.in).toEqual({ waiting: ["host"], pending: ["host"] });
     expect(states?.requests).toEqual({ cancel: ["cancelled", "late_cancelled"] });
@@ -197,6 +205,32 @@ describe("bookings pack (test host)", () => {
     // A member writes the class, the state (a cancel) and the holder they choose; never what
     // pays for it or whether it spends.
     expect(booking?.customer?.write).toEqual(["class", "state", "holder"]);
+    // Which class and which holder are set when it is made, never after (ADR 0507).
+    expect(booking?.customer?.createOnly).toEqual(["class", "holder"]);
+  });
+
+  it("grants record and my operations by object only, and keeps the booking rules a person's", () => {
+    const m = host().manifest;
+    expect(m.permissions.operations).toEqual([
+      "public.list",
+      "public.get",
+      "capacity.get",
+      "duplicate.check",
+    ]);
+    const rules = m.fields["programs.classtype"] ?? {};
+    for (const name of [
+      "opensDays",
+      "closesMinutes",
+      "lateMinutes",
+      "promotionMinutes",
+      "reminderMinutes",
+      "staffOnly",
+    ]) {
+      expect(rules[name]?.humanOnly, name).toBe(true);
+      expect(m.settings[name === "staffOnly" ? "lateMinutes" : name]?.humanOnly).toBe(true);
+    }
+    expect(m.objects.class?.fields.places?.required).toBe(true);
+    expect(m.objects.class?.fields.timezone?.required).toBe(true);
   });
 
   it("opens to members and the public only what the timetable needs", () => {
@@ -383,43 +417,102 @@ describe("bookings pack (test host)", () => {
     expect(h.calls.some((c) => c.operation === "record.list")).toBe(false);
   });
 
-  it("bookFor books a walk-in as staff, paid at the desk, and records who booked", async () => {
+  it("bookFor books a walk-in and their booking in one call, after the duplicate check", async () => {
+    let asked: Record<string, unknown> | undefined;
     const h = host({
-      "person.create": (input) => ({ id: "per_walkin", ...input }),
+      "person.createWith": (input) => {
+        asked = input;
+        return { personId: "per_walkin", id: "bkg_new" };
+      },
+      "record.get": (input) => ({ id: input.id, values: { holder: null } }),
     });
     const out = await h.runTool(
       "bookFor",
       { classId: "cls_1", newPerson: { givenName: "Wal" }, paidAtDesk: true, note: "cash" },
       { caller: STAFF },
     );
-    expect(out).toMatchObject({ result: "booked", personId: "per_walkin", classId: "cls_1" });
-    const created = h.calls.find((c) => c.operation === "record.create");
-    expect(created?.input).toEqual({
+    expect(out).toMatchObject({ result: "booked", personId: "per_walkin", bookingId: "bkg_new" });
+    expect(asked).toEqual({
+      person: { givenName: "Wal" },
       object: "bookings.booking",
-      values: {
-        class: "cls_1",
-        person: "per_walkin",
-        paidOtherwise: true,
-        bookedBy: "usr_desk",
-        note: "cash",
+      field: "person",
+      values: { class: "cls_1", paidOtherwise: true, bookedBy: "usr_desk", note: "cash" },
+      allowDuplicates: false,
+    });
+    expect(h.calls.some((c) => c.operation === "person.create")).toBe(false);
+    // A possible duplicate is answered with who, not made twice.
+    const dup = host({
+      "person.createWith": () => {
+        throw new ExtensionToolError("conflict", "May be someone on file", {
+          rule: "possible_duplicates",
+          people: [{ id: "per_ann", title: "Ann", reasons: ["Same name only"] }],
+        });
       },
     });
+    expect(
+      await dup.runTool(
+        "bookFor",
+        { classId: "cls_1", newPerson: { givenName: "Ann" } },
+        { caller: STAFF },
+      ),
+    ).toMatchObject({
+      result: "refused",
+      reason: "possible_duplicates",
+      people: [{ id: "per_ann", name: "Ann", reasons: ["Same name only"] }],
+    });
+    // Someone on file is booked by id.
+    const known = host();
+    expect(
+      await known.runTool("bookFor", { classId: "cls_1", personId: "per_ann" }, { caller: STAFF }),
+    ).toMatchObject({ result: "booked", personId: "per_ann" });
     await expect(h.runTool("bookFor", { classId: "cls_1" }, { caller: STAFF })).rejects.toThrow(
       /personId/,
     );
   });
 
-  it("cancelFor cancels from booked, giving the use back or keeping it", async () => {
+  it("findPeople looks a person up by name or email", async () => {
+    const h = host({
+      "person.list": () => ({
+        items: [{ id: "per_ann", displayName: "Ann", primaryEmail: "ann@example.com" }],
+      }),
+    });
+    expect(await h.runTool("findPeople", { query: "an" }, { caller: STAFF })).toEqual({
+      people: [{ id: "per_ann", name: "Ann", email: "ann@example.com" }],
+    });
+  });
+
+  it("cancelFor asks the host to cancel (in time or late by its clock), or keeps the use", async () => {
     const h = host();
     expect(
       await h.runTool("cancelFor", { bookingId: "bkg_1", keepUse: true }, { caller: STAFF }),
-    ).toEqual({ result: "late_cancelled", bookingId: "bkg_1" });
+    ).toEqual({ result: "late_cancelled", bookingId: "bkg_1", late: true });
     const update = h.calls.find((c) => c.operation === "record.update");
     expect(update?.input).toMatchObject({ from: "booked", values: { state: "late_cancelled" } });
     // Already moved on: the host's conflict, reported as changed.
     expect(await h.runTool("cancelFor", { bookingId: "bkg_1" }, { caller: STAFF })).toMatchObject({
       result: "refused",
       reason: "changed",
+    });
+    const asks = host();
+    await asks.runTool("cancelFor", { bookingId: "bkg_1" }, { caller: STAFF });
+    expect(asks.calls.find((c) => c.operation === "record.update")?.input).toMatchObject({
+      values: { state: "cancel" },
+    });
+  });
+
+  it("returnUse gives the use back whatever the time, with the reason, and is destructive", async () => {
+    const h = host();
+    expect(host().manifest.tools.returnUse?.risk).toBe("destructive");
+    expect(
+      await h.runTool(
+        "returnUse",
+        { bookingId: "bkg_1", reason: "Ill on the day" },
+        { caller: STAFF },
+      ),
+    ).toEqual({ result: "cancelled", bookingId: "bkg_1", late: false });
+    expect(h.calls.find((c) => c.operation === "record.update")?.input).toMatchObject({
+      from: "booked",
+      values: { state: "cancelled", note: "Use given back: Ill on the day" },
     });
   });
 

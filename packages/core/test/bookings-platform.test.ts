@@ -1,5 +1,10 @@
-// Stage 31a step 3 (ADRs 0505 and 0506), on a fixture class type, class, booking and pass: what
-// the Bookings pack needed of the platform. A window's numbers are read two relations away (the
+// Stage 31a step 3 (ADRs 0505 to 0507), on a fixture class type, class, booking and pass: what
+// the Bookings pack needed of the platform. Since the review (ADR 0507): a class cancelled moves
+// its live bookings with it (`follows`), a closed class binds staff too (`create.closed`), a
+// customer creates only in the initial state and sets create-only fields only then, an unreadable
+// rule source is closed rather than the organisation's default, an empty zone is the
+// organisation's, a request is resolved by the clock for every caller but a person, a
+// `humanOnly` field or setting waits for a person, and `state.resolve` is granted by object. A window's numbers are read two relations away (the
 // booking's class's type, as Bookings' rules sit on Programs' class type), and when that is empty
 // from the extension's setting (the organisation's default); a staff-only rule is any of several
 // booleans, a formula among them (a class that is not scheduled); and a spender marked paid
@@ -38,7 +43,9 @@ const lateFrom = {
 
 const fixture = (id: string) =>
   manifest(id, {
-    settings: { lateMinutes: { type: "number", label: "Late from", default: 60 } },
+    settings: {
+      lateMinutes: { type: "number", label: "Late from", default: 60, humanOnly: true },
+    },
     objects: {
       kind: {
         label: "Kind",
@@ -46,7 +53,7 @@ const fixture = (id: string) =>
         titleField: "name",
         fields: {
           name: { type: "text", label: "Name", required: true },
-          lateMinutes: { type: "number", label: "Late from" },
+          lateMinutes: { type: "number", label: "Late from", humanOnly: true },
           staffOnly: { type: "boolean", label: "Staff only" },
         },
       },
@@ -58,6 +65,7 @@ const fixture = (id: string) =>
           name: { type: "text", label: "Name", required: true },
           kind: { type: "relation", label: "Kind", to: `${id}.kind` },
           startsAt: { type: "datetime", label: "Starts at" },
+          tz: { type: "timezone", label: "Zone" },
           places: { type: "number", label: "Places" },
           state: {
             type: "select",
@@ -93,7 +101,7 @@ const fixture = (id: string) =>
           state: {
             type: "select",
             label: "State",
-            options: ["booked", "cancelled", "late_cancelled"].map((value) => ({
+            options: ["booked", "cancelled", "late_cancelled", "cancelled_by_us"].map((value) => ({
               value,
               label: value,
             })),
@@ -102,7 +110,13 @@ const fixture = (id: string) =>
         states: {
           field: "state",
           initial: "booked",
-          create: { staffOnly: ["klass.kind.staffOnly", "klass.closed"] },
+          create: {
+            staffOnly: "klass.kind.staffOnly",
+            closed: "klass.closed",
+            // Seven local days before, in the class's zone (the organisation's when empty).
+            window: { from: { at: "klass.startsAt", daysBefore: 7, zone: "klass.tz" } },
+          },
+          follows: { relation: "klass", when: { cancelled: "cancelled_by_us" }, from: ["booked"] },
           requests: { cancel: ["cancelled", "late_cancelled"] },
           moves: [
             {
@@ -119,6 +133,7 @@ const fixture = (id: string) =>
               final: true,
               window: { from: lateFrom, until: "klass.startsAt" },
             },
+            { from: "booked", to: "cancelled_by_us", by: ["host"], final: true },
           ],
         },
         claims: { on: "klass", confirmed: ["booked"] },
@@ -127,7 +142,7 @@ const fixture = (id: string) =>
             person: "person",
             holder: "holder",
             spendIn: ["booked"],
-            returnIn: ["cancelled"],
+            returnIn: ["cancelled", "cancelled_by_us"],
             at: "klass.startsAt",
             waived: "paidOtherwise",
           },
@@ -372,8 +387,8 @@ describe("staff-only rules: any of several, a formula among them", () => {
       { object: KLASS, id: cancelled, values: { state: "cancelled" } },
       at(T),
     );
-    expect(await refused(make(cancelled))).toMatchObject({ details: { rule: "state_staff_only" } });
-    // Staff are not bound.
+    expect(await refused(make(cancelled))).toMatchObject({ details: { rule: "state_closed" } });
+    // Staff are not bound by staff-only...
     await expect(
       invoke(
         "record.create",
@@ -381,6 +396,272 @@ describe("staff-only rules: any of several, a formula among them", () => {
         at(T),
       ),
     ).resolves.toMatchObject({ id: expect.any(String) });
+    // ...but a closed class binds them too (ADR 0507).
+    expect(
+      await refused(
+        invoke(
+          "record.create",
+          { object: BOOKING, values: { klass: cancelled, person: personId, holder: passId } },
+          at(T),
+        ),
+      ),
+    ).toMatchObject({ details: { rule: "state_closed" } });
+  });
+
+  it("an unreadable rule source is closed, not the organisation's default", async () => {
+    const make = (klassId: string) =>
+      fixtures.invoke(
+        "fixture.bkpCustomerCreate",
+        { values: { klass: klassId, person: personId } },
+        at(T),
+      );
+    const kind = await create(KIND, { name: unique("Kind"), lateMinutes: 600 });
+    const id = await create(KLASS, {
+      name: unique("Class"),
+      kind,
+      startsAt: new Date(T + 3 * 60 * MINUTE).toISOString(),
+      places: 5,
+    });
+    const booked = await deskBooking(id);
+    await invoke("record.delete", { object: KIND, id: kind }, at(T));
+    // The kind in Trash: its staff-only flag counts as set, and its late time is not known.
+    expect(await refused(make(id))).toMatchObject({ details: { rule: "state_staff_only" } });
+    expect(
+      await refused(fixtures.invoke("fixture.bkpPreview", { id: booked }, at(T))),
+    ).toMatchObject({ details: { rule: "state_window_unknown" } });
+  });
+
+  it("a customer creates only in the initial state", async () => {
+    const open = await klass(3 * 60 * MINUTE);
+    for (const state of ["cancelled", "late_cancelled", "cancelled_by_us"]) {
+      expect(
+        await refused(
+          fixtures.invoke(
+            "fixture.bkpCustomerCreate",
+            { values: { klass: open, person: personId, state } },
+            at(T),
+          ),
+        ),
+      ).toMatchObject({ details: { rule: "state_move_not_permitted" } });
+    }
+  });
+
+  it("an empty zone is the organisation's, not an unknown window", async () => {
+    // Opens 7 days before in the class's zone; the class has none: the organisation's is used.
+    const far = await klass(10 * 24 * 60 * MINUTE);
+    expect(
+      await refused(
+        fixtures.invoke(
+          "fixture.bkpCustomerCreate",
+          { values: { klass: far, person: personId } },
+          at(T),
+        ),
+      ),
+    ).toMatchObject({ details: { rule: "state_window_not_open" } });
+  });
+});
+
+describe("a class cancelled moves its bookings with it (follows)", () => {
+  it("in the class's batch: places released, uses given back", async () => {
+    const left = await loadPassLeft();
+    const id = await klass(5 * 60 * MINUTE);
+    const a = await create(BOOKING, { klass: id, person: personId });
+    expect(await loadPassLeft()).toBe(left - 1);
+    const desk = await deskBooking(id);
+    await invoke("record.update", { object: KLASS, id, values: { state: "cancelled" } }, at(T));
+    const state = async (b: string) =>
+      (await invoke("record.get", { object: BOOKING, id: b }, context(admin))).values.state;
+    expect(await state(a)).toBe("cancelled_by_us");
+    expect(await state(desk)).toBe("cancelled_by_us");
+    expect(await loadPassLeft()).toBe(left);
+    const counter = await env.DB.prepare(
+      "SELECT held, taken FROM core_capacity WHERE object_type = ? AND record_id = ?",
+    )
+      .bind(KLASS, id)
+      .first<{ held: number; taken: number }>();
+    expect(counter).toMatchObject({ held: 0, taken: 0 });
+  });
+});
+
+describe("a requested move is resolved by the clock for every caller but a person", () => {
+  it("the assistant, MCP, an automation and extension code get the late cancel; a person does not", async () => {
+    const preview = defineOperation({
+      name: "fixture.bkpStaffPreview",
+      description: "Test fixture: the state a staff caller's cancel would enter now.",
+      input: z.object({ id: z.string() }),
+      output: z.object({ state: z.unknown() }),
+      permission: "records:read",
+      risk: "read",
+      async handler(input, ctx) {
+        const object = requireExtensionObject(BOOKING);
+        const record = await loadRecord(ctx, object, input.id);
+        const values = await resolveStateRequest(
+          ctx,
+          object,
+          record?.values ?? null,
+          { state: "cancel" },
+          "staff",
+        );
+        return { state: values.state };
+      },
+    });
+    const staffFixtures = createInvoker(createRegistry([...coreRegistry.list(), preview]));
+    const id = await deskBooking(await klass(30 * MINUTE));
+    const as = async (actor: "human" | "assistant" | "mcp" | "automation" | "extension") =>
+      (
+        (await staffFixtures.invoke(
+          "fixture.bkpStaffPreview",
+          { id },
+          {
+            ...at(T),
+            actor,
+            ...(actor === "extension"
+              ? {
+                  extension: {
+                    id: ext,
+                    permissions: {
+                      read: [],
+                      write: [],
+                      operations: ["fixture.bkpStaffPreview"],
+                      modules: ["ops" as const],
+                    },
+                  },
+                }
+              : {}),
+          },
+        )) as { state: string }
+      ).state;
+    expect(await as("human")).toBe("cancelled");
+    for (const actor of ["assistant", "mcp", "automation", "extension"] as const) {
+      expect(await as(actor)).toBe("late_cancelled");
+    }
+  });
+});
+
+describe("a person's own fields and settings (humanOnly)", () => {
+  it("a person changes them; any other actor's change waits for a person", async () => {
+    const kind = await create(KIND, { name: unique("Kind") });
+    await expect(
+      invoke("record.update", { object: KIND, id: kind, values: { lateMinutes: 30 } }, at(T)),
+    ).resolves.toBeTruthy();
+    for (const actor of ["assistant", "mcp", "automation"] as const) {
+      expect(
+        await refused(
+          invoke(
+            "record.update",
+            { object: KIND, id: kind, values: { lateMinutes: 5 } },
+            { ...at(T), actor },
+          ),
+        ),
+      ).toMatchObject({ code: "pending_approval" });
+    }
+    // A field that is not human-only is not held.
+    await expect(
+      invoke(
+        "record.update",
+        { object: KIND, id: kind, values: { name: unique("Renamed") } },
+        { ...at(T), actor: "assistant" },
+      ),
+    ).resolves.toBeTruthy();
+    const read = await invoke("record.get", { object: KIND, id: kind }, context(admin));
+    expect(read.values.lateMinutes).toBe(30);
+    // The organisation's setting: a person may; the assistant asks.
+    await expect(
+      invoke("extensionSettings.update", { extension: ext, values: { lateMinutes: 45 } }, at(T)),
+    ).resolves.toBeTruthy();
+    expect(
+      await refused(
+        invoke(
+          "extensionSettings.update",
+          { extension: ext, values: { lateMinutes: 5 } },
+          { ...at(T), actor: "assistant" },
+        ),
+      ),
+    ).toMatchObject({ code: "pending_approval" });
+    await setting(null);
+  });
+});
+
+describe("state.resolve", () => {
+  it("knows only the object's own requests, and is granted to an extension by object", async () => {
+    const id = await deskBooking(await klass(5 * 60 * MINUTE));
+    expect(
+      await refused(
+        invoke("state.resolve", { object: BOOKING, id, request: "constructor" }, at(T)),
+      ),
+    ).toMatchObject({ code: "invalid_input" });
+    expect(
+      await invoke("state.resolve", { object: BOOKING, id, request: "cancel" }, at(T)),
+    ).toMatchObject({ state: "cancelled" });
+    // Another extension's code, with no grant on the object, is refused.
+    expect(
+      await refused(
+        invoke(
+          "state.resolve",
+          { object: BOOKING, id, request: "cancel" },
+          {
+            ...at(T),
+            actor: "extension",
+            extension: {
+              id: "otherext",
+              permissions: { read: [], write: [], operations: [], modules: ["ops"] },
+            },
+          },
+        ),
+      ),
+    ).toMatchObject({ code: "forbidden" });
+  });
+});
+
+describe("create-only customer fields", () => {
+  it("a customer's later write of one is refused, at the seam and in the final check", async () => {
+    const { assertVisibleWrites } = await import("../src/index.ts");
+    const { updateVisible } = await import("../src/visibility/writes.ts");
+    const { setExtensionObjects, listObjects } = await import("../src/fields/index.ts");
+    setExtensionObjects(
+      new Map(
+        listObjects().map((o) => [
+          o.name,
+          o.name === BOOKING
+            ? {
+                ...o,
+                customer: {
+                  field: "person",
+                  read: ["klass", "state", "holder"],
+                  write: ["klass", "state", "holder"],
+                  createOnly: ["klass", "holder"],
+                },
+              }
+            : o,
+        ]),
+      ),
+    );
+    const principal = {
+      kind: "customer" as const,
+      customerId: `cus_${unique("c")}`,
+      personId,
+    };
+    const writer = {
+      reader: { db: context(admin).db.query, principal },
+      host: {} as never,
+      mark: () => {},
+    };
+    for (const values of [{ klass: "rec_other" }, { holder: "rec_pass" }]) {
+      await expect(updateVisible(writer, BOOKING, "rec_x", values)).rejects.toMatchObject({
+        code: "invalid_input",
+      });
+    }
+    await expect(
+      assertVisibleWrites({ db: context(admin).db.query, principal }, [
+        {
+          object: BOOKING,
+          id: "rec_x",
+          action: "update",
+          before: { klass: "rec_a" },
+          after: { klass: "rec_b" },
+        },
+      ]),
+    ).rejects.toMatchObject({ code: "invalid_input" });
   });
 });
 

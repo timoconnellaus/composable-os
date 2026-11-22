@@ -18,7 +18,9 @@ import type {
   classGet,
   classList,
   day,
+  findPeople,
   mine,
+  returnUse,
   timetable,
 } from "../tools.ts";
 
@@ -38,6 +40,8 @@ export type BookingsOperations = {
   "x.bookings.classList": { kind: "query" } & Io<typeof classList>;
   "x.bookings.bookFor": { kind: "mutation" } & Io<typeof bookFor>;
   "x.bookings.cancelFor": { kind: "mutation" } & Io<typeof cancelFor>;
+  "x.bookings.returnUse": { kind: "mutation" } & Io<typeof returnUse>;
+  "x.bookings.findPeople": { kind: "query" } & Io<typeof findPeople>;
 };
 
 type Name = keyof BookingsOperations & string;
@@ -52,6 +56,8 @@ export type BookResult = Out<"x.bookings.book">;
 export type CancelResult = Out<"x.bookings.cancel">;
 export type DayView = Out<"x.bookings.day">;
 export type ClassListView = Out<"x.bookings.classList">;
+export type BookForResult = Out<"x.bookings.bookFor">;
+export type FoundPeople = Out<"x.bookings.findPeople">;
 
 /** The client of every operation this entry calls (ADR 0453). */
 export type BookingsClient = PackClient<BookingsOperations>;
@@ -153,6 +159,8 @@ export const BOOKINGS_HOOKS_CALL = {
   useClassList: ["x.bookings.classList"],
   useBookFor: ["x.bookings.bookFor"],
   useCancelFor: ["x.bookings.cancelFor"],
+  useReturnUse: ["x.bookings.returnUse"],
+  useFindPeople: ["x.bookings.findPeople"],
 } as const;
 
 /**
@@ -207,9 +215,20 @@ function allBookingsHooks(
     useBookFor() {
       return useMutation(api.mutation("x.bookings.bookFor"));
     },
-    /** Staff: cancel a booking, giving the use back or keeping it. */
+    /** Staff: cancel a booking, in time or late by the host's clock. */
     useCancelFor() {
       return useMutation(api.mutation("x.bookings.cancelFor"));
+    },
+    /** A person on the staff: give a booking's use back after the late point (destructive). */
+    useReturnUse() {
+      return useMutation(api.mutation("x.bookings.returnUse"));
+    },
+    /** Staff: People on file matching a name or email (at least two letters). */
+    useFindPeople(input: In<"x.bookings.findPeople">) {
+      return useQuery({
+        ...api.query("x.bookings.findPeople", input),
+        enabled: input.query.trim().length >= 2,
+      });
     },
   };
 }

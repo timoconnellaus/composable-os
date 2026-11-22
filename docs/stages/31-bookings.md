@@ -743,10 +743,17 @@ the spec one way, or decided what it left open:
   places), the coach role, attendance, the waitlist, the family link, moves, cancelling a class,
   drop-ins, messages, the dashboard and the import. The timetable shows the class's own title,
   which is its class type's name unless staff rename it (`titleDefault`).
-- **Proof**: the pack's own tests (14), the real host with a fixture pass named
-  `memberships.pass` (10), the platform pieces on a fixture (5), the block lint, and one e2e test
-  per journey (a member books from the timetable and cancels in time; staff book a walk-in into a
-  staff-only class).
+- **Proof**: the pack's own tests (17), the real host with a fixture pass `bkfixture.pass` (16),
+  the platform pieces on a fixture (13), the block lint, and one e2e test per journey (a member
+  books from the timetable and cancels in time; staff book a walk-in into a staff-only class).
+- **After the independent review** ([ADR 0507](../adr/0507-what-the-bookings-review-needed-of-the-platform.md)):
+  a class the host cancels cancels its bookings in its batch (uses back); a closed class binds
+  staff; a member's class and holder are create-only and a member creates only `booked`; a trashed
+  class type closes its classes; every class has a zone and places; `cancelFor` is decided by the
+  clock and `returnUse` (destructive) gives a use back late; walk-ins are made with their booking in
+  one batch after the duplicate check; the booking rules are a person's (`humanOnly`); permissions
+  by object only. This replaces the notes above on the "a person only" settings and on staff
+  cancelling a class: the host's cancels cascade now; staff's own cancel is step 7's, with emails.
 
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.

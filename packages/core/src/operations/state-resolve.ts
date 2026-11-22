@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { NotFoundError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
+import type { ObjectDefinition } from "../fields/types.ts";
 import { defineOperation } from "../operation.ts";
 import { callerMover } from "../records/lifecycle.ts";
 import { resolveStateRequest } from "../records/states.ts";
@@ -41,20 +42,34 @@ export const stateResolve = defineOperation({
   async handler(input, ctx) {
     const object = getObject(input.object);
     const field = object?.states?.field;
-    if (!object || !field || !object.states?.requests?.[input.request]) {
+    const requests = object?.states?.requests;
+    // Its own property only: `constructor` and the like are not requests.
+    if (!object || !field || !requests || !Object.hasOwn(requests, input.request)) {
       throw unknownObject(input.object);
     }
     const caller = ctx.onBehalfOf ?? ctx.principal;
-    if (caller.kind !== "staff") {
-      // Only the caller's own record; another's (or none) is a record that is not there.
-      // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view.
-      const own = (await (ctx.db as any)
-        .selectFrom(ownedSource({ principal: caller }, object))
-        .select("id")
-        .where("id", "=", input.id)
-        .executeTakeFirst()) as AnyRow | undefined;
-      if (!own) throw new NotFoundError(object.name, input.id);
+    if (caller.kind === "staff") {
+      // Staff read with their own scope (the pipeline has checked the calling extension's grant
+      // on the object, ADR 0507); nothing is read for them that they could not read themselves.
+      const record = await loadRecord(ctx, object, input.id);
+      if (!record) throw new NotFoundError(object.name, input.id);
+      const resolved = await resolveStateRequest(
+        ctx,
+        object,
+        record.values,
+        { [field]: input.request },
+        callerMover(ctx),
+      );
+      return describe(object, field, String(resolved[field]), record.values[field]);
     }
+    // A customer: only their own record; another's (or none) is a record that is not there.
+    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view.
+    const own = (await (ctx.db as any)
+      .selectFrom(ownedSource({ principal: caller }, object))
+      .select("id")
+      .where("id", "=", input.id)
+      .executeTakeFirst()) as AnyRow | undefined;
+    if (!own) throw new NotFoundError(object.name, input.id);
     // The host's own reads from here, as the write's are (the whole record, the class its window
     // names and that class's type): org-wide, with the caller still the mover. A prototype, not a
     // spread, so the context's guarded getters (`actor` on a customer's call) are not touched.
@@ -71,15 +86,18 @@ export const stateResolve = defineOperation({
       { [field]: input.request },
       callerMover(host),
     );
-    const state = String(resolved[field]);
-    const choices = object.fields.find((f) => f.name === field)?.options?.choices ?? [];
-    const from = record.values[field];
-    return {
-      state,
-      label: choices.find((c) => c.value === state)?.label ?? state,
-      from: typeof from === "string" ? from : null,
-    };
+    return describe(object, field, String(resolved[field]), record.values[field]);
   },
 });
+
+/** The answer: the state, its label, and where the record is now. */
+function describe(object: ObjectDefinition, field: string, state: string, from: unknown) {
+  const choices = object.fields.find((f) => f.name === field)?.options?.choices ?? [];
+  return {
+    state,
+    label: choices.find((c) => c.value === state)?.label ?? state,
+    from: typeof from === "string" ? from : null,
+  };
+}
 
 export const stateResolveOperations = [stateResolve] as const;

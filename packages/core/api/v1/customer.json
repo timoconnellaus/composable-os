@@ -2589,9 +2589,12 @@
                   "full",
                   "too_late",
                   "not_found",
-                  "changed"
+                  "changed",
+                  "not_running",
+                  "person_exists",
+                  "possible_duplicates"
                 ],
-                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. staff_only: this class is booked by the gym (or is not running). no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -2605,6 +2608,29 @@
               },
               "closesAt": {
                 "type": ["string", "null"]
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["id", "name", "reasons"],
+                  "additionalProperties": false
+                },
+                "description": "For person_exists and possible_duplicates: who is already on file"
               }
             },
             "required": ["result", "reason", "message", "detail", "opensAt", "closesAt"],
@@ -2692,9 +2718,12 @@
                   "full",
                   "too_late",
                   "not_found",
-                  "changed"
+                  "changed",
+                  "not_running",
+                  "person_exists",
+                  "possible_duplicates"
                 ],
-                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. staff_only: this class is booked by the gym (or is not running). no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -2708,6 +2737,29 @@
               },
               "closesAt": {
                 "type": ["string", "null"]
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["id", "name", "reasons"],
+                  "additionalProperties": false
+                },
+                "description": "For person_exists and possible_duplicates: who is already on file"
               }
             },
             "required": ["result", "reason", "message", "detail", "opensAt", "closesAt"],

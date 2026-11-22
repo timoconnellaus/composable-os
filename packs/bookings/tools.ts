@@ -136,10 +136,16 @@ const refusalReason = z
     "too_late",
     "not_found",
     "changed",
+    "not_running",
+    "person_exists",
+    "possible_duplicates",
   ])
   .describe(
     "not_open: booking has not opened yet (see opensAt). closed: booking has closed. " +
-      "staff_only: this class is booked by the gym (or is not running). no_use: nothing the " +
+      "not_running: the class was cancelled or is over. person_exists: someone on file has that " +
+      "email (see people). possible_duplicates: people on file may be this person (see people; " +
+      "book one of them, or ask again with confirmNew). " +
+      "staff_only: this class is booked by the gym. no_use: nothing the " +
       "member holds can pay for it (see detail). already_booked: they already have a place. " +
       "full: no places left. too_late: the class has started, so it cannot be cancelled. " +
       "not_found: no such class or booking of theirs. changed: it changed meanwhile; try again.",
@@ -155,11 +161,19 @@ const refused = z.object({
     .describe("The host's reason for an allowance refusal (no_uses_left, ended, not_covered…)"),
   opensAt: z.string().nullable(),
   closesAt: z.string().nullable(),
+  people: z
+    .array(z.object({ id: z.string(), name: z.string(), reasons: z.array(z.string()) }))
+    .optional()
+    .describe("For person_exists and possible_duplicates: who is already on file"),
 });
 type Refused = z.infer<typeof refused>;
 
 /** A host refusal as a member can be told it, or the error itself when it is not one. */
-function refusalOf(error: unknown, what: "book" | "cancel"): Refused {
+function refusalOf(
+  error: unknown,
+  what: "book" | "cancel",
+  expect?: "cancelled" | "late_cancelled",
+): Refused {
   if (!(error instanceof OpsCallError)) throw error;
   const details = (error.details ?? {}) as Record<string, unknown>;
   const rule = typeof details.rule === "string" ? details.rule : "";
@@ -178,7 +192,35 @@ function refusalOf(error: unknown, what: "book" | "cancel"): Refused {
     return out("not_found", what === "book" ? "That class cannot be booked." : "No such booking.");
   }
   if (rule === "state_window_not_open") {
+    // A cancel asked for as late, before the late point: it is in time, say so (not "opens").
+    if (what === "cancel" && expect === "late_cancelled") {
+      return out(
+        "changed",
+        "It is not late yet: cancelling now is in time and gives the class back. Look again.",
+      );
+    }
     return out("not_open", "Booking for this class has not opened yet.");
+  }
+  if (rule === "state_closed") {
+    return out("not_running", "This class was cancelled or is over: it cannot be booked.");
+  }
+  if (rule === "person_exists" || rule === "possible_duplicates") {
+    const people = Array.isArray(details.people)
+      ? (details.people as { id?: unknown; title?: unknown; reasons?: unknown }[]).map((p) => ({
+          id: String(p.id ?? ""),
+          name: String(p.title ?? ""),
+          reasons: Array.isArray(p.reasons) ? p.reasons.map(String) : [],
+        }))
+      : [];
+    return {
+      ...out(
+        rule,
+        rule === "person_exists"
+          ? "Someone on file already has that email address: book them instead."
+          : "This may be someone already on file: book them, or confirm this is someone new.",
+      ),
+      people,
+    };
   }
   if (rule === "state_window_closed" || rule === "state_window_unknown") {
     return what === "book"
@@ -383,7 +425,7 @@ export const cancel = defineTool({
       });
       return say(after.values.state === "late_cancelled" ? "late_cancelled" : "cancelled", true);
     } catch (error) {
-      const refusal = refusalOf(error, "cancel");
+      const refusal = refusalOf(error, "cancel", input.expect);
       // Asked for "in time" and it is now late: say so, so they can confirm the late cancel.
       if (refusal.reason === "too_late" && input.expect === "cancelled") {
         return {
@@ -482,13 +524,46 @@ export const mine = defineTool({
 
 // --- Staff ----------------------------------------------------------------------------------------
 
+export const findPeople = defineTool({
+  description:
+    "Staff look a person up before booking them: People on file whose name or email contains " +
+    "the text, at most 10, with their email. Use it at the desk before adding a walk-in, so a " +
+    "member is booked as themselves. Read-only.",
+  input: z.object({ query: z.string().trim().min(2).max(100) }),
+  output: z.object({
+    people: z.array(
+      z.object({ id: z.string(), name: z.string().nullable(), email: z.string().nullable() }),
+    ),
+  }),
+  risk: "read",
+  async handler(input, ctx) {
+    const found = new Map<string, { id: string; name: string | null; email: string | null }>();
+    for (const filter of [
+      { field: "displayName", op: "contains", value: input.query },
+      { field: "emails", op: "contains", value: input.query.toLowerCase() },
+    ]) {
+      const page = await ctx.ops.call<{
+        items: { id: string; displayName?: string | null; primaryEmail?: string | null }[];
+      }>("person.list", { filter, limit: 10 });
+      for (const p of page.items) {
+        if (found.size >= 10) break;
+        found.set(p.id, { id: p.id, name: p.displayName ?? null, email: p.primaryEmail ?? null });
+      }
+    }
+    return { people: [...found.values()] };
+  },
+});
+
 export const bookFor = defineTool({
   description:
-    "Staff book a person into a class: a member, or a walk-in (give `newPerson` to add them). " +
-    "Staff are not bound by the booking windows or by 'booked by staff only'; the places, one " +
-    "booking per person per class and the use it spends still hold. With `paidAtDesk` it spends " +
-    "no use (they paid at the desk); otherwise the host spends one of the person's own " +
-    "memberships or passes (or `holderId`). Audited as the staff member who booked.",
+    "Staff book a person into a class: someone on file (`personId`; look them up with " +
+    "findPeople first), or a walk-in not on file yet (`newPerson`). A walk-in and their booking " +
+    "are made in one batch, so a refused booking leaves nobody behind; the platform's duplicate " +
+    "check runs first, and a match is answered (person_exists or possible_duplicates, with who) " +
+    "rather than made twice: book them, or pass confirmNew when you checked it is someone else. " +
+    "Staff are not bound by the booking windows or by 'booked by staff only'; a class that was " +
+    "cancelled or is over, the places, one booking per person per class and the use it spends " +
+    "still hold. With `paidAtDesk` it spends no use (they paid at the desk). Audited.",
   input: z.object({
     classId: z.string().min(1).max(64),
     personId: z.string().min(1).max(64).optional(),
@@ -500,6 +575,10 @@ export const bookFor = defineTool({
       })
       .optional()
       .describe("A walk-in who is not on file yet"),
+    confirmNew: z
+      .boolean()
+      .default(false)
+      .describe("The possible duplicates were checked: this is someone new"),
     holderId: z.string().min(1).max(64).optional(),
     paidAtDesk: z.boolean().default(false),
     note: z.string().max(2000).optional(),
@@ -510,34 +589,51 @@ export const bookFor = defineTool({
     if (!input.personId && !input.newPerson) {
       throw new OpsCallError("invalid_input", "Give personId, or newPerson for a walk-in");
     }
-    let personId = input.personId;
-    if (!personId && input.newPerson) {
-      const person = await ctx.ops.call<{ id: string }>("person.create", {
-        givenName: input.newPerson.givenName,
-        ...(input.newPerson.familyName ? { familyName: input.newPerson.familyName } : {}),
-        ...(input.newPerson.email ? { emails: [{ email: input.newPerson.email }] } : {}),
-      });
-      personId = person.id;
-    }
     const staff = ctx.caller?.kind === "staff" ? ctx.caller : null;
+    const values = {
+      class: input.classId,
+      ...(input.holderId ? { holder: input.holderId } : {}),
+      ...(input.paidAtDesk ? { paidOtherwise: true } : {}),
+      ...(staff?.userId ? { bookedBy: staff.userId } : {}),
+      ...(input.note ? { note: input.note } : {}),
+    };
     try {
-      const made = await ctx.ops.call<RecordShape>("record.create", {
-        object: BOOKING,
-        values: {
-          class: input.classId,
-          person: personId,
-          ...(input.holderId ? { holder: input.holderId } : {}),
-          ...(input.paidAtDesk ? { paidOtherwise: true } : {}),
-          ...(staff?.userId ? { bookedBy: staff.userId } : {}),
-          ...(input.note ? { note: input.note } : {}),
+      if (input.personId) {
+        const made = await ctx.ops.call<RecordShape>("record.create", {
+          object: BOOKING,
+          values: { ...values, person: input.personId },
+        });
+        return {
+          result: "booked" as const,
+          bookingId: made.id,
+          classId: input.classId,
+          personId: input.personId,
+          holderId: text(made.values.holder),
+        };
+      }
+      const walkIn = input.newPerson as NonNullable<typeof input.newPerson>;
+      // The person and the booking in one batch, after the duplicate check (ADR 0507).
+      const made = await ctx.ops.call<{ personId: string; id: string }>("person.createWith", {
+        person: {
+          givenName: walkIn.givenName,
+          ...(walkIn.familyName ? { familyName: walkIn.familyName } : {}),
+          ...(walkIn.email ? { emails: [{ email: walkIn.email }] } : {}),
         },
+        object: BOOKING,
+        field: "person",
+        values,
+        allowDuplicates: input.confirmNew,
+      });
+      const booking = await ctx.ops.call<RecordShape>("record.get", {
+        object: BOOKING,
+        id: made.id,
       });
       return {
         result: "booked" as const,
         bookingId: made.id,
         classId: input.classId,
-        personId: personId as string,
-        holderId: text(made.values.holder),
+        personId: made.personId,
+        holderId: text(booking.values.holder),
       };
     } catch (error) {
       return refusalOf(error, "book");
@@ -545,32 +641,69 @@ export const bookFor = defineTool({
   },
 });
 
+const cancelled = z.object({
+  result: z.enum(["cancelled", "late_cancelled"]),
+  bookingId: z.string(),
+  late: z.boolean().describe("A late cancel keeps the use the booking spent"),
+});
+
 export const cancelFor = defineTool({
   description:
-    "Staff cancel a booking. Staff are not bound by the late-cancel time: by default the use " +
-    "is given back (`cancelled`); with `keepUse` it is kept (`late_cancelled`). The place is " +
-    "given back either way. Only a booked booking can be cancelled; one that has moved on is " +
-    "reported as changed.",
+    "Staff cancel a booking, decided by the host's clock as a member's own cancel is: in time " +
+    "(`cancelled`, the use given back) until the class type's late-cancel time, late " +
+    "(`late_cancelled`, the use kept) after it, not at all once the class has started. With " +
+    "`keepUse` it is cancelled late whatever the time. To give a use back after the late point, a " +
+    "person uses returnUse. The place is given back either way. Only a booked booking can be " +
+    "cancelled; one that has moved on is reported as changed.",
   input: z.object({
     bookingId: z.string().min(1).max(64),
     keepUse: z.boolean().default(false),
     note: z.string().max(2000).optional(),
   }),
-  output: z.union([
-    z.object({ result: z.enum(["cancelled", "late_cancelled"]), bookingId: z.string() }),
-    refused,
-  ]),
+  output: z.union([cancelled, refused]),
   risk: "write",
   async handler(input, ctx) {
-    const state = input.keepUse ? ("late_cancelled" as const) : ("cancelled" as const);
+    try {
+      // `cancel` is resolved by the host: this tool's calls are never a person's (ADR 0507).
+      const after = await ctx.ops.call<RecordShape>("record.update", {
+        object: BOOKING,
+        id: input.bookingId,
+        from: "booked",
+        values: {
+          state: input.keepUse ? "late_cancelled" : "cancel",
+          ...(input.note ? { note: input.note } : {}),
+        },
+      });
+      const state: "cancelled" | "late_cancelled" =
+        after.values.state === "late_cancelled" ? "late_cancelled" : "cancelled";
+      return { result: state, bookingId: input.bookingId, late: state === "late_cancelled" };
+    } catch (error) {
+      return refusalOf(error, "cancel");
+    }
+  },
+});
+
+export const returnUse = defineTool({
+  description:
+    "A person on the staff cancels a booking and gives its use back whatever the time: after " +
+    "the late-cancel point, or after the class (a member who was ill, a class the coach missed). " +
+    "Destructive: the assistant and MCP clients only ask, and a person approves. The reason is " +
+    "kept on the booking and in the audit log. Only a booked booking.",
+  input: z.object({
+    bookingId: z.string().min(1).max(64),
+    reason: z.string().trim().min(3).max(2000),
+  }),
+  output: z.union([cancelled, refused]),
+  risk: "destructive",
+  async handler(input, ctx) {
     try {
       await ctx.ops.call("record.update", {
         object: BOOKING,
         id: input.bookingId,
         from: "booked",
-        values: { state, ...(input.note ? { note: input.note } : {}) },
+        values: { state: "cancelled", note: `Use given back: ${input.reason}` },
       });
-      return { result: state, bookingId: input.bookingId };
+      return { result: "cancelled" as const, bookingId: input.bookingId, late: false };
     } catch (error) {
       return refusalOf(error, "cancel");
     }

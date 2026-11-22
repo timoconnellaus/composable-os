@@ -126,3 +126,29 @@ works out a window, a place or a price (the block lint).
 - `apps/app/e2e/bookings.spec.ts`: a member books from the timetable block and cancels in time;
   staff book a walk-in into a staff-only class from the desk block.
 - `scripts/check-blocks.test.mjs`: every native bookings block is `noPurchase`.
+
+## Amended 2026-11-22, after the independent review (before merge; ADR 0507)
+- **A class the host cancels cancels its bookings** in the same batch (`states.follows`): booked,
+  waiting and held bookings move to `cancelled_by_us`, places released and uses given back, for a
+  closure, a series changed, ended or trashed. The confirm count counts them. This replaces "staff
+  cancelling a class waits for step 7": step 7 adds only the staff move and its emails.
+- **A class that is not scheduled binds staff too** (`create.closed`); the desk lists only
+  scheduled classes. Staff are still not bound by the windows or staff-only.
+- **A member's class and holder are set at create only** (`customer.createOnly`), and a member
+  never creates a booking in any state but `booked`.
+- **Every class has a zone** (required, the organisation's when empty) and **its places** (required:
+  a one-off is never unlimited by leaving them out). The timetable's horizon is 57 days, so a class
+  56 days out (the organisation's "opens" at most) exists when it opens.
+- **A trashed class type closes its classes to members** (its rules cannot be read).
+- **`cancelFor` asks the host to cancel**, decided by its clock (a tool's calls are never a
+  person's); `keepUse` cancels late. **`returnUse`** (destructive, with a reason) gives a use back
+  after the late point.
+- **Walk-ins** are made with their booking in one batch (`person.createWith`), after the duplicate
+  check: someone with that email, or a possible duplicate, is answered with who (`findPeople`, new,
+  looks people up first); the desk lets staff pick someone on file and shows refusals.
+- **The booking rules are a person's** (`humanOnly` on the class type's rule fields and the
+  settings): changed by the assistant, MCP, an automation or extension code, they wait for one.
+- **Permissions**: no `record.*`, `my.*` or `state.resolve` in `permissions.operations` (they are
+  granted by object); `duplicate.check` is listed.
+- **The fixture holder** is `bkfixture.pass` (not the Memberships pack's id); the tests and local
+  dev use a variant of the pack whose `paidBy` also names it, and the shipped `paidBy` is unchanged.

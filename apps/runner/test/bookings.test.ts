@@ -1,7 +1,10 @@
 // Stage 31a, build step 3: the Bookings pack (packs/bookings) in the real host, beside Programs,
 // installed as shipped, with real D1 and the sandbox. The holders that pay for a booking are the
-// Memberships pack's (stage 32b, built in parallel); here a fixture holder stands in for
-// `memberships.pass`, a runtime extension with that id and object, so the spender's declaration
+// Memberships pack's (stage 32b, built in parallel); here a fixture holder stands in for it
+// (`bkfixture.pass`, a runtime extension, never the real pack's id, so both can share a database),
+// and this file installs a test variant of the pack whose `paidBy` also names the fixture (the
+// shipped declaration names only `memberships.membership` and `memberships.pass`), so the
+// spender's declaration
 // (`paidBy`, `at` the class's start, the class type copied, the local weekday and minute) is
 // proved against the host's allowance behaviour before the real holder exists (step 4 connects
 // it). `cos ext test`'s harness does not simulate allowances (ADR 0493), hence this file.
@@ -34,6 +37,7 @@ import {
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
+import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, source, unique } from "./helpers.ts";
 
 const packFiles = (glob: Record<string, string>) =>
@@ -50,14 +54,30 @@ const files = {
       eager: true,
     }),
   ),
-  bookings: packFiles(
-    import.meta.glob<string>("../../../packs/bookings/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
+  bookings: testVariant(
+    packFiles(
+      import.meta.glob<string>("../../../packs/bookings/*.ts", {
+        query: "?raw",
+        import: "default",
+        eager: true,
+      }),
+    ),
   ),
 };
+
+/** The pack as shipped, with the fixture holder added to `paidBy` (tests only). */
+function testVariant(pack: Record<string, string>): Record<string, string> {
+  const shipped = 'paidBy: ["memberships.membership", "memberships.pass"]';
+  const index = pack["index.ts"] ?? "";
+  if (!index.includes(shipped)) throw new Error("the Bookings pack's paidBy changed");
+  return {
+    ...pack,
+    "index.ts": index.replace(
+      shipped,
+      'paidBy: ["memberships.membership", "memberships.pass", "bkfixture.pass"]',
+    ),
+  };
+}
 
 /** The extension host of a deployment whose product lists Programs and Bookings. */
 const shippedHost: ExtensionHost = {
@@ -82,7 +102,7 @@ const CLASS = "bookings.class";
 const BOOKING = "bookings.booking";
 const SERIES = "bookings.series";
 const CLASS_TYPE = "programs.classtype";
-const PASS = "memberships.pass";
+const PASS = "bkfixture.pass";
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -155,7 +175,7 @@ const pass = (who: CustomerPrincipal, uses = 3, classTypes: string[] = []) =>
     name: unique("Pass"),
     person: who.personId,
     uses,
-    per: "week",
+    per: "total",
     ...(classTypes.length ? { classTypes } : {}),
   });
 
@@ -188,19 +208,21 @@ const left = async (passId: string) => Number((await get(PASS, passId)).values.l
 
 beforeAll(async () => {
   admin = await createAdmin();
+  // The default policy: an AI's destructive call waits for a person.
+  await setPreset("balanced");
   // Bookings requires Programs: installed first, it is refused and says so.
   await refreshSchemaRegistry(db.query);
   const early = await refusal(run("extension.install", { id: "bookings", shipped: true }, staff()));
   expect(JSON.stringify(early)).toContain("requires the programs extension");
   await run("extension.install", { id: "programs", shipped: true }, staff());
   await run("extension.install", { id: "bookings", shipped: true }, staff());
-  // The fixture holder: what the Memberships pack's pass will be (spec 32's object id).
+  // The fixture holder: what the Memberships pack's pass will be.
   await run(
     "extension.install",
     {
-      id: "memberships",
+      id: "bkfixture",
       files: source(
-        "memberships",
+        "bkfixture",
         `objects: {
           pass: {
             label: "Pass", plural: "Passes", titleField: "name",
@@ -231,7 +253,7 @@ beforeAll(async () => {
   await refreshSchemaRegistry(db.query);
   expect(getObject(BOOKING)?.allowance).toMatchObject({
     kind: "spender",
-    paidBy: ["memberships.membership", "memberships.pass"],
+    paidBy: ["memberships.membership", "memberships.pass", "bkfixture.pass"],
     waived: "paidOtherwise",
   });
   classType = await create(CLASS_TYPE, { name: unique("Strength") });
@@ -507,9 +529,11 @@ describe("a member books and cancels", () => {
     expect((await get(CLASS, id)).values).toMatchObject({ taken: 2, available: 0 });
   });
 
-  it("a class that is not scheduled cannot be booked, even by a member who sees it", async () => {
+  it("a class the host cancels cancels its bookings, gives every use back, and cannot be booked", async () => {
     const who = await member("closed");
-    await pass(who, 5);
+    const whoPass = await pass(who, 5);
+    const other = await member("closed2");
+    const otherPass = await pass(other, 5);
     // Six days ahead: a date no other class of this file is on.
     const id = await klass(6 * DAY);
     const first = await book(who, id);
@@ -519,16 +543,104 @@ describe("a member books and cancels", () => {
       { bookingId: first.bookingId, confirm: true, expect: "cancelled" },
       as(who),
     );
-    // The host cancels it (a closure over its date); the member still reads it through their
-    // cancelled booking, so only the host's rule keeps them from booking it again.
+    const kept = await book(other, id);
+    expect(kept.result).toBe("booked");
+    expect(await left(otherPass)).toBe(4);
+    // A closure over its date: refused until a person confirms the count, which names the
+    // bookings it cancels with it (ADR 0507).
     const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(
       new Date(Date.now() + 6 * DAY),
     );
-    await create("bookings.closure", { name: "Flood", fromDate: date, untilDate: date });
-    expect((await get(CLASS, id)).values.state).toBe("cancelled");
-    const again = await book(who, id);
-    expect(again).toMatchObject({ result: "refused" });
-    expect(["staff_only", "not_found"]).toContain(again.reason);
+    const closure = { name: "Flood", fromDate: date, untilDate: date };
+    expect(
+      await refusal(run("record.create", { object: "bookings.closure", values: closure }, staff())),
+    ).toMatchObject({
+      code: "conflict",
+      details: { rule: "recurring_confirm", count: 1, followers: 1 },
+    });
+    await run(
+      "recurring.close",
+      { object: "bookings.closure", values: closure, confirm: 1 },
+      staff(),
+    );
+    expect((await get(CLASS, id)).values).toMatchObject({ state: "cancelled", taken: 0 });
+    // In the closure's batch: the live booking is cancelled by the gym and its use is back.
+    expect((await get(BOOKING, kept.bookingId as string)).values.state).toBe("cancelled_by_us");
+    expect(await left(otherPass)).toBe(5);
+    expect(await left(whoPass)).toBe(5);
+    const mine = await run<{ bookings: { id: string; state: string; classState: string }[] }>(
+      "x.bookings.mine",
+      {},
+      as(other),
+    );
+    expect(mine.bookings.find((b) => b.id === kept.bookingId)).toMatchObject({
+      state: "cancelled_by_us",
+      classState: "cancelled",
+    });
+    // The member who still reads it through an old booking cannot book it; nor can staff.
+    expect(await book(who, id)).toMatchObject({ result: "refused", reason: "not_running" });
+    expect(
+      await run(
+        "x.bookings.bookFor",
+        { classId: id, personId: who.personId, paidAtDesk: true },
+        staff(),
+      ),
+    ).toMatchObject({ result: "refused", reason: "not_running" });
+  });
+
+  it("a series ended cancels its booked classes and their bookings, uses given back", async () => {
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + DAY);
+    const days = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+    const seriesId = (
+      await run<{ id: string }>(
+        "record.create",
+        {
+          object: SERIES,
+          values: {
+            classType,
+            weekdays: [days[tomorrow.getUTCDay()]],
+            time: "12:00",
+            length: 60,
+            places: 8,
+            firstDate: tomorrow.toISOString().slice(0, 10),
+            lastDate: tomorrow.toISOString().slice(0, 10),
+            timezone: "UTC",
+          },
+        },
+        staff(),
+      )
+    ).id;
+    await run(
+      "recurring.generate",
+      { object: SERIES, id: seriesId },
+      staff({ actor: "automation" }),
+    );
+    const made = await run<{ items: { id: string }[] }>(
+      "record.list",
+      { object: CLASS, filter: { field: "series", op: "eq", value: seriesId } },
+      staff(),
+    );
+    const classId = made.items[0]?.id as string;
+    expect(classId).toBeTruthy();
+    const who = await member("ended");
+    const whoPass = await pass(who, 3);
+    const done = await book(who, classId);
+    expect(done.result).toBe("booked");
+    expect(await left(whoPass)).toBe(2);
+    expect(
+      await refusal(
+        run("record.update", { object: SERIES, id: seriesId, values: { state: "ended" } }, staff()),
+      ),
+    ).toMatchObject({ details: { rule: "recurring_confirm", count: 1, followers: 1 } });
+    await run(
+      "recurring.change",
+      { object: SERIES, id: seriesId, values: { state: "ended" }, confirm: 1 },
+      staff(),
+    );
+    expect((await get(CLASS, classId)).values.state).toBe("cancelled");
+    expect((await get(BOOKING, done.bookingId as string)).values.state).toBe("cancelled_by_us");
+    expect(await left(whoPass)).toBe(3);
   });
 });
 
@@ -559,14 +671,18 @@ describe("staff and privacy", () => {
         ),
       ),
     ).toMatchObject({ code: "invalid_input" });
-    // Without paidAtDesk, a walk-in with nothing to spend is refused.
+    // Without paidAtDesk, a walk-in with nothing to spend is refused, and nobody is left on file:
+    // the person and the booking are one batch.
+    const nobody = unique("Nobody");
     expect(
-      await run(
-        "x.bookings.bookFor",
-        { classId: id, newPerson: { givenName: unique("Walk") } },
-        staff(),
-      ),
+      await run("x.bookings.bookFor", { classId: id, newPerson: { givenName: nobody } }, staff()),
     ).toMatchObject({ result: "refused", reason: "no_use" });
+    const named = await run<{ items: unknown[] }>(
+      "person.list",
+      { filter: { field: "displayName", op: "contains", value: nobody } },
+      staff(),
+    );
+    expect(named.items).toEqual([]);
     // The class's list, for staff.
     const list = await run<{ bookings: { person: { id: string } | null; paidAtDesk: boolean }[] }>(
       "x.bookings.classList",
@@ -603,5 +719,146 @@ describe("staff and privacy", () => {
       ),
     ).toMatchObject({ result: "refused", reason: "not_found" });
     expect((await get(BOOKING, hers.bookingId as string)).values.state).toBe("booked");
+  });
+});
+
+describe("the desk: who is booked, and who may give a use back", () => {
+  it("a walk-in already on file is offered, not made twice", async () => {
+    const id = await klass(3 * HOUR, classType, 5);
+    const email = `${unique("taken").toLowerCase()}@members.test`;
+    const name = unique("Same");
+    const onFile = await run<{ id: string }>(
+      "person.create",
+      { givenName: name, emails: [{ email }] },
+      staff(),
+    );
+    // The same email: refused, naming who has it.
+    expect(
+      await run(
+        "x.bookings.bookFor",
+        { classId: id, newPerson: { givenName: "Other", email }, paidAtDesk: true },
+        staff(),
+      ),
+    ).toMatchObject({
+      result: "refused",
+      reason: "person_exists",
+      people: [expect.objectContaining({ id: onFile.id })],
+    });
+    // The same name: a possible duplicate, listed; then booked once staff confirm.
+    const asked = await run<Booked & { people?: { id: string }[] }>(
+      "x.bookings.bookFor",
+      { classId: id, newPerson: { givenName: name }, paidAtDesk: true },
+      staff(),
+    );
+    expect(asked).toMatchObject({ result: "refused", reason: "possible_duplicates" });
+    expect(asked.people?.map((p) => p.id)).toContain(onFile.id);
+    expect(
+      await run(
+        "x.bookings.bookFor",
+        { classId: id, newPerson: { givenName: name }, paidAtDesk: true, confirmNew: true },
+        staff(),
+      ),
+    ).toMatchObject({ result: "booked" });
+    // Or the one on file, found and booked by id.
+    const found = await run<{ people: { id: string }[] }>(
+      "x.bookings.findPeople",
+      { query: name },
+      staff(),
+    );
+    expect(found.people.map((p) => p.id)).toContain(onFile.id);
+  });
+
+  it("staff's cancel is decided by the clock; giving a use back after the late point is a person's, destructive", async () => {
+    const who = await member("desk");
+    const whoPass = await pass(who, 5);
+    // Thirty minutes before: late (from an hour before).
+    const late = await book(who, await klass(30 * MINUTE));
+    expect(await left(whoPass)).toBe(4);
+    expect(await run("x.bookings.cancelFor", { bookingId: late.bookingId }, staff())).toMatchObject(
+      { result: "late_cancelled", late: true },
+    );
+    expect(await left(whoPass)).toBe(4);
+    // Three hours before: in time.
+    const early = await book(who, await klass(3 * HOUR));
+    expect(
+      await run("x.bookings.cancelFor", { bookingId: early.bookingId }, staff()),
+    ).toMatchObject({ result: "cancelled", late: false });
+    expect(await left(whoPass)).toBe(4);
+    // A person gives a use back late, with a reason; the assistant only asks.
+    const again = await book(who, await klass(20 * MINUTE));
+    expect(await left(whoPass)).toBe(3);
+    expect(
+      await refusal(
+        run(
+          "x.bookings.returnUse",
+          { bookingId: again.bookingId, reason: "Coach was ill" },
+          staff({ actor: "assistant" }),
+        ),
+      ),
+    ).toMatchObject({ code: "pending_approval" });
+    expect((await get(BOOKING, again.bookingId as string)).values.state).toBe("booked");
+    expect(
+      await run(
+        "x.bookings.returnUse",
+        { bookingId: again.bookingId, reason: "Coach was ill" },
+        staff(),
+      ),
+    ).toMatchObject({ result: "cancelled" });
+    expect(await left(whoPass)).toBe(4);
+    expect((await get(BOOKING, again.bookingId as string)).values.note).toBe(
+      "Use given back: Coach was ill",
+    );
+  });
+
+  it("the booking rules are a person's: the assistant's change waits for one", async () => {
+    const type = await create(CLASS_TYPE, { name: unique("Rules") });
+    expect(
+      await refusal(
+        run(
+          "record.update",
+          { object: CLASS_TYPE, id: type, values: { "bookings.lateMinutes": 5 } },
+          staff({ actor: "assistant" }),
+        ),
+      ),
+    ).toMatchObject({ code: "pending_approval" });
+    expect(
+      await refusal(
+        run(
+          "extensionSettings.update",
+          { extension: "bookings", values: { lateMinutes: 5 } },
+          staff({ actor: "mcp" }),
+        ),
+      ),
+    ).toMatchObject({ code: "pending_approval" });
+    await run(
+      "record.update",
+      { object: CLASS_TYPE, id: type, values: { "bookings.lateMinutes": 90 } },
+      staff(),
+    );
+    expect((await get(CLASS_TYPE, type)).values["bookings.lateMinutes"]).toBe(90);
+  });
+
+  it("a trashed class type does not open its classes to members", async () => {
+    const who = await member("trashed");
+    await pass(who, 5);
+    const type = await create(CLASS_TYPE, { name: unique("Gone") });
+    const id = await klass(3 * HOUR, type);
+    await run("record.delete", { object: CLASS_TYPE, id: type }, staff());
+    expect(await book(who, id)).toMatchObject({ result: "refused", reason: "staff_only" });
+  });
+
+  it("a one-off class needs its places", async () => {
+    expect(
+      await refusal(
+        run(
+          "record.create",
+          {
+            object: CLASS,
+            values: { classType, startsAt: new Date(Date.now() + DAY).toISOString() },
+          },
+          staff(),
+        ),
+      ),
+    ).toMatchObject({ code: "invalid_input" });
   });
 });

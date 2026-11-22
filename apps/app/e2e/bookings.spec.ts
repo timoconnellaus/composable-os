@@ -4,8 +4,10 @@
 // where they sit (`/blocks`, development only), calling the host's HTTP surface from the browser
 // as a client app would. In local dev Programs and Bookings are the org's own extensions
 // (scripts/dev-setup.mjs). The Memberships pack (stage 32b) is built beside this step, so the
-// member's pass is a fixture holder with its object id (`memberships.pass`, spec 32), installed
-// here as a runtime extension; step 4 replaces it with the real pack.
+// member's pass is a fixture holder (`bkfixture.pass`, a runtime extension installed here, never
+// the real pack's id, so the Memberships spec can share the database in either order); local
+// dev's Bookings is a variant whose `paidBy` also names the fixture (dev-setup.mjs). Step 4
+// replaces it with the real pack.
 import { type APIRequestContext, type Browser, expect, type Page, test } from "@playwright/test";
 import { open, unique } from "./helpers.ts";
 import {
@@ -40,7 +42,7 @@ const HOUR = 3_600_000;
 /** The fixture holder: what the Memberships pack's pass will be. */
 const FIXTURE_PASS = `import { defineExtension } from "@composable-os/sdk";
 export default defineExtension({
-  id: "memberships",
+  id: "bkfixture",
   version: "0.0.1",
   contractVersion: 1,
   label: "Passes (fixture)",
@@ -69,7 +71,7 @@ async function setUp(page: Page) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
   await op(page.request, "extension.install", {
-    id: "memberships",
+    id: "bkfixture",
     files: { "index.ts": FIXTURE_PASS },
   });
 }
@@ -156,7 +158,7 @@ test("a member books a class from the timetable and cancels it in time", async (
   });
   // Their pass: 3 classes a week (in the Memberships pack this is a membership or a pass).
   const pass = await op<{ id: string }>(page.request, "record.create", {
-    object: "memberships.pass",
+    object: "bkfixture.pass",
     values: { name: unique("Pass "), person: person.id, uses: 3, per: "week" },
   });
   // In 3 hours: open (7 days before, the organisation's default) and in time to cancel (late
@@ -165,7 +167,7 @@ test("a member books a class from the timetable and cancels it in time", async (
   const left = async () =>
     (
       await op<{ values: { left: number } }>(page.request, "record.get", {
-        object: "memberships.pass",
+        object: "bkfixture.pass",
         id: pass.id,
       })
     ).values.left;
@@ -220,13 +222,13 @@ test("staff book a walk-in into a class only staff book, paid at the desk", asyn
   const desk = page.getByRole("region", { name: "Front desk" });
   await expect(desk.getByText(klass.name).first()).toBeVisible();
   await expect(desk.getByText(/booked by staff/).first()).toBeVisible();
-  const form = desk.getByRole("form", { name: "Book a walk-in" });
+  const form = desk.getByRole("form", { name: "Book someone in" });
   await form.getByLabel("Class").selectOption(klass.id);
   const given = unique("Walk");
-  await form.getByLabel("Given name").fill(given);
+  await form.getByLabel(/Given name/).fill(given);
   await expect(form.getByLabel(/Paid at the desk/)).toBeChecked();
   await form.getByRole("button", { name: "Book walk-in" }).click();
-  await expect(form.getByRole("status")).toHaveText(`Booked ${given} in.`);
+  await expect(form.getByRole("status")).toHaveText("Booked in.");
   const bookings = await op<{ items: { values: Record<string, unknown> }[] }>(
     page.request,
     "record.list",

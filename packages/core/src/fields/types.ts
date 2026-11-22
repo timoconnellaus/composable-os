@@ -71,6 +71,8 @@ export interface ExtensionFieldOptions {
   default?: string | number | boolean;
   /** The extension setting that holds the default, when admins choose it. */
   defaultSetting?: string;
+  /** A person's to change: other actors' writes wait for a person (ADR 0507). */
+  humanOnly?: boolean;
   to?: string;
   many?: boolean;
   currency?: string;
@@ -221,6 +223,8 @@ export interface CustomerDeclaration {
    * ADR 0478), asked of the seam's one question (`holdsAccess`).
    */
   readonly requireAccess?: readonly string[] | undefined;
+  /** Fields of `write` a customer sets only on create (ADR 0507). */
+  readonly createOnly?: readonly string[] | undefined;
 }
 
 /** One condition of a holder's `spendsOn` (the SDK's AllowanceCondition), validated. */
@@ -381,10 +385,20 @@ export interface StatesDefinition {
         in?: Readonly<Record<string, readonly ("staff" | "customer" | "host")[]>> | undefined;
         window?: WindowDefinition | undefined;
         staffOnly?: string | readonly string[] | undefined;
+        /** While any is true nobody but the host creates one (ADR 0507). */
+        closed?: string | readonly string[] | undefined;
       }
     | undefined;
   /** Moves asked for by name, resolved by the host (ADR 0503). */
   requests?: Readonly<Record<string, readonly string[]>> | undefined;
+  /** A cascade from the record a relation points to (ADR 0507). */
+  follows?:
+    | {
+        relation: string;
+        when: Readonly<Record<string, string>>;
+        from: readonly string[];
+      }
+    | undefined;
 }
 
 /** A number a window is worked out from (the SDK's WindowNumber, ADR 0505). */

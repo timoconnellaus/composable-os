@@ -1260,8 +1260,14 @@ desk, [ADR 0506](adr/0506-a-spender-paid-another-way.md)). It requires Programs.
 `timetable`, `classGet` (public), `book`, `cancel` (with `state.resolve`'s preview), `mine`
 (customers), `bookFor`, `cancelFor`, `day`, `classList` (staff). Hooks, web blocks (the timetable,
 the desk) and a native timetable marked `noPurchase`. Waitlists, the family link, attendance,
-moving people, cancelling a class with its bookings, drop-ins and messages are steps 5 to 9; the
-states they use are declared, with no customer move into them.
+moving people, staff cancelling a class, drop-ins and messages are steps 5 to 9; the states they
+use are declared, with no customer move into them. After the review ([ADR 0507](adr/0507-what-the-bookings-review-needed-of-the-platform.md)):
+a class the host cancels moves its live bookings to `cancelled_by_us` in its batch
+(`states.follows`, the state cascade), a closed class binds staff (`create.closed`), a member's
+class and holder are create-only (`customer.createOnly`), the booking rules are a person's
+(`humanOnly`: other actors' writes wait for approval), walk-ins are made with their booking in one
+batch (`person.createWith`), an extension tool is not run by the approval queue's dry run, and
+the runner carries the packs' sources as a Text module.
 
 **Courses** (`packs/courses`, stage 42; [ADR 0478](adr/0478-the-courses-pack.md)): themes,
 courses and bundles (publishable, sellable with a tax code, granting an enrolment), enrolments and

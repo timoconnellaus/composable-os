@@ -2,7 +2,7 @@
   "name": "bookings-desk",
   "pack": "bookings",
   "skin": "web",
-  "operations": ["x.bookings.day", "x.bookings.bookFor"],
+  "operations": ["x.bookings.day", "x.bookings.bookFor", "x.bookings.findPeople"],
   "files": ["desk.tsx", "LICENSE"],
   "dependsOn": ["ui-button", "ui-input", "ui-label"],
   "packages": {

@@ -71,6 +71,11 @@ Read these before writing. They are the source of truth; this skill only gives t
 6. **Declare permissions**, the least that works. Your own objects need none. `read` and `write`
    name other objects, `operations` names operations exactly, and any of them needs `"ops"` in
    `modules`. Views, tabs and panels over other objects need no permission; only code does.
+   Never list `record.*`, `my.*` or `state.resolve` in `operations`: they are granted by object,
+   and a listed one reaches every object. A field or setting only a person should change (a
+   gym's booking rules) is `humanOnly: true`: anyone else's write of it waits for a person. A
+   customer field set only when the record is made (a booking's class) goes in
+   `customer.createOnly` (ADR 0507).
 7. **Add indexes and seeds.** One index for each field a list filters or sorts by. `seed` for
    set-up records people will then edit (Deals: `objects.pipeline.seed`, `objects.stage.seed`).
 8. **Show it.** `navigation` (`main`, `settings` for set-up records, `none`), `navigationOrder`,
@@ -144,7 +149,12 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `states.requests: { cancel: ["cancelled", "late_cancelled"] }` lets a caller write `cancel`
   and the host pick the state by the clock, and a tool shows the member which first with
   `state.resolve { object, id, request }`; `states.create.in: { waiting: ["staff", "customer"] }`
-  lists states a record may be created in besides `initial`, and who may. Never decide "late" or
+  lists states a record may be created in besides `initial`, and who may (a customer never
+  creates in any other). `states.create.closed: "<boolean path>"` closes creates to everyone but
+  the host (a class that is cancelled). `states.follows: { relation, when: { <parent state>:
+  <state> }, from }` moves your live records when the record they point to moves (a class
+  cancelled cancels its bookings, in its batch; ADR 0507). A request is resolved by the clock for
+  every caller but a person. Never decide "late" or
   "too early" in a tool. See `StateMove` and `StatesSpec` in `packages/sdk/src/states.ts`, ADRs
   0503 and 0505, and Bookings: `packs/bookings/index.ts`.
 - **`recurring`** on a series object: a weekly rule in local time that makes records of another

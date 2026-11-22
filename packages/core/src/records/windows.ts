@@ -120,6 +120,8 @@ export function pathReader(
         const target = to ? getObject(to) : undefined;
         if (typeof value !== "string" || !value || !target) return null;
         values = await load(target, value);
+        // Set but not readable (in Trash, gone): not an empty rule (ADR 0507).
+        if (!values) return UNREADABLE;
         on = target;
       }
       return null;
@@ -129,6 +131,13 @@ export function pathReader(
     },
   };
 }
+
+/**
+ * What a path reads when a relation on the way is set but its record cannot be read (a class type
+ * in Trash): never taken for an empty value, so a rule falls to no default. A window it names
+ * cannot be worked out, and a staff-only or closed flag it names counts as set (ADR 0507).
+ */
+export const UNREADABLE: unique symbol = Symbol("unreadable");
 
 function asNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -153,7 +162,9 @@ async function boundMoment(
     if (typeof value === "number") return value;
     if (typeof value === "string") return asNumber(await reader.read(value));
     // A field's value, else the extension's setting (ADR 0505).
-    const own = value.field === undefined ? null : asNumber(await reader.read(value.field));
+    const raw = value.field === undefined ? null : await reader.read(value.field);
+    if (raw === UNREADABLE) return null;
+    const own = asNumber(raw);
     if (own !== null || value.setting === undefined) return own;
     return asNumber(await reader.setting(value.setting));
   };
@@ -163,7 +174,8 @@ async function boundMoment(
   let moment = instant;
   if (days !== 0) {
     const zoneValue = b.zone ? await reader.read(b.zone) : null;
-    if (b.zone && (typeof zoneValue !== "string" || !zoneValue)) return null;
+    // An empty zone is the organisation's (ADR 0507); an unreadable one is not known.
+    if (zoneValue === UNREADABLE) return null;
     const zone =
       typeof zoneValue === "string" && zoneValue
         ? zoneValue
@@ -223,6 +235,7 @@ export async function staffOnlySet(
 ): Promise<boolean> {
   for (const path of paths === undefined ? [] : typeof paths === "string" ? [paths] : paths) {
     const value = await reader.read(path);
+    if (value === UNREADABLE) return true;
     if (value === true || value === 1 || value === "1" || value === "true") return true;
   }
   return false;

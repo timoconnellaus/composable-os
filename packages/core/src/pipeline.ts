@@ -107,7 +107,9 @@ import {
   staffPrincipal,
 } from "./principals.ts";
 import type { RateLimitBinding } from "./rate-limit.ts";
+import { touchesHumanOnly } from "./records/human-only.ts";
 import type { MediaStore } from "./records/media.ts";
+import { ALWAYS_REVIEWED_PUBLISHERS } from "./records/publish.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { loadApprovalPolicy } from "./settings.ts";
 import type { UpdaterRuntime } from "./updates.ts";
@@ -285,7 +287,8 @@ function packRoleRefusal(role: HeldPackRole, op: AnyOperation): ForbiddenError {
 
 /** The object an operation reads or writes, for extension permission checks. */
 export function operationObject(op: AnyOperation, input: unknown): string | null {
-  if (op.name.startsWith("record.") || op.name.startsWith("my.")) {
+  // state.resolve reads one object's record as the write would (ADR 0507): granted by object.
+  if (op.name.startsWith("record.") || op.name.startsWith("my.") || op.name === "state.resolve") {
     const object = (input as { object?: unknown } | null)?.object;
     return typeof object === "string" ? object : null;
   }
@@ -699,9 +702,14 @@ async function invokeOnce<O extends AnyOperation>(
   // Bookkeeping (opening a change set, revoking a token) is never queued; deny still applies.
   if (op.bookkeeping && decision === "review") decision = "auto";
   // Some changes always wait for a person (extension installs and upgrades, ADR 0041).
+  // A person's own fields and settings (a gym's booking rules, ADR 0507): anyone else's write of
+  // one waits for a person, as an AI's publish does (ADR 0480).
   const forced =
     op.alwaysReview === true ||
-    (Array.isArray(op.alwaysReview) && op.alwaysReview.includes(ctx.actor));
+    (Array.isArray(op.alwaysReview) && op.alwaysReview.includes(ctx.actor)) ||
+    (!ctx.approval &&
+      ALWAYS_REVIEWED_PUBLISHERS.includes(ctx.actor) &&
+      (await touchesHumanOnly(ctx.db.query, op.name, input)));
   if (forced && decision === "auto" && !ctx.approval) decision = "review";
   // What routed it to review (ADR 0204): the adjudicator never approves floor or forced reviews.
   let reviewSource: ReviewSource = forced

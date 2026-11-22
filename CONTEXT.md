@@ -1104,8 +1104,18 @@ spender of their membership's or pass's use when it is `booked`. A member's **ca
 until the class type's late-cancel time before the start (the use given back), **late** after it
 until the start (the use kept), and not possible after; the host decides by its clock. Staff may
 book anyone, into any class, and mark a walk-in **paid at the desk** (it spends nothing)
-(stage 31, ADRs 0503 to 0506).
+(stage 31, ADRs 0503 to 0506). A class the gym cancels cancels its live bookings with it, their
+uses given back (**cancelled by the gym**, ADR 0507).
 _Avoid_: reservation, appointment (31b's one-to-one), ticket
+
+**Follows** (a state cascade)
+An object whose records move when the record a relation points to moves (`states.follows`): a
+class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
+
+**A person's own** (a `humanOnly` field or setting)
+A field or extension setting only a person changes: the assistant's, an MCP client's, an
+automation's or extension code's write of it waits for a person's approval (ADR 0507). A gym's
+booking rules.
 
 **Paid another way** (a spender's `waived`)
 A spender created marked as paid outside the allowance (a walk-in at the desk, later a drop-in's

@@ -44,6 +44,7 @@ import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
+import { FOLLOWERS_MAX, followerIds, followersOf } from "../records/follows.ts";
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
 import {
   assertRestorable,
@@ -946,6 +947,8 @@ export async function updateRecord(
       by,
     )),
   );
+  // Records that follow this one's moves move with it, as the host, in this batch (ADR 0507).
+  await moveFollowers(ctx, object, id, outcome.moved?.id);
   // A series' future records follow it; a closure cancels what it covers (ADR 0500).
   await seriesChanged(ctx, object, id, before.values, after, {
     confirm: options.recurringConfirm,
@@ -968,6 +971,43 @@ export async function updateRecord(
     ...(timeline ? { timeline } : {}),
   });
   return true;
+}
+
+/**
+ * The state cascade (ADR 0507): when `object`'s record `id` moves into a state an object that
+ * follows it names, each of that object's live records pointing at it (in its `from` states)
+ * moves to the state given, as the host, in this write's batch, with everything that move does
+ * (its place given back, its use returned). More than FOLLOWERS_MAX refuses the move.
+ */
+async function moveFollowers(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  to: string | undefined,
+): Promise<void> {
+  if (!to) return;
+  for (const follower of followersOf(object.name)) {
+    const target = Object.hasOwn(follower.when, to) ? follower.when[to] : undefined;
+    if (!target) continue;
+    const ids = await followerIds(ctx, follower, id);
+    if (ids.length > FOLLOWERS_MAX) {
+      throw new ConflictError(
+        `${object.label} has more than ${FOLLOWERS_MAX} ${(follower.object.plural ?? "records").toLowerCase()} to move with it`,
+        { rule: "follows_too_many", object: follower.object.name },
+      );
+    }
+    for (const child of ids) {
+      await updateRecord(
+        ctx,
+        follower.object,
+        child,
+        { [follower.stateField]: target },
+        {
+          by: "host",
+        },
+      );
+    }
+  }
 }
 
 /**

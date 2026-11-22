@@ -29,7 +29,9 @@ import {
   classGet,
   classList,
   day,
+  findPeople,
   mine,
+  returnUse,
   timetable,
 } from "./tools.ts";
 
@@ -77,6 +79,9 @@ const lateFrom = {
   minutesBefore: { field: "class.classType.lateMinutes", setting: "lateMinutes" },
 };
 
+// A booking rule is a person's to change (spec 31: "Change the booking rules: a person only"):
+// set by the assistant, an MCP client, an automation or extension code, it waits for a person's
+// approval (`humanOnly`, ADR 0507).
 const minutes = (label: string, description: string) => ({
   type: "number" as const,
   label,
@@ -84,6 +89,7 @@ const minutes = (label: string, description: string) => ({
   min: 0,
   max: 10_080,
   step: 1,
+  humanOnly: true,
 });
 
 export default defineExtension({
@@ -101,22 +107,10 @@ export default defineExtension({
     // programs.classtype: a class type's name and booking rules on staff's day view.
     read: ["person", "programs.classtype"],
     write: ["person"],
-    operations: [
-      "public.list",
-      "public.get",
-      "capacity.get",
-      "my.list",
-      "my.get",
-      "my.create",
-      "my.update",
-      "state.resolve",
-      "record.create",
-      "record.update",
-      "record.get",
-      "record.list",
-      "person.create",
-      "person.get",
-    ],
+    // record.*, my.* and state.resolve are not listed: they are granted by object (Bookings'
+    // own, and the read and write lists above), and a listed one would reach every object.
+    // duplicate.check: a walk-in is checked against the People on file before one is made.
+    operations: ["public.list", "public.get", "capacity.get", "duplicate.check"],
     modules: ["ops"],
   },
   // Bookings' fields on Programs' class type: how it shows, and its booking rules when they
@@ -137,6 +131,7 @@ export default defineExtension({
         min: 0,
         max: 365,
         step: 1,
+        humanOnly: true,
       },
       closesMinutes: minutes(
         "Booking closes (minutes before)",
@@ -162,6 +157,7 @@ export default defineExtension({
         type: "boolean",
         label: "Booked by staff only",
         description: "Members cannot book its classes themselves; staff book them in.",
+        humanOnly: true,
       },
     },
   },
@@ -283,7 +279,9 @@ export default defineExtension({
         cancel: "cancelled",
         ended: { field: "state", in: ["ended"] },
         closures: { object: "closure", from: "fromDate", until: "untilDate" },
-        horizonDays: 56,
+        // The organisation's "opens" setting is at most 56 days; a class 56 days out must exist
+        // when its booking opens, so one day more (as horizonAtLeast adds for a class type's).
+        horizonDays: 57,
         // Never less than the longest window a class type opens booking (ADR 0500, 0505).
         horizonAtLeast: { object: "programs.classtype", field: "opensDays" },
       },
@@ -317,10 +315,12 @@ export default defineExtension({
         },
         startsAt: { type: "datetime", label: "Starts", required: true },
         endsAt: { type: "datetime", label: "Ends" },
-        timezone: { type: "timezone", label: "Time zone" },
+        // Left empty, the organisation's zone (ADR 0460): a class always has one.
+        timezone: { type: "timezone", label: "Time zone", required: true },
         room: { type: "relation", label: "Room", to: "bookings.room" },
         coach: { type: "relation", label: "Coach", to: "bookings.coach" },
-        places: { type: "number", label: "Places", min: 0, step: 1 },
+        // Required: a class is never unlimited by leaving its places empty.
+        places: { type: "number", label: "Places", required: true, min: 0, step: 1 },
         notes: { type: "longText", label: "Notes for members" },
         state: {
           type: "select",
@@ -476,8 +476,17 @@ export default defineExtension({
           // host yet: nothing a customer does lands a booking in them.
           in: { waiting: ["host"], pending: ["host"] },
           window: { from: opens, until: closes },
-          // A class type booked by staff only, and a class that is not scheduled.
-          staffOnly: ["class.classType.staffOnly", "class.closed"],
+          // A class type booked by staff only (staff may book it).
+          staffOnly: "class.classType.staffOnly",
+          // A class that is not scheduled (cancelled or done): nobody books it, staff included.
+          closed: "class.closed",
+        },
+        // A class the host cancels (a closure, a series changed, ended or trashed) cancels its
+        // live bookings in the same batch: places released, uses given back (ADR 0507).
+        follows: {
+          relation: "class",
+          when: { cancelled: "cancelled_by_us" },
+          from: ["booked", "waiting", "pending"],
         },
         // A member asks to cancel; the host picks in time or late by its clock (ADR 0503).
         requests: { cancel: ["cancelled", "late_cancelled"] },
@@ -539,6 +548,8 @@ export default defineExtension({
         field: "person",
         read: ["class", "state", "holder", "classType"],
         write: ["class", "state", "holder"],
+        // Which class and which holder are chosen when it is made, never after (ADR 0507).
+        createOnly: ["class", "holder"],
       },
       timelineLinks: ["person"],
       indexes: [["class", "state"], ["person", "state"], ["state"]],
@@ -635,6 +646,7 @@ export default defineExtension({
       default: 7,
       min: 0,
       max: 56,
+      humanOnly: true,
     },
     closesMinutes: {
       type: "number",
@@ -643,6 +655,7 @@ export default defineExtension({
       default: 0,
       min: 0,
       max: 10_080,
+      humanOnly: true,
     },
     lateMinutes: {
       type: "number",
@@ -651,6 +664,7 @@ export default defineExtension({
       default: 60,
       min: 0,
       max: 10_080,
+      humanOnly: true,
     },
     promotionMinutes: {
       type: "number",
@@ -659,6 +673,7 @@ export default defineExtension({
       default: 120,
       min: 0,
       max: 10_080,
+      humanOnly: true,
     },
     reminderMinutes: {
       type: "number",
@@ -667,7 +682,20 @@ export default defineExtension({
       default: 180,
       min: 0,
       max: 10_080,
+      humanOnly: true,
     },
   },
-  tools: { timetable, classGet, book, cancel, mine, bookFor, cancelFor, day, classList },
+  tools: {
+    timetable,
+    classGet,
+    book,
+    cancel,
+    mine,
+    findPeople,
+    bookFor,
+    cancelFor,
+    returnUse,
+    day,
+    classList,
+  },
 });
