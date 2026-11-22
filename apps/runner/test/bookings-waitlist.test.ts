@@ -416,7 +416,12 @@ describe("the waitlist (step 5)", () => {
   it("joins spend nothing; a freed place is the waitlist's; the first who can pay is moved in, one who cannot is passed over", async () => {
     const type = await create("programs.classtype", { name: unique("Strength") });
     const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 1);
-    const [a, b, c, d] = await Promise.all(["wa", "wb", "wc", "wd"].map((l) => member(l)));
+    const [a, b, c, d] = (await Promise.all(["wa", "wb", "wc", "wd"].map((l) => member(l)))) as [
+      CustomerPrincipal,
+      CustomerPrincipal,
+      CustomerPrincipal,
+      CustomerPrincipal,
+    ];
     await givePass(a);
     const bPass = await givePass(b);
     await givePass(d);
