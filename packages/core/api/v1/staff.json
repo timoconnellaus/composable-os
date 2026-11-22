@@ -35688,6 +35688,55 @@
       ]
     },
     {
+      "name": "order.releaseUnsettled",
+      "description": "Platform use only (the minute cron): release one paid guest drop-in still held for no one (an address several People share, not settled by staff) once booking for it has closed: its place goes back and its refund is owed, for a person to approve. One record per call.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "recordId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "object",
+          "recordId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "released": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "released"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
       "name": "order.setPerson",
       "description": "Say whose order it is, for an order that belongs to no one yet because the address it was placed with matched several people. Merge those people first, then pass the one that remains. An order that already has a person is refused. Returns the order.",
       "risk": "write",

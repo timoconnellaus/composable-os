@@ -307,14 +307,21 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
       // A waiter leaves the queue with its Person (ADR 0520): deleted, whether or not its relation
       // is required, so nobody is promoted into a place for no one and those behind move up; the
       // waitlist's holds go back if nobody else waits. (It holds and spends nothing.)
-      const waiter = object && claimant?.claims ? await erasedWaiter(ctx, claimant, id) : null;
+      // Only through the record's own Person: a parent erased (who made a child's booking,
+      // ADR 0540) clears their name from it, and never touches the child's place or queue.
+      const ownColumn = claimant?.customer
+        ? claimant.fields.find((f) => f.name === claimant.customer?.field)?.column
+        : undefined;
+      const own = !claimant?.customer || ownColumn === column;
+      const waiter =
+        object && own && claimant?.claims ? await erasedWaiter(ctx, claimant, id) : null;
       if (object && waiter) {
         gone.add(key);
         deleted.push({ object, id });
         ctx.write(CompiledQuery.raw(`DELETE FROM ${q(table)} WHERE id = ?`, [id]), ...waiter);
         continue;
       }
-      if (object && claimant?.claims && !released.has(key)) {
+      if (object && own && claimant?.claims && !released.has(key)) {
         released.add(key);
         ctx.write(...releaseAllClaimsOfStatements(object, id, ctx.now));
         // A place given back before its cut-off is the waitlist's, as a cancel's is (ADR 0520).

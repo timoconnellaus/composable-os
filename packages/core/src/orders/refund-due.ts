@@ -22,6 +22,7 @@
 import type { CrmDb } from "@composable-os/db";
 import type { EventSink } from "../automations/types.ts";
 import { OperationError } from "../errors.ts";
+import { refreshSchemaRegistry } from "../extensions/schema.ts";
 import type { GateFloor } from "../gate.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import { invokeByName } from "../invoke.ts";
@@ -29,8 +30,9 @@ import { errorForLog } from "../log.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
 import { SYSTEM_USER } from "../users.ts";
+import { UNSETTLED_RELEASES, unsettledGuests } from "./moves.ts";
 import { loadOrderRow } from "./orders.ts";
-import { type RequestedRefund, requestRefund } from "./refunds.ts";
+import { type RequestedRefund, refundablePayments, requestRefund } from "./refunds.ts";
 
 /** How many owed refunds one tick asks for, and how many asked ones it looks at. */
 export const REFUND_DUE_BATCH = 20;
@@ -72,11 +74,17 @@ export async function requestDueRefund(
     // An order closed with a late payment on it (expired, cancelled) is refunded the same way.
     // A payment owed back on its own (a duplicate or late one) is refunded alone, for exactly
     // its amount; a whole order's refund is everything refundable on it.
+    // At most what is still refundable on that payment (staff may have refunded part of it).
+    const left = due.payment_ref
+      ? ((await refundablePayments(ctx, order.id)).find((p) => p.paymentRef === due.payment_ref)
+          ?.refundable ?? 0)
+      : null;
+    const amount = left !== null && due.amount ? Math.min(due.amount, left) : undefined;
     const asked = await requestRefund(ctx, order, {
       reason: due.reason,
       refundId: (n) => `${prefix}${n}`,
       ...(due.payment_ref ? { paymentRef: due.payment_ref } : {}),
-      ...(due.payment_ref && due.amount ? { amount: due.amount } : {}),
+      ...(amount ? { amount } : {}),
     });
     if (asked.refunds.some((r) => r.pendingActionId === null)) {
       // Denied by the approval policy, or applied without a person: never left at that.
@@ -306,5 +314,41 @@ export async function runRefundsDue(
     }
   }
   result.lapsed = (await settleAsked(crm, now())).lapsed;
+  return result;
+}
+
+/**
+ * The minute cron's step for paid guest drop-ins still held for no one (ADR 0560): each due one is
+ * released in a call of its own (`order.releaseUnsettled`), so a conflict (staff settling it at
+ * that moment) affects that record only, and no other step's batch.
+ */
+export async function runUnsettledGuests(
+  crm: CrmDb,
+  { floor, events, clock }: RefundsDueOptions = {},
+): Promise<{ released: number; failed: number }> {
+  const result = { released: 0, failed: 0 };
+  await refreshSchemaRegistry(crm.query);
+  for (const row of await unsettledGuests(crm.query)) {
+    try {
+      const out = (await invokeByName(
+        "order.releaseUnsettled",
+        { object: row.object, recordId: row.recordId },
+        {
+          actor: "automation",
+          user: SYSTEM_USER,
+          origin: { surface: "system", automationId: "system.orders" },
+          db: crm,
+          ...(floor ? { floor } : {}),
+          ...(events ? { events } : {}),
+          ...(clock ? { clock } : {}),
+        },
+      )) as { released: boolean };
+      if (out.released) result.released += 1;
+      if (result.released >= UNSETTLED_RELEASES) break;
+    } catch (error) {
+      result.failed += 1;
+      console.error("unsettled guest drop-in not released", row.orderId, errorForLog(error));
+    }
+  }
   return result;
 }

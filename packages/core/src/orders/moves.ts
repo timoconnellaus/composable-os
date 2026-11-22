@@ -20,17 +20,14 @@
 // gatekeeper by the minute cron (`order.refundDue`), as the outbound action `payments.refund`,
 // which only a person with `orders:refund` approves (ADR 0429).
 import { normaliseCustomerEmail, sameEmailPeople } from "../customers/accounts.ts";
-import { mailboxKey } from "../customers/limits.ts";
 import {
   ConfigError,
   ConflictError,
   NotFoundError,
-  RateLimitedError,
-  TRY_LATER,
   UnknownOperationError,
   ValidationError,
 } from "../errors.ts";
-import { getObject } from "../fields/index.ts";
+import { getObject, listObjects } from "../fields/index.ts";
 import type { MovesDefinition, ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
 import { notifyStatements } from "../notifications/send.ts";
@@ -129,13 +126,8 @@ function hostView(ctx: HandlerContext): HandlerContext {
   }) as HandlerContext;
 }
 
-/** How many drop-ins one address may start as a guest in GUEST_WINDOW_MINUTES (ADR 0560). */
-export const GUEST_STARTS_PER_ADDRESS = 3;
-export const GUEST_WINDOW_MINUTES = 15;
 /** The share of a class's places guests may hold unpaid when the setting is empty. */
 export const DEFAULT_HOLD_PERCENT = 50;
-
-const tryLater = () => new RateLimitedError(TRY_LATER, { rule: "try_later" });
 
 /**
  * Makes a record of an object that declares `sellable.moves` in its held state and starts its
@@ -227,24 +219,8 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     if (!address || (await erasedAddresses(ctx.db, [address])).size > 0) {
       throw new ValidationError("That email address cannot be used", { field: "email" });
     }
-    // At most a few starts per address in a while (the host's limit, per address as a sign-in
-    // code's is; the edge limits per client address): the same answer as a full hold cap.
-    // Best effort: read before the batch, so starts at the same moment may pass together; the
-    // per-class cap in the batch is the guard. Keyed by the mailbox (`+tags` folded, as a sign-in
-    // code's limit is).
-    const since = new Date(Date.parse(ctx.now) - GUEST_WINDOW_MINUTES * 60_000).toISOString();
-    const mailbox = mailboxKey(address);
-    const domain = address.slice(address.lastIndexOf("@"));
-    const recent = await ctx.db
-      .selectFrom("core_order")
-      .select("email")
-      .where("email", "like", `%${domain}`)
-      .where("placed_as", "=", "public")
-      .where("created_at", ">", since)
-      .limit(200)
-      .execute();
-    const starts = recent.filter((r) => r.email && mailboxKey(r.email) === mailbox).length;
-    if (starts >= GUEST_STARTS_PER_ADDRESS) throw tryLater();
+    // No per-address limit: addresses cost nothing to vary. The per-class cap, counted in the
+    // batch, is the guard (ADR 0560); the edge limits calls per client address.
     payer = null;
     email = address;
     token = newOrderToken();
@@ -512,7 +488,7 @@ async function tellAdmins(ctx: HandlerContext, orderId: string, title: string, b
 export async function oweLateRefund(
   ctx: HandlerContext,
   orderId: string,
-  payment: { paymentRef: string | null; amount: number; paidOrder: boolean },
+  payment: { paymentRef: string | null; amount: number; orderState: string },
 ): Promise<boolean> {
   if (!payment.paymentRef) return false;
   const lines = await ctx.db
@@ -527,8 +503,12 @@ export async function oweLateRefund(
     orderId,
     { name: moved.object_type },
     moved.record_id,
-    payment.paidOrder ? "duplicate_payment" : "late",
-    payment.paidOrder ? "Paid twice" : "Paid after its place went back",
+    payment.orderState === "paid" ? "duplicate_payment" : "late",
+    payment.orderState === "paid"
+      ? "Paid twice"
+      : payment.orderState === "refunded"
+        ? "Paid again after it was refunded"
+        : "Paid after its place went back",
     { paymentRef: payment.paymentRef, amount: payment.amount },
   );
   return true;
@@ -554,8 +534,11 @@ async function matchGuest(
   if (trashed && (await sameEmailPeople(ctx.db, email)).length === 0) return null;
   try {
     return await resolveBuyer(ctx, email);
-  } catch {
-    return null;
+  } catch (error) {
+    // No admin to create the Person for. Anything else (a database error) fails the payment's
+    // batch, and the verified event is applied again.
+    if (error instanceof ConfigError) return null;
+    throw error;
   }
 }
 
@@ -577,44 +560,90 @@ async function release(
 }
 
 /**
- * Paid guest records still held for no one when booking for them closes (the several People an
- * address matched were not settled by staff in time): released and owed back, admins told. Run
- * by the minute cron with the order expiry. Returns how many.
+ * How many paid guest records still held for no one are read per tick. The set holds only those
+ * (each needs an address several People share, not yet settled), and each leaves it when it is
+ * settled or released, so it is read whole in practice; at most UNSETTLED_RELEASES are released.
  */
-export async function releaseUnsettledGuests(ctx: HandlerContext, limit = 20): Promise<number> {
-  const rows = await ctx.db
-    .selectFrom("core_order as o")
-    .innerJoin("core_order_line as l", "l.order_id", "o.id")
-    .select(["o.id as order_id", "l.object_type", "l.record_id"])
-    .where("o.state", "=", "paid")
-    .where("o.person_id", "is", null)
-    .where("o.placed_as", "=", "public")
-    .orderBy("o.paid_at")
-    .limit(limit)
-    .execute();
-  let released = 0;
-  for (const row of rows) {
-    const object = getObject(row.object_type);
+export const UNSETTLED_SCAN = 1000;
+export const UNSETTLED_RELEASES = 20;
+
+/**
+ * Paid guest records still held for no one (the several People an address matched, not yet
+ * settled by staff): the records themselves, still held and ownerless, of paid orders, so one
+ * released or settled leaves the set and nothing else (another pack's guest orders) is in it.
+ * The minute cron then releases each one that is due in a call of its own.
+ */
+export async function unsettledGuests(
+  db: HandlerContext["db"],
+  limit = UNSETTLED_SCAN,
+): Promise<{ object: string; recordId: string; orderId: string }[]> {
+  const out: { object: string; recordId: string; orderId: string }[] = [];
+  for (const object of listObjects()) {
     const moves = movesOf(object);
-    const states = object?.states;
-    const ownerField = object?.customer?.field;
-    const until = states?.create?.window?.until;
-    if (!object || !moves?.guest || !states || !ownerField || until === undefined) continue;
-    const values = await storedValues(ctx, object, row.record_id);
-    if (!values || values[states.field] !== moves.held || values[ownerField]) continue;
-    const closes = await boundMoment(ctx, pathReader(ctx, object, values), until);
-    if (closes !== null && Date.parse(ctx.now) < closes) continue;
-    await release(ctx, object, moves, row.order_id, row.record_id, "unsettled");
-    await tellAdmins(
-      ctx,
-      row.order_id,
-      "A paid drop-in was released: nobody said whose it was",
-      `Order ${row.order_id} was paid with an address several People share, and its Person was not ` +
-        "set before booking closed. Its place went back and its refund is waiting in Approvals.",
-    );
-    released += 1;
+    const states = object.states;
+    const ownerField = object.customer?.field;
+    if (!moves?.guest || !states || !ownerField) continue;
+    const column = (name: string) => {
+      const field = object.fields.find((f) => f.name === name);
+      return field ? viewColumnOf(field) : null;
+    };
+    const stateColumn = column(states.field);
+    const ownerColumn = column(ownerField);
+    if (!stateColumn || !ownerColumn) continue;
+    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+    const rows = (await (db as any)
+      .selectFrom(visibleSource(orgReader(db), object, "r"))
+      // biome-ignore lint/suspicious/noExplicitAny: the join is on a registry-driven view.
+      .innerJoin("core_order_line as l", (join: any) =>
+        join.onRef("l.record_id", "=", "r.id").on("l.object_type", "=", object.name),
+      )
+      .innerJoin("core_order as o", "o.id", "l.order_id")
+      .select(["r.id as record_id", "o.id as order_id"])
+      .where(`r.${stateColumn}`, "=", moves.held)
+      .where(`r.${ownerColumn}`, "is", null)
+      .where("o.state", "=", "paid")
+      .orderBy("o.paid_at")
+      .limit(limit - out.length)
+      .execute()) as { record_id: string; order_id: string }[];
+    for (const row of rows) {
+      out.push({ object: object.name, recordId: row.record_id, orderId: row.order_id });
+    }
+    if (out.length >= limit) break;
   }
-  return released;
+  return out;
+}
+
+/**
+ * One paid guest record still held for no one, released and owed back if booking for it has
+ * closed (staff did not say whose in time), admins told. In the calling operation's own batch, so
+ * a conflict (staff settling it at the same moment) affects this record only. True if released.
+ */
+export async function releaseUnsettledGuest(
+  ctx: HandlerContext,
+  objectName: string,
+  recordId: string,
+): Promise<boolean> {
+  const object = getObject(objectName);
+  const moves = movesOf(object);
+  const states = object?.states;
+  const ownerField = object?.customer?.field;
+  const until = states?.create?.window?.until;
+  if (!object || !moves?.guest || !states || !ownerField || until === undefined) return false;
+  const values = await storedValues(ctx, object, recordId);
+  if (!values || values[states.field] !== moves.held || values[ownerField]) return false;
+  const order = await orderOfRecord(ctx, object, recordId);
+  if (!order || order.state !== "paid" || order.person_id) return false;
+  const closes = await boundMoment(ctx, pathReader(ctx, object, values), until);
+  if (closes !== null && Date.parse(ctx.now) < closes) return false;
+  await release(ctx, object, moves, order.id, recordId, "unsettled");
+  await tellAdmins(
+    ctx,
+    order.id,
+    "A paid drop-in was released: nobody said whose it was",
+    `Order ${order.id} was paid with an address several People share, and its Person was not ` +
+      "set before booking closed. Its place went back and its refund is waiting in Approvals.",
+  );
+  return true;
 }
 
 /**

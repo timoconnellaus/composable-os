@@ -153,7 +153,7 @@ export async function applyVerifiedPayment(
     const owed = await (await import("./moves.ts")).oweLateRefund(ctx, row.id, {
       paymentRef: payment.paymentRef ?? null,
       amount: payment.amount,
-      paidOrder: row.state === "paid",
+      orderState: row.state,
     });
     await tellStaff(
       "A payment arrived for an order that had closed",

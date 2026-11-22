@@ -43,7 +43,7 @@ import {
   resolveBuyer,
 } from "../orders/guests.ts";
 import { EXPIRE_BATCH, expireDueOrders, honourLatePayment, paidLate } from "../orders/late.ts";
-import { movesFollowPerson, releaseUnsettledGuests, startHeld } from "../orders/moves.ts";
+import { movesFollowPerson, releaseUnsettledGuest, startHeld } from "../orders/moves.ts";
 import {
   changeOrder,
   createOrder,
@@ -655,15 +655,7 @@ export const orderExpireDue = defineOperation({
   mcp: { expose: false },
   auditSummary: (output) => ({ count: output.expired.length }),
   async handler(input, ctx) {
-    const expired = await expireDueOrders(ctx, input.limit);
-    // Paid guest drop-ins nobody said whose by the time booking closed (ADR 0560): released and
-    // owed back. Logged and left for the next tick if it fails, never failing the expiry.
-    try {
-      await releaseUnsettledGuests(ctx);
-    } catch (error) {
-      console.error("order.expireDue: unsettled guest drop-ins not released", error);
-    }
-    return { expired };
+    return { expired: await expireDueOrders(ctx, input.limit) };
   },
 });
 
@@ -1105,6 +1097,23 @@ export const orderStartHeld = defineOperation({
   },
 });
 
+export const orderReleaseUnsettled = defineOperation({
+  name: "order.releaseUnsettled",
+  description:
+    "Platform use only (the minute cron): release one paid guest drop-in still held for no one " +
+    "(an address several People share, not settled by staff) once booking for it has closed: " +
+    "its place goes back and its refund is owed, for a person to approve. One record per call.",
+  input: z.object({ object: z.string().min(1).max(80), recordId: z.string().min(1).max(64) }),
+  output: z.object({ released: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  actors: ["automation"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    return { released: await releaseUnsettledGuest(ctx, input.object, input.recordId) };
+  },
+});
+
 export const orderRefundDue = defineOperation({
   name: "order.refundDue",
   description:
@@ -1140,6 +1149,7 @@ export const orderOperations = [
   orderStart,
   orderStartHeld,
   orderRefundDue,
+  orderReleaseUnsettled,
   orderGet,
   orderList,
   orderView,

@@ -74,10 +74,9 @@ pipeline's `toolOnly` holds customers and the public to that, and the handler re
 - **Limits on unpaid guest holds**: a class carries at most `holdCap`'s percent of its places
   (Bookings: `dropInHoldPercent`, default 50, at least one, a person's to change) in unpaid
   drop-in holds at once, counted by the database in the buy's batch after its own claim (migration
-  0690's `held_cap` guard on core_write_guard: of two at once only one passes the last); and one
-  address starts at most 3 guest drop-ins in 15 minutes (read from its orders). Either refusal is
-  the same "too many places are being held for payment just now: try again shortly"
-  (`rate_limited`, `try_later`), whatever the cause.
+  0690's `held_cap` guard on core_write_guard: of two at once only one passes the last). The
+  refusal is "too many places are being held for payment just now: try again shortly"
+  (`rate_limited`, `try_later`). (A per-address limit was tried and dropped, third review below.)
 - **The price** is read from the path, else the setting, in the deployment's currency; none, or
   nothing to pay, is `no_price`. The order's line is priced from it in the same batch
   (`createOrder` with the host's own priced line, which no operation takes from its input). A
@@ -169,13 +168,32 @@ lint refuses `x.bookings.buy` and `order.checkout` in them.
 - **The cap is on visitors' holds**: the trigger counts every unpaid hold, and the host adds the
   signed-in members' unpaid holds it reads to what it may count, so a member's own drop-in never
   turns a visitor away (a member's made at the same moment may, once).
-- **The per-address limit is best effort**: read before the batch, so starts at the same moment
-  may pass together; the per-class cap in the batch is the guard. It is keyed by the mailbox
-  (`+tags`, and Gmail's dots, folded, as a sign-in code's limit is).
 - **Paying with someone else's address** is accepted, as for `order.start`'s guests (ADR 0428):
   the paid drop-in becomes that Person's booking, or is refunded when they already have one.
 - A refund approval that failed when applied is reported as failed; when the cron gives up with
   approvals already waiting, admins are told which actions wait and that the rest was not asked.
+
+## Amended 2026-11-23 (third review, before merge)
+- **No per-address limit.** Addresses cost nothing to vary, and the one read before the batch
+  could not be matched by equality on a busy domain; the per-class cap, counted in the batch, is
+  the guard, and the edge rate limit (the deployment's) bounds calls per client address.
+- **Unsettled paid guest holds are found from the records**, still held and ownerless on a paid
+  order, so one settled or released leaves the set and nothing else (another pack's guest orders,
+  ones already dealt with) is in it; the set is read whole (up to 1,000) and at most 20 are
+  released per tick. Each is released in a call of its own (`order.releaseUnsettled`, automation
+  only), so a conflict (staff settling it at that moment) affects that record only and never the
+  order expiry's batch.
+- **Only the no-admin error** makes a guest's address unmatchable at payment; any other error
+  fails the payment's batch, and the verified event is applied again.
+- **Erasing a Person** gives back places, hands on to the waiting list and removes a waiter only
+  through the record's own Person (the claimant's customer field): a parent erased (who made a
+  child's booking, `madeBy`) is cleared from it, and the child's place and queue position stay.
+- **A payment owed back on its own** is asked for at most what is still refundable on it (staff
+  may have refunded part of it by hand); one after the order was refunded says so on the card.
+- **Erasing a member** deletes their bookings and does not refund a paid drop-in by itself
+  (coordinator's decision): the order remains, anonymous, and staff refund it from the order if a
+  refund is due. The erase's preview does not yet say a Person has a paid drop-in for a class to
+  come; staff check the Person's orders before erasing.
 
 ## Why
 - One batch for the record and its order is the only way neither exists without the other. Making
@@ -217,7 +235,7 @@ a full class and a place held for the waiting list refused; a member's own pendi
 counting as their booking; a stranger using a member's address answered the same, holding nothing
 in the member's name, and refunded (with staff told) when matched to the member's existing place;
 an address several People share waiting for staff, then booked by `order.setPerson`; the per-class
-cap and the per-address limit, both `try_later`; payment and expiry at the same moment; an expired
+cap, `try_later`; payment and expiry at the same moment; an expired
 hold handed to the waiting list; not open yet and staff only; a parent paying for a linked child
 and nobody else; an in-time cancel owed, asked for once, not approvable by the assistant, refunded
 when a person approves; an approval rejected lapsing, staff told once and able to ask again; a

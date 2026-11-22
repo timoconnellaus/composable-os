@@ -948,7 +948,7 @@ no other ADR amended. Where the build read the spec one way, or decided what it 
   linked child is unchanged.
 - **Unpaid guest holds are limited**: a class carries at most `dropInHoldPercent` of its places
   (default 50, at least one; a person's to change) in unpaid drop-in holds, counted by the database
-  in the buy's batch; one address starts at most 3 in 15 minutes. Either is "try again shortly".
+  in the buy's batch ("try again shortly"). There is no per-address limit (third review).
 - **A class cancelled while a drop-in is being bought**: the buy carries the same guard a member's
   booking does (ADR 0550), so it fails rather than leave a hold on a cancelled class.
 - **A payment after the hold expired**, or after its class was cancelled, is late (ADR 0429), is
@@ -971,7 +971,12 @@ no other ADR amended. Where the build read the spec one way, or decided what it 
   owed row per payment); erasing a Person deletes their bookings as before (the Person is optional
   only for a guest's unpaid hold); a paid guest hold whose address cannot be matched, or that staff
   have not settled by the time booking closes, is released and refunded; the cap counts only
-  visitors' holds; the per-address limit is best effort and folds `+tags` (ADR 0560's amendment).
+  visitors' holds (ADR 0560's amendment).
+- **After the third review**: a visitor whose address several People share is booked once staff
+  settle it (`order.setPerson`), and refunded if no one has by the time booking closes, each
+  released in a call of its own; erasing a parent never touches their child's place or queue
+  position; erasing a member deletes their bookings and does not refund a paid drop-in by itself
+  (staff refund it from the order, which stays, anonymous).
 - **`order.startHeld` is a tool's only, for everyone**: staff, the assistant and MCP are refused a
   direct call as customers and the public are.
 - **A member's cancel of a drop-in** says the money goes back once staff approve it (`cancel`'s

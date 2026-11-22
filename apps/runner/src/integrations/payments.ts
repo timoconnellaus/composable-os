@@ -8,6 +8,7 @@ import {
   parseFloor,
   queueEventSink,
   runRefundsDue,
+  runUnsettledGuests,
   SYSTEM_USER,
   sweepSubscriptions,
 } from "@composable-os/core";
@@ -54,5 +55,11 @@ export async function runOrdersTick(env: Env, at: Date) {
     events: deps.events,
     clock: () => at,
   });
-  return { events, expired: expired.expired.length, subscriptions, refunds };
+  // Paid guest drop-ins nobody said whose by the time booking closed: one call each (ADR 0560).
+  const unsettled = await runUnsettledGuests(deps.crm, {
+    floor: deps.floor,
+    events: deps.events,
+    clock: () => at,
+  });
+  return { events, expired: expired.expired.length, subscriptions, refunds, unsettled };
 }
