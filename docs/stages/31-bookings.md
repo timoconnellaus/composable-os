@@ -799,6 +799,13 @@ or decided what it left open:
   packs together (`apps/runner/test/bookings-waitlist.test.ts`: criterion 3, and criterion 5 with a
   waiter passed over for want of a use, the use spent on promotion, the cut-off, and 12 at once into
   4 then a cancel, a direct booking and two promotions at once); the pack's own tests.
+- **After the review** (ADR 0520's amendment): promotion is a host step the approval gate never
+  queues from the system origin (a deny is counted and logged); the hand-on happens only for a
+  place really given back, and an erase hands on; a waiting booking cannot change class; a member
+  already waiting takes a free place with `book` (never a place held for the queue); every refusal
+  in the step passes the waiter over or gives the holds back, logged, and a long queue is worked
+  down across ticks; the cut-off is read on the real clock; `bookFor` refuses paid at the desk
+  with the waitlist.
 
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.

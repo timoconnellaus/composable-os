@@ -268,12 +268,14 @@ describe("bookings pack (test host)", () => {
       passedOverAt: "passedOverAt",
       passedOverReason: "passedOverReason",
     });
-    // A member or staff join; only the host moves a waiter in.
+    // A member or staff join; the host promotes, and a member moves themselves onto a free place
+    // only, inside the booking window (the host never gives them a hold that way).
     expect(m.objects.booking?.states?.create?.in?.waiting).toEqual(["staff", "customer", "host"]);
     const promote = m.objects.booking?.states?.moves.find(
       (move) => move.from === "waiting" && move.to === "booked",
     );
-    expect(promote?.by).toEqual(["host"]);
+    expect(promote?.by).toEqual(["host", "customer"]);
+    expect(promote?.window).toBeDefined();
   });
 
   it("book joins a full class's waitlist (unless asked not to), with where they stand", async () => {
@@ -347,6 +349,54 @@ describe("bookings pack (test host)", () => {
       await refuse.runTool("book", { classId: "cls_1", waitlist: false }, { caller: MEMBER }),
     ).toMatchObject({ result: "refused", reason: "full" });
     expect(once).toHaveLength(1);
+  });
+
+  it("book by someone already waiting: the true reason, and a free place taken themselves", async () => {
+    const dup = () => {
+      throw new ExtensionToolError("conflict", "Already one", { rule: "unique" });
+    };
+    // Nothing to pay with, and already waiting: the answer is the duplicate, not the allowance.
+    const waiting = host({
+      "my.create": (input) =>
+        (input.values as Record<string, unknown>).state === "waiting"
+          ? dup()
+          : refusal("allowance", { reason: "no_holder" }),
+      "my.list": () => ({ items: [] }),
+    });
+    expect(await waiting.runTool("book", { classId: "cls_1" }, { caller: MEMBER })).toMatchObject({
+      result: "refused",
+      reason: "already_booked",
+    });
+    // Waiting on it, and a place is free: their own waiting booking moves in.
+    const writes: Record<string, unknown>[] = [];
+    const free = host({
+      "my.create": () => dup(),
+      "my.list": () => ({ items: [{ id: "bkg_w", values: { class: "cls_1", state: "waiting" } }] }),
+      "my.update": (input) => {
+        writes.push(input);
+        return { id: "bkg_w", values: { state: "booked", holder: "pass_1" } };
+      },
+    });
+    expect(await free.runTool("book", { classId: "cls_1" }, { caller: MEMBER })).toEqual({
+      result: "booked",
+      bookingId: "bkg_w",
+      classId: "cls_1",
+      holderId: "pass_1",
+    });
+    expect(writes).toEqual([
+      { object: "bookings.booking", id: "bkg_w", from: "waiting", values: { state: "booked" } },
+    ]);
+  });
+
+  it("bookFor refuses paid at the desk with the waitlist: nobody pays for a place they may not get", async () => {
+    const h = host();
+    await expect(
+      h.runTool(
+        "bookFor",
+        { classId: "cls_1", personId: "per_ann", paidAtDesk: true, waitlist: true },
+        { caller: STAFF },
+      ),
+    ).rejects.toThrow(/paidAtDesk/);
   });
 
   it("leaveWaitlist takes a waiting booking off, from waiting or not at all", async () => {
@@ -457,6 +507,8 @@ describe("bookings pack (test host)", () => {
       "my.create": () => {
         throw new ExtensionToolError("conflict", "There is already a booking", { rule: "unique" });
       },
+      // Booked already, not waiting: nothing of theirs waits on the class.
+      "my.list": () => ({ items: [] }),
     });
     expect(await dup.runTool("book", { classId: "cls_1" }, { caller: MEMBER })).toMatchObject({
       reason: "already_booked",

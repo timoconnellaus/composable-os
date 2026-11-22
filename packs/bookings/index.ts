@@ -527,7 +527,16 @@ export default defineExtension({
         moves: [
           { from: "pending", to: "booked", by: ["host"] },
           { from: "pending", to: "expired", by: ["host"], final: true },
-          { from: "waiting", to: "booked", by: ["host"] },
+          // The host promotes (taking the waitlist's hold); a member waiting on a class with a
+          // free place (after the cut-off, say) takes it themselves, inside the booking window
+          // and the staff-only rule, never a place held for the queue (ADR 0520).
+          {
+            from: "waiting",
+            to: "booked",
+            by: ["host", "customer"],
+            window: { from: opens, until: closes },
+            staffOnly: "class.classType.staffOnly",
+          },
           { from: "waiting", to: "left", by: ["staff", "customer"], final: true },
           {
             from: "booked",

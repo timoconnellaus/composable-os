@@ -2697,7 +2697,7 @@
     },
     {
       "name": "x.bookings.book",
-      "description": "Book the signed-in member into a class with what they already hold (a membership or a pass): the host spends one use of the one whose use would lapse first, or of `holderId` when they name one. No money moves. When the class is full they join its waitlist (unless `waitlist` is false): that spends nothing, and if a place frees before the class type's cut-off the host moves the first waiter in and spends their use then. Answers booked, waiting (with their position), or refused with the reason the host gave: booking not open yet (with when it opens), closed, booked by the gym only, nothing to pay with, already booked or waiting, full, or too close to the start to wait. (Extension tool from Bookings 0.1.0.)",
+      "description": "Book the signed-in member into a class with what they already hold (a membership or a pass): the host spends one use of the one whose use would lapse first, or of `holderId` when they name one. No money moves. When the class is full they join its waitlist (unless `waitlist` is false): that spends nothing, and if a place frees before the class type's cut-off the host moves the first waiter in and spends their use then. Asked again by a member already waiting, it books them if a place is free to them (never one held for the queue), else says where they stand. Answers booked, waiting (with their position), or refused with the reason the host gave: booking not open yet (with when it opens), closed, booked by the gym only, nothing to pay with, already booked or waiting, full, or too close to the start to wait. (Extension tool from Bookings 0.1.0.)",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",

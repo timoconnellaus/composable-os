@@ -24,7 +24,37 @@ import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { boundMoment, pathReader } from "../records/windows.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
-import { readCounter } from "./records.ts";
+import { creditSimulatedClaim, readCounter } from "./records.ts";
+
+/** How many live (held or confirmed) claims a claimant record has now. */
+async function liveClaims(db: HandlerContext["db"], object: string, id: string): Promise<number> {
+  const row = await db
+    .selectFrom("core_capacity_claim")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("for_type", "=", object)
+    .where("for_id", "=", id)
+    .where("state", "in", ["held", "confirmed"])
+    .executeTakeFirst();
+  return Number(row?.n ?? 0);
+}
+
+/** How many waitlist holds `t`'s waitlist has on `on` now. */
+export async function holdsOn(
+  db: HandlerContext["db"],
+  t: { object: ObjectDefinition; claims: ClaimsDefinition },
+  on: string,
+): Promise<number> {
+  const row = await db
+    .selectFrom("core_capacity_claim")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("object_type", "=", t.claims.object)
+    .where("record_id", "=", on)
+    .where("for_type", "=", WAITLIST_FOR)
+    .where("for_id", "=", t.object.name)
+    .where("state", "=", "held")
+    .executeTakeFirst();
+  return Number(row?.n ?? 0);
+}
 
 /** The `for_type` of a waitlist's holds; their `for_id` is the claimant object. */
 export const WAITLIST_FOR = "waitlist";
@@ -38,6 +68,8 @@ export interface WaitlistTarget {
   source: string;
   onColumn: string;
   stateColumn: string;
+  /** The column of `passedOverAt`, when declared: which waiters a hold has already tried. */
+  passedOverColumn?: string | undefined;
 }
 
 /** The waitlist of a claimant object, or null when it declares none. */
@@ -49,7 +81,18 @@ export function waitlistOf(object: ObjectDefinition): WaitlistTarget | null {
   const onColumn = object.fields.find((f) => f.name === claims.on)?.column;
   const stateColumn = object.fields.find((f) => f.name === stateField)?.column;
   if (!onColumn || !stateColumn) return null;
-  return { object, claims, waitlist, source: object.source, onColumn, stateColumn };
+  const passedOverColumn = waitlist.passedOverAt
+    ? object.fields.find((f) => f.name === waitlist.passedOverAt)?.column
+    : undefined;
+  return {
+    object,
+    claims,
+    waitlist,
+    source: object.source,
+    onColumn,
+    stateColumn,
+    ...(passedOverColumn ? { passedOverColumn } : {}),
+  };
 }
 
 /** The claimant object (with a waitlist) a waitlist hold was made for, by its `for_id`. */
@@ -92,28 +135,65 @@ export async function beforeCutoff(
 }
 
 /**
- * The statements that hand one place on `on` to the waitlist if anyone other than `except` is
- * waiting there: the counter's held up by one and a waitlist hold, both on the same condition, so
- * both happen or neither does. Queue them after the statements that give the place back.
+ * The statements that hand one place on `on` to the waitlist when the claimant record `claimant`
+ * gave a place back on it in this batch (its claim released at `now`, by the statements queued
+ * before these) and anyone other than it is waiting there: the counter's held up by one and a
+ * waitlist hold, both on the same two conditions, so both happen or neither does. Keyed to the
+ * claim really released, not to the state change: a record that holds nothing (an erased
+ * Person's booking, kept anonymous) hands nothing on when it moves (ADR 0520).
  */
 export function handOnStatements(
   t: WaitlistTarget,
   on: string,
-  except: string,
+  claimant: string,
   id: string,
   now: string,
 ): CompiledQuery[] {
-  const waiting = [on, t.waitlist.state, except];
+  const released = `EXISTS (SELECT 1 FROM core_capacity_claim r WHERE r.for_type = ? AND r.for_id = ? AND r.object_type = ? AND r.record_id = ? AND r.state = 'released' AND r.released_at = ?)`;
+  const conditions = `${released} AND ${waitersSql(t)}`;
+  const params = [
+    t.object.name,
+    claimant,
+    t.claims.object,
+    on,
+    now,
+    on,
+    t.waitlist.state,
+    claimant,
+  ];
   return [
     CompiledQuery.raw(
-      `UPDATE core_capacity SET held = held + 1, updated_at = ? WHERE object_type = ? AND record_id = ? AND ${waitersSql(t)}`,
-      [now, t.claims.object, on, ...waiting],
+      `UPDATE core_capacity SET held = held + 1, updated_at = ? WHERE object_type = ? AND record_id = ? AND ${conditions}`,
+      [now, t.claims.object, on, ...params],
     ),
     CompiledQuery.raw(
-      `INSERT INTO core_capacity_claim (id, object_type, record_id, pool_object_type, pool_record_id, quantity, state, for_type, for_id, created_at, updated_at) SELECT ?, ?, ?, NULL, NULL, 1, 'held', ?, ?, ?, ? WHERE ${waitersSql(t)}`,
-      [id, t.claims.object, on, WAITLIST_FOR, t.object.name, now, now, ...waiting],
+      `INSERT INTO core_capacity_claim (id, object_type, record_id, pool_object_type, pool_record_id, quantity, state, for_type, for_id, created_at, updated_at) SELECT ?, ?, ?, NULL, NULL, 1, 'held', ?, ?, ?, ? WHERE ${conditions}`,
+      [id, t.claims.object, on, WAITLIST_FOR, t.object.name, now, now, ...params],
     ),
   ];
+}
+
+/**
+ * After an erase gave back every place a claimant record held (records/erase-stores.ts): hand
+ * one on to the waitlist as a move out of a claiming state would, before the cut-off (ADR 0520).
+ */
+export async function handOnAfterRelease(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+): Promise<void> {
+  const t = waitlistOf(object);
+  if (!t) return;
+  // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
+  const row = (await (ctx.db as Kysely<any>)
+    .selectFrom(t.source)
+    .select(t.onColumn)
+    .where("id", "=", id)
+    .executeTakeFirst()) as Record<string, unknown> | undefined;
+  const on = row?.[t.onColumn];
+  if (typeof on !== "string" || !on) return;
+  if (!(await beforeCutoff(ctx, t, { [t.claims.on]: on }))) return;
+  ctx.write(...handOnStatements(t, on, id, newId("capacityClaim"), ctx.now));
 }
 
 /**
@@ -174,6 +254,31 @@ export function releaseHoldsStatements(
     CompiledQuery.raw(
       `UPDATE core_capacity_claim SET state = 'released', released_at = ?, updated_at = ? WHERE id IN (SELECT c.id FROM core_capacity_claim c WHERE ${where})${unless.sql}`,
       [now, now, ...params, ...unless.params],
+    ),
+  ];
+}
+
+/**
+ * The statements that give back a waitlist's holds on one record by names alone: for holds whose
+ * claimant object no longer declares a waitlist (the sweep finds them; ADR 0520).
+ */
+export function releaseGroupStatements(
+  claimed: string,
+  on: string,
+  claimant: string,
+  now: string,
+): CompiledQuery[] {
+  const where =
+    "c.object_type = ? AND c.record_id = ? AND c.for_type = ? AND c.for_id = ? AND c.state = 'held'";
+  const params = [claimed, on, WAITLIST_FOR, claimant];
+  return [
+    CompiledQuery.raw(
+      `UPDATE core_capacity SET held = held - (SELECT coalesce(sum(c.quantity), 0) FROM core_capacity_claim c WHERE ${where}), updated_at = ? WHERE object_type = ? AND record_id = ?`,
+      [...params, now, claimed, on],
+    ),
+    CompiledQuery.raw(
+      `UPDATE core_capacity_claim SET state = 'released', released_at = ?, updated_at = ? WHERE id IN (SELECT c.id FROM core_capacity_claim c WHERE ${where})`,
+      [now, now, ...params],
     ),
   ];
 }
@@ -252,15 +357,23 @@ export async function waitlistMove(
   const onAfter = after[t.claims.on];
   if (phase === "before") {
     // A promotion: the waiter's place is the waitlist's hold, given back here and claimed next.
+    // Only the host's promotion takes the waitlist's hold; a waiter moving themselves in (a free
+    // place after the cut-off, say) claims a free place like anyone, never one owed to the queue.
     if (was === waiting && is === t.waitlist.promote && by === "host") {
       if (typeof onAfter === "string" && onAfter) {
         ctx.write(...takeHoldStatements(t, onAfter, ctx.now));
+        // The approval queue's dry run discards those statements: count the hold's return, so
+        // the claim that follows is judged as the real batch would judge it (finding 1, ADR 0520).
+        if (ctx.simulation && (await holdsOn(ctx.db, t, onAfter)) > 0) {
+          creditSimulatedClaim(ctx, t.claims.object, onAfter, 1);
+        }
       }
     }
     return;
   }
-  // A join, or a waiter pointed at another record: the class must be full, before the cut-off.
-  if (is === waiting && by !== "host" && (was !== waiting || onBefore !== onAfter)) {
+  // A join: the class must be full, before the cut-off. (A waiter cannot be pointed at another
+  // record at all: assertClaimRelationKept refuses it.)
+  if (is === waiting && by !== "host" && was !== waiting) {
     if (typeof onAfter !== "string" || !onAfter) {
       const label = object.fields.find((f) => f.name === t.claims.on)?.label ?? t.claims.on;
       throw new ValidationError(`${object.label} needs ${label} to wait for a place`, {
@@ -280,7 +393,12 @@ export async function waitlistMove(
   const from = before === null ? null : placeKind(t.claims, was);
   const to = placeKind(t.claims, is);
   if (from !== null && to === null && typeof onBefore === "string" && onBefore) {
-    if (await beforeCutoff(ctx, t, before ?? after)) {
+    // Only a record that holds a place gives one back: an erased Person's booking, kept in its
+    // state holding nothing, hands nothing on (the SQL also checks the claim it releases).
+    if (
+      (await liveClaims(ctx.db, object.name, id)) > 0 &&
+      (await beforeCutoff(ctx, t, before ?? after))
+    ) {
       ctx.write(...handOnStatements(t, onBefore, id, newId("capacityClaim"), ctx.now));
     }
   }
@@ -315,22 +433,34 @@ export async function waitlistPosition(
   };
 }
 
-/** The waiters on `on`, first first (by when each was made). */
+/**
+ * The waiters on `on`, first first (by when each was made). With `untriedSince` (the oldest
+ * hold's time) and a declared `passedOverAt`, only those not passed over since then: a waiter
+ * already tried for these holds is not tried again, so the sweep moves down a long queue across
+ * ticks instead of giving the place away after the first page (ADR 0520).
+ */
 export async function waitersOn(
   db: HandlerContext["db"],
   t: WaitlistTarget,
   on: string,
   limit: number,
+  untriedSince?: string,
 ): Promise<string[]> {
   // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
-  const rows = (await (db as Kysely<any>)
+  let query = (db as Kysely<any>)
     .selectFrom(t.source)
     .select("id")
     .where(t.onColumn, "=", on)
-    .where(t.stateColumn, "=", t.waitlist.state)
-    .orderBy("created_at")
-    .orderBy("id")
-    .limit(limit)
-    .execute()) as { id: string }[];
+    .where(t.stateColumn, "=", t.waitlist.state);
+  const column = t.passedOverColumn;
+  if (untriedSince !== undefined && column) {
+    // biome-ignore lint/suspicious/noExplicitAny: the column is the registry's, typed loosely.
+    query = query.where((eb: any) =>
+      eb.or([eb(column, "is", null), eb(column, "<", untriedSince)]),
+    );
+  }
+  const rows = (await query.orderBy("created_at").orderBy("id").limit(limit).execute()) as {
+    id: string;
+  }[];
   return rows.map((r) => String(r.id));
 }

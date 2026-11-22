@@ -389,11 +389,69 @@ async function bookOrWait(
       });
       return { made, waiting: true };
     } catch (error) {
-      // Nothing to pay with and no waitlist to join (not full, or closed): that is the answer.
-      if (ruleOf(refusal).rule === "allowance") throw refusal;
+      const join = ruleOf(error);
       // Full a moment ago, and a place came free: book it (once).
-      if (ruleOf(error).reason !== "not_full" || attempt > 0) throw error;
+      if (join.reason === "not_full" && ruleOf(refusal).rule === "capacity" && attempt === 0) {
+        continue;
+      }
+      // Nothing to pay with, and no waitlist to join (it is not full, or has closed): that is the
+      // answer. Any other refusal of the join (already booked or waiting…) is the true reason.
+      if (ruleOf(refusal).rule === "allowance" && join.rule === "waitlist") throw refusal;
+      throw error;
     }
+  }
+}
+
+/**
+ * A member already waiting on the class asked to book it: when a place is free (after the
+ * cut-off, after the queue was passed over, or more places), they take it themselves, spending
+ * then; a place held for the queue is the host's to give (ADR 0520). Null when they are not
+ * waiting on it; otherwise booked, or still waiting with where they stand.
+ */
+async function takeFreePlace(
+  ctx: Ctx,
+  classId: string,
+): Promise<
+  | { result: "booked"; bookingId: string; classId: string; holderId: string | null }
+  | z.infer<typeof waiting>
+  | null
+> {
+  const mine = await ctx.ops.call<ListShape>("my.list", {
+    object: BOOKING,
+    filter: {
+      and: [
+        { field: "class", op: "eq", value: classId },
+        { field: "state", op: "eq", value: "waiting" },
+      ],
+    },
+    limit: 1,
+  });
+  const queued = mine.items[0];
+  if (!queued) return null;
+  try {
+    const after = await ctx.ops.call<RecordShape>("my.update", {
+      object: BOOKING,
+      id: queued.id,
+      from: "waiting",
+      values: { state: "booked" },
+    });
+    return {
+      result: "booked",
+      bookingId: queued.id,
+      classId,
+      holderId: text(after.values.holder),
+    };
+  } catch (error) {
+    const rule = error instanceof OpsCallError ? (error.details as { rule?: unknown })?.rule : null;
+    if (rule !== "capacity") throw error;
+    const at = await positionOf(ctx, queued.id);
+    return {
+      result: "waiting",
+      bookingId: queued.id,
+      classId,
+      ...at,
+      message: `You are already on this class's waitlist${at.position === null ? "" : `, number ${at.position}`}: no place is free for you yet.`,
+    };
   }
 }
 
@@ -408,7 +466,9 @@ export const book = defineTool({
     "pass): the host spends one use of the one whose use would lapse first, or of `holderId` " +
     "when they name one. No money moves. When the class is full they join its waitlist " +
     "(unless `waitlist` is false): that spends nothing, and if a place frees before the class " +
-    "type's cut-off the host moves the first waiter in and spends their use then. Answers " +
+    "type's cut-off the host moves the first waiter in and spends their use then. Asked again " +
+    "by a member already waiting, it books them if a place is free to them (never one held for " +
+    "the queue), else says where they stand. Answers " +
     "booked, waiting (with their position), or refused with the reason the host gave: booking " +
     "not open yet (with when it opens), closed, booked by the gym only, nothing to pay with, " +
     "already booked or waiting, full, or too close to the start to wait.",
@@ -459,6 +519,18 @@ export const book = defineTool({
         holderId: text(made.values.holder),
       };
     } catch (error) {
+      const unique =
+        error instanceof OpsCallError &&
+        (error.details as { rule?: unknown } | undefined)?.rule === "unique";
+      if (unique) {
+        // Already waiting on it: take a free place if there is one (finding 5, ADR 0520).
+        try {
+          const taken = await takeFreePlace(ctx, input.classId);
+          if (taken) return taken;
+        } catch (inner) {
+          return refusalOf(inner, "book");
+        }
+      }
       return refusalOf(error, "book");
     }
   },
@@ -744,6 +816,14 @@ export const bookFor = defineTool({
   async handler(input, ctx) {
     if (!input.personId && !input.newPerson) {
       throw new OpsCallError("invalid_input", "Give personId, or newPerson for a walk-in");
+    }
+    // Paid at the desk is for a place they take now: nobody pays at the desk for a place they
+    // may never get, and a promotion later would then spend nothing (ADR 0520).
+    if (input.paidAtDesk && input.waitlist) {
+      throw new OpsCallError(
+        "invalid_input",
+        "paidAtDesk is for a free place taken now; put them on the waitlist without it",
+      );
     }
     const staff = ctx.caller?.kind === "staff" ? ctx.caller : null;
     const values = {

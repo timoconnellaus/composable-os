@@ -95,10 +95,18 @@ export function assertClaimRelationKept(
   const claims = object.claims;
   if (!claims || before === null || !Object.hasOwn(written, claims.on)) return;
   if ((written[claims.on] ?? null) === (before[claims.on] ?? null)) return;
-  if (claimKind(object, before) === null) return;
+  // A waiter keeps its record too (ADR 0520): its place in one queue is not a place in another,
+  // and moving it would skip the join's checks (full, before the cut-off) and the other queue.
+  const waiting =
+    claims.waitlist !== undefined &&
+    object.states !== undefined &&
+    before[object.states.field] === claims.waitlist.state;
+  if (claimKind(object, before) === null && !waiting) return;
   const label = object.fields.find((f) => f.name === claims.on)?.label ?? claims.on;
   throw new ValidationError(
-    `${object.label} holds a place on its ${label.toLowerCase()}, so its ${label.toLowerCase()} cannot change`,
+    waiting
+      ? `${object.label} is waiting for a place on its ${label.toLowerCase()}, so its ${label.toLowerCase()} cannot change: leave the waitlist and join another`
+      : `${object.label} holds a place on its ${label.toLowerCase()}, so its ${label.toLowerCase()} cannot change`,
     { field: claims.on, rule: "claim_relation_kept" },
   );
 }

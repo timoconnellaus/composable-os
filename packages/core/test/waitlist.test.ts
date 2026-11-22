@@ -10,7 +10,19 @@
 import { env } from "cloudflare:workers";
 import { validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type ActingUser, invoke, runWaitlistDue } from "../src/index.ts";
+import { z } from "zod";
+import {
+  type ActingUser,
+  coreRegistry,
+  createInvoker,
+  createRecord,
+  createRegistry,
+  defineOperation,
+  invoke,
+  requireExtensionObject,
+  runWaitlistDue,
+  updateRecord,
+} from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, unique } from "./helpers.ts";
 
@@ -180,7 +192,7 @@ describe("the declaration", () => {
         expect.stringContaining("claims.waitlist.promotedAt"),
       ]),
     );
-    // Nobody moves themselves ahead of the waitlist.
+    // A customer moving their own waiting record in needs the booking's window.
     const ahead = fixture("aheadwl");
     const moves = (ahead.objects as Record<string, { states: { moves: { by: string[] }[] } }>)
       .booking?.states.moves as { by: string[] }[];
@@ -189,7 +201,7 @@ describe("the declaration", () => {
       validateManifest(ahead)
         .issues.map((i) => i.message)
         .join("\n"),
-    ).toContain("nobody moves themselves ahead of the waitlist");
+    ).toContain("needs a window");
   });
 });
 
@@ -357,8 +369,8 @@ describe("races", () => {
       origin: { surface: "system", automationId: "system.waitlist" },
     });
     const [one, two] = await Promise.allSettled([
-      invoke("waitlist.promote", { object: BOOKING, id: w }, sys),
-      invoke("waitlist.promote", { object: BOOKING, id: w }, sys),
+      invoke("waitlist.promote", { object: BOOKING, id: w, on: k }, sys),
+      invoke("waitlist.promote", { object: BOOKING, id: w, on: k }, sys),
     ]);
     expect([one.status, two.status].sort()).toEqual(["fulfilled", "rejected"]);
     expect(await counter(k)).toEqual({ places: 1, held: 0, taken: 1 });
@@ -372,7 +384,7 @@ describe("who may move the waitlist", () => {
     const w = await book(k, "waiting");
     await move(a, "cancelled");
     const person = await refused(
-      invoke("waitlist.promote", { object: BOOKING, id: w }, context(admin)),
+      invoke("waitlist.promote", { object: BOOKING, id: w, on: k }, context(admin)),
     );
     expect(person.code).toBe("forbidden");
     // A pack's automation runs as the automation actor too, from its own origin: refused.
@@ -381,8 +393,8 @@ describe("who may move the waitlist", () => {
       origin: { surface: "automation", automationId: "x.pack.jump", extensionId: ext },
     });
     for (const [name, input] of [
-      ["waitlist.promote", { object: BOOKING, id: w }],
-      ["waitlist.passOver", { object: BOOKING, id: w, reason: "nope" }],
+      ["waitlist.promote", { object: BOOKING, id: w, on: k }],
+      ["waitlist.passOver", { object: BOOKING, id: w, on: k, reason: "nope" }],
       ["waitlist.release", { object: BOOKING, on: k, before: LATE }],
     ] as const) {
       const out = await refused(invoke(name, input, pack));
@@ -390,5 +402,159 @@ describe("who may move the waitlist", () => {
     }
     expect((await values(w)).state).toBe("waiting");
     expect(await holds(k)).toBe(1);
+  });
+});
+
+// A place given back and a join planned from the same read, in one batch: what a cancel and a
+// join a moment apart would do, with the join's read before the cancel commits.
+const cancelThenJoin = defineOperation({
+  name: "fixture.cancelThenJoin",
+  description: "Test fixture: cancels a booking, then joins the class's waitlist, in one batch.",
+  input: z.object({ cancel: z.string(), klass: z.string(), person: z.string() }),
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    const booking = requireExtensionObject(BOOKING);
+    await updateRecord(ctx, booking, input.cancel, { state: "cancelled" });
+    await createRecord(ctx, booking, {
+      klass: input.klass,
+      person: input.person,
+      state: "waiting",
+    });
+    return { ok: true };
+  },
+});
+const fixtures = createInvoker(createRegistry([...coreRegistry.list(), cancelThenJoin]));
+
+describe("review findings (PR #248)", () => {
+  it("a join whose class came free before it commits is refused by the database (the full guard)", async () => {
+    const k = await klass(1);
+    const a = await book(k);
+    const out = await refused(
+      fixtures.invoke(
+        "fixture.cancelThenJoin",
+        { cancel: a, klass: k, person: await person("late") },
+        at(NOW),
+      ),
+    );
+    expect(out.details).toMatchObject({ rule: "waitlist", reason: "not_full" });
+    // Nothing of the batch applied: a is still booked, and nobody waits.
+    expect((await values(a)).state).toBe("booked");
+    expect(await counter(k)).toEqual({ places: 1, held: 0, taken: 1 });
+  });
+
+  it("finding 1: under an approval floor the host step still promotes; a deny is counted, never silent", async () => {
+    // A class far ahead: the approved action runs on the real clock.
+    const k = (
+      await invoke(
+        "record.create",
+        {
+          object: KLASS,
+          values: {
+            name: unique("Ahead"),
+            startsAt: "2099-03-10T08:00:00.000Z",
+            places: 1,
+            promoMinutes: 120,
+          },
+        },
+        at(NOW),
+      )
+    ).id as string;
+    const a = await book(k);
+    const w = await book(k, "waiting");
+    await move(a, "cancelled");
+    // A deploy floor that sends every automation write to a person: the host's own step is not
+    // queued (a queued system step could never be applied), so the waiter is moved in.
+    const floor = { automation: { write: "review" as const } };
+    await runWaitlistDue(db, { floor });
+    expect((await values(w)).state).toBe("booked");
+    expect(await counter(k)).toEqual({ places: 1, held: 0, taken: 1 });
+    const queued = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_pending_action WHERE operation LIKE 'waitlist.%' AND json_extract(input, '$.on') = ?",
+    )
+      .bind(k)
+      .first<{ n: number }>();
+    expect(queued?.n).toBe(0);
+    // A deny still applies, and is not silent: counted as a failure, the hold kept for the waiter.
+    const k2 = (
+      await invoke(
+        "record.create",
+        {
+          object: KLASS,
+          values: {
+            name: unique("Denied"),
+            startsAt: "2099-03-10T08:00:00.000Z",
+            places: 1,
+            promoMinutes: 120,
+          },
+        },
+        at(NOW),
+      )
+    ).id as string;
+    const a2 = await book(k2);
+    const w2 = await book(k2, "waiting");
+    await move(a2, "cancelled");
+    const denied = await runWaitlistDue(db, { floor: { automation: { write: "deny" } } });
+    expect(denied.failed).toBeGreaterThanOrEqual(1);
+    expect((await values(w2)).state).toBe("waiting");
+  });
+
+  it("finding 2: erasing a booked Person hands their place to the waitlist; their kept booking hands on nothing later", async () => {
+    const k = await klass(2);
+    const erased = await person("gone");
+    const a = (
+      await invoke(
+        "record.create",
+        { object: BOOKING, values: { klass: k, person: erased, state: "booked" } },
+        at(NOW),
+      )
+    ).id as string;
+    await book(k);
+    const w = await book(k, "waiting");
+    await invoke("person.erase", { id: erased }, at(NOW));
+    // The place is the waitlist's: a direct booking finds the class full.
+    expect(await counter(k)).toEqual({ places: 2, held: 1, taken: 1 });
+    expect(await holds(k)).toBe(1);
+    expect((await refused(book(k))).details).toMatchObject({ rule: "capacity" });
+    // The erased Person's booking is kept, anonymous, holding nothing: cancelling it later gives
+    // nothing back and hands nothing on (the class full of holds does not refuse it either).
+    await move(a, "cancelled");
+    expect(await counter(k)).toEqual({ places: 2, held: 1, taken: 1 });
+    expect(await holds(k)).toBe(1);
+    await tick(NOW);
+    expect((await values(w)).state).toBe("booked");
+    expect(await counter(k)).toEqual({ places: 2, held: 0, taken: 2 });
+  });
+
+  it("finding 3: a waiting booking cannot be pointed at another class", async () => {
+    const full = await klass(1);
+    await book(full);
+    const w = await book(full, "waiting");
+    const free = await klass(5);
+    const out = await refused(
+      invoke("record.update", { object: BOOKING, id: w, values: { klass: free } }, at(NOW)),
+    );
+    expect(out.details).toMatchObject({ rule: "claim_relation_kept" });
+    expect((await values(w)).klass).toBe(full);
+  });
+
+  it("finding 4: holds of an object that no longer declares a waitlist are given back", async () => {
+    const k = await klass(2);
+    await book(k);
+    // A hold the sweep cannot promote into: its claimant object (here the class) has no waitlist,
+    // as after a waitlist is dropped between the reconciler's read and its write.
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE core_capacity SET held = held + 1 WHERE object_type = ? AND record_id = ?",
+      ).bind(KLASS, k),
+      env.DB.prepare(
+        "INSERT INTO core_capacity_claim (id, object_type, record_id, quantity, state, for_type, for_id, created_at, updated_at) VALUES (?, ?, ?, 1, 'held', 'waitlist', ?, ?, ?)",
+      ).bind(`clm_${unique("orphan")}`, KLASS, k, KLASS, NOW, NOW),
+    ]);
+    expect(await counter(k)).toEqual({ places: 2, held: 1, taken: 1 });
+    const result = await tick(NOW);
+    expect(result.released).toBeGreaterThanOrEqual(1);
+    expect((await counter(k))?.held).toBe(0);
   });
 });

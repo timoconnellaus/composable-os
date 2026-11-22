@@ -352,9 +352,9 @@ export async function minuteTick(env: Env, at: Date) {
   );
   // Waitlists (stage 31a, ADR 0520): places handed to a waitlist go to its first waiters, as the
   // host, one batch each; holds nobody can take, and from the cut-off on, go back to everyone.
+  // The real clock, not the tick's: a tick that runs late must not promote after the cut-off.
   const waitlist = await minuteStep("waitlist", () =>
     runWaitlistDue(createCrmDb(env.DB), {
-      clock: () => at,
       floor: parseFloor(env.APPROVAL_FLOOR),
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
     }),

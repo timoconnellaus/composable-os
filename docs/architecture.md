@@ -1057,8 +1057,10 @@ minute step, promotes the first waiter (by creation) as the host, one batch each
 (`waitlist.promote`: from `state` or not at all, a waitlist hold given back and the waiter's own
 claim made, whatever the move spends spent), passes over a waiter whose spend is refused
 (`waitlist.passOver`) and gives back holds nobody took or that the cut-off reached
-(`waitlist.release`). Those three refuse any origin but `system`. The last waiter leaving gives the
-holds back in its batch. `waitlist.position` reads a waiter's place (a customer's own only).
+(`waitlist.release`). Those three refuse any origin but `system`, and are host steps
+(`hostStep`): from it the gate never queues them. The last waiter leaving gives the holds back in
+its batch; an erase hands on the places it gives back; a waiter cannot change its record, and may
+take a free place itself where its object declares that customer move (never a hold). `waitlist.position` reads a waiter's place (a customer's own only).
 
 **Declared uniqueness** ([ADR 0502](adr/0502-declared-uniqueness.md),
 `packages/core/src/records/unique.ts`). `unique: [{ fields, states? }]` is a partial unique index

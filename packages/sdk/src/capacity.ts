@@ -144,8 +144,9 @@ export interface ClaimsSpec {
  * promoted and a place given back goes to whoever claims first.
  *
  * - `state` is a state of the object that neither holds nor takes a place, and is not final.
- * - `promote` is one of `confirmed`; a move from `state` to it must be declared for the host
- *   (and never for a customer: nobody moves themselves ahead of the waitlist).
+ * - `promote` is one of `confirmed`; a move from `state` to it must be declared for the host.
+ *   Declared for a customer too (with a window), it lets a waiter take a free place themselves:
+ *   only the host's promotion takes a place the waitlist holds, so nobody jumps the queue.
  * - `until` is a moment, named as a window's end is (`{ at: "class.startsAt", minutesBefore:
  *   { field: "class.classType.promotionMinutes", setting: "promotionMinutes" } }`).
  * - `promotedAt`, `passedOverAt` (read-only datetimes) and `passedOverReason` (read-only text)
@@ -272,12 +273,17 @@ export function checkObjectClaims(
       `Declare a move from "${waitlist.state}" to "${waitlist.promote}" by the host: promotion is the host's`,
     );
   }
-  if (promotions.some((move) => move.by.includes("customer"))) {
-    contract(
-      `${wp}.promote`,
-      `No customer moves from "${waitlist.state}" to "${waitlist.promote}": nobody moves themselves ahead of the waitlist`,
-    );
-  }
+  // A customer may move their own waiting record in, but only onto a free place: the host's
+  // promotion alone takes a place the waitlist holds, so nobody moves themselves ahead of it.
+  // Their move needs the create's window, so they cannot claim a place booking would refuse.
+  promotions.forEach((move) => {
+    if (move.by.includes("customer") && !move.window) {
+      contract(
+        `${wp}.promote`,
+        `A customer's move from "${waitlist.state}" to "${waitlist.promote}" needs a window (the create's): it books them`,
+      );
+    }
+  });
   windowChecks(m, object, name, contract).checkBound(waitlist.until, `${wp}.until`);
   for (const [key, type] of [
     ["promotedAt", "datetime"],

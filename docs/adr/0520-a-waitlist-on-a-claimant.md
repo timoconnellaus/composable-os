@@ -23,8 +23,8 @@ with every other write. So the waitlist is the host's, declared on the claimant.
 **The declaration.** `claims.waitlist: { state, promote, until, promotedAt?, passedOverAt?,
 passedOverReason? }` on a claimant (`packages/sdk/src/capacity.ts`). `state` is a state that holds
 no place, is not final and that records may be created in; `promote` is one of the claimant's
-confirmed states, with a move from `state` to it declared for the host and never for a customer
-(nobody moves themselves ahead). `until` is a moment named as a window's end is (ADR 0505): the
+confirmed states, with a move from `state` to it declared for the host (for a customer only with a
+window, and onto a free place: see the amendment). `until` is a moment named as a window's end is (ADR 0505): the
 Bookings pack's is `class.startsAt` less the class type's `promotionMinutes`, else the setting.
 The three fields are read-only ones the host writes. The claimed object has no pool. The claim on
 `capacity` was the spec's guess at the shape; the waitlist goes with the claimant because the
@@ -87,3 +87,42 @@ claimant object gives its waitlist's holds back with its claims.
 - A waiter passed over stays first: the next freed place tries them again first (and notes the
   reason again). Messages saying so are stage 31's step 9, from these fields.
 - The waitlist is one place per record, like claims.
+
+## Amended 2026-11-22, after the review (before merge)
+
+- **Promotion is a host step, never held for approval.** Under a deploy floor that sends
+  automation writes to a person, the step's promotion was refused in its own dry run (the dry run
+  discarded the statements that give the hold back) and read as "taken": the place sat silently
+  until the cut-off. A queued system step could not be applied anyway (its user is no one's). So
+  `waitlist.promote`, `waitlist.passOver` and `waitlist.release` declare `hostStep`: from the
+  `system` origin the gate never queues them; a `deny` still applies, and the step counts and logs
+  it each tick. The dry run also counts the hold's return now (`creditSimulatedClaim`), so any
+  simulation of a promotion is judged as the real batch.
+- **The hand-on is keyed to a place really given back.** Its two statements also require that this
+  record's claim was released in this batch, and the engine reads first that the record holds one:
+  a booking kept after its Person was erased, in its state but holding nothing, hands nothing on
+  when it moves later. Erasing a Person hands on every place it gives back, before the cut-off, as
+  a cancel does (`handOnAfterRelease`, from `records/erase-stores.ts`).
+- **A waiter keeps its record.** Changing a waiting record's `on` is refused
+  (`claim_relation_kept`), as for one holding a place: it would skip the join's checks and the
+  other queue. Leave and join the other.
+- **A waiter may take a free place themselves.** The move from `state` to `promote` may be declared
+  for a customer too, with a window (the booking's): it claims a free place like any booking and
+  never takes a hold, so it jumps nobody (only the host's promotion takes a hold). Bookings' `book`
+  does it for a member already waiting on the class, when a place is free (after the cut-off, after
+  the holds went back, or more places).
+- **Every refusal in the step ends somewhere, logged.** A refused spend passes the waiter over
+  (noted, still waiting); anything unexpected is logged, counted, and passes the waiter over too;
+  the cut-off, or every waiter tried, gives the holds back; holds of an object that no longer
+  declares a waitlist are given back directly; only a race (the last hold taken by another
+  promotion, two spends on one holder) keeps the holds for the next tick. A waiter passed over
+  since the oldest hold was made is not tried again for these holds (`passedOverAt`), so past
+  `maxWaiters` (50) the next ticks work further down the queue, and the holds go back only once
+  every waiter has been tried; an object without `passedOverAt` gives them back after one page.
+  Each tick settles every record it reads, so none keeps the first places of the read.
+- **The cut-off is read on the real clock.** The runner's step no longer passes the tick's time: a
+  tick that runs late does not promote after the cut-off.
+- **Paid at the desk is not for the waitlist.** Bookings' `bookFor` refuses `paidAtDesk` with
+  `waitlist: true`: nobody pays at the desk for a place they may not get (and a later promotion would
+  then spend nothing). A record made `waiting` with `waived` through the generic operations is
+  promoted spending nothing, as the mark says.

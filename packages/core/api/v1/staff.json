@@ -62286,6 +62286,11 @@
             "minLength": 1,
             "maxLength": 64
           },
+          "on": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
           "reason": {
             "type": "string",
             "minLength": 1,
@@ -62295,6 +62300,7 @@
         "required": [
           "object",
           "id",
+          "on",
           "reason"
         ]
       },
@@ -62397,11 +62403,18 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "on": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The record it waits on (the class): it must still be"
           }
         },
         "required": [
           "object",
-          "id"
+          "id",
+          "on"
         ]
       },
       "output": {

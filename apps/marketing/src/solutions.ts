@@ -123,7 +123,7 @@ export const SOLUTIONS: readonly Solution[] = [
       notYet: [
         {
           title: "Class bookings",
-          body: "Classes made from your weekly timetable, booked and cancelled on your site and app within each class type's rules: when booking opens and closes, when a cancel is late, and classes only staff book. A full class has a waitlist: a place freed in time goes to the first person waiting, moved in on their own and paid from their membership or pass then. Staff book anyone, walk-ins too. Still to come: parents booking for their children, and one-to-one sessions booked by staff.",
+          body: "Classes made from your weekly timetable, booked and cancelled on your site and app within each class type's rules: when booking opens and closes, when a cancel is late, and classes only staff book. A full class has a waiting list: a place freed in time goes to the first person waiting, moved in on their own and paid from their membership or pass then. Staff book anyone, walk-ins too. Still to come: parents booking for their children, and one-to-one sessions booked by staff.",
           status: "building",
         },
         {

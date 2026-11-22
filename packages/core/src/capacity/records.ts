@@ -75,6 +75,23 @@ export async function queueClaim(ctx: HandlerContext, request: ClaimRequest): Pr
   return id;
 }
 
+/**
+ * In a dry run, counts `quantity` places on a counter as given back by statements the dry run
+ * discards (a promotion's waitlist hold, ADR 0520), so a claim after them is judged as it would be.
+ */
+export function creditSimulatedClaim(
+  ctx: HandlerContext,
+  object: string,
+  record: string,
+  quantity: number,
+): void {
+  if (!ctx.simulation) return;
+  const seen = simulated.get(ctx) ?? new Map<string, number>();
+  simulated.set(ctx, seen);
+  const key = `${object}|${record}`;
+  seen.set(key, (seen.get(key) ?? 0) - quantity);
+}
+
 async function simulateClaim(ctx: HandlerContext, request: ClaimRequest): Promise<void> {
   const row = await readCounter(ctx.db, request.object, request.record);
   if (!row) throw new ValidationError("A referenced record does not exist");
