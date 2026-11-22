@@ -99,10 +99,10 @@ describe("rows read on the AI paths", () => {
     // migration 0401 (customer accounts) added 13 and took this from 389 to 402 rows; stages 23,
     // 25 and 26 (migrations 0410 to 0441) took it to about 454; stage 28's four content tables
     // and their indexes (migration 0460) to about 480; stage 42's media tables (migration 0510)
-    // to about 501.
+    // to about 501; stage 32a's offers (migration 0532) to about 524.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
-    ).toBeLessThan(520);
+    ).toBeLessThan(540);
     expect(
       await measure("summary.get", {
         subject: { kind: "record", object: "organisation", id: orgId },

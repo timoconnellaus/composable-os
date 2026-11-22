@@ -147,6 +147,10 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "customers/accounts.ts": [2, WHY.org],
   // The subscription access source's `covers: "all"`: only live ids (stage 32a review, ADR 0488).
   "subscriptions/access.ts": [1, WHY.access],
+  // Continuation offers (stage 32a step 4, ADR 0491): the import matching an address to its one
+  // live Person, and the staff report's names (subscriptions:manage); the customer's own offers
+  // read only rows of their own account and Person.
+  "subscriptions/offers.ts": [3, WHY.write],
   "sync/ingest.ts": [8, WHY.org],
 };
 

@@ -83,6 +83,15 @@ export function offerStatus(
   return row.free_until <= now ? "expired" : "open";
 }
 
+/** The report is for staff who manage subscriptions (its operations carry a read permission). */
+export function requireManage(ctx: HandlerContext): void {
+  if (!holdsPermission(ctx.user, ctx.permissionGrants, "subscriptions:manage")) {
+    throw new ForbiddenError("The continuation offers report needs subscriptions:manage", {
+      permission: "subscriptions:manage",
+    });
+  }
+}
+
 // --- Dates ---------------------------------------------------------------------------------------
 
 /** The offset of `timeZone` from UTC at `at`, in milliseconds. */
@@ -226,7 +235,8 @@ export async function importOffers(
     }
   }
 
-  const latest = new Date(Date.parse(ctx.now) + MAX_YEARS_AHEAD * 366 * 86_400_000).toISOString();
+  // The gatekeeper's own cap on free time is 730 days ahead.
+  const latest = new Date(Date.parse(ctx.now) + MAX_YEARS_AHEAD * 365 * 86_400_000).toISOString();
   const seen = new Set<string>();
   const results: OfferImportResult[] = [];
   for (const [index, row] of input.rows.entries()) {

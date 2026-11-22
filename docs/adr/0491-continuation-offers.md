@@ -90,7 +90,7 @@ signed in for the run, a device session held in memory only):
   The coming sign-in setting "anyone starting a subscription" (built by another session) is not
   needed for this and not used.
 
-**The report.** `subscription.offer.list` (staff, `subscriptions:manage`, read) lists offers by
+**The report.** `subscription.offer.list` (staff with `subscriptions:manage`, which its handler checks: a read carries a read permission, `records:read`) lists offers by
 address with their status (taken, open, expired, withdrawn), a page held open, the subscription
 that took it and **when it starts charging** (its free time's end, or its start when it was charged
 at once), and, for one not taken, a running subscription the person started another way.

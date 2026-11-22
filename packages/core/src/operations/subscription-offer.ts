@@ -3,8 +3,8 @@
 //
 // Who may call what:
 //   subscription.offer.import    staff, a person, subscriptions:manage   offers from a list (dry run first)
-//   subscription.offer.list      staff, subscriptions:manage             the report: who took theirs
-//   subscription.offer.export    staff, subscriptions:manage             the report as CSV
+//   subscription.offer.list      staff, subscriptions:manage (checked)   the report: who took theirs
+//   subscription.offer.export    staff, subscriptions:manage (checked)   the report as CSV
 //   subscription.offer.withdraw  staff, a person, subscriptions:manage   one not yet taken
 //   subscription.offer.mine      a signed-in customer                    their own open offers
 //
@@ -22,6 +22,7 @@ import {
   OFFER_IMPORT_MAX,
   OFFER_IMPORT_OUTCOMES,
   OFFER_STATUSES,
+  requireManage,
   withdrawOffer,
 } from "../subscriptions/offers.ts";
 
@@ -162,10 +163,13 @@ export const subscriptionOfferList = defineOperation({
       withdrawn: z.number(),
     }),
   }),
-  permission: "subscriptions:manage",
+  // A read, so its permission is a read permission (the registry's rule); the report is staff
+  // with subscriptions:manage only, checked first in the handler.
+  permission: "records:read",
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
+    requireManage(ctx);
     return listOffers(ctx, input);
   },
 });
@@ -178,10 +182,11 @@ export const subscriptionOfferExport = defineOperation({
     "new subscription starts charging, and the subscription. Read-only.",
   input: z.object(reportFilter),
   output: z.object({ filename: z.string(), csv: z.string(), rowCount: z.number() }),
-  permission: "subscriptions:manage",
+  permission: "records:read",
   risk: "read",
   mcp: { expose: false },
   async handler(input, ctx) {
+    requireManage(ctx);
     return exportOffers(ctx, input);
   },
 });
