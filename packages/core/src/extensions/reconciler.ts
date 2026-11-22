@@ -20,9 +20,10 @@ import {
   type ObjectManifest,
 } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely } from "kysely";
+import { dropAllowanceStatements, termsSyncStatements } from "../allowance/index.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
-import { ORG_TIMEZONE_SETTING } from "../settings.ts";
+import { loadGeneralSettings, ORG_TIMEZONE_SETTING } from "../settings.ts";
 import {
   columnName,
   ident,
@@ -143,7 +144,8 @@ export async function planReconcile(
   manifest: ExtensionManifest,
   options: { now: string },
 ): Promise<ReconcilePlan> {
-  return planFromState(db, await loadSchemaState(db), manifest, options.now);
+  const { timezone } = await loadGeneralSettings(db);
+  return planFromState(db, await loadSchemaState(db), manifest, options.now, timezone);
 }
 
 export function planFromState(
@@ -151,6 +153,8 @@ export function planFromState(
   current: SchemaState,
   manifest: ExtensionManifest,
   now: string,
+  /** The organisation's zone, for holders' terms written for the first time (ADR 0494). */
+  orgZone = "UTC",
 ): ReconcilePlan {
   const ext = manifest.id;
   const next = clone(current);
@@ -182,6 +186,7 @@ export function planFromState(
       ...(object.stages ? { stages: object.stages } : {}),
       ...(object.capacity ? { capacity: object.capacity } : {}),
       ...(object.sellable ? { sellable: object.sellable } : {}),
+      ...(object.allowance ? { allowance: object.allowance } : {}),
       ...(object.states ? { states: object.states } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),
@@ -563,7 +568,12 @@ export function planFromState(
     current,
     next,
     tableDdl,
-    [...dataStatements, ...seedWrites, ...capacityBackfill(next, ext, now)],
+    [
+      ...dataStatements,
+      ...seedWrites,
+      ...capacityBackfill(next, ext, now),
+      ...allowanceBackfill(next, ext, orgZone, now),
+    ],
     changes,
     issues,
   );
@@ -718,6 +728,13 @@ export async function planDropHidden(
   const capacityDrops = droppedObjects
     .filter((o) => o.definition.capacity)
     .flatMap((o) => dropCapacityStatements(o.name));
+  // A dropped holder's terms, periods and uses go with its table; a dropped spender's open uses
+  // are given back first (ADR 0493).
+  const allowanceDrops = droppedObjects.flatMap((o) => {
+    const declared = o.definition.allowance;
+    if (!declared) return [];
+    return dropAllowanceStatements(o.name, "holds" in declared ? "holder" : "spender", options.now);
+  });
   // What orders granted of a dropped object goes with its table (ADR 0435): the orders stay.
   const granted = new Set(
     current.objects.flatMap((o) => {
@@ -734,7 +751,7 @@ export async function planDropHidden(
     current,
     next,
     tableDdl,
-    [...capacityDrops, ...grantDrops],
+    [...capacityDrops, ...allowanceDrops, ...grantDrops],
     changes,
     [],
   );
@@ -779,6 +796,75 @@ function capacityBackfill(state: SchemaState, ext: string, now: string): Compile
             : undefined,
         now,
       }),
+    );
+  }
+  return statements;
+}
+
+/**
+ * Every holder's terms, derived again from its stored record (ADR 0494), for each of the
+ * extension's objects that holds an allowance: records made before their object declared it, seed
+ * records, and every record when the declaration changes (another uses field, other live states).
+ * Each keeps the zone it was given; one with none gets the organisation's.
+ */
+function allowanceBackfill(
+  state: SchemaState,
+  ext: string,
+  orgZone: string,
+  now: string,
+): CompiledQuery[] {
+  const statements: CompiledQuery[] = [];
+  for (const object of state.objects) {
+    const declared = object.definition.allowance;
+    if (object.extensionId !== ext || object.status !== "active") continue;
+    if (!declared || !("holds" in declared)) continue;
+    const h = declared.holds;
+    const field = (local: string | undefined) =>
+      local === undefined
+        ? undefined
+        : state.fields.find(
+            (f) =>
+              f.object === object.name &&
+              f.extensionId === ext &&
+              f.localName === local &&
+              f.tableName === object.tableName &&
+              f.status === "active",
+          );
+    const column = (local: string) => {
+      const found = field(local);
+      return found?.columnName ? ident(found.columnName) : undefined;
+    };
+    const person = column(h.person);
+    const uses = column(h.uses);
+    const per = typeof h.per === "string" ? { fixed: h.per } : { column: column(h.per.field) };
+    const stateColumn = object.definition.states
+      ? column(object.definition.states.field)
+      : undefined;
+    if (!person || !uses || (!per.fixed && !per.column)) continue;
+    const bound = (local: string | undefined) => {
+      const found = field(local);
+      return found?.columnName
+        ? { column: ident(found.columnName), date: found.type === "date" }
+        : undefined;
+    };
+    statements.push(
+      ...termsSyncStatements(
+        {
+          object: object.name,
+          table: ident(object.tableName),
+          person,
+          uses,
+          per: per.fixed ? { fixed: per.fixed } : { column: per.column as string },
+          from: bound(h.from),
+          until: bound(h.until),
+          zone: h.zone ? column(h.zone) : undefined,
+          live: h.live && stateColumn ? { column: stateColumn, states: h.live } : undefined,
+          emptyIsUnlimited: h.emptyIsUnlimited === true,
+        },
+        "all",
+        orgZone,
+        now,
+      ),
     );
   }
   return statements;

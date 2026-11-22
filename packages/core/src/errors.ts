@@ -154,6 +154,8 @@ export function toOperationError(error: unknown): OperationError {
   }
   const capacity = capacityRefusal(error);
   if (capacity) return capacity;
+  const allowance = allowanceRefusal(error);
+  if (allowance) return allowance;
   const message = error instanceof Error ? error.message : String(error);
   // An order written from a read that is no longer current (migration 0421): nothing was
   // applied, and the same call made again reads the order as it now is.
@@ -234,6 +236,95 @@ export function toOperationError(error: unknown): OperationError {
     return new ValidationError("A value is not allowed", { reason: message });
   }
   return new OperationError("internal", "Internal error", { reason: message });
+}
+
+// Allowance refusals (stage 32b, ADR 0493; migration 0533). A spend past a holder's uses in a
+// period fails with `core_allowance_refused {json}` (reason `no_uses_left`, with the numbers), and
+// a use the holder cannot pay (not the spender's Person's, not live, not valid at the spender's
+// time) with the same prefix and its reason. A second open use of one spender is a conflict.
+
+/** Why a holder could not pay for a spender. */
+export type AllowanceRefusalReason =
+  | "no_uses_left"
+  | "spent_meanwhile"
+  | "not_theirs"
+  | "not_live"
+  | "not_yet_valid"
+  | "ended"
+  | "no_holder"
+  | "not_covered";
+
+export interface AllowanceRefusalDetails {
+  rule: "allowance";
+  reason: AllowanceRefusalReason;
+  object?: string;
+  record?: string;
+  period?: string;
+  uses?: number;
+  used?: number;
+  at?: string;
+}
+
+const ALLOWANCE_REFUSED = /core_allowance_refused (\{[^{}]*\})/;
+
+const ALLOWANCE_MESSAGES: Record<AllowanceRefusalReason, string> = {
+  no_uses_left: "No uses left in this period",
+  spent_meanwhile: "Another booking took the last use at the same moment. Try again",
+  not_theirs: "That pass or membership is not this person's",
+  not_live: "That pass or membership cannot be used now (paused, ended or void)",
+  not_yet_valid: "That pass or membership is not valid yet at this time",
+  ended: "That pass or membership has ended by this time",
+  no_holder: "Nothing this person holds can pay for this",
+  not_covered: "That pass or membership does not cover this",
+};
+
+/** The message for an allowance refusal, with the numbers when it has them. */
+export function allowanceMessage(details: AllowanceRefusalDetails): string {
+  const base = ALLOWANCE_MESSAGES[details.reason] ?? "The allowance refused this";
+  return details.reason === "no_uses_left" && details.uses !== undefined
+    ? `${base}: ${details.used ?? details.uses} of ${details.uses} spent`
+    : base;
+}
+
+/** The error for a batch the allowance rule refused, or null when it failed for another reason. */
+export function allowanceRefusal(error: unknown): ValidationError | ConflictError | null {
+  if (error instanceof OperationError) return null;
+  const message = error instanceof Error ? error.message : String(error);
+  const match = ALLOWANCE_REFUSED.exec(message);
+  if (match) {
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(match[1] as string) as Record<string, unknown>;
+    } catch {
+      return new ValidationError("The allowance refused this", { rule: "allowance" });
+    }
+    const details: AllowanceRefusalDetails = {
+      rule: "allowance",
+      reason: String(payload.reason) as AllowanceRefusalReason,
+      ...(typeof payload.object === "string" ? { object: payload.object } : {}),
+      ...(typeof payload.record === "string" ? { record: payload.record } : {}),
+      ...(typeof payload.period === "string" ? { period: payload.period } : {}),
+      ...(typeof payload.uses === "number" ? { uses: payload.uses } : {}),
+      ...(typeof payload.used === "number" ? { used: payload.used } : {}),
+      ...(typeof payload.at === "string" ? { at: payload.at } : {}),
+    };
+    // The host refuses a spend it can see will not fit before the batch; one the database
+    // refused past the limit was raced by another spend in between: try again (ADR 0494).
+    if (details.reason === "no_uses_left") {
+      return new ConflictError(
+        "Another booking took the last use at the same moment, so nothing was changed. Try again.",
+        { ...details, reason: "spent_meanwhile" },
+      );
+    }
+    return new ValidationError(allowanceMessage(details), { ...details });
+  }
+  if (message.includes("UNIQUE constraint failed: core_allowance_use.spender_type")) {
+    return new ConflictError(
+      "This record spent a use at the same moment in another change, so nothing was changed.",
+      { rule: "allowance", reason: "spent_meanwhile" },
+    );
+  }
+  return null;
 }
 
 // Capacity refusals (stage 26, ADR 0430; migration 0440). A claim, or a change of places, that

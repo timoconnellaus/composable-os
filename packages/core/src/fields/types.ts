@@ -113,6 +113,8 @@ export interface ObjectDefinition {
   capacity?: CapacityDefinition;
   /** Extension objects: something that can be bought (stage 27, ADR 0435). */
   sellable?: SellableDefinition;
+  /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
+  allowance?: AllowanceDefinition;
   /**
    * A fixed state machine (ADR 0425), with registry field names. An object has stages or states,
    * never both.
@@ -211,6 +213,55 @@ export interface CustomerDeclaration {
    */
   readonly requireAccess?: readonly string[] | undefined;
 }
+
+/** One condition of a holder's `spendsOn` (the SDK's AllowanceCondition), validated. */
+export interface AllowanceConditionDefinition {
+  readonly field: string;
+  readonly in?: string | readonly string[] | undefined;
+  readonly atLeast?: string | number | undefined;
+  readonly below?: string | number | undefined;
+}
+
+/**
+ * The allowance behaviour as the host enforces it (the SDK's AllowanceSpec, validated), with
+ * registry field names (an object's own fields are named as declared) and spenders' objects by
+ * registry name. A path is a field of the record or `relation.field`, one relation away.
+ */
+export type AllowanceDefinition =
+  | {
+      readonly kind: "holder";
+      readonly person: string;
+      readonly uses: string;
+      readonly per: { readonly fixed: "total" | "week" | "month" } | { readonly field: string };
+      readonly spendsOn: readonly {
+        readonly object: string;
+        readonly when: readonly AllowanceConditionDefinition[];
+      }[];
+      readonly from?: string | undefined;
+      readonly until?: string | undefined;
+      /** With states: the states it can be spent in. Null: no states, always. */
+      readonly live: readonly string[] | null;
+      readonly zone?: string | undefined;
+      /** An empty `uses` is unlimited (declared); otherwise it is none. */
+      readonly emptyIsUnlimited: boolean;
+    }
+  | {
+      readonly kind: "spender";
+      readonly person: string;
+      readonly holder: string;
+      readonly spendIn: readonly string[];
+      readonly returnIn: readonly string[];
+      readonly at?: string | undefined;
+      readonly copy: Readonly<Record<string, string>>;
+      readonly local: {
+        readonly weekday?: string | undefined;
+        readonly minute?: string | undefined;
+        readonly zone?: string | undefined;
+      };
+      readonly movedFrom?: { readonly field: string; readonly state: string } | undefined;
+      /** Holders of other extensions that may pay for it (objects or extension ids). */
+      readonly paidBy: readonly string[];
+    };
 
 /** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */
 export interface CapacityDefinition {

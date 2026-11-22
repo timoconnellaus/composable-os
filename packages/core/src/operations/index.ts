@@ -11,6 +11,7 @@ import { affiliationOperations } from "./affiliation.ts";
 import { agentOperations } from "./agent.ts";
 import { aiOperations } from "./ai.ts";
 import { aiCacheOperations } from "./ai-cache.ts";
+import { allowanceOperations } from "./allowance.ts";
 import { approvalOperations } from "./approval.ts";
 import { assignmentOperations } from "./assignment.ts";
 import { assistantOperations } from "./assistant.ts";
@@ -151,4 +152,5 @@ export const coreOperations = [
   ...subscriptionOfferOperations,
   ...myOperations,
   ...capacityOperations,
+  ...allowanceOperations,
 ] as const;

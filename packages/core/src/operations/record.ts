@@ -13,10 +13,21 @@ import {
 } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { z } from "zod";
+import {
+  assertHolderCreatable,
+  assertSpenderDeletable,
+  followSpenders,
+  holderTrash,
+  holderWrite,
+  hostFilled,
+  setAllowanceRecordUpdate,
+  spenderWrite,
+} from "../allowance/records.ts";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { assertNoConfirmedClaims, counterWrite } from "../capacity/records.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import {
+  ALLOWANCE_FIELDS,
   CAPACITY_FIELDS,
   fieldStorage,
   objectTableOf,
@@ -130,6 +141,13 @@ function fromRow(object: ObjectDefinition, row: Record<string, unknown>): Record
       values[field.name] = raw === undefined || raw === null ? null : Number(raw);
     }
   }
+  // The allowance behaviour's read-only values on a holder (ADR 0493): used and left now.
+  if (object.allowance?.kind === "holder") {
+    for (const field of ALLOWANCE_FIELDS) {
+      const raw = field.column ? row[field.column] : null;
+      values[field.name] = raw === undefined || raw === null ? null : Number(raw);
+    }
+  }
   // The publishable behaviour's read-only values (ADR 0446): the version readers are given.
   if (object.publishable) {
     for (const field of PUBLISHED_FIELDS) {
@@ -207,6 +225,13 @@ async function prepareValues(
       ctx.extension?.id === field.extension;
     // Platform code making a host move sets them too (a payment's reference and time).
     const hostCode = field.fieldType !== "formula" && options.by === "host";
+    // What a holder's conditions read on a spender is the host's alone, even for the
+    // extension's own code (ADR 0493): no actor sets what pays for it.
+    if (!hostCode && hostFilled(object).has(name)) {
+      throw new ValidationError(`${object.name}.${name} is set by the host and cannot be written`, {
+        field: name,
+      });
+    }
     if (field.readOnly && !ownCode && !hostCode) {
       throw new ValidationError(
         field.fieldType === "formula"
@@ -317,6 +342,16 @@ function withHostValues(
 ) {
   const extra = hostValues(object, outcome.values);
   return [...prepared.filter((p) => !Object.hasOwn(outcome.values, p.field.name)), ...extra];
+}
+
+/** A lifecycle outcome with more host values (the allowance's) on top of its own. */
+function withValues(
+  outcome: TransitionOutcome,
+  values: Record<string, unknown>,
+): TransitionOutcome {
+  return Object.keys(values).length
+    ? { ...outcome, values: { ...outcome.values, ...values } }
+    : outcome;
 }
 
 const valuesOf = (prepared: PreparedValue[]) =>
@@ -566,11 +601,17 @@ export async function createRecord(
   assertChoiceRequirements(object, prepared, valuesOf(prepared));
   const table = objectTableOf(object.name) as string;
   const id = newId("record");
+  const by = options.by ?? callerMover(ctx);
+  // Passes and memberships are granted or made by staff, never by a customer (ADR 0494).
+  assertHolderCreatable(object, by);
   const outcome = await applyTransition(ctx, object, id, null, valuesOf(prepared), {
-    by: options.by ?? callerMover(ctx),
+    by,
     cache: options.cache,
   });
-  prepared = withHostValues(prepared, outcome, object);
+  // A spender entering a spend state spends a use (ADR 0493): the host's values on it (the
+  // holder spent from, what it copies) go in this insert, the use after it.
+  const spent = await spenderWrite(ctx, object, id, null, valuesOf(prepared), outcome, by);
+  prepared = withHostValues(prepared, withValues(outcome, spent.values), object);
   const own = prepared.filter((p) => p.own);
   const columns = ["id", "created_at", "updated_at", "created_by", ...own.map((p) => p.column)];
   ctx.write(
@@ -584,6 +625,9 @@ export async function createRecord(
   // The record's capacity counter (ADR 0431), after the record it belongs to.
   const counter = await counterWrite(ctx, object, id, valuesOf(prepared), "create");
   if (counter) ctx.write(counter);
+  // A holder's terms, and a spender's use (ADR 0493).
+  ctx.write(...(await holderWrite(ctx, object, id, null, valuesOf(prepared))));
+  ctx.write(...spent.statements);
   const title = prepared.find((p) => p.field.name === object.titleField)?.value;
   ctx.write(...searchDoc(object.name, id, title == null ? null : String(title)));
   ctx.write(...(await redirectWrites(ctx, object, id, null, valuesOf(prepared))));
@@ -801,10 +845,12 @@ export async function updateRecord(
     ...before.values,
     ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
   });
+  const by = options.by ?? callerMover(ctx);
   const outcome = await applyTransition(ctx, object, id, before.values, valuesOf(prepared), {
-    by: options.by ?? callerMover(ctx),
+    by,
   });
-  prepared = withHostValues(prepared, outcome, object);
+  const spent = await spenderWrite(ctx, object, id, before.values, valuesOf(prepared), outcome, by);
+  prepared = withHostValues(prepared, withValues(outcome, spent.values), object);
   const own = prepared.filter((p) => p.own);
   if (own.length || !isCoreObject(object.name)) {
     const table = objectTableOf(object.name);
@@ -832,6 +878,20 @@ export async function updateRecord(
     prepared.map((p) => p.field.name),
   );
   if (counter) ctx.write(counter);
+  // A holder's terms follow its record; a spender's move spends or gives back a use (ADR 0493).
+  ctx.write(...(await holderWrite(ctx, object, id, before.values, after)));
+  ctx.write(...spent.statements);
+  // Spenders that read their time or copies from this record follow it (a class rescheduled).
+  ctx.write(
+    ...(await followSpenders(
+      ctx,
+      object,
+      id,
+      after,
+      prepared.map((p) => p.field.name),
+      by,
+    )),
+  );
   // A published record's old address keeps pointing to it (ADR 0442).
   ctx.write(...(await redirectWrites(ctx, object, id, before.values, after)));
   const timeline = await timelineFor(ctx, object, id, before.values, after, outcome);
@@ -887,6 +947,7 @@ function assertMovesFrom(
 
 // The seam's write helper (visibility/writes.ts) changes extension records with this code.
 setRecordWriter({ create: createRecord, update: updateRecord });
+setAllowanceRecordUpdate(updateRecord);
 
 export const recordUpdate = defineOperation({
   name: "record.update",
@@ -952,8 +1013,10 @@ export const recordDelete = defineOperation({
     const object = requireExtensionObject(input.object);
     const before = await loadRecord(ctx, object, input.id);
     if (!before) throw new NotFoundError(input.object, input.id);
-    // Places people have paid for keep their record out of Trash (ADR 0431).
+    // Places people have paid for keep their record out of Trash (ADR 0431), and so does a use
+    // a spender holds (ADR 0493).
     await assertNoConfirmedClaims(ctx, object, input.id);
+    await assertSpenderDeletable(ctx, object, input.id);
     const table = objectTableOf(object.name) as string;
     ctx.write(
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -965,6 +1028,8 @@ export const recordDelete = defineOperation({
         object.name,
         input.id,
       ]),
+      // A holder in the Trash cannot be spent: its terms follow the record (ADR 0493).
+      ...(await holderTrash(ctx, object, input.id)),
     );
     ctx.recordChange({
       object: object.name,
@@ -1000,6 +1065,7 @@ export const recordRestore = defineOperation({
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ?`, [
         input.id,
       ]),
+      ...(await holderTrash(ctx, object, input.id)),
     );
     ctx.recordChange({ object: object.name, id: input.id, action: "restore", diff: {} });
     return ctx.afterCommit(async () => {

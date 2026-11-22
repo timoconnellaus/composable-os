@@ -2,6 +2,7 @@
 // `defineExtension({...})`. Everything here is plain data plus tool/automation handlers, so the host
 // can turn it into a JSON manifest, validate it, diff it and reconcile it to tables.
 import type { z } from "zod";
+import type { AllowanceSpec } from "./allowance.ts";
 import type { AutomationSpec } from "./automation.ts";
 import type { CapacitySpec } from "./capacity.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
@@ -237,6 +238,11 @@ export interface ObjectSpec {
   capacity?: CapacitySpec;
   /** Something that can be bought, and what a paid line grants (see SellableSpec, ADR 0435). */
   sellable?: SellableSpec;
+  /**
+   * Uses a record holds (a pass, a membership), or a record that spends one (a booking): see
+   * AllowanceSpec, ADRs 0493 and 0494. The host counts and refuses a spend past the limit.
+   */
+  allowance?: AllowanceSpec;
   /** A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both. */
   states?: StatesSpec;
   /**

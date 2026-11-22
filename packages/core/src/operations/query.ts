@@ -425,7 +425,9 @@ export const querySql = defineOperation({
     "rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, " +
     "rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of " +
     "publishable records, without their content), rec_capacity and rec_capacity_claim (places, " +
-    "held, taken and claims of records with a capacity), rec_stage_history (stage entered/left times, " +
+    "held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and " +
+    "rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent " +
+    "or given back), rec_stage_history (stage entered/left times, " +
     "days_in_stage), rec_state_history (the same for objects with a state machine: state, " +
     "is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see " +
     "schema.objects). Only a single SELECT or WITH is allowed; " +

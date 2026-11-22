@@ -13,6 +13,13 @@ export * from "./ai/summaries.ts";
 export * from "./ai/usage.ts";
 export * from "./ai/vectors.ts";
 export * from "./ai/workers-ai-rest.ts";
+export * from "./allowance/index.ts";
+export {
+  assertSpenderDeletable,
+  type SpenderOutcome,
+  spenderWrite,
+  storedTerms,
+} from "./allowance/records.ts";
 export * from "./approvals/describe.ts";
 export * from "./approvals/high-risk.ts";
 export { DEFAULT_APPROVAL_EXPIRY_DAYS, runSessionKey } from "./approvals/queue.ts";
@@ -273,6 +280,7 @@ export * from "./subscriptions/index.ts";
 export * from "./support.ts";
 export * from "./sync/ingest.ts";
 export * from "./sync/signals.ts";
+export * from "./time/local.ts";
 export * from "./updates.ts";
 export { type PrincipalLike, resolveActingUser, SYSTEM_USER } from "./users.ts";
 export * from "./views/spec.ts";
