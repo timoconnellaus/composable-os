@@ -51,6 +51,14 @@ export interface GrantSpec {
   object: string;
   set: Readonly<Record<string, GrantSource>>;
   void: string;
+  /**
+   * When what was granted is valid (stage 32b, ADR 0511): the host writes `from` (the moment it
+   * is granted) and `until` (that moment plus `days` local days in the organisation's zone; for a
+   * date field, the day before that, since a date includes its whole day), each a date or
+   * datetime field of the granted object. `days` is `item.<number field>` of the record bought (a
+   * class pack's "valid for 30 days"); empty there, `until` is left empty. A pass's expiry.
+   */
+  valid?: { from?: string; until?: string; days?: `item.${string}` };
 }
 
 /**
@@ -88,6 +96,16 @@ export interface SellableSpec {
   grants?: GrantSpec;
   tax?: TaxSpec;
   recurring?: RecurringSpec;
+  /**
+   * A boolean field: while it is true on a record, a Person may buy it once, across every record
+   * of this object with it true (an intro offer: one per Person, ADR 0512). The host holds it from
+   * the order's start, uses it when the order is paid, and gives it back only when the order
+   * expires or is cancelled unpaid; the database refuses a second hold, so two purchases at once
+   * give one. Only a buyer who proved who they are buys it (a signed-in customer, or staff for a
+   * Person): a guest who typed an address is refused (`rule: "once_per_person"`, `reason:
+   * "sign_in"`). Such a line holds one, and an order at most one such line. Not on a plan.
+   */
+  onePerPerson?: string;
 }
 
 /**
@@ -101,6 +119,54 @@ export interface SellableSpec {
 export interface RecurringSpec {
   interval: "week" | "month" | "year";
   trialDays?: string;
+  /**
+   * What a subscription to the plan grants (stage 32b, ADR 0510): one record of `object` for the
+   * subscription's holder, made by the host when the provider first reports it running, then kept
+   * in step with it, as the host, in each verified event's batch: its state follows the
+   * subscription's (`states` maps each of the host's subscription states to one of the granted
+   * object's), and `until` is when it stops giving (the end of its last period when it is set to
+   * end, 30 days of failing while past due, the moment it ended). No extension code runs.
+   *
+   * - `object`: another of this extension's objects, declaring `states`.
+   * - `set`: fields filled once, when it is granted: `item` (a relation to the plan),
+   *   `item.<field>` (the plan's terms as they are at the start: its uses, its class types),
+   *   `subscription` (a text field, the subscription's id), `subscription.holder` and
+   *   `subscription.payer` (relations to person). The holder always has a value.
+   * - `from`, `until`: datetime fields the host keeps.
+   * - `states`: the granted object's state for each subscription state that grants
+   *   (`trialing`, `active`, `past_due`, `unpaid`, `paused`, `ended`); `ended`'s is final.
+   *
+   * Not the `recurring` behaviour (a weekly timetable rule, ADR 0500): this is the plan's own
+   * `sellable.recurring`, and its `grants` is what the subscription gives while it runs.
+   */
+  grants?: RecurringGrantSpec;
+}
+
+/** Where a field of what a subscription grants gets its value (see RecurringSpec.grants). */
+export type RecurringGrantSource =
+  | "item"
+  | `item.${string}`
+  | "subscription"
+  | "subscription.holder"
+  | "subscription.payer";
+
+/** The host's subscription states a grant follows (ADR 0485). */
+export const SUBSCRIPTION_GRANT_STATES = [
+  "trialing",
+  "active",
+  "past_due",
+  "unpaid",
+  "paused",
+  "ended",
+] as const;
+export type SubscriptionGrantState = (typeof SUBSCRIPTION_GRANT_STATES)[number];
+
+export interface RecurringGrantSpec {
+  object: string;
+  set: Readonly<Record<string, RecurringGrantSource>>;
+  from?: string;
+  until?: string;
+  states: Readonly<Record<SubscriptionGrantState, string>>;
 }
 
 /**
@@ -142,6 +208,15 @@ export const GRANT_SOURCES = [
   "code",
 ] as const;
 
+const itemSource = z
+  .string()
+  .regex(/^item\.[a-z][a-zA-Z0-9]{0,39}$/, "item.<field>") as z.ZodType<`item.${string}`>;
+
+const recurringGrantSource = z.union([
+  z.enum(["item", "subscription", "subscription.holder", "subscription.payer"]),
+  itemSource,
+]);
+
 const grantSource = z.union([
   z.enum(GRANT_SOURCES),
   z.string().regex(/^item\.[a-z][a-zA-Z0-9]{0,39}$/, "Use item, item.<field>, order, line or code"),
@@ -168,9 +243,18 @@ export const sellableManifestSchema = z
         object: z.string().max(40),
         set: z.record(fieldName, grantSource),
         void: z.string().min(1).max(100),
+        valid: z
+          .object({
+            from: fieldName.optional(),
+            until: fieldName.optional(),
+            days: itemSource.optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
+    onePerPerson: fieldName.optional(),
     tax: z
       .object({
         code: z.string().regex(TAX_CODE_PATTERN, "A product tax code: txcd_ and eight digits"),
@@ -192,6 +276,25 @@ export const sellableManifestSchema = z
       .object({
         interval: z.enum(["week", "month", "year"]),
         trialDays: fieldName.optional(),
+        grants: z
+          .object({
+            object: z.string().max(40),
+            set: z.record(fieldName, recurringGrantSource),
+            from: fieldName.optional(),
+            until: fieldName.optional(),
+            states: z
+              .object({
+                trialing: z.string().min(1).max(100),
+                active: z.string().min(1).max(100),
+                past_due: z.string().min(1).max(100),
+                unpaid: z.string().min(1).max(100),
+                paused: z.string().min(1).max(100),
+                ended: z.string().min(1).max(100),
+              })
+              .strict(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
@@ -262,6 +365,25 @@ export function checkObjectSellable(
     if (trial !== undefined && !single(trial, new Set(["number"]))) {
       contract(`${path}.recurring.trialDays`, `"${trial}" must be a number field of ${name}`);
     }
+    if (sellable.onePerPerson !== undefined) {
+      contract(
+        `${path}.onePerPerson`,
+        "A plan's trial is already one per person (ADR 0489); onePerPerson is for things bought once",
+      );
+    }
+    if (sellable.recurring.grants) {
+      checkRecurringGrants(
+        m,
+        name,
+        object,
+        sellable.recurring.grants,
+        `${path}.recurring.grants`,
+        contract,
+      );
+    }
+  }
+  if (sellable.onePerPerson !== undefined && !single(sellable.onePerPerson, new Set(["boolean"]))) {
+    contract(`${path}.onePerPerson`, `"${sellable.onePerPerson}" must be a boolean field of ${name}`);
   }
   if (sellable.maxPerOrder !== undefined && !single(sellable.maxPerOrder, new Set(["number"]))) {
     contract(`${path}.maxPerOrder`, `"${sellable.maxPerOrder}" must be a number field of ${name}`);
@@ -448,6 +570,31 @@ function checkGrants(
     }
   }
   if (codes > 1) contract(`${path}.set`, "A grant has at most one code");
+  if (grants.valid) {
+    const { from, until, days } = grants.valid;
+    if (from === undefined && until === undefined) {
+      contract(`${path}.valid`, "valid names the granted object's from field, until field or both");
+    }
+    for (const [key, target] of [
+      ["from", from],
+      ["until", until],
+    ] as const) {
+      if (target === undefined) continue;
+      const field = Object.hasOwn(granted.fields, target) ? granted.fields[target] : undefined;
+      if (!field || !DATES.has(field.type) || field.many) {
+        contract(`${path}.valid.${key}`, `"${target}" must be a date or datetime field of ${local}`);
+      } else if (Object.hasOwn(grants.set, target)) {
+        contract(`${path}.valid.${key}`, `"${target}" is in set too: the host writes it from valid`);
+      }
+    }
+    if (days !== undefined) {
+      const own = itemField(days.slice("item.".length));
+      if (own?.type !== "number" || own.many) {
+        contract(`${path}.valid.days`, `"${days}" must be item.<a number field of ${name}>`);
+      }
+      if (until === undefined) contract(`${path}.valid.days`, "days needs an until field to fill");
+    }
+  }
 
   // The granted object's own rules must not be able to refuse the host's insert, since that
   // would refuse the payment. What a grant always fills: its set fields whose source always has
@@ -513,4 +660,155 @@ function checkGrants(
       );
     }
   }
+}
+
+/**
+ * Checks what a plan's subscription grants (ADR 0510), as `checkGrants` checks an order line's:
+ * each of these is a way the verified event's batch could otherwise fail, which would leave the
+ * provider's event unapplied.
+ */
+function checkRecurringGrants(
+  m: ExtensionManifest,
+  name: string,
+  plan: ObjectManifest,
+  grants: NonNullable<NonNullable<SellableManifest["recurring"]>["grants"]>,
+  path: string,
+  contract: (path: string, message: string) => void,
+): void {
+  const local = grants.object.startsWith(`${m.id}.`)
+    ? grants.object.slice(m.id.length + 1)
+    : grants.object;
+  const granted = Object.hasOwn(m.objects, local) ? m.objects[local] : undefined;
+  if (!granted || local === name) {
+    contract(`${path}.object`, `"${grants.object}" must be another of this extension's objects`);
+    return;
+  }
+  if (granted.sellable) {
+    contract(`${path}.object`, `${local} is itself sellable; a grant is what was bought`);
+  }
+  if (granted.owner !== undefined) {
+    contract(
+      `objects.${local}.owner`,
+      `${local} is granted by ${name}'s subscriptions: an owner would run assignment rules in the provider's event batch. Remove owner`,
+    );
+  }
+  const states = granted.states;
+  if (!states) {
+    contract(`${path}.object`, `${local} must declare states: its state follows the subscription's`);
+    return;
+  }
+  const stateField = granted.fields[states.field];
+  const values = new Set((stateField?.options ?? []).map((o) => o.value));
+  const mapped = new Set(Object.values(grants.states));
+  for (const [from, to] of Object.entries(grants.states)) {
+    if (!values.has(to)) contract(`${path}.states.${from}`, `"${to}" is not a state of ${local}`);
+  }
+  if (!mapped.has(states.initial)) {
+    contract(
+      `${path}.states`,
+      `${local}'s initial state "${states.initial}" must be one the subscription's states map to`,
+    );
+  }
+  const ended = grants.states.ended;
+  const finals = new Set(states.moves.filter((mv) => mv.final).map((mv) => mv.to));
+  if (!finals.has(ended)) {
+    contract(`${path}.states.ended`, `"${ended}" must be a final state of ${local}`);
+  }
+  // The provider's reads move a subscription between its states in any order, so the granted
+  // record needs a host move from each mapped state to each other one (none out of the final).
+  for (const fromState of mapped) {
+    if (fromState === ended) continue;
+    for (const toState of mapped) {
+      if (toState === fromState) continue;
+      const ok = states.moves.some(
+        (mv) => mv.to === toState && moveOrigins(mv).includes(fromState) && mv.by.includes("host"),
+      );
+      if (!ok) {
+        contract(
+          `objects.${local}.states`,
+          `${local} needs a move from "${fromState}" to "${toState}" the host may make (by: ["host", ...]): it follows the subscription`,
+        );
+      }
+    }
+  }
+  if (Object.hasOwn(grants.set, states.field)) {
+    contract(`${path}.set.${states.field}`, `${states.field} is ${local}'s state: the host sets it`);
+  }
+  const filled = new Set<string>();
+  for (const [key, target] of [
+    ["from", grants.from],
+    ["until", grants.until],
+  ] as const) {
+    if (target === undefined) continue;
+    const field = Object.hasOwn(granted.fields, target) ? granted.fields[target] : undefined;
+    // A moment, not a day: access stops at the period's end and not a minute after (ADR 0488).
+    if (!field || field.type !== "datetime" || field.many) {
+      contract(`${path}.${key}`, `"${target}" must be a datetime field of ${local}`);
+    } else if (Object.hasOwn(grants.set, target)) {
+      contract(`${path}.${key}`, `"${target}" is in set too: the host keeps it`);
+    }
+    if (key === "from") filled.add(target);
+  }
+  for (const [target, source] of Object.entries(grants.set)) {
+    const fp = `${path}.set.${target}`;
+    const field = Object.hasOwn(granted.fields, target) ? granted.fields[target] : undefined;
+    if (!field || field.type === "formula") {
+      contract(fp, `"${target}" must be a field of ${local} other than a formula`);
+      continue;
+    }
+    const one = !field.many;
+    let always = true;
+    if (source === "item") {
+      if (!(field.type === "relation" && one && field.to === `${m.id}.${name}`)) {
+        contract(fp, `item needs a relation (one record) to ${m.id}.${name}`);
+      }
+    } else if (source.startsWith("item.")) {
+      const from = source.slice("item.".length);
+      const own = Object.hasOwn(plan.fields, from) ? plan.fields[from] : undefined;
+      if (!own || own.type === "formula") {
+        contract(fp, `"${from}" is not a field of ${name}`);
+        continue;
+      }
+      if (
+        own.type !== field.type ||
+        Boolean(own.many) !== Boolean(field.many) ||
+        (own.type === "relation" && own.to !== field.to)
+      ) {
+        contract(
+          fp,
+          `${source} needs a ${own.type} field like ${name}.${from}; "${target}" is a ${field.type} field`,
+        );
+      }
+      always = Boolean(own.required);
+    } else if (source === "subscription") {
+      if (field.type !== "text") {
+        contract(fp, `subscription needs a text field; "${target}" is a ${field.type} field`);
+      }
+    } else if (!(field.type === "relation" && one && field.to === "person")) {
+      contract(fp, `${source} needs a relation to one person; "${target}" is a ${field.type} field`);
+    } else if (source === "subscription.payer") {
+      // A payer erased later leaves the field empty; it never fills a required one.
+      always = false;
+    }
+    if (field.required && !always) {
+      contract(fp, `"${target}" is required and ${source} may be empty`);
+    }
+    if (always) filled.add(target);
+  }
+  for (const [fieldName, field] of Object.entries(granted.fields)) {
+    if (!field.required || field.type === "formula" || field.default !== undefined) continue;
+    if (fieldName === states.field || filled.has(fieldName)) continue;
+    contract(
+      `${path}.set`,
+      `${local}.${fieldName} is required: set it from the plan or the subscription`,
+    );
+  }
+  granted.requireOneOf?.forEach((group, i) => {
+    if (!group.some((f) => filled.has(f))) {
+      contract(
+        `objects.${local}.requireOneOf.${i}`,
+        `${local} is granted by ${name}'s subscriptions: set one of ${group.join(", ")}`,
+      );
+    }
+  });
 }

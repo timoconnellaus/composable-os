@@ -1740,6 +1740,29 @@ export interface CoreSubscriptionTrialTable {
   created_at: Timestamp;
 }
 
+/** Migration 0580 (stage 32b, ADR 0510): the record a subscription granted (a membership). */
+export interface CoreSubscriptionGrantTable {
+  subscription_id: string;
+  object_type: string;
+  record_id: string;
+  created_at: Timestamp;
+}
+
+/**
+ * Migration 0581 (stage 32b, ADR 0512): a Person's one purchase of something sold once per Person
+ * (an intro offer), held from the order's start, used when it is paid, released when it expires.
+ */
+export interface CoreSellableOnceTable {
+  id: string;
+  person_id: string;
+  object_type: string;
+  record_id: string;
+  order_id: string;
+  state: "held" | "used" | "released";
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
 /**
  * Migration 0532 (stage 32a, ADRs 0491 and 0492): a continuation offer. An address, its Person,
  * a plan and the date the person has paid up to elsewhere; taken once, by the person signed in as
@@ -2347,6 +2370,8 @@ export interface CoreDatabase {
   core_subscription_checkout: CoreSubscriptionCheckoutTable;
   core_subscription_trial: CoreSubscriptionTrialTable;
   core_subscription_offer: CoreSubscriptionOfferTable;
+  core_subscription_grant: CoreSubscriptionGrantTable;
+  core_sellable_once: CoreSellableOnceTable;
   core_order_refund: CoreOrderRefundTable;
   core_automations: CoreAutomationsTable;
   core_routine: CoreRoutineTable;

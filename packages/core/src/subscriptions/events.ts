@@ -23,6 +23,7 @@ import type { PaymentsEvent, ProviderSubscription } from "../orders/gateway.ts";
 import { formatMoney } from "../orders/orders.ts";
 import { applyTransition } from "../records/lifecycle.ts";
 import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
+import { followSubscriptionGrant } from "./grants.ts";
 import { useTrial } from "./trial.ts";
 
 export type SubscriptionRow = Selectable<CoreSubscriptionTable>;
@@ -459,6 +460,8 @@ async function createFromCheckout(
     after: subscriptionSnapshot(row),
   });
   postSubscriptionMove(ctx, row, null);
+  // What a membership plan's subscription grants (ADR 0510), once its record is written.
+  await followSubscriptionGrant(ctx, row);
   await trialConfirmed(ctx, row);
   if (checkout.offer_id) await offerConfirmed(ctx, checkout.offer_id, checkout.trial_end, row);
   return { row };
@@ -570,6 +573,7 @@ async function moveFromRead(
     after: subscriptionSnapshot(next),
   });
   if (next.state !== row.state) postSubscriptionMove(ctx, next, row.state);
+  await followSubscriptionGrant(ctx, next);
   if (next.trial_end && !row.trial_end) await trialConfirmed(ctx, next);
   return next;
 }

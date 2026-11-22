@@ -1,0 +1,11 @@
+{
+  "name": "memberships-plans",
+  "pack": "memberships",
+  "skin": "web",
+  "operations": ["x.memberships.plans", "subscription.start"],
+  "files": ["plans.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/pack-memberships": "*"
+  }
+}

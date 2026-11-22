@@ -880,9 +880,21 @@ export async function planDropHidden(
       return to ? [to.includes(".") ? to : `${o.extensionId}.${to}`] : [];
     }),
   );
-  const grantDrops = droppedObjects
-    .filter((o) => granted.has(o.name))
-    .map((o) => CompiledQuery.raw("DELETE FROM core_order_grant WHERE object_type = ?", [o.name]));
+  const subscriptionGranted = new Set(
+    current.objects.flatMap((o) => {
+      const to = o.definition.sellable?.recurring?.grants?.object;
+      return to ? [to.includes(".") ? to : `${o.extensionId}.${to}`] : [];
+    }),
+  );
+  const grantDrops = droppedObjects.flatMap((o) => [
+    ...(granted.has(o.name)
+      ? [CompiledQuery.raw("DELETE FROM core_order_grant WHERE object_type = ?", [o.name])]
+      : []),
+    // What subscriptions granted of it (ADR 0510): the subscriptions stay.
+    ...(subscriptionGranted.has(o.name)
+      ? [CompiledQuery.raw("DELETE FROM core_subscription_grant WHERE object_type = ?", [o.name])]
+      : []),
+  ]);
   return finishPlan(
     db,
     ext,

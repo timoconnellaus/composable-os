@@ -8,3 +8,4 @@ export * from "./periods.ts";
 export * from "./subscriptions.ts";
 export * from "./sweep.ts";
 export * from "./trial.ts";
+export * from "./grants.ts";

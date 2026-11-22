@@ -16,5 +16,27 @@ export function queueMergeOrders(ctx: HandlerContext, survivorId: string, merged
       .updateTable("core_order")
       .set({ person_id: survivorId, updated_at: ctx.now })
       .where("person_id", "=", mergedId),
+    // Things sold once per Person (ADR 0512) move too, so the survivor does not get a second
+    // intro offer. Where both had one on an object, the survivor's is kept and the merged one's
+    // is released first (the unique index allows one held or used row per Person and object).
+    ctx.db
+      .updateTable("core_sellable_once")
+      .set({ state: "released", updated_at: ctx.now })
+      .where("person_id", "=", mergedId)
+      .where("state", "in", ["held", "used"])
+      .where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom("core_sellable_once as s")
+            .select("s.id")
+            .whereRef("s.object_type", "=", "core_sellable_once.object_type")
+            .where("s.person_id", "=", survivorId)
+            .where("s.state", "in", ["held", "used"]),
+        ),
+      ),
+    ctx.db
+      .updateTable("core_sellable_once")
+      .set({ person_id: survivorId, updated_at: ctx.now })
+      .where("person_id", "=", mergedId),
   );
 }

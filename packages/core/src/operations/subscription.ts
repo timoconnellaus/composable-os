@@ -139,6 +139,15 @@ export const subscriptionStart = defineOperation({
         "Take your continuation offer (subscription.offer.mine): free until its date, then " +
           "charged. A signed-in customer's own offer only.",
       ),
+    holderPersonId: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe(
+        "Staff only: the Person who holds what it gives (a child whose parent pays), when not " +
+          "the payer. The payer, named by email, is billed; the trial and access are the holder's.",
+      ),
   }),
   output: z.object({
     subscriptionId: z.string(),
@@ -175,6 +184,7 @@ export const subscriptionStart = defineOperation({
     plan: input.plan,
     amount: output.amount,
     ...(input.offerId ? { offerId: input.offerId, freeUntil: output.freeUntil } : {}),
+    ...(input.holderPersonId ? { holderPersonId: input.holderPersonId } : {}),
   }),
   async handler(input, ctx) {
     return startSubscription(ctx, input);

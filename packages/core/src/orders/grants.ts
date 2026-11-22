@@ -22,6 +22,8 @@ import type { HandlerContext } from "../operation.ts";
 import { createRecord, updateRecord } from "../operations/record.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type MoveHook, onRecordMove } from "../records/lifecycle.ts";
+import { loadGeneralSettings } from "../settings.ts";
+import { addLocalDays, localParts, wallClockToIso } from "../time/local.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
 import { currencyDecimals } from "./settings.ts";
 
@@ -47,7 +49,7 @@ interface LineRow {
 }
 
 /** A field's value as a record holds it, read from a row of the object's view. */
-function fieldValue(object: ObjectDefinition, row: AnyRow | undefined, name: string): unknown {
+export function grantFieldValue(object: ObjectDefinition, row: AnyRow | undefined, name: string): unknown {
   const field = object.fields.find((f) => f.name === name);
   const column = field ? viewColumnOf(field) : null;
   if (!field || !column || !row) return null;
@@ -58,7 +60,7 @@ function fieldValue(object: ObjectDefinition, row: AnyRow | undefined, name: str
 }
 
 /** The bought record's row, read org-wide as the host (its price was read the same way). */
-async function readItem(
+export async function readGrantItem(
   ctx: HandlerContext,
   item: ObjectDefinition,
   id: string,
@@ -69,6 +71,39 @@ async function readItem(
     .selectAll()
     .where("id", "=", id)
     .executeTakeFirst()) as AnyRow | undefined;
+}
+
+/**
+ * The `from` and `until` values of what is granted now (ADR 0511): `from` is now; `until` is now
+ * plus the item's days, as local days in the organisation's zone (a datetime: the same time of
+ * day; a date: the day before, since a date includes its whole day). No days: no `until`.
+ */
+export async function validFrom(
+  ctx: HandlerContext,
+  granted: ObjectDefinition,
+  valid: NonNullable<GrantDefinition["valid"]>,
+  itemValue: (field: string) => unknown,
+): Promise<Record<string, unknown>> {
+  const zone = (await loadGeneralSettings(ctx.db)).timezone || "UTC";
+  const typeOf = (field: string) => granted.fields.find((f) => f.name === field)?.fieldType;
+  const local = localParts(ctx.now, zone);
+  const out: Record<string, unknown> = {};
+  if (valid.from) out[valid.from] = typeOf(valid.from) === "date" ? local.date : ctx.now;
+  const raw = valid.days ? itemValue(valid.days.slice("item.".length)) : null;
+  const days = typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : null;
+  if (valid.until && days) {
+    if (typeOf(valid.until) === "date") {
+      const d = addLocalDays(local, days - 1);
+      out[valid.until] =
+        `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day).padStart(2, "0")}`;
+    } else {
+      out[valid.until] = wallClockToIso(
+        { ...addLocalDays(local, days), hour: local.hour, minute: local.minute, second: local.second },
+        zone,
+      );
+    }
+  }
+  return out;
 }
 
 async function grant(ctx: HandlerContext, orderId: string, order: Record<string, unknown>) {
@@ -91,12 +126,17 @@ async function grant(ctx: HandlerContext, orderId: string, order: Record<string,
       continue;
     }
     const sources = Object.values(grants.set);
-    const itemRow = sources.some((s) => s.startsWith("item."))
-      ? await readItem(ctx, item, line.record_id)
-      : undefined;
+    const itemRow =
+      sources.some((s) => s.startsWith("item.")) || grants.valid?.days
+        ? await readGrantItem(ctx, item, line.record_id)
+        : undefined;
+    // When it is valid (ADR 0511): from now, for the item's days, in the organisation's zone.
+    const valid = grants.valid
+      ? await validFrom(ctx, granted, grants.valid, (field) => grantFieldValue(item, itemRow, field))
+      : {};
     const from = (source: string): unknown => {
       if (source === "item") return line.record_id;
-      if (source.startsWith("item.")) return fieldValue(item, itemRow, source.slice(5));
+      if (source.startsWith("item.")) return grantFieldValue(item, itemRow, source.slice(5));
       if (source === "order") return orderId;
       if (source === "order.person") return order.personId ?? null;
       if (source === "order.email") return order.email ?? null;
@@ -107,7 +147,7 @@ async function grant(ctx: HandlerContext, orderId: string, order: Record<string,
     };
     for (let unit = 0; unit < line.quantity; unit += 1) {
       let code: string | null = null;
-      const values: Record<string, unknown> = {};
+      const values: Record<string, unknown> = { ...valid };
       for (const [target, source] of Object.entries(grants.set)) {
         if (source === "code") {
           code = newGrantCode();

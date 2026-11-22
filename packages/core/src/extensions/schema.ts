@@ -844,9 +844,11 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
               : `${object.extensionId}.${grants.object}`,
             set: { ...grants.set },
             void: grants.void,
+            ...(grants.valid ? { valid: { ...grants.valid } } : {}),
           },
         }
       : {}),
+    ...(declared.onePerPerson ? { onePerPerson: nameOf(declared.onePerPerson) } : {}),
     ...(declared.tax
       ? {
           tax: {
@@ -877,6 +879,18 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
           recurring: {
             interval: declared.recurring.interval,
             trialDays: opt(declared.recurring.trialDays),
+            ...(declared.recurring.grants
+              ? {
+                  grants: {
+                    ...declared.recurring.grants,
+                    object: declared.recurring.grants.object.includes(".")
+                      ? declared.recurring.grants.object
+                      : `${object.extensionId}.${declared.recurring.grants.object}`,
+                    set: { ...declared.recurring.grants.set },
+                    states: { ...declared.recurring.grants.states },
+                  },
+                }
+              : {}),
           },
         }
       : {}),
