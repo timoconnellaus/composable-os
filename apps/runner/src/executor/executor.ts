@@ -341,6 +341,8 @@ export class Executor {
       ...(input.caller.principal
         ? { outside: { principal: input.caller.principal, tool: input.tool } }
         : {}),
+      // The caller's pack role limit to today, from the pipeline (ADR 0553).
+      ...(input.caller.roleToday ? { roleToday: input.caller.roleToday } : {}),
       // Which tool this run is, from the installed manifest (ADR 0513): a move only named tools
       // may make, and a holder's terms, read it from the run's calls.
       tool: {
@@ -349,10 +351,15 @@ export class Executor {
         personApproves: manifest.tools?.[input.tool]?.personApproves === true,
         permission: manifest.tools?.[input.tool]?.permission ?? null,
         // The person who called it, when a person did (the pipeline refused anyone else for a
-        // humanOnly tool): who gave what a person's tool gives.
-        ...(input.caller.principal || input.caller.actor !== "human"
+        // humanOnly tool), or the person who approved another actor's call of a tool a person
+        // approves (ADR 0552): who gave what a person's tool gives.
+        ...(input.caller.principal
           ? {}
-          : { startedBy: input.caller.userId }),
+          : input.caller.actor === "human"
+            ? { startedBy: input.caller.userId }
+            : input.caller.approvedBy
+              ? { startedBy: input.caller.approvedBy }
+              : {}),
       },
       ...(input.cascade ? { cascade: input.cascade } : {}),
       ...(input.readOnly || input.dryRun

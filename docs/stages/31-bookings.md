@@ -626,7 +626,9 @@ What 33 decides (the switch date, freezing the old system, telling members) is n
    cancel, a direct booking and two promotions leaves the class at its places with no place lost.
 6. **Cancelling a class** cancels every booking, pending drop-in and waiter in its batch, returns
    every use, puts each paid drop-in's refund through approval, and emails each member; it is
-   refused to an AI without a person's approval.
+   refused to an AI without a person's approval. (Decided at step 7's review, 2026-11-23: "every
+   booking" includes those already ticked as come, marked not come and cancelled late, each use
+   returned once; a class that has ended cannot be cancelled. ADR 0553.)
 7. **Attendance:** two coaches ticking one name at once mark it once and the second is told who was
    first; no-shows are written only for classes whose attendance was taken; the use is kept for
    late cancels and no-shows.
@@ -836,7 +838,14 @@ spec one way, or decided what it left open:
   moves desk-paid. A freed place goes to the waitlist before the cut-off.
 - **Cancelling a class** is `cancelClass`, a tool a person approves: the assistant, MCP and
   automations may ask, and it waits for a person whatever the preset; no other staff write cancels a
-  class. Bookings already ticked stay attended. The cascade now holds under races (ADR 0550).
+  class. The cascade now holds under races (ADR 0550).
+- **After the review** (ADR 0553's amendment): a class the gym cancels takes every booking holding
+  a place or a use with it (ticked, not come and late-cancelled included), each use back once; a
+  class that has ended cannot be cancelled (`endsAt` is now required); nothing takes a place on a
+  closed class, for anyone; `cancelClass` fails visibly when it cannot apply; `move` answers a race
+  as `changed`; the coach role reaches the organisation's local today only (a role's `today`), so
+  another day's corrections are the desk's; the timed-move sweep pages past records that keep
+  failing; a cascade cannot follow a pooled parent.
 - **Not built here** (later steps): promote by hand, the emails (a move, a cancel, the class list
   "no attendance taken"), drop-in refunds on a cancel (no drop-ins yet), the coach's screen in the
   gym's app (the web `bookings-class-list` block is the list; native is step 9).

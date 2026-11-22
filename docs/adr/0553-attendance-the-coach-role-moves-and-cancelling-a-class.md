@@ -71,3 +71,40 @@ combine are stage 14a's (ADR 0436's consequences); ADR 0436 is amended with this
 `packages/core/test/attendance-platform.test.ts`, `apps/runner/test/bookings-attendance.test.ts`,
 and `apps/app/e2e/bookings.spec.ts` ("a coach ticks who came on a class's list", with the
 `bookings-class-list` web block).
+
+## Amended 2026-11-23, after the review of PR #253 (before merge)
+- **A class the gym cancels gives every use on it back** (the coordinator's decision, against
+  criterion 6): the cascade now takes every booking holding a place or a use, `booked`, `waiting`,
+  `pending`, `attended`, `no_show` and `late_cancelled`, to `cancelled_by_us`, each use given back
+  once (a late cancel is no longer final; only the host's cascade moves it on). Before, a ticked
+  booking stayed `attended` on a cancelled class with its place and use, and unticking it left it
+  `booked` there.
+- **A class that has ended cannot be cancelled**: the class's move into `cancelled` has a window
+  until its `endsAt` that binds the tool's staff write (`bindsStaff` with `tools`), and `endsAt` is
+  now required. So no-shows never arise on a cancelled class. The host's own cancels (closures,
+  series) are not bound.
+- **Nothing takes a place on a closed record**, for anyone, the host included: a move from a state
+  holding no place into one that holds a place is refused while `states.create.closed` is set
+  (`state_closed`), with the same `unmoved` guard (ADR 0550). A move between two place-holding
+  states (unticking on a class marked done) is not a new place and is allowed.
+- **`cancelClass` fails rather than answering a refusal** (not found, not scheduled, ended, or
+  changed twice): a race is retried once from a fresh read, and an approved request that cannot
+  apply shows that it did not. The errors are caller errors (`not_found`, `conflict`,
+  `invalid_input`), so they never quarantine the pack.
+- **`move` reports a booking that moved on meanwhile as `changed`** (`state_final`,
+  `state_move_not_declared`), not as a fault.
+- **The coach role reaches today only** (`roles.coach.today`, a new declaration on a pack role):
+  its `bookings.class` records by `startsAt`, and bookings by their class's `startsAt`, on the
+  organisation's local today, on the role's own reads and on every record a tool reads or changes
+  for it (the run carries the caller's limit; `packages/core/src/pack-role-today.ts`). Another
+  day's class is not found, `day` for another date lists nothing, and another day's name cannot be
+  ticked. The spec says the coach reads "today's classes and their lists", so yesterday's late
+  corrections are not the coach's: the desk (any other staff role, not limited) makes them.
+- Proof: `apps/runner/test/bookings-attendance.test.ts` (cancel after a tick and a late cancel,
+  each use back once; untick after the cancel refused; cancel after the end refused; a move racing
+  the member's cancel; a move into a class type the pass does not cover; the coach refused a class
+  five days ahead, through its reads and its tools), `packages/core/test/attendance-platform.test.ts`
+  (a set-aside booking refused back onto a cancelled class), and the pack's tests. A weekly
+  membership moved across weeks was not added on the shipped packs (it needs a subscription
+  through the fake provider); the platform's fixture covers a move into a week with no use left
+  (`allowance.test.ts`).

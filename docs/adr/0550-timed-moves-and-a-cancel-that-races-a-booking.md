@@ -65,3 +65,11 @@ batch (refused by the `unmoved` guard; without it the booking stands on the canc
 booking then a cancel (refused by the counter guard). `apps/runner/test/bookings-attendance.test.ts`:
 the same on the shipped packs, and ten bookings racing a cancel, never one left booked (with the
 counter guard taken out it fails every run).
+
+## Amended 2026-11-23, after the review of PR #253
+- **Failures never starve the sweep**: a record that keeps failing stays first in the order, so a
+  rule pages past them within a tick (up to ten pages of 100), logging each; one hundred
+  permanently failing records no longer hold back the rest.
+- **A cascade cannot follow a pool**: a parent other records draw places from as a pool counts
+  claims that are not its own, which the counter check cannot read, so `follows` on such a parent
+  is refused at the contract check.

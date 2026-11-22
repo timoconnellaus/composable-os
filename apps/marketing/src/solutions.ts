@@ -123,7 +123,7 @@ export const SOLUTIONS: readonly Solution[] = [
       notYet: [
         {
           title: "Class bookings",
-          body: "Classes made from your weekly timetable, booked and cancelled on your site and app within each class type's rules: when booking opens and closes, when a cancel is late, and classes only staff book. A full class has a waiting list: a place freed in time goes to the first person waiting who has a membership or pass to pay with, moved in on their own and paid from it then. Staff book anyone, walk-ins too, move a member to another class with the class it used, and cancel a class, giving everyone booked their class back. Coaches tick who came on the class list; a no-show keeps the class used. Still to come: parents booking for their children, and one-to-one sessions booked by staff.",
+          body: "Classes made from your weekly timetable, booked and cancelled on your site and app within each class type's rules: when booking opens and closes, when a cancel is late, and classes only staff book. A full class has a waiting list: a place freed in time goes to the first person waiting who has a membership or pass to pay with, moved in on their own and paid from it then. Staff book anyone, walk-ins too, move a member to another class with the class it used, and cancel a class before it ends, giving everyone booked their class back, including anyone already ticked or who cancelled late. Coaches tick who came on the class list; a no-show keeps the class used. Still to come: parents booking for their children, and one-to-one sessions booked by staff.",
           status: "building",
         },
         {

@@ -32,7 +32,7 @@ import { context, createUser, db, unique } from "./helpers.ts";
 const ext = extId("att");
 const KLASS = `${ext}.klass`;
 const BOOKING = `${ext}.booking`;
-const STATES = ["booked", "attended", "no_show", "cancelled", "cancelled_by_us"];
+const STATES = ["booked", "attended", "no_show", "cancelled", "cancelled_by_us", "aside"];
 
 const fixture = (id: string) =>
   manifest(id, {
@@ -67,6 +67,30 @@ const fixture = (id: string) =>
         },
         capacity: { places: "places" },
       },
+      visit: {
+        label: "Visit",
+        plural: "Visits",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name" },
+          at: { type: "datetime", label: "At" },
+          code: { type: "text", label: "Code" },
+          state: {
+            type: "select",
+            label: "State",
+            options: [
+              { value: "open", label: "Open" },
+              { value: "lapsed", label: "Lapsed" },
+            ],
+          },
+        },
+        states: {
+          field: "state",
+          initial: "open",
+          moves: [{ from: "open", to: "lapsed", by: ["host"], requires: ["code"] }],
+          after: [{ from: "open", to: "lapsed", at: "at" }],
+        },
+      },
       booking: {
         label: "Booking",
         plural: "Bookings",
@@ -98,6 +122,9 @@ const fixture = (id: string) =>
             { from: "booked", to: "no_show", by: ["staff", "host"] },
             { from: "booked", to: "cancelled", by: ["staff", "customer"], final: true },
             { from: "booked", to: "cancelled_by_us", by: ["host"], final: true },
+            // Set aside (holding no place), and back: what a closed class must refuse.
+            { from: "booked", to: "aside", by: ["staff"] },
+            { from: "aside", to: "booked", by: ["staff", "host"] },
           ],
           after: [
             {
@@ -316,6 +343,73 @@ const bookThenCancel = defineOperation({
 const fixtures = createInvoker(
   createRegistry([...coreRegistry.list(), cancelThenBook, bookThenCancel]),
 );
+
+describe("nothing takes a place on a closed record (ADR 0553)", () => {
+  it("a booking set aside cannot come back on a cancelled class, for staff or the host", async () => {
+    const k = await klass();
+    const b = await book(k);
+    await move(b, "aside", STARTS);
+    expect(await counter(k)).toMatchObject({ taken: 0 });
+    await invoke(
+      "record.update",
+      { object: KLASS, id: k, values: { state: "cancelled" } },
+      at(STARTS),
+    );
+    const out = await refused(move(b, "booked", STARTS));
+    expect(out.details).toMatchObject({ rule: "state_closed" });
+    expect(await stateOf(b)).toBe("aside");
+    expect(await counter(k)).toMatchObject({ taken: 0 });
+  });
+});
+
+describe("the sweep pages past records that keep failing (ADR 0550)", () => {
+  it("a front of failures never starves the records behind it", async () => {
+    const VISIT = `${ext}.visit`;
+    const made = async (minutes: number, code: string | null) =>
+      (
+        await invoke(
+          "record.create",
+          {
+            object: VISIT,
+            values: { name: unique("v"), at: plus(STARTS, minutes), ...(code ? { code } : {}) },
+          },
+          context(admin),
+        )
+      ).id as string;
+    // Three older ones that can never move (no code), then one that can.
+    for (const m of [0, 1, 2]) await made(m, null);
+    const good = await made(3, "ok");
+    const tick = await runTimedMovesDue(db, {
+      clock: () => new Date(plus(STARTS, 10)),
+      maxRecords: 2,
+    });
+    expect(tick.failed).toBe(3);
+    const record = await invoke("record.get", { object: VISIT, id: good }, context(admin));
+    expect((record.values as Record<string, unknown>).state).toBe("lapsed");
+  });
+});
+
+describe("a cascade cannot follow a pool (ADR 0550)", () => {
+  it("is refused at the contract check", () => {
+    const pooled = fixture("poolatt");
+    const objects = pooled.objects as Record<string, Record<string, unknown>>;
+    objects.seat = {
+      label: "Seat",
+      plural: "Seats",
+      titleField: "name",
+      fields: {
+        name: { type: "text", label: "Name" },
+        places: { type: "number", label: "Places" },
+        klass: { type: "relation", label: "Class", to: "poolatt.klass" },
+      },
+      capacity: { places: "places", pool: "klass" },
+    };
+    const issues = validateManifest(pooled).issues.map((i) => `${i.path}: ${i.message}`);
+    expect(issues).toEqual(
+      expect.arrayContaining([expect.stringMatching(/follows\.relation: .*pool/)]),
+    );
+  });
+});
 
 describe("a booking racing its class's cancel (ADR 0550)", () => {
   it("a cancel that commits first fails the booking planned before it (the class moved)", async () => {

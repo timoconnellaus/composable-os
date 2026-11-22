@@ -385,8 +385,8 @@ export function checkObjectStates(
         );
       }
     }
-    if (move.bindsStaff && (!move.window || !move.by.includes("staff"))) {
-      contract(`${mp}.bindsStaff`, "bindsStaff needs a window and staff in by");
+    if (move.bindsStaff && (!move.window || (!move.by.includes("staff") && !move.tools))) {
+      contract(`${mp}.bindsStaff`, "bindsStaff needs a window, and staff in by or named tools");
     }
     if (move.tools && move.by.includes("staff")) {
       contract(
@@ -424,6 +424,19 @@ export function checkObjectStates(
         `"${f.relation}" must be a relation (one record) of ${name} to another of this extension's objects that declares states`,
       );
     } else {
+      // A parent whose places other records draw on as a pool: its counter counts claims that
+      // are not its own, which the cascade's check at commit cannot read (ADR 0550).
+      const pooled = Object.values(m.objects).some((other) => {
+        const poolField = other.capacity?.pool;
+        const relTo = poolField ? other.fields[poolField]?.to : undefined;
+        return relTo === rel?.to || relTo === rel?.to?.slice(m.id.length + 1);
+      });
+      if (pooled) {
+        contract(
+          `${fp}.relation`,
+          `${rel?.to ?? f.relation} is a pool other records draw places from: a cascade cannot follow it`,
+        );
+      }
       const parentStates = new Set(
         (target.fields[target.states.field]?.options ?? []).map((o) => o.value),
       );

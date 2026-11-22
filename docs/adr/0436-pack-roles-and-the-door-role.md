@@ -131,3 +131,6 @@ Bookings declares a second role, `bookings.coach` (the day's classes, a class's 
 names). Spec 31 asked whether a coach who also scans event tickets can hold both: they cannot. An
 account still holds one pack role; such a person uses an ordinary staff role, or one account per
 role. Roles that combine remain stage 14a's.
+A role may also declare `today: { <object>: <datetime path> }`: its holder reaches those objects'
+records only on the organisation's local today, on the role's reads and inside its tools
+([ADR 0553](0553-attendance-the-coach-role-moves-and-cancelling-a-class.md)). The coach role does.

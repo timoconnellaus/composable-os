@@ -258,6 +258,10 @@ function refusalOf(
     return out("already_booked", "You already have a place in this class, or are waiting for one.");
   }
   if (rule === "capacity") return out("full", "This class is full.");
+  // It moved on while this was being done (another write moved it first): a race, not a fault.
+  if (rule === "state_final" || rule === "state_move_not_declared") {
+    return out("changed", "It changed meanwhile: it is no longer booked. Look again.");
+  }
   if (error.code === "conflict") {
     return out("changed", "It changed while you were booking. Look again and try once more.");
   }
@@ -1538,56 +1542,73 @@ export const move = defineTool({
 
 export const cancelClass = defineTool({
   description:
-    "Cancel a scheduled class, with a reason: in the same batch every booking of it that is " +
-    "booked, waiting or held while paying is cancelled by the gym, each place given back and " +
-    "each use returned. Bookings already ticked stay as they are. A person's act: the assistant, " +
-    "MCP clients and automations may ask, and it waits for a person to approve it. (Emails to " +
-    "the members, and refunds of paid drop-ins, come in a later release.)",
+    "Cancel a scheduled class that has not ended, with a reason: in the same batch every booking " +
+    "of it holding a place or a use (booked, waiting, held while paying, ticked as come, marked " +
+    "not come, cancelled late) is cancelled by the gym, each place given back and each use " +
+    "returned once. A person's act: the assistant, MCP clients and automations may ask, and it " +
+    "waits for a person to approve it. When it cannot be done (no such class, not scheduled, " +
+    "already ended, or it changed twice while being done) it fails with the reason, so an " +
+    "approved request shows it did not apply. (Emails to the members, and refunds of paid " +
+    "drop-ins, come in a later release.)",
   input: z.object({
     classId: z.string().min(1).max(64),
     reason: z.string().trim().min(3).max(2000),
   }),
-  output: z.union([
-    z.object({
-      result: z.literal("cancelled"),
-      classId: z.string(),
-      bookingsCancelled: z.number().describe("Bookings, waiters and held places cancelled"),
-    }),
-    z.object({
-      result: z.literal("refused"),
-      reason: z.enum(["not_found", "not_scheduled", "changed"]),
-      message: z.string(),
-    }),
-  ]),
+  output: z.object({
+    result: z.literal("cancelled"),
+    classId: z.string(),
+    bookingsCancelled: z.number().describe("Bookings cancelled with the class"),
+  }),
   risk: "destructive",
   // Anyone but a person waits for a person's approval (ADR 0552); the class's move into
   // cancelled is made by this tool and the host only.
   personApproves: true,
   permission: "bookings:cancelClasses",
   async handler(input, ctx) {
-    const no = (reason: "not_found" | "not_scheduled" | "changed", message: string) => ({
-      result: "refused" as const,
-      reason,
-      message,
-    });
-    try {
-      await ctx.ops.call("record.update", {
-        object: CLASS,
-        id: input.classId,
-        from: "scheduled",
-        values: { state: "cancelled", cancelledReason: input.reason },
-      });
-    } catch (error) {
-      if (!(error instanceof OpsCallError)) throw error;
-      if (error.code === "not_found") return no("not_found", "No such class.");
-      const details = (error.details ?? {}) as Record<string, unknown>;
-      if (details.reason === "not_in_position") {
-        return no("not_scheduled", "This class is not scheduled (it was cancelled or is over).");
+    // A refusal is an error, never an answer: an approved request that cannot apply must show
+    // that it did not (ADR 0553).
+    const fail = (code: string, reason: string, message: string): never => {
+      throw new OpsCallError(code, message, { reason });
+    };
+    // A race (a booking landing under the cancel, another write moving the class) is tried once
+    // more from a fresh read; anything else is the answer.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await ctx.ops.call("record.update", {
+          object: CLASS,
+          id: input.classId,
+          from: "scheduled",
+          values: { state: "cancelled", cancelledReason: input.reason },
+        });
+        break;
+      } catch (error) {
+        if (!(error instanceof OpsCallError)) throw error;
+        if (error.code === "not_found") fail("not_found", "not_found", "No such class.");
+        const details = (error.details ?? {}) as Record<string, unknown>;
+        if (details.reason === "not_in_position") {
+          fail(
+            "conflict",
+            "not_scheduled",
+            "This class is not scheduled (it was cancelled or is over).",
+          );
+        }
+        if (details.rule === "state_window_closed") {
+          fail(
+            "invalid_input",
+            "ended",
+            "This class has ended: a class that happened is not cancelled. A person can give a booking's use back (returnUse).",
+          );
+        }
+        if (error.code === "conflict" && attempt === 0) continue;
+        if (error.code === "conflict") {
+          fail(
+            "conflict",
+            "changed",
+            "The class or its bookings changed while it was being cancelled. Look again.",
+          );
+        }
+        throw error;
       }
-      if (error.code === "conflict") {
-        return no("changed", "The class or its bookings changed meanwhile. Look again and retry.");
-      }
-      throw error;
     }
     const page = await ctx.ops.call<ListShape>("record.list", {
       object: BOOKING,

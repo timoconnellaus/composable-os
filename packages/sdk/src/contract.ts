@@ -634,6 +634,13 @@ export interface RoleSpec {
   permissions: readonly string[];
   /** Objects of this extension (`<id>.<object>`) whose records the role may read. */
   read: readonly string[];
+  /**
+   * Objects whose records the role reaches only when a datetime on them falls on the
+   * organisation's local today (ADR 0553), by object: `{ "bookings.class": "startsAt",
+   * "bookings.booking": "class.startsAt" }`. The host holds it on the role's own reads and on
+   * every record its tools read or change for it. Other staff are not limited.
+   */
+  today?: Readonly<Record<string, string>>;
 }
 
 /**

@@ -97,7 +97,15 @@ export function toolOperation(
         ...(cascade ? { cascade } : {}),
         caller:
           ctx.principal.kind === "staff"
-            ? { actor: ctx.actor, userId: ctx.user.id, name: ctx.user.name }
+            ? {
+                actor: ctx.actor,
+                userId: ctx.user.id,
+                name: ctx.user.name,
+                // A pack role limited to today holds inside the tool too (ADR 0553).
+                ...(ctx.roleToday ? { roleToday: ctx.roleToday } : {}),
+                // Who approved it, for a tool a person approves called by another actor.
+                ...(ctx.approval?.approvedBy ? { approvedBy: ctx.approval.approvedBy } : {}),
+              }
             : {
                 actor: ctx.principal.kind,
                 userId: ctx.principal.kind === "customer" ? ctx.principal.customerId : "",

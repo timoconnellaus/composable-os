@@ -100,6 +100,7 @@ import {
   type SystemActivityInput,
 } from "./operation.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
+import { holdRoleTodayRead } from "./pack-role-today.ts";
 import {
   type HeldPackRole,
   loadStaffRights,
@@ -841,6 +842,7 @@ async function invokeOnce<O extends AnyOperation>(
     floor: ctx.floor ?? {},
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
+    ...(packRole?.today ? { roleToday: packRole.today } : {}),
     reason: ctx.reason,
     ...(ctx.approval
       ? {
@@ -1165,6 +1167,10 @@ async function invokeOnce<O extends AnyOperation>(
   let result: unknown;
   try {
     result = await op.handler(input, handlerCtx);
+    // A pack role limited to today reaches only today's records of its objects (ADR 0553).
+    if (packRole?.today) {
+      result = await holdRoleTodayRead(ctx.db.query, packRole, op.name, input, result);
+    }
   } catch (error) {
     if (ctx.simulate && op.risk === "read" && isDryRunRefusal(error)) {
       return notRunRead(error) as OperationOutput<O>;

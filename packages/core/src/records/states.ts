@@ -170,6 +170,27 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
         // move before this batch commits (migration 0670, ADR 0550).
         await queueUnmovedGuards(write.ctx, o, after, closedPaths);
       }
+      // Nor does a record take a place on what is closed (ADR 0553): a move from a state that
+      // holds no place into one that does is refused while the same flags are set, for everyone,
+      // the host included (a booking ticked or booked again on a cancelled class).
+      const claims = o.claims;
+      if (closedPaths && claims && before !== null && toId !== fromId) {
+        const holds = (state: string | null) =>
+          state !== null && (claims.held.includes(state) || claims.confirmed.includes(state));
+        if (holds(toId) && !holds(fromId)) {
+          if (await staffOnlySet(pathReader(write.ctx, o, after), closedPaths)) {
+            throw refuse(
+              write,
+              "state_closed",
+              `${o.label} cannot take a place now: what it is for is closed`,
+              [field],
+              to,
+              from,
+            );
+          }
+          await queueUnmovedGuards(write.ctx, o, after, closedPaths);
+        }
+      }
       // A customer creates a record only in its initial state, or in one `create.in` lists for
       // them (ADR 0507): never straight into a later one (a booking made already cancelled).
       if (
@@ -255,7 +276,7 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       const tool = write.by === "staff" ? personsTool(write.ctx, o.extension) : null;
       const byTool = tool !== null && (move.tools ?? []).includes(tool);
       // A window that binds staff too (ADR 0507): every staff write, a person's included.
-      if (write.by === "staff" && move.bindsStaff && move.by.includes("staff")) {
+      if (write.by === "staff" && move.bindsStaff && (move.by.includes("staff") || byTool)) {
         await customerRules(
           write,
           { window: move.window },

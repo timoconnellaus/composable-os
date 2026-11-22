@@ -156,7 +156,7 @@ describe("bookings pack (test host)", () => {
     expect(states?.follows).toEqual({
       relation: "class",
       when: { cancelled: "cancelled_by_us" },
-      from: ["booked", "waiting", "pending"],
+      from: ["booked", "waiting", "pending", "attended", "no_show", "late_cancelled"],
     });
     // A member joins a waitlist (step 5, the host checks the class is full); nothing a customer
     // does creates a booking held while paying (step 8).
@@ -1002,8 +1002,60 @@ describe("bookings pack (test host)", () => {
         throw new ExtensionToolError("conflict", "Not scheduled", { reason: "not_in_position" });
       },
     });
+    // A refusal fails the call (an approved request then shows it did not apply).
+    await expect(
+      done.runTool("cancelClass", { classId: "cls_1", reason: "Again" }, { caller: STAFF }),
+    ).rejects.toMatchObject({ details: { reason: "not_scheduled" } });
+    const ended = host({ "record.update": () => refusal("state_window_closed") });
+    await expect(
+      ended.runTool("cancelClass", { classId: "cls_1", reason: "Late" }, { caller: STAFF }),
+    ).rejects.toMatchObject({ details: { reason: "ended" } });
+    // A race is tried once more from a fresh read; twice, it fails.
+    let tries = 0;
+    const raced = host({
+      "record.update": () => {
+        tries += 1;
+        if (tries === 1) {
+          throw new ExtensionToolError("conflict", "Stale", { rule: "recurring_stale" });
+        }
+        return { id: "cls_1", values: { state: "cancelled" } };
+      },
+      "record.list": () => ({ items: [] }),
+    });
     expect(
-      await done.runTool("cancelClass", { classId: "cls_1", reason: "Again" }, { caller: STAFF }),
-    ).toMatchObject({ result: "refused", reason: "not_scheduled" });
+      await raced.runTool("cancelClass", { classId: "cls_1", reason: "Race" }, { caller: STAFF }),
+    ).toMatchObject({ result: "cancelled" });
+    expect(tries).toBe(2);
+  });
+
+  it("a class the gym cancels takes every booking holding a place or a use, and only before it ends", () => {
+    const m = host().manifest;
+    const states = m.objects.booking?.states;
+    expect(states?.follows?.from).toEqual([
+      "booked",
+      "waiting",
+      "pending",
+      "attended",
+      "no_show",
+      "late_cancelled",
+    ]);
+    // A late cancel is not final: the class's cancel gives its kept use back.
+    expect(states?.moves.find((x) => x.to === "late_cancelled")?.final).toBeUndefined();
+    expect(m.objects.class?.fields.endsAt?.required).toBe(true);
+    expect(m.objects.class?.states?.moves.find((x) => x.to === "cancelled")).toMatchObject({
+      window: { until: "endsAt" },
+      bindsStaff: true,
+    });
+    expect(m.roles?.coach?.today).toEqual({
+      "bookings.class": "startsAt",
+      "bookings.booking": "class.startsAt",
+    });
+  });
+
+  it("move reports a booking that moved on meanwhile as changed, not as a fault", async () => {
+    const r = host({ "record.create": () => refusal("state_final") });
+    expect(
+      await r.runTool("move", { bookingId: "bkg_1", toClassId: "cls_2" }, { caller: STAFF }),
+    ).toMatchObject({ result: "refused", reason: "changed" });
   });
 });

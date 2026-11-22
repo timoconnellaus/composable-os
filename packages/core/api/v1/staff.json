@@ -64799,7 +64799,7 @@
     },
     {
       "name": "x.bookings.cancelClass",
-      "description": "Cancel a scheduled class, with a reason: in the same batch every booking of it that is booked, waiting or held while paying is cancelled by the gym, each place given back and each use returned. Bookings already ticked stay as they are. A person's act: the assistant, MCP clients and automations may ask, and it waits for a person to approve it. (Emails to the members, and refunds of paid drop-ins, come in a later release.) (Extension tool from Bookings 0.1.0.)",
+      "description": "Cancel a scheduled class that has not ended, with a reason: in the same batch every booking of it holding a place or a use (booked, waiting, held while paying, ticked as come, marked not come, cancelled late) is cancelled by the gym, each place given back and each use returned once. A person's act: the assistant, MCP clients and automations may ask, and it waits for a person to approve it. When it cannot be done (no such class, not scheduled, already ended, or it changed twice while being done) it fails with the reason, so an approved request shows it did not apply. (Emails to the members, and refunds of paid drop-ins, come in a later release.) (Extension tool from Bookings 0.1.0.)",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -64826,56 +64826,26 @@
         "additionalProperties": {}
       },
       "output": {
-        "anyOf": [
-          {
-            "type": "object",
-            "properties": {
-              "result": {
-                "type": "string",
-                "const": "cancelled"
-              },
-              "classId": {
-                "type": "string"
-              },
-              "bookingsCancelled": {
-                "type": "number",
-                "description": "Bookings, waiters and held places cancelled"
-              }
-            },
-            "required": [
-              "result",
-              "classId",
-              "bookingsCancelled"
-            ],
-            "additionalProperties": false
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "const": "cancelled"
           },
-          {
-            "type": "object",
-            "properties": {
-              "result": {
-                "type": "string",
-                "const": "refused"
-              },
-              "reason": {
-                "type": "string",
-                "enum": [
-                  "not_found",
-                  "not_scheduled",
-                  "changed"
-                ]
-              },
-              "message": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "result",
-              "reason",
-              "message"
-            ],
-            "additionalProperties": false
+          "classId": {
+            "type": "string"
+          },
+          "bookingsCancelled": {
+            "type": "number",
+            "description": "Bookings cancelled with the class"
           }
-        ]
+        },
+        "required": [
+          "result",
+          "classId",
+          "bookingsCancelled"
+        ],
+        "additionalProperties": false
       },
       "invalidates": [
         "x.bookings.classList",

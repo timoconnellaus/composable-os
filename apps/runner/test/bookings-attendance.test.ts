@@ -243,7 +243,7 @@ afterAll(() => setPreset("balanced"));
 describe("attendance (criterion 7)", () => {
   it("two coaches ticking one name at once mark it once, and the second is told who was first", async () => {
     const [kim, sam] = await Promise.all([coach("Coach Kim"), coach("Coach Sam")]);
-    const k = await klass(type, 30 * MINUTE);
+    const k = await klass(type, 2 * MINUTE);
     const who = await member("tick");
     const pass = await givePass(who);
     const booking = await booked(who, k);
@@ -400,12 +400,12 @@ describe("attendance (criterion 7)", () => {
 
   it("the coach role: the day, the list and ticking; nothing else", async () => {
     const kim = await coach("Coach Kim");
-    const k = await klass(type, 30 * MINUTE);
+    const k = await klass(type, 2 * MINUTE);
     const who = await member("roster");
     const pass = await givePass(who);
     const booking = await booked(who, k);
     const date = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(
-      new Date(Date.now() + 30 * MINUTE),
+      new Date(Date.now() + 2 * MINUTE),
     );
     const day = await run<{ classes: { id: string }[] }>(
       "x.bookings.day",
@@ -426,8 +426,41 @@ describe("attendance (criterion 7)", () => {
     expect(
       await run<Out>("x.bookings.markAttended", { bookingId: booking }, asCoach(kim)),
     ).toMatchObject({ result: "attended" });
-    // Its own class records it may read; nothing else.
+    // Its own class records it may read, today's only; nothing else.
     await run("record.get", { object: CLASS, id: k }, asCoach(kim));
+    const ahead = await klass(type, 5 * DAY);
+    const later = await booked(who, ahead);
+    expect(
+      (await refusal(run("record.get", { object: CLASS, id: ahead }, asCoach(kim)))).code,
+    ).toBe("not_found");
+    const listed = await run<{ items: { id: string }[] }>(
+      "record.list",
+      { object: CLASS, filter: { field: "id", op: "in", value: [k, ahead] }, limit: 10 },
+      asCoach(kim),
+    );
+    expect(listed.items.map((c) => c.id)).toContain(k);
+    expect(listed.items.map((c) => c.id)).not.toContain(ahead);
+    // Through its tools too: not another day's list, its classes or its names.
+    expect(
+      JSON.stringify(await refusal(run("x.bookings.roster", { classId: ahead }, asCoach(kim)))),
+    ).toContain("not_found");
+    const aheadDate = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(
+      new Date(Date.now() + 5 * DAY),
+    );
+    const aheadDay = await run<{ classes: { id: string }[] }>(
+      "x.bookings.day",
+      { date: aheadDate, timeZone: ZONE },
+      asCoach(kim),
+    );
+    expect(aheadDay.classes).toEqual([]);
+    expect(
+      await run<Out>("x.bookings.markAttended", { bookingId: later }, asCoach(kim)),
+    ).toMatchObject({ result: "refused", reason: "not_found" });
+    // Other staff are not limited.
+    expect(
+      (await run<{ bookings: unknown[] }>("x.bookings.roster", { classId: ahead }, staff()))
+        .bookings,
+    ).toHaveLength(1);
     for (const [name, input] of [
       ["x.bookings.classList", { classId: k }],
       ["x.bookings.bookFor", { classId: k, personId: who.personId }],
@@ -586,6 +619,52 @@ describe("moving people (criterion 11)", () => {
     expect(await left(pass)).toBe(4);
   });
 
+  it("a move racing the member's own cancel: one happens, the other is told it changed", async () => {
+    const who = await member("racemove");
+    const pass = await givePass(who);
+    const b = await booked(who, await klass(type, 2 * DAY));
+    const to = await klass(type, 3 * DAY);
+    const [moved, cancelled] = await Promise.all([
+      run<Out>("x.bookings.move", { bookingId: b, toClassId: to }, staff()),
+      run<Out>("x.bookings.cancel", { bookingId: b, confirm: true, expect: "cancelled" }, as(who)),
+    ]);
+    const results = [moved.result, cancelled.result].sort();
+    expect([
+      ["cancelled", "refused"],
+      ["moved", "refused"],
+    ]).toContainEqual(results);
+    const loser = moved.result === "refused" ? moved : cancelled;
+    expect(loser.reason).toBe("changed");
+    // One use, spent once or given back once.
+    expect(await left(pass)).toBe(moved.result === "moved" ? 4 : 5);
+  });
+
+  it("a move into a class type the pass does not cover is refused whole", async () => {
+    const other = await create("programs.classtype", { name: unique("Other") });
+    const who = await member("cover");
+    const passType = await create("memberships.passtype", {
+      title: unique("Strength only "),
+      price: 50,
+      uses: 5,
+      validDays: 60,
+      classTypes: [type],
+      status: "on_sale",
+    });
+    const given = await run<{ passId: string }>(
+      "x.memberships.givePass",
+      { personId: who.personId, passTypeId: passType, reason: "Integration test" },
+      staff(),
+    );
+    const b = await booked(who, await klass(type, 2 * DAY));
+    const elsewhere = await klass(other, 3 * DAY);
+    expect(
+      await run<Out>("x.bookings.move", { bookingId: b, toClassId: elsewhere }, staff()),
+    ).toMatchObject({ result: "refused", reason: "no_use" });
+    expect(await stateOf(b)).toBe("booked");
+    expect(await left(given.passId)).toBe(4);
+    expect(await counter(elsewhere)).toMatchObject({ taken: 0 });
+  });
+
   it("a booking paid at the desk moves paid at the desk, spending nothing", async () => {
     const who = await member("desk");
     const pass = await givePass(who);
@@ -673,10 +752,65 @@ describe("cancelling a class (criterion 6)", () => {
         staff(),
       ),
     ).toMatchObject({ result: "refused", reason: "not_running" });
-    // Twice: not scheduled.
+    // Twice: not scheduled, and the call fails (an approved request shows it did not apply).
+    const twice = await refusal(
+      run<Out>("x.bookings.cancelClass", { classId: k, reason: "Again" }, staff()),
+    );
+    expect(JSON.stringify(twice)).toContain("not_scheduled");
+  });
+
+  it("gives back the use of every booking on it, ticked and cancelled late included, once each; never after it ended", async () => {
+    const k = await klass(type, 30 * MINUTE);
+    const [ticked, late, still] = await Promise.all(["gt", "gl", "gs"].map((l) => member(l)));
+    const passes = await Promise.all(
+      [ticked, late, still].map((p) => givePass(p as CustomerPrincipal)),
+    );
+    const bt = await booked(ticked as CustomerPrincipal, k);
+    const bl = await booked(late as CustomerPrincipal, k);
+    const bs = await booked(still as CustomerPrincipal, k);
+    expect(await run<Out>("x.bookings.markAttended", { bookingId: bt }, staff())).toMatchObject({
+      result: "attended",
+    });
+    // Half an hour before: a late cancel, which keeps the use.
+    await run(
+      "x.bookings.cancel",
+      { bookingId: bl, confirm: true, expect: "late_cancelled" },
+      as(late as CustomerPrincipal),
+    );
+    expect(await stateOf(bl)).toBe("late_cancelled");
+    for (const pass of passes) expect(await left(pass)).toBe(4);
+    await run("x.bookings.cancelClass", { classId: k, reason: "Hall flooded" }, staff());
+    for (const id of [bt, bl, bs]) expect(await stateOf(id)).toBe("cancelled_by_us");
+    for (const pass of passes) expect(await left(pass)).toBe(5);
+    expect(await counter(k)).toEqual({ places: 10, held: 0, taken: 0 });
+    // Each use given back once: one return per booking.
+    for (const id of [bt, bl, bs]) {
+      const rows = await env.DB.prepare(
+        "SELECT count(*) AS n FROM core_allowance_use WHERE spender_id = ? AND returned_at IS NOT NULL",
+      )
+        .bind(id)
+        .first<{ n: number }>();
+      expect(rows?.n).toBe(1);
+    }
+    // Unticking it now is refused: nothing takes a place on a cancelled class.
+    expect(await run<Out>("x.bookings.undoAttended", { bookingId: bt }, staff())).toMatchObject({
+      result: "refused",
+      reason: "not_booked",
+    });
     expect(
-      await run<Out>("x.bookings.cancelClass", { classId: k, reason: "Again" }, staff()),
-    ).toMatchObject({ result: "refused", reason: "not_scheduled" });
+      await refusal(
+        run("record.update", { object: BOOKING, id: bt, values: { state: "booked" } }, staff()),
+      ),
+    ).toMatchObject({ code: "invalid_input" });
+    expect(await counter(k)).toMatchObject({ taken: 0 });
+
+    // A class that has ended is not cancelled: it happened.
+    const over = await klass(type, -2 * HOUR);
+    const ended = await refusal(
+      run("x.bookings.cancelClass", { classId: over, reason: "Too late" }, staff()),
+    );
+    expect(JSON.stringify(ended)).toContain("ended");
+    expect((await get(CLASS, over)).state).toBe("scheduled");
   });
 
   it("is refused to an AI without a person's approval, whatever the preset; applied once a person approves", async () => {
@@ -750,7 +884,9 @@ describe("cancelling a class (criterion 6)", () => {
     ]);
     // The cancel may have to be asked again if a booking landed under it; ask until it is done.
     for (let i = 0; i < 5 && (await get(CLASS, k)).state !== "cancelled"; i++) {
-      await run("x.bookings.cancelClass", { classId: k, reason: "Race again" }, staff());
+      await run("x.bookings.cancelClass", { classId: k, reason: "Race again" }, staff()).catch(
+        () => undefined,
+      );
     }
     expect(outcomes.some((o) => o.status === "fulfilled")).toBe(true);
     expect((await get(CLASS, k)).state).toBe("cancelled");

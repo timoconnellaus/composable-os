@@ -12,11 +12,13 @@
 import { RpcTarget } from "cloudflare:workers";
 import {
   type ActingUser,
+  assertRoleTodayWrite,
   type CodeCaller,
   coreOperations,
   type EventSink,
   type ExtensionHost,
   ForbiddenError,
+  holdRoleTodayRead,
   invokeByName,
   type Origin,
   type OutsidePrincipal,
@@ -136,6 +138,11 @@ export interface RunState {
   };
   /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
   cascade?: ToolCascade;
+  /**
+   * The calling staff account's pack role limit to today (ADR 0553): the run's record reads and
+   * writes of these objects reach today's records only, whatever the extension may read.
+   */
+  roleToday?: Readonly<Record<string, string>>;
   /**
    * Set for a tool declared `risk: "read"` (ADR 0022 amendment, 2026-11-22): it may only read.
    * Its operation calls must be read operations, its storage answers `get` and `list` only, and
@@ -289,6 +296,35 @@ export class RunHost extends RpcTarget {
     };
   }
 
+  /**
+   * A call made for a staff caller whose pack role is limited to today (ADR 0553): a write to a
+   * record of a limited object is refused unless it is today's; a read keeps today's only.
+   */
+  async #roleToday(
+    operation: string,
+    input: unknown,
+    call: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const limit = this.#run.roleToday;
+    if (!limit) return call();
+    const role = { today: limit };
+    const db = createCrmDb(this.#env.DB).query;
+    await assertRoleTodayWrite(db, role, operation, input, (object, id) =>
+      invokeByName(
+        "record.get",
+        { object, id },
+        {
+          actor: "extension",
+          user: this.#run.user,
+          origin: this.#toolOrigin(),
+          db: createCrmDb(this.#env.DB),
+          extension: { id: this.#run.extensionId, permissions: this.#run.permissions },
+        },
+      ),
+    );
+    return holdRoleTodayRead(db, role, operation, input, await call());
+  }
+
   async #crmCall(args: unknown[]): Promise<unknown> {
     const run = this.#run;
     const [name, input] = args;
@@ -317,20 +353,22 @@ export class RunHost extends RpcTarget {
             ...this.#events(),
             ...(await this.#tools(operation)),
           })
-        : await invokeByName(operation, input ?? {}, {
-            actor: "extension",
-            user: run.user,
-            origin: this.#toolOrigin(),
-            db: createCrmDb(this.#env.DB),
-            floor: parseFloor(this.#env.APPROVAL_FLOOR),
-            extension: {
-              id: run.extensionId,
-              permissions: run.permissions,
-              ...(run.tool ? { tool: run.tool } : {}),
-            },
-            ...(run.simulate ? { simulate: run.simulate } : this.#events()),
-            ...(await this.#tools(operation)),
-          });
+        : await this.#roleToday(operation, input, async () =>
+            invokeByName(operation, input ?? {}, {
+              actor: "extension",
+              user: run.user,
+              origin: this.#toolOrigin(),
+              db: createCrmDb(this.#env.DB),
+              floor: parseFloor(this.#env.APPROVAL_FLOOR),
+              extension: {
+                id: run.extensionId,
+                permissions: run.permissions,
+                ...(run.tool ? { tool: run.tool } : {}),
+              },
+              ...(run.simulate ? { simulate: run.simulate } : this.#events()),
+              ...(await this.#tools(operation)),
+            }),
+          );
       // A read it made was not run in the dry run (it reached a gatekeeper or a model): the
       // tool's answer is incomplete, so the tool counts as not run too.
       if (run.simulate && (value as { $notRunInTestMode?: unknown } | null)?.$notRunInTestMode) {

@@ -34,7 +34,7 @@ import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
 import { renamedMessage } from "./renamed.ts";
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
-import { checkObjectStates, statesManifestSchema } from "./states.ts";
+import { checkObjectStates, resolveFieldPath, statesManifestSchema } from "./states.ts";
 import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";
 
 export const EXTENSION_ID_RE = /^[a-z][a-z0-9]{1,29}$/;
@@ -339,6 +339,8 @@ export const roleManifestSchema = z.object({
   description: z.string().min(10).max(500),
   permissions: z.array(z.string().max(80)).max(20).default([]),
   read: z.array(z.string().max(80)).max(20).default([]),
+  /** Objects whose records the role reaches only on the organisation's local today (ADR 0553). */
+  today: z.record(z.string().max(80), z.string().max(122)).optional(),
 });
 export type RoleManifest = z.infer<typeof roleManifestSchema>;
 
@@ -681,6 +683,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
           description: role.description,
           permissions: [...role.permissions],
           read: [...role.read],
+          ...(role.today ? { today: { ...role.today } } : {}),
         },
       ]),
     ),
@@ -1593,6 +1596,20 @@ export function validateManifest(
           `${path}.read`,
           `"${object}" is not an object of this extension: a role reads ${m.id}.<object> only`,
         );
+      }
+    }
+    // A role limited to today (ADR 0553): each object its own, each path a datetime on it (or
+    // one relation away, through another of its objects).
+    for (const [object, at] of Object.entries(role.today ?? {})) {
+      const tp = `${path}.today.${object}`;
+      const local = object.startsWith(`${m.id}.`) ? object.slice(m.id.length + 1) : null;
+      const target = local && Object.hasOwn(m.objects, local) ? m.objects[local] : undefined;
+      const field =
+        target && at.split(".").length <= 2 ? resolveFieldPath(m, target, at) : undefined;
+      if (!target) {
+        contract(tp, `"${object}" is not an object of this extension`);
+      } else if (field?.type !== "datetime" || field.many) {
+        contract(tp, `"${at}" must be a datetime field of ${object}, or one relation away`);
       }
     }
   }

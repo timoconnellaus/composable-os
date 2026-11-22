@@ -36,3 +36,15 @@ open to every staff write either (`record.update` would bypass the tool).
 MCP client's `cancelClass` are queued and change nothing; a person's `record.update` to cancelled is
 refused; a person approves the assistant's request and the class and its bookings are cancelled.
 With the flag taken out, the assistant's call is applied at once and the test fails.
+
+## Amended 2026-11-23, after the review of PR #253
+- A `personApproves` tool counts as a person's act wherever `personsTool` asks (ADR 0513): the
+  moves it names, and also the holder-term fields extension code may set and a hand grant's dates
+  and once-per-person (`operations/record.ts`). This is deliberate: its write is a person's, made
+  by them or approved by them.
+- The person who approves need not hold the tool's pack permission: approving follows the
+  existing approval model (a person who may approve the action), not the tool's permission.
+- A hand grant records who gave it (`given_by`): for an approved call by another actor, the
+  approving person (the run's `startedBy` is the approver), not the extension principal. No
+  shipped `personApproves` tool makes a hand grant today (`cancelClass` grants nothing), so the
+  path is not reachable yet; it is set so that it is right when one does.

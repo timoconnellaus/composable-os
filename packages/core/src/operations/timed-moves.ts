@@ -24,6 +24,9 @@ import { viewColumnOf } from "../records/columns.ts";
 import { SYSTEM_USER } from "../users.ts";
 import { loadRecord, updateRecord } from "./record.ts";
 
+/** The most pages one rule reads in a tick, paging past records that keep failing. */
+const MAX_PAGES = 10;
+
 /** How far back the sweep looks: a moment older than this is no longer acted on. */
 export const TIMED_MOVE_LOOKBACK_DAYS = 14;
 
@@ -94,7 +97,13 @@ function planOf(object: ObjectDefinition, index: number): RulePlan | null {
  * its `from` states, the moment (plus `minutesAfter`) passed and no older than the lookback, and,
  * with `ifAnyIn`, another live record on the same related record in one of those states.
  */
-function dueQuery(plan: RulePlan, now: number, limit: number, id?: string): CompiledQuery {
+function dueQuery(
+  plan: RulePlan,
+  now: number,
+  limit: number,
+  id?: string,
+  offset = 0,
+): CompiledQuery {
   const minutes = plan.rule.minutesAfter ?? 0;
   const latest = new Date(now - minutes * 60_000).toISOString();
   const earliest = new Date(
@@ -118,8 +127,8 @@ function dueQuery(plan: RulePlan, now: number, limit: number, id?: string): Comp
     sql += " AND r.id = ?";
     params.push(id);
   }
-  sql += ` ORDER BY julianday(${moment}), r.id LIMIT ?`;
-  params.push(limit);
+  sql += ` ORDER BY julianday(${moment}), r.id LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
   return CompiledQuery.raw(sql, params);
 }
 
@@ -227,51 +236,62 @@ export async function runTimedMovesDue(
   };
   const now = (clock?.() ?? new Date()).getTime();
   for (const plan of plans) {
-    let rows: { id: string; state: string }[];
-    try {
-      rows = (
-        await db.query.executeQuery<{ id: string; state: string }>(dueQuery(plan, now, maxRecords))
-      ).rows;
-    } catch (error) {
-      result.failed += 1;
-      console.error("timed moves: the records due could not be read", {
-        object: plan.object.name,
-        rule: plan.index,
-        error: messageOf(error),
-      });
-      continue;
-    }
-    for (const row of rows) {
+    // Records that keep failing stay first in the order: page past them, so they never starve
+    // the ones behind (a moved record drops out of the read, a failed one stays; ADR 0550).
+    let skip = 0;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      let rows: { id: string; state: string }[];
       try {
-        await invoke(
-          "state.after",
-          {
-            object: plan.object.name,
-            id: String(row.id),
-            rule: plan.index,
-            from: String(row.state),
-          },
-          ctx,
-        );
-        result.moved += 1;
+        rows = (
+          await db.query.executeQuery<{ id: string; state: string }>(
+            dueQuery(plan, now, maxRecords, undefined, skip),
+          )
+        ).rows;
       } catch (error) {
-        const e = error as { code?: unknown; details?: { reason?: unknown } };
-        const reason = e.details?.reason;
-        // Moved by someone else meanwhile, or no longer due: nothing to do.
-        if (
-          e.code === "conflict" &&
-          (reason === "not_due" || reason === "moved_meanwhile" || reason === "not_in_position")
-        ) {
-          continue;
-        }
         result.failed += 1;
-        console.error("timed moves: a record could not be moved", {
+        console.error("timed moves: the records due could not be read", {
           object: plan.object.name,
-          id: row.id,
           rule: plan.index,
           error: messageOf(error),
         });
+        break;
       }
+      let failedHere = 0;
+      for (const row of rows) {
+        try {
+          await invoke(
+            "state.after",
+            {
+              object: plan.object.name,
+              id: String(row.id),
+              rule: plan.index,
+              from: String(row.state),
+            },
+            ctx,
+          );
+          result.moved += 1;
+        } catch (error) {
+          const e = error as { code?: unknown; details?: { reason?: unknown } };
+          const reason = e.details?.reason;
+          // Moved by someone else meanwhile, or no longer due: nothing to do.
+          if (
+            e.code === "conflict" &&
+            (reason === "not_due" || reason === "moved_meanwhile" || reason === "not_in_position")
+          ) {
+            continue;
+          }
+          result.failed += 1;
+          failedHere += 1;
+          console.error("timed moves: a record could not be moved", {
+            object: plan.object.name,
+            id: row.id,
+            rule: plan.index,
+            error: messageOf(error),
+          });
+        }
+      }
+      if (rows.length < maxRecords || failedHere === 0) break;
+      skip += failedHere;
     }
   }
   return result;

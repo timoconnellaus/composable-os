@@ -213,6 +213,7 @@ export {
   type WaitlistDueResult,
 } from "./operations/waitlist.ts";
 export * from "./orders/index.ts";
+export { assertRoleTodayWrite, holdRoleTodayRead, roleTodayPath } from "./pack-role-today.ts";
 export * from "./pack-roles.ts";
 export {
   type AnyInvocationContext,
