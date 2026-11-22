@@ -48,6 +48,7 @@
 // tell staff of a class whose list was not taken. They write nothing.
 import { defineExtension } from "@composable-os/sdk";
 import { bookingsAutomations } from "./automations.ts";
+import { bookingsDashboards } from "./dashboards.ts";
 import {
   book,
   bookFor,
@@ -876,6 +877,31 @@ export default defineExtension({
       sort: { field: "updatedAt", direction: "desc" },
       columns: ["title", "class", "person", "updatedAt"],
     },
+    // Step 9's saved views: this month's, by when the booking last changed (became one).
+    noShowsThisMonth: {
+      label: "No-shows this month",
+      object: "bookings.booking",
+      filter: {
+        and: [
+          { field: "state", op: "eq", value: "no_show" },
+          { field: "updatedAt", op: "gte", value: { $relative: "startOfMonth" } },
+        ],
+      },
+      sort: { field: "updatedAt", direction: "desc" },
+      columns: ["title", "class", "person", "markedByName", "updatedAt"],
+    },
+    lateCancelsThisMonth: {
+      label: "Late cancels this month",
+      object: "bookings.booking",
+      filter: {
+        and: [
+          { field: "state", op: "eq", value: "late_cancelled" },
+          { field: "updatedAt", op: "gte", value: { $relative: "startOfMonth" } },
+        ],
+      },
+      sort: { field: "updatedAt", direction: "desc" },
+      columns: ["title", "class", "person", "updatedAt"],
+    },
   },
   recordTabs: {
     // A class's list: who is booked, on its record page.
@@ -1055,4 +1081,5 @@ export default defineExtension({
     family,
   },
   automations: bookingsAutomations,
+  dashboards: bookingsDashboards,
 });
