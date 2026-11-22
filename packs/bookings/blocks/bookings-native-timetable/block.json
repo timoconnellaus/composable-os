@@ -1,0 +1,17 @@
+{
+  "name": "bookings-native-timetable",
+  "pack": "bookings",
+  "skin": "native",
+  "operations": [
+    "x.bookings.timetable",
+    "x.bookings.mine",
+    "x.bookings.book",
+    "x.bookings.cancel"
+  ],
+  "files": ["timetable-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-bookings": "*"
+  },
+  "noPurchase": true
+}

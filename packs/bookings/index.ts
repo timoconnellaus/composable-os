@@ -1,0 +1,673 @@
+// Bookings (stage 31a, build step 3: the spine; ADR 0504): a gym's or studio's timetable and the
+// bookings members make on it. Staff set a weekly timetable once (series), the host makes each
+// week's classes from it, and members book and cancel them on the web and in the app.
+//
+// Everything that is a rule is the host's, declared here as behaviours (ADR 0404):
+//   - a series makes its classes ahead in local time across clock changes (`recurring`, ADR 0500),
+//     never less far ahead than the longest booking window a class type sets (`horizonAtLeast`),
+//     never on a closure's dates, and never over a class staff changed by hand;
+//   - a class has places (`capacity`), and a booking holds one by its state (`claims`, ADR 0501),
+//     refused by the database past the places, for every actor;
+//   - one live booking per Person per class (`unique`, ADR 0502);
+//   - when a customer may book (from the class type's "opens" days before, else the
+//     organisation's; until its "closes" minutes before) and cancel in time (until its "late from"
+//     minutes before; late until the start; then not at all), and which class types only staff
+//     book, are windows and staff-only rules on the booking's states (ADR 0503), worked out from
+//     the class type's own value or the organisation's setting (ADR 0505). A member's "cancel" is
+//     a requested move the host resolves to `cancelled` or `late_cancelled` by its clock;
+//   - a booking entering `booked` spends a use of its Person's membership or pass and an in-time
+//     cancel gives it back (`allowance`, ADRs 0493 and 0494), unless staff booked it paid at the
+//     desk (`waived`, ADR 0506). The holders are the Memberships pack's (stage 32b);
+//   - members read the timetable and how many places are left, never who is booked (decision 13).
+// The tools in tools.ts compose the host's operations and add no rules of their own.
+import { defineExtension } from "@composable-os/sdk";
+import {
+  book,
+  bookFor,
+  cancel,
+  cancelFor,
+  classGet,
+  classList,
+  day,
+  mine,
+  timetable,
+} from "./tools.ts";
+
+/** Weekday values a series' `weekdays` uses (ADR 0500). */
+const WEEKDAYS = [
+  { value: "mon", label: "Monday" },
+  { value: "tue", label: "Tuesday" },
+  { value: "wed", label: "Wednesday" },
+  { value: "thu", label: "Thursday" },
+  { value: "fri", label: "Friday" },
+  { value: "sat", label: "Saturday" },
+  { value: "sun", label: "Sunday" },
+];
+
+/** A booking's states (spec 31, "Booking states"). Only some are reachable at this step. */
+const BOOKING_STATES = [
+  { value: "booked", label: "Booked" },
+  { value: "pending", label: "Held while paying" },
+  { value: "waiting", label: "Waiting" },
+  { value: "left", label: "Left the waitlist" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "late_cancelled", label: "Cancelled late" },
+  { value: "attended", label: "Attended" },
+  { value: "no_show", label: "No-show" },
+  { value: "cancelled_by_us", label: "Cancelled by the gym" },
+  { value: "moved", label: "Moved" },
+  { value: "expired", label: "Expired" },
+];
+
+/** A booking that holds or takes a place, and so counts as the Person's one for its class. */
+const ACTIVE = ["pending", "booked", "waiting", "attended", "no_show"];
+
+/** When a customer may book, and when a cancel is late, from the class type or the org. */
+const opens = {
+  at: "class.startsAt",
+  daysBefore: { field: "class.classType.opensDays", setting: "opensDays" },
+  zone: "class.timezone",
+};
+const closes = {
+  at: "class.startsAt",
+  minutesBefore: { field: "class.classType.closesMinutes", setting: "closesMinutes" },
+};
+const lateFrom = {
+  at: "class.startsAt",
+  minutesBefore: { field: "class.classType.lateMinutes", setting: "lateMinutes" },
+};
+
+const minutes = (label: string, description: string) => ({
+  type: "number" as const,
+  label,
+  description,
+  min: 0,
+  max: 10_080,
+  step: 1,
+});
+
+export default defineExtension({
+  id: "bookings",
+  version: "0.1.0",
+  contractVersion: 1,
+  label: "Bookings",
+  description:
+    "A timetable of classes made from weekly series, rooms and coaches, and the bookings members " +
+    "make and cancel within the gym's rules. Class types are Programs'.",
+  // The class type is Programs' (spec 31): the host installs Bookings only beside Programs.
+  requires: ["programs"],
+  permissions: {
+    // person.get / person.create: a booking's person on a class list, and a walk-in staff book.
+    // programs.classtype: a class type's name and booking rules on staff's day view.
+    read: ["person", "programs.classtype"],
+    write: ["person"],
+    operations: [
+      "public.list",
+      "public.get",
+      "capacity.get",
+      "my.list",
+      "my.get",
+      "my.create",
+      "my.update",
+      "state.resolve",
+      "record.create",
+      "record.update",
+      "record.get",
+      "record.list",
+      "person.create",
+      "person.get",
+    ],
+    modules: ["ops"],
+  },
+  // Bookings' fields on Programs' class type: how it shows, and its booking rules when they
+  // differ from the organisation's (Settings → Extensions → Bookings). Empty: the organisation's.
+  fields: {
+    "programs.classtype": {
+      colour: {
+        type: "text",
+        label: "Colour",
+        description: "How its classes show on the timetable, e.g. #2f6fed.",
+      },
+      opensDays: {
+        type: "number",
+        label: "Booking opens (days before)",
+        description:
+          "Members may book this many days before a class, at the same time of day. Empty: the " +
+          "organisation's setting.",
+        min: 0,
+        max: 365,
+        step: 1,
+      },
+      closesMinutes: minutes(
+        "Booking closes (minutes before)",
+        "Members may book until this many minutes before a class starts (0: until it starts). " +
+          "Empty: the organisation's setting.",
+      ),
+      lateMinutes: minutes(
+        "Late cancel from (minutes before)",
+        "A cancel this close to the start or closer is late and keeps the class it used. Empty: " +
+          "the organisation's setting.",
+      ),
+      promotionMinutes: minutes(
+        "Waitlist stops (minutes before)",
+        "Nobody is moved in from the waitlist after this. Empty: the organisation's setting. " +
+          "(The waitlist comes in a later release.)",
+      ),
+      reminderMinutes: minutes(
+        "Reminder (minutes before)",
+        "When members are reminded of a class. Empty: the organisation's setting. (Reminders " +
+          "come in a later release.)",
+      ),
+      staffOnly: {
+        type: "boolean",
+        label: "Booked by staff only",
+        description: "Members cannot book its classes themselves; staff book them in.",
+      },
+    },
+  },
+  objects: {
+    room: {
+      label: "Room",
+      plural: "Rooms",
+      icon: "door-open",
+      titleField: "name",
+      description: "Where classes are held.",
+      navigation: "settings",
+      fields: {
+        name: { type: "text", label: "Name", required: true },
+        places: {
+          type: "number",
+          label: "Places",
+          description: "The most the room holds: a guide for staff, not a limit on a class.",
+          min: 0,
+          step: 1,
+        },
+        notes: { type: "longText", label: "Notes" },
+      },
+      public: { read: ["name"] },
+    },
+    coach: {
+      label: "Coach",
+      plural: "Coaches",
+      icon: "user-round",
+      titleField: "name",
+      description: "Who teaches classes. Name, photo and bio are shown on the timetable.",
+      navigation: "settings",
+      fields: {
+        name: { type: "text", label: "Name", required: true },
+        photo: { type: "url", label: "Photo" },
+        bio: { type: "longText", label: "Short bio" },
+        user: {
+          type: "user",
+          label: "Staff account",
+          description: "Their staff account, if they have one (a visiting coach may not).",
+        },
+        active: { type: "boolean", label: "Active", default: true },
+      },
+      public: { read: ["name", "photo", "bio"] },
+    },
+    series: {
+      label: "Series",
+      plural: "Series",
+      icon: "calendar-sync",
+      titleField: "title",
+      titleDefault: { from: ["classType"] },
+      description:
+        "One line of the timetable: a class type on chosen weekdays at a local time, from a " +
+        "date. The host makes its classes ahead.",
+      navigation: "main",
+      navigationOrder: 31,
+      fields: {
+        title: { type: "text", label: "Title" },
+        classType: {
+          type: "relation",
+          label: "Class type",
+          to: "programs.classtype",
+          required: true,
+        },
+        weekdays: { type: "multiSelect", label: "Weekdays", options: WEEKDAYS, required: true },
+        time: {
+          type: "text",
+          label: "Starts at (local time)",
+          description: "HH:MM in the series' time zone, e.g. 06:00.",
+          required: true,
+        },
+        length: {
+          type: "number",
+          label: "Length (minutes)",
+          required: true,
+          min: 5,
+          max: 1440,
+          step: 1,
+        },
+        room: { type: "relation", label: "Room", to: "bookings.room" },
+        coach: { type: "relation", label: "Coach", to: "bookings.coach" },
+        places: { type: "number", label: "Places", required: true, min: 0, step: 1 },
+        firstDate: { type: "date", label: "First date", required: true },
+        lastDate: { type: "date", label: "Last date", description: "Empty: ongoing." },
+        timezone: { type: "timezone", label: "Time zone" },
+        state: {
+          type: "select",
+          label: "State",
+          track: "timeline",
+          options: [
+            { value: "active", label: "Active" },
+            { value: "ended", label: "Ended" },
+          ],
+        },
+      },
+      states: {
+        field: "state",
+        initial: "active",
+        moves: [{ from: "active", to: "ended", by: ["staff"], final: true }],
+      },
+      recurring: {
+        generates: "class",
+        link: "series",
+        rule: {
+          weekdays: "weekdays",
+          time: "time",
+          length: "length",
+          from: "firstDate",
+          until: "lastDate",
+          zone: "timezone",
+        },
+        into: { starts: "startsAt", ends: "endsAt", zone: "timezone", changed: "changed" },
+        copy: {
+          title: "title",
+          classType: "classType",
+          room: "room",
+          coach: "coach",
+          places: "places",
+        },
+        cancel: "cancelled",
+        ended: { field: "state", in: ["ended"] },
+        closures: { object: "closure", from: "fromDate", until: "untilDate" },
+        horizonDays: 56,
+        // Never less than the longest window a class type opens booking (ADR 0500, 0505).
+        horizonAtLeast: { object: "programs.classtype", field: "opensDays" },
+      },
+      indexes: [["state"], ["classType"]],
+    },
+    class: {
+      label: "Class",
+      plural: "Classes",
+      icon: "calendar-clock",
+      titleField: "title",
+      titleDefault: { from: ["classType"] },
+      description:
+        "One dated class: made by a series, or a one-off. Members book its places; its record " +
+        "page is its list.",
+      navigation: "main",
+      navigationOrder: 30,
+      fields: {
+        title: { type: "text", label: "Title" },
+        series: {
+          type: "relation",
+          label: "Series",
+          to: "bookings.series",
+          readOnly: true,
+          description: "The series that made it. Empty for a one-off class.",
+        },
+        classType: {
+          type: "relation",
+          label: "Class type",
+          to: "programs.classtype",
+          required: true,
+        },
+        startsAt: { type: "datetime", label: "Starts", required: true },
+        endsAt: { type: "datetime", label: "Ends" },
+        timezone: { type: "timezone", label: "Time zone" },
+        room: { type: "relation", label: "Room", to: "bookings.room" },
+        coach: { type: "relation", label: "Coach", to: "bookings.coach" },
+        places: { type: "number", label: "Places", min: 0, step: 1 },
+        notes: { type: "longText", label: "Notes for members" },
+        state: {
+          type: "select",
+          label: "State",
+          track: "timeline",
+          options: [
+            { value: "scheduled", label: "Scheduled" },
+            { value: "cancelled", label: "Cancelled" },
+            { value: "done", label: "Done" },
+          ],
+        },
+        changed: {
+          type: "boolean",
+          label: "Changed from its series",
+          readOnly: true,
+          description: "Edited by hand: its series no longer changes it.",
+        },
+        // A class that is not scheduled cannot be booked by a member (the booking's create rule).
+        closed: {
+          type: "formula",
+          label: "Closed to members",
+          expression: 'coalesce(state, "scheduled") != "scheduled"',
+        },
+      },
+      states: {
+        field: "state",
+        initial: "scheduled",
+        moves: [
+          // Only the host cancels a class at this step (a closure, a series ended, each confirmed
+          // by a person, ADR 0500). Staff cancelling a class, with its bookings cancelled in the
+          // same batch, is step 7's cascade.
+          { from: "scheduled", to: "cancelled", by: ["host"], final: true },
+          { from: "scheduled", to: "done", by: ["staff", "host"], final: true },
+        ],
+      },
+      // Members see how many places are left (decision 13), never who has them.
+      capacity: { places: "places", show: "exact" },
+      public: {
+        read: [
+          "title",
+          "classType",
+          "startsAt",
+          "endsAt",
+          "timezone",
+          "room",
+          "coach",
+          "notes",
+          "state",
+        ],
+        when: { field: "state", in: ["scheduled"] },
+      },
+      // A booking's member reads their class whatever its state (a cancelled one says so).
+      customerVia: {
+        from: "bookings.booking",
+        field: "class",
+        read: [
+          "title",
+          "classType",
+          "startsAt",
+          "endsAt",
+          "timezone",
+          "room",
+          "coach",
+          "notes",
+          "state",
+        ],
+      },
+      indexes: [["startsAt"], ["state", "startsAt"], ["series"], ["classType", "startsAt"]],
+    },
+    closure: {
+      label: "Closure",
+      plural: "Closures",
+      icon: "calendar-x",
+      titleField: "name",
+      description:
+        "Dates the gym is closed (holidays): no classes are made on them, and classes already " +
+        "made are cancelled (a person confirms when any have bookings).",
+      navigation: "settings",
+      fields: {
+        name: { type: "text", label: "Reason", required: true },
+        fromDate: { type: "date", label: "From", required: true },
+        untilDate: { type: "date", label: "Until", required: true },
+      },
+    },
+    booking: {
+      label: "Booking",
+      plural: "Bookings",
+      icon: "calendar-check",
+      titleField: "title",
+      titleDefault: { from: ["person"] },
+      description: "One person's place in one class.",
+      navigation: "main",
+      navigationOrder: 32,
+      fields: {
+        title: { type: "text", label: "Title" },
+        class: { type: "relation", label: "Class", to: "bookings.class", required: true },
+        person: { type: "relation", label: "Person", to: "person", required: true },
+        state: { type: "select", label: "State", track: "timeline", options: BOOKING_STATES },
+        holder: {
+          type: "text",
+          label: "Paid from",
+          description:
+            "The membership or pass the booking spent a use of (its id). Left empty, the host " +
+            "chooses the one whose use would lapse first.",
+        },
+        classType: {
+          type: "relation",
+          label: "Class type",
+          to: "programs.classtype",
+          readOnly: true,
+          description: "The class's type, copied by the host: what a membership's limits read.",
+        },
+        weekday: {
+          type: "number",
+          label: "Weekday",
+          readOnly: true,
+          description: "The class's local weekday (1 Monday to 7 Sunday), set by the host.",
+        },
+        minute: {
+          type: "number",
+          label: "Local minute",
+          readOnly: true,
+          description: "The class's local start, in minutes after midnight, set by the host.",
+        },
+        paidOtherwise: {
+          type: "boolean",
+          label: "Paid at the desk",
+          readOnly: true,
+          description:
+            "Booked by staff for someone who paid another way (a walk-in at the desk): it " +
+            "spends no use. Set when it is made.",
+        },
+        bookedBy: {
+          type: "user",
+          label: "Booked by",
+          readOnly: true,
+          description: "The staff account that booked it. Empty when the member booked.",
+        },
+        movedFrom: {
+          type: "relation",
+          label: "Moved from",
+          to: "bookings.booking",
+          readOnly: true,
+          description: "The booking this one replaced when staff moved it to this class.",
+        },
+        note: { type: "longText", label: "Staff note" },
+      },
+      states: {
+        field: "state",
+        initial: "booked",
+        create: {
+          // Waiting (step 5) and held while paying (step 8) are not reachable by anyone but the
+          // host yet: nothing a customer does lands a booking in them.
+          in: { waiting: ["host"], pending: ["host"] },
+          window: { from: opens, until: closes },
+          // A class type booked by staff only, and a class that is not scheduled.
+          staffOnly: ["class.classType.staffOnly", "class.closed"],
+        },
+        // A member asks to cancel; the host picks in time or late by its clock (ADR 0503).
+        requests: { cancel: ["cancelled", "late_cancelled"] },
+        moves: [
+          { from: "pending", to: "booked", by: ["host"] },
+          { from: "pending", to: "expired", by: ["host"], final: true },
+          { from: "waiting", to: "booked", by: ["host"] },
+          { from: "waiting", to: "left", by: ["staff", "customer"], final: true },
+          {
+            from: "booked",
+            to: "cancelled",
+            by: ["staff", "customer"],
+            final: true,
+            window: { until: lateFrom },
+          },
+          {
+            from: "booked",
+            to: "late_cancelled",
+            by: ["staff", "customer"],
+            final: true,
+            window: { from: lateFrom, until: "class.startsAt" },
+          },
+          { from: "booked", to: "attended", by: ["staff"] },
+          { from: "attended", to: "booked", by: ["staff"] },
+          { from: "booked", to: "no_show", by: ["staff", "host"] },
+          { from: "no_show", to: "attended", by: ["staff"] },
+          {
+            from: ["booked", "waiting", "pending"],
+            to: "cancelled_by_us",
+            by: ["host"],
+            final: true,
+          },
+          { from: "booked", to: "moved", by: ["staff"], final: true },
+        ],
+      },
+      // A place on the class while held, booked, attended or a no-show (ADR 0501).
+      claims: { on: "class", held: ["pending"], confirmed: ["booked", "attended", "no_show"] },
+      unique: [{ fields: ["person", "class"], states: ACTIVE }],
+      // A spender of the Memberships pack's holders (stage 32b's ids, spec 32): booked spends,
+      // an in-time cancel, a class the gym cancels and a move give back; a late cancel and a
+      // no-show keep it. The period is the class's, and its type and local time are what a
+      // membership's limits read (ADRs 0493 and 0494).
+      allowance: {
+        spends: {
+          person: "person",
+          holder: "holder",
+          spendIn: ["booked"],
+          returnIn: ["cancelled", "cancelled_by_us", "moved"],
+          at: "class.startsAt",
+          copy: { classType: "class.classType" },
+          local: { weekday: "weekday", minute: "minute", zone: "class.timezone" },
+          movedFrom: { field: "movedFrom", state: "moved" },
+          paidBy: ["memberships.membership", "memberships.pass"],
+          waived: "paidOtherwise",
+        },
+      },
+      // A member reads and changes only their own bookings; never anyone else's (decision 13).
+      customer: {
+        field: "person",
+        read: ["class", "state", "holder", "classType"],
+        write: ["class", "state", "holder"],
+      },
+      timelineLinks: ["person"],
+      indexes: [["class", "state"], ["person", "state"], ["state"]],
+    },
+  },
+  views: {
+    todaysClasses: {
+      label: "Today's classes",
+      object: "bookings.class",
+      filter: {
+        and: [
+          { field: "startsAt", op: "gte", value: { $relative: "today" } },
+          { field: "startsAt", op: "lt", value: { $relative: "tomorrow" } },
+        ],
+      },
+      sort: { field: "startsAt", direction: "asc" },
+      columns: ["title", "startsAt", "coach", "room", "places", "taken", "available", "state"],
+    },
+    thisWeeksClasses: {
+      label: "This week's classes",
+      object: "bookings.class",
+      filter: {
+        and: [
+          { field: "startsAt", op: "gte", value: { $relative: "startOfWeek" } },
+          { field: "startsAt", op: "lt", value: { $relative: "startOfNextWeek" } },
+        ],
+      },
+      sort: { field: "startsAt", direction: "asc" },
+      columns: ["title", "startsAt", "coach", "room", "taken", "available", "state"],
+    },
+    activeSeries: {
+      label: "Timetable",
+      object: "bookings.series",
+      filter: { field: "state", op: "eq", value: "active" },
+      sort: { field: "time", direction: "asc" },
+      columns: ["title", "weekdays", "time", "length", "coach", "room", "places", "firstDate"],
+    },
+    lateCancels: {
+      label: "Late cancels",
+      object: "bookings.booking",
+      filter: { field: "state", op: "eq", value: "late_cancelled" },
+      sort: { field: "updatedAt", direction: "desc" },
+      columns: ["title", "class", "person", "updatedAt"],
+    },
+  },
+  recordTabs: {
+    // A class's list: who is booked, on its record page.
+    classBookings: {
+      label: "Bookings",
+      on: "bookings.class",
+      view: {
+        type: "table",
+        object: "bookings.booking",
+        relation: "class",
+        columns: ["person", "state", "holder", "paidOtherwise", "bookedBy", "createdAt"],
+        sort: { field: "createdAt", direction: "asc" },
+      },
+      order: 10,
+    },
+    seriesClasses: {
+      label: "Classes",
+      on: "bookings.series",
+      view: {
+        type: "table",
+        object: "bookings.class",
+        relation: "series",
+        columns: ["startsAt", "coach", "room", "places", "taken", "state", "changed"],
+        sort: { field: "startsAt", direction: "asc" },
+      },
+      order: 10,
+    },
+    personBookings: {
+      label: "Bookings",
+      on: "person",
+      view: {
+        type: "table",
+        object: "bookings.booking",
+        relation: "person",
+        columns: ["class", "state", "holder", "createdAt"],
+        sort: { field: "createdAt", direction: "desc" },
+      },
+      order: 35,
+    },
+  },
+  // The organisation's booking rules, which a class type's own values override. Changed by a
+  // person with the extensions permission (Settings → Extensions → Bookings).
+  settings: {
+    opensDays: {
+      type: "number",
+      label: "Booking opens (days before)",
+      description:
+        "Members may book a class this many days before it, at the same time of day. At most " +
+        "56, the timetable's horizon; a class type may open further ahead.",
+      default: 7,
+      min: 0,
+      max: 56,
+    },
+    closesMinutes: {
+      type: "number",
+      label: "Booking closes (minutes before)",
+      description: "Members may book until this many minutes before a class (0: until it starts).",
+      default: 0,
+      min: 0,
+      max: 10_080,
+    },
+    lateMinutes: {
+      type: "number",
+      label: "Late cancel from (minutes before)",
+      description: "A cancel this close to the start is late: it keeps the class it used.",
+      default: 60,
+      min: 0,
+      max: 10_080,
+    },
+    promotionMinutes: {
+      type: "number",
+      label: "Waitlist stops (minutes before)",
+      description: "Nobody is moved in from the waitlist after this (a later release).",
+      default: 120,
+      min: 0,
+      max: 10_080,
+    },
+    reminderMinutes: {
+      type: "number",
+      label: "Reminder (minutes before)",
+      description: "When members are reminded of a class (a later release).",
+      default: 180,
+      min: 0,
+      max: 10_080,
+    },
+  },
+  tools: { timetable, classGet, book, cancel, mine, bookFor, cancelFor, day, classList },
+});

@@ -58,6 +58,7 @@ import { publicReadOperations } from "./public-read.ts";
 import { queryOperations } from "./query.ts";
 import { recordOperations } from "./record.ts";
 import { recordImportOperations } from "./record-import.ts";
+import { stateResolveOperations } from "./state-resolve.ts";
 import { recordVersionOperations } from "./record-versions.ts";
 import { recurringOperations } from "./recurring.ts";
 import { retentionOperations } from "./retention.ts";
@@ -128,6 +129,7 @@ export const coreOperations = [
   ...myWriteOperations,
   ...publicReadOperations,
   ...accessOperations,
+  ...stateResolveOperations,
   ...notificationOperations,
   ...notificationDeliveryOperations,
   ...assistantOperations,

@@ -233,13 +233,14 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
 /** A move's or a create's customer rules. */
 interface RuleSet {
   window?: WindowDefinition | undefined;
-  staffOnly?: string | undefined;
+  staffOnly?: string | readonly string[] | undefined;
 }
 
 /** The record's own fields a rule set reads: each path's first part (a relation, or the field). */
 function ruleSources(rules: RuleSet): string[] {
   const paths: string[] = [];
-  if (rules.staffOnly) paths.push(rules.staffOnly);
+  if (typeof rules.staffOnly === "string") paths.push(rules.staffOnly);
+  else if (rules.staffOnly) paths.push(...rules.staffOnly);
   for (const bound of [rules.window?.from, rules.window?.until]) {
     if (bound === undefined) continue;
     if (typeof bound === "string") {
@@ -249,6 +250,7 @@ function ruleSources(rules: RuleSet): string[] {
     paths.push(bound.at);
     for (const part of [bound.daysBefore, bound.minutesBefore, bound.zone]) {
       if (typeof part === "string") paths.push(part);
+      else if (typeof part === "object" && part.field) paths.push(part.field);
     }
   }
   return [...new Set(paths.map((p) => p.split(".")[0] as string))];

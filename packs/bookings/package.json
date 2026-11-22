@@ -1,0 +1,39 @@
+{
+  "name": "@composable-os/pack-bookings",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./client": "./client/index.ts"
+  },
+  "description": "Bookings: a gym's or studio's timetable (weekly series that make dated classes in local time), rooms, coaches, closures, and the bookings members make and cancel within the class type's rules, spending a membership's or pass's use (stage 31a). Requires Programs. Installed in every deployment of a product that lists it. Bundled as source into cos-runner.",
+  "composableOs": {
+    "optional": true,
+    "label": "Bookings",
+    "description": "A timetable of classes made from weekly series, booked and cancelled by members on the web and in the app within the gym's rules. Requires Programs."
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc --noEmit -p blocks/tsconfig.web.json && tsc --noEmit -p blocks/tsconfig.native.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/client": "workspace:*",
+    "@composable-os/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@composable-os/config": "workspace:*",
+    "@types/react": "19.3.0",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "radix-ui": "1.8.1",
+    "react": "19.3.1",
+    "react-native": "0.88.1",
+    "tailwind-merge": "3.7.0",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

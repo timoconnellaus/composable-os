@@ -736,6 +736,7 @@ function allowanceDefinition(object: ObjectState): ObjectDefinition["allowance"]
     local: { ...(sp.local ?? {}) },
     ...(sp.movedFrom ? { movedFrom: { ...sp.movedFrom } } : {}),
     paidBy: [...(sp.paidBy ?? [])],
+    ...(sp.waived ? { waived: sp.waived } : {}),
   };
 }
 
@@ -797,10 +798,20 @@ function recurringDefinition(object: ObjectState): Pick<ObjectDefinition, "recur
       horizonDays: declared.horizonDays ?? RECURRING_HORIZON_DAYS,
       ...(declared.horizonAtLeast
         ? {
-            horizonAtLeast: {
-              object: named(declared.horizonAtLeast.object),
-              field: declared.horizonAtLeast.field,
-            },
+            // Another extension's object carries this extension's field (ADR 0505).
+            horizonAtLeast: declared.horizonAtLeast.object.includes(".")
+              ? {
+                  object: declared.horizonAtLeast.object,
+                  field: registryFieldName(
+                    object.extensionId,
+                    declared.horizonAtLeast.object,
+                    declared.horizonAtLeast.field,
+                  ),
+                }
+              : {
+                  object: named(declared.horizonAtLeast.object),
+                  field: declared.horizonAtLeast.field,
+                },
           }
         : {}),
     },

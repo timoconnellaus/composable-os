@@ -270,6 +270,8 @@ export type AllowanceDefinition =
       readonly movedFrom?: { readonly field: string; readonly state: string } | undefined;
       /** Holders of other extensions that may pay for it (objects or extension ids). */
       readonly paidBy: readonly string[];
+      /** A boolean field: while true, entering a spend state spends nothing (ADR 0506). */
+      readonly waived?: string | undefined;
     };
 
 /** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */
@@ -371,27 +373,33 @@ export interface StatesDefinition {
     requires?: readonly string[] | undefined;
     final?: boolean | undefined;
     window?: WindowDefinition | undefined;
-    staffOnly?: string | undefined;
+    staffOnly?: string | readonly string[] | undefined;
   }[];
   /** Rules on every create (ADR 0503). */
   create?:
     | {
         in?: Readonly<Record<string, readonly ("staff" | "customer" | "host")[]>> | undefined;
         window?: WindowDefinition | undefined;
-        staffOnly?: string | undefined;
+        staffOnly?: string | readonly string[] | undefined;
       }
     | undefined;
   /** Moves asked for by name, resolved by the host (ADR 0503). */
   requests?: Readonly<Record<string, readonly string[]>> | undefined;
 }
 
+/** A number a window is worked out from (the SDK's WindowNumber, ADR 0505). */
+export type WindowNumberDefinition =
+  | number
+  | string
+  | { field?: string | undefined; setting?: string | undefined };
+
 /** One end of a window (the SDK's WindowBound): field paths, numbers in days and minutes. */
 export type WindowBoundDefinition =
   | string
   | {
       at: string;
-      daysBefore?: number | string | undefined;
-      minutesBefore?: number | string | undefined;
+      daysBefore?: WindowNumberDefinition | undefined;
+      minutesBefore?: WindowNumberDefinition | undefined;
       zone?: string | undefined;
     };
 

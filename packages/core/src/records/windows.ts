@@ -12,32 +12,45 @@
 // organisation's default, copied by the host onto the class).
 import type { Kysely } from "kysely";
 import { getObject } from "../fields/index.ts";
-import type { ObjectDefinition, WindowBoundDefinition, WindowDefinition } from "../fields/types.ts";
+import { registryFieldName } from "../extensions/naming.ts";
+import type {
+  ObjectDefinition,
+  WindowBoundDefinition,
+  WindowDefinition,
+  WindowNumberDefinition,
+} from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { localDaysBefore } from "../time/local.ts";
 import { visibleSource } from "../visibility/index.ts";
 
-/** Reads the values a record's paths name: its own fields, or one hop through a relation. */
+/**
+ * Reads the values a record's paths name: its own fields, or through up to two relations
+ * (ADR 0505), and the declaring extension's settings.
+ */
 export interface PathReader {
   read(path: string): Promise<unknown>;
+  /** The declaring extension's setting: its stored value, else its declared default. */
+  setting(name: string): Promise<unknown>;
 }
 
-/** A reader over `after` (the record as the write leaves it) for `object`, reading each record once. */
+/**
+ * A reader over `after` (the record as the write leaves it) for `object`, reading each record
+ * once. Every field a path names is the declaring extension's (the SDK checks it): on another
+ * extension's object, the field this extension adds to it (`<extension>.<field>` in the registry).
+ */
 export function pathReader(
   ctx: HandlerContext,
   object: ObjectDefinition,
   after: Record<string, unknown>,
 ): PathReader {
+  const ext = object.extension;
   const records = new Map<string, Promise<Record<string, unknown> | null>>();
-  const load = (relation: string) => {
-    const cached = records.get(relation);
+  const load = (target: ObjectDefinition, id: string) => {
+    const key = `${target.name}:${id}`;
+    const cached = records.get(key);
     if (cached) return cached;
     const promise = (async () => {
-      const id = after[relation];
-      const to = object.fields.find((f) => f.name === relation)?.options?.to;
-      const target = to ? getObject(to) : undefined;
-      if (typeof id !== "string" || !id || !target) return null;
       // The host's own read (on a customer's call its principal is the organisation's).
       // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
       const stored = (await (ctx.db as Kysely<any>)
@@ -54,15 +67,65 @@ export function pathReader(
       }
       return values;
     })();
-    records.set(relation, promise);
+    records.set(key, promise);
     return promise;
+  };
+  /** A field's registry name on `on`: this extension's own name there. */
+  const nameOn = (on: ObjectDefinition, local: string) =>
+    ext ? registryFieldName(ext, on.name, local) : local;
+  let settings: Promise<Record<string, unknown>> | undefined;
+  const loadSettings = () => {
+    settings ??= (async () => {
+      if (!ext) return {};
+      const [stored, declared] = await Promise.all([
+        ctx.db
+          .selectFrom("core_extension_settings")
+          .select("value")
+          .where("extension_id", "=", ext)
+          .executeTakeFirst(),
+        ctx.db
+          .selectFrom("core_extensions")
+          .select("manifest")
+          .where("id", "=", ext)
+          .executeTakeFirst(),
+      ]);
+      const defaults = Object.fromEntries(
+        Object.entries(
+          (declared
+            ? (JSON.parse(declared.manifest) as {
+                settings?: Record<string, { default?: unknown }>;
+              })
+            : {}
+          ).settings ?? {},
+        ).map(([name, s]) => [name, s.default ?? null]),
+      );
+      return {
+        ...defaults,
+        ...(stored ? (JSON.parse(stored.value) as Record<string, unknown>) : {}),
+      };
+    })();
+    return settings;
   };
   return {
     async read(path) {
-      const dot = path.indexOf(".");
-      if (dot < 0) return after[path] ?? null;
-      const record = await load(path.slice(0, dot));
-      return record?.[path.slice(dot + 1)] ?? null;
+      const parts = path.split(".");
+      let values: Record<string, unknown> | null = after;
+      let on: ObjectDefinition = object;
+      for (const [i, part] of parts.entries()) {
+        if (!values) return null;
+        const name = i === 0 ? part : nameOn(on, part);
+        const value = values[name] ?? null;
+        if (i === parts.length - 1) return value;
+        const to = on.fields.find((f) => f.name === name)?.options?.to;
+        const target = to ? getObject(to) : undefined;
+        if (typeof value !== "string" || !value || !target) return null;
+        values = await load(target, value);
+        on = target;
+      }
+      return null;
+    },
+    async setting(name) {
+      return (await loadSettings())[name] ?? null;
     },
   };
 }
@@ -85,12 +148,15 @@ async function boundMoment(
   const at = await reader.read(b.at);
   const instant = typeof at === "string" ? Date.parse(at) : Number.NaN;
   if (Number.isNaN(instant)) return null;
-  const part = async (value: number | string | undefined) =>
-    value === undefined
-      ? 0
-      : typeof value === "number"
-        ? value
-        : asNumber(await reader.read(value));
+  const part = async (value: WindowNumberDefinition | undefined): Promise<number | null> => {
+    if (value === undefined) return 0;
+    if (typeof value === "number") return value;
+    if (typeof value === "string") return asNumber(await reader.read(value));
+    // A field's value, else the extension's setting (ADR 0505).
+    const own = value.field === undefined ? null : asNumber(await reader.read(value.field));
+    if (own !== null || value.setting === undefined) return own;
+    return asNumber(await reader.setting(value.setting));
+  };
   const days = await part(b.daysBefore);
   const minutes = await part(b.minutesBefore);
   if (days === null || minutes === null) return null;
@@ -150,11 +216,16 @@ export async function windowRefusal(
   return null;
 }
 
-/** Whether a `staffOnly` flag is set for the record as the write leaves it. */
-export async function staffOnlySet(reader: PathReader, path: string | undefined): Promise<boolean> {
-  if (!path) return false;
-  const value = await reader.read(path);
-  return value === true || value === 1 || value === "1" || value === "true";
+/** Whether a `staffOnly` flag (any of them, ADR 0505) is set for the record as the write leaves it. */
+export async function staffOnlySet(
+  reader: PathReader,
+  paths: string | readonly string[] | undefined,
+): Promise<boolean> {
+  for (const path of paths === undefined ? [] : typeof paths === "string" ? [paths] : paths) {
+    const value = await reader.read(path);
+    if (value === true || value === 1 || value === "1" || value === "true") return true;
+  }
+  return false;
 }
 
 /** A refusal for a customer outside a staff-only rule. */
