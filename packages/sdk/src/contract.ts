@@ -3,11 +3,13 @@
 // can turn it into a JSON manifest, validate it, diff it and reconcile it to tables.
 import type { z } from "zod";
 import type { AutomationSpec } from "./automation.ts";
-import type { CapacitySpec } from "./capacity.ts";
+import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
+import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StatesSpec } from "./states.ts";
+import type { UniqueSpec } from "./unique.ts";
 
 /** The contract version this SDK writes. The host accepts this and the previous version. */
 export const CONTRACT_VERSION = 1;
@@ -239,6 +241,21 @@ export interface ObjectSpec {
   sellable?: SellableSpec;
   /** A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both. */
   states?: StatesSpec;
+  /**
+   * A capacity claimant (see ClaimsSpec, ADR 0501): the record's own states hold, take and give
+   * back one place on the record its relation `on` points to (a booking on its class).
+   */
+  claims?: ClaimsSpec;
+  /**
+   * Uniqueness among live records in some states (see UniqueSpec, ADR 0502): one active booking
+   * per Person per class. Refused by the database for every actor.
+   */
+  unique?: readonly UniqueSpec[];
+  /**
+   * A weekly schedule that generates dated records of another object (see RecurringScheduleSpec,
+   * ADR 0500): a timetable's series and its classes.
+   */
+  recurring?: RecurringScheduleSpec;
   /**
    * The record's owner: a `user` field of this object (ADR 0246, stage 14). Assignment rules set
    * it when a record is created without one, and stage 14's visibility policies read it.

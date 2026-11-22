@@ -14,6 +14,7 @@ import {
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
+import { assertNoLiveClaim } from "../capacity/claimants.ts";
 import { assertNoConfirmedClaims, counterWrite } from "../capacity/records.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import {
@@ -33,6 +34,16 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
+import { resolveStateRequest } from "../records/states.ts";
+import { assertUnique } from "../records/unique.ts";
+import {
+  assertRuleValues,
+  closureWritten,
+  generatedRecordEdited,
+  seriesChanged,
+  seriesCreated,
+  setRecurringWriter,
+} from "../recurring/index.ts";
 import {
   assertRestorable,
   assertSlugsFree,
@@ -547,10 +558,14 @@ export async function createRecord(
     by?: Mover;
   } = {},
 ): Promise<string> {
+  const by = options.by ?? (object.states?.requests ? callerMover(ctx) : undefined);
+  // A move asked for by name (`cancel`) becomes the state the host picks (ADR 0503).
+  const asked = by ? await resolveStateRequest(ctx, object, null, values, by) : values;
   // A slug left empty is made from the title; one given must be free (ADR 0442).
-  const withDefaults = await slugsForCreate(ctx, object, await applyDefaults(ctx, object, values));
+  const withDefaults = await slugsForCreate(ctx, object, await applyDefaults(ctx, object, asked));
   let prepared = await prepareValues(ctx, object, withDefaults, "create", options);
   assertOneOf(object, valuesOf(prepared));
+  assertRuleValues(object, valuesOf(prepared));
   // No owner given: assignment rules choose one, in this same insert (ADR 0246).
   const ownerField = object.ownerField;
   const assignment =
@@ -571,6 +586,8 @@ export async function createRecord(
     cache: options.cache,
   });
   prepared = withHostValues(prepared, outcome, object);
+  // One live record per declared key (ADR 0502); the database's index refuses a race.
+  await assertUnique(ctx, object, id, valuesOf(prepared));
   const own = prepared.filter((p) => p.own);
   const columns = ["id", "created_at", "updated_at", "created_by", ...own.map((p) => p.column)];
   ctx.write(
@@ -587,6 +604,9 @@ export async function createRecord(
   const title = prepared.find((p) => p.field.name === object.titleField)?.value;
   ctx.write(...searchDoc(object.name, id, title == null ? null : String(title)));
   ctx.write(...(await redirectWrites(ctx, object, id, null, valuesOf(prepared))));
+  // A new series is due now; a new closure cancels what it covers (ADR 0500).
+  seriesCreated(ctx, object, id);
+  await closureWritten(ctx, object, valuesOf(prepared));
   const assigned = assignment
     ? recordAssignment(ctx, object, id, assignment, {
         timeline: options.assignmentTimeline !== false,
@@ -785,13 +805,17 @@ export async function updateRecord(
   object: ObjectDefinition,
   id: string,
   values: Record<string, unknown>,
-  options: { by?: Mover; from?: string | undefined } = {},
+  options: { by?: Mover; from?: string | undefined; recurringConfirm?: number | undefined } = {},
 ): Promise<boolean> {
   const before = await loadRecord(ctx, object, id);
   if (!before) throw new NotFoundError(object.name, id);
-  if (options.from !== undefined) assertMovesFrom(object, before.values, values, options.from);
-  let prepared = await prepareValues(ctx, object, values, "update", options);
+  const by = options.by ?? callerMover(ctx);
+  // A move asked for by name (`cancel`) becomes the state the host picks (ADR 0503).
+  const asked = await resolveStateRequest(ctx, object, before.values, values, by);
+  if (options.from !== undefined) assertMovesFrom(object, before.values, asked, options.from);
+  let prepared = await prepareValues(ctx, object, asked, "update", options);
   if (!prepared.length) return false;
+  assertRuleValues(object, { ...before.values, ...valuesOf(prepared) });
   await assertSlugsFree(ctx, object, id, valuesOf(prepared));
   assertChoiceRequirements(object, prepared, {
     ...before.values,
@@ -802,9 +826,26 @@ export async function updateRecord(
     ...Object.fromEntries(prepared.map((p) => [p.field.name, p.value])),
   });
   const outcome = await applyTransition(ctx, object, id, before.values, valuesOf(prepared), {
-    by: options.by ?? callerMover(ctx),
+    by,
   });
   prepared = withHostValues(prepared, outcome, object);
+  // A record a series made, changed by anyone but the host, is its own from now on (ADR 0500).
+  const edited = generatedRecordEdited(
+    ctx,
+    object,
+    id,
+    before.values,
+    { ...before.values, ...valuesOf(prepared) },
+    by,
+  );
+  if (Object.keys(edited).length) {
+    prepared = [
+      ...prepared.filter((p) => !Object.hasOwn(edited, p.field.name)),
+      ...hostValues(object, edited),
+    ];
+  }
+  // One live record per declared key (ADR 0502); the database's index refuses a race.
+  if (object.unique) await assertUnique(ctx, object, id, { ...before.values, ...valuesOf(prepared) });
   const own = prepared.filter((p) => p.own);
   if (own.length || !isCoreObject(object.name)) {
     const table = objectTableOf(object.name);
@@ -832,6 +873,9 @@ export async function updateRecord(
     prepared.map((p) => p.field.name),
   );
   if (counter) ctx.write(counter);
+  // A series' future records follow it; a closure cancels what it covers (ADR 0500).
+  await seriesChanged(ctx, object, id, before.values, after, options.recurringConfirm);
+  await closureWritten(ctx, object, after);
   // A published record's old address keeps pointing to it (ADR 0442).
   ctx.write(...(await redirectWrites(ctx, object, id, before.values, after)));
   const timeline = await timelineFor(ctx, object, id, before.values, after, outcome);
@@ -887,6 +931,33 @@ function assertMovesFrom(
 
 // The seam's write helper (visibility/writes.ts) changes extension records with this code.
 setRecordWriter({ create: createRecord, update: updateRecord });
+
+/** Moves a record to Trash as the host (a series' record no longer in its rule, ADR 0500). */
+async function trashRecordAsHost(ctx: HandlerContext, object: ObjectDefinition, id: string) {
+  const before = await loadRecord(ctx, object, id);
+  if (!before) return;
+  const table = objectTableOf(object.name) as string;
+  ctx.write(
+    CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
+      ctx.now,
+      ctx.user.id,
+      id,
+    ]),
+    CompiledQuery.raw("DELETE FROM core_search_docs WHERE object_type = ? AND record_id = ?", [
+      object.name,
+      id,
+    ]),
+  );
+  ctx.recordChange({ object: object.name, id, action: "delete", before: snapshot(before) });
+}
+
+// The recurring behaviour makes, moves and removes a series' records with this code.
+setRecurringWriter({
+  load: async (ctx, object, id) => (await loadRecord(ctx, object, id))?.values ?? null,
+  create: (ctx, object, values, options) => createRecord(ctx, object, values, options),
+  update: (ctx, object, id, values, options) => updateRecord(ctx, object, id, values, options),
+  remove: trashRecordAsHost,
+});
 
 export const recordUpdate = defineOperation({
   name: "record.update",
@@ -954,6 +1025,8 @@ export const recordDelete = defineOperation({
     if (!before) throw new NotFoundError(input.object, input.id);
     // Places people have paid for keep their record out of Trash (ADR 0431).
     await assertNoConfirmedClaims(ctx, object, input.id);
+    // A claimant holding a place gives it back by moving out of its state, not by Trash.
+    await assertNoLiveClaim(ctx, object, input.id);
     const table = objectTableOf(object.name) as string;
     ctx.write(
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [

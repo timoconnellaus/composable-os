@@ -12,6 +12,7 @@ export * from "./field-types.ts";
 export * from "./manifest.ts";
 export * from "./media.ts";
 export * from "./permissions.ts";
+export * from "./recurring.ts";
 export * from "./renamed.ts";
 export * from "./rich-text.ts";
 export * from "./rich-text-fixture.ts";
@@ -31,3 +32,4 @@ export {
 export * from "./sellable.ts";
 export * from "./slug.ts";
 export * from "./states.ts";
+export * from "./unique.ts";

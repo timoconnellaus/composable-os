@@ -119,6 +119,15 @@ export interface ObjectDefinition {
    */
   states?: StatesDefinition;
   /**
+   * Extension objects: a capacity claimant (stage 31, ADR 0501): the record's states hold, take
+   * and give back one place on the record `on` points to.
+   */
+  claims?: ClaimsDefinition;
+  /** Extension objects: uniqueness among live records in some states (ADR 0502). */
+  unique?: readonly UniqueDefinition[];
+  /** Extension objects: a weekly schedule generating records of another object (ADR 0500). */
+  recurring?: RecurringDefinition;
+  /**
    * The user field that holds the record's owner (ADR 0246): `ownerId` on people and
    * organisations, the declared `owner` of an extension object. Assignment rules set it.
    */
@@ -310,7 +319,72 @@ export interface StatesDefinition {
     by: readonly ("staff" | "customer" | "host")[];
     requires?: readonly string[] | undefined;
     final?: boolean | undefined;
+    window?: WindowDefinition | undefined;
+    staffOnly?: string | undefined;
   }[];
+  /** Rules on every create (ADR 0503). */
+  create?: { window?: WindowDefinition | undefined; staffOnly?: string | undefined } | undefined;
+  /** Moves asked for by name, resolved by the host (ADR 0503). */
+  requests?: Readonly<Record<string, readonly string[]>> | undefined;
+}
+
+/** One end of a window (the SDK's WindowBound): field paths, numbers in days and minutes. */
+export type WindowBoundDefinition =
+  | string
+  | {
+      at: string;
+      daysBefore?: number | string | undefined;
+      minutesBefore?: number | string | undefined;
+      zone?: string | undefined;
+    };
+
+/** When a customer may make a move or a create (the SDK's MoveWindow). */
+export interface WindowDefinition {
+  from?: WindowBoundDefinition | undefined;
+  until?: WindowBoundDefinition | undefined;
+}
+
+/** The SDK's ClaimsSpec with the registry names of the relation and the object it points to. */
+export interface ClaimsDefinition {
+  /** The relation field (one record) to the record whose places are claimed. */
+  on: string;
+  /** That record's object, which declares a capacity. */
+  object: string;
+  held: readonly string[];
+  confirmed: readonly string[];
+}
+
+/** The SDK's UniqueSpec: fields and states by name. */
+export interface UniqueDefinition {
+  fields: readonly string[];
+  states?: readonly string[] | undefined;
+}
+
+/** The SDK's RecurringScheduleSpec with the objects' registry names (ADR 0500). */
+export interface RecurringDefinition {
+  /** The generated object's registry name. */
+  generates: string;
+  link: string;
+  rule: {
+    weekdays: string;
+    time: string;
+    length?: string | undefined;
+    from: string;
+    until?: string | undefined;
+    zone?: string | undefined;
+  };
+  into: {
+    starts: string;
+    ends?: string | undefined;
+    zone?: string | undefined;
+    changed?: string | undefined;
+  };
+  copy: Readonly<Record<string, string>>;
+  cancel: string;
+  ended?: { field: string; in: readonly string[] } | undefined;
+  /** The closure object's registry name and its date fields. */
+  closures?: { object: string; from: string; until: string } | undefined;
+  horizonDays: number;
 }
 
 export function defineObject<const O extends ObjectDefinition>(object: O): O {

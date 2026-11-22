@@ -3,6 +3,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import {
   type CapacityManifest,
+  type ClaimsManifest,
   type DocumentSchema,
   documentJsonPath,
   documentMaxBytesOf,
@@ -12,9 +13,12 @@ import {
   type FieldTypeName,
   formulaTypeOf,
   isDocumentType,
+  RECURRING_HORIZON_DAYS,
+  type RecurringScheduleManifest,
   type SellableManifest,
   type StagesManifest,
   type StatesManifest,
+  type UniqueManifest,
 } from "@composable-os/sdk";
 import {
   compileFormula,
@@ -65,6 +69,9 @@ export interface ObjectDefinitionJson {
   capacity?: CapacityManifest;
   sellable?: SellableManifest;
   states?: StatesManifest;
+  claims?: ClaimsManifest;
+  unique?: UniqueManifest;
+  recurring?: RecurringScheduleManifest;
   owner?: string;
   /** The object's customer (ADR 0402), as declared. */
   customer?: {
@@ -656,6 +663,49 @@ function capacityDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
   };
 }
 
+/** The claimant declaration (ADR 0501), with the claimed object's registry name. */
+function claimsDefinition(
+  object: ObjectState,
+  own: FieldState[],
+): Pick<ObjectDefinition, "claims"> {
+  const declared = object.definition.claims;
+  if (!declared) return {};
+  const on = own.find((f) => f.localName === declared.on);
+  if (!on?.definition.to) return {};
+  return {
+    claims: {
+      on: on.name,
+      object: on.definition.to,
+      held: [...(declared.held ?? [])],
+      confirmed: [...(declared.confirmed ?? [])],
+    },
+  };
+}
+
+/** The recurring declaration (ADR 0500), with the objects' registry names. */
+function recurringDefinition(object: ObjectState): Pick<ObjectDefinition, "recurring"> {
+  const declared = object.definition.recurring;
+  if (!declared) return {};
+  const named = (local: string) => `${object.extensionId}.${local}`;
+  return {
+    recurring: {
+      generates: named(declared.generates),
+      link: declared.link,
+      rule: { ...declared.rule },
+      into: { ...declared.into },
+      copy: { ...(declared.copy ?? {}) },
+      cancel: declared.cancel,
+      ...(declared.ended
+        ? { ended: { field: declared.ended.field, in: [...declared.ended.in] } }
+        : {}),
+      ...(declared.closures
+        ? { closures: { ...declared.closures, object: named(declared.closures.object) } }
+        : {}),
+      horizonDays: declared.horizonDays ?? RECURRING_HORIZON_DAYS,
+    },
+  };
+}
+
 /**
  * The sellable declaration with registry field names, or undefined (ADR 0435). The granted
  * object's fields are named by their registry names, which for an object's own fields are their
@@ -879,6 +929,9 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(capacity ? { capacity } : {}),
       ...(sellable ? { sellable } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
+      ...claimsDefinition(object, own),
+      ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
+      ...recurringDefinition(object),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
       ...(object.definition.public ? { public: object.definition.public } : {}),

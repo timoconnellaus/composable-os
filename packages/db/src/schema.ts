@@ -1025,6 +1025,26 @@ export interface CoreCapacityClaimTable {
 }
 export type CapacityClaimState = "held" | "confirmed" | "released";
 
+/** Migration 0560 (ADR 0500): a series of the `recurring` behaviour, and when it next runs. */
+export interface CoreRecurrenceSeriesTable {
+  object_type: string;
+  record_id: string;
+  next_run_at: string;
+  generated_until: Defaulted<string | null>;
+  updated_at: string;
+}
+
+/** Migration 0560: one record a series made, keyed on the series and its local date. */
+export interface CoreRecurrenceOccurrenceTable {
+  series_object: string;
+  series_id: string;
+  local_date: string;
+  object_type: string;
+  record_id: string;
+  edited_at: Defaulted<string | null>;
+  created_at: string;
+}
+
 /** Migration 0310 (ADR 0246): an assignment rule, ordered per object. */
 export interface CoreAssignmentRuleTable {
   id: string;
@@ -2302,6 +2322,8 @@ export interface CoreDatabase {
   core_native_sign_in_confirm: CoreNativeSignInConfirmTable;
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
+  core_recurrence_series: CoreRecurrenceSeriesTable;
+  core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
   core_publish_version: CorePublishVersionTable;
   core_publish_schedule: CorePublishScheduleTable;
   core_slug_redirect: CoreSlugRedirectTable;

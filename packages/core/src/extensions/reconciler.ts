@@ -20,7 +20,9 @@ import {
   type ObjectManifest,
 } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely } from "kysely";
+import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
+import { dropRecurringStatements } from "../recurring/bookkeeping.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import { ORG_TIMEZONE_SETTING } from "../settings.ts";
 import {
@@ -183,6 +185,9 @@ export function planFromState(
       ...(object.capacity ? { capacity: object.capacity } : {}),
       ...(object.sellable ? { sellable: object.sellable } : {}),
       ...(object.states ? { states: object.states } : {}),
+      ...(object.claims ? { claims: object.claims } : {}),
+      ...(object.unique?.length ? { unique: object.unique } : {}),
+      ...(object.recurring ? { recurring: object.recurring } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),
       ...(object.public ? { public: object.public } : {}),
@@ -542,6 +547,38 @@ export function planFromState(
         `CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${column}) WHERE deleted_at IS NULL AND ${column} IS NOT NULL`,
       );
     }
+    // Declared uniqueness (stage 31, ADR 0502): no two live records with the same values while
+    // in the rule's states. A partial unique index, so the database refuses the second record
+    // (or a move back into a counted state), whoever writes it and however many at once. Its
+    // name carries a hash of the rule, so a changed rule is a new index.
+    for (const rule of object.definition.unique ?? []) {
+      const columnOf = (local: string) =>
+        next.fields.find(
+          (f) =>
+            f.object === object.name &&
+            f.extensionId === ext &&
+            f.localName === local &&
+            f.status === "active" &&
+            f.tableName === object.tableName,
+        )?.columnName ?? null;
+      const columns = rule.fields.map(columnOf);
+      const stateColumn = rule.states && object.definition.states
+        ? columnOf(object.definition.states.field)
+        : null;
+      if (columns.some((c) => c === null) || (rule.states && !stateColumn)) continue;
+      const filled = columns.map((c) => `${ident(c as string)} IS NOT NULL`);
+      const states = rule.states
+        ? [`${ident(stateColumn as string)} IN (${rule.states.map(sqlString).join(", ")})`]
+        : [];
+      const where = ["deleted_at IS NULL", ...filled, ...states].join(" AND ");
+      const name = ident(
+        `${object.tableName}__${(columns as string[]).join("__")}__u${shortHash(where)}`,
+      );
+      wanted.set(
+        name,
+        `CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${columns.join(", ")}) WHERE ${where}`,
+      );
+    }
     const existing = (current.indexes ?? []).filter(
       (index) => index.table === object.tableName && index.name.startsWith(`${object.tableName}__`),
     );
@@ -718,6 +755,12 @@ export async function planDropHidden(
   const capacityDrops = droppedObjects
     .filter((o) => o.definition.capacity)
     .flatMap((o) => dropCapacityStatements(o.name));
+  // A dropped claimant gives back the places its records held and took (ADR 0501), and a
+  // dropped series or generated object takes its recurring bookkeeping with it (ADR 0500).
+  const claimantDrops = droppedObjects
+    .filter((o) => o.definition.claims)
+    .flatMap((o) => releaseAllClaimsStatements(o.name, options.now));
+  const recurringDrops = droppedObjects.flatMap((o) => dropRecurringStatements(o.name));
   // What orders granted of a dropped object goes with its table (ADR 0435): the orders stay.
   const granted = new Set(
     current.objects.flatMap((o) => {
@@ -734,7 +777,7 @@ export async function planDropHidden(
     current,
     next,
     tableDdl,
-    [...capacityDrops, ...grantDrops],
+    [...capacityDrops, ...claimantDrops, ...recurringDrops, ...grantDrops],
     changes,
     [],
   );
@@ -795,4 +838,19 @@ export async function applyPlan(
     );
   }
   await batch(plan.statements);
+}
+
+/** A SQL string literal (a declared state value in an index's WHERE clause). */
+function sqlString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+/** Eight hex digits naming a rule's index (FNV-1a): a changed rule is a new index. */
+function shortHash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }

@@ -2,6 +2,7 @@
 // through the one transition engine. record.create, record.update and the record CSV import call
 // `applyTransition` for every write; so does platform code that makes a `host` move.
 
+import { assertClaimRelationKept, claimantMove } from "../capacity/claimants.ts";
 import { ForbiddenError } from "../errors.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -97,7 +98,12 @@ export async function applyTransition(
   options: TransitionOptions,
 ): Promise<TransitionOutcome> {
   const run = async <P extends Placement>(lifecycle: Lifecycle<P>) => {
+    assertClaimRelationKept(object, before, written);
     const outcome = await runTransition(lifecycle, ctx, object, id, before, written, options.by);
+    // A capacity claimant's states hold and give back its place (ADR 0501), in this batch.
+    if (outcome.moved && object.claims) {
+      await claimantMove(ctx, object, id, before, { ...(before ?? {}), ...written, ...outcome.values });
+    }
     const hooks = outcome.moved ? moveHooks.get(object.name) : undefined;
     if (outcome.moved && hooks?.length) {
       const move: RecordMove = {

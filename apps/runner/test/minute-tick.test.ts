@@ -59,6 +59,7 @@ describe("the minute cron and the kill switch", () => {
       duplicates: null,
       orders: null,
       publishing: null,
+      recurring: null,
       customerSignup: null,
     });
     expect(await state(ids)).toEqual({ outboxPending: true, eventConsumed: false });

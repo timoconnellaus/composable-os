@@ -26,6 +26,37 @@ export interface StateMove {
   requires?: readonly string[];
   /** The move ends the lifecycle: nothing moves out of `to`. */
   final?: boolean;
+  /**
+   * When a customer may make it (stage 31, ADR 0503): from `from` (inclusive) until `until`
+   * (exclusive), by the host's clock in the write. Staff and the host are not bound.
+   */
+  window?: MoveWindow;
+  /**
+   * A boolean field (named as a window's `at` is): while it is true, only staff and the host may
+   * make the move ("this class type is booked by the gym").
+   */
+  staffOnly?: string;
+}
+
+/**
+ * One end of a window (ADR 0503): the moment in the datetime field `at` (a field of the record,
+ * or `<relation>.<field>` on the record a relation of one record points to), less `daysBefore`
+ * whole days at the same local time in `zone` (a timezone field named the same way; the
+ * organisation's zone when left out) and then `minutesBefore` minutes. Each of the two is a
+ * number, or a number field named as `at` is. A string is short for `{ at }`. When any of them
+ * has no value the window cannot be worked out, and a customer's move is refused.
+ */
+export interface WindowBound {
+  at: string;
+  daysBefore?: number | string;
+  minutesBefore?: number | string;
+  zone?: string;
+}
+
+/** A window on a move or a create (ADR 0503). */
+export interface MoveWindow {
+  from?: string | WindowBound;
+  until?: string | WindowBound;
 }
 
 /**
@@ -46,10 +77,39 @@ export interface StatesSpec {
   /** The state a new record starts in. */
   initial: string;
   moves: readonly StateMove[];
+  /**
+   * Rules on every create, whatever state the record is created in (ADR 0503): the `window` in
+   * which a customer may create one, and `staffOnly`, a boolean field while true only staff and
+   * the host create. Named as a move's are.
+   */
+  create?: { window?: MoveWindow; staffOnly?: string };
+  /**
+   * Moves a caller asks for by name, resolved by the host (ADR 0503): writing the name (`cancel`)
+   * into the state field moves the record to the first of the listed states whose move from where
+   * it is the caller may make now, windows included (`["cancelled", "late_cancelled"]`). A name
+   * is not a state.
+   */
+  requests?: Readonly<Record<string, readonly string[]>>;
 }
 
 const fieldName = z.string().max(40);
 const stateValue = z.string().min(1).max(100);
+const fieldPath = z.string().min(1).max(81);
+const windowBound = z.union([
+  fieldPath,
+  z
+    .object({
+      at: fieldPath,
+      daysBefore: z.union([z.number().int().min(-366).max(366), fieldPath]).optional(),
+      minutesBefore: z.union([z.number().int().min(-527_040).max(527_040), fieldPath]).optional(),
+      zone: fieldPath.optional(),
+    })
+    .strict(),
+]);
+const moveWindow = z
+  .object({ from: windowBound.optional(), until: windowBound.optional() })
+  .strict()
+  .refine((w) => w.from !== undefined || w.until !== undefined, "A window needs from or until");
 
 export const statesManifestSchema = z.object({
   field: fieldName,
@@ -62,9 +122,19 @@ export const statesManifestSchema = z.object({
         by: z.array(z.enum(MOVERS)).min(1).max(MOVERS.length),
         requires: z.array(fieldName).max(50).optional(),
         final: z.boolean().optional(),
+        window: moveWindow.optional(),
+        staffOnly: fieldPath.optional(),
       }),
     )
     .max(200),
+  create: z
+    .object({ window: moveWindow.optional(), staffOnly: fieldPath.optional() })
+    .strict()
+    .optional(),
+  requests: z
+    .record(z.string().regex(/^[a-z][a-z0-9_]{0,39}$/), z.array(stateValue).min(1).max(10))
+    .refine((r) => Object.keys(r).length <= 10, "At most 10 requests")
+    .optional(),
 });
 export type StatesManifest = z.infer<typeof statesManifestSchema>;
 
@@ -75,7 +145,7 @@ export function moveOrigins(move: { from: string | readonly string[] }): readonl
 
 /** Reports problems with `objects.<name>.states` through `contract`. */
 export function checkObjectStates(
-  _m: ExtensionManifest,
+  m: ExtensionManifest,
   name: string,
   object: ObjectManifest,
   contract: (path: string, message: string) => void,
@@ -159,4 +229,74 @@ export function checkObjectStates(
       }
     }
   });
+
+  // Windows, staff-only rules and requests (ADR 0503).
+  const checkPath = (at: string, path: string, type: string) => {
+    const field = resolveFieldPath(m, object, at);
+    if (field?.type !== type || field.many) {
+      contract(
+        path,
+        `"${at}" must be a ${type} field of ${name}, or <relation>.<field> through a relation (one record) to another of this extension's objects`,
+      );
+    }
+  };
+  const checkWindow = (window: MoveWindow | undefined, path: string) => {
+    for (const end of ["from", "until"] as const) {
+      const bound = window?.[end];
+      if (bound === undefined) continue;
+      const b = typeof bound === "string" ? { at: bound } : bound;
+      checkPath(b.at, `${path}.${end}.at`, "datetime");
+      for (const key of ["daysBefore", "minutesBefore"] as const) {
+        const value = b[key];
+        if (typeof value === "string") checkPath(value, `${path}.${end}.${key}`, "number");
+      }
+      if (b.zone !== undefined) checkPath(b.zone, `${path}.${end}.zone`, "timezone");
+    }
+  };
+  states.moves.forEach((move, i) => {
+    const mp = `${sp}.moves.${i}`;
+    if ((move.window || move.staffOnly) && !move.by.includes("customer")) {
+      contract(mp, "A window or staffOnly binds customers: the move must list customer in by");
+    }
+    checkWindow(move.window, `${mp}.window`);
+    if (move.staffOnly) checkPath(move.staffOnly, `${mp}.staffOnly`, "boolean");
+  });
+  if (states.create) {
+    checkWindow(states.create.window, `${sp}.create.window`);
+    if (states.create.staffOnly) checkPath(states.create.staffOnly, `${sp}.create.staffOnly`, "boolean");
+  }
+  for (const [request, targets] of Object.entries(states.requests ?? {})) {
+    const rp = `${sp}.requests.${request}`;
+    if (isState(request)) contract(rp, `"${request}" is a state; a request needs its own name`);
+    if (new Set(targets).size !== targets.length) contract(rp, "List each state once");
+    for (const to of targets) {
+      if (!isState(to)) contract(rp, `"${to}" is not an option of ${states.field}`);
+      else if (!states.moves.some((move) => move.to === to)) {
+        contract(rp, `No move goes to "${to}"`);
+      }
+    }
+  }
+}
+
+/**
+ * The field a path names (ADR 0503): `field` on the object, or `relation.field` on the object a
+ * relation of one record points to, within the same extension.
+ */
+export function resolveFieldPath(
+  m: ExtensionManifest,
+  object: ObjectManifest,
+  path: string,
+): FieldManifest | undefined {
+  const own = (o: ObjectManifest, local: string) =>
+    Object.hasOwn(o.fields, local) ? o.fields[local] : undefined;
+  const parts = path.split(".");
+  if (parts.length === 1) return own(object, path);
+  if (parts.length !== 2) return undefined;
+  const [relation, local] = parts as [string, string];
+  const via = own(object, relation);
+  const to = via?.type === "relation" && !via.many ? via.to : undefined;
+  const target = to?.startsWith(`${m.id}.`) ? to.slice(m.id.length + 1) : undefined;
+  const targetObject =
+    target !== undefined && Object.hasOwn(m.objects, target) ? m.objects[target] : undefined;
+  return targetObject ? own(targetObject, local) : undefined;
 }

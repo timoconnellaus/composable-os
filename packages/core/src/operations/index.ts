@@ -56,6 +56,7 @@ import { policyOperations } from "./policy.ts";
 import { publicReadOperations } from "./public-read.ts";
 import { queryOperations } from "./query.ts";
 import { recordOperations } from "./record.ts";
+import { recurringOperations } from "./recurring.ts";
 import { recordImportOperations } from "./record-import.ts";
 import { recordVersionOperations } from "./record-versions.ts";
 import { retentionOperations } from "./retention.ts";
@@ -151,4 +152,5 @@ export const coreOperations = [
   ...subscriptionOfferOperations,
   ...myOperations,
   ...capacityOperations,
+  ...recurringOperations,
 ] as const;

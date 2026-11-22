@@ -6,7 +6,12 @@ import { z } from "zod";
 import { automationManifestSchema } from "./automation.ts";
 import { checkAutomation } from "./automation-check.ts";
 import { checkObjectBehaviour } from "./behaviour.ts";
-import { capacityManifestSchema, checkObjectCapacity } from "./capacity.ts";
+import {
+  capacityManifestSchema,
+  checkObjectCapacity,
+  checkObjectClaims,
+  claimsManifestSchema,
+} from "./capacity.ts";
 import {
   type Extension,
   HOST_MODULES,
@@ -26,8 +31,10 @@ import {
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
 import { renamedMessage } from "./renamed.ts";
+import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStates, statesManifestSchema } from "./states.ts";
+import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";
 
 export const EXTENSION_ID_RE = /^[a-z][a-z0-9]{1,29}$/;
 export const OBJECT_NAME_RE = /^[a-z][a-z0-9]{0,29}$/;
@@ -193,6 +200,9 @@ export const objectManifestSchema = z.object({
   capacity: capacityManifestSchema.optional(),
   sellable: sellableManifestSchema.optional(),
   states: statesManifestSchema.optional(),
+  claims: claimsManifestSchema.optional(),
+  unique: uniqueManifestSchema.optional(),
+  recurring: recurringManifestSchema.optional(),
   owner: z.string().max(40).optional(),
   customer: z
     .object({
@@ -973,6 +983,9 @@ export function validateManifest(
     checkObjectCapacity(m, name, object, contract);
     checkObjectSellable(m, name, object, contract);
     checkObjectStates(m, name, object, contract);
+    checkObjectClaims(m, name, object, contract);
+    checkObjectUnique(m, name, object, contract);
+    checkObjectRecurring(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
       for (const field of group) {
         if (!object.fields[field]) {

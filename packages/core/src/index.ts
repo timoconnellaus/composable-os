@@ -49,6 +49,7 @@ export * from "./automations/simulate.ts";
 export * from "./automations/sources.ts";
 export * from "./automations/summary.ts";
 export * from "./automations/types.ts";
+export * from "./capacity/claimants.ts";
 export * from "./capacity/holds.ts";
 export * from "./capacity/index.ts";
 export * from "./capacity/records.ts";
@@ -246,7 +247,18 @@ export {
   sniffMediaType,
 } from "./records/media.ts";
 export { type StageRuleDetails, StageRuleError } from "./records/stages.ts";
-export { type StateRef, type StateRuleDetails, StateRuleError } from "./records/states.ts";
+export {
+  resolveStateRequest,
+  type StateRef,
+  type StateRuleDetails,
+  StateRuleError,
+} from "./records/states.ts";
+export { assertUnique } from "./records/unique.ts";
+export * from "./records/windows.ts";
+export * from "./recurring/bookkeeping.ts";
+export * from "./recurring/index.ts";
+export { type RecurringDueOptions, runRecurringDue } from "./operations/recurring.ts";
+export * from "./time/local.ts";
 export * from "./records/stream.ts";
 export * from "./records/stream-fake.ts";
 export * from "./records/tags.ts";
