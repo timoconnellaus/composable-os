@@ -29,7 +29,17 @@ const body = z
   );
 
 /** Control characters a calendar's text may not hold: all but tab, and for one line, newlines. */
-const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+const CONTROL = {
+  test(text: string): boolean {
+    for (const char of text) {
+      const code = char.codePointAt(0) ?? 0;
+      // Tab (9), newline (10) and carriage return (13) are allowed here; one-line values refuse
+      // the last two on their own.
+      if ((code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127) return true;
+    }
+    return false;
+  },
+};
 const line = (max: number) =>
   z
     .string()
