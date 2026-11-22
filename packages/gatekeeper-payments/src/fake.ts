@@ -588,10 +588,14 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
   ): Promise<{ ok: true; deliveries: FakeWebhookBody[] } | { ok: false; reason: string }> {
     const sub = await this.getSubscription(input.subscriptionRef);
     if (!sub) return { ok: false, reason: "no subscription has that reference" };
+    // Nothing pending: nothing left to void (round three).
+    if (!sub.pendingAmount) return { ok: true, deliveries: [] };
     const open = sub.invoices.find(
       (invoice) => invoice.status === "open" && invoice.billingReason === "subscription_update",
     );
-    if (!sub.pendingAmount || !open) return { ok: false, reason: "no upgrade is pending" };
+    if (sub.status !== "active" || !open) {
+      return { ok: false, reason: "the pending update is not an active subscription's upgrade" };
+    }
     sub.invoices = sub.invoices.filter((invoice) => invoice !== open);
     sub.pendingAmount = null;
     this.#tick();

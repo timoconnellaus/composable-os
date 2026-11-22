@@ -16,7 +16,8 @@
 //
 // Each is a row of core_subscription_change, written in the operation's batch before the provider
 // is asked (the call is made after the commit, so two asked at once ask the provider once: the
-// open-change index refuses the second batch). A dry run commits nothing and so asks nothing.
+// open-change index refuses the second batch). A dry run commits nothing and so changes nothing at
+// the provider; it may make the one read of the subscription a lost renewal needs (`requireActive`).
 //
 // One definition of "open" (review of 32b): state requested or waiting, and `expires_at` ahead
 // (`isOpen`). Every reader here and in events.ts takes the change through `openChange`, and a row
@@ -122,17 +123,24 @@ export async function lateChange(
       .selectFrom("core_subscription_change")
       .selectAll()
       .where("subscription_id", "=", row.id)
-      .where("state", "in", ["requested", "waiting", "lapsed"])
-      .where((eb) => eb.or([eb("call_outcome", "is", null), eb("call_outcome", "!=", "refused")]))
       .orderBy("requested_at", "desc")
       .executeTakeFirst()) ?? null;
+  // Only the newest change of the subscription (round three): when anything newer was applied,
+  // withdrawn or refused, nothing older is revived.
   if (!change || isOpen(change, ctx.now)) return null;
+  if (!["requested", "waiting", "lapsed"].includes(change.state)) return null;
+  if (change.call_outcome === "refused") return null;
   if (Date.parse(change.expires_at) + LATE_READ_MS < Date.parse(ctx.now)) return null;
   const sameTerms =
     read.currency === row.currency && (read.interval === null || read.interval === row.interval);
   const shows =
     change.kind === "pause"
-      ? read.status === "paused"
+      ? // The read carries no resume date: a pause is matched only while its own window is open,
+        // started (or due) and not past the date it resumes on.
+        read.status === "paused" &&
+        change.pause_until !== null &&
+        Date.parse(ctx.now) < Date.parse(change.pause_until) &&
+        Date.parse(read.observedAt) >= Date.parse(change.pause_from ?? change.requested_at)
       : change.kind === "downgrade"
         ? sameTerms && read.amount === change.to_amount
         : sameTerms &&
@@ -430,7 +438,9 @@ export async function withdrawPlanChange(
       ? await askProvider(ctx, row, change.id, "end", "changeSubscription", {
           subscriptionId: row.id,
           subscriptionRef: row.provider_ref,
-          changeId: `${change.id}_back`,
+          // A fresh id each attempt (round three): a retry follows a fresh read at the gatekeeper,
+          // never the cached answer of a failed one.
+          changeId: `${change.id}_b${Date.now().toString(36)}`,
           amount: change.from_amount,
           currency: row.currency,
           interval: row.interval,
@@ -794,7 +804,6 @@ export function followChange(
   row: SubscriptionRow,
   read: ProviderSubscription,
   change: ChangeRow | null,
-  invoice?: Pick<ProviderInvoice, "billingReason" | "periodStart" | "amountDue" | "amountPaid">,
 ): FollowedChange {
   if (!change || !isOpen(change, ctx.now)) return { row, planChanged: false };
   const set = (values: Partial<ChangeRow>) =>
@@ -834,21 +843,15 @@ export function followChange(
   }
   if (change.state === "requested") {
     if (!shown) return { row, planChanged: false };
-    // Shown at the provider. Which period was the first billed at the new price (second review):
-    // - a renewal invoice in this event for the read's period says it: billed the new price, the
-    //   member holds the new plan from that period; billed the old one, from its end;
-    // - otherwise the read's period: begun after the change was asked, it was invoiced after the
-    //   provider took the new price, so it is the first at it; begun before, the next one is.
-    const renewal =
-      invoice?.billingReason === "subscription_cycle" &&
-      invoice.periodStart !== null &&
-      invoice.periodStart === read.currentPeriodStart
-        ? invoice
-        : null;
-    const billedNew = renewal
-      ? renewal.amountDue === change.to_amount
-      : read.currentPeriodStart !== null &&
-        Date.parse(read.currentPeriodStart) > Date.parse(change.requested_at);
+    // Shown at the provider. Which period is the first billed at the new price (round three: the
+    // renewal invoice's amount is not used, since a coupon or account credit changes it): a read
+    // period begun after the change was asked was invoiced after the provider took the new price
+    // (the call is made after the change is written), so it is the first at it; one begun before,
+    // the next one is. The one ordering this cannot tell is a renewal in the seconds between the
+    // change being written and the provider's call landing (ADR 0530).
+    const billedNew =
+      read.currentPeriodStart !== null &&
+      Date.parse(read.currentPeriodStart) > Date.parse(change.requested_at);
     const effective = billedNew
       ? (read.currentPeriodStart ?? ctx.now)
       : (read.currentPeriodEnd ?? change.effective_at ?? ctx.now);

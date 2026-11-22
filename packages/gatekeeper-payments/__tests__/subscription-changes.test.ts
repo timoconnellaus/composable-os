@@ -602,7 +602,7 @@ describe("the Stripe provider's plan changes and pauses", () => {
     const pending = {
       ...SUB,
       pending_update: { expires_at: 1_900_000_000 },
-      latest_invoice: { id: "in_up", status: "open" },
+      latest_invoice: { id: "in_up", status: "open", billing_reason: "subscription_update" },
     };
     const { provider, requests } = stripe((r) => ok(r.method === "GET" ? pending : {}));
     const voiding = {
@@ -616,11 +616,37 @@ describe("the Stripe provider's plan changes and pauses", () => {
       ["GET", "https://stripe.test/v1/subscriptions/sub_1?expand[]=latest_invoice"],
       ["POST", "https://stripe.test/v1/invoices/in_up/void"],
     ]);
-    // Nothing pending (paid and applied, or expired): refused, nothing changed.
+    // Nothing pending (voided or expired already; one paid shows in the read): nothing to do.
     const none = stripe(() =>
       ok({ ...SUB, pending_update: null, latest_invoice: { id: "in_1", status: "paid" } }),
     );
-    await expect(none.provider.voidPendingUpdate(voiding)).rejects.toBeInstanceOf(ActionApplyError);
+    await none.provider.voidPendingUpdate(voiding);
+    expect(none.requests.filter((r) => r.method === "POST")).toHaveLength(0);
+    // A paused subscription waiting to resume also has a pending update: its latest invoice is the
+    // resumption invoice, never voided here. Nor one that is not a subscription update.
+    for (const body of [
+      {
+        ...pending,
+        status: "paused",
+        latest_invoice: { id: "in_r", status: "open", billing_reason: "subscription_update" },
+      },
+      {
+        ...pending,
+        latest_invoice: { id: "in_c", status: "open", billing_reason: "subscription_cycle" },
+      },
+    ]) {
+      const refused = stripe(() => ok(body));
+      await expect(refused.provider.voidPendingUpdate(voiding)).rejects.toBeInstanceOf(
+        ActionApplyError,
+      );
+      expect(refused.requests.filter((r) => r.method === "POST")).toHaveLength(0);
+    }
+    // A retry asks with a fresh key.
+    const twice = stripe((r) => ok(r.method === "GET" ? pending : {}));
+    await twice.provider.voidPendingUpdate(voiding);
+    await twice.provider.voidPendingUpdate(voiding);
+    const keys = twice.requests.filter((r) => r.method === "POST").map((r) => r.key);
+    expect(new Set(keys).size).toBe(2);
   });
 
   it("does not ask a resume again while one waits for its payment", async () => {
@@ -691,10 +717,11 @@ describe("what the gatekeeper says came of an action, and voiding at the fake pr
     expect(after.pendingAmount).toBeNull();
     expect(after.amount).toBe(3000);
     expect(after.invoices.some((i) => i.status === "open")).toBe(false);
+    // Again, with nothing pending: nothing to do, applied.
     const again = (await h.call("voidPendingUpdate", [
       { subscriptionId: id, subscriptionRef: sub.ref, changeId: "sbc_1", reason: "Withdrawn" },
     ])) as PaymentsSubscriptionChangeReceipt;
-    await expect(h.apply(again.id)).rejects.toThrow(/^\[apply-outcome:refused\] /);
+    await h.apply(again.id);
     // Not the host's own call: refused before anything is queued.
     const other = await host(false);
     await expect(
@@ -702,6 +729,34 @@ describe("what the gatekeeper says came of an action, and voiding at the fake pr
         { subscriptionId: id, subscriptionRef: sub.ref, changeId: "sbc_1", reason: "x" },
       ]),
     ).rejects.toThrow(/only by the host/);
+  });
+
+  it("refuses to void a pending update on a subscription that is not active", async () => {
+    const h = await host();
+    const id = unique("sbs");
+    const sub = await started(h, id);
+    await advanceFakeSubscription(env as never, sub.ref, "card_declines");
+    const up = (await h.call("changeSubscription", [
+      change(id, sub.ref),
+    ])) as PaymentsSubscriptionChangeReceipt;
+    await h.apply(up.id);
+    await vi.waitFor(async () => expect((await ledgerSubscription(id)).pendingAmount).toBe(6000));
+    const paused = (await h.call("pauseSubscription", [
+      {
+        subscriptionId: id,
+        subscriptionRef: sub.ref,
+        pauseId: unique("sbc"),
+        from: null,
+        until: new Date(Date.now() + 14 * DAY).toISOString(),
+        reason: "x",
+      },
+    ])) as PaymentsSubscriptionChangeReceipt;
+    await h.apply(paused.id);
+    const voided = (await h.call("voidPendingUpdate", [
+      { subscriptionId: id, subscriptionRef: sub.ref, changeId: "sbc_1", reason: "x" },
+    ])) as PaymentsSubscriptionChangeReceipt;
+    await expect(h.apply(voided.id)).rejects.toThrow(/apply-outcome:refused.*not an active/);
+    expect((await ledgerSubscription(id)).pendingAmount).toBe(6000);
   });
 
   it("refuses a plan change while a pause is scheduled at the fake provider", async () => {

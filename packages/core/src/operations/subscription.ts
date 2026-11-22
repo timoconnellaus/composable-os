@@ -530,8 +530,10 @@ export const subscriptionChangeWithdraw = defineOperation({
     "Withdraw a subscription's plan change that has not taken effect: one stuck waiting for the " +
     "payment provider, one whose outcome is unknown, or a downgrade waiting for its period (undo " +
     "it). A downgrade the provider may already show is put back there: the old price from the next " +
-    "invoice, nothing prorated. An upgrade's pending charge is left to the provider, which drops it " +
-    "within 23 hours if unpaid. A pause is ended with subscription.unpause. Staff only, with " +
+    "invoice, nothing prorated. An upgrade's pending charge is voided at the provider, so it can no " +
+    "longer be paid (with nothing pending there, it was voided or expired already). The change " +
+    "closes only once the provider is asked; refused or unknown, it stays open and is asked again. " +
+    "A pause is ended with subscription.unpause. Staff only, with " +
     "subscriptions:manage. A person decides, not an AI assistant.",
   input: z.object({
     id: subscriptionId,

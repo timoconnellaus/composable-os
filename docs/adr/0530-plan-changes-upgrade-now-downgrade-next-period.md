@@ -162,3 +162,20 @@ Each item has a test that fails without it (`subscription-changes.test.ts`, "the
   and of a guest's known only by the address it was started with.
 - Migration 0630 was edited in place while unmerged: a preview database that applied an earlier
   version must be rebuilt.
+
+## Amended after the third review (2026-11-22, before merge)
+- **A downgrade's first period is decided by when the read's period began**, not by the renewal
+  invoice's amount (a coupon or account credit changes the amount due): a period begun after the
+  change was asked was invoiced after the provider took the new price, since the call is made
+  after the change is written; one begun before keeps the old plan to its end. The one ordering
+  this cannot tell is a renewal in the seconds between the change being written and the
+  provider's call landing.
+- **Only the newest change is revived by a late read**: when anything newer was applied, withdrawn
+  or refused, nothing older is. A pause is matched only before its resume date (the read carries
+  no resume date). A pause with no pause of the host's open to explain it tells staff it was
+  changed at the provider.
+- **Withdrawing an upgrade with nothing pending at the provider closes it** (voided or expired
+  already; one paid shows in the read and applies). A void is refused unless the subscription is
+  active and its latest invoice is an open subscription-update invoice: a paused one waiting to
+  resume has a pending update whose latest invoice is the resumption invoice. Each retry of a void
+  or a put-back uses a fresh idempotency key and follows a fresh read.

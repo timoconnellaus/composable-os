@@ -320,7 +320,7 @@ export async function applySubscriptionEvent(
         // The plan the member holds after this read: a change asked for, once the read shows it.
         const followed = terms
           ? { row: existing, planChanged: false }
-          : followChange(ctx, existing, read, change, event.invoice);
+          : followChange(ctx, existing, read, change);
         row = await moveFromRead(ctx, existing, applied, followed.row, followed.planChanged);
         moved = true;
       }
@@ -426,6 +426,25 @@ export async function applySubscriptionEvent(
       break;
     default:
       break;
+  }
+  // Paused with no pause of the host's open to explain it (round three): one made at the provider
+  // (its dashboard). Mirrored, as every move is, and staff are told.
+  if (
+    moved &&
+    existing &&
+    row.state === "paused" &&
+    existing.state !== "paused" &&
+    change?.kind !== "pause"
+  ) {
+    await tellStaff(
+      ctx,
+      "A subscription was changed at the provider",
+      `The ${event.provider} subscription ${read.ref} was paused, and no pause the host asked for ` +
+        `explains it. Subscription ${row.id} (${row.plan_title}) is mirrored as paused. Pause and ` +
+        "end pauses in the host, never in the provider's dashboard.",
+      row.id,
+      `subscription.paused_at_provider:${event.provider}:${row.id}:${read.observedAt}`,
+    );
   }
   if (moved && row.state === "ended" && row.end_reason === "payment_failed") {
     await tellStaff(

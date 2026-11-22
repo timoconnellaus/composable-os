@@ -1046,14 +1046,14 @@ describe("the second review of 32b", () => {
     expect((await changeRow(old.id))?.state).toBe("lapsed");
   });
 
-  it("a downgrade's first period is the one its renewal invoice billed at the new price", async () => {
+  it("a downgrade's first period is decided by when its period began, not a discounted invoice's amount", async () => {
     const next = new Date(Date.parse(PERIOD_END) + 30 * DAY).toISOString();
-    // Asked just before the renewal, processed after: the renewal billed the new price.
+    // Asked before the renewal, processed after it, renewed with a coupon: the new plan from it.
     const a = await member("billednew");
     await run("subscription.change", { id: a.id, planId: one }, as(a.buyer));
     const renewal = invoice({
-      amountPaid: 1500,
-      amountDue: 1500,
+      amountPaid: 1200,
+      amountDue: 1200,
       periodStart: PERIOD_END,
       periodEnd: next,
     });
@@ -1063,23 +1063,69 @@ describe("the second review of 32b", () => {
       renewal,
     );
     expect(await membershipOf(a.id)).toMatchObject({ plan: one, uses: 1 });
-    expect(await orderOf(renewal.ref)).toMatchObject({ period_flag: null });
-    // The renewal billed the old price (taken before the change): from the end of that period.
-    const b = await member("billedold");
+    // The period began before the change was asked, its invoice discounted to the new price: the
+    // old plan to that period's end.
+    const b = await member("discountedold");
+    const start = new Date(Date.now() - 3_600_000).toISOString();
+    const end = new Date(Date.now() + 20 * DAY).toISOString();
     await run("subscription.change", { id: b.id, planId: one }, as(b.buyer));
-    const old = invoice({
-      amountPaid: 3000,
-      amountDue: 3000,
-      periodStart: PERIOD_END,
-      periodEnd: next,
+    const discounted = invoice({
+      amountPaid: 1500,
+      amountDue: 1500,
+      periodStart: start,
+      periodEnd: end,
     });
     await deliver(
       "invoice_paid",
-      read(b.id, { amount: 1500, currentPeriodStart: PERIOD_END, currentPeriodEnd: next }),
-      old,
+      read(b.id, { amount: 1500, currentPeriodStart: start, currentPeriodEnd: end }),
+      discounted,
     );
-    expect(await changeRow(b.id)).toMatchObject({ state: "waiting", effective_at: next });
+    expect(await changeRow(b.id)).toMatchObject({ state: "waiting", effective_at: end });
     expect(await membershipOf(b.id)).toMatchObject({ plan: three });
+  });
+
+  it("a lapsed pause is not revived once a newer change was applied; an unasked pause tells staff", async () => {
+    const { buyer, id } = await member("newerwins");
+    await run(
+      "subscription.pause",
+      {
+        id,
+        from: new Date(Date.now() + 2 * DAY).toISOString(),
+        until: new Date(Date.now() + 12 * DAY).toISOString(),
+        reason: "x",
+      },
+      staff(),
+    );
+    await expire(id);
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    await deliver("updated", read(id, { amount: 6000 }));
+    expect((await changeRow(id))?.state).toBe("applied");
+    await deliver("paused", read(id, { amount: 6000, status: "paused" }));
+    const pause = await env.DB.prepare(
+      "SELECT state FROM core_subscription_change WHERE subscription_id = ? AND kind = 'pause'",
+    )
+      .bind(id)
+      .first<{ state: string }>();
+    expect(pause?.state).toBe("lapsed");
+    const notices = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE substr(dedupe_key, 1, length(?1)) = ?1",
+    )
+      .bind(`subscription.paused_at_provider:fake:${id}:`)
+      .first<{ n: number }>();
+    expect(notices?.n).toBe(1);
+  });
+
+  it("withdrawing an upgrade with nothing left pending closes it", async () => {
+    const { buyer, id } = await member("nothingpending");
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    // The gatekeeper finds nothing pending: done, nothing to undo.
+    const out = await run<{ asked: string }>(
+      "subscription.change.withdraw",
+      { id, reason: "x" },
+      staff(),
+    );
+    expect(out.asked).toBe("sent");
+    expect((await changeRow(id))?.state).toBe("withdrawn");
   });
 
   it("a lost renewal event: the provider is read once and the change goes on from its period", async () => {

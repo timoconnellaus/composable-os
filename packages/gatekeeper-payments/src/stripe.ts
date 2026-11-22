@@ -626,26 +626,37 @@ export class StripeProvider implements PaymentProvider {
    * update made (docs.stripe.com/billing/subscriptions/pending-updates: "To cancel a pending
    * update, you need to void the invoice the update created", found as the subscription's
    * `latest_invoice`; docs.stripe.com/api/invoices/void: `POST /v1/invoices/:id/void`, finalized
-   * invoices only, "This cannot be undone"). Refused, nothing changed, when no update is pending
-   * or its invoice is no longer open (paid, so the upgrade applies; or voided already).
+   * invoices only, "This cannot be undone"). With no update pending there is nothing to do (voided or
+   * expired already; one paid shows in the read). Refused, nothing changed, when the subscription is
+   * not active or its latest invoice is not an open subscription-update invoice.
    */
   async voidPendingUpdate(input: PaymentsVoidUpdateInput): Promise<void> {
     const { body } = await this.#read(
       `/v1/subscriptions/${encodeURIComponent(input.subscriptionRef)}?expand[]=latest_invoice`,
     );
-    const pending = body.pending_update;
+    // Nothing pending: the upgrade was voided already or expired (one paid shows in the read), so
+    // the withdraw has nothing left to do (round three).
+    if (!body.pending_update) return;
     const latest = metadataOf(body.latest_invoice);
     const invoice = stringOrNull(latest.id);
-    if (!pending || invoice === null || stringOrNull(latest.status) !== "open") {
+    // Only an active subscription's update invoice: a paused one waiting to resume also has a
+    // pending update, whose latest invoice is the resumption invoice (round three).
+    if (
+      body.status !== "active" ||
+      invoice === null ||
+      stringOrNull(latest.status) !== "open" ||
+      stringOrNull(latest.billing_reason) !== "subscription_update"
+    ) {
       throw new ActionApplyError(
-        "No upgrade is pending at Stripe with an open invoice, so nothing changed.",
+        "The pending update at Stripe is not an active subscription's open upgrade invoice, so nothing changed.",
       );
     }
+    // A fresh key each attempt: a retry follows this fresh read, never a cached failure.
     await this.#change(
       "POST",
       `/v1/invoices/${encodeURIComponent(invoice)}/void`,
       new URLSearchParams(),
-      `cos-void-${input.changeId}`,
+      `cos-void-${input.changeId}-${crypto.randomUUID()}`,
     );
   }
 
