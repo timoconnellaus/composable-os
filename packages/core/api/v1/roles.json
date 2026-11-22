@@ -2,6 +2,23 @@
   "version": "v1",
   "roles": [
     {
+      "name": "bookings.coach",
+      "pack": "bookings",
+      "label": "Coach",
+      "description": "Sees the day's classes and each class's list, and ticks who came (or marks who did not). Nothing else: no money, no other people, no booking or cancelling, no settings.",
+      "read": ["bookings.class"],
+      "operations": [
+        "record.get",
+        "record.list",
+        "x.bookings.day",
+        "x.bookings.markAll",
+        "x.bookings.markAttended",
+        "x.bookings.markNoShow",
+        "x.bookings.roster",
+        "x.bookings.undoAttended"
+      ]
+    },
+    {
       "name": "ticketing.door",
       "pack": "ticketing",
       "label": "Door",
