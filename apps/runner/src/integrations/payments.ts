@@ -1,6 +1,6 @@
 // Orders in cos-runner (stage 25, ADR 0429): the payments adapter's dependencies, and the minute
 // cron's orders step (expire pending orders past their time, apply verified payment events their
-// first delivery did not).
+// first delivery did not, and tell staff of subscriptions with no event: stage 32a).
 import {
   applyPendingPaymentEvents,
   invokeByName,
@@ -8,6 +8,7 @@ import {
   parseFloor,
   queueEventSink,
   SYSTEM_USER,
+  sweepSubscriptions,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { appOrigin } from "../notifications/deliver.ts";
@@ -42,5 +43,7 @@ export async function runOrdersTick(env: Env, at: Date) {
       ...(deps.floor ? { floor: deps.floor } : {}),
     },
   )) as { expired: string[] };
-  return { events, expired: expired.expired.length };
+  // Subscriptions with no event (stage 32a): past due too long, or events not arriving.
+  const subscriptions = await sweepSubscriptions(deps.crm, at.toISOString());
+  return { events, expired: expired.expired.length, subscriptions };
 }

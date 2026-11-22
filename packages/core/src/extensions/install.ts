@@ -12,6 +12,9 @@ import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { hasAccessSourceKind } from "../visibility/access.ts";
+// The host's own kinds of access source register themselves when loaded: loaded here too, so the
+// install check (and `cos ext check`, which bundles it alone) knows them (ADR 0488).
+import "../subscriptions/access.ts";
 import type { EvaluateResult, ExtensionHost, SourceIssue } from "./host.ts";
 import { CORE_TARGETS, isCoreTarget } from "./naming.ts";
 import {

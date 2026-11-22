@@ -847,6 +847,15 @@ export class FakeProvider implements PaymentProvider {
     return fakeSubscriptionRead(sub, new Date().toISOString());
   }
 
+  async getSubscriptionCheckout(ref: string): Promise<"open" | "complete" | "expired"> {
+    const checkout = await this.#options.ledger.getCheckout(ref);
+    if (!checkout?.subscription) {
+      throw new Error("The fake provider has no subscription checkout with that reference.");
+    }
+    if (checkout.status === "paid") return "complete";
+    return Date.parse(checkout.expiresAt) < Date.now() ? "expired" : "open";
+  }
+
   async cancelSubscription(input: PaymentsCancelSubscriptionInput): Promise<void> {
     await this.#change(input.subscriptionRef, input.when);
   }

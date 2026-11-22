@@ -1,0 +1,12 @@
+{
+  "name": "courses-native-subscription",
+  "pack": "courses",
+  "skin": "native",
+  "operations": ["subscription.list"],
+  "files": ["subscription-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-courses": "*"
+  },
+  "noPurchase": true
+}

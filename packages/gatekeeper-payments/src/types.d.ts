@@ -357,6 +357,12 @@ export interface PaymentsEventHook {
 }
 
 /** The session a payment account grants. */
+/** What `getSubscriptionCheckout()` answers. */
+export interface PaymentsSubscriptionCheckoutStatus {
+  ref: string;
+  status: "open" | "complete" | "expired";
+}
+
 export interface PaymentsSession {
   provider(): Promise<PaymentsProviderName>;
   /** Opens the provider's hosted payment page. Records an observation first. No approval: it moves no money. */
@@ -372,6 +378,11 @@ export interface PaymentsSession {
   createSubscriptionCheckout(input: PaymentsSubscriptionCheckoutInput): Promise<PaymentsCheckout>;
   /** Reads one subscription now. Records an observation first. */
   getSubscription(ref: string): Promise<PaymentsSubscription>;
+  /**
+   * Reads a subscription checkout's page now (stage 32a review, ADR 0489): still `open`, `complete`
+   * (submitted: a subscription was started) or `expired` (can never be). Records an observation.
+   */
+  getSubscriptionCheckout(ref: string): Promise<PaymentsSubscriptionCheckoutStatus>;
   /**
    * Submits a cancellation as the outbound action `payments.subscription.cancel`. Nothing is sent
    * until it is applied; the subscription's state follows from the provider's verified event.

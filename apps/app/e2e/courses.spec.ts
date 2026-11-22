@@ -1,12 +1,16 @@
 // Stage 42 end to end, one test per journey: staff build and publish a course with a (fake) video
 // in the course builder block; a student signs in, buys the course on the web with the payments
 // gatekeeper's fake provider, watches a lesson in the player block, and their progress is kept,
-// while someone who did not buy cannot play it. The blocks are the pack's own web blocks, mounted
+// while someone who did not buy cannot play it; and (stage 32a) a student starts a course
+// subscription with a free trial, holds every course through it, and cancels it at its period's
+// end, which staff see among the subscriptions ending. The blocks are the pack's own web blocks, mounted
 // where they sit (`/blocks`, development only), calling the host's HTTP surface from the browser
 // as a client app would. In local dev Courses and Programs are the org's own extensions
 // (scripts/dev-setup.mjs), and videos go to the fake Stream (STREAM_FAKE).
 import {
   type APIRequestContext,
+  type Browser,
+  type BrowserContext,
   expect,
   type Page,
   request as playwrightRequest,
@@ -162,52 +166,8 @@ test("a student buys a course on the web, watches a lesson and keeps their progr
     })
   ).values.slug;
 
-  // The student signs in with an emailed code (sign-up open, the org's outbox sends it).
-  const outbox = fakeAddress("students");
-  await openIntegrations(page);
-  const connection = await connectFake(page, outbox, "org");
-  await addFakeResource(page, connection, "Outbox", outbox);
-  await op(page.request, "customer.settings.update", {
-    signup: "open",
-    emailConnectionId: await connectionId(connection),
-  });
   try {
-    await open(page, "/settings/users");
-    const signInMail = page.getByTestId("sign-in-mail");
-    if ((await signInMail.getAttribute("data-ready")) !== "true") {
-      await signInMail.getByRole("switch").click();
-      await page
-        .getByRole("alertdialog")
-        .getByRole("button", { name: "Send without review" })
-        .click();
-    }
-    await expect(signInMail).toHaveAttribute("data-ready", "true");
-    const email = `${unique("student")}@students.test`.toLowerCase();
-    const student = await browser.newContext({
-      baseURL,
-      storageState: { cookies: [], origins: [] },
-    });
-    const asked = await student.request.post("/api/customer-auth/email-otp/send-verification-otp", {
-      data: { email, type: "sign-in" },
-      headers: { origin },
-    });
-    expect(asked.status(), await asked.text()).toBe(200);
-    let code: string | undefined;
-    await expect
-      .poll(
-        async () => {
-          const mail = (await sentMail(page.request, outbox)).filter((m) => m.to.includes(email));
-          code = /\b(\d{6})\b/.exec(mail.at(-1)?.text ?? "")?.[1];
-          return code;
-        },
-        { timeout: 30_000 },
-      )
-      .toMatch(/^\d{6}$/);
-    const signedIn = await student.request.post("/api/customer-auth/sign-in/email-otp", {
-      data: { email, otp: code },
-      headers: { origin },
-    });
-    expect(signedIn.status(), await signedIn.text()).toBe(200);
+    const student = await signInStudent(page, browser, baseURL ?? "");
 
     // The course page: buy, pay on the provider's (fake) page, come back.
     const studentPage = await student.newPage();
@@ -271,12 +231,169 @@ test("a student buys a course on the web, watches a lesson and keeps their progr
     });
     await stranger.dispose();
   } finally {
-    await op(
-      page.request,
-      "outbound.setAutoApprove",
-      { tag: "fake.signin", enabled: false },
-      false,
-    );
-    await op(page.request, "customer.settings.update", { signup: "invite_only" }, false);
+    await resetSignUp(page);
   }
 });
+
+test("a student starts a course subscription with a free trial, holds every course, and cancels it at its period's end", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(300_000);
+  const origin = new URL(baseURL ?? "").origin;
+  await setUp(page, baseURL ?? "");
+  const title = unique("Every course ");
+  const course = await op<{ id: string }>(page.request, "record.create", {
+    object: "courses.course",
+    values: {
+      title: unique("Flexibility "),
+      price: 39,
+      outline: {
+        sections: [
+          {
+            key: "s",
+            title: "S",
+            lessons: [
+              {
+                kind: "text",
+                key: "t",
+                title: "T",
+                body: { blocks: [{ type: "paragraph", content: [{ type: "text", text: "x" }] }] },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  await op(page.request, "record.publish", { object: "courses.course", id: course.id });
+  await op<{ id: string }>(page.request, "record.create", {
+    object: "courses.plan",
+    values: { title, price: 29, trialDays: 7 },
+  });
+  try {
+    const student = await signInStudent(page, browser, baseURL ?? "");
+    const studentPage = await student.newPage();
+
+    // Subscribe: the trial is the host's to give; the provider's (fake) page takes the card.
+    await studentPage.goto(
+      block("courses-subscribe", "Subscribe", { returnUrl: `${origin}/blocks`, signedIn: true }),
+    );
+    const card = studentPage.getByRole("region", { name: "Subscribe" });
+    await expect(card.getByText(title)).toBeVisible();
+    await card.getByRole("button", { name: "Start your 7-day free trial" }).first().click();
+    await expect(studentPage.getByRole("heading", { name: /Fake payment page/i })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(studentPage.getByText(/Nothing is charged until/)).toBeVisible();
+    await studentPage.getByRole("button", { name: "Pay", exact: true }).click();
+
+    // Once the provider confirms, every published course is theirs, through the subscription.
+    await expect
+      .poll(
+        async () =>
+          (
+            await op<{ courses: { id: string; why: string }[] }>(
+              student.request,
+              "x.courses.myCourses",
+              {},
+            )
+          ).courses.find((c) => c.id === course.id)?.why,
+        { timeout: 30_000 },
+      )
+      .toBe("subscription");
+
+    // Their subscription on the web: on trial; cancelling keeps it to the period's end.
+    await studentPage.goto(
+      block("courses-subscription", "MySubscription", { returnUrl: `${origin}/blocks` }),
+    );
+    const mine = studentPage.getByRole("region", { name: "My subscription" });
+    await expect(mine.getByTestId("subscription-status").first()).toContainText("Free trial until");
+    studentPage.once("dialog", (dialog) => void dialog.accept());
+    await mine.getByRole("button", { name: "Cancel subscription" }).first().click();
+    await expect(mine.getByRole("status")).toContainText("Asked to cancel");
+    await expect
+      .poll(
+        async () => {
+          await studentPage.reload();
+          return mine.getByTestId("subscription-status").first().textContent();
+        },
+        { timeout: 30_000 },
+      )
+      .toContain("ending on");
+    await expect(mine.getByRole("button", { name: "Keep my subscription" })).toBeVisible();
+    // Still every course until then.
+    expect(
+      (
+        await op<{ courses: { id: string }[] }>(student.request, "x.courses.myCourses", {})
+      ).courses.map((c) => c.id),
+    ).toContain(course.id);
+    await student.close();
+
+    // Staff see it among the subscriptions that are ending.
+    await open(page, "/subscriptions?view=ending");
+    await expect(page.getByRole("link", { name: title })).toBeVisible();
+  } finally {
+    await resetSignUp(page);
+  }
+});
+
+/**
+ * Sign-up open, the org's outbox sending the sign-in mail, and a student signed in with an emailed
+ * code, in a context of their own.
+ */
+async function signInStudent(
+  page: Page,
+  browser: Browser,
+  baseURL: string,
+): Promise<BrowserContext> {
+  const origin = new URL(baseURL).origin;
+  const outbox = fakeAddress("students");
+  await openIntegrations(page);
+  const connection = await connectFake(page, outbox, "org");
+  await addFakeResource(page, connection, "Outbox", outbox);
+  await op(page.request, "customer.settings.update", {
+    signup: "open",
+    emailConnectionId: await connectionId(connection),
+  });
+  await open(page, "/settings/users");
+  const signInMail = page.getByTestId("sign-in-mail");
+  if ((await signInMail.getAttribute("data-ready")) !== "true") {
+    await signInMail.getByRole("switch").click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Send without review" })
+      .click();
+  }
+  await expect(signInMail).toHaveAttribute("data-ready", "true");
+  const email = `${unique("student")}@students.test`.toLowerCase();
+  const student = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+  const asked = await student.request.post("/api/customer-auth/email-otp/send-verification-otp", {
+    data: { email, type: "sign-in" },
+    headers: { origin },
+  });
+  expect(asked.status(), await asked.text()).toBe(200);
+  let code: string | undefined;
+  await expect
+    .poll(
+      async () => {
+        const mail = (await sentMail(page.request, outbox)).filter((m) => m.to.includes(email));
+        code = /\b(\d{6})\b/.exec(mail.at(-1)?.text ?? "")?.[1];
+        return code;
+      },
+      { timeout: 30_000 },
+    )
+    .toMatch(/^\d{6}$/);
+  const signedIn = await student.request.post("/api/customer-auth/sign-in/email-otp", {
+    data: { email, otp: code },
+    headers: { origin },
+  });
+  expect(signedIn.status(), await signedIn.text()).toBe(200);
+  return student;
+}
+
+async function resetSignUp(page: Page): Promise<void> {
+  await op(page.request, "outbound.setAutoApprove", { tag: "fake.signin", enabled: false }, false);
+  await op(page.request, "customer.settings.update", { signup: "invite_only" }, false);
+}

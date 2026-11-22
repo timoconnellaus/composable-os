@@ -1283,12 +1283,39 @@ export function validateManifest(
   }
 
   // Who holds access to a record (ADR 0477): sources of this extension's own records. A kind the
-  // host provides is checked by the host, which knows its kinds.
+  // host provides is checked by the host, which knows its kinds; the subscription kind's options
+  // (stage 32a, ADR 0488) are checked here too, as they name this extension's own plan object.
   for (const [name, object] of Object.entries(m.objects)) {
     const a = object.access;
     if (!a) continue;
     a.sources.forEach((given, i) => {
       const path = `objects.${name}.access.sources.${i}`;
+      if ("kind" in given && given.kind === "subscription") {
+        const options = (given.options ?? {}) as Record<string, unknown>;
+        for (const key of Object.keys(options)) {
+          if (key !== "plans" && key !== "covers") {
+            contract(`${path}.options.${key}`, `a subscription source has no option "${key}"`);
+          }
+        }
+        if (options.covers !== "all") {
+          contract(`${path}.options.covers`, 'covers must be "all": every live record');
+        }
+        const plans = typeof options.plans === "string" ? options.plans : "";
+        const planLocal = plans.startsWith(`${m.id}.`) ? plans.slice(m.id.length + 1) : null;
+        const plan = planLocal && planLocal !== name ? m.objects[planLocal] : undefined;
+        if (!plan) {
+          contract(
+            `${path}.options.plans`,
+            `plans must name another of this extension's objects, as ${m.id}.<object>`,
+          );
+        } else if (!plan.sellable?.recurring) {
+          contract(
+            `${path}.options.plans`,
+            "plans must name a plan: its sellable declares recurring",
+          );
+        }
+        return;
+      }
       if (!("via" in given)) return;
       const source = given;
       const local = source.via.startsWith(`${m.id}.`) ? source.via.slice(m.id.length + 1) : null;

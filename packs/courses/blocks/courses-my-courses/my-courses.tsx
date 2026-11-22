@@ -9,6 +9,7 @@ const WHY = {
   bundle: "In a bundle",
   given: "Given to you",
   imported: "From your old account",
+  subscription: "Through your subscription",
 } as const;
 
 export function MyCourses({

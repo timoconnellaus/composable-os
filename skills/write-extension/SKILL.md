@@ -206,6 +206,14 @@ extension declares it; it never implements it. Each behaviour the platform has i
   A customer's own record that must only be written with access (a lesson's progress) lists its
   relation in `customer.requireAccess`; the host then refuses the write without it. See Courses:
   `packs/courses/index.ts`.
+- **Something paid for every month** (stage 32a, ADRs 0485 and 0488): a plan object declares
+  `sellable.recurring: { interval, trialDays? }` (subscribed to with `subscription.start`, never on
+  an order), and the objects it opens add `{ kind: "subscription", options: { plans:
+  "<id>.<plan>", covers: "all" } }` to their `access.sources`: the subscription's holder then holds
+  every live record while the host's record says it runs. The one free trial per person, the
+  provider's page, cancelling and the portal are the host's: a tool or a block never decides them,
+  and a native block never calls a subscription's billing operation (the block lint). See Courses'
+  `plan`.
 - **An extension built on another** declares `requires: ["<id>"]` (Courses requires Programs): the
   host refuses to install it until that one is installed and on.
 

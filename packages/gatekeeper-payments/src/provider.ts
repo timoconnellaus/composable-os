@@ -55,6 +55,8 @@ export interface PaymentProvider {
   ): Promise<{ ref: string; url: string; expiresAt: string | null }>;
   /** Reads one subscription now. */
   getSubscription(ref: string): Promise<PaymentsSubscription>;
+  /** Whether a subscription checkout's page is still open, was submitted, or has expired. */
+  getSubscriptionCheckout(ref: string): Promise<"open" | "complete" | "expired">;
   /**
    * Ends a subscription at its period's end or now. Throws `ActionApplyError` when the provider
    * refused before changing anything, `ActionOutcomeUnknownError` when it may have changed it.

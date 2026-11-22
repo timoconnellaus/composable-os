@@ -290,7 +290,12 @@ export async function requestProviderRefund(
 export async function callSubscriptionGatekeeper(
   integrations: IntegrationRuntime | undefined,
   target: PaymentsTarget,
-  method: "createSubscriptionCheckout" | "cancelSubscription" | "resumeSubscription" | "openPortal",
+  method:
+    | "createSubscriptionCheckout"
+    | "getSubscriptionCheckout"
+    | "cancelSubscription"
+    | "resumeSubscription"
+    | "openPortal",
   request: unknown,
 ): Promise<IntegrationCallResult> {
   const call = requireHostCalls(integrations);

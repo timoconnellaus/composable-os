@@ -65,6 +65,8 @@ import { Route as AppSettingsSupportAccessRouteImport } from './routes/_app/sett
 import { Route as AppSettingsUpdatesRouteImport } from './routes/_app/settings/updates'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppSettingsVoiceRouteImport } from './routes/_app/settings/voice'
+import { Route as AppSubscriptionsIndexRouteImport } from './routes/_app/subscriptions/index'
+import { Route as AppSubscriptionsIdRouteImport } from './routes/_app/subscriptions/$id'
 import { Route as ApiAssistantThreadRouteImport } from './routes/api/assistant/thread'
 import { Route as ApiAssistantTurnRouteImport } from './routes/api/assistant/turn'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -361,6 +363,16 @@ const AppSettingsVoiceRoute = AppSettingsVoiceRouteImport.update({
   path: '/settings/voice',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSubscriptionsIndexRoute = AppSubscriptionsIndexRouteImport.update({
+  id: '/subscriptions/',
+  path: '/subscriptions/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSubscriptionsIdRoute = AppSubscriptionsIdRouteImport.update({
+  id: '/subscriptions/$id',
+  path: '/subscriptions/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 const ApiAssistantThreadRoute = ApiAssistantThreadRouteImport.update({
   id: '/api/assistant/thread',
   path: '/api/assistant/thread',
@@ -448,6 +460,7 @@ export interface FileRoutesByFullPath {
   '/settings/updates': typeof AppSettingsUpdatesRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/settings/voice': typeof AppSettingsVoiceRoute
+  '/subscriptions/$id': typeof AppSubscriptionsIdRoute
   '/api/assistant/thread': typeof ApiAssistantThreadRouteWithChildren
   '/api/assistant/turn': typeof ApiAssistantTurnRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -457,6 +470,7 @@ export interface FileRoutesByFullPath {
   '/organisations/': typeof AppOrganisationsIndexRoute
   '/people/': typeof AppPeopleIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
+  '/subscriptions/': typeof AppSubscriptionsIndexRoute
   '/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -512,6 +526,7 @@ export interface FileRoutesByTo {
   '/settings/updates': typeof AppSettingsUpdatesRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/settings/voice': typeof AppSettingsVoiceRoute
+  '/subscriptions/$id': typeof AppSubscriptionsIdRoute
   '/api/assistant/thread': typeof ApiAssistantThreadRouteWithChildren
   '/api/assistant/turn': typeof ApiAssistantTurnRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -521,6 +536,7 @@ export interface FileRoutesByTo {
   '/organisations': typeof AppOrganisationsIndexRoute
   '/people': typeof AppPeopleIndexRoute
   '/settings': typeof AppSettingsIndexRoute
+  '/subscriptions': typeof AppSubscriptionsIndexRoute
   '/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -578,6 +594,7 @@ export interface FileRoutesById {
   '/_app/settings/updates': typeof AppSettingsUpdatesRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/settings/voice': typeof AppSettingsVoiceRoute
+  '/_app/subscriptions/$id': typeof AppSubscriptionsIdRoute
   '/api/assistant/thread': typeof ApiAssistantThreadRouteWithChildren
   '/api/assistant/turn': typeof ApiAssistantTurnRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -587,6 +604,7 @@ export interface FileRoutesById {
   '/_app/organisations/': typeof AppOrganisationsIndexRoute
   '/_app/people/': typeof AppPeopleIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
+  '/_app/subscriptions/': typeof AppSubscriptionsIndexRoute
   '/_app/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -644,6 +662,7 @@ export interface FileRouteTypes {
     | '/settings/updates'
     | '/settings/users'
     | '/settings/voice'
+    | '/subscriptions/$id'
     | '/api/assistant/thread'
     | '/api/assistant/turn'
     | '/api/auth/$'
@@ -653,6 +672,7 @@ export interface FileRouteTypes {
     | '/organisations/'
     | '/people/'
     | '/settings/'
+    | '/subscriptions/'
     | '/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -708,6 +728,7 @@ export interface FileRouteTypes {
     | '/settings/updates'
     | '/settings/users'
     | '/settings/voice'
+    | '/subscriptions/$id'
     | '/api/assistant/thread'
     | '/api/assistant/turn'
     | '/api/auth/$'
@@ -717,6 +738,7 @@ export interface FileRouteTypes {
     | '/organisations'
     | '/people'
     | '/settings'
+    | '/subscriptions'
     | '/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -773,6 +795,7 @@ export interface FileRouteTypes {
     | '/_app/settings/updates'
     | '/_app/settings/users'
     | '/_app/settings/voice'
+    | '/_app/subscriptions/$id'
     | '/api/assistant/thread'
     | '/api/assistant/turn'
     | '/api/auth/$'
@@ -782,6 +805,7 @@ export interface FileRouteTypes {
     | '/_app/organisations/'
     | '/_app/people/'
     | '/_app/settings/'
+    | '/_app/subscriptions/'
     | '/_app/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -1196,6 +1220,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsVoiceRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/subscriptions/': {
+      id: '/_app/subscriptions/'
+      path: '/subscriptions'
+      fullPath: '/subscriptions/'
+      preLoaderRoute: typeof AppSubscriptionsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/subscriptions/$id': {
+      id: '/_app/subscriptions/$id'
+      path: '/subscriptions/$id'
+      fullPath: '/subscriptions/$id'
+      preLoaderRoute: typeof AppSubscriptionsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/api/assistant/thread': {
       id: '/api/assistant/thread'
       path: '/api/assistant/thread'
@@ -1291,12 +1329,14 @@ interface AppRouteChildren {
   AppSettingsUpdatesRoute: typeof AppSettingsUpdatesRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
   AppSettingsVoiceRoute: typeof AppSettingsVoiceRoute
+  AppSubscriptionsIdRoute: typeof AppSubscriptionsIdRoute
   AppAutomationsIndexRoute: typeof AppAutomationsIndexRoute
   AppDashboardsIndexRoute: typeof AppDashboardsIndexRoute
   AppOrdersIndexRoute: typeof AppOrdersIndexRoute
   AppOrganisationsIndexRoute: typeof AppOrganisationsIndexRoute
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+  AppSubscriptionsIndexRoute: typeof AppSubscriptionsIndexRoute
   AppXObjectIdRoute: typeof AppXObjectIdRoute
   AppXObjectIndexRoute: typeof AppXObjectIndexRoute
 }
@@ -1344,12 +1384,14 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsUpdatesRoute: AppSettingsUpdatesRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
   AppSettingsVoiceRoute: AppSettingsVoiceRoute,
+  AppSubscriptionsIdRoute: AppSubscriptionsIdRoute,
   AppAutomationsIndexRoute: AppAutomationsIndexRoute,
   AppDashboardsIndexRoute: AppDashboardsIndexRoute,
   AppOrdersIndexRoute: AppOrdersIndexRoute,
   AppOrganisationsIndexRoute: AppOrganisationsIndexRoute,
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
+  AppSubscriptionsIndexRoute: AppSubscriptionsIndexRoute,
   AppXObjectIdRoute: AppXObjectIdRoute,
   AppXObjectIndexRoute: AppXObjectIndexRoute,
 }

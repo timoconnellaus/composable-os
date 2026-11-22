@@ -14,6 +14,7 @@ import {
   PlugIcon,
   PlugZapIcon,
   PuzzleIcon,
+  RepeatIcon,
   ScrollTextIcon,
   SettingsIcon,
   ShieldCheckIcon,
@@ -35,6 +36,7 @@ export interface NavItem {
     | "/people"
     | "/organisations"
     | "/orders"
+    | "/subscriptions"
     | "/tasks"
     | "/automations"
     | "/notifications"
@@ -77,6 +79,12 @@ export const MAIN_NAV: NavItem[] = [
     label: "Orders",
     icon: ShoppingBagIcon,
     keywords: ["payments", "refunds", "checkout", "sales", "overdue", "paid late"],
+  },
+  {
+    to: "/subscriptions",
+    label: "Subscriptions",
+    icon: RepeatIcon,
+    keywords: ["members", "trials", "past due", "failing", "recurring", "plans", "cancel"],
   },
   { to: "/tasks", label: "Tasks", icon: CheckSquareIcon, keywords: ["todo"] },
   {
