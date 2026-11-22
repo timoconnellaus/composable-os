@@ -56,3 +56,26 @@ first period's order is not flagged when it is at most the price.
   resume (`customer.subscription.paused`, `.resumed`), which the host already reads.
 - Classes booked before a pause for a time inside it keep their use (the allowance checks a
   holder when the use is spent, not again later). Stage 31's bookings may decide otherwise.
+
+## Amended after review (2026-11-22, before merge)
+- **Ending a pause early is one call**, as Stripe documents it (docs.stripe.com/billing/
+  subscriptions/pause/schedules, "Start a resume attempt immediately", read 2026-11-22): the pause
+  schedule is updated with its `key` and `resume[resume_at][type]=now`; Stripe starts the resume
+  during the update with the schedule's resume settings (resumed only once its payment succeeds; a
+  failed payment leaves it paused). Nothing is released first, so a failed call leaves the
+  provider's own resume date in place. A paused subscription with no schedule is resumed with
+  `POST /v1/subscriptions/:id/resume`, `billing_cycle_anchor[type]=now` (an object with `type`, as
+  the API reference's example sends it) and `payment_behavior=resume_on_payment_success`
+  (docs.stripe.com/api/subscriptions/resume, read 2026-11-22; its default is
+  `resume_on_payment_attempt`). A pause not yet started is withdrawn by clearing its pause schedule
+  (`pause_schedules=""`, the reference's way to clear it), then releasing the schedule; a release
+  that fails after that is ignored. Each step follows a fresh read and has its own idempotency key,
+  so asking again finishes one that stopped half way.
+- **What came of ending it is kept** on the pause (`end_outcome`, audited): refused or unknown
+  shows on the subscription ("did not finish: try again"), and the host shows it paused until the
+  provider's read says it resumed. A pause not yet started is withdrawn only once the gatekeeper
+  says the call was sent. A pause whose second call's outcome is unknown stays asked, shown so,
+  until the provider's read pauses it or it expires a day after it was due; staff withdraw it.
+- A pause's reason (free text) is blanked when its payer or holder is erased.
+- Not in the documentation, left for the runbook: whether a release keeps a subscription paused,
+  and whether a schedule made `from_subscription` lingers after the resume.

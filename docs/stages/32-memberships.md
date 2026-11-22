@@ -828,10 +828,19 @@ the change). Block AM. Where the build read the spec one way, or decided what it
   pause; the native block shows a change or a pause in words and calls nothing new.
 - **Not built here:** a list of each use on the Person page (uses are counted on the holdings and
   the dashboard; a record tab needs an object); the Courses dashboard's subscription numbers;
-  undoing a downgrade that waits; members asking for a pause themselves (decision 10 chose staff);
+  members asking for a pause themselves (decision 10 chose staff);
   `cos memberships import` and the subscription import (step 8). Real Stripe has never been run:
   every behaviour above rests on the fake provider and on Stripe's documentation, and the checks
   for Stripe's test mode are part 8 of [the runbook](../subscriptions-stripe-runbook.md).
+- **After the independent review (2026-11-22, before merge; ADRs 0530 to 0532 amended):** one
+  definition of an open change (asked or waiting, before its `expires_at`), used by every reader,
+  with a stale one closed as lapsed; a proration only from the provider's subscription-update
+  invoice; what came of each provider call kept and audited, only a refusal closing a change and an
+  unknown outcome left to verified reads; `subscription.change.withdraw` for staff (which also
+  undoes a waiting downgrade, put back at the provider); a downgrade's date from the provider's
+  read; an upgrade's 3D Secure page shown to the member; ending a pause early as one call to the
+  pause schedule, retryable, its outcome shown; plan changes and pauses taken at the gatekeeper only
+  from the host's own call; a pause's reason blanked on erasure.
 
 ## Questions for the interview
 Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:

@@ -531,32 +531,69 @@ export class StripeProvider implements PaymentProvider {
   }
 
   /**
-   * Ends a pause now, or withdraws one not yet started: the subscription's schedule (the pause's)
-   * is released, then a paused subscription is resumed with its billing anchored now and only once
-   * the payment succeeds (`payment_behavior=resume_on_payment_success`, the guide's recommended).
+   * Ends a pause now, or withdraws one not yet started (stage 32b review; docs.stripe.com/billing/
+   * subscriptions/pause/schedules and api/subscriptions/resume, read 2026-11-22). Each step follows
+   * a fresh read, so a call that stopped half way is finished by calling again (each attempt has its
+   * own idempotency key: the read, not the key, keeps a step from repeating):
+   * - paused, by its schedule's pause: the pause schedule is updated with its `key` and
+   *   `resume[resume_at][type]=now` (the guide's "start a resume attempt immediately": Stripe starts
+   *   the resume during the update, with the schedule's resume settings, resumed only once its
+   *   payment succeeds; a failed payment leaves it paused). One call: nothing is released first, so
+   *   nothing is left half done;
+   * - paused with no schedule (released elsewhere): `POST /v1/subscriptions/:id/resume` with
+   *   `billing_cycle_anchor[type]=now` (an object with `type`, as the reference's example sends it)
+   *   and `payment_behavior=resume_on_payment_success`;
+   * - not paused, with a schedule (a pause not yet started): the pause schedule is cleared
+   *   (`pause_schedules=""`, the reference's way to clear it), then the schedule is released; a
+   *   release that fails after the clear leaves the pause withdrawn and is ignored.
+   * Not paused and no schedule: nothing to end, refused.
    */
   async unpauseSubscription(input: PaymentsUnpauseSubscriptionInput): Promise<void> {
     const ref = encodeURIComponent(input.subscriptionRef);
     const { body } = await this.#read(`/v1/subscriptions/${ref}`);
     const schedule = idOf(body.schedule);
-    if (schedule !== null) {
+    const attempt = `${input.pauseId}-${crypto.randomUUID()}`;
+    if (body.status === "paused") {
+      const form = new URLSearchParams();
+      if (schedule !== null) {
+        form.set("pause_schedules[0][key]", input.pauseId);
+        form.set("pause_schedules[0][resume][resume_at][type]", "now");
+        await this.#change(
+          "POST",
+          `/v1/subscription_schedules/${encodeURIComponent(schedule)}`,
+          form,
+          `cos-unpause-${attempt}`,
+        );
+        return;
+      }
+      form.set("billing_cycle_anchor[type]", "now");
+      form.set("payment_behavior", "resume_on_payment_success");
+      await this.#change("POST", `/v1/subscriptions/${ref}/resume`, form, `cos-unpause-${attempt}`);
+      return;
+    }
+    if (schedule === null) {
+      throw new ActionApplyError(
+        "The subscription is not paused and no pause is scheduled: nothing changed.",
+      );
+    }
+    const clear = new URLSearchParams();
+    clear.set("pause_schedules", "");
+    await this.#change(
+      "POST",
+      `/v1/subscription_schedules/${encodeURIComponent(schedule)}`,
+      clear,
+      `cos-unpause-clear-${attempt}`,
+    );
+    try {
       await this.#change(
         "POST",
         `/v1/subscription_schedules/${encodeURIComponent(schedule)}/release`,
         new URLSearchParams(),
-        `cos-unpause-release-${input.pauseId}`,
+        `cos-unpause-release-${attempt}`,
       );
+    } catch {
+      // The pause is withdrawn already; a schedule left attached shows as a refusal of a later change.
     }
-    if (body.status !== "paused") return;
-    const form = new URLSearchParams();
-    form.set("billing_cycle_anchor[type]", "now");
-    form.set("payment_behavior", "resume_on_payment_success");
-    await this.#change(
-      "POST",
-      `/v1/subscriptions/${ref}/resume`,
-      form,
-      `cos-unpause-${input.pauseId}`,
-    );
   }
 
   /** The subscription's one item: its id and its product's. */

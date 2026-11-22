@@ -5,7 +5,7 @@
 // person). The Stripe provider's requests against recorded shapes (no real Stripe).
 import { env, exports } from "cloudflare:workers";
 import type { ActionDescription } from "@composable-os/gatekeeper-interface/gatekeeper";
-import { ActionApplyError } from "@composable-os/gatekeeper-kit/actions";
+import { ActionApplyError, ActionOutcomeUnknownError } from "@composable-os/gatekeeper-kit/actions";
 import { describe, expect, it, vi } from "vitest";
 import { type FakeLedgerState, fakeLedger } from "../src/fake.js";
 import { advanceFakeSubscription } from "../src/routes.js";
@@ -24,9 +24,10 @@ function unique(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${(counter++).toString(36)}`;
 }
 
-async function host() {
+/** A session; the host's own orders call by default (plan changes and pauses are the host's only). */
+async function host(asHost = true) {
   const stub = env.TEST_HOST.getByName(unique("host"));
-  await stub.open("fake", false);
+  await stub.open("fake", asHost);
   await stub.bindAndEnable();
   return stub;
 }
@@ -97,7 +98,21 @@ async function submitted(h: Host, receipt: PaymentsSubscriptionChangeReceipt) {
 }
 
 describe("a plan change at the fake provider", () => {
-  it("sends nothing until it is applied: an agent's session waits for a person", async () => {
+  it("is refused to any session but the host's, and sends nothing until it is applied", async () => {
+    // Code Mode, an extension's tool, MCP, the assistant: refused before anything is queued.
+    const other = await host(false);
+    const otherId = unique("sbs");
+    const otherSub = await started(other, otherId);
+    await expect(other.call("changeSubscription", [change(otherId, otherSub.ref)])).rejects.toThrow(
+      /only by the host/,
+    );
+    await expect(
+      other.call("unpauseSubscription", [
+        { subscriptionId: otherId, subscriptionRef: otherSub.ref, pauseId: "sbc_1", reason: "x" },
+      ]),
+    ).rejects.toThrow(/only by the host/);
+    expect((await ledgerSubscription(otherId)).amount).toBe(3000);
+
     const h = await host();
     const id = unique("sbs");
     const sub = await started(h, id);
@@ -428,24 +443,105 @@ describe("the Stripe provider's plan changes and pauses", () => {
     );
   });
 
-  it("ends a pause by releasing its schedule and resuming once paid", async () => {
+  it("ends a running pause in one call, by moving its scheduled resume to now", async () => {
     const { provider, requests } = stripe((r) =>
       ok(r.method === "GET" ? { ...SUB, status: "paused", schedule: "sub_sched_1" } : {}),
+    );
+    const unpause = {
+      subscriptionId: "sbs_1",
+      subscriptionRef: "sub_1",
+      pauseId: "sbc_2",
+      reason: "x",
+    };
+    await provider.unpauseSubscription(unpause);
+    expect(requests.map((r) => [r.method, r.url])).toEqual([
+      ["GET", "https://stripe.test/v1/subscriptions/sub_1"],
+      ["POST", "https://stripe.test/v1/subscription_schedules/sub_sched_1"],
+    ]);
+    expect(Object.fromEntries(requests[1]?.form ?? [])).toEqual({
+      "pause_schedules[0][key]": "sbc_2",
+      "pause_schedules[0][resume][resume_at][type]": "now",
+    });
+    // A paused one with no schedule resumes directly, anchored now, once paid.
+    const bare = stripe((r) => ok(r.method === "GET" ? { ...SUB, status: "paused" } : {}));
+    await bare.provider.unpauseSubscription(unpause);
+    expect(bare.requests[1]?.url).toBe("https://stripe.test/v1/subscriptions/sub_1/resume");
+    expect(Object.fromEntries(bare.requests[1]?.form ?? [])).toEqual({
+      "billing_cycle_anchor[type]": "now",
+      payment_behavior: "resume_on_payment_success",
+    });
+  });
+
+  it("a refused or unknown end of a pause says so, and calling again finishes it with a new key", async () => {
+    let fail: "refused" | "unknown" | null = "refused";
+    const { provider, requests } = stripe((r) => {
+      if (r.method === "GET") return ok({ ...SUB, status: "paused", schedule: "sub_sched_1" });
+      if (fail === "refused") return new Response("{}", { status: 400 });
+      if (fail === "unknown") return new Response("{}", { status: 502 });
+      return ok({});
+    });
+    const unpause = {
+      subscriptionId: "sbs_1",
+      subscriptionRef: "sub_1",
+      pauseId: "sbc_2",
+      reason: "x",
+    };
+    await expect(provider.unpauseSubscription(unpause)).rejects.toBeInstanceOf(ActionApplyError);
+    fail = "unknown";
+    await expect(provider.unpauseSubscription(unpause)).rejects.toBeInstanceOf(
+      ActionOutcomeUnknownError,
+    );
+    fail = null;
+    await provider.unpauseSubscription(unpause);
+    const keys = requests.filter((r) => r.method === "POST").map((r) => r.key);
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it("withdraws a pause not yet started by clearing its pause schedule, then releasing", async () => {
+    const { provider, requests } = stripe((r) =>
+      r.url.endsWith("/release")
+        ? new Response("{}", { status: 400 })
+        : ok(r.method === "GET" ? { ...SUB, status: "active", schedule: "sub_sched_1" } : {}),
     );
     await provider.unpauseSubscription({
       subscriptionId: "sbs_1",
       subscriptionRef: "sub_1",
       pauseId: "sbc_2",
-      reason: "Back early",
+      reason: "Not going",
     });
-    expect(requests.map((r) => [r.method, r.url])).toEqual([
-      ["GET", "https://stripe.test/v1/subscriptions/sub_1"],
-      ["POST", "https://stripe.test/v1/subscription_schedules/sub_sched_1/release"],
-      ["POST", "https://stripe.test/v1/subscriptions/sub_1/resume"],
+    expect(requests.map((r) => r.url)).toEqual([
+      "https://stripe.test/v1/subscriptions/sub_1",
+      "https://stripe.test/v1/subscription_schedules/sub_sched_1",
+      "https://stripe.test/v1/subscription_schedules/sub_sched_1/release",
     ]);
-    expect(Object.fromEntries(requests[2]?.form ?? [])).toEqual({
-      "billing_cycle_anchor[type]": "now",
-      payment_behavior: "resume_on_payment_success",
-    });
+    expect(requests[1]?.form.get("pause_schedules")).toBe("");
+    const none = stripe(() => ok({ ...SUB, status: "active", schedule: null }));
+    await expect(
+      none.provider.unpauseSubscription({
+        subscriptionId: "sbs_1",
+        subscriptionRef: "sub_1",
+        pauseId: "sbc_2",
+        reason: "x",
+      }),
+    ).rejects.toBeInstanceOf(ActionApplyError);
+  });
+
+  it("a pause whose second call has an unknown outcome says so, and is not released", async () => {
+    const { provider, requests } = stripe((r) =>
+      r.url.endsWith("/sub_sched_1")
+        ? new Response("{}", { status: 502 })
+        : ok({ id: "sub_sched_1" }),
+    );
+    await expect(
+      provider.pauseSubscription({
+        subscriptionId: "sbs_1",
+        subscriptionRef: "sub_1",
+        pauseId: "sbc_3",
+        from: null,
+        until: "2030-02-01T00:00:00.000Z",
+        reason: "x",
+      }),
+    ).rejects.toBeInstanceOf(ActionOutcomeUnknownError);
+    expect(requests.some((r) => r.url.endsWith("/release"))).toBe(false);
   });
 });

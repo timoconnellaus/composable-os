@@ -26,7 +26,12 @@ import { SUBSCRIPTION_STATES } from "../fields/subscription.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
-import { requestPause, requestPlanChange, requestUnpause } from "../subscriptions/changes.ts";
+import {
+  requestPause,
+  requestPlanChange,
+  requestUnpause,
+  withdrawPlanChange,
+} from "../subscriptions/changes.ts";
 import {
   cancelAtPeriodEnd,
   cancelNow,
@@ -86,6 +91,20 @@ export const subscriptionSchema = z.object({
       pauseUntil: when.describe("When a pause ends and the provider charges again"),
       effectiveAt: when.describe("When a downgrade takes effect (its period's end)"),
       requestedAt: z.string(),
+      callOutcome: z
+        .enum(["sent", "pending", "unknown", "refused"])
+        .nullable()
+        .describe(
+          "What came of asking the provider: unknown means it may or may not have reached it, and " +
+            "the provider's next event decides; staff can withdraw it",
+        ),
+      actionUrl: when.describe(
+        "The provider's page to confirm an upgrade's charge, while it waits",
+      ),
+      endOutcome: z
+        .enum(["sent", "pending", "unknown", "refused"])
+        .nullable()
+        .describe("What came of ending a pause early: refused or unknown, ask again"),
     })
     .nullable()
     .optional()
@@ -130,6 +149,9 @@ function fromRecord(record: VisibleRecord, staff: boolean): Subscription {
           pauseUntil: text(v.pauseUntil),
           effectiveAt: text(v.changeEffectiveAt),
           requestedAt: String(v.changeRequestedAt),
+          callOutcome: v.changeCallOutcome ?? null,
+          actionUrl: text(v.changeActionUrl),
+          endOutcome: v.changeEndOutcome ?? null,
         }
       : null,
     ...(staff
@@ -395,6 +417,12 @@ export const subscriptionChange = defineOperation({
       .describe("When a downgrade takes effect (the period's end); null for an upgrade: once paid"),
     amount: z.number().describe("The new plan's price per period, minor units, tax included"),
     currency: z.string(),
+    asked: z
+      .enum(["sent", "pending", "unknown", "not_needed"])
+      .describe(
+        "sent: the provider was asked; unknown: it may or may not have been (its next event " +
+          "decides); not_needed: the same price, nothing to ask",
+      ),
     requested: z.literal(true),
   }),
   permission: "subscriptions:manage",
@@ -445,6 +473,7 @@ export const subscriptionPause = defineOperation({
     changeId: z.string(),
     from: z.string().nullable(),
     until: z.string(),
+    asked: z.enum(["sent", "pending", "unknown"]),
     requested: z.literal(true),
   }),
   permission: "subscriptions:manage",
@@ -475,7 +504,15 @@ export const subscriptionUnpause = defineOperation({
     id: subscriptionId,
     reason: z.string().trim().min(1).max(500).default("Back early").describe("Why"),
   }),
-  output: changeOutput,
+  output: z.object({
+    id: z.string(),
+    asked: z
+      .enum(["sent", "pending", "unknown"])
+      .describe(
+        "unknown: it may or may not have reached the provider; ask again if it stays paused",
+      ),
+    requested: z.literal(true),
+  }),
   permission: "subscriptions:manage",
   risk: "write",
   audiences: ["staff"],
@@ -484,6 +521,35 @@ export const subscriptionUnpause = defineOperation({
   async handler(input, ctx) {
     const row = await subscriptionForChange(ctx, input.id);
     return requestUnpause(ctx, row, input.reason);
+  },
+});
+
+export const subscriptionChangeWithdraw = defineOperation({
+  name: "subscription.change.withdraw",
+  description:
+    "Withdraw a subscription's plan change that has not taken effect: one stuck waiting for the " +
+    "payment provider, one whose outcome is unknown, or a downgrade waiting for its period (undo " +
+    "it). A downgrade the provider may already show is put back there: the old price from the next " +
+    "invoice, nothing prorated. An upgrade's pending charge is left to the provider, which drops it " +
+    "within 23 hours if unpaid. A pause is ended with subscription.unpause. Staff only, with " +
+    "subscriptions:manage. A person decides, not an AI assistant.",
+  input: z.object({
+    id: subscriptionId,
+    reason: z.string().trim().min(1).max(500).describe("Why"),
+  }),
+  output: z.object({
+    id: z.string(),
+    changeId: z.string(),
+    asked: z.enum(["sent", "pending", "unknown", "not_needed"]),
+  }),
+  permission: "subscriptions:manage",
+  risk: "write",
+  audiences: ["staff"],
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const row = await subscriptionForChange(ctx, input.id);
+    return withdrawPlanChange(ctx, row, input.reason);
   },
 });
 
@@ -497,4 +563,5 @@ export const subscriptionOperations = [
   subscriptionChange,
   subscriptionPause,
   subscriptionUnpause,
+  subscriptionChangeWithdraw,
 ] as const;

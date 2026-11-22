@@ -126,15 +126,33 @@ function SubscriptionPage() {
 function changeText(s: SubscriptionData): string {
   const c = s.change;
   if (!c) return "";
+  // What the provider answered, when it is not a plain yes (review of 32b): staff see it and act.
+  const answer =
+    c.callOutcome === "unknown"
+      ? " The payment provider's answer was lost: its next event decides, or withdraw it."
+      : c.callOutcome === "pending"
+        ? " Waiting for approval."
+        : "";
   if (c.kind === "pause") {
+    const ending =
+      c.endOutcome === "refused"
+        ? " Ending it early was refused by the payment provider: try again."
+        : c.endOutcome === "unknown"
+          ? " Ending it early did not finish (the provider's answer was lost): try again."
+          : "";
     return c.state === "applied"
-      ? `Paused until ${formatDateTime(c.pauseUntil)}`
-      : `Pause asked: from ${c.pauseFrom ? formatDateTime(c.pauseFrom) : "now"} until ${formatDateTime(c.pauseUntil)}`;
+      ? `Paused until ${formatDateTime(c.pauseUntil)}.${ending}`
+      : `Pause asked: from ${c.pauseFrom ? formatDateTime(c.pauseFrom) : "now"} until ${formatDateTime(c.pauseUntil)}.${answer}${ending}`;
   }
   const to = `${c.toPlanTitle} (${formatMoney(c.toAmount ?? 0, s.currency)})`;
-  if (c.state === "lapsed") return `The upgrade to ${to} was never paid, so it did not happen`;
-  if (c.kind === "upgrade") return `Upgrading to ${to}, once its prorated charge is paid`;
-  return `Changes to ${to} on ${formatDateTime(c.effectiveAt)}`;
+  if (c.state === "lapsed")
+    return `The change to ${to} was never shown by the provider, so it did not happen`;
+  if (c.kind === "upgrade") {
+    return c.actionUrl
+      ? `Upgrading to ${to}: the payer must confirm its charge on the provider's page.${answer}`
+      : `Upgrading to ${to}, once its prorated charge is paid.${answer}`;
+  }
+  return `Changes to ${to} on ${formatDateTime(c.effectiveAt)}.${answer}`;
 }
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
@@ -221,6 +239,7 @@ function SubscriptionActions({ subscription: s }: { subscription: SubscriptionDa
   const cancel = useOpMutation("subscription.cancel");
   const resume = useOpMutation("subscription.resume");
   const unpause = useOpMutation("subscription.unpause");
+  const withdraw = useOpMutation("subscription.change.withdraw");
   const [asking, setAsking] = useState<Asking>(null);
   const [changing, setChanging] = useState<Changing>(null);
   const [error, setError] = useState<string | null>(null);
@@ -270,6 +289,22 @@ function SubscriptionActions({ subscription: s }: { subscription: SubscriptionDa
             Pause
           </Button>
         </>
+      )}
+      {open && s.change?.kind !== "pause" && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={withdraw.isPending}
+          onClick={() => {
+            setError(null);
+            withdraw
+              .mutateAsync({ id: s.id, reason: "Withdrawn by staff" })
+              .then(() => toast.success("The change is withdrawn"))
+              .catch((err: unknown) => setError(errorMessage(err)));
+          }}
+        >
+          Withdraw the change
+        </Button>
       )}
       {pausing && (
         <Button

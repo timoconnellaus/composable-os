@@ -47,3 +47,10 @@ ADR 0490).
   read of a person's uses, or uses as a registry object, is for later.
 - The Courses dashboard's subscription numbers (the spec's "and the Courses dashboard's
   subscription numbers") are unchanged.
+
+## Amended after review (2026-11-22, before merge)
+The subscription's change also shows what the provider answered (`changeCallOutcome`,
+`changeEndOutcome`) and an upgrade's confirm-payment page (`changeActionUrl`), to the payer and
+staff. The admin's subscription page says them in words and has **Withdraw the change**
+(`subscription.change.withdraw`); the member's block shows **Confirm the new plan's payment** when
+an upgrade's charge waits on them, and says when the provider's answer was lost.

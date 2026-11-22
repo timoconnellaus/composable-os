@@ -449,7 +449,8 @@ export interface PaymentsSession {
   ): Promise<PaymentsSubscriptionChangeReceipt>;
   /**
    * Submits `payments.subscription.change` (never auto-approvable): a new price, now (an upgrade,
-   * applied only once its prorated charge is paid) or from the next period (a downgrade).
+   * applied only once its prorated charge is paid) or from the next period (a downgrade). The
+   * host's own call only (as `openPortal`): any other session is refused. So are the two below.
    */
   changeSubscription(
     input: PaymentsChangeSubscriptionInput,

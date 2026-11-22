@@ -871,6 +871,19 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
       .deleteFrom("core_subscription_offer")
       .where((eb) => eb.or([eb("person_id", "in", ids), eb("email", "in", addresses)])),
   );
+  // The reasons written on their subscriptions' plan changes and pauses (stage 32b): free text
+  // staff or the member typed (an injury, travel). The change itself stays, as the books' terms.
+  ctx.write(
+    ctx.db
+      .updateTable("core_subscription_change")
+      .set({ reason: "", call_error: null, end_error: null, updated_at: ctx.now })
+      .where("subscription_id", "in", (eb) =>
+        eb
+          .selectFrom("core_subscription")
+          .select("id")
+          .where((w) => w.or([w("payer_person_id", "in", ids), w("holder_person_id", "in", ids)])),
+      ),
+  );
   const orders = await ctx.db
     .selectFrom("core_order")
     .select("id")

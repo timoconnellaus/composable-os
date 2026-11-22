@@ -1766,6 +1766,13 @@ export interface CoreSubscriptionChangeTable {
   pause_from: Timestamp | null;
   pause_until: Timestamp | null;
   effective_at: Timestamp | null;
+  expires_at: Timestamp;
+  call_outcome: "sent" | "pending" | "unknown" | "refused" | null;
+  call_error: string | null;
+  action_url: string | null;
+  end_outcome: "sent" | "pending" | "unknown" | "refused" | null;
+  end_error: string | null;
+  end_at: Timestamp | null;
   reason: string;
   requested_by: string;
   requested_at: Timestamp;

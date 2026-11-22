@@ -47,8 +47,18 @@ function fixture(id: string): ExtensionManifest {
           uses: { type: "number", label: "Uses" },
           pauseMin: { type: "number", label: "Shortest pause" },
           pauseMax: { type: "number", label: "Longest pause" },
+          status: {
+            type: "select",
+            label: "Status",
+            options: [
+              { value: "draft", label: "Draft" },
+              { value: "on_sale", label: "On sale" },
+              { value: "retired", label: "Retired" },
+            ],
+          },
         },
-        public: { read: ["title", "price", "uses"] },
+        // On sale only while its status says so, as the Memberships pack's plans are.
+        public: { read: ["title", "price", "uses"], when: { field: "status", in: ["on_sale"] } },
         sellable: {
           price: "price",
           recurring: {
@@ -159,6 +169,8 @@ let three: string;
 let unlimited: string;
 let one: string;
 let twin: string;
+let draft: string;
+let retired: string;
 
 const staff = () => context(admin, { integrations: runtime, events });
 const as = (buyer: Buyer) => outside(buyer.principal, { integrations: runtime, events });
@@ -271,6 +283,41 @@ async function member(label: string): Promise<{ buyer: Buyer; id: string }> {
   return { buyer, id: started.subscriptionId };
 }
 
+/** Puts a subscription's open change past its life, as a day passing would. */
+async function expire(subscriptionId: string) {
+  await env.DB.prepare(
+    "UPDATE core_subscription_change SET expires_at = ? WHERE subscription_id = ? AND state IN ('requested', 'waiting')",
+  )
+    .bind(new Date(Date.now() - 60_000).toISOString(), subscriptionId)
+    .run();
+}
+
+async function changeRow(subscriptionId: string) {
+  return env.DB.prepare(
+    "SELECT * FROM core_subscription_change WHERE subscription_id = ? ORDER BY requested_at DESC LIMIT 1",
+  )
+    .bind(subscriptionId)
+    .first<Record<string, unknown>>();
+}
+
+async function orderOf(invoiceRef: string) {
+  return env.DB.prepare(
+    "SELECT o.period_flag, o.total, l.title, l.record_id FROM core_order o JOIN core_order_line l ON l.order_id = o.id WHERE o.invoice_ref = ?",
+  )
+    .bind(invoiceRef)
+    .first<Record<string, unknown>>();
+}
+
+async function told(key: string): Promise<number> {
+  return (
+    (
+      await env.DB.prepare("SELECT count(*) AS n FROM core_notifications WHERE dedupe_key = ?")
+        .bind(key)
+        .first<{ n: number }>()
+    )?.n ?? 0
+  );
+}
+
 const calls = (method: string, id: string) =>
   gw.changes.filter((c) => c.method === method && c.request.subscriptionId === id);
 
@@ -284,16 +331,20 @@ beforeAll(async () => {
     { currency: CURRENCY, returnOrigins: ["https://gym.example.com"] },
     context(admin),
   );
+  const sale = { status: "on_sale" };
   three = await create(PLAN, {
+    ...sale,
     title: "Three a week",
     price: 30,
     uses: 3,
     pauseMin: 7,
     pauseMax: 60,
   });
-  unlimited = await create(PLAN, { title: "Unlimited", price: 60 });
-  one = await create(PLAN, { title: "One a week", price: 15, uses: 1 });
-  twin = await create(PLAN, { title: "Three a week, mornings", price: 30, uses: 3 });
+  unlimited = await create(PLAN, { ...sale, title: "Unlimited", price: 60 });
+  one = await create(PLAN, { ...sale, title: "One a week", price: 15, uses: 1 });
+  twin = await create(PLAN, { ...sale, title: "Three a week, mornings", price: 30, uses: 3 });
+  draft = await create(PLAN, { status: "draft", title: "Coming soon", price: 90 });
+  retired = await create(PLAN, { status: "retired", title: "Old unlimited", price: 50 });
   await payments.connect(admin.id);
 });
 
@@ -373,11 +424,7 @@ describe("an upgrade (decision 12: at once, prorated)", () => {
     const again = await refusal(run("subscription.change", { id, planId: unlimited }, as(buyer)));
     expect(again).toMatchObject({ code: "conflict", details: { rule: "change_open" } });
     // A day on, never shown by the provider: it lapsed, and a new change may be asked.
-    await env.DB.prepare(
-      "UPDATE core_subscription_change SET requested_at = ? WHERE subscription_id = ?",
-    )
-      .bind(new Date(Date.now() - 25 * 3_600_000).toISOString(), id)
-      .run();
+    await expire(id);
     expect((await subscription(id)).change).toMatchObject({ state: "lapsed" });
     await run("subscription.change", { id, planId: unlimited }, as(buyer));
     expect(calls("changeSubscription", id)).toHaveLength(2);
@@ -443,7 +490,7 @@ describe("a downgrade (decision 12: at the next period)", () => {
 });
 
 describe("who may change a plan", () => {
-  it("refuses another's subscription, a plan of another interval or the same plan, and an AI", async () => {
+  it("refuses another's subscription, the same plan, and an AI", async () => {
     const { id } = await member("owner");
     const stranger = await createBuyer(admin, "stranger");
     expect(
@@ -587,5 +634,296 @@ describe("a pause (decision 10: by staff, for a set time)", () => {
     await run("subscription.unpause", { id, reason: "Not going" }, staff());
     expect(calls("unpauseSubscription", id)).toHaveLength(1);
     expect((await subscription(id)).change).toBeNull();
+  });
+});
+
+describe("the review of 32b: a change is trusted only while it is open", () => {
+  it("a stale asked upgrade is closed: a later coupon renewal is flagged, a price edit is a change at the provider", async () => {
+    const { buyer, id } = await member("stale");
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    await expire(id);
+    // A month later a renewal paid less than the price (a coupon): flagged, never the upgrade's.
+    const coupon = invoice({ amountPaid: 2500, amountDue: 2500 });
+    await deliver("invoice_paid", read(id), coupon);
+    expect(await orderOf(coupon.ref)).toMatchObject({ period_flag: "paid_less", record_id: three });
+    expect((await changeRow(id))?.state).toBe("lapsed");
+    // A price edited at the provider to the upgrade's: a change there, not the upgrade.
+    await deliver("updated", read(id, { amount: 6000 }));
+    expect(await membershipOf(id)).toMatchObject({ uses: 3, plan: three });
+    expect((await subscription(id)).planId).toBe(three);
+    expect(await told(`subscription.terms_changed:fake:${id}`)).toBe(1);
+  });
+
+  it("a proration is matched by its billing reason, also when it equals the old price", async () => {
+    const { buyer, id } = await member("proration");
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    // 30.00 to 60.00 at the very start of the period: the proration is 30.00, the old price.
+    const prorated = invoice({
+      amountPaid: 3000,
+      amountDue: 3000,
+      billingReason: "subscription_update",
+    });
+    await deliver("invoice_paid", read(id, { amount: 6000 }), prorated);
+    expect(await orderOf(prorated.ref)).toMatchObject({ period_flag: null, record_id: unlimited });
+    // A renewal-sized invoice that is not an update is never taken as a proration.
+    const { buyer: b2, id: id2 } = await member("notproration");
+    await run("subscription.change", { id: id2, planId: unlimited }, as(b2));
+    const cycle = invoice({ amountPaid: 2000, amountDue: 2000 });
+    await deliver("invoice_paid", read(id2), cycle);
+    expect(await orderOf(cycle.ref)).toMatchObject({ period_flag: "paid_less" });
+  });
+
+  it("an update's charge paid with no upgrade open tells staff each time", async () => {
+    const { buyer, id } = await member("latepaid");
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    await expire(id);
+    for (const _ of [1, 2]) {
+      const late = invoice({
+        amountPaid: 2800,
+        amountDue: 2800,
+        billingReason: "subscription_update",
+      });
+      await deliver("invoice_paid", read(id), late);
+      expect(await told(`subscription.update_paid:fake:${late.ref}`)).toBe(1);
+    }
+  });
+
+  it("an unknown outcome leaves an upgrade or a downgrade open, and verified reads decide", async () => {
+    const up = await member("unknownup");
+    gw.nextChange = "unknown";
+    const asked = await run<{ asked: string }>(
+      "subscription.change",
+      { id: up.id, planId: unlimited },
+      as(up.buyer),
+    );
+    expect(asked.asked).toBe("unknown");
+    expect(await changeRow(up.id)).toMatchObject({ state: "requested", call_outcome: "unknown" });
+    expect((await subscription(up.id)).change).toMatchObject({ callOutcome: "unknown" });
+    await deliver("updated", read(up.id, { amount: 6000 }));
+    expect(await membershipOf(up.id)).toMatchObject({ plan: unlimited });
+    expect(await told(`subscription.terms_changed:fake:${up.id}`)).toBe(0);
+
+    const down = await member("unknowndown");
+    gw.nextChange = "throw";
+    expect(
+      (
+        await run<{ asked: string }>(
+          "subscription.change",
+          { id: down.id, planId: one },
+          as(down.buyer),
+        )
+      ).asked,
+    ).toBe("unknown");
+    await deliver("updated", read(down.id, { amount: 1500 }));
+    expect(await changeRow(down.id)).toMatchObject({ state: "waiting", call_outcome: "unknown" });
+    expect(await told(`subscription.terms_changed:fake:${down.id}`)).toBe(0);
+  });
+
+  it("a refusal closes the change and says so; a new one may be asked", async () => {
+    const { buyer, id } = await member("refused");
+    gw.nextChange = "refused";
+    const refused = await refusal(run("subscription.change", { id, planId: unlimited }, as(buyer)));
+    expect(refused).toMatchObject({ code: "conflict", details: { rule: "provider_refused" } });
+    expect(await changeRow(id)).toMatchObject({ state: "lapsed", call_outcome: "refused" });
+    const audited = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_audit WHERE operation = 'subscription.change.outcome' AND input LIKE ?",
+    )
+      .bind(`%${(await changeRow(id))?.id}%`)
+      .first<{ n: number }>();
+    expect(audited?.n).toBe(1);
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+  });
+
+  it("staff withdraw a stuck or waiting downgrade, put back at the provider; a price put back closes it", async () => {
+    const { buyer, id } = await member("withdrawn");
+    await run("subscription.change", { id, planId: one }, as(buyer));
+    await deliver("updated", read(id, { amount: 1500 }));
+    // Stuck: every other change is refused while it waits.
+    expect(
+      (
+        await refusal(
+          run(
+            "subscription.pause",
+            { id, until: new Date(Date.now() + 14 * DAY).toISOString(), reason: "x" },
+            staff(),
+          ),
+        )
+      ).details,
+    ).toMatchObject({ rule: "change_open" });
+    expect(
+      (await refusal(run("subscription.change.withdraw", { id, reason: "x" }, as(buyer)))).code,
+    ).toBe("unknown_operation");
+    const out = await run<{ asked: string }>(
+      "subscription.change.withdraw",
+      { id, reason: "Changed mind" },
+      staff(),
+    );
+    expect(out.asked).toBe("sent");
+    expect(calls("changeSubscription", id).at(-1)?.request).toMatchObject({
+      amount: 3000,
+      when: "next_period",
+    });
+    expect((await changeRow(id))?.state).toBe("withdrawn");
+    expect((await subscription(id)).change).toBeNull();
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+
+    // A waiting downgrade whose price is put back at the provider is closed by the read.
+    const other = await member("putback");
+    await run("subscription.change", { id: other.id, planId: one }, as(other.buyer));
+    await deliver("updated", read(other.id, { amount: 1500 }));
+    await deliver("updated", read(other.id, { amount: 3000 }));
+    expect((await changeRow(other.id))?.state).toBe("withdrawn");
+  });
+
+  it("a downgrade takes effect from the period the provider showed it in, not a period early", async () => {
+    const { buyer, id } = await member("early");
+    await run("subscription.change", { id, planId: one }, as(buyer));
+    // The provider had renewed already (at the old price): its read is of the next period.
+    const next = new Date(Date.parse(PERIOD_END) + 30 * DAY).toISOString();
+    await deliver(
+      "updated",
+      read(id, { amount: 1500, currentPeriodStart: PERIOD_END, currentPeriodEnd: next }),
+    );
+    expect(await changeRow(id)).toMatchObject({ state: "waiting", effective_at: next });
+    expect(await membershipOf(id)).toMatchObject({ uses: 3, plan: three });
+  });
+
+  it("a change in a period the provider has renewed past is refused until the renewal arrives", async () => {
+    const { buyer, id } = await member("renewing");
+    await env.DB.prepare(
+      "UPDATE core_subscription SET current_period_end = ?, version = version + 1 WHERE id = ?",
+    )
+      .bind(new Date(Date.now() - 60_000).toISOString(), id)
+      .run();
+    expect(
+      (await refusal(run("subscription.change", { id, planId: one }, as(buyer)))).details,
+    ).toMatchObject({ rule: "period_ended" });
+  });
+
+  it("a customer cannot choose a plan that is a draft or no longer sold; staff can", async () => {
+    const { buyer, id } = await member("onsale");
+    for (const planId of [draft, retired]) {
+      const refused = await refusal(run("subscription.change", { id, planId }, as(buyer)));
+      expect(["invalid_input", "not_found"]).toContain(refused.code);
+    }
+    expect(calls("changeSubscription", id)).toHaveLength(0);
+    await run("subscription.change", { id, planId: draft }, staff());
+    expect(calls("changeSubscription", id)).toHaveLength(1);
+  });
+
+  it("a free plan is refused before anything is written", async () => {
+    const { id } = await member("free");
+    const free = await create(PLAN, { status: "on_sale", title: "Free", price: 0 });
+    const refused = await refusal(run("subscription.change", { id, planId: free }, staff()));
+    expect(refused.code).toBe("invalid_input");
+    expect(await changeRow(id)).toBeNull();
+  });
+
+  it("a change asked by the payer follows the holder's membership when they differ", async () => {
+    const parent = await createBuyer(admin, "parent");
+    const child = await run<{ id: string }>("person.create", { givenName: "Child" }, staff());
+    const started = await run<{ subscriptionId: string }>(
+      "subscription.start",
+      {
+        plan: { object: PLAN, id: three },
+        returnUrl: RETURN,
+        email: parent.email,
+        holderPersonId: child.id,
+      },
+      staff(),
+    );
+    const id = started.subscriptionId;
+    await deliver("checkout_completed", read(id));
+    await run("subscription.change", { id, planId: unlimited }, as(parent));
+    await deliver("updated", read(id, { amount: 6000 }));
+    expect(await membershipOf(id)).toMatchObject({ person: child.id, plan: unlimited });
+  });
+
+  it("an upgrade's charge that needs the payer to confirm it shows the provider's page on the change", async () => {
+    const { buyer, id } = await member("threeds");
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    const hosted = "https://fake-provider.invalid/invoice/confirm";
+    const needed = await deliver(
+      "invoice_action_required",
+      read(id),
+      invoice({
+        status: "open",
+        amountPaid: 0,
+        amountDue: 2800,
+        billingReason: "subscription_update",
+        hostedUrl: hosted,
+      }),
+    );
+    expect(needed.result.outcome).toBe("action_required");
+    const mine = await run<{ change: { actionUrl: string | null } | null }>(
+      "subscription.get",
+      { id },
+      as(buyer),
+    );
+    expect(mine.change?.actionUrl).toBe(hosted);
+    await deliver("updated", read(id, { amount: 6000 }));
+    expect((await changeRow(id))?.action_url).toBeNull();
+  });
+
+  it("a renewal failing while an upgrade is open is a failing renewal, and the upgrade stays open", async () => {
+    const { buyer, id } = await member("failwhile");
+    await run("subscription.change", { id, planId: unlimited }, as(buyer));
+    const failed = await deliver(
+      "invoice_payment_failed",
+      read(id, { status: "past_due" }),
+      invoice({ status: "open", amountPaid: 0, amountDue: 3000 }),
+    );
+    expect(failed.result.outcome).toBe("payment_failed");
+    expect(await membershipOf(id)).toMatchObject({ status: "past_due", plan: three });
+    expect((await changeRow(id))?.state).toBe("requested");
+  });
+
+  it("a half-finished pause or end of a pause shows, and is asked again", async () => {
+    const { id } = await member("halfpause");
+    gw.nextChange = "unknown";
+    const paused = await run<{ asked: string }>(
+      "subscription.pause",
+      { id, until: new Date(Date.now() + 14 * DAY).toISOString(), reason: "Travel" },
+      staff(),
+    );
+    expect(paused.asked).toBe("unknown");
+    expect(await changeRow(id)).toMatchObject({ state: "requested", call_outcome: "unknown" });
+    // The provider's read says it paused: applied.
+    await deliver("paused", read(id, { status: "paused" }));
+    expect((await changeRow(id))?.state).toBe("applied");
+    // Ending it early: refused, then unknown, each shown on the subscription; asked again, sent.
+    gw.nextChange = "refused";
+    expect(
+      (await refusal(run("subscription.unpause", { id, reason: "Back" }, staff()))).details,
+    ).toMatchObject({
+      rule: "provider_refused",
+    });
+    expect((await subscription(id)).change).toMatchObject({ kind: "pause", endOutcome: "refused" });
+    gw.nextChange = "unknown";
+    expect(
+      (await run<{ asked: string }>("subscription.unpause", { id, reason: "Back" }, staff())).asked,
+    ).toBe("unknown");
+    expect((await subscription(id)).change).toMatchObject({ endOutcome: "unknown" });
+    expect(
+      (await run<{ asked: string }>("subscription.unpause", { id, reason: "Back" }, staff())).asked,
+    ).toBe("sent");
+    expect(calls("unpauseSubscription", id)).toHaveLength(3);
+    // Still paused until the provider says otherwise: the host never claims it resumed.
+    expect((await subscription(id)).state).toBe("paused");
+  });
+
+  it("a scheduled pause is withdrawn only once the gatekeeper says it was sent", async () => {
+    const { id } = await member("withdrawpause");
+    const from = new Date(Date.now() + 5 * DAY).toISOString();
+    await run(
+      "subscription.pause",
+      { id, from, until: new Date(Date.parse(from) + 10 * DAY).toISOString(), reason: "Holiday" },
+      staff(),
+    );
+    gw.nextChange = "unknown";
+    await run("subscription.unpause", { id, reason: "Not going" }, staff());
+    expect((await changeRow(id))?.state).toBe("requested");
+    await run("subscription.unpause", { id, reason: "Not going" }, staff());
+    expect((await changeRow(id))?.state).toBe("withdrawn");
   });
 });

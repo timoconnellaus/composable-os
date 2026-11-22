@@ -88,6 +88,16 @@ export class HostQueue extends RpcTarget {
   readonly tracker = new ObservationTracker();
   readonly pending: PendingApproval[] = [];
   readonly applied: { action: number; actionKind: string | null; title: string }[] = [];
+  /**
+   * Actions that were to apply at once and failed (stage 32b review): the gatekeeper's message
+   * says whether nothing changed or the outcome is unknown, for the host's own call to tell.
+   */
+  readonly failed: {
+    action: number;
+    actionKind: string | null;
+    title: string;
+    message: string;
+  }[] = [];
   /** Work that must finish before the call returns (auto-applies, hook enables). */
   readonly deferred: Promise<unknown>[] = [];
 
@@ -223,6 +233,12 @@ export class HostQueue extends RpcTarget {
         });
         await auditOutboundApplied(db, submission, { ok: true }, decision.judgeUsage);
       } catch (error) {
+        this.failed.push({
+          action,
+          actionKind: description.actionKind?.tag ?? null,
+          title: description.title,
+          message: error instanceof Error ? error.message : String(error),
+        });
         await auditOutboundApplied(
           db,
           submission,

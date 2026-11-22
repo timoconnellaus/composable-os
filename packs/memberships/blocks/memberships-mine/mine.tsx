@@ -91,9 +91,11 @@ export function MyMemberships({
       });
       setChoosing(null);
       setSaid(
-        asked.kind === "upgrade"
-          ? "Asked to change now. The rest of this period is charged to your card; the new plan shows here once the payment provider confirms it."
-          : `Your plan changes on ${day(asked.effectiveAt)}, when this period ends. Nothing is refunded; the new price is charged from then.`,
+        asked.asked === "unknown"
+          ? "We asked the payment provider and did not hear back. Your plan shows here once it answers."
+          : asked.kind === "upgrade"
+            ? "Asked to change now. The rest of this period is charged to your card; the new plan shows here once the payment provider confirms it."
+            : `Your plan changes on ${day(asked.effectiveAt)}, when this period ends. Nothing is refunded; the new price is charged from then.`,
       );
     } catch (e) {
       const details = (e as { details?: { rule?: unknown } }).details;
@@ -128,6 +130,11 @@ export function MyMemberships({
           <CardContent className="grid gap-3">
             <p data-testid="subscription-status">{subscriptionStatus(sub)}</p>
             {changeWords(sub) ? <p data-testid="subscription-change">{changeWords(sub)}</p> : null}
+            {sub.change?.actionUrl ? (
+              <Button onClick={() => window.location.assign(sub.change?.actionUrl ?? "")}>
+                Confirm the new plan's payment
+              </Button>
+            ) : null}
             {choosing === sub.id ? (
               <div className="grid max-w-sm gap-2">
                 <label htmlFor={`change-plan-${sub.id}`}>Move to</label>

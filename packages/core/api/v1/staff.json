@@ -49633,6 +49633,16 @@
           "currency": {
             "type": "string"
           },
+          "asked": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "pending",
+              "unknown",
+              "not_needed"
+            ],
+            "description": "sent: the provider was asked; unknown: it may or may not have been (its next event decides); not_needed: the same price, nothing to ask"
+          },
           "requested": {
             "type": "boolean",
             "const": true
@@ -49645,7 +49655,70 @@
           "effectiveAt",
           "amount",
           "currency",
+          "asked",
           "requested"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "subscription.get",
+        "subscription.list",
+        "subscription.offer.export",
+        "subscription.offer.list"
+      ]
+    },
+    {
+      "name": "subscription.change.withdraw",
+      "description": "Withdraw a subscription's plan change that has not taken effect: one stuck waiting for the payment provider, one whose outcome is unknown, or a downgrade waiting for its period (undo it). A downgrade the provider may already show is put back there: the old price from the next invoice, nothing prorated. An upgrade's pending charge is left to the provider, which drops it within 23 hours if unpaid. A pause is ended with subscription.unpause. Staff only, with subscriptions:manage. A person decides, not an AI assistant.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Subscription id (sbs_…)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "changeId": {
+            "type": "string"
+          },
+          "asked": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "pending",
+              "unknown",
+              "not_needed"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "changeId",
+          "asked"
         ],
         "additionalProperties": false
       },
@@ -49874,6 +49947,47 @@
                   },
                   "requestedAt": {
                     "type": "string"
+                  },
+                  "callOutcome": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sent",
+                          "pending",
+                          "unknown",
+                          "refused"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "What came of asking the provider: unknown means it may or may not have reached it, and the provider's next event decides; staff can withdraw it"
+                  },
+                  "actionUrl": {
+                    "description": "The provider's page to confirm an upgrade's charge, while it waits",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "endOutcome": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sent",
+                          "pending",
+                          "unknown",
+                          "refused"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "What came of ending a pause early: refused or unknown, ask again"
                   }
                 },
                 "required": [
@@ -49886,7 +50000,10 @@
                   "pauseFrom",
                   "pauseUntil",
                   "effectiveAt",
-                  "requestedAt"
+                  "requestedAt",
+                  "callOutcome",
+                  "actionUrl",
+                  "endOutcome"
                 ],
                 "additionalProperties": false
               },
@@ -50243,6 +50360,47 @@
                         },
                         "requestedAt": {
                           "type": "string"
+                        },
+                        "callOutcome": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "sent",
+                                "pending",
+                                "unknown",
+                                "refused"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "What came of asking the provider: unknown means it may or may not have reached it, and the provider's next event decides; staff can withdraw it"
+                        },
+                        "actionUrl": {
+                          "description": "The provider's page to confirm an upgrade's charge, while it waits",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "endOutcome": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "sent",
+                                "pending",
+                                "unknown",
+                                "refused"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "What came of ending a pause early: refused or unknown, ask again"
                         }
                       },
                       "required": [
@@ -50255,7 +50413,10 @@
                         "pauseFrom",
                         "pauseUntil",
                         "effectiveAt",
-                        "requestedAt"
+                        "requestedAt",
+                        "callOutcome",
+                        "actionUrl",
+                        "endOutcome"
                       ],
                       "additionalProperties": false
                     },
@@ -50884,6 +51045,14 @@
           "until": {
             "type": "string"
           },
+          "asked": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "pending",
+              "unknown"
+            ]
+          },
           "requested": {
             "type": "boolean",
             "const": true
@@ -50894,6 +51063,7 @@
           "changeId",
           "from",
           "until",
+          "asked",
           "requested"
         ],
         "additionalProperties": false
@@ -51132,14 +51302,23 @@
           "id": {
             "type": "string"
           },
+          "asked": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "pending",
+              "unknown"
+            ],
+            "description": "unknown: it may or may not have reached the provider; ask again if it stays paused"
+          },
           "requested": {
             "type": "boolean",
-            "const": true,
-            "description": "Asked of the provider; the subscription shows it once the provider confirms"
+            "const": true
           }
         },
         "required": [
           "id",
+          "asked",
           "requested"
         ],
         "additionalProperties": false

@@ -36,6 +36,11 @@ export interface Gateway {
   statusAsks: string[];
   /** What the next subscription checkout reports as its expiry (a test may make it malformed). */
   nextExpiresAt: unknown;
+  /**
+   * Stage 32b: how the next plan change, pause or unpause goes at the gatekeeper: applied (the
+   * default), refused with nothing changed, an unknown outcome, or the call itself failing.
+   */
+  nextChange: "applied" | "refused" | "unknown" | "throw";
 }
 
 export interface PaymentsDouble {
@@ -89,6 +94,7 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
     pages: new Map(),
     statusAsks: [],
     nextExpiresAt: null,
+    nextChange: "applied",
   };
   let connectionId = "";
   const no = () => Promise.reject(new Error("not used in this test"));
@@ -151,13 +157,45 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
           method: input.method,
           request: input.args[0] as Record<string, unknown>,
         });
+        const changing =
+          input.method === "changeSubscription" ||
+          input.method === "pauseSubscription" ||
+          input.method === "unpauseSubscription";
+        const how = changing ? gw.nextChange : "applied";
+        if (changing) gw.nextChange = "applied";
+        if (how === "throw") throw new Error("the gatekeeper did not answer");
+        const action = {
+          action: gw.changes.length,
+          actionKind: `payments.${input.method}`,
+          title: "x",
+        };
         return {
           value:
             input.method === "openPortal"
               ? { url: "https://billing.example/portal" }
-              : { status: "sent", id: gw.changes.length },
+              : { status: how === "applied" ? "sent" : "pending", id: gw.changes.length },
           pending: [],
-          applied: [],
+          applied: changing && how !== "applied" ? [] : [action],
+          ...(how === "refused"
+            ? {
+                failed: [
+                  {
+                    ...action,
+                    message: "The fake provider refused the change, so nothing changed: no.",
+                  },
+                ],
+              }
+            : how === "unknown"
+              ? {
+                  failed: [
+                    {
+                      ...action,
+                      message:
+                        "Stripe failed while changing the subscription, so it may or may not have changed",
+                    },
+                  ],
+                }
+              : {}),
         };
       }
       if (input.method === "send") {

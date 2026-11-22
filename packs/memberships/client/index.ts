@@ -63,6 +63,12 @@ export interface SubscriptionChange {
   pauseUntil: string | null;
   effectiveAt: string | null;
   requestedAt: string;
+  /** What came of asking the provider; `unknown`: its next event decides. */
+  callOutcome?: "sent" | "pending" | "unknown" | "refused" | null;
+  /** The provider's page to confirm an upgrade's charge (3D Secure), while it waits. */
+  actionUrl?: string | null;
+  /** What came of ending a pause early: refused or unknown, staff ask again. */
+  endOutcome?: "sent" | "pending" | "unknown" | "refused" | null;
 }
 
 /** What subscription.change answers. */
@@ -73,6 +79,7 @@ export interface RequestedChange {
   effectiveAt: string | null;
   amount: number;
   currency: string;
+  asked: "sent" | "pending" | "unknown" | "not_needed";
   requested: true;
 }
 
@@ -146,12 +153,19 @@ export type MembershipsOperations = {
   "subscription.pause": {
     kind: "mutation";
     input: { id: string; from?: string; until: string; reason: string };
-    output: { id: string; changeId: string; from: string | null; until: string; requested: true };
+    output: {
+      id: string;
+      changeId: string;
+      from: string | null;
+      until: string;
+      asked: "sent" | "pending" | "unknown";
+      requested: true;
+    };
   };
   "subscription.unpause": {
     kind: "mutation";
     input: { id: string; reason?: string };
-    output: { id: string; requested: true };
+    output: { id: string; asked: "sent" | "pending" | "unknown"; requested: true };
   };
 };
 
@@ -277,12 +291,19 @@ export function changeWords(sub: MembershipSubscription): string | null {
   const c = sub.change;
   if (!c) return null;
   if (c.kind === "pause") {
+    if (c.endOutcome === "refused" || c.endOutcome === "unknown") {
+      return "Ending the pause did not finish: ask again";
+    }
     if (c.state === "applied") return null;
     return `Pause asked: ${c.pauseFrom ? `from ${day(c.pauseFrom)}` : "from now"} until ${day(c.pauseUntil)}`;
   }
   if (c.state === "lapsed")
     return `The change to ${c.toPlanTitle} was not paid, so it did not happen`;
-  if (c.kind === "upgrade") return `Changing to ${c.toPlanTitle} once its charge is paid`;
+  if (c.kind === "upgrade") {
+    return c.actionUrl
+      ? `Changing to ${c.toPlanTitle}: confirm its payment to finish`
+      : `Changing to ${c.toPlanTitle} once its charge is paid`;
+  }
   return `Changes to ${c.toPlanTitle} on ${day(c.effectiveAt)}`;
 }
 

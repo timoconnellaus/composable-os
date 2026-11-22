@@ -44,6 +44,11 @@ export interface IntegrationCallResult {
   pending: PendingApproval[];
   /** Outbound actions the call submitted that applied at once (auto-approved). */
   applied: { action: number; actionKind: string | null; title: string }[];
+  /**
+   * Actions that were to apply at once and failed, with the gatekeeper's message (stage 32b):
+   * the host's own subscription calls tell a refusal (nothing changed) from an unknown outcome.
+   */
+  failed?: { action: number; actionKind: string | null; title: string; message: string }[];
 }
 
 export interface ConnectStart {

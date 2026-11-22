@@ -80,4 +80,42 @@ difference in price and was asked within two days; any other amount stays flagge
   with `proration_behavior=none`; a pending update's expiry and the read during it.
 - The fake provider prorates on the time left, applies an upgrade only once its invoice is paid
   (`card_declines`, `recover`), and applies a downgrade's price at once, charged from the renewal.
-- Undoing a waiting downgrade is not built: staff end the subscription or wait for the period.
+- Undoing a waiting downgrade: staff withdraw it (amended below).
+
+## Amended after review (2026-11-22, before merge)
+An independent review found the host kept trusting a change after it should have stopped, and
+closed one on an answer that did not say whether it happened. Each is fixed, with a test that fails
+without it (`packages/core/test/subscription-changes.test.ts`, "the review of 32b").
+- **One definition of open.** A change is open while it is `requested` or `waiting` and before its
+  `expires_at`: a day after it was asked (the provider drops a pending update within 23 hours), a
+  week after a waiting downgrade's period end. `openChange` returns it open or stale; every reader
+  (the read's price taken as agreed, `followChange`, the proration match, the declined-upgrade
+  words) uses only the open one, and the reader's batch closes a stale one as `lapsed`. The view's
+  `change_state` says the same in SQL. An upgrade never paid cannot later turn a coupon renewal
+  into its "proration", nor a price edited at the provider into the upgrade.
+- **A proration is the provider's subscription-update invoice**: `billing_reason`
+  `subscription_update`, at most the difference in price, for an open upgrade or one applied in
+  the last two days (one equal to the old price is matched). A paid update invoice with no upgrade
+  to take it tells staff for each invoice. Stripe applies a pending update when its invoice is paid
+  (docs.stripe.com/billing/subscriptions/pending-updates), so its read then shows the new price,
+  which the host reports as a change at the provider.
+- **What came of the call is kept, audited.** The host's own call now returns which actions applied
+  and, for one that failed, the gatekeeper's words (`IntegrationCallResult.failed`). The change
+  records `sent`, `pending`, `unknown` or `refused` (`call_outcome`), with an audit row
+  (`subscription.change.outcome`). Only a refusal ("nothing changed", the gatekeeper's
+  `ActionApplyError`) closes it; an unknown outcome, or a call that failed on the way, leaves it
+  open for verified reads to decide until it expires, shown to staff and the payer.
+- **`subscription.change.withdraw`** (staff, `subscriptions:manage`, a person only) closes a change
+  stuck asked, unknown, or a downgrade waiting (undoing it). A downgrade the provider may show is put
+  back there through the gatekeeper (the old price from the next invoice, nothing prorated); an
+  upgrade's pending update is left to expire. A waiting downgrade whose price is put back at the
+  provider is closed by the read.
+- **A downgrade's date is the provider's**: the end of the period of the verified read that shows
+  its price, not the period the host had when it was asked; and any change is refused while the
+  host's period has ended and the renewal has not arrived.
+- **An upgrade whose charge needs the payer to confirm it** (3D Secure) keeps the provider's page on
+  the change (`actionUrl`), shown in the member's block as "Confirm the new plan's payment".
+- **The gatekeeper takes plan changes, pauses and their end only from the host's own call**
+  (`isHostOrders`, as the portal): the host writes what it asks before asking, so one asked another
+  way would be a change it never asked for. An agent's session is refused before anything is queued.
+- A change of a subscription with nothing to pay is refused before anything is written.

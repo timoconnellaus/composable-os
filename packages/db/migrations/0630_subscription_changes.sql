@@ -9,11 +9,15 @@
 --   requested  asked of the provider (written before the call is made, after the operation's
 --              batch claims the subscription's one open change); not yet in a verified read
 --   waiting    a downgrade the provider shows (its price is the new one), whose terms follow when
---              the next period starts (`effective_at`); a pause asked for later, not yet started
+--              the next period starts (`effective_at`, the period end of the read that showed it)
 --   applied    the member holds the new plan (a change), or the pause is running or over
---   lapsed     never shown by the provider: the upgrade's charge was not paid within a day (its
---              pending update expires within 23 hours), or the call failed before reaching it
---   withdrawn  a pause ended before it started, by staff
+--   lapsed     past `expires_at` and never shown by the provider (an upgrade's pending update
+--              expires within 23 hours), or the provider refused the call outright
+--   withdrawn  closed by staff (`subscription.change.withdraw`, `subscription.unpause` of a pause
+--              not started), or a waiting downgrade the provider no longer shows (its price put back)
+--
+-- One definition of "open": state requested or waiting and `expires_at` still ahead. Every reader
+-- (the host's TypeScript and this view) uses it; a row found past it is closed as lapsed.
 CREATE TABLE core_subscription_change (
   -- sbc_… (ids.ts); the provider's idempotency key for the call.
   id TEXT PRIMARY KEY NOT NULL,
@@ -33,6 +37,20 @@ CREATE TABLE core_subscription_change (
   -- When the member's terms follow a change: the period's end for a downgrade, the moment the
   -- provider showed it for an upgrade.
   effective_at TEXT,
+  -- When an open change stops being trusted, never shown by the provider: a day after it was
+  -- asked (a pause: a day after it was due to start), a week after a waiting downgrade's period end.
+  expires_at TEXT NOT NULL,
+  -- What came of the host's call to the provider: sent (applied at the gatekeeper), pending (waiting
+  -- for approval), unknown (it may or may not have reached the provider: verified reads decide),
+  -- refused (it did not). Null until the call returns.
+  call_outcome TEXT CHECK (call_outcome IS NULL OR call_outcome IN ('sent', 'pending', 'unknown', 'refused')),
+  call_error TEXT,
+  -- The provider's page to confirm an upgrade's charge (3D Secure), while it waits.
+  action_url TEXT,
+  -- The call that ends or undoes it: ending a pause early, putting a withdrawn downgrade's price back.
+  end_outcome TEXT CHECK (end_outcome IS NULL OR end_outcome IN ('sent', 'pending', 'unknown', 'refused')),
+  end_error TEXT,
+  end_at TEXT,
   reason TEXT NOT NULL,
   -- Who asked: `staff:<user id>` or `customer:<customer id>`.
   requested_by TEXT NOT NULL,
@@ -52,7 +70,8 @@ CREATE INDEX core_subscription_change_subscription_idx
 CREATE VIEW rec_subscription_change AS
 SELECT
   id, subscription_id, kind, state, from_plan_id, from_plan_title, from_amount, to_plan_id,
-  to_plan_title, to_amount, pause_from, pause_until, effective_at, reason, requested_at,
+  to_plan_title, to_amount, pause_from, pause_until, effective_at, expires_at, call_outcome,
+  end_outcome, reason, requested_at,
   applied_at
 FROM core_subscription_change;
 
@@ -70,10 +89,13 @@ SELECT
   c.id AS change_id,
   c.kind AS change_kind,
   CASE
-    WHEN c.kind = 'upgrade' AND c.state = 'requested'
-      AND c.requested_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day') THEN 'lapsed'
+    WHEN c.state IN ('requested', 'waiting')
+      AND c.expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now') THEN 'lapsed'
     ELSE c.state
   END AS change_state,
+  c.call_outcome AS change_call_outcome,
+  c.action_url AS change_action_url,
+  c.end_outcome AS change_end_outcome,
   c.to_plan_id AS change_to_plan_id,
   c.to_plan_title AS change_to_plan_title,
   c.to_amount AS change_to_amount,

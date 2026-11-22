@@ -209,9 +209,23 @@ Use a membership plan of 30.00 and two more (70.00, 15.00), with `pauseMinDays` 
    schedule is still attached afterwards (if it is, record it: a later plan change would be
    refused until it is released).
 6. **Pause later, then withdraw; end a pause early.** **Check 35:** a `pause_at` timestamp is
-   accepted and nothing changes until then; releasing the schedule withdraws it; on a paused one,
-   releasing the schedule then `POST /v1/subscriptions/:id/resume` with
-   `billing_cycle_anchor[type]=now` and `payment_behavior=resume_on_payment_success` resumes it.
+   accepted and nothing changes until then; `pause_schedules=""` on the schedule clears it (then a
+   release); on a paused one, updating the schedule with `pause_schedules[0][key]` and
+   `pause_schedules[0][resume][resume_at][type]=now` resumes it at once and charges the new period.
+   Record whether a release on its own keeps a paused subscription paused (not documented).
+   **Check 37:** with a card that declines, ending a pause leaves it paused; the host shows "ending
+   the pause did not finish", and asking again once the card works resumes it.
+   **Check 38:** `POST /v1/subscriptions/:id/resume` on a paused subscription with no schedule
+   accepts `billing_cycle_anchor[type]=now` with the pinned version.
+6a. **Upgrade needing 3D Secure.** With a card that requires authentication, ask an upgrade.
+   **Check 39:** `invoice.payment_action_required` arrives for the update invoice
+   (`billing_reason` `subscription_update`); the member's block shows "Confirm the new plan's
+   payment" with the provider's page; confirming it applies the upgrade.
+6b. **A pending update's charge paid after it expired.** **Check 40:** record what Stripe does with
+   an update invoice paid after 23 hours (voided, or paid and applied): the host tells staff for
+   each such invoice, and a read at the new price is reported as a change at the provider.
+6c. **Withdraw a waiting downgrade.** **Check 41:** staff Withdraw the change; Stripe accepts the
+   old price as `price_data` with `proration_behavior=none`; the next renewal is the old price.
 7. **Nobody pauses collection.** **Check 36:** the dashboard's "pause payment collection" is not
    used: it keeps a subscription active, and the host keeps giving access.
 

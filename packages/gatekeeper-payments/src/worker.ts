@@ -455,6 +455,20 @@ async function isHostOrdersQueue(queue: unknown): Promise<boolean> {
   }
 }
 
+/**
+ * A plan change, a pause and its end are asked only by the host (stage 32b review), as the portal
+ * is: the host writes the change it asks for before asking, and follows it from verified reads, so
+ * one asked another way (Code Mode, an extension's tool, MCP, the assistant) would be a change the
+ * host never asked for. Cancel and resume stay open to a session that waits for a person.
+ */
+async function requireHostQueue(queue: unknown): Promise<void> {
+  if (!(await isHostOrdersQueue(queue))) {
+    throw new Error(
+      "Plan changes and pauses are asked only by the host, through its own subscription operations.",
+    );
+  }
+}
+
 class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
   readonly #backend: SessionBackend;
   readonly #queue: RpcStub<ApprovalQueue>;
@@ -616,6 +630,7 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
     input: PaymentsChangeSubscriptionInput,
   ): Promise<PaymentsSubscriptionChangeReceipt> {
     const parsed = parseChangeSubscriptionInput(input);
+    await requireHostQueue(this.#queue);
     this.#backend.open();
     const id = await this.#backend.submitChange(this.#queue, {
       provider: this.#backend.provider,
@@ -628,6 +643,7 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
     input: PaymentsPauseSubscriptionInput,
   ): Promise<PaymentsSubscriptionChangeReceipt> {
     const parsed = parsePauseSubscriptionInput(input);
+    await requireHostQueue(this.#queue);
     this.#backend.open();
     const id = await this.#backend.submitPause(this.#queue, {
       provider: this.#backend.provider,
@@ -640,6 +656,7 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
     input: PaymentsUnpauseSubscriptionInput,
   ): Promise<PaymentsSubscriptionChangeReceipt> {
     const parsed = parseUnpauseSubscriptionInput(input);
+    await requireHostQueue(this.#queue);
     this.#backend.open();
     const id = await this.#backend.submitUnpause(this.#queue, {
       provider: this.#backend.provider,
