@@ -542,15 +542,27 @@ footer a {
     padding: 0 14px;
   }
 }
-/* The smallest phones: the headline steps down so the hero's action is nearer the first screen. */
+/* The smallest phones: the headline steps down so the hero's action is nearer the first screen,
+   and the bar keeps the name and drops the mark. Text is a few pixels wider where glyph advances
+   are rounded to whole pixels (Chrome on Linux: "Composable OS" is 118px there, 113px on a Mac),
+   so the bar leaves room for that, not just for the narrowest rendering. */
 @media (max-width: 374px) {
   h1 {
     font-size: 32px;
   }
-}
-@media (max-width: 359px) {
   .nav .logo svg {
     display: none;
+  }
+}
+@media (max-width: 359px) {
+  .nav {
+    gap: 6px;
+  }
+  .wrap {
+    padding: 0 16px;
+  }
+  .nav .btn {
+    padding: 0 12px;
   }
 }
 /* A phone on its side: a shorter bar leaves more of the 360px for the page. */
