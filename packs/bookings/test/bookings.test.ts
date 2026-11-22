@@ -106,6 +106,7 @@ describe("bookings pack (test host)", () => {
       "lateMinutes",
       "promotionMinutes",
       "reminderMinutes",
+      "dropInPrice",
       "staffOnly",
     ]);
     expect(h.manifest.settings).toMatchObject({
@@ -222,6 +223,7 @@ describe("bookings pack (test host)", () => {
   it("grants record and my operations by object only, and keeps the booking rules a person's", () => {
     const m = host().manifest;
     expect(m.permissions.operations).toEqual([
+      "order.startHeld",
       "public.list",
       "public.get",
       "capacity.get",
@@ -236,6 +238,7 @@ describe("bookings pack (test host)", () => {
       "lateMinutes",
       "promotionMinutes",
       "reminderMinutes",
+      "dropInPrice",
       "staffOnly",
     ]) {
       expect(rules[name]?.personApproves, name).toBe(true);
@@ -256,6 +259,7 @@ describe("bookings pack (test host)", () => {
       ["timetable", ["customer", "public"], "read"],
       ["classGet", ["customer", "public"], "read"],
       ["book", ["customer"], "write"],
+      ["buy", ["customer", "public"], "write"],
       ["cancel", ["customer"], "write"],
       ["leaveWaitlist", ["customer"], "write"],
       ["mine", ["customer"], "read"],
@@ -572,9 +576,83 @@ describe("bookings pack (test host)", () => {
     });
   });
 
+  it("declares a drop-in: held while its order is unpaid, priced by the class type or the org", () => {
+    const m = host().manifest;
+    expect(m.objects.booking?.sellable).toEqual({
+      price: "dropInPrice",
+      tax: { code: "txcd_50021003" },
+      moves: {
+        held: "pending",
+        paid: "booked",
+        expired: "expired",
+        refund: ["cancelled", "excused", "cancelled_by_us"],
+        price: { field: "class.classType.dropInPrice", setting: "dropInPrice" },
+        title: "class.title",
+        order: "dropInOrder",
+      },
+    });
+    // Only the host makes a booking held, and only the host moves it out of held.
+    expect(m.objects.booking?.states?.create?.in?.pending).toEqual(["host"]);
+    expect(m.fields?.["programs.classtype"]?.dropInPrice?.personApproves).toBe(true);
+    expect(m.settings?.dropInPrice?.personApproves).toBe(true);
+    expect(m.permissions.operations).toContain("order.startHeld");
+  });
+
+  it("buy asks the host to make the booking held with its order, and passes on what it refused", async () => {
+    let asked: Record<string, unknown> | undefined;
+    const ok = host({
+      "order.startHeld": (input) => {
+        asked = input;
+        return {
+          id: "ord_1",
+          total: 2500,
+          currency: "AUD",
+          expiresAt: "2026-12-01T10:15:00.000Z",
+          recordId: "bkg_new",
+          token: "t".repeat(64),
+        };
+      },
+    });
+    expect(
+      await ok.runTool("buy", { classId: "cls_1", email: "v@x.test" }, { caller: PUBLIC }),
+    ).toEqual({
+      result: "pending",
+      bookingId: "bkg_new",
+      classId: "cls_1",
+      orderId: "ord_1",
+      total: 2500,
+      currency: "AUD",
+      expiresAt: "2026-12-01T10:15:00.000Z",
+      token: "t".repeat(64),
+    });
+    // No price, no state, no person: the host's.
+    expect(asked).toEqual({
+      object: "bookings.booking",
+      values: { class: "cls_1" },
+      email: "v@x.test",
+    });
+    const cases: [string, string][] = [
+      ["no_price", "no_drop_in"],
+      ["not_for_sale", "no_drop_in"],
+      ["buyer_unclear", "ask_desk"],
+      ["capacity", "full"],
+      ["unique", "already_booked"],
+      ["state_staff_only", "staff_only"],
+      ["state_window_not_open", "not_open"],
+    ];
+    for (const [rule, reason] of cases) {
+      const h = host({ "order.startHeld": () => refusal(rule) });
+      expect(
+        await h.runTool("buy", { classId: "cls_1" }, { caller: MEMBER }),
+      ).toMatchObject({ result: "refused", reason });
+    }
+  });
+
   it("cancel previews the host's pick, then cancels into what the member was told", async () => {
     const writes: Record<string, unknown>[] = [];
+    const own = { "my.get": () => ({ id: "bkg_1", values: { state: "booked" } }) };
     const h = host({
+      ...own,
       "state.resolve": () => ({ state: "late_cancelled", label: "Cancelled late", from: "booked" }),
       "my.update": (input) => {
         writes.push(input);
@@ -603,7 +681,7 @@ describe("bookings pack (test host)", () => {
       },
     ]);
     // Told "in time", and it became late meanwhile: refused as changed, the use not lost.
-    const late = host({ "my.update": () => refusal("state_window_closed") });
+    const late = host({ ...own, "my.update": () => refusal("state_window_closed") });
     expect(
       await late.runTool(
         "cancel",
@@ -612,7 +690,15 @@ describe("bookings pack (test host)", () => {
       ),
     ).toMatchObject({ result: "refused", reason: "changed" });
     // After the start nothing can be cancelled.
-    const started = host({ "state.resolve": () => refusal("state_window_closed") });
+    const started = host({ ...own, "state.resolve": () => refusal("state_window_closed") });
+    // A drop-in's cancel in time says the money goes back once staff approve it.
+    const dropIn = host({
+      "my.get": () => ({ id: "bkg_1", values: { state: "booked", dropInOrder: "ord_1" } }),
+      "state.resolve": () => ({ state: "cancelled", label: "Cancelled", from: "booked" }),
+    });
+    expect(
+      await dropIn.runTool("cancel", { bookingId: "bkg_1" }, { caller: MEMBER }),
+    ).toMatchObject({ result: "preview", state: "cancelled", dropIn: true });
     expect(
       await started.runTool("cancel", { bookingId: "bkg_1" }, { caller: MEMBER }),
     ).toMatchObject({ result: "refused", reason: "too_late" });
