@@ -3135,9 +3135,168 @@
                   "not_running",
                   "person_exists",
                   "possible_duplicates",
-                  "waitlist_closed"
+                  "waitlist_closed",
+                  "no_drop_in",
+                  "ask_desk"
                 ],
-                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "no_drop_in: the class cannot be paid for online (no drop-in price). ask_desk: the address given cannot be used, or matches several people. waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, ended, not_covered…)",
+                "type": ["string", "null"]
+              },
+              "opensAt": {
+                "type": ["string", "null"]
+              },
+              "closesAt": {
+                "type": ["string", "null"]
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["id", "name", "reasons"],
+                  "additionalProperties": false
+                },
+                "description": "For person_exists and possible_duplicates: who is already on file"
+              }
+            },
+            "required": ["result", "reason", "message", "detail", "opensAt", "closesAt"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.bookings.classGet",
+        "x.bookings.family",
+        "x.bookings.mine",
+        "x.bookings.timetable"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.buy",
+      "description": "Pay for one class (a drop-in), on the website: for a visitor, or a member with nothing to spend on it. The host makes the booking held while it is paid for (a place kept), prices it from the class's drop-in price, and starts its order; nothing is paid here. The buyer then calls order.checkout with the order's id (and a guest's token) to pay on the provider's page: the verified payment books them; an order left unpaid expires after a few minutes and the place goes back. The same rules as booking hold (when booking opens and closes, booked by the gym only, one booking per person per class); a full class is refused (only members with a membership or pass wait for a place). A signed-in member buys as themselves, or for a child the gym linked to them (forPersonId; they pay, it is the child's booking); a guest gives their email address. Cancelled in time, or by the gym, the money goes back to the card once a member of staff approves the refund; cancelled late, it is kept. Amounts in the currency's minor unit. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "forPersonId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A child of theirs to book for instead (a dependant the gym linked to them; see family). The child's own membership or pass pays, never the parent's."
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "description": "A guest's email address"
+          }
+        },
+        "required": ["classId"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "pending"
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "classId": {
+                "type": "string"
+              },
+              "orderId": {
+                "type": "string"
+              },
+              "total": {
+                "type": "number"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "description": "When the held place goes back if unpaid",
+                "type": ["string", "null"]
+              },
+              "token": {
+                "description": "A guest's key to this order, shown once",
+                "type": ["string", "null"]
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "classId",
+              "orderId",
+              "total",
+              "currency",
+              "expiresAt",
+              "token"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_open",
+                  "closed",
+                  "staff_only",
+                  "no_use",
+                  "already_booked",
+                  "full",
+                  "too_late",
+                  "not_found",
+                  "changed",
+                  "not_running",
+                  "person_exists",
+                  "possible_duplicates",
+                  "waitlist_closed",
+                  "no_drop_in",
+                  "ask_desk"
+                ],
+                "description": "no_drop_in: the class cannot be paid for online (no drop-in price). ask_desk: the address given cannot be used, or matches several people. waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -3238,11 +3397,15 @@
                 "type": "boolean",
                 "description": "A late cancel keeps the use the booking spent"
               },
+              "dropIn": {
+                "type": "boolean",
+                "description": "Paid for on its own: in time, the money goes back once staff approve it"
+              },
               "message": {
                 "type": "string"
               }
             },
-            "required": ["result", "state", "late", "message"],
+            "required": ["result", "state", "late", "dropIn", "message"],
             "additionalProperties": false
           },
           {
@@ -3267,9 +3430,11 @@
                   "not_running",
                   "person_exists",
                   "possible_duplicates",
-                  "waitlist_closed"
+                  "waitlist_closed",
+                  "no_drop_in",
+                  "ask_desk"
                 ],
-                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "no_drop_in: the class cannot be paid for online (no drop-in price). ask_desk: the address given cannot be used, or matches several people. waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -3567,9 +3732,11 @@
                   "not_running",
                   "person_exists",
                   "possible_duplicates",
-                  "waitlist_closed"
+                  "waitlist_closed",
+                  "no_drop_in",
+                  "ask_desk"
                 ],
-                "description": "waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+                "description": "no_drop_in: the class cannot be paid for online (no drop-in price). ask_desk: the address given cannot be used, or matches several people. waitlist_closed: the class is full and it is too close to the start to wait for a place (nobody is moved in from the waitlist then). not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
               },
               "message": {
                 "type": "string"
@@ -3643,7 +3810,7 @@
           },
           "state": {
             "type": "string",
-            "enum": ["booked", "waiting", "cancelled", "late_cancelled", "left"]
+            "enum": ["booked", "pending", "waiting", "cancelled", "late_cancelled", "left"]
           },
           "upcoming": {
             "default": true,
@@ -3684,6 +3851,10 @@
                 "holderId": {
                   "type": ["string", "null"]
                 },
+                "dropInOrderId": {
+                  "description": "A drop-in's order (pending: pay it with order.checkout); null otherwise",
+                  "type": ["string", "null"]
+                },
                 "classId": {
                   "type": ["string", "null"]
                 },
@@ -3717,6 +3888,7 @@
                 "state",
                 "position",
                 "holderId",
+                "dropInOrderId",
                 "classId",
                 "title",
                 "startsAt",

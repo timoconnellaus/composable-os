@@ -140,6 +140,13 @@
       "hostInternal": true
     },
     {
+      "name": "order.startHeld",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "write",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
       "name": "order.view",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
@@ -219,6 +226,12 @@
     {
       "name": "x.bookings.book",
       "audiences": ["customer"],
+      "risk": "write",
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.buy",
+      "audiences": ["customer", "public"],
       "risk": "write",
       "pack": "bookings"
     },
