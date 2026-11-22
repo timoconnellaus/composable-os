@@ -57,3 +57,11 @@ already repoints. What cannot move, and why: an order keeps the address it was p
 (`email`), because it is what the buyer typed and the receipt went to; so "has this person
 bought" (`hasBought`, the `buyers` sign-up mode, ADR 0458) reads the Person's orders as well as the
 address's, and the survivor counts as a buyer under any of their live addresses.
+
+## Amended 2026-11-22 (stage 32b, build step 6): naming a holder
+Staff may name the holder (`subscription.start { holderPersonId }`, a live Person other than the
+payer): the payer, by email, is billed and owns the portal, cancel and resume; the trial, access
+and what the subscription grants (a membership, [ADR 0510](0510-what-a-subscription-grants.md))
+are the holder's. A customer naming a holder is refused (`rule: "holder"`) until stage 31's family
+link: then `holderFor` (`subscriptions/subscriptions.ts`) lets a customer name a dependant the link
+shows, and nothing else changes. The two columns are no longer always equal.

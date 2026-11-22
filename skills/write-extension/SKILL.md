@@ -164,8 +164,13 @@ extension declares it; it never implements it. Each behaviour the platform has i
   in the same batch, and voids them on a full refund. The granted object declares `states` with a
   `host` move into `void` from every state that is not final; a `code` goes in a `readOnly` text
   field; every required field must be set, and the granted object has no `owner`, and no
-  `requireOneOf` or choice `requires` the grant does not always fill. A line that grants holds at
-  most the record's `maxPerOrder` (10 when unset) and an order at most 100 grants. Only a pack or
+  `requireOneOf` or choice `requires` the grant does not always fill. What is granted for a time
+  (a pass valid for 30 days) adds `valid: { from?, until?, days?: "item.<number field>" }`: the
+  host writes its dates when it grants it. Something a Person may buy only once (an intro offer)
+  declares `onePerPerson: "<boolean field>"`: while true on a record, one per Person across the
+  object's records with it on, bought signed in, held from the order's start (ADR 0512). A line
+  that grants holds at most the record's `maxPerOrder` (10 when unset) and an order at most 100
+  grants. Only a pack or
   the org's own extension (its client repo) may declare `sellable`: one written in the workspace
   is refused, since selling to the public is a reviewed change. Never create tickets or check a
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
@@ -269,7 +274,13 @@ extension declares it; it never implements it. Each behaviour the platform has i
   every live record while the host's record says it runs. The one free trial per person, the
   provider's page, cancelling and the portal are the host's: a tool or a block never decides them,
   and a native block never calls a subscription's billing operation (the block lint). See Courses'
-  `plan`.
+  `plan`. A plan whose subscription gives a record of its own (a membership, an allowance holder)
+  declares `sellable.recurring.grants: { object, set, from?, until?, states }` (`set` from `item`,
+  `item.<field>`, `subscription`, `subscription.holder`, `subscription.payer`; `states` maps each
+  subscription state to one of the granted object's, `ended`'s final, with host moves between them):
+  the host makes it when the provider first reports the subscription running and moves it with
+  every verified event, its `until` when it stops giving. It is not the `recurring` behaviour
+  above. See Memberships' `plan` (ADR 0510).
 - **An extension built on another** declares `requires: ["<id>"]` (Courses requires Programs): the
   host refuses to install it until that one is installed and on.
 
