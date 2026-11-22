@@ -9,6 +9,7 @@ import {
   type ActingUser,
   accessProblems,
   getObject,
+  hasBought,
   holdsAccess,
   memoryEventSink,
   PAST_DUE_GRACE_DAYS,
@@ -32,6 +33,7 @@ import { paymentsDouble } from "./payments-double.ts";
 const SCHOOL = extId("academy");
 const PLAN = `${SCHOOL}.plan`;
 const COURSE = `${SCHOOL}.course`;
+const BOOK = `${SCHOOL}.book`;
 const RETURN = "https://shop.example.com/account";
 const DAY = 86_400_000;
 
@@ -42,6 +44,7 @@ let admin: ActingUser;
 let plan: string;
 let plan2: string;
 let courses: string[];
+let book: string;
 
 const as = (buyer: Buyer) => outside(buyer.principal, { integrations: runtime, events });
 const staff = () => context(admin, { integrations: runtime, events });
@@ -177,6 +180,17 @@ beforeAll(async () => {
           sellable: { price: "price", recurring: { interval: "month", trialDays: "trialDays" } },
           public: { read: ["name", "price", "trialDays"] },
         },
+        book: {
+          label: "Book",
+          plural: "Books",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name", required: true },
+            price: { type: "currency", label: "Price", currency: CURRENCY },
+          },
+          sellable: { price: "price" },
+          public: { read: ["name", "price"] },
+        },
         course: {
           label: "Course",
           plural: "Courses",
@@ -205,6 +219,7 @@ beforeAll(async () => {
     await create(COURSE, { title: "Handstands" }),
     await create(COURSE, { title: "Hips" }),
   ];
+  book = await create(BOOK, { name: "Workbook", price: 15 });
   await payments.connect(admin.id);
 });
 
@@ -641,6 +656,76 @@ describe("a person merge moves their subscriptions (review of 32a)", () => {
       payer_person_id: b.principal.personId,
       holder_person_id: b.principal.personId,
     });
+  });
+});
+
+describe("a person merge moves their orders (issue #221)", () => {
+  it("a guest buyer merged into a signed-up Person: their orders, buying, and paid periods follow", async () => {
+    const guest = outside(PUBLIC, { integrations: runtime, events });
+    const guestEmail = `${unique("buyer")}@buyers.example`.toLowerCase();
+    // A guest buys a book (Person A, made from the address) and pays.
+    const order = await run<{ id: string; token: string }>(
+      "order.start",
+      { lines: [{ object: BOOK, id: book, quantity: 1 }], email: guestEmail },
+      guest,
+    );
+    await run("order.checkout", { id: order.id, token: order.token, returnUrl: RETURN }, guest);
+    await payments.providerPays(order.id);
+    // Staff start a subscription for the same address; a period is paid on it.
+    const started = await staffStart(guestEmail);
+    await deliver(
+      "checkout_completed",
+      read(started.subscriptionId, { status: "active", trialEnd: null }),
+    );
+    await payments.deliver({
+      kind: "subscription",
+      provider: "fake",
+      eventId: `fevt_${unique("i")}`,
+      trigger: "invoice_paid",
+      subscription: read(started.subscriptionId, { status: "active", trialEnd: null }),
+      invoice: {
+        ref: `fin_${unique("i")}`,
+        status: "paid",
+        amountPaid: 2900,
+        amountDue: 2900,
+        currency: CURRENCY,
+        paymentRef: `fpi_${unique("p")}`,
+        periodStart: new Date().toISOString(),
+        periodEnd: new Date(Date.now() + 30 * DAY).toISOString(),
+        billingReason: "subscription_create",
+        attemptCount: 1,
+        nextAttemptAt: null,
+        hostedUrl: null,
+      },
+      occurredAt: new Date().toISOString(),
+    });
+    const personA = String(
+      (
+        await env.DB.prepare("SELECT person_id FROM core_order WHERE id = ?")
+          .bind(order.id)
+          .first<{ person_id: string }>()
+      )?.person_id,
+    );
+    const { results: periods } = await env.DB.prepare(
+      "SELECT id FROM core_order WHERE subscription_id = ?",
+    )
+      .bind(started.subscriptionId)
+      .all<{ id: string }>();
+    expect(periods).toHaveLength(1);
+    // They sign up under another address (Person B), who has bought nothing under it.
+    const b = await createBuyer(admin, "laterSignUp");
+    expect(await hasBought(db.query, b.email)).toBe(false);
+    await run("person.merge", { survivorId: b.principal.personId, mergedId: personA }, staff());
+    // B reads both orders (the book and the paid period) as their own.
+    for (const id of [order.id, periods[0]?.id]) {
+      expect(await run<{ id: string }>("order.get", { id }, as(b))).toMatchObject({ id });
+    }
+    // And counts as having bought, under the address they sign in with (sign-up mode buyers).
+    expect(await hasBought(db.query, b.email)).toBe(true);
+    expect(await hasBought(db.query, guestEmail)).toBe(true);
+    // Nobody else reads them.
+    const other = await createBuyer(admin, "notThem");
+    expect((await refusal(run("order.get", { id: order.id }, as(other)))).code).toBe("not_found");
   });
 });
 

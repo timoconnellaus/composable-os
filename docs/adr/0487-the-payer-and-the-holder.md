@@ -46,5 +46,14 @@ that guesses, row by row, which role the stored Person had.
 `core_subscription_trial` to the survivor in the merge's batch
 (`subscriptions/merge.ts`), so a guest who later signs up under another address and is merged
 keeps their access, sees and cancels their subscription, and does not get a second trial. There
-is no unmerge: restoring the merged Person (`person.restore`) does not move them back. Orders are
-not repointed by a merge (as before this stage).
+is no unmerge: restoring the merged Person (`person.restore`) does not move them back.
+
+**Orders move too** (issue #221, the same batch, `orders/merge.ts`): `core_order.person_id`, so
+the survivor reads every order of the merged Person, the paid periods of a moved subscription
+among them. Nothing else of an order names a Person: its lines (the customer's read of a line is
+its order's person), payments, refunds and grants belong to the order, and what a paid line
+granted (a ticket, an enrolment) is an extension record whose holder relation `person.merge`
+already repoints. What cannot move, and why: an order keeps the address it was placed with
+(`email`), because it is what the buyer typed and the receipt went to; so "has this person
+bought" (`hasBought`, the `buyers` sign-up mode, ADR 0458) reads the Person's orders as well as the
+address's, and the survivor counts as a buyer under any of their live addresses.

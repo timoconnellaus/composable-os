@@ -100,3 +100,8 @@ started a checkout gets the same answer and no code). Each check removed, its te
   the fake integration vendor's helper routes (`/gatekeeper/fake/*`, `INTEGRATIONS_FAKE_PROVIDER`)
   have no authentication. A staging host on the public internet should sit behind Access for staff
   paths (`docs/deploying.md`).
+
+## Note (2026-11-22, issue #221)
+A buyer is also the live Person whose order it is now: `hasBought` reads orders placed with the
+address or owned by the Person who has that address, so after a person merge (which moves
+orders, ADR 0487) the survivor can sign in under any of their addresses in `buyers` mode.

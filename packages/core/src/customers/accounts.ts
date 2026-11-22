@@ -137,7 +137,8 @@ export async function customerMayGetCode(
 }
 
 /**
- * Whether `address` is the buyer's address of an order a verified payment was applied to
+ * Whether `address` is the buyer's address of an order a verified payment was applied to, or the
+ * address of the live Person whose order it is now (a merge moves orders, #221)
  * (`paid > 0`, ADR 0458): paid and part-paid orders, and ones refunded or cancelled after a
  * payment. Never a checkout that was only started (pending, expired, cancelled unpaid): starting
  * one costs nothing, so it cannot make an address able to sign in.
@@ -146,10 +147,19 @@ export async function hasBought(db: Kysely<CoreDatabase>, address: string): Prom
   // Through the seam as the org (no caller: the address is the one being asked about).
   const { orgReader, visibleSource } = await import("../visibility/index.ts");
   const { orderObject } = await import("../fields/order.ts");
+  // Placed with this address, or by the live Person who has it now: after a person merge their
+  // orders are the survivor's (#221), whichever address each was placed with.
+  const owners = db
+    .selectFrom("core_person_emails as e")
+    .innerJoin("core_person as p", "p.id", "e.person_id")
+    .select("e.person_id")
+    .where("e.email", "=", address)
+    .where("e.live", "=", 1)
+    .where("p.deleted_at", "is", null);
   const row = await db
     .selectFrom(visibleSource(orgReader(db), orderObject))
     .select("id")
-    .where("email", "=", address)
+    .where((eb) => eb.or([eb("email", "=", address), eb("person_id", "in", owners)]))
     .where("paid", ">", 0)
     .executeTakeFirst();
   return Boolean(row);
