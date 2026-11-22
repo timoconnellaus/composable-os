@@ -331,6 +331,11 @@ export interface AutomationEvent {
   /** `<extension>.<automation>` */
   automation: string;
   runId: string;
+  /**
+   * A retry's first run: the run its chain of retries began with (ADR 0574). Key a send by it
+   * (`originalRunId ?? runId`) so a retried run never sends again what an earlier one sent.
+   */
+  originalRunId?: string;
   trigger: AutomationTriggerType;
   /** The trigger record (record, fieldChanged, dateRelative, manual), as read when the run started. */
   record?: {

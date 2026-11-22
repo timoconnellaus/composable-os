@@ -22,3 +22,17 @@ from its start, and the gatekeeper queued the first three again: members got the
 `packages/gatekeeper-email-send/test/calendar.test.ts` (the same key twice: one submission, the
 same receipt; a malformed key refused), `packs/bookings/test/automations.test.ts` (a gatekeeper
 failing on the second email, the run retried: each address once, keys `run:0` to `run:3`).
+
+## Amended 2026-11-23, after the second review of PR #256: what is covered
+- **Covered**: a send step retried within a run (the Workflow's own retries, and the waits of
+  ADR 0573 while a queue is full); and a **retry** of a failed run, however many times, because a
+  retry carries the run its chain began with (`event.originalRunId`) and Bookings keys each email
+  by it (`<originalRunId ?? runId>:<n>`), with the compose step's letters replayed from the journal
+  in the same order.
+- **Not covered**: a **replay** (a fresh run on purpose: it sends again), and a key forgotten after
+  the sender has seen 2,000 more. Keys are remembered per sender address (the connection's
+  resource), not per extension: two extensions sending through one sender share the space, and
+  their keys carry their own run ids.
+- Bookings' coalescing turn (ADR 0572) is likewise held by the first run of the chain, and given up
+  only after its send succeeds (its own step), so a compose or send step that fails and is retried
+  still tells.

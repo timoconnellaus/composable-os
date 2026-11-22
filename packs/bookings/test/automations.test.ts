@@ -813,3 +813,52 @@ describe("the dashboard's click-throughs", () => {
     expect(opens).toEqual([["first-visits", "person"]]);
   });
 });
+
+describe("a failure after the class's turn is taken (round two)", () => {
+  it("keeps the turn, so the step's retry still tells; the turn goes after the send", async () => {
+    let failed = false;
+    const h = host(
+      { "bookings.class": [CLASS], "bookings.booking": [booking({})] },
+      {
+        // A database blip on the first read after the turn is checked.
+        "extensionSettings.list": () => {
+          if (!failed) {
+            failed = true;
+            throw new Error("D1 blip");
+          }
+          return { items: [{ id: "bookings", values: { bookingsUrl: "https://gym.test/b" } }] };
+        },
+      },
+    );
+    const run = await h.runAutomation("classChanged", {
+      record: { object: "bookings.class", id: "cls_1" },
+      change: {
+        action: "updated",
+        diff: { endsAt: { before: inHours(30.5), after: CLASS.endsAt } },
+      },
+      runId: "run_blip",
+      retries: 2,
+    });
+    expect(run.error).toBeNull();
+    expect(failed).toBe(true);
+    expect(mails(h)).toHaveLength(1);
+    expect(run.steps.map((s) => s.name)).toEqual(["note", "settle", "compose", "send", "release"]);
+    expect(h.storage.get("changed:cls_1")).toBeUndefined();
+  });
+});
+
+describe("a retried run (round two, ADR 0574)", () => {
+  it("keys its emails by the run its chain began with, so it sends none again", async () => {
+    const keys: string[] = [];
+    const h = host({ "bookings.class": [CLASS], "bookings.booking": [booking({})] }, {}, (call) => {
+      keys.push((call.args[0] as { idempotencyKey: string }).idempotencyKey);
+      return { status: "pending", id: keys.length };
+    });
+    await h.runAutomation("classReminder", {
+      record: { object: "bookings.class", id: "cls_1" },
+      runId: "arn_retry2",
+      originalRunId: "arn_first",
+    });
+    expect(keys).toEqual(["arn_first:0"]);
+  });
+});

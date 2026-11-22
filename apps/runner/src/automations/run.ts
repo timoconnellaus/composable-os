@@ -83,6 +83,7 @@ export async function startRun(env: RunEnv, params: AutomationRunParams): Promis
   const event: AutomationEvent = {
     automation: params.automationId,
     runId: params.runId,
+    ...(params.originalRunId ? { originalRunId: params.originalRunId } : {}),
     trigger: params.trigger,
     ...(params.record
       ? {
@@ -314,6 +315,8 @@ export async function markWaiting(
     step?: { name: string; kind: "sleep" | "waitForEvent" };
     until: string;
     changeSetId?: string;
+    /** Why it waits, shown on the run (a step held back, ADR 0573). */
+    reason?: string;
   },
 ): Promise<void> {
   const crm = createCrmDb(env.DB);
@@ -324,6 +327,7 @@ export async function markWaiting(
       .set((eb) => ({
         status: input.status,
         wait_until: input.until,
+        ...(input.reason ? { status_reason: input.reason } : {}),
         ...(input.changeSetId ? { change_set_id: input.changeSetId } : {}),
         ...(input.step
           ? {
@@ -353,6 +357,57 @@ export async function markRunning(env: RunEnv, runId: string): Promise<void> {
     .where("id", "=", runId)
     .where("status", "in", ["waiting", "review"])
     .execute();
+  await createCrmDb(env.DB)
+    .query.updateTable("core_automation_runs")
+    .set({ status_reason: null })
+    .where("id", "=", runId)
+    .where("status_reason", "like", `${HELD_REASON}%`)
+    .execute();
+}
+
+/** A run waiting because a gatekeeper's queue was full (ADR 0573): its status reason. */
+export const HELD_REASON = "Held: the approval queue is full";
+
+/**
+ * Tells the admins, once per run, that a run is holding what it sends (member emails) because
+ * the gatekeeper's approval queue is full: nothing is lost, it goes out when there is room. A run
+ * that gives up says so too.
+ */
+export async function notifyHeld(
+  env: RunEnv,
+  params: { automationId: string; runId: string },
+  kind: "held" | "gave_up",
+): Promise<void> {
+  const crm = createCrmDb(env.DB);
+  const now = new Date().toISOString();
+  const row = await crm.query
+    .selectFrom("core_automations")
+    .select(["label"])
+    .where("id", "=", params.automationId)
+    .executeTakeFirst();
+  const label = row?.label ?? params.automationId;
+  const plan = await notifyStatements(
+    crm.query,
+    {
+      to: [{ role: "admin" }],
+      type: "automation.paused",
+      title:
+        kind === "held"
+          ? `“${label}” is holding what it sends: the approval queue is full`
+          : `“${label}” stopped: the approval queue stayed full`,
+      body:
+        kind === "held"
+          ? "Its emails wait, nothing is lost: they go out once there is room. Approve or reject " +
+            "what waits in Approvals to make room."
+          : "Nothing it had not sent yet went out. Make room in Approvals, then retry the run: what " +
+            "it already sent is not sent again.",
+      link: { kind: "automationRun", automationId: params.automationId, runId: params.runId },
+      dedupeKey: `held:${params.runId}:${kind}`,
+      source: { actor: "automation", automationId: params.automationId, runId: params.runId },
+    },
+    now,
+  );
+  if (plan.statements.length) await crm.batch(plan.statements);
 }
 
 /**

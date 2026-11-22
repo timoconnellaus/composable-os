@@ -632,7 +632,7 @@ export async function queueEraseRuns(
   const aboutIds = [...new Set([...byRecord, ...byIndex].map((r) => r.id))];
   const runs = await ctx.db
     .selectFrom("core_automation_runs")
-    .select(["id", "trigger", "steps", "report", "error", "status_reason"])
+    .select(["id", "trigger", "steps", "report", "error", "status_reason", "status"])
     .where((eb) =>
       eb.or([
         eb("id", "in", jsonList(aboutIds.length ? aboutIds : [""])),
@@ -663,16 +663,22 @@ export async function queueEraseRuns(
           ...(step.error ? { error: { code: "erased", message: ERASED } } : {}),
         }));
       } catch {}
+      // A run still waiting its turn (ADR 0573) is about a record that no longer exists: it never
+      // starts, rather than start with no record.
+      const deferred =
+        run.status === "queued" && Boolean(run.status_reason?.startsWith("deferred:"));
       ctx.write(
         ctx.db
           .updateTable("core_automation_runs")
           .set({
+            ...(deferred ? { status: "cancelled", finished_at: ctx.now, wait_until: null } : {}),
             trigger: JSON.stringify({ type, erased: true }),
             steps: JSON.stringify(steps),
             report: null,
             error: run.error === null ? null : erasedError(run.error, /[\s\S]/),
-            status_reason:
-              run.status_reason === null
+            status_reason: deferred
+              ? ERASED
+              : run.status_reason === null
                 ? null
                 : mentions(run.status_reason, about)
                   ? ERASED

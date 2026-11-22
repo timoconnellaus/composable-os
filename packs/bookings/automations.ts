@@ -500,7 +500,10 @@ export const bookingConfirmed = defineAutomation({
       });
     });
     if (!letters.length) return { sent: 0, kind };
-    return { ...(await step.do("send", () => sendAll(ctx, letters, event.runId))), kind };
+    return {
+      ...(await step.do("send", () => sendAll(ctx, letters, event.originalRunId ?? event.runId))),
+      kind,
+    };
   },
 });
 
@@ -545,7 +548,7 @@ export const waitlistPassedOver = defineAutomation({
       }));
     });
     if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters, event.runId));
+    return step.do("send", () => sendAll(ctx, letters, event.originalRunId ?? event.runId));
   },
 });
 
@@ -571,7 +574,8 @@ async function cutOff(ctx: ExtensionContext, cls: ClassFacts): Promise<number | 
  * Several runs for one class within a moment are told once (ADR 0572): each run takes the class's
  * turn in the pack's storage (`claimTurn`), waits for things to settle, and only the run that took
  * the turn last tells, with what is true then. A run never loses the turn without a later run
- * holding it, so the last change is always told.
+ * holding it, so the last change is always told. The turn is given up only after the send
+ * (`releaseTurn`, its own step): a compose or send step retried after a failure still holds it.
  */
 async function claimTurn<T extends Record<string, unknown>>(
   ctx: ExtensionContext,
@@ -583,15 +587,19 @@ async function claimTurn<T extends Record<string, unknown>>(
   await ctx.storage.set(key, { ...merge(before), turn: runId });
 }
 
-async function takeTurn<T>(
+/** What this run noted, while it still holds the turn; null when a later run took it. */
+async function heldTurn<T>(
   ctx: ExtensionContext,
   key: string,
   runId: string,
 ): Promise<(T & { turn: string }) | null> {
   const held = await ctx.storage.get<T & { turn: string }>(key);
-  if (held?.turn !== runId) return null;
-  await ctx.storage.delete(key);
-  return held;
+  return held?.turn === runId ? held : null;
+}
+
+/** Gives the turn up after telling, unless a later run has taken it meanwhile. */
+async function releaseTurn(ctx: ExtensionContext, key: string, runId: string): Promise<void> {
+  if (await heldTurn(ctx, key, runId)) await ctx.storage.delete(key);
 }
 
 export const placeFree = defineAutomation({
@@ -618,15 +626,18 @@ export const placeFree = defineAutomation({
       calls: ["capacity.get", ...COMPOSE_CALLS],
     },
     { name: "send", label: "Email each person waiting" },
+    { name: "release", label: "Give up the class's turn" },
   ],
   async run(event, step, ctx) {
     const classId = text(event.record?.data?.class);
     if (!classId) return { skipped: "no class" };
     const key = `free:${classId}`;
-    await step.do("note", () => claimTurn(ctx, key, event.runId, () => ({ classId })));
+    await step.do("note", () =>
+      claimTurn(ctx, key, event.originalRunId ?? event.runId, () => ({ classId })),
+    );
     await step.sleep("settle", SETTLE);
     const letters = await step.do("compose", async () => {
-      if (!(await takeTurn(ctx, key, event.runId))) return [];
+      if (!(await heldTurn(ctx, key, event.originalRunId ?? event.runId))) return [];
       const cls = await classFacts(ctx, classId);
       if (cls?.state !== "scheduled" || !cls.startsAt) return [];
       const now = Date.now();
@@ -652,8 +663,11 @@ export const placeFree = defineAutomation({
         related: [cls.id],
       }));
     });
-    if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters, event.runId));
+    const sent = letters.length
+      ? await step.do("send", () => sendAll(ctx, letters, event.originalRunId ?? event.runId))
+      : { sent: 0 };
+    await step.do("release", () => releaseTurn(ctx, key, event.originalRunId ?? event.runId));
+    return sent;
   },
 });
 
@@ -693,6 +707,7 @@ export const classChanged = defineAutomation({
       calls: COMPOSE_CALLS,
     },
     { name: "send", label: "Email each member (and their guardians)" },
+    { name: "release", label: "Give up the class's turn" },
   ],
   async run(event, step, ctx) {
     const classId = event.record?.id;
@@ -704,7 +719,7 @@ export const classChanged = defineAutomation({
     }
     const key = `changed:${classId}`;
     await step.do("note", () =>
-      claimTurn<ClassChange>(ctx, key, event.runId, (before) => ({
+      claimTurn<ClassChange>(ctx, key, event.originalRunId ?? event.runId, (before) => ({
         startsBefore: before ? before.startsBefore : text(diff.startsAt?.before),
         time: Boolean(before?.time) || changed.time,
         end: Boolean(before?.end) || changed.end,
@@ -714,7 +729,7 @@ export const classChanged = defineAutomation({
     await step.sleep("settle", SETTLE);
     const letters = await step.do("compose", async () => {
       // A later change took the turn: it tells, with everything changed since.
-      const told = await takeTurn<ClassChange>(ctx, key, event.runId);
+      const told = await heldTurn<ClassChange>(ctx, key, event.originalRunId ?? event.runId);
       if (!told) return [];
       const cls = await classFacts(ctx, classId);
       if (cls?.state !== "scheduled") return [];
@@ -748,8 +763,11 @@ export const classChanged = defineAutomation({
         };
       });
     });
-    if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters, event.runId));
+    const sent = letters.length
+      ? await step.do("send", () => sendAll(ctx, letters, event.originalRunId ?? event.runId))
+      : { sent: 0 };
+    await step.do("release", () => releaseTurn(ctx, key, event.originalRunId ?? event.runId));
+    return sent;
   },
 });
 
@@ -816,7 +834,7 @@ export const classCancelled = defineAutomation({
       });
     });
     if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters, event.runId));
+    return step.do("send", () => sendAll(ctx, letters, event.originalRunId ?? event.runId));
   },
 });
 
@@ -872,7 +890,7 @@ export const classReminder = defineAutomation({
       }));
     });
     if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters, event.runId));
+    return step.do("send", () => sendAll(ctx, letters, event.originalRunId ?? event.runId));
   },
 });
 
@@ -951,7 +969,7 @@ export const dropInOrder = defineAutomation({
       ];
     });
     if (!letters.length) return { sent: 0 };
-    return step.do("send", () => sendAll(ctx, letters, event.runId));
+    return step.do("send", () => sendAll(ctx, letters, event.originalRunId ?? event.runId));
   },
 });
 

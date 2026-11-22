@@ -190,7 +190,7 @@ export async function recordsAtMoment(
   if (options.automationId) {
     // A record this automation already ran for at this value of the field (the run's key).
     query = query.where(
-      sql<boolean>`NOT EXISTS (SELECT 1 FROM core_automation_runs x WHERE x.automation_id = ${options.automationId} AND x.record_id = r.id AND json_extract(x.trigger, '$.key') = r.id || ':' || ${anchorIso})`,
+      sql<boolean>`NOT EXISTS (SELECT 1 FROM core_automation_runs x WHERE x.automation_id = ${options.automationId} AND x.record_object = ${trigger.object} AND x.record_id = r.id AND json_extract(x.trigger, '$.key') = r.id || ':' || ${anchorIso})`,
     );
   }
   const rows = (await query

@@ -200,15 +200,28 @@ export const AUTOMATION_OPERATION_SCHEMAS = {
       object: z.string(),
       recordIds: z.array(z.string()).min(1).max(100),
     }),
-    output: z.object({ runIds: z.array(z.string()), skipped: z.number() }),
+    output: z.object({
+      runIds: z.array(z.string()),
+      skipped: z.number(),
+      deferredRunIds: z
+        .array(z.string())
+        .optional()
+        .describe("Runs over the runs-per-minute rail: recorded, and started on a later minute"),
+    }),
   },
   "automation.retry": {
     input: z.object({ runId: runIdSchema }),
-    output: z.object({ runId: z.string() }),
+    output: z.object({
+      runId: z.string(),
+      deferred: z
+        .boolean()
+        .optional()
+        .describe("It waits its turn over the runs-per-minute rail, and starts on a later minute"),
+    }),
   },
   "automation.replay": {
     input: z.object({ runId: runIdSchema }),
-    output: z.object({ runId: z.string() }),
+    output: z.object({ runId: z.string(), deferred: z.boolean().optional() }),
   },
   "automation.cancel": {
     input: z.object({ runId: runIdSchema }),

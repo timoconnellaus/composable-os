@@ -99,6 +99,13 @@ export interface AutomationRunOptions {
   runId?: string;
   /** `event.test`. Default false: the run writes to the in-memory store. */
   test?: boolean;
+  /** `event.originalRunId`: the run a retry's chain began with (ADR 0574). */
+  originalRunId?: string;
+  /**
+   * How many times a `do` step that throws is run again, as the host's Workflow retries a step
+   * (the steps before it are not run again). Default 0: a throw fails the run.
+   */
+  retries?: number;
 }
 
 export interface AutomationRunResult {
@@ -666,6 +673,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     const event: AutomationEvent = {
       automation: `${manifest.id}.${name}`,
       runId: run.runId ?? "arn_TEST",
+      ...(run.originalRunId ? { originalRunId: run.originalRunId } : {}),
       trigger: automation.trigger.type,
       ...(run.record && row
         ? {
@@ -764,7 +772,15 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
         const first = calls.length;
         currentStep = stepName;
         try {
-          const value = await fn();
+          let value!: T;
+          for (let attempt = 0; ; attempt++) {
+            try {
+              value = await fn();
+              break;
+            } catch (error) {
+              if (attempt >= (run.retries ?? 0)) throw error;
+            }
+          }
           result.steps.push({
             name: stepName,
             kind: "do",

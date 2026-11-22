@@ -363,11 +363,15 @@ export interface AutomationHost {
    */
   testAutomation(input: AutomationTestInput): Promise<AutomationTestReport>;
   /** Manual trigger: starts one run per record (rails apply). Returns the run ids. */
-  startManualRun(input: StartRunInput): Promise<{ runIds: string[]; skipped: number }>;
+  /** `deferredRunIds`: runs over the rate rail, recorded and started on a later tick (ADR 0573). */
+  startManualRun(
+    input: StartRunInput,
+  ): Promise<{ runIds: string[]; skipped: number; deferredRunIds?: string[] }>;
   /** Restarts a failed run from its failed step (Workflow restart). */
-  retryRun(runId: string): Promise<{ runId: string }>;
+  /** `deferred`: the retry waits its turn over the rate rail (ADR 0573), its journal kept. */
+  retryRun(runId: string): Promise<{ runId: string; deferred?: boolean }>;
   /** Starts a new run with the same trigger against current data. */
-  replayRun(runId: string): Promise<{ runId: string }>;
+  replayRun(runId: string): Promise<{ runId: string; deferred?: boolean }>;
   /** Cancels a running or waiting run (terminates its Workflow). */
   cancelRun(runId: string): Promise<{ runId: string }>;
 }
