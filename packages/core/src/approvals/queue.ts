@@ -1,5 +1,5 @@
 // Recording a pending action (ADR 0022). When the gate says `review`, the pipeline dry-runs the
-// handler (its writes are discarded), turns the result into a diff preview and simulated records,
+// handler (approvals/dry-run.ts: nothing it does is real; an extension tool is not run), turns the result into a diff preview and simulated records,
 // finds the earlier pending actions it depends on, and queues it in the session's change set.
 import type { CrmDb, ReviewSource } from "@composable-os/db";
 import type { Compilable } from "kysely";
@@ -17,6 +17,7 @@ import {
 import type { AnyOperation, RecordChange, SimulatedRecord } from "../operation.ts";
 import { type Origin, type Permission, type Role, staffPrincipal } from "../principals.ts";
 import { capPreview, capSimulated, INPUT_MAX_BYTES } from "./caps.ts";
+import { toolOf } from "./describe.ts";
 import { type Overlay, SIMULATED_OBJECTS, titlesFor } from "./simulation.ts";
 
 export const DEFAULT_APPROVAL_EXPIRY_DAYS = 7;
@@ -441,6 +442,11 @@ export async function prepareQueuedAction(req: QueueRequest): Promise<QueuedActi
     `then only your reads in this session show it as if applied. It expires ${expiresAt}.` +
     (provisionalIds.length
       ? ` Use the provisional id ${provisionalIds.join(", ")} for follow-up actions in this session.`
+      : "") +
+    // A tool is not dry-run (approvals/dry-run.ts): nothing of it has run, and its reads in this
+    // session do not show its changes.
+    (toolOf(req.op.name)
+      ? " The tool has not run: it runs once, when a person approves it, and what it changes is decided then."
       : "") +
     " Tell the user the change is waiting for approval.";
 

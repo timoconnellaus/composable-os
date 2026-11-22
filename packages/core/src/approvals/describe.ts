@@ -44,8 +44,35 @@ const VERBS: Record<string, string> = {
 export function verbOf(operation: string): string {
   const verb = operation.split(".").at(-1) ?? operation;
   if (VERBS[verb]) return VERBS[verb];
-  const words = verb.replace(/([A-Z])/g, " $1").toLowerCase();
+  return spelled(verb);
+}
+
+/** "sessionComplete" → "Session complete". */
+function spelled(name: string): string {
+  const words = name.replace(/([A-Z])/g, " $1").toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The extension and tool of an extension tool's operation (`x.<extension>.<tool>`), else null. */
+export function toolOf(operation: string): { extension: string; tool: string } | null {
+  const match = /^x\.([a-z][a-z0-9]{1,29})\.([a-z][a-zA-Z0-9]{0,39})$/.exec(operation);
+  return match?.[1] && match[2] ? { extension: match[1], tool: match[2] } : null;
+}
+
+/**
+ * What a queued extension tool will be run with, for the reviewer (ADR 0022 amendment,
+ * 2026-11-22): a tool is not dry-run, so its pending action has no diff to show, and its inputs
+ * are what there is to judge. One line per input, the value as text (JSON for objects and lists).
+ */
+export function toolInputs(input: unknown): { name: string; value: string }[] {
+  if (input === undefined || input === null) return [];
+  if (typeof input !== "object" || Array.isArray(input)) {
+    return [{ name: "input", value: JSON.stringify(input) }];
+  }
+  return Object.entries(input as Record<string, unknown>).map(([name, value]) => ({
+    name,
+    value: typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+  }));
 }
 
 /** Records of the operation's own object the preview touches, falling back to any record. */
@@ -77,6 +104,8 @@ export function actionTitle(
   if (operation === "extension.dropHidden") {
     return `Drop hidden data of extension ${String(args.id ?? "")}`;
   }
+  const tool = toolOf(operation);
+  if (tool) return `${spelled(tool.tool)} (${tool.extension} tool)`;
   const object = operation.split(".")[0] ?? operation;
   const count = new Set(mainRecords(operation, preview).map((p) => p.id)).size;
   const verb = verbOf(operation);

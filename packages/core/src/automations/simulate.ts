@@ -30,6 +30,12 @@ export interface TestSimulation {
   notifications: TestNotification[];
   /** Per-call records, in order (the run host also keeps its own). */
   operations: RunOperationRecord[];
+  /**
+   * Set when the simulation is not a test run but the operations a dry-run handler calls
+   * (approvals/dry-run.ts): they are simulated over the dry run's overlay, and nothing reads
+   * what they record.
+   */
+  dryRun?: boolean;
 }
 
 export function createTestSimulation(): TestSimulation {

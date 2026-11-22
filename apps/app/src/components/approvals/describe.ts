@@ -9,6 +9,8 @@ export {
   noun,
   OUTBOUND_OPERATION,
   outboundTitle,
+  toolInputs,
+  toolOf,
   verbOf,
 } from "@composable-os/core/client";
 export type { PreviewEntry };

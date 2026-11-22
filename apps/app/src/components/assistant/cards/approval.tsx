@@ -15,9 +15,10 @@ import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage, useOp } from "#/lib/query";
 import { ChangePreview, RiskBadge } from "../../approvals/change-preview.tsx";
-import { actionTitle, groupPreview, outboundTitle } from "../../approvals/describe.ts";
+import { actionTitle, groupPreview, outboundTitle, toolOf } from "../../approvals/describe.ts";
 import { decide, useRecordNames, useRefreshAfterDecision } from "../../approvals/hooks.ts";
 import { OutboundPreview } from "../../approvals/outbound-preview.tsx";
+import { ToolCallPreview } from "../../approvals/tool-call-preview.tsx";
 import { VerdictNote } from "../../approvals/verdict-note.tsx";
 import { useCardHost } from "./host.tsx";
 import { Body, Footer, Frame, Header, LinkButton, TwoStepButton } from "./parts.tsx";
@@ -37,6 +38,8 @@ function ActionDetail({ action, names }: { action: Action; names: Map<string, st
     <div className="grid min-w-0 gap-2" data-testid="assistant-pending-action">
       {action.outbound ? (
         <OutboundPreview outbound={action.outbound} />
+      ) : toolOf(action.operation) ? (
+        <ToolCallPreview input={action.input} pending={action.status === "pending"} />
       ) : (
         <ChangePreview groups={groups} names={names} />
       )}

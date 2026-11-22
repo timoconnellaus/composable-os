@@ -15,10 +15,12 @@ import type { AiEnv } from "./ai/client.ts";
 import { embeddingQueueStatement, SELF_ENQUEUEING } from "./ai/embedding.ts";
 import type { VectorStore } from "./ai/vectors.ts";
 import { matchesPreviewValue } from "./approvals/caps.ts";
+import { readOnlyCrm, runsInDryRun } from "./approvals/dry-run.ts";
 import { type DryRunResult, prepareQueuedAction } from "./approvals/queue.ts";
 import {
   isSimulatedRead,
   loadSessionOverlay,
+  type Overlay,
   overlayRead,
   simulatedTitle,
 } from "./approvals/simulation.ts";
@@ -34,7 +36,7 @@ import {
   outboxEntries,
   outboxInserts,
 } from "./automations/outbox.ts";
-import type { TestSimulation } from "./automations/simulate.ts";
+import { createTestSimulation, type TestSimulation } from "./automations/simulate.ts";
 import type { AutomationHost, EventSink } from "./automations/types.ts";
 import { contentGenerationWrites } from "./content/cache.ts";
 import { loadCustomerSignIn } from "./customers/accounts.ts";
@@ -82,6 +84,7 @@ import {
   type HandlerContext,
   isAfterCommit,
   isHostTool,
+  type NestedInvocation,
   type OperationOutput,
   type RecordChange,
   runAfterCommit,
@@ -846,43 +849,58 @@ async function invokeOnce<O extends AnyOperation>(
     pipeline: {
       crm: ctx.db,
       resolve: (name) => ctx.resolveOperation?.(name),
-      invoke: (name, nestedInput, nested) => {
-        const target = ctx.resolveOperation?.(name);
-        if (!target) throw new UnknownOperationError(name);
-        return invokeOperation(target, nestedInput, {
-          db: ctx.db,
-          ...(ctx.floor ? { floor: ctx.floor } : {}),
-          ...(ctx.clock ? { clock: ctx.clock } : {}),
-          approvalExpiryDays: ctx.approvalExpiryDays,
-          resolveOperation: ctx.resolveOperation,
-          actor: nested.actor,
-          user: nested.user,
-          origin: nested.origin,
-          grantedPermissions: nested.grantedPermissions,
-          approval: nested.approval,
-          reason: nested.reason,
-          ...(ctx.extensionHost ? { extensionHost: ctx.extensionHost } : {}),
-          ...(ctx.integrations ? { integrations: ctx.integrations } : {}),
-          ...(ctx.blobs ? { blobs: ctx.blobs } : {}),
-          ...(ctx.models ? { models: ctx.models } : {}),
-          ...(ctx.judge ? { judge: ctx.judge } : {}),
-          ...(ctx.widgetCache ? { widgetCache: ctx.widgetCache } : {}),
-          ...(ctx.vectors ? { vectors: ctx.vectors } : {}),
-          ...(ctx.aiAdmin ? { aiAdmin: ctx.aiAdmin } : {}),
-          ...(ctx.aiEnv ? { aiEnv: ctx.aiEnv } : {}),
-          ...(ctx.onCommitted ? { onCommitted: ctx.onCommitted } : {}),
-          ...(ctx.onQueued ? { onQueued: ctx.onQueued } : {}),
-          ...(ctx.embedViaEvents ? { embedViaEvents: true } : {}),
-          ...(ctx.events ? { events: ctx.events } : {}),
-          ...(ctx.automationHost ? { automationHost: ctx.automationHost } : {}),
-          ...(ctx.assistantThreads ? { assistantThreads: ctx.assistantThreads } : {}),
-          ...(ctx.voice ? { voice: ctx.voice } : {}),
-          ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
-          ...(ctx.simulate ? { simulate: ctx.simulate } : {}),
-        });
-      },
+      invoke: (name, nestedInput, nested) => invokeNested(name, nestedInput, nested),
     },
   };
+
+  /**
+   * Runs another operation through the full pipeline for a handler (`pipeline.invoke`). In a dry
+   * run (`simulate` given) the nested call is simulated too, never committed or queued.
+   */
+  function invokeNested(
+    name: string,
+    nestedInput: unknown,
+    nested: NestedInvocation,
+    simulate: TestSimulation | undefined = ctx.simulate,
+  ): Promise<unknown> {
+    const target = ctx.resolveOperation?.(name);
+    if (!target) throw new UnknownOperationError(name);
+    return invokeOperation(target, nestedInput, {
+      db: ctx.db,
+      ...(ctx.floor ? { floor: ctx.floor } : {}),
+      ...(ctx.clock ? { clock: ctx.clock } : {}),
+      approvalExpiryDays: ctx.approvalExpiryDays,
+      resolveOperation: ctx.resolveOperation,
+      actor: nested.actor,
+      user: nested.user,
+      origin: nested.origin,
+      grantedPermissions: nested.grantedPermissions,
+      approval: nested.approval,
+      reason: nested.reason,
+      ...(ctx.extensionHost ? { extensionHost: ctx.extensionHost } : {}),
+      ...(ctx.integrations ? { integrations: ctx.integrations } : {}),
+      ...(ctx.blobs ? { blobs: ctx.blobs } : {}),
+      ...(ctx.models ? { models: ctx.models } : {}),
+      ...(ctx.judge ? { judge: ctx.judge } : {}),
+      ...(ctx.widgetCache ? { widgetCache: ctx.widgetCache } : {}),
+      ...(ctx.vectors ? { vectors: ctx.vectors } : {}),
+      ...(ctx.aiAdmin ? { aiAdmin: ctx.aiAdmin } : {}),
+      ...(ctx.aiEnv ? { aiEnv: ctx.aiEnv } : {}),
+      ...(ctx.onCommitted ? { onCommitted: ctx.onCommitted } : {}),
+      ...(ctx.onQueued ? { onQueued: ctx.onQueued } : {}),
+      ...(ctx.embedViaEvents ? { embedViaEvents: true } : {}),
+      ...(ctx.events ? { events: ctx.events } : {}),
+      ...(ctx.automationHost ? { automationHost: ctx.automationHost } : {}),
+      ...(ctx.assistantThreads ? { assistantThreads: ctx.assistantThreads } : {}),
+      ...(ctx.voice ? { voice: ctx.voice } : {}),
+      ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
+      ...(simulate ? { simulate } : {}),
+    });
+  }
+
+  /** The handler's context for a dry run (approvals/dry-run.ts): nothing it does is real. */
+  const dryRunCtx = (overlay: Overlay, sink: DrySink): HandlerContext =>
+    dryRunContext(handlerCtx, overlay, sink, invokeNested, ctx.simulate);
 
   const fail = async (error: unknown, gateDecision: GateDecision = "auto"): Promise<never> => {
     const typed = toOperationError(error);
@@ -911,7 +929,7 @@ async function invokeOnce<O extends AnyOperation>(
     if (op.risk !== "outbound" && !op.name.startsWith("x.") && guard.needsChanges(op)) {
       try {
         const overlay = await loadSessionOverlay(ctx.db.query, ctx.origin.sessionId, now);
-        planned = await dryRunChanges(op, input, handlerCtx, overlay);
+        planned = await dryRunChanges(op, input, (sink) => dryRunCtx(overlay, sink));
       } catch (error) {
         return fail(error, decision);
       }
@@ -930,7 +948,7 @@ async function invokeOnce<O extends AnyOperation>(
   }
 
   if (ctx.simulate && op.risk !== "read") {
-    return simulateWrite(op, rawInput, input, ctx, handlerCtx, {
+    return simulateWrite(op, rawInput, input, ctx, dryRunCtx, {
       now,
       bulkSize,
       decision,
@@ -958,25 +976,7 @@ async function invokeOnce<O extends AnyOperation>(
         expiryDays: ctx.approvalExpiryDays,
         overlay,
         reviewSource,
-        dryRun: async (): Promise<DryRunResult> => {
-          const dryChanges: RecordChange[] = [];
-          const dryCtx: HandlerContext = {
-            ...handlerCtx,
-            write: () => {},
-            recordChange: (change) => {
-              dryChanges.push(change);
-            },
-            postActivity: () => newId("activity"),
-            simulation: overlay,
-          };
-          const result = await op.handler(input, dryCtx);
-          let output: unknown = null;
-          if (!isAfterCommit(result)) {
-            const checked = op.output.safeParse(result);
-            output = checked.success ? checked.data : null;
-          }
-          return { output, changes: dryChanges };
-        },
+        dryRun: () => dryRunHandler(op, input, (sink) => dryRunCtx(overlay, sink)),
       });
       if (queued.changeSetCreated && ctx.actor !== "human") {
         notices = await pendingApprovalNotice(ctx, queued.pending.changeSetId, now);
@@ -1198,24 +1198,97 @@ async function invokeOnce<O extends AnyOperation>(
   return output as OperationOutput<O>;
 }
 
-/** What a handler would change, with its writes discarded (the approval queue's dry run). */
+/** What a dry run collects: the changes, and whether a nested call would wait for review. */
+interface DrySink {
+  changes: RecordChange[];
+  held: boolean;
+}
+
+/** What a handler would change, with its writes discarded (an agent grant's dry run). */
 async function dryRunChanges(
   op: AnyOperation,
   input: unknown,
-  handlerCtx: HandlerContext,
-  overlay: Awaited<ReturnType<typeof loadSessionOverlay>>,
+  dryCtx: (sink: DrySink) => HandlerContext,
 ): Promise<RecordChange[]> {
-  const changes: RecordChange[] = [];
-  await op.handler(input, {
+  return (await dryRunHandler(op, input, dryCtx)).changes;
+}
+
+/**
+ * Dry-runs a handler (ADR 0022): its output and what it would change, with nothing written, sent
+ * or run for real (approvals/dry-run.ts). An extension tool's handler is not run at all.
+ */
+async function dryRunHandler(
+  op: AnyOperation,
+  input: unknown,
+  dryCtx: (sink: DrySink) => HandlerContext,
+): Promise<DryRunResult> {
+  if (!runsInDryRun(op)) return { output: null, changes: [] };
+  const sink: DrySink = { changes: [], held: false };
+  let result: unknown;
+  try {
+    result = await op.handler(input, dryCtx(sink));
+  } catch (error) {
+    // A call the handler makes would itself wait for review: the dry run ends there, and this
+    // call is queued with what it would change so far. On approval it runs for real, and that
+    // call goes through the gate again.
+    if (sink.held && error instanceof PendingApprovalError) {
+      return { output: null, changes: sink.changes };
+    }
+    throw error;
+  }
+  let output: unknown = null;
+  if (!isAfterCommit(result)) {
+    const checked = op.output.safeParse(result);
+    output = checked.success ? checked.data : null;
+  }
+  return { output, changes: sink.changes };
+}
+
+/**
+ * The context a handler is dry-run with (approvals/dry-run.ts). Its writes, changes and posts are
+ * collected or discarded; its database handle refuses writes and `pipeline.crm` refuses to
+ * commit; the operations it runs through `pipeline.invoke` are simulated (test mode's path, over
+ * this dry run's overlay), so a nested call is neither committed nor queued.
+ */
+function dryRunContext(
+  handlerCtx: HandlerContext,
+  overlay: Overlay,
+  sink: DrySink,
+  invokeNested: (
+    name: string,
+    input: unknown,
+    nested: NestedInvocation,
+    simulate: TestSimulation,
+  ) => Promise<unknown>,
+  simulate: TestSimulation | undefined,
+): HandlerContext {
+  const crm = readOnlyCrm(handlerCtx.pipeline.crm);
+  const db = crm.query;
+  const nestedSimulation = simulate ?? { ...createTestSimulation(), overlay, dryRun: true };
+  return {
     ...handlerCtx,
+    db,
+    records: recordAccess({ db, principal: handlerCtx.principal }),
     write: () => {},
     recordChange: (change) => {
-      changes.push(change);
+      sink.changes.push(change);
     },
     postActivity: () => newId("activity"),
     simulation: overlay,
-  });
-  return changes;
+    pipeline: {
+      crm,
+      resolve: handlerCtx.pipeline.resolve,
+      invoke: async (name, input, nested) => {
+        try {
+          return await invokeNested(name, input, nested, nestedSimulation);
+        } catch (error) {
+          // Only this dry run's own simulation: in test mode a pending call is the run's answer.
+          if (!simulate && error instanceof PendingApprovalError) sink.held = true;
+          throw error;
+        }
+      },
+    },
+  };
 }
 
 /** One line on why the gate decided what it did, for test-mode reports. */
@@ -1255,7 +1328,7 @@ async function simulateWrite(
   rawInput: unknown,
   input: unknown,
   ctx: InvocationContext,
-  handlerCtx: HandlerContext,
+  dryCtx: (overlay: Overlay, sink: DrySink) => HandlerContext,
   info: { now: string; bulkSize: number; decision: GateDecision; reason: GateResult },
 ): Promise<unknown> {
   const sim = ctx.simulate as TestSimulation;
@@ -1281,25 +1354,7 @@ async function simulateWrite(
     now: info.now,
     expiryDays: ctx.approvalExpiryDays,
     overlay,
-    dryRun: async (): Promise<DryRunResult> => {
-      const dryChanges: RecordChange[] = [];
-      const dryCtx: HandlerContext = {
-        ...handlerCtx,
-        write: () => {},
-        recordChange: (change) => {
-          dryChanges.push(change);
-        },
-        postActivity: () => newId("activity"),
-        simulation: overlay,
-      };
-      const result = await op.handler(input, dryCtx);
-      let output: unknown = null;
-      if (!isAfterCommit(result)) {
-        const checked = op.output.safeParse(result);
-        output = checked.success ? checked.data : null;
-      }
-      return { output, changes: dryChanges };
-    },
+    dryRun: () => dryRunHandler(op, input, (sink) => dryCtx(overlay, sink)),
   });
   overlay.add(queued.actionId, queued.pending.changeSetId, queued.records);
   for (const p of queued.preview) {
@@ -1336,7 +1391,7 @@ async function simulateWrite(
   if (review) {
     throw new PendingApprovalError({
       ...queued.pending,
-      message: `Test mode: ${op.name} would wait for approval (${gateReason(info.reason, op, ctx.actor, info.bulkSize)}). Nothing was queued.`,
+      message: `${sim.dryRun ? "Dry run" : "Test mode"}: ${op.name} would wait for approval (${gateReason(info.reason, op, ctx.actor, info.bulkSize)}). Nothing was queued.`,
     });
   }
   return queued.pending.simulated;

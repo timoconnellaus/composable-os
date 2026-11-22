@@ -17,10 +17,11 @@ import { errorMessage, useOp } from "#/lib/query";
 import { ChangeSetExplanation } from "../ai/summary.tsx";
 import { TwoStepButton } from "../assistant/cards/parts.tsx";
 import { ChangePreview, RiskBadge, StatusBadge } from "./change-preview.tsx";
-import { actionTitle, groupPreview, outboundTitle, summariseDecision } from "./describe.ts";
+import { actionTitle, groupPreview, outboundTitle, summariseDecision, toolOf } from "./describe.ts";
 import { ExtensionProposal } from "./extension-proposal.tsx";
 import { decide, useRecordNames, useRefreshAfterDecision } from "./hooks.ts";
 import { OutboundPreview } from "./outbound-preview.tsx";
+import { ToolCallPreview } from "./tool-call-preview.tsx";
 import { VerdictNote } from "./verdict-note.tsx";
 
 type ChangeSet = CoreOutput<"approval.get">;
@@ -379,6 +380,8 @@ function ActionItem({
           <OutboundPreview outbound={action.outbound} />
         ) : action.operation === "extension.apply" ? (
           <ExtensionProposal actionId={action.id} status={action.status} />
+        ) : toolOf(action.operation) ? (
+          <ToolCallPreview input={action.input} pending={pending} />
         ) : (
           <ChangePreview groups={groups} names={names} />
         )}
