@@ -98,3 +98,11 @@ trial row and uses nothing. One more reason a trial is not given: `continuation`
 has an offer on the plan object they can still take, or a subscription started from one that has
 not ended: no trial stacked onto the continuation. After it (the subscription ended, or the offer
 expired untaken) this ADR's rule applies unchanged: a trial once, if never had (ADR 0492).
+
+## Note (2026-11-22, ADR 0459)
+Built: "anyone starting a subscription" is a switch on top of the customer sign-up mode
+([ADR 0459](0459-anyone-starting-a-subscription.md)). With it on and a plan on sale to the public,
+a new visitor confirms their address with a code on the plan (the subscribe block's `signIn`) and
+starts it signed in, so the trial rule above applies unchanged: one trial per Person per plan
+object, which is one per confirmed address until staff merge two People. "A company that wants new
+visitors to try a plan turns customer sign-up to `open`" above is superseded by this switch.

@@ -125,7 +125,9 @@ a live host side by side in one account, `environments` in `product.ts`): each i
      set up. `cos deploy` does not do this, in any environment;
    - choose who may sign in as a customer (Settings → Users): only invited people (the default),
      invited people and anyone who has bought (a business that sells to guests who should see their
-     tickets later), or anyone. `cos deploy` never sets it;
+     tickets later), or anyone; and, for a business selling a plan with a free trial, also anyone
+     starting a subscription (a new visitor confirms their address with a code on the plan: pass
+     the subscribe block `signIn`). `cos deploy` never sets it;
    - invite staff (Settings → Users), with a pack role for a coach at the door;
    - for a custom hostname, `web.hostname` in `product.ts` (or `environments.<name>.web.hostname`)
      and its DNS;

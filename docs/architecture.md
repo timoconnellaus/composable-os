@@ -912,7 +912,8 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 - **Customer accounts** are `core_customer` and its sessions, apart from `core_user`. A second
   Better Auth configuration in `packages/auth` signs customers in by a one-time emailed code,
   with its own cookie and secret, and resolves a request to a customer or the public, never to
-  staff. Sign-up is open or invite only, a setting a human admin changes.
+  staff. Who may sign up is a human admin's setting: invite only, also buyers (ADR 0458), or
+  anyone; and, on top, anyone starting a subscription while a plan is on sale (ADR 0459).
 - **Open operations:** `me.get`, `me.update`, `me.signOut`, `me.sessions.*`, `me.deleteAccount`,
   `my.list`, `my.get`, and for tools only `my.create`, `my.update`.
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
@@ -1303,7 +1304,8 @@ it only for the host's own call. Staff ending or keeping going someone else's ne
 payer and its holder apart: billing follows the payer, what it grants the holder. One free trial
 per holder per plan object ([ADR 0489](adr/0489-one-free-trial-per-person-per-plan.md),
 `subscriptions/trial.ts`, migration 0531): only for a proved holder (a signed-in customer, or
-staff with `subscriptions:manage` for a Person; a guest pays from the start), held by the
+staff with `subscriptions:manage` for a Person; a guest pays from the start, or confirms their
+address with a code on the plan when "anyone starting a subscription" is on, ADR 0459), held by the
 checkout (`core_subscription_trial`, a trigger refusing a second unreleased hold, so two starts at
 once give one trial), released only when the gatekeeper says its page expired uncompleted
 (`getSubscriptionCheckout`), and used when the provider's verified event confirms it. A person
