@@ -705,6 +705,49 @@ its windows and spends a real allowance. Step 2 and 32b's step 5 can run in para
 they meet at step 4. Step 6 is core and touches the visibility seam: give it its own session,
 reviewed with the care stage 22 was.
 
+## Built
+### Step 3: the Bookings pack's spine (2026-11-22, `feat/stage-31a-bookings-pack`)
+[ADR 0504](../adr/0504-the-bookings-pack.md) (the pack), [0505](../adr/0505-window-numbers-through-two-relations-and-settings.md)
+(window numbers two relations away and over settings, staff-only lists and formulas,
+`horizonAtLeast` on another pack's object, `state.resolve`) and
+[0506](../adr/0506-a-spender-paid-another-way.md) (`waived`); no migration. Where the build read
+the spec one way, or decided what it left open:
+
+- **The rules are read, not copied.** The spec had the host compute each class's moments (opens,
+  closes, late from) when it makes the class. A copy goes stale when the gym changes a class
+  type's rule or the organisation's for the 56 days of classes already made; the windows instead
+  read the class type's field two relations away and, when it is empty, the organisation's
+  setting, in each write (ADR 0505). The cost: the public timetable cannot show "opens Tuesday"
+  or "booked by the gym" up front (the public does not read Bookings' fields on Programs' class
+  type); `book` answers with both. Step 9's blocks may revisit it.
+- **The defaults**: `opensDays` 7 (at most 56, the default horizon, so a class always exists when
+  its booking opens; a class type may open further ahead and raises the horizon), `closesMinutes`
+  0, `lateMinutes` 60, `promotionMinutes` 120, `reminderMinutes` 180, staff book only off. They are
+  Bookings' settings, changed with `extensionSettings.update` (the extensions permission). The
+  spec says "a person only"; that operation is not limited to people today, and changing it is a
+  platform change beyond this step (noted for review).
+- **Not reachable yet**: `waiting` and `pending` are created by the host only; no customer move
+  enters `attended`, `no_show`, `moved` or `cancelled_by_us`. Staff may mark attended and
+  no-show (declared moves, no behaviour). A class is cancelled by the host only (closures and a
+  series ended, confirmed by a person); staff cancelling a class waits for step 7's cascade.
+- **A member cannot book a class that is not scheduled**, even one they still read through an
+  old booking (`customerVia`): the class's `closed` formula is a staff-only flag (ADR 0505).
+- **Walk-ins** are booked by staff with `bookFor { newPerson, paidAtDesk }`: a booking paid at the
+  desk spends no use (ADR 0506). Without it, a person with nothing to spend is refused, staff
+  included (the allowance binds everyone).
+- **The cancel's preview and confirm**: `cancel` shows the host's answer (`state.resolve`), then
+  confirms into that state (`expect`), so a cancel that became late meanwhile is refused, not made
+  late silently.
+- **Not built here** (later steps): the class type's default length and places and its drop-in
+  price (no host defaulting from a related record exists; staff enter a series' length and
+  places), the coach role, attendance, the waitlist, the family link, moves, cancelling a class,
+  drop-ins, messages, the dashboard and the import. The timetable shows the class's own title,
+  which is its class type's name unless staff rename it (`titleDefault`).
+- **Proof**: the pack's own tests (14), the real host with a fixture pass named
+  `memberships.pass` (10), the platform pieces on a fixture (5), the block lint, and one e2e test
+  per journey (a member books from the timetable and cancels in time; staff book a walk-in into a
+  staff-only class).
+
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.
 

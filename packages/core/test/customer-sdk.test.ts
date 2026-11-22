@@ -207,6 +207,8 @@ describe("the generic writes are for tools only", () => {
       "my.update",
       "public.get",
       "public.list",
+      // Stage 31a (ADR 0504): the dry run of a requested move (a member's cancel).
+      "state.resolve",
     ]);
     for (const name of ["my.create", "my.update"]) {
       const direct = await call(

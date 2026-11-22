@@ -1022,7 +1022,12 @@ another, each worked out from a datetime of the record or of the record a relati
 write; while the flag (a boolean, named the same way) is true, only staff and the host may.
 Staff and the host are not bound. `states.requests` names moves a caller asks for by name
 (`cancel`), resolved by the host to the first listed state it may enter now (`cancelled` in
-time, `late_cancelled` after); `resolveStateRequest` is the dry run a tool shows first.
+time, `late_cancelled` after); `resolveStateRequest` is the dry run a tool shows first, through
+the tool-only operation `state.resolve`. Since step 3 ([ADR 0505](adr/0505-window-numbers-through-two-relations-and-settings.md))
+a path may pass through two relations, every field on the way the declaring extension's (a field
+it adds to another pack's object counts: Bookings' rules on Programs' class type), a number may
+be `{ field, setting }` (the field, else the extension's setting), read in the write; and
+`staffOnly` may list several booleans, a boolean formula among them.
 `states.create.in` lists states a record may be created in, with who may (a booking created
 `waiting` by a member, `pending` only by the host), not judged as moves from `initial`.
 
@@ -1242,6 +1247,22 @@ copy; twelve blocks (the program builder, the exercise bank, today and session, 
 history and progress, the coach's client view; web and native) are built on it. In development
 `apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended).
 
+**Bookings** (`packs/bookings`, stage 31a, step 3 the spine; [ADR 0504](adr/0504-the-bookings-pack.md)):
+rooms, coaches, series (`recurring`, making classes in local time, the horizon at least the
+longest window a class type opens), classes (places shown exactly, public while scheduled),
+closures, and bookings: a claimant on its class, one live per Person per class, windows on its
+create and its cancels worked out from the class type's own rule (Bookings' fields on Programs'
+`programs.classtype`) or the organisation's setting, a staff-only rule (the class type's, or a
+class not scheduled), the requested `cancel` the host resolves to in time or late, and an
+allowance spender (`paidBy` the Memberships pack's `membership` and `pass`, the class's start as
+its time, its class type and local weekday and minute copied; `waived` for a walk-in paid at the
+desk, [ADR 0506](adr/0506-a-spender-paid-another-way.md)). It requires Programs. Its tools:
+`timetable`, `classGet` (public), `book`, `cancel` (with `state.resolve`'s preview), `mine`
+(customers), `bookFor`, `cancelFor`, `day`, `classList` (staff). Hooks, web blocks (the timetable,
+the desk) and a native timetable marked `noPurchase`. Waitlists, the family link, attendance,
+moving people, cancelling a class with its bookings, drop-ins and messages are steps 5 to 9; the
+states they use are declared, with no customer move into them.
+
 **Courses** (`packs/courses`, stage 42; [ADR 0478](adr/0478-the-courses-pack.md)): themes,
 courses and bundles (publishable, sellable with a tax code, granting an enrolment), enrolments and
 progress, an outline of sections of lessons (video, text, a Programs session, a download) whose
@@ -1444,7 +1465,8 @@ calculates a price, checks a capacity or checks a permission.
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
-| Bookings, memberships | `recurring`, `allowance`, recurring billing | later |
+| Bookings | `recurring`, `capacity` and `claims`, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 3 built (the behaviours, then the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md)); spending with real memberships (step 4) and steps 5 to 10 to come |
+| Memberships | `allowance` (holders), recurring billing | stage 32b: the behaviour built; the pack in progress |
 
 ### Client repos
 

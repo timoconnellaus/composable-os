@@ -135,12 +135,18 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `staffOnly: "<boolean field>"`, and the same on `states.create` for every create, bind
   customers (staff and the host are not bound). An end is `"<datetime field>"` or
   `{ at, daysBefore?, minutesBefore?, zone? }`, each a field of the record or
-  `<relation>.<field>` (`klass.startsAt`) or a number: "opens 7 local days before, closes 30
-  minutes before". `states.requests: { cancel: ["cancelled", "late_cancelled"] }` lets a caller
-  write `cancel` and the host pick the state by the clock; `states.create.in: { waiting:
-  ["staff", "customer"] }` lists states a record may be created in besides `initial`, and who
-  may. Never decide "late" or "too early" in a tool. See `StateMove` and `StatesSpec` in
-  `packages/sdk/src/states.ts` and ADR 0503.
+  `<relation>.<field>` (`klass.startsAt`), up to two relations away (`class.classType.lateMinutes`,
+  every field on the way your own, including fields you add to another pack's object), or a
+  number: "opens 7 local days before, closes 30 minutes before". A number may also be `{ field,
+  setting }`: the field, else your extension's number setting of that name (a class type's own
+  rule over the organisation's default, read in the write, never copied). `staffOnly` may list
+  several booleans, a boolean formula among them (a class that is not scheduled).
+  `states.requests: { cancel: ["cancelled", "late_cancelled"] }` lets a caller write `cancel`
+  and the host pick the state by the clock, and a tool shows the member which first with
+  `state.resolve { object, id, request }`; `states.create.in: { waiting: ["staff", "customer"] }`
+  lists states a record may be created in besides `initial`, and who may. Never decide "late" or
+  "too early" in a tool. See `StateMove` and `StatesSpec` in `packages/sdk/src/states.ts`, ADRs
+  0503 and 0505, and Bookings: `packs/bookings/index.ts`.
 - **`recurring`** on a series object: a weekly rule in local time that makes records of another
   of your objects ahead (a timetable line makes its classes). Declare the rule's fields (a
   `multiSelect` of `mon`…`sun`, an `HH:MM` text field, a length in minutes, from and until
@@ -186,7 +192,9 @@ extension declares it; it never implements it. Each behaviour the platform has i
   and the local `weekday` and `minute` it fills, and `paidBy` (holder objects or extensions of
   other packs that may pay for it; left out, only yours). Conditions read only the fields the host
   fills (`copy`, `local`). Changing what a spender points at while it holds a use spends again for
-  the new target, or is refused.
+  the new target, or is refused. A spender paid outside the allowance (a walk-in at the desk)
+  names `waived: "<read-only boolean>"`, set by your own code when it is made: it then spends
+  nothing, and the mark cannot change while it is in a spend state (ADR 0506).
   Never count uses or pick a holder in a tool: the host spends in the write that moves the record.
   See `AllowanceSpec` in `packages/sdk/src/allowance.ts` and ADRs 0493 and 0494.
 

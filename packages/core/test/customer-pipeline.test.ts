@@ -402,6 +402,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "order.checkout",
       "order.start",
       "order.view",
+      // Stage 31a (ADR 0504): it reads a booking whole and its class's rules, as the write does.
+      "state.resolve",
       // Stage 32a (ADR 0485): the host calls the payments gatekeeper for the payer.
       "subscription.cancel",
       "subscription.offer.mine",
