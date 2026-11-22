@@ -1,8 +1,13 @@
 ---
-// What can go into a company's product. Each line is true of the repository today: "Customers and
-// sales" is the base records plus the Deals and Leads packs; ticketing is a pack being built with
-// its first client (stage 27) and content is designed and not built, and each says so. The last card is the piece built only for this business.
+// What can go into a company's product. Each line is true of the repository today, and each status
+// word means what apps/marketing/SITE.md says it means: "Customers and sales" is the base records
+// plus the Deals and Leads packs, ready today; Ticketing, Content, Programs and Courses are packs
+// that are built and merged (stages 27, 28, 41 and 42) but have not run for a customer yet, and
+// say so; Courses' subscriptions are being built (stage 32a). The last card is the piece built
+// only for this business.
 import Icon from "./Icon.astro";
+
+const BUILT = "Built, not yet live";
 
 const pieces = [
   {
@@ -11,14 +16,24 @@ const pieces = [
     body: "People, organisations, deals and leads, with pipelines and email on the timeline. Ready today.",
   },
   {
-    soon: "Being built",
+    soon: BUILT,
     title: "Ticketing",
-    body: "Events, ticket types, checkout and door scanning.",
+    body: "Events, ticket types, checkout in full or by deposit, tickets in your app and door scanning.",
   },
   {
-    soon: "In design",
+    soon: BUILT,
     title: "Content",
-    body: "Pages and posts with drafts, preview and publishing.",
+    body: "Blog posts with drafts, preview links, scheduled publishing and pictures. Your old posts come across with an import.",
+  },
+  {
+    soon: BUILT,
+    title: "Programs",
+    body: "Training programs built from your exercise bank, given to a person or a class, with every set logged on the web and in the app.",
+  },
+  {
+    soon: BUILT,
+    title: "Courses",
+    body: "Video lessons sold one at a time or in bundles, with progress, and only buyers can play them. Subscriptions are being built.",
   },
 ];
 ---
@@ -33,7 +48,7 @@ const pieces = [
         them, all of them, or mostly something nobody else has.
       </p>
     </div>
-    <div class="grid four">
+    <div class="grid">
       {
         pieces.map((piece) => (
           <div class="card reveal">
