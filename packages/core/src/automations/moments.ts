@@ -17,6 +17,7 @@ import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { extensionSettingValues } from "../records/windows.ts";
+import { orgReader, visibleSource } from "../visibility/index.ts";
 
 /** How long after its moment a record is still run (missed ticks); older ones are not. */
 export const MOMENT_LOOKBACK_MINUTES = 15;
@@ -91,12 +92,15 @@ async function minutesPlan(
   const field = target.fields.find((f) => f.name === name);
   const column = field ? viewColumnOf(field) : null;
   if (!column) return null;
-  const rows = await sql<{ id: string; value: unknown }>`
-    SELECT id, ${sql.ref(column)} AS value FROM ${sql.table(target.source)} LIMIT ${MAX_ROWS}
-  `.execute(db);
+  // The minute cron's own read, for the whole org (ADR 0244: automations act org-wide).
+  const rows = (await (db as AnyDb)
+    .selectFrom(visibleSource(orgReader(db), target))
+    .select(["id", sql.ref(column).as("value")])
+    .limit(MAX_ROWS)
+    .execute()) as { id: string; value: unknown }[];
   const values = new Map<string, number | null>();
   let max = setting ?? 0;
-  for (const row of rows.rows) {
+  for (const row of rows) {
     const n = asNumber(row.value);
     const v = n === null ? null : clampMinutes(n);
     values.set(row.id, v);
@@ -141,7 +145,7 @@ export async function recordsAtMoment(
   const until = new Date(sign < 0 ? now + span : now).toISOString();
   const extra = [plan.ownColumn, plan.relation?.column].filter((c): c is string => Boolean(c));
   const rows = await (db as AnyDb)
-    .selectFrom(def.source)
+    .selectFrom(visibleSource(orgReader(db), def))
     .select([
       "id",
       sql.ref(anchorColumn).as("anchor"),
