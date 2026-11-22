@@ -295,6 +295,9 @@ export async function callSubscriptionGatekeeper(
     | "getSubscriptionCheckout"
     | "cancelSubscription"
     | "resumeSubscription"
+    | "changeSubscription"
+    | "pauseSubscription"
+    | "unpauseSubscription"
     | "openPortal",
   request: unknown,
 ): Promise<IntegrationCallResult> {

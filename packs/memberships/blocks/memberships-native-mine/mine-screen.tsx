@@ -1,11 +1,12 @@
 // A member's memberships and passes in the gym's app (stage 32b), read only: what each allows,
 // what is left this week, this month or in all (the host's count), when it stops or expires, and
-// their membership's billing state in words. Joining, buying a pass, cancelling, resuming and the
-// card are on the web only (`noPurchase`: the block lint refuses a billing operation or a purchase
+// their membership's billing state in words, with a plan change or a pause waiting. Joining,
+// buying a pass, cancelling, resuming, changing plan and the card are on the web only (`noPurchase`: the block lint refuses a billing operation or a purchase
 // here).
 import type { MembershipsHooks } from "@composable-os/pack-memberships/client";
 import {
   allowsWords,
+  changeWords,
   day,
   isLive,
   leftWords,
@@ -40,7 +41,9 @@ export function MyMembershipsScreen({
         </List>
       ) : null}
       {live.map((sub) => (
-        <Text key={sub.id}>{`${sub.planTitle}: ${subscriptionStatus(sub)}`}</Text>
+        <Text key={sub.id}>
+          {`${sub.planTitle}: ${subscriptionStatus(sub)}${changeWords(sub) ? `. ${changeWords(sub)}` : ""}`}
+        </Text>
       ))}
       {live.length ? <Text>Manage your membership on the gym's website.</Text> : null}
     </Screen>

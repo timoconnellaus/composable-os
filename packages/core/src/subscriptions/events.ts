@@ -22,6 +22,14 @@ import { type HandlerContext, recordHostChange } from "../operation.ts";
 import type { PaymentsEvent, ProviderSubscription } from "../orders/gateway.ts";
 import { formatMoney } from "../orders/orders.ts";
 import { applyTransition } from "../records/lifecycle.ts";
+import {
+  alsoAgreed,
+  type ChangeRow,
+  declinedUpgradeWords,
+  expectedPart,
+  followChange,
+  openChange,
+} from "./changes.ts";
 import { followSubscriptionGrant } from "./grants.ts";
 import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
 import { useTrial } from "./trial.ts";
@@ -102,11 +110,18 @@ export function reductionsOnly(
   };
 }
 
-/** Whether a read's price, currency or interval is not what the subscription was agreed at. */
-function termsDiffer(row: SubscriptionRow, read: ProviderSubscription): boolean {
+/**
+ * Whether a read's price, currency or interval is not what the subscription was agreed at. `other`:
+ * a price also agreed, a plan change the host asked for (stage 32b, ADR 0530).
+ */
+function termsDiffer(
+  row: SubscriptionRow,
+  read: ProviderSubscription,
+  other: number | null = null,
+): boolean {
   return (
     read.currency !== row.currency ||
-    read.amount !== row.amount ||
+    (read.amount !== row.amount && read.amount !== other) ||
     (read.interval !== null && read.interval !== row.interval)
   );
 }
@@ -226,6 +241,7 @@ export async function applySubscriptionEvent(
   let row: SubscriptionRow;
   let moved = false;
   let terms = false;
+  let change: ChangeRow | null = null;
   if (!existing) {
     const made = await createFromCheckout(ctx, event);
     if ("refused" in made) {
@@ -259,9 +275,12 @@ export async function applySubscriptionEvent(
       return nothing("subscription_mismatch");
     }
     row = existing;
+    // A plan change or a pause the host asked for (ADRs 0530, 0531): a read at its new price is
+    // the change asked for, not one made at the provider.
+    change = await openChange(ctx.db, existing.id);
     // Its price, currency or interval changed at the provider (its dashboard): staff are told
     // once for the subscription, and only what reduces what the member holds is applied.
-    terms = termsDiffer(existing, read);
+    terms = termsDiffer(existing, read, alsoAgreed(change));
     if (terms) {
       await tellStaff(
         ctx,
@@ -280,7 +299,11 @@ export async function applySubscriptionEvent(
     if (read.observedAt >= existing.observed_at && !FINAL.has(existing.state)) {
       const applied = terms ? reductionsOnly(existing, read) : read;
       if (applied) {
-        row = await moveFromRead(ctx, existing, applied);
+        // The plan the member holds after this read: a change asked for, once the read shows it.
+        const followed = terms
+          ? { row: existing, planChanged: false }
+          : followChange(ctx, existing, read, change);
+        row = await moveFromRead(ctx, existing, applied, followed.row, followed.planChanged);
         moved = true;
       }
     }
@@ -294,7 +317,10 @@ export async function applySubscriptionEvent(
   switch (event.trigger) {
     case "invoice_paid": {
       if (!invoice) break;
-      const period = await recordPaidPeriod(ctx, row, event, invoice, terms);
+      // Part of a period the host asked for (an upgrade's prorated charge, the first period after
+      // a pause) is not flagged.
+      const part = terms ? null : await expectedPart(ctx.db, row, invoice, ctx.now);
+      const period = await recordPaidPeriod(ctx, row, event, invoice, terms, part);
       outcome = period.outcome;
       orderId = period.orderId;
       orderState = period.orderId ? "paid" : null;
@@ -303,6 +329,19 @@ export async function applySubscriptionEvent(
     }
     case "invoice_payment_failed":
       if (!invoice) break;
+      // An upgrade's charge declined: the subscription keeps its plan and runs on (a pending
+      // update), so this is not a failing renewal.
+      if (change?.kind === "upgrade" && change.state === "requested" && read.status === "active") {
+        await tellStaff(
+          ctx,
+          "A plan upgrade's charge failed",
+          `Subscription ${row.id}: ${declinedUpgradeWords(change, invoice.amountDue, invoice.currency)}`,
+          row.id,
+          `subscription.upgrade_failed:${event.provider}:${invoice.ref}`,
+        );
+        outcome = "upgrade_failed";
+        break;
+      }
       await tellStaff(
         ctx,
         "A subscription's payment failed",
@@ -548,8 +587,11 @@ async function moveFromRead(
   ctx: HandlerContext,
   row: SubscriptionRow,
   read: ProviderSubscription,
+  /** The row with the plan it holds after this read (a plan change applied), else `row`. */
+  planned: SubscriptionRow = row,
+  planChanged = false,
 ): Promise<SubscriptionRow> {
-  const next = fromRead(row, read, ctx.now);
+  const next = fromRead(planned, read, ctx.now);
   const before = subscriptionSnapshot(row);
   const outcome = await applyTransition(
     ctx,
@@ -573,7 +615,7 @@ async function moveFromRead(
     after: subscriptionSnapshot(next),
   });
   if (next.state !== row.state) postSubscriptionMove(ctx, next, row.state);
-  await followSubscriptionGrant(ctx, next);
+  await followSubscriptionGrant(ctx, next, { planChanged });
   if (next.trial_end && !row.trial_end) await trialConfirmed(ctx, next);
   return next;
 }

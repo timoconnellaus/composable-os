@@ -142,6 +142,9 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
       if (
         input.method === "cancelSubscription" ||
         input.method === "resumeSubscription" ||
+        input.method === "changeSubscription" ||
+        input.method === "pauseSubscription" ||
+        input.method === "unpauseSubscription" ||
         input.method === "openPortal"
       ) {
         gw.changes.push({

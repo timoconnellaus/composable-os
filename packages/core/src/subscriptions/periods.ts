@@ -68,6 +68,11 @@ export async function recordPaidPeriod(
   event: SubscriptionEvent,
   invoice: ProviderInvoice,
   termsChanged = false,
+  /**
+   * Part of a period the host asked for (stage 32b): an upgrade's prorated charge or the first
+   * period after a pause. Recorded for what was paid, with this title and plan, not flagged.
+   */
+  part: { title: string; planId: string } | null = null,
 ): Promise<PaidPeriod> {
   const none = (outcome: PaidPeriod["outcome"], orderId: string | null = null): PaidPeriod => ({
     outcome,
@@ -85,7 +90,7 @@ export async function recordPaidPeriod(
 
   const amount = invoice.amountPaid;
   const currency = invoice.currency;
-  const flag = periodFlag(sub, invoice, termsChanged);
+  const flag = part ? null : periodFlag(sub, invoice, termsChanged);
   // Only a taxed subscription's figure is kept, as the provider said it, and only while it fits.
   const tax = sub.tax_code && invoice.tax && invoice.tax.amount <= amount ? invoice.tax : null;
   const id = newId("order");
@@ -135,8 +140,8 @@ export async function recordPaidPeriod(
       order_id: id,
       position: 0,
       object_type: sub.plan_object,
-      record_id: sub.plan_id,
-      title: sub.plan_title,
+      record_id: part?.planId ?? sub.plan_id,
+      title: part?.title ?? sub.plan_title,
       quantity: 1,
       unit_price: amount,
       line_total: amount,

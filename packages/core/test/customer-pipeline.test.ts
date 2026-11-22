@@ -92,6 +92,8 @@ describe("default closed (criterion 1)", () => {
       // Stage 32a (ADR 0485): a payer starts, reads, cancels and resumes their own
       // subscriptions, and opens the provider's portal for their card.
       "subscription.cancel",
+      // Stage 32b (ADR 0530): a member changes their own plan, an upgrade applied once paid.
+      "subscription.change",
       "subscription.get",
       "subscription.list",
       // Stage 32a step 4 (ADR 0491): a customer's own continuation offers.
@@ -410,6 +412,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "state.resolve",
       // Stage 32a (ADR 0485): the host calls the payments gatekeeper for the payer.
       "subscription.cancel",
+      // Stage 32b (ADR 0530): a member changes their own plan, an upgrade applied once paid.
+      "subscription.change",
       "subscription.offer.mine",
       "subscription.portal",
       "subscription.resume",

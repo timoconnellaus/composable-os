@@ -7,6 +7,10 @@
 //   subscription.cancel   staff (subscriptions:manage); a customer, their own: end it at period end
 //   subscription.resume   staff (subscriptions:manage); a customer, their own: undo that
 //   subscription.portal   a customer                        the provider's portal: card, invoices
+//   subscription.change   staff (subscriptions:manage); a customer, their own: another plan
+//                         (an upgrade now, prorated; a downgrade from the next period)
+//   subscription.pause    staff (subscriptions:manage): the provider's pause, for a set time
+//   subscription.unpause  staff (subscriptions:manage): end a pause now, or withdraw one asked
 //
 // No operation here takes a price, moves a subscription or makes a period paid: the provider's
 // verified events do that, through `order.applyPaymentEvent`. Cancel and resume ask the provider;
@@ -22,6 +26,7 @@ import { SUBSCRIPTION_STATES } from "../fields/subscription.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { requestPause, requestPlanChange, requestUnpause } from "../subscriptions/changes.ts";
 import {
   cancelAtPeriodEnd,
   cancelNow,
@@ -63,6 +68,28 @@ export const subscriptionSchema = z.object({
   email: z.string().nullable().optional(),
   endReason: z.string().nullable().optional(),
   failingSince: when.optional(),
+  change: z
+    .object({
+      id: z.string(),
+      kind: z.enum(["upgrade", "downgrade", "pause"]),
+      state: z
+        .enum(["requested", "waiting", "applied", "lapsed", "withdrawn"])
+        .describe(
+          "requested: asked of the provider (an upgrade waits for its charge to be paid); " +
+            "waiting: a downgrade from the next period, or a pause not yet started; applied: the " +
+            "pause it is in; lapsed: an upgrade whose charge was never paid",
+        ),
+      toPlanId: z.string().nullable(),
+      toPlanTitle: z.string().nullable(),
+      toAmount: z.number().nullable(),
+      pauseFrom: when,
+      pauseUntil: when.describe("When a pause ends and the provider charges again"),
+      effectiveAt: when.describe("When a downgrade takes effect (its period's end)"),
+      requestedAt: z.string(),
+    })
+    .nullable()
+    .optional()
+    .describe("A plan change or a pause asked for and not yet over, or the pause it is in"),
 });
 export type Subscription = z.infer<typeof subscriptionSchema>;
 
@@ -91,6 +118,20 @@ function fromRecord(record: VisibleRecord, staff: boolean): Subscription {
     actionUrl: text(v.actionUrl),
     createdAt: String(v.createdAt),
     holderPersonId: text(v.holderPersonId),
+    change: v.changeId
+      ? {
+          id: String(v.changeId),
+          kind: v.changeKind,
+          state: v.changeState,
+          toPlanId: text(v.changeToPlanId),
+          toPlanTitle: text(v.changeToPlanTitle),
+          toAmount: v.changeToAmount == null ? null : Number(v.changeToAmount),
+          pauseFrom: text(v.pauseFrom),
+          pauseUntil: text(v.pauseUntil),
+          effectiveAt: text(v.changeEffectiveAt),
+          requestedAt: String(v.changeRequestedAt),
+        }
+      : null,
     ...(staff
       ? {
           payerPersonId: text(v.payerPersonId),
@@ -214,7 +255,8 @@ export const subscriptionList = defineOperation({
   name: "subscription.list",
   description:
     "A page of subscriptions, newest first unless sorted otherwise. Filter on state, planObject, " +
-    "planId, payerPersonId, holderPersonId, cancelAtPeriodEnd, currentPeriodEnd, failingSince. A " +
+    "planId, payerPersonId, holderPersonId, cancelAtPeriodEnd, currentPeriodEnd, failingSince, " +
+    "changeKind, changeState, pauseUntil. Each shows its plan change or pause (`change`). A " +
     "signed-in customer sees the ones they pay for only. Pass nextCursor back as cursor for the " +
     "next page. Read-only.",
   input: z.object({
@@ -324,6 +366,127 @@ export const subscriptionPortal = defineOperation({
   },
 });
 
+export const subscriptionChange = defineOperation({
+  name: "subscription.change",
+  description:
+    "Move a subscription to another plan of the same kind (a membership from 3 a week to " +
+    "unlimited). A dearer plan is an upgrade: it takes effect now, and the payment provider " +
+    "charges the rest of the current period at once, prorated; the new plan applies only once " +
+    "that charge is paid, so nothing is given that was not paid for. A cheaper (or same-priced) " +
+    "plan is a downgrade: nothing is refunded or prorated, the member keeps the current plan until " +
+    "its period ends, and the new price is charged from the next period. What the subscription " +
+    "grants (a membership's classes) follows the plan when it takes effect. Only an active " +
+    "subscription not set to end, with no other change waiting. A signed-in customer changes " +
+    "their own, to a plan on sale; staff any, with subscriptions:manage. Asked of the payment " +
+    "provider: the subscription shows the change once the provider confirms it. " +
+    "A person decides, not an AI assistant.",
+  input: z.object({
+    id: subscriptionId,
+    planId: z.string().min(1).max(64).describe("The plan to move to (a record of the same object)"),
+    reason: z.string().trim().min(1).max(500).default("Changed by the payer").describe("Why"),
+  }),
+  output: z.object({
+    id: z.string(),
+    changeId: z.string(),
+    kind: z.enum(["upgrade", "downgrade"]),
+    effectiveAt: z
+      .string()
+      .nullable()
+      .describe("When a downgrade takes effect (the period's end); null for an upgrade: once paid"),
+    amount: z.number().describe("The new plan's price per period, minor units, tax included"),
+    currency: z.string(),
+    requested: z.literal(true),
+  }),
+  permission: "subscriptions:manage",
+  risk: "write",
+  // Opened to customers (a reviewed change, ADR 0402; ADR 0530): a member changes their own plan
+  // on the web (decision 5), through the host's rules (the plan priced by the host, one change at
+  // a time, an upgrade applied only once paid).
+  audiences: ["staff", "customer"],
+  actors: ["human"],
+  hostInternal: true,
+  mcp: { expose: false },
+  auditSummary: (output, input) => ({
+    subscriptionId: output.id,
+    changeId: output.changeId,
+    planId: input.planId,
+    kind: output.kind,
+    amount: output.amount,
+  }),
+  async handler(input, ctx) {
+    const row = await subscriptionForChange(ctx, input.id);
+    return requestPlanChange(ctx, row, { planId: input.planId, reason: input.reason });
+  },
+});
+
+export const subscriptionPause = defineOperation({
+  name: "subscription.pause",
+  description:
+    "Pause a subscription for a set time (a membership frozen for an injury or travel): from now " +
+    "or a later moment until a moment, within the plan's shortest and longest pause. While it is " +
+    "paused the payment provider charges nothing, and what the subscription gives stops (no " +
+    "classes, no access); on the end date the provider resumes it and charges a new period, less " +
+    "the unused time of the period it was paused in. Only an active subscription not set to end, " +
+    "on a plan that allows pauses, with no other change waiting. Staff only, with " +
+    "subscriptions:manage; a member asks staff. Asked of the payment provider: the subscription " +
+    "shows it paused once the provider confirms. A person decides, not an AI assistant.",
+  input: z.object({
+    id: subscriptionId,
+    from: z
+      .string()
+      .max(40)
+      .optional()
+      .describe("When the pause starts (ISO 8601, later than now); left out: now"),
+    until: z.string().min(1).max(40).describe("When it ends and charging starts again (ISO 8601)"),
+    reason: z.string().trim().min(1).max(500).describe("Why (an injury, travel)"),
+  }),
+  output: z.object({
+    id: z.string(),
+    changeId: z.string(),
+    from: z.string().nullable(),
+    until: z.string(),
+    requested: z.literal(true),
+  }),
+  permission: "subscriptions:manage",
+  risk: "write",
+  audiences: ["staff"],
+  actors: ["human"],
+  mcp: { expose: false },
+  auditSummary: (output) => ({
+    subscriptionId: output.id,
+    changeId: output.changeId,
+    from: output.from,
+    until: output.until,
+  }),
+  async handler(input, ctx) {
+    const row = await subscriptionForChange(ctx, input.id);
+    return requestPause(ctx, row, input);
+  },
+});
+
+export const subscriptionUnpause = defineOperation({
+  name: "subscription.unpause",
+  description:
+    "End a subscription's pause now, before its date: the payment provider resumes it and charges " +
+    "a new period from today, and what it gives starts again once the provider confirms. Or " +
+    "withdraw a pause asked for later that has not started. Staff only, with " +
+    "subscriptions:manage. A person decides, not an AI assistant.",
+  input: z.object({
+    id: subscriptionId,
+    reason: z.string().trim().min(1).max(500).default("Back early").describe("Why"),
+  }),
+  output: changeOutput,
+  permission: "subscriptions:manage",
+  risk: "write",
+  audiences: ["staff"],
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const row = await subscriptionForChange(ctx, input.id);
+    return requestUnpause(ctx, row, input.reason);
+  },
+});
+
 export const subscriptionOperations = [
   subscriptionStart,
   subscriptionGet,
@@ -331,4 +494,7 @@ export const subscriptionOperations = [
   subscriptionCancel,
   subscriptionResume,
   subscriptionPortal,
+  subscriptionChange,
+  subscriptionPause,
+  subscriptionUnpause,
 ] as const;

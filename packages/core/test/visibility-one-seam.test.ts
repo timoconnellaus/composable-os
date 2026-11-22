@@ -147,6 +147,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "retention.ts": [1, WHY.org],
   // The host's read of a period's order by its invoice (stage 32a, ADR 0486).
   "subscriptions/periods.ts": [1, WHY.host],
+  // Whether a paid invoice is the first period after a pause the host asked for (stage 32b, ADR 0531).
+  "subscriptions/changes.ts": [1, WHY.host],
   // `hasBought` (ADR 0458, #221): whose address it is, before anyone has signed in (no caller).
   "customers/accounts.ts": [2, WHY.org],
   // The subscription access source's `covers: "all"`: only live ids (stage 32a review, ADR 0488).
