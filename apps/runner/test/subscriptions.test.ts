@@ -24,12 +24,13 @@ const runner = exports.default as unknown as {
   gatekeeperFetch(vendor: string, request: Request): Promise<Response>;
 };
 const RETURN = "https://shop.test/account";
-/** The fake provider's signing secret when none is set (FAKE_WEBHOOK_SECRET is empty here). */
+/** The fake provider's signing secret in these tests (vitest.config.ts): off localhost it needs one. */
 const FAKE_SECRET = "fake-payments-test-secret";
 const ext = unique("sub").slice(0, 20);
 const PLAN = `${ext}.plan`;
 let admin: ActingUser;
 let plan: string;
+let connectionId: string;
 
 function staff(user: ActingUser) {
   return { actor: "human" as const, user, origin: { surface: "ui" as const }, db, integrations };
@@ -88,6 +89,52 @@ beforeAll(async () => {
     { id: connection.connection.id, url: "payments://merchant/fake" },
     staff(admin),
   );
+  connectionId = connection.connection.id;
+});
+
+describe("the billing portal through the integration host", () => {
+  it("opens for the host's own call only: an AI actor's and an extension's session are refused", async () => {
+    const resource = "merchant";
+    const bound = await db.query
+      .selectFrom("core_integration_connection")
+      .select("resources")
+      .where("id", "=", connectionId)
+      .executeTakeFirstOrThrow();
+    const key = (JSON.parse(bound.resources) as { key: string }[])[0]?.key ?? resource;
+    const args = [{ customerRef: "fcus_someone", returnUrl: RETURN }];
+    for (const [actor, origin] of [
+      ["mcp", { surface: "mcp" }],
+      ["assistant", { surface: "assistant" }],
+      ["extension", { surface: "extension", extensionId: "x" }],
+    ] as const) {
+      await expect(
+        integrations.call({
+          connectionId,
+          resource: key,
+          method: "openPortal",
+          args,
+          caller: {
+            actor,
+            userId: admin.id,
+            userName: admin.name,
+            role: admin.role,
+            origin: origin as never,
+          },
+        }),
+        actor,
+      ).rejects.toThrow(/only by the host/);
+    }
+    const host = await integrations.callAsHost?.({
+      connectionId,
+      resource: key,
+      method: "openPortal",
+      args,
+      purpose: "orders",
+    });
+    expect((host?.value as { url?: string } | undefined)?.url).toMatch(
+      /\/fake\/portal\/fcus_someone$/,
+    );
+  });
 });
 
 describe("a subscription through the fake provider", () => {

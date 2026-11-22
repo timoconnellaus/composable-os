@@ -169,6 +169,16 @@ export const orderObject = defineObject({
     { ...id, name: "subscriptionId", label: "Subscription", column: "subscription_id" },
     { ...when, name: "periodStart", label: "Period from", column: "period_start" },
     { ...when, name: "periodEnd", label: "Period to", column: "period_end" },
+    // Staff only: a period paid other than as agreed, recorded for what was paid.
+    {
+      name: "periodFlag",
+      label: "Paid other than agreed",
+      type: "enum",
+      enumValues: ["paid_less", "paid_more", "not_as_agreed"],
+      column: "period_flag",
+      filterable: true,
+      sortable: false,
+    },
   ],
 });
 

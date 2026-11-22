@@ -114,15 +114,13 @@ export async function startSubscription(
     });
   }
   // The payer's provider customer, when they have one already: one card and one portal for them.
+  // Only for a caller who has proved who they are: a signed-in customer starting their own, or
+  // staff. A guest only typed an address; reusing that address's customer would attach the
+  // guest's card and invoices to someone else's billing (review of 32a). A guest always gets a
+  // new provider customer from the address (ADR 0487 says which one the portal then opens).
   const target = await paymentsTarget(ctx.db);
-  const earlier = await ctx.db
-    .selectFrom("core_subscription")
-    .select("customer_ref")
-    .where("payer_person_id", "=", personId)
-    .where("provider", "=", target.provider)
-    .where("customer_ref", "is not", null)
-    .orderBy("created_at", "desc")
-    .executeTakeFirst();
+  const proved = caller.kind === "customer" || caller.kind === "staff";
+  const earlier = proved ? await latestCustomerRef(ctx, personId, target.provider) : null;
   // Tax on every period (ADR 0479): only when a human admin turned it on and the plan has a code.
   const taxCode = (await loadOrderTax(ctx.db))
     ? taxCodeOf(getObject(plan.object), await loadOrderTaxCodes(ctx.db))
@@ -138,7 +136,9 @@ export async function startSubscription(
     interval: plan.recurring.interval,
     description: plan.title.slice(0, 200) || id,
     returnUrl: input.returnUrl,
-    ...(earlier?.customer_ref ? { customerRef: earlier.customer_ref } : { customerEmail: email }),
+    // The address too: the gatekeeper starts a new customer from it if the earlier one is gone.
+    ...(earlier ? { customerRef: earlier } : {}),
+    customerEmail: email,
     ...(trialDays ? { trialDays } : {}),
     idempotencyKey: id,
     ...(taxCode ? { tax: { behavior: "inclusive" as const, taxCode } } : {}),
@@ -217,10 +217,13 @@ export async function cancelAtPeriodEnd(
       state: row.state,
     });
   }
-  if (row.cancel_at_period_end === 1) {
-    throw new ConflictError("This subscription already ends when its period does", {
-      subscription: row.id,
-    });
+  if (row.cancel_at_period_end === 1 || row.cancel_at !== null) {
+    throw new ConflictError(
+      row.cancel_at_period_end === 1
+        ? "This subscription already ends when its period does"
+        : `This subscription is already set to end on ${row.cancel_at?.slice(0, 10)}`,
+      { subscription: row.id, cancelAt: row.cancel_at },
+    );
   }
   await callSubscriptionGatekeeper(
     ctx.integrations,
@@ -237,6 +240,17 @@ export async function cancelAtPeriodEnd(
 
 /** Asks the provider to keep `row` going: undoes its end at the period's end, before it comes. */
 export async function resumeSubscription(ctx: HandlerContext, row: SubscriptionRow): Promise<void> {
+  // An end date set at the provider another way (its dashboard) is not undone by setting
+  // cancel_at_period_end back, which is all resume asks (Stripe's documented way to stop a
+  // pending cancellation); taking a date away changes the period and prorates, which is staff's
+  // to decide at the provider. Said to the caller, never reported as asked.
+  if (RUNNING.has(row.state) && row.cancel_at_period_end !== 1 && row.cancel_at !== null) {
+    throw new ConflictError(
+      `This subscription was set at the payment provider to end on ${row.cancel_at.slice(0, 10)}, ` +
+        "which cannot be undone here: staff change it in the provider's dashboard",
+      { subscription: row.id, cancelAt: row.cancel_at, rule: "provider_end_date" },
+    );
+  }
   if (!RUNNING.has(row.state) || row.cancel_at_period_end !== 1) {
     throw new ConflictError("This subscription is not set to end", {
       subscription: row.id,
@@ -270,17 +284,12 @@ export async function openPortal(ctx: HandlerContext, returnUrl: string): Promis
   }
   requireReturnUrl(returnUrl, await loadReturnOrigins(ctx.db));
   const target = await paymentsTarget(ctx.db);
-  const own = await ctx.db
-    .selectFrom("core_subscription")
-    .select("customer_ref")
-    .where("payer_person_id", "=", caller.personId)
-    .where("provider", "=", target.provider)
-    .where("customer_ref", "is not", null)
-    .orderBy("created_at", "desc")
-    .executeTakeFirst();
-  if (!own?.customer_ref) throw new NotFoundError("subscription", "billing");
+  // A payer with two provider customers (two subscriptions started as a guest) gets the newest's
+  // portal (ADR 0487).
+  const own = await latestCustomerRef(ctx, caller.personId, target.provider);
+  if (!own) throw new NotFoundError("subscription", "billing");
   const result = await callSubscriptionGatekeeper(ctx.integrations, target, "openPortal", {
-    customerRef: own.customer_ref,
+    customerRef: own,
     returnUrl,
   });
   const portal = result.value as { url?: unknown } | null;
@@ -288,6 +297,28 @@ export async function openPortal(ctx: HandlerContext, returnUrl: string): Promis
     throw new ConfigError("The payments gatekeeper did not open the portal");
   }
   return portal.url;
+}
+
+/**
+ * The provider customer of `personId`'s most recently started subscription that has one, or
+ * null. One Person can have more than one (each subscription a guest starts makes its own); the
+ * newest is the one reused and the one the portal opens (ADR 0487).
+ */
+async function latestCustomerRef(
+  ctx: HandlerContext,
+  personId: string,
+  provider: string,
+): Promise<string | null> {
+  const row = await ctx.db
+    .selectFrom("core_subscription")
+    .select("customer_ref")
+    .where("payer_person_id", "=", personId)
+    .where("provider", "=", provider)
+    .where("customer_ref", "is not", null)
+    .orderBy("created_at", "desc")
+    .orderBy("id", "desc")
+    .executeTakeFirst();
+  return row?.customer_ref ?? null;
 }
 
 /** The payment account a subscription is on: the deployment's, which must be its provider. */

@@ -75,6 +75,7 @@ const subscriptionRead = z.object({
   currency,
   interval: z.enum(["week", "month", "year"]).nullable(),
   cancelAtPeriodEnd: z.boolean(),
+  cancelAt: moment.nullable().default(null),
   trialEnd: moment.nullable(),
   currentPeriodStart: moment.nullable(),
   currentPeriodEnd: moment.nullable(),

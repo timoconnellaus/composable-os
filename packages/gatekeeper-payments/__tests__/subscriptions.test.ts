@@ -102,9 +102,13 @@ describe("the fake provider's switch", () => {
     expect(unavailableReason(staging as never, "fake")).toMatch(/FAKE_WEBHOOK_SECRET/);
     expect(fakeEnabled({ ...staging, FAKE_WEBHOOK_SECRET: "s3cret" } as never)).toBe(true);
     // The CRM's dev server and e2e: localhost, no secret needed.
-    expect(fakeEnabled({ ...on, BASE_URL: "http://localhost:5173/gatekeeper/payments" } as never)).toBe(true);
+    expect(
+      fakeEnabled({ ...on, BASE_URL: "http://localhost:5173/gatekeeper/payments" } as never),
+    ).toBe(true);
     expect(fakeEnabled(on as never)).toBe(true);
-    expect(fakeEnabled({ PAYMENTS_FAKE_PROVIDER: "false", FAKE_WEBHOOK_SECRET: "s" } as never)).toBe(false);
+    expect(
+      fakeEnabled({ PAYMENTS_FAKE_PROVIDER: "false", FAKE_WEBHOOK_SECRET: "s" } as never),
+    ).toBe(false);
   });
 });
 
@@ -510,7 +514,10 @@ describe("the Stripe provider's subscriptions", () => {
     // host's resume, which sets cancel_at_period_end=false, cannot undo it.
     expect(
       stripeSubscriptionRead({ ...SUBSCRIPTION, cancel_at: 1_902_592_000 }, "x"),
-    ).toMatchObject({ cancelAtPeriodEnd: false, cancelAt: new Date(1_902_592_000_000).toISOString() });
+    ).toMatchObject({
+      cancelAtPeriodEnd: false,
+      cancelAt: new Date(1_902_592_000_000).toISOString(),
+    });
     expect(
       stripeSubscriptionRead(
         { ...SUBSCRIPTION, cancel_at_period_end: true, cancel_at: 1_902_592_000 },
@@ -749,7 +756,11 @@ describe("the Stripe provider's subscriptions", () => {
     const tiered = stripe(() =>
       ok({
         ...SUBSCRIPTION,
-        items: { data: [{ price: { unit_amount: null, currency: "aud", recurring: { interval: "month" } } }] },
+        items: {
+          data: [
+            { price: { unit_amount: null, currency: "aud", recurring: { interval: "month" } } },
+          ],
+        },
       }),
     );
     expect(await tiered.provider.readSubscriptionEvent("evt_t", read)).toEqual({

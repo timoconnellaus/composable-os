@@ -340,6 +340,7 @@ export async function grantable(
   const labels: Record<(typeof GRANTABLE_PERMISSIONS)[number], string> = {
     "records:publish": "Publish versions of publishable records (programs)",
     "orders:refund": "Refund orders and keep late payments",
+    "subscriptions:manage": "End or keep going customers' subscriptions",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({

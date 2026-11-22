@@ -48716,7 +48716,7 @@
     },
     {
       "name": "subscription.cancel",
-      "description": "End a subscription when its current paid period (or trial) ends: nothing more is charged, and what it gives lasts until then. A signed-in customer cancels their own; staff any. Nothing is refunded (a period's refund is order.refund). It can be undone until the period ends (subscription.resume). Asked of the payment provider: the subscription shows it once the provider confirms. A person decides, not an AI assistant.",
+      "description": "End a subscription when its current paid period (or trial) ends: nothing more is charged, and what it gives lasts until then. A signed-in customer cancels their own; staff any, with the subscriptions:manage permission. Nothing is refunded (a period's refund is order.refund). It can be undone until the period ends (subscription.resume). Asked of the payment provider: the subscription shows it once the provider confirms. A person decides, not an AI assistant.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -48857,6 +48857,13 @@
             "type": "boolean",
             "description": "Set to end when the current period ends"
           },
+          "cancelAt": {
+            "description": "A date it is set to end on at the provider (its dashboard), or null",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "canceledAt": {
             "type": [
               "string",
@@ -48924,6 +48931,7 @@
           "currentPeriodStart",
           "currentPeriodEnd",
           "cancelAtPeriodEnd",
+          "cancelAt",
           "canceledAt",
           "endedAt",
           "actionUrl",
@@ -49129,6 +49137,13 @@
                   "type": "boolean",
                   "description": "Set to end when the current period ends"
                 },
+                "cancelAt": {
+                  "description": "A date it is set to end on at the provider (its dashboard), or null",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "canceledAt": {
                   "type": [
                     "string",
@@ -49196,6 +49211,7 @@
                 "currentPeriodStart",
                 "currentPeriodEnd",
                 "cancelAtPeriodEnd",
+                "cancelAt",
                 "canceledAt",
                 "endedAt",
                 "actionUrl",
@@ -49222,7 +49238,7 @@
     },
     {
       "name": "subscription.resume",
-      "description": "Keep a subscription going that was set to end when its period does, before that happens: the provider charges the next period as usual. A signed-in customer resumes their own; staff any. Asked of the payment provider: the subscription shows it once the provider confirms. A person decides, not an AI assistant.",
+      "description": "Keep a subscription going that was set to end when its period does, before that happens: the provider charges the next period as usual. A signed-in customer resumes their own; staff any, with the subscriptions:manage permission. An end date set at the provider another way is refused: staff change it there. Asked of the payment provider: the subscription shows it once the provider confirms. A person decides, not an AI assistant.",
       "risk": "write",
       "audiences": [
         "staff"

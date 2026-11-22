@@ -7,8 +7,10 @@
 // - An invoice with nothing paid (a trial's, a free continuation's) is no order.
 // - One invoice is one order, however often or by whichever event it is reported (the unique
 //   index on core_order (provider, invoice_ref) holds it under two deliveries at once).
-// - A paid amount or currency that is not the subscription's agreed price writes no order and
-//   tells staff: the money was taken, and staff check it with the provider.
+// - Money paid never vanishes from orders. A period paid other than as agreed (less: a coupon or
+//   the customer's balance; more; or in another currency, or on a subscription whose terms were
+//   changed at the provider) is an order for what was actually paid, flagged (`period_flag`), and
+//   staff are told once for the subscription.
 // - The provider's tax is kept only for a subscription opened with tax, and only while it fits
 //   (no more than what was paid), as for a checkout (ADR 0479).
 import { getObject } from "../fields/index.ts";
@@ -24,18 +26,48 @@ import type { SubscriptionRow } from "./events.ts";
 
 type SubscriptionEvent = Extract<PaymentsEvent, { kind: "subscription" }>;
 
+/**
+ * What a period is paid on: a subscription, or (id null) the terms of a checkout whose provider
+ * subscription was not made here because it was not as agreed.
+ */
+export type PeriodTerms = Omit<SubscriptionRow, "id"> & { id: string | null };
+
+export type PeriodFlag = "paid_less" | "paid_more" | "not_as_agreed";
+
 export interface PaidPeriod {
-  outcome: "period_paid" | "period_duplicate" | "period_free" | "period_mismatch";
+  outcome: "period_paid" | "period_flagged" | "period_duplicate" | "period_free";
   orderId: string | null;
   confirmation: { orderId: string; token: string } | null;
 }
 
-/** Writes the paid order for one paid invoice of `sub`, in the calling batch. */
+/** Why a paid invoice is not as agreed, or null when it is. */
+export function periodFlag(
+  terms: Pick<PeriodTerms, "amount" | "currency">,
+  invoice: Pick<ProviderInvoice, "amountPaid" | "currency">,
+  termsChanged: boolean,
+): PeriodFlag | null {
+  if (termsChanged || invoice.currency !== terms.currency) return "not_as_agreed";
+  if (invoice.amountPaid < terms.amount) return "paid_less";
+  if (invoice.amountPaid > terms.amount) return "paid_more";
+  return null;
+}
+
+const FLAG_WORDS: Record<PeriodFlag, string> = {
+  paid_less: "less than its price (a coupon or the payer's balance at the provider, say)",
+  paid_more: "more than its price",
+  not_as_agreed: "on terms that are not the ones agreed",
+};
+
+/**
+ * Writes the paid order for one paid invoice, in the calling batch. `termsChanged`: the
+ * subscription's price, currency or interval is no longer what was agreed at the provider.
+ */
 export async function recordPaidPeriod(
   ctx: HandlerContext,
-  sub: SubscriptionRow,
+  sub: PeriodTerms,
   event: SubscriptionEvent,
   invoice: ProviderInvoice,
+  termsChanged = false,
 ): Promise<PaidPeriod> {
   const none = (outcome: PaidPeriod["outcome"], orderId: string | null = null): PaidPeriod => ({
     outcome,
@@ -50,28 +82,10 @@ export async function recordPaidPeriod(
     .where("invoice_ref", "=", invoice.ref)
     .executeTakeFirst();
   if (seen) return none("period_duplicate", seen.id);
-  if (invoice.currency !== sub.currency || invoice.amountPaid !== sub.amount) {
-    const plan = await notifyStatements(
-      ctx.db,
-      {
-        to: [{ role: "admin" }],
-        type: "system.message",
-        title: "A subscription period was paid an amount that was not agreed",
-        body:
-          `Invoice ${invoice.ref} of subscription ${sub.id} was paid ` +
-          `${formatMoney(invoice.amountPaid, invoice.currency)}; the subscription is ` +
-          `${formatMoney(sub.amount, sub.currency)}. No order was written. Check it with the provider.`,
-        link: { kind: "record", object: "subscription", id: sub.id },
-        dedupeKey: `subscription.period_mismatch:${event.provider}:${invoice.ref}`,
-        source: { actor: "system" },
-      },
-      ctx.now,
-    );
-    ctx.write(...plan.statements);
-    return none("period_mismatch");
-  }
 
   const amount = invoice.amountPaid;
+  const currency = invoice.currency;
+  const flag = periodFlag(sub, invoice, termsChanged);
   // Only a taxed subscription's figure is kept, as the provider said it, and only while it fits.
   const tax = sub.tax_code && invoice.tax && invoice.tax.amount <= amount ? invoice.tax : null;
   const id = newId("order");
@@ -80,7 +94,7 @@ export async function recordPaidPeriod(
     id,
     person_id: sub.payer_person_id,
     email: sub.email,
-    currency: sub.currency,
+    currency,
     total: amount,
     paid: 0,
     state: "pending",
@@ -103,6 +117,7 @@ export async function recordPaidPeriod(
     period_start: invoice.periodStart,
     period_end: invoice.periodEnd,
     invoice_ref: invoice.ref,
+    period_flag: flag,
     paid_at: null,
     cancelled_at: null,
     refunded_at: null,
@@ -134,7 +149,7 @@ export async function recordPaidPeriod(
       event_id: event.eventId,
       order_id: id,
       amount,
-      currency: sub.currency,
+      currency,
       outcome: "applied",
       payment_ref: invoice.paymentRef,
       invoice_ref: invoice.ref,
@@ -143,6 +158,27 @@ export async function recordPaidPeriod(
     }),
   );
   recordHostChange(ctx, { object: "order", id, action: "create", after: orderSnapshot(pending) });
+  if (flag) {
+    const plan = await notifyStatements(
+      ctx.db,
+      {
+        to: [{ role: "admin" }],
+        type: "system.message",
+        title: "A subscription period was paid other than as agreed",
+        body:
+          `Invoice ${invoice.ref} (${sub.id ? `subscription ${sub.id}` : `provider subscription ${event.subscription.ref}`}) ` +
+          `was paid ${formatMoney(amount, currency)}, ${FLAG_WORDS[flag]}; the subscription is ` +
+          `${formatMoney(sub.amount, sub.currency)}. It is recorded as order ${id}, flagged. ` +
+          "Check it with the provider.",
+        link: { kind: "record", object: "order", id },
+        // Once for the subscription (or the provider's subscription), not once per period.
+        dedupeKey: `subscription.period_flag:${event.provider}:${sub.id ?? event.subscription.ref}`,
+        source: { actor: "system" },
+      },
+      ctx.now,
+    );
+    ctx.write(...plan.statements);
+  }
   // The confirmation email's own way back to this one order (ADR 0428), as for any paid order.
   const token = sub.email ? newOrderToken() : null;
   await changeOrder(
@@ -166,7 +202,7 @@ export async function recordPaidPeriod(
     );
   }
   return {
-    outcome: "period_paid",
+    outcome: flag ? "period_flagged" : "period_paid",
     orderId: id,
     confirmation: token ? { orderId: id, token } : null,
   };

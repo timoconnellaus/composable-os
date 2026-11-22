@@ -4,8 +4,8 @@
 //   subscription.start    staff, customers and the public   the provider's page to subscribe on
 //   subscription.get      staff; a customer, their own      one subscription through the seam
 //   subscription.list     staff; a customer, their own      a page of subscriptions
-//   subscription.cancel   staff; a customer, their own      end it when the paid period does
-//   subscription.resume   staff; a customer, their own      undo that before it happens
+//   subscription.cancel   staff (subscriptions:manage); a customer, their own: end it at period end
+//   subscription.resume   staff (subscriptions:manage); a customer, their own: undo that
 //   subscription.portal   a customer                        the provider's portal: card, invoices
 //
 // No operation here takes a price, moves a subscription or makes a period paid: the provider's
@@ -50,6 +50,7 @@ export const subscriptionSchema = z.object({
   currentPeriodStart: when,
   currentPeriodEnd: when.describe("When the current paid period (or trial) ends: the next charge"),
   cancelAtPeriodEnd: z.boolean().describe("Set to end when the current period ends"),
+  cancelAt: when.describe("A date it is set to end on at the provider (its dashboard), or null"),
   canceledAt: when,
   endedAt: when,
   actionUrl: when.describe("The provider's page to confirm a renewal on, while one waits"),
@@ -81,6 +82,7 @@ function fromRecord(record: VisibleRecord, staff: boolean): Subscription {
     currentPeriodStart: text(v.currentPeriodStart),
     currentPeriodEnd: text(v.currentPeriodEnd),
     cancelAtPeriodEnd: Boolean(v.cancelAtPeriodEnd),
+    cancelAt: text(v.cancelAt),
     canceledAt: text(v.canceledAt),
     endedAt: text(v.endedAt),
     actionUrl: text(v.actionUrl),
@@ -199,7 +201,7 @@ export const subscriptionCancel = defineOperation({
   name: "subscription.cancel",
   description:
     "End a subscription when its current paid period (or trial) ends: nothing more is charged, " +
-    "and what it gives lasts until then. A signed-in customer cancels their own; staff any. " +
+    "and what it gives lasts until then. A signed-in customer cancels their own; staff any, with the subscriptions:manage permission. " +
     "Nothing is refunded (a period's refund is order.refund). It can be undone until the period " +
     "ends (subscription.resume). Asked of the payment provider: the subscription shows it once " +
     "the provider confirms. A person decides, not an AI assistant.",
@@ -208,7 +210,7 @@ export const subscriptionCancel = defineOperation({
     reason: z.string().trim().min(1).max(500).default("Cancelled by the payer").describe("Why"),
   }),
   output: changeOutput,
-  permission: "records:write",
+  permission: "subscriptions:manage",
   risk: "write",
   audiences: ["staff", "customer"],
   actors: ["human"],
@@ -226,11 +228,13 @@ export const subscriptionResume = defineOperation({
   description:
     "Keep a subscription going that was set to end when its period does, before that happens: " +
     "the provider charges the next period as usual. A signed-in customer resumes their own; staff " +
-    "any. Asked of the payment provider: the subscription shows it once the provider confirms. " +
+    "any, with the subscriptions:manage permission. An end date set at the provider another way " +
+    "is refused: staff change it there. Asked of the payment provider: the subscription shows it " +
+    "once the provider confirms. " +
     "A person decides, not an AI assistant.",
   input: z.object({ id: subscriptionId }),
   output: changeOutput,
-  permission: "records:write",
+  permission: "subscriptions:manage",
   risk: "write",
   audiences: ["staff", "customer"],
   actors: ["human"],

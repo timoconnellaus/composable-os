@@ -22,7 +22,7 @@ import { type HandlerContext, recordHostChange } from "../operation.ts";
 import type { PaymentsEvent, ProviderSubscription } from "../orders/gateway.ts";
 import { formatMoney } from "../orders/orders.ts";
 import { applyTransition } from "../records/lifecycle.ts";
-import { recordPaidPeriod } from "./periods.ts";
+import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
 
 export type SubscriptionRow = Selectable<CoreSubscriptionTable>;
 type SubscriptionEvent = Extract<PaymentsEvent, { kind: "subscription" }>;
@@ -41,6 +41,73 @@ export const STATE_OF: Record<ProviderSubscription["status"], SubscriptionState>
 
 const FINAL: ReadonlySet<SubscriptionState> = new Set(["ended", "expired"]);
 const FAILING: ReadonlySet<SubscriptionState> = new Set(["past_due", "unpaid"]);
+const OWING: ReadonlySet<SubscriptionState> = new Set(["incomplete", "past_due", "unpaid"]);
+
+/**
+ * How much a state gives its holder: everything (on trial or active), everything while the
+ * provider retries (decision 4), nothing while it waits or is paused, nothing ever again.
+ */
+const HOLDS: Record<SubscriptionState, number> = {
+  trialing: 3,
+  active: 3,
+  past_due: 2,
+  incomplete: 1,
+  unpaid: 1,
+  paused: 1,
+  expired: 0,
+  ended: 0,
+};
+
+/** The provider's status for each of the host's states (the inverse of STATE_OF). */
+const PROVIDER_STATUS: Record<SubscriptionState, ProviderSubscription["status"]> = {
+  incomplete: "incomplete",
+  expired: "incomplete_expired",
+  trialing: "trialing",
+  active: "active",
+  past_due: "past_due",
+  unpaid: "unpaid",
+  paused: "paused",
+  ended: "canceled",
+};
+
+/**
+ * What of a read on terms that are not the agreed ones may still be applied (review of 32a): only
+ * what removes or reduces what the member holds (a move to a state that gives less, or a set end),
+ * never what keeps it going longer (a later period, a trial extended, a failing one paid). Null
+ * when nothing of it reduces anything.
+ */
+export function reductionsOnly(
+  row: SubscriptionRow,
+  read: ProviderSubscription,
+): ProviderSubscription | null {
+  const to = STATE_OF[read.status];
+  const reducing = HOLDS[to] < HOLDS[row.state];
+  const ending =
+    (read.cancelAtPeriodEnd && row.cancel_at_period_end !== 1) ||
+    (read.cancelAt !== null && row.cancel_at === null);
+  if (!reducing && !ending) return null;
+  return {
+    ...read,
+    status: reducing ? read.status : PROVIDER_STATUS[row.state],
+    trialEnd: row.trial_end,
+    currentPeriodStart: row.current_period_start,
+    currentPeriodEnd: row.current_period_end,
+    cancelAtPeriodEnd: read.cancelAtPeriodEnd || row.cancel_at_period_end === 1,
+    cancelAt: read.cancelAt ?? row.cancel_at,
+    canceledAt: read.canceledAt ?? row.canceled_at,
+    endedAt: reducing ? read.endedAt : row.ended_at,
+    endReason: read.endReason ?? row.end_reason,
+  };
+}
+
+/** Whether a read's price, currency or interval is not what the subscription was agreed at. */
+function termsDiffer(row: SubscriptionRow, read: ProviderSubscription): boolean {
+  return (
+    read.currency !== row.currency ||
+    read.amount !== row.amount ||
+    (read.interval !== null && read.interval !== row.interval)
+  );
+}
 
 const subscription = () => getObject("subscription") ?? subscriptionObject;
 
@@ -60,6 +127,7 @@ export function subscriptionSnapshot(row: SubscriptionRow): Record<string, unkno
     currentPeriodStart: row.current_period_start,
     currentPeriodEnd: row.current_period_end,
     cancelAtPeriodEnd: row.cancel_at_period_end === 1,
+    cancelAt: row.cancel_at,
     canceledAt: row.canceled_at,
     endedAt: row.ended_at,
     endReason: row.end_reason,
@@ -121,12 +189,14 @@ function fromRead(row: SubscriptionRow, read: ProviderSubscription, now: string)
     current_period_start: read.currentPeriodStart,
     current_period_end: read.currentPeriodEnd,
     cancel_at_period_end: read.cancelAtPeriodEnd ? 1 : 0,
+    cancel_at: read.cancelAt,
     canceled_at: read.canceledAt,
     ended_at: read.endedAt ?? (state === "ended" || state === "expired" ? now : null),
     end_reason: read.endReason,
     failing_since: FAILING.has(state) ? (row.failing_since ?? now) : null,
-    // A renewal paid, or the subscription over: nothing is waiting for the payer to confirm.
-    action_url: FAILING.has(state) ? row.action_url : null,
+    // Paid, or over: nothing is waiting for the payer to confirm. Kept only while a payment is
+    // still owed (incomplete, past due, unpaid).
+    action_url: OWING.has(state) ? row.action_url : null,
     observed_at: read.observedAt,
     updated_at: now,
     version: row.version + 1,
@@ -153,40 +223,68 @@ export async function applySubscriptionEvent(
 
   let row: SubscriptionRow;
   let moved = false;
+  let terms = false;
   if (!existing) {
     const made = await createFromCheckout(ctx, event);
-    if (typeof made === "string") return nothing(made);
-    row = made;
+    if ("refused" in made) {
+      // Nothing is made from terms that are not the agreed ones; money paid on them is still an
+      // order, for what was paid, flagged (periods.ts).
+      if (made.terms && event.trigger === "invoice_paid" && event.invoice) {
+        const period = await recordPaidPeriod(ctx, made.terms, event, event.invoice, true);
+        done(period.outcome);
+        return {
+          outcome: period.outcome,
+          orderId: period.orderId,
+          state: period.orderId ? "paid" : null,
+          confirmation: period.confirmation,
+        };
+      }
+      return nothing(made.refused);
+    }
+    row = made.row;
     moved = true;
   } else {
-    if (
-      (read.subscriptionId !== null && read.subscriptionId !== existing.id) ||
-      read.currency !== existing.currency ||
-      read.amount !== existing.amount ||
-      (read.interval !== null && read.interval !== existing.interval)
-    ) {
+    // A provider subscription that names another of this host's subscriptions is not this one.
+    if (read.subscriptionId !== null && read.subscriptionId !== existing.id) {
       await tellStaff(
         ctx,
         "A subscription event does not match its subscription",
-        `The ${event.provider} subscription ${read.ref} now says ` +
-          `${formatMoney(read.amount, read.currency)} every ${read.interval ?? "period"}, and ` +
-          `subscription ${existing.id} was agreed at ${formatMoney(existing.amount, existing.currency)} ` +
-          `every ${existing.interval}. Nothing was changed. Check it with the provider.`,
+        `The ${event.provider} subscription ${read.ref} names subscription ${read.subscriptionId}, ` +
+          `and is recorded as ${existing.id}. Nothing was changed. Check it with the provider.`,
         existing.id,
         `subscription.mismatch:${event.provider}:${event.eventId}`,
       );
       return nothing("subscription_mismatch");
     }
     row = existing;
+    // Its price, currency or interval changed at the provider (its dashboard): staff are told
+    // once for the subscription, and only what reduces what the member holds is applied.
+    terms = termsDiffer(existing, read);
+    if (terms) {
+      await tellStaff(
+        ctx,
+        "A subscription was changed at the provider",
+        `The ${event.provider} subscription ${read.ref} now says ` +
+          `${formatMoney(read.amount, read.currency)} every ${read.interval ?? "period"}; ` +
+          `subscription ${existing.id} was agreed at ${formatMoney(existing.amount, existing.currency)} ` +
+          `every ${existing.interval}. Only its ending, pausing or failing is mirrored until it is ` +
+          "put back as agreed; periods paid on it are recorded as paid, flagged. Check it with the provider.",
+        existing.id,
+        `subscription.terms_changed:${event.provider}:${existing.id}`,
+      );
+    }
     // An older read than the one the record was last moved from, or a record that has ended,
     // moves nothing (an invoice it carries is still a fact, below).
     if (read.observedAt >= existing.observed_at && !FINAL.has(existing.state)) {
-      row = await moveFromRead(ctx, existing, read);
-      moved = true;
+      const applied = terms ? reductionsOnly(existing, read) : read;
+      if (applied) {
+        row = await moveFromRead(ctx, existing, applied);
+        moved = true;
+      }
     }
   }
 
-  let outcome = moved ? "applied" : "stale";
+  let outcome = moved ? "applied" : terms ? "terms_changed" : "stale";
   let orderId: string | null = null;
   let orderState: AppliedSubscriptionEvent["state"] = null;
   let confirmation: AppliedSubscriptionEvent["confirmation"] = null;
@@ -194,7 +292,7 @@ export async function applySubscriptionEvent(
   switch (event.trigger) {
     case "invoice_paid": {
       if (!invoice) break;
-      const period = await recordPaidPeriod(ctx, row, event, invoice);
+      const period = await recordPaidPeriod(ctx, row, event, invoice, terms);
       outcome = period.outcome;
       orderId = period.orderId;
       orderState = period.orderId ? "paid" : null;
@@ -216,8 +314,11 @@ export async function applySubscriptionEvent(
       outcome = "payment_failed";
       break;
     case "invoice_action_required":
-      if (!invoice?.hostedUrl) break;
-      // Kept for the payer's "confirm your payment" link; not a record change of its own.
+      // Only from a read applied now (not a stale one), for an invoice still open, on a
+      // subscription still owing: the payer's "confirm your payment" link.
+      if (!invoice?.hostedUrl || !moved || invoice.status !== "open" || !OWING.has(row.state)) {
+        break;
+      }
       ctx.write(
         ctx.db
           .updateTable("core_subscription")
@@ -263,7 +364,7 @@ export async function applySubscriptionEvent(
 async function createFromCheckout(
   ctx: HandlerContext,
   event: SubscriptionEvent,
-): Promise<SubscriptionRow | string> {
+): Promise<{ row: SubscriptionRow } | { refused: string; terms?: PeriodTerms }> {
   const read = event.subscription;
   const checkout = read.subscriptionId
     ? await ctx.db
@@ -282,24 +383,7 @@ async function createFromCheckout(
       null,
       `subscription.unknown:${event.provider}:${read.ref}`,
     );
-    return "unknown_subscription";
-  }
-  if (
-    read.currency !== checkout.currency ||
-    read.amount !== checkout.amount ||
-    (read.interval !== null && read.interval !== checkout.interval)
-  ) {
-    await tellStaff(
-      ctx,
-      "A subscription does not match what was agreed",
-      `The ${event.provider} subscription ${read.ref} says ${formatMoney(read.amount, read.currency)} ` +
-        `every ${read.interval ?? "period"}; the checkout for ${checkout.id} was ` +
-        `${formatMoney(checkout.amount, checkout.currency)} every ${checkout.interval}. Nothing was ` +
-        "changed. Check it with the provider.",
-      null,
-      `subscription.mismatch:${event.provider}:${event.eventId}`,
-    );
-    return "subscription_mismatch";
+    return { refused: "unknown_subscription" };
   }
   const base: SubscriptionRow = {
     id: checkout.id,
@@ -322,6 +406,7 @@ async function createFromCheckout(
     current_period_start: null,
     current_period_end: null,
     cancel_at_period_end: 0,
+    cancel_at: null,
     canceled_at: null,
     ended_at: null,
     end_reason: null,
@@ -332,6 +417,21 @@ async function createFromCheckout(
     updated_at: ctx.now,
     version: -1,
   };
+  if (termsDiffer(base, read)) {
+    // Once per checkout: a subscription is never made from terms that are not the agreed ones.
+    await tellStaff(
+      ctx,
+      "A subscription does not match what was agreed",
+      `The ${event.provider} subscription ${read.ref} says ${formatMoney(read.amount, read.currency)} ` +
+        `every ${read.interval ?? "period"}; the checkout for ${checkout.id} was ` +
+        `${formatMoney(checkout.amount, checkout.currency)} every ${checkout.interval}. No ` +
+        "subscription was made here; a period paid on it is recorded as an order, flagged. Check " +
+        "it with the provider.",
+      null,
+      `subscription.mismatch:${event.provider}:${checkout.id}`,
+    );
+    return { refused: "subscription_mismatch", terms: { ...base, id: null } };
+  }
   const row = { ...fromRead(base, read, ctx.now), created_at: ctx.now };
   // The host makes the record, in the state the provider's read says: its first history row is
   // the host's, whoever started the checkout.
@@ -358,7 +458,7 @@ async function createFromCheckout(
     after: subscriptionSnapshot(row),
   });
   postSubscriptionMove(ctx, row, null);
-  return row;
+  return { row };
 }
 
 /** Moves a subscription to what a later read says, as the host, in the calling batch. */

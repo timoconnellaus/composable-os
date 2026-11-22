@@ -78,6 +78,7 @@ function read(id: string, overrides: Partial<ProviderSubscription> = {}): Provid
     currency: CURRENCY,
     interval: "month",
     cancelAtPeriodEnd: false,
+    cancelAt: null,
     trialEnd: new Date(Date.now() + 7 * DAY).toISOString(),
     currentPeriodStart: start,
     currentPeriodEnd: new Date(Date.now() + 7 * DAY).toISOString(),
@@ -346,9 +347,13 @@ describe("the subscription record, moved only by verified events", () => {
     expect(await notices(/did not start/)).not.toHaveLength(0);
 
     const { id } = await trialing();
-    const pricier = await deliver("updated", read(id, { amount: 1 }));
-    expect(pricier.result.outcome).toBe("subscription_mismatch");
+    // Not as agreed, and nothing in it that reduces what the member holds: nothing moves.
+    const pricier = await deliver("updated", read(id, { amount: 1, status: "active" }));
+    expect(pricier.result.outcome).toBe("terms_changed");
     expect((await subscriptionRow(id))?.state).toBe("trialing");
+    // A provider subscription naming another of this host's ids is not this one.
+    const other = await deliver("updated", read(id, { subscriptionId: "sbs_other" }));
+    expect(other.result.outcome).toBe("subscription_mismatch");
     // A different provider subscription claiming this host's id is not it either.
     const impostor = await deliver("created", read(id, { ref: "fsub_impostor" }));
     expect(impostor.result.outcome).toBe("unknown_subscription");
@@ -482,16 +487,93 @@ describe("an order per paid period", () => {
     expect((await periodOrders(plain))[0]).toMatchObject({ tax_amount: 0 });
   });
 
-  it("writes no order for a period paid an amount that was not agreed, and tells staff", async () => {
+  it("records a period paid less or more than agreed as an order for what was paid, flagged, staff told once", async () => {
     const { id } = await trialing();
-    const odd = await deliver(
+    // A coupon or the payer's balance at the provider: less was paid. The money is an order.
+    const less = await deliver(
       "invoice_paid",
       read(id, { status: "active" }),
       invoice({ amountPaid: 100, amountDue: 100 }),
     );
-    expect(odd.result.outcome).toBe("period_mismatch");
-    expect(await periodOrders(id)).toHaveLength(0);
-    expect(await notices(/not agreed/)).not.toHaveLength(0);
+    expect(less.result).toMatchObject({ outcome: "period_flagged", state: "paid" });
+    const more = await deliver(
+      "invoice_paid",
+      read(id, { status: "active" }),
+      invoice({ amountPaid: 3500, amountDue: 3500 }),
+    );
+    expect(more.result.outcome).toBe("period_flagged");
+    const orders = await periodOrders(id);
+    expect(orders.map((o) => [o.total, o.paid, o.period_flag, o.state])).toEqual([
+      [100, 100, "paid_less", "paid"],
+      [3500, 3500, "paid_more", "paid"],
+    ]);
+    // Once for the subscription, not once per period.
+    const told = (await notices(/other than as agreed/)).filter((n) => n.body.includes(id));
+    expect(told).toHaveLength(1);
+    // Paid as agreed: no flag.
+    await deliver("invoice_paid", read(id, { status: "active" }), invoice());
+    expect((await periodOrders(id)).filter((o) => o.period_flag === null)).toHaveLength(1);
+  });
+
+  it("mirrors only what reduces what the member holds once the provider's terms are changed", async () => {
+    const { id } = await trialing();
+    await deliver("updated", read(id, { status: "active" }));
+    const before = await subscriptionRow(id);
+    // The price changed in the provider's dashboard, and the provider renewed it: the host does
+    // not extend anything from those terms, and tells staff once.
+    const later = new Date(Date.parse(String(before?.current_period_end)) + 30 * DAY).toISOString();
+    const changed = await deliver(
+      "updated",
+      read(id, { status: "active", amount: 4900, currentPeriodEnd: later }),
+    );
+    expect(changed.result.outcome).toBe("terms_changed");
+    expect((await subscriptionRow(id))?.current_period_end).toBe(before?.current_period_end);
+    // Its renewal on those terms: the money is an order, flagged.
+    const renewal = await deliver(
+      "invoice_paid",
+      read(id, { status: "active", amount: 4900 }),
+      invoice({ amountPaid: 4900, amountDue: 4900 }),
+    );
+    expect(renewal.result.outcome).toBe("period_flagged");
+    expect((await periodOrders(id)).at(-1)).toMatchObject({
+      total: 4900,
+      period_flag: "not_as_agreed",
+    });
+    // A failure and an end on those terms are still mirrored: access stops.
+    await deliver("updated", read(id, { status: "past_due", amount: 4900 }));
+    expect((await subscriptionRow(id))?.state).toBe("past_due");
+    // Paid again on the changed terms: a failing one is not made active from them.
+    await deliver("updated", read(id, { status: "active", amount: 4900 }));
+    expect((await subscriptionRow(id))?.state).toBe("past_due");
+    await deliver("updated", read(id, { status: "active", amount: 4900, cancelAtPeriodEnd: true }));
+    expect(await subscriptionRow(id)).toMatchObject({ state: "past_due", cancel_at_period_end: 1 });
+    await deliver(
+      "deleted",
+      read(id, { status: "canceled", amount: 4900, endReason: "cancellation_requested" }),
+    );
+    expect((await subscriptionRow(id))?.state).toBe("ended");
+    const told = (await notices(/changed at the provider/)).filter((n) => n.body.includes(id));
+    expect(told).toHaveLength(1);
+  });
+
+  it("makes no subscription from a first event not as agreed, but records a period paid on it", async () => {
+    const buyer = await createBuyer(admin, "odd");
+    const { subscriptionId: id } = await subscribe(buyer);
+    const odd = read(id, { status: "active", amount: 1500 });
+    const paid = await deliver("invoice_paid", odd, invoice({ amountPaid: 1500, amountDue: 1500 }));
+    expect(paid.result.outcome).toBe("period_flagged");
+    expect(await subscriptionRow(id)).toBeNull();
+    const order = await env.DB.prepare(
+      "SELECT total, period_flag, subscription_id, person_id FROM core_order WHERE id = ?",
+    )
+      .bind(paid.result.orderId)
+      .first();
+    expect(order).toEqual({
+      total: 1500,
+      period_flag: "not_as_agreed",
+      subscription_id: null,
+      person_id: buyer.principal.personId,
+    });
   });
 
   it("refunds a period through approval, credited on its invoice, and leaves the subscription as it was", async () => {
@@ -724,6 +806,98 @@ describe("the payer's own cancel, resume and portal", () => {
     expect(
       (await refusal(run("subscription.portal", { returnUrl: RETURN }, staff()))).code,
     ).not.toBe("ok");
+  });
+
+  it("reuses a provider customer only for a caller who proved who they are", async () => {
+    const { buyer, id } = await trialing();
+    // A guest typing the subscriber's address gets a new provider customer, never theirs.
+    await run(
+      "subscription.start",
+      { plan: { object: PLAN, id: plan }, returnUrl: RETURN, email: buyer.email },
+      outside(PUBLIC, { integrations: runtime, events }),
+    );
+    const guestSent = gw.subscriptions.at(-1);
+    expect(guestSent).not.toHaveProperty("customerRef");
+    expect(guestSent?.customerEmail).toBe(buyer.email);
+    // The subscriber signed in reuses their own; so does staff starting one for them.
+    await subscribe(buyer);
+    expect(gw.subscriptions.at(-1)).toMatchObject({
+      customerRef: `fcus_${id}`,
+      customerEmail: buyer.email,
+    });
+    await run(
+      "subscription.start",
+      { plan: { object: PLAN, id: plan }, returnUrl: RETURN, email: buyer.email },
+      staff(),
+    );
+    expect(gw.subscriptions.at(-1)).toMatchObject({ customerRef: `fcus_${id}` });
+  });
+
+  it("opens the newest provider customer's portal when a payer has two (ADR 0487)", async () => {
+    const { buyer, id: first } = await trialing();
+    // A second subscription the provider gave its own customer (started as a guest, say).
+    const { subscriptionId: second } = await subscribe(buyer);
+    await deliver("checkout_completed", read(second, { customerRef: `fcus_second_${first}` }));
+    await run("subscription.portal", { returnUrl: RETURN }, as(buyer));
+    expect(gw.changes.at(-1)?.request).toMatchObject({ customerRef: `fcus_second_${first}` });
+  });
+
+  it("lets staff end or keep going someone else's only with subscriptions:manage", async () => {
+    const { id } = await trialing();
+    const member = await createUser("member");
+    const asMember = context(member, { integrations: runtime, events });
+    expect((await refusal(run("subscription.cancel", { id }, asMember))).code).toBe("forbidden");
+    expect((await refusal(run("subscription.resume", { id }, asMember))).code).toBe("forbidden");
+    // Granted one by one, as orders:refund is.
+    await run(
+      "user.setPermissions",
+      { id: member.id, permissions: ["subscriptions:manage"] },
+      context(admin),
+    );
+    await run("subscription.cancel", { id, reason: "Asked by phone" }, asMember);
+    expect(gw.changes.at(-1)).toMatchObject({ method: "cancelSubscription" });
+  });
+
+  it("refuses to resume an end date set at the provider, saying so", async () => {
+    const { buyer, id } = await trialing();
+    const date = new Date(Date.now() + 20 * DAY).toISOString();
+    await deliver("updated", read(id, { cancelAt: date }));
+    expect((await subscriptionRow(id))?.cancel_at).toBe(date);
+    const calls = gw.changes.length;
+    const refused = await refusal(run("subscription.resume", { id }, as(buyer)));
+    expect(refused).toMatchObject({ code: "conflict", details: { rule: "provider_end_date" } });
+    expect(refused.message).toMatch(/provider's dashboard/);
+    expect(gw.changes.length).toBe(calls);
+    expect((await refusal(run("subscription.cancel", { id }, as(buyer)))).code).toBe("conflict");
+  });
+});
+
+describe("the payer's confirm-your-payment link", () => {
+  it("is kept only from a current read of an open invoice, and cleared once active", async () => {
+    const { id } = await trialing();
+    const owing = invoice({
+      status: "open",
+      amountPaid: 0,
+      paymentRef: null,
+      hostedUrl: "https://invoice.example/a",
+    });
+    // A stale read: nothing kept.
+    const stale = read(id, {
+      status: "past_due",
+      observedAt: new Date(clock - 500_000).toISOString(),
+    });
+    await deliver("invoice_action_required", stale, owing);
+    expect((await subscriptionRow(id))?.action_url).toBeNull();
+    // An invoice no longer open: nothing kept.
+    await deliver("invoice_action_required", read(id, { status: "past_due" }), {
+      ...owing,
+      status: "paid",
+    });
+    expect((await subscriptionRow(id))?.action_url).toBeNull();
+    await deliver("invoice_action_required", read(id, { status: "past_due" }), owing);
+    expect((await subscriptionRow(id))?.action_url).toBe("https://invoice.example/a");
+    await deliver("updated", read(id, { status: "active" }));
+    expect((await subscriptionRow(id))?.action_url).toBeNull();
   });
 });
 

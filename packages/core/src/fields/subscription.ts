@@ -86,6 +86,7 @@ export const subscriptionObject = defineObject({
       "currentPeriodStart",
       "currentPeriodEnd",
       "cancelAtPeriodEnd",
+      "cancelAt",
       "canceledAt",
       "endedAt",
       "actionUrl",
@@ -168,6 +169,8 @@ export const subscriptionObject = defineObject({
       filterable: true,
       sortable: false,
     },
+    // A date set at the provider another way (its dashboard): the host's resume cannot undo it.
+    { ...when, name: "cancelAt", label: "Ends on", column: "cancel_at" },
     { ...when, name: "canceledAt", label: "Cancelled on", column: "canceled_at" },
     { ...when, name: "endedAt", label: "Ended on", column: "ended_at" },
     text("endReason", "Why it ended", "end_reason"),

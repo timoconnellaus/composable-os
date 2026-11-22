@@ -1458,6 +1458,8 @@ export interface CoreOrderTable {
   period_start: Defaulted<Timestamp | null>;
   period_end: Defaulted<Timestamp | null>;
   invoice_ref: Defaulted<string | null>;
+  /** Migration 0530: a period paid other than as agreed, recorded for what was paid. */
+  period_flag: Defaulted<"paid_less" | "paid_more" | "not_as_agreed" | null>;
 }
 
 export interface CoreOrderLineTable {
@@ -1616,6 +1618,8 @@ export interface CoreSubscriptionTable {
   current_period_start: Defaulted<Timestamp | null>;
   current_period_end: Defaulted<Timestamp | null>;
   cancel_at_period_end: Generated<number>;
+  /** A date it ends on that was set at the provider another way; resume does not undo it. */
+  cancel_at: Defaulted<Timestamp | null>;
   canceled_at: Defaulted<Timestamp | null>;
   ended_at: Defaulted<Timestamp | null>;
   end_reason: Defaulted<string | null>;

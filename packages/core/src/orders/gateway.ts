@@ -89,6 +89,8 @@ export interface ProviderSubscription {
   currency: string;
   interval: "week" | "month" | "year" | null;
   cancelAtPeriodEnd: boolean;
+  /** A date it ends on set at the provider another way (its dashboard); resume does not undo it. */
+  cancelAt: string | null;
   trialEnd: string | null;
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;

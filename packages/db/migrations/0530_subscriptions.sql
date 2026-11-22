@@ -72,6 +72,9 @@ CREATE TABLE core_subscription (
   current_period_end TEXT,
   -- Set to end when the current period does (a flag on trialing or active, not a state).
   cancel_at_period_end INTEGER NOT NULL DEFAULT 0 CHECK (cancel_at_period_end IN (0, 1)),
+  -- A date it is set to end on that was set another way (the provider's dashboard or a schedule):
+  -- the host's resume does not undo it (ADR 0485).
+  cancel_at TEXT,
   canceled_at TEXT,
   ended_at TEXT,
   -- Why it ended or is ending, in the provider's words (cancellation_requested, payment_failed…).
@@ -104,7 +107,7 @@ CREATE VIEW rec_subscription AS
 SELECT
   id, payer_person_id, holder_person_id, email, placed_as, plan_object, plan_id, plan_title,
   amount, currency, interval, tax_code IS NOT NULL AS taxed, state, provider, provider_ref,
-  trial_end, current_period_start, current_period_end, cancel_at_period_end, canceled_at,
+  trial_end, current_period_start, current_period_end, cancel_at_period_end, cancel_at, canceled_at,
   ended_at, end_reason, action_url, failing_since, created_at, updated_at
 FROM core_subscription;
 
@@ -114,6 +117,11 @@ ALTER TABLE core_order ADD COLUMN subscription_id TEXT REFERENCES core_subscript
 ALTER TABLE core_order ADD COLUMN period_start TEXT;
 ALTER TABLE core_order ADD COLUMN period_end TEXT;
 ALTER TABLE core_order ADD COLUMN invoice_ref TEXT;
+-- A period paid other than as agreed, recorded for what was actually paid and flagged for staff:
+-- less (a coupon, the customer's balance), more, or on terms (currency, interval, price) that are
+-- not the subscription's. Null: paid as agreed.
+ALTER TABLE core_order ADD COLUMN period_flag TEXT
+  CHECK (period_flag IS NULL OR period_flag IN ('paid_less', 'paid_more', 'not_as_agreed'));
 -- One order per invoice, whichever event or delivery reports it paid.
 CREATE UNIQUE INDEX core_order_invoice_uq ON core_order (provider, invoice_ref)
   WHERE invoice_ref IS NOT NULL;
@@ -157,7 +165,7 @@ SELECT
   deposit, balance_due_at, expires_at, placed_as, paid_at, cancelled_at, refunded_at, created_at,
   updated_at, tax_amount, tax_refunded, tax_country,
   (paid - refunded) - (tax_amount - tax_refunded) AS net,
-  subscription_id, period_start, period_end
+  subscription_id, period_start, period_end, period_flag
 FROM core_order;
 
 -- Guarded: migrations land out of order (docs/parallel-work.md).
