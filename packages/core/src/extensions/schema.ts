@@ -2,6 +2,7 @@
 // built from it, and the rec_* view SQL generated from it (ADR 0023, ADR 0024).
 import type { CoreDatabase } from "@composable-os/db";
 import {
+  type AllowanceManifest,
   type CapacityManifest,
   type ClaimsManifest,
   type DocumentSchema,
@@ -18,6 +19,7 @@ import {
   type SellableManifest,
   type StagesManifest,
   type StatesManifest,
+  spendsOnList,
   type UniqueManifest,
 } from "@composable-os/sdk";
 import {
@@ -69,6 +71,7 @@ export interface ObjectDefinitionJson {
   stages?: StagesManifest;
   capacity?: CapacityManifest;
   sellable?: SellableManifest;
+  allowance?: AllowanceManifest;
   states?: StatesManifest;
   claims?: ClaimsManifest;
   unique?: UniqueManifest;
@@ -381,6 +384,12 @@ export function buildViews(state: SchemaState): ViewBuild {
       columns.push(...published.columns);
       joins.push(...published.joins);
     }
+    const allowance = object.definition.allowance;
+    if (allowance && "holds" in allowance) {
+      const held = allowanceView(object.name);
+      columns.push(...held.columns);
+      joins.push(...held.joins);
+    }
     build.creates.push(
       `CREATE VIEW ${view} AS SELECT ${columns.join(", ")} FROM ${ident(object.tableName)} t${joins.length ? ` ${joins.join(" ")}` : ""} WHERE t.deleted_at IS NULL`,
     );
@@ -476,6 +485,23 @@ function capacityView(object: string): { joins: string[]; columns: string[] } {
       `coalesce(cap.held, 0) AS ${CAPACITY_COLUMNS.held}`,
       `coalesce(cap.taken, 0) AS ${CAPACITY_COLUMNS.taken}`,
       `CASE WHEN cap.places IS NULL AND capp.places IS NULL THEN NULL WHEN capp.places IS NULL THEN ${left("cap")} WHEN cap.places IS NULL THEN ${left("capp")} ELSE min(${left("cap")}, ${left("capp")}) END AS ${CAPACITY_COLUMNS.available}`,
+    ],
+  };
+}
+
+/**
+ * The allowance values of a holder's view (stage 32b, ADR 0493): uses spent in the current period
+ * and uses left now, from rec_allowance (migration 0533) over its terms row, which every write and
+ * the reconciler's backfill keep.
+ */
+function allowanceView(object: string): { joins: string[]; columns: string[] } {
+  const name = `'${object.replaceAll("'", "''")}'`;
+  return {
+    joins: [`LEFT JOIN rec_allowance alw ON alw.object_type = ${name} AND alw.record_id = t.id`],
+    columns: [
+      `coalesce(alw.used, 0) AS ${ALLOWANCE_COLUMNS.used}`,
+      // No terms row (never written since a reconcile's backfill): nothing can be spent yet.
+      `CASE WHEN alw.record_id IS NULL THEN 0 ELSE alw."left" END AS ${ALLOWANCE_COLUMNS.left}`,
     ],
   };
 }
@@ -646,6 +672,72 @@ export const CAPACITY_FIELDS: readonly FieldDefinition[] = [
     description: "Places left (the record's and its pool's, whichever is fewer). Empty: unlimited.",
   },
 ];
+
+/** View columns of the allowance values: no declared field's column can start with `_`. */
+export const ALLOWANCE_COLUMNS = { used: "_alw_used", left: "_alw_left" } as const;
+
+/** The read-only allowance values on every record of a holder object (ALLOWANCE_VALUES). */
+export const ALLOWANCE_FIELDS: readonly FieldDefinition[] = [
+  {
+    name: "used",
+    label: "Used",
+    type: "number",
+    column: ALLOWANCE_COLUMNS.used,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "Uses spent in the current period (this week, this month, or in all).",
+  },
+  {
+    name: "left",
+    label: "Left",
+    type: "number",
+    column: ALLOWANCE_COLUMNS.left,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "Uses that can be spent now in the current period. Empty: unlimited.",
+  },
+];
+
+/** The allowance declaration with registry field names, or undefined (ADR 0493). */
+function allowanceDefinition(object: ObjectState): ObjectDefinition["allowance"] {
+  const declared = object.definition.allowance;
+  if (!declared) return undefined;
+  const qualify = (target: string) =>
+    target.includes(".") ? target : `${object.extensionId}.${target}`;
+  if ("holds" in declared) {
+    const h = declared.holds;
+    return {
+      kind: "holder",
+      person: h.person,
+      uses: h.uses,
+      per: typeof h.per === "string" ? { fixed: h.per } : { field: h.per.field },
+      spendsOn: spendsOnList(h).map((s) => ({
+        object: qualify(s.object),
+        when: (s.when ?? []).map((c) => ({ ...c })),
+      })),
+      ...(h.from ? { from: h.from } : {}),
+      ...(h.until ? { until: h.until } : {}),
+      live: h.live ? [...h.live] : null,
+      ...(h.zone ? { zone: h.zone } : {}),
+      emptyIsUnlimited: h.emptyIsUnlimited === true,
+    };
+  }
+  const sp = declared.spends;
+  return {
+    kind: "spender",
+    person: sp.person,
+    holder: sp.holder,
+    spendIn: [...sp.spendIn],
+    returnIn: [...sp.returnIn],
+    ...(sp.at ? { at: sp.at } : {}),
+    copy: { ...(sp.copy ?? {}) },
+    local: { ...(sp.local ?? {}) },
+    ...(sp.movedFrom ? { movedFrom: { ...sp.movedFrom } } : {}),
+    paidBy: [...(sp.paidBy ?? [])],
+  };
+}
 
 /** The capacity declaration with registry field names, or undefined. */
 function capacityDefinition(object: ObjectState, own: FieldState[]): ObjectDefinition["capacity"] {
@@ -910,6 +1002,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     );
     const capacity = capacityDefinition(object, own);
     const sellable = sellableDefinition(object, own);
+    const allowance = allowanceDefinition(object);
     const publishable = object.definition.publishable;
     const fields = [
       ...SYSTEM_FIELDS,
@@ -917,6 +1010,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...foreign.map((f) => registryField(f, object.name)),
       ...[...own, ...foreign].flatMap((f) => documentPathFields(f, object.name)),
       ...(capacity ? CAPACITY_FIELDS : []),
+      ...(allowance?.kind === "holder" ? ALLOWANCE_FIELDS : []),
       ...(publishable ? PUBLISHED_FIELDS : []),
     ];
     map.set(object.name, {
@@ -937,6 +1031,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.stages ? { stages: object.definition.stages } : {}),
       ...(capacity ? { capacity } : {}),
       ...(sellable ? { sellable } : {}),
+      ...(allowance ? { allowance } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
       ...claimsDefinition(object, own),
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),

@@ -5,6 +5,7 @@ import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
 import { enqueueEmbeddings } from "../ai/embedding.ts";
 import { deleteSummariesStatement } from "../ai/summaries.ts";
+import { queueEraseAllowances } from "../allowance/people.ts";
 import { queueScrubAgentJobs } from "../assistant/agent-jobs.ts";
 import { queueScrubConversations } from "../assistant/erase.ts";
 import { queueEraseMemory } from "../assistant/memory.ts";
@@ -336,6 +337,8 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
 
   // Their records' lifecycle history, and what ties an order to them (stage 25, ADR 0426).
   await queueEraseOrders(ctx, subject);
+  // Their passes' and memberships' uses, and the uses they spent (stage 32b, ADR 0494).
+  if (subject.object === "person") queueEraseAllowances(ctx, [...recordIds]);
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.

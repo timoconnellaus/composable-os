@@ -44,6 +44,10 @@ it("after migrations every read view is rec_<object>, and none keeps the old pre
     "rec_activity",
     "rec_activity_link",
     "rec_affiliation",
+    // Stage 32b (migration 0533): allowances, their periods and uses.
+    "rec_allowance",
+    "rec_allowance_period",
+    "rec_allowance_use",
     "rec_capacity",
     "rec_capacity_claim",
     // Stage 28 (migration 0461): the media library.

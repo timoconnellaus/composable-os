@@ -9,6 +9,12 @@
       "toolOnly": true
     },
     {
+      "name": "allowance.get",
+      "audiences": ["staff", "customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "capacity.get",
       "audiences": ["staff", "customer", "public"],
       "risk": "read"

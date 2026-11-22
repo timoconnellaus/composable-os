@@ -4,18 +4,21 @@
 // gap; a time that happens twice is the first.
 import { describe, expect, it } from "vitest";
 import {
-  addDays,
+  addDaysToDate,
   isoWeekday,
   localDaysBefore,
-  localInstant,
   localParts,
   parseLocalTime,
   realWallClock,
+  wallClockOf,
+  wallClockToInstant,
   zoneOffset,
 } from "../src/index.ts";
 
 const at = (date: string, time: string, zone: string) =>
-  new Date(localInstant(date, parseLocalTime(time) as number, zone)).toISOString();
+  new Date(
+    wallClockToInstant(wallClockOf(date, parseLocalTime(time) as number), zone),
+  ).toISOString();
 
 describe("a local time to an instant", () => {
   it("keeps 06:00 at 06:00 on both sides of each clock change (whole hours)", () => {
@@ -38,9 +41,9 @@ describe("a local time to an instant", () => {
   it("moves a time in the gap forward by the gap", () => {
     // 02:30 does not exist on 4 October in Sydney: it is 03:30, an hour later.
     expect(at("2026-10-04", "02:30", "Australia/Sydney")).toBe("2026-10-03T16:30:00.000Z");
-    expect(localParts(Date.parse("2026-10-03T16:30:00.000Z"), "Australia/Sydney")).toEqual({
+    expect(localParts(Date.parse("2026-10-03T16:30:00.000Z"), "Australia/Sydney")).toMatchObject({
       date: "2026-10-04",
-      minutes: 3 * 60 + 30,
+      minuteOfDay: 3 * 60 + 30,
     });
     // Adelaide's gap is 02:00 to 03:00 local too.
     expect(at("2026-10-04", "02:30", "Australia/Adelaide")).toBe("2026-10-03T17:00:00.000Z");
@@ -72,9 +75,9 @@ describe("local days and the wall clock", () => {
   });
 
   it("does calendar arithmetic and weekdays without a zone", () => {
-    expect(addDays("2026-02-28", 1)).toBe("2026-03-01");
-    expect(addDays("2028-02-28", 1)).toBe("2028-02-29");
-    expect(addDays("2026-01-01", -1)).toBe("2025-12-31");
+    expect(addDaysToDate("2026-02-28", 1)).toBe("2026-03-01");
+    expect(addDaysToDate("2028-02-28", 1)).toBe("2028-02-29");
+    expect(addDaysToDate("2026-01-01", -1)).toBe("2025-12-31");
     expect(isoWeekday("2026-11-23")).toBe(1);
     expect(isoWeekday("2026-11-22")).toBe(7);
     expect(parseLocalTime("24:00")).toBeNull();

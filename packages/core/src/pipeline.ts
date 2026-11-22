@@ -42,6 +42,8 @@ import { checkOutsideRateLimit } from "./customers/limits.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
 import { diffRecords, type FieldDiff } from "./diff.ts";
 import {
+  type AllowanceRefusalDetails,
+  allowanceMessage,
   ConflictError,
   ForbiddenError,
   GateDeniedError,
@@ -1481,8 +1483,41 @@ function outsidePrincipal(value: unknown): OutsidePrincipal {
  * purpose goes out as it is. Anything else (a database error, a bug) goes out with its code and
  * nothing more: no SQL, no column or constraint names.
  */
+/**
+ * An allowance refusal as a customer is told it (stage 32b, ADR 0493), whether the host or the
+ * database refused: the reason in words, and for no uses left the period's numbers, which are of
+ * their own holder; never which record refused (a holder not theirs is someone else's), and never
+ * a field name beyond the one they wrote.
+ */
+function outsideAllowance(error: OperationError): OperationError | null {
+  const details = error.details as Partial<AllowanceRefusalDetails> & { field?: unknown };
+  if (details?.rule !== "allowance") return null;
+  const reason = details.reason;
+  if (!reason) {
+    // A rule of the write itself (a holder that cannot be changed under a use, a missing time).
+    return new ValidationError(error.message, {
+      rule: "allowance",
+      ...(typeof details.field === "string" ? { field: details.field } : {}),
+    });
+  }
+  const safe: AllowanceRefusalDetails = {
+    rule: "allowance",
+    reason,
+    ...(reason === "no_uses_left" || reason === "spent_meanwhile"
+      ? { period: details.period, uses: details.uses, used: details.used }
+      : {}),
+  };
+  return error.code === "conflict"
+    ? new ConflictError(allowanceMessage(safe), safe)
+    : new ValidationError(allowanceMessage(safe), safe);
+}
+
 function outsideError(error: unknown): OperationError {
   const internal = () => new OperationError("internal", "Internal error");
+  const allowance = outsideAllowance(
+    error instanceof OperationError ? error : toOperationError(error),
+  );
+  if (allowance) return allowance;
   if (error instanceof OperationError) {
     // Even one the host raised itself: an internal error's words are for the log, not the caller.
     if (error.code !== "internal" && error.code !== "invalid_output") return error;

@@ -985,8 +985,8 @@ Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).
 
 The rules products share, declared in a manifest and enforced by the host in the write's own batch.
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
-half, and the media library beside it, since stage 28); `recurring`, capacity claimants and
-declared uniqueness since stage 31 (below). `allowance` is added by stage 32b. Behaviours stack:
+half, and the media library beside it, since stage 28). `allowance` exists since stage 32b;
+`recurring`, capacity claimants and declared uniqueness since stage 31 (below). Behaviours stack:
 an event is publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
@@ -1389,6 +1389,25 @@ counter that refused. Confirm and release are three statements each, idempotent,
 owner (an order, from stage 25) calls them. Records carry read-only `held`, `taken` and `available`;
 `capacity.get` gives staff the numbers and outsiders only what `show` allows;
 `rec_capacity` and `rec_capacity_claim` are queryable.
+
+**`allowance`** (stage 32b, ADRs [0493](adr/0493-the-allowance-behaviour.md) and
+[0494](adr/0494-which-holder-pays-and-what-happens-to-uses.md), `packages/sdk/src/allowance.ts`,
+`packages/core/src/allowance/`). An object `holds` uses (a pass, a membership: its Person, uses per
+total, week or month or unlimited, its dates, live states, zone, and `spendsOn` with conditions) or
+`spends` them (a booking: its Person, the holder field, the states that spend and give back, its
+time `at` one relation away, fields the host copies onto it and the local weekday and minute).
+record.create, record.update and the import spend in the spender's batch when it moves into a spend
+state and give back on a return state, and spend again when what the spender points at changes (a
+class rescheduled); the holder's terms (`core_allowance`) are derived in SQL from its stored record
+in each write's batch and by the reconciler. Another pack's holder pays only where the spender's
+`paidBy` lets it. A
+spend is three statements with no read of the count: a counter per holder per period
+(`core_allowance_period`, the limit copied from the terms), `used + 1` on it, and the use
+(`core_allowance_use`); a CHECK and triggers refuse past the limit, or a holder not the Person's,
+not live or not valid at the spender's time, so the whole batch fails (`invalid_input`, `rule:
+"allowance"`). Periods are named by their local start in the holder's zone (`time/local.ts`).
+Holders carry read-only `used` and `left`; `allowance.get` reads a period; `rec_allowance`,
+`rec_allowance_period` and `rec_allowance_use` are queryable.
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be

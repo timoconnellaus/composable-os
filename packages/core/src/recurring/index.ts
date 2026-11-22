@@ -21,6 +21,7 @@
 // - **Closures** (records of the declared closure object): nothing is made on their dates, and
 //   the future records already made in them are cancelled (a host move into `cancel`).
 import { WEEKDAYS } from "@composable-os/sdk";
+import { addDaysToDate } from "../automations/cron.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, RecurringDefinition } from "../fields/types.ts";
@@ -28,12 +29,12 @@ import type { HandlerContext } from "../operation.ts";
 import type { Mover } from "../records/transitions.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
-  addDays,
   isoWeekday,
-  localInstant,
   localParts,
   parseLocalDate,
   parseLocalTime,
+  wallClockOf,
+  wallClockToInstant,
 } from "../time/local.ts";
 import { visibleSource } from "../visibility/index.ts";
 import {
@@ -185,7 +186,7 @@ export function ruleIncludes(rule: SeriesRule, date: string): boolean {
 
 /** The record a rule makes on `date`. */
 export function occurrenceOn(rule: SeriesRule, date: string): Occurrence {
-  const starts = localInstant(date, rule.minutes, rule.zone);
+  const starts = wallClockToInstant(wallClockOf(date, rule.minutes), rule.zone);
   return { date, starts, ends: rule.length === null ? null : starts + rule.length * 60_000 };
 }
 
@@ -194,7 +195,7 @@ export function occurrencesBetween(rule: SeriesRule, first: string, last: string
   const out: Occurrence[] = [];
   const start = first > rule.from ? first : rule.from;
   const end = rule.until !== null && rule.until < last ? rule.until : last;
-  for (let date = start; date <= end; date = addDays(date, 1)) {
+  for (let date = start; date <= end; date = addDaysToDate(date, 1)) {
     if (rule.weekdays.has(isoWeekday(date))) out.push(occurrenceOn(rule, date));
   }
   return out;
@@ -302,13 +303,15 @@ export async function generateSeries(
   const series = await records().load(ctx, object, id);
   const zone = series ? (ruleOf(def, series, timezone)?.zone ?? timezone) : timezone;
   const today = localParts(now, zone).date;
-  const nextDaily = iso(localInstant(addDays(today, 1), DAILY_RUN_MINUTE, zone));
+  const nextDaily = iso(
+    wallClockToInstant(wallClockOf(addDaysToDate(today, 1), DAILY_RUN_MINUTE), zone),
+  );
   const rule = series && !isEnded(def, series) ? ruleOf(def, series, timezone) : null;
   if (!series || !rule) {
     ctx.write(armSeriesStatement(object.name, id, nextDaily, ctx.now));
     return { made: 0, more: false };
   }
-  const last = addDays(today, await horizonOf(ctx, def));
+  const last = addDaysToDate(today, await horizonOf(ctx, def));
   const generated = generatedOf(def);
   const made = new Set(
     (
@@ -677,8 +680,8 @@ export async function closureWritten(
     const rows = (await (ctx.db as AnyDb)
       .selectFrom(visibleSource(ctx, generated))
       .select(["id", `${startsCol} as starts`, ...(zoneCol ? [`${zoneCol} as zone`] : [])])
-      .where(startsCol, ">=", addDays(range.from, -2))
-      .where(startsCol, "<", addDays(range.until, 3))
+      .where(startsCol, ">=", addDaysToDate(range.from, -2))
+      .where(startsCol, "<", addDaysToDate(range.until, 3))
       .where(stateCol, "in", movable)
       .execute()) as { id: string; starts: string | null; zone?: string | null }[];
     for (const row of rows) {

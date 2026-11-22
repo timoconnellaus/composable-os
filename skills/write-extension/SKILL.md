@@ -170,6 +170,25 @@ extension declares it; it never implements it. Each behaviour the platform has i
   is refused, since selling to the public is a reviewed change. Never create tickets or check a
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
   and ADR 0435.
+- **`allowance`** on an object: its records hold uses that something else spends (a pass, a
+  membership), or spend them (a booking, a visit). A holder declares `allowance: { holds: { person,
+  uses, per, spendsOn, from?, until?, live?, zone? } }`: a relation to person, a number field
+  (empty is unlimited), `"total" | "week" | "month"` or a select field with those options, what it
+  pays for (`{ object, when?: [{ field, in | atLeast | below }] }`, comparing a spender field the
+  host fills with a holder field or a literal), its date fields, the states it can be spent in
+  (required with `states`), a timezone field and `emptyIsUnlimited: true` if an empty uses means
+  unlimited (otherwise it means none). Keep these fields out of `customer.write` and every tool's
+  `customerFields`, and declare no fields named `used` or `left` (the host adds them). A customer
+  never creates a holder: grant it from an order or make it as staff. A spender declares `states` and `allowance: { spends:
+  { person, holder, spendIn, returnIn, at?, copy?, local?, movedFrom? } }`: a text field for the
+  holder's id (callers may set it to choose), the states that spend and give back, its time (a
+  datetime of its own or `relation.field`), read-only fields the host copies from one relation away
+  and the local `weekday` and `minute` it fills, and `paidBy` (holder objects or extensions of
+  other packs that may pay for it; left out, only yours). Conditions read only the fields the host
+  fills (`copy`, `local`). Changing what a spender points at while it holds a use spends again for
+  the new target, or is refused.
+  Never count uses or pick a holder in a tool: the host spends in the write that moves the record.
+  See `AllowanceSpec` in `packages/sdk/src/allowance.ts` and ADRs 0493 and 0494.
 
 - **`public`** on an object: what the public may read (ADR 0438), `public: { read: [fields],
   when?: { field, in } | { via, field, in } }`: the fields, of the records whose state (a select

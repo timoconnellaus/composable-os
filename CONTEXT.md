@@ -1454,9 +1454,19 @@ them). One row per set: the table a gym's training data comes from.
 _Avoid_: entry, result
 
 **Allowance**
-What a pass or membership grants: a number of uses, or unlimited uses over a period. A booking
-spends one (later; ADR 0404).
+What a pass or membership grants: a number of uses in all, a week or a month, or unlimited, for
+what it may be spent on (a class type, a time of day), between its dates. Its record is a
+**holder**; a record that spends one (a booking) is a **spender**. The host keeps the count and the
+database refuses a use past it (ADRs 0493 and 0494). Unused uses do not carry over.
 _Avoid_: entitlement (a hosted plan's limits, ADR 0211), credit (account credit is money)
+
+**Use** (of an allowance)
+One spend by a spender from a holder, counted in the holder's period containing the spender's own
+time (a class's start), and given back when the spender enters a state its object declares (a
+cancel in time). A late cancel or a no-show keeps it. An unlimited holder still writes one, so
+attendance counts. Only the spender's own Person's holder pays; a payer who is not the holder
+pays for the subscription, not the use.
+_Avoid_: credit, visit (a visit is what a use may pay for)
 
 **Skill**
 Instructions for an agent building on the platform: a folder in `skills/` with a `SKILL.md` (plain
