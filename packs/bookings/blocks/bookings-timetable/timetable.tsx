@@ -69,9 +69,10 @@ function ClassRow({
 }) {
   const book = bookings.useBook();
   const cancel = bookings.useCancel();
-  const [preview, setPreview] = useState<{ state: "cancelled" | "late_cancelled"; message: string } | null>(
-    null,
-  );
+  const [preview, setPreview] = useState<{
+    state: "cancelled" | "late_cancelled";
+    message: string;
+  } | null>(null);
   const name = klass.title ?? "Class";
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">

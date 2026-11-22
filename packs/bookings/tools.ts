@@ -260,7 +260,10 @@ export const classGet = defineTool({
   risk: "read",
   audiences: ["customer", "public"],
   async handler(input, ctx) {
-    const klass = await ctx.ops.call<RecordShape>("public.get", { object: CLASS, id: input.classId });
+    const klass = await ctx.ops.call<RecordShape>("public.get", {
+      object: CLASS,
+      id: input.classId,
+    });
     const [described] = await describeClasses(ctx, [klass]);
     return { class: described as ClassOut };
   },
@@ -727,7 +730,10 @@ export const classList = defineTool({
   }),
   risk: "read",
   async handler(input, ctx) {
-    const klass = await ctx.ops.call<RecordShape>("record.get", { object: CLASS, id: input.classId });
+    const klass = await ctx.ops.call<RecordShape>("record.get", {
+      object: CLASS,
+      id: input.classId,
+    });
     const [described] = await staffClasses(ctx, [klass]);
     const page = await ctx.ops.call<ListShape>("record.list", {
       object: BOOKING,

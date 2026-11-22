@@ -95,6 +95,19 @@ test("a billing operation named as a string, in a subfolder, and unlisted is cau
   assert.deepEqual(lintUnlisted('call("x.courses.buy")', ["x.courses.buy"]), []);
 });
 
+test("every native bookings block is marked noPurchase, and none can buy a drop-in", async () => {
+  const { readFileSync } = await import("node:fs");
+  const natives = blockFolders(root).filter((dir) => /bookings-native-/.test(dir));
+  assert.ok(natives.length >= 1);
+  for (const dir of natives) {
+    assert.equal(JSON.parse(readFileSync(join(dir, "block.json"), "utf8")).noPurchase, true, dir);
+  }
+  // Booking with a use already held is not a purchase; paying for a drop-in (x.bookings.buy, a
+  // later step) is, and a noPurchase block may not name it.
+  assert.deepEqual(lintNoPurchase('call("x.bookings.book")'), []);
+  assert.equal(lintNoPurchase("const go = bookings.useBuy();")[0]?.rule, "no-purchase");
+});
+
 test("every native courses block is marked noPurchase", async () => {
   const { readFileSync } = await import("node:fs");
   const natives = blockFolders(root).filter((dir) => /courses-native-/.test(dir));

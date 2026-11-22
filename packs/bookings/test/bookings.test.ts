@@ -66,8 +66,14 @@ function host(operations: Record<string, (input: Record<string, unknown>) => unk
         const { id, ...values } = CLASS;
         return { id, values };
       },
-      "capacity.get": () => ({ object: "bookings.class", id: "cls_1", status: "available", available: 9 }),
-      "person.get": (input) => (input.id === "per_ann" ? { id: "per_ann", displayName: "Ann" } : null),
+      "capacity.get": () => ({
+        object: "bookings.class",
+        id: "cls_1",
+        status: "available",
+        available: 9,
+      }),
+      "person.get": (input) =>
+        input.id === "per_ann" ? { id: "per_ann", displayName: "Ann" } : null,
       ...operations,
     },
   });
@@ -126,7 +132,10 @@ describe("bookings pack (test host)", () => {
       confirmed: ["booked", "attended", "no_show"],
     });
     expect(booking?.unique).toEqual([
-      { fields: ["person", "class"], states: ["pending", "booked", "waiting", "attended", "no_show"] },
+      {
+        fields: ["person", "class"],
+        states: ["pending", "booked", "waiting", "attended", "no_show"],
+      },
     ]);
     const states = booking?.states;
     expect(states?.create?.window).toEqual({
@@ -346,9 +355,13 @@ describe("bookings pack (test host)", () => {
       "my.list": (input) =>
         input.object === "bookings.booking"
           ? {
-              items: [{ id: "bkg_1", values: { class: "cls_1", state: "booked", holder: "pass_1" } }],
+              items: [
+                { id: "bkg_1", values: { class: "cls_1", state: "booked", holder: "pass_1" } },
+              ],
             }
-          : { items: [{ id: "cls_1", values: { ...CLASS, startsAt: "2099-01-01T00:00:00.000Z" } }] },
+          : {
+              items: [{ id: "cls_1", values: { ...CLASS, startsAt: "2099-01-01T00:00:00.000Z" } }],
+            },
     });
     const out = await h.runTool<{ bookings: Record<string, unknown>[] }>(
       "mine",
@@ -404,9 +417,10 @@ describe("bookings pack (test host)", () => {
     const update = h.calls.find((c) => c.operation === "record.update");
     expect(update?.input).toMatchObject({ from: "booked", values: { state: "late_cancelled" } });
     // Already moved on: the host's conflict, reported as changed.
-    expect(
-      await h.runTool("cancelFor", { bookingId: "bkg_1" }, { caller: STAFF }),
-    ).toMatchObject({ result: "refused", reason: "changed" });
+    expect(await h.runTool("cancelFor", { bookingId: "bkg_1" }, { caller: STAFF })).toMatchObject({
+      result: "refused",
+      reason: "changed",
+    });
   });
 
   it("day lists one local date's classes with the class type's staff-only flag", async () => {

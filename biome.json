@@ -71,7 +71,9 @@
         "packs/courses/blocks/courses-my-courses/**",
         "packs/courses/blocks/courses-builder/**",
         "packs/courses/blocks/courses-subscribe/**",
-        "packs/courses/blocks/courses-subscription/**"
+        "packs/courses/blocks/courses-subscription/**",
+        "packs/bookings/blocks/bookings-timetable/**",
+        "packs/bookings/blocks/bookings-desk/**"
       ],
       "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
     },

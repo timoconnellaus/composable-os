@@ -41,6 +41,9 @@ importers:
       '@composable-os/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@composable-os/pack-bookings':
+        specifier: workspace:*
+        version: link:../../packs/bookings
       '@composable-os/pack-courses':
         specifier: workspace:*
         version: link:../../packs/courses

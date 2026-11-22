@@ -54,9 +54,7 @@ export function Desk({
             newPerson: { givenName, ...(familyName ? { familyName } : {}) },
             paidAtDesk,
           });
-          setMessage(
-            done.result === "booked" ? `Booked ${givenName} in.` : done.message,
-          );
+          setMessage(done.result === "booked" ? `Booked ${givenName} in.` : done.message);
           if (done.result === "booked") {
             setGivenName("");
             setFamilyName("");

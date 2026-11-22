@@ -11,8 +11,8 @@
 // field, so the pack decides where the numbers come from (a class type's override over the
 // organisation's default, copied by the host onto the class).
 import type { Kysely } from "kysely";
-import { getObject } from "../fields/index.ts";
 import { registryFieldName } from "../extensions/naming.ts";
+import { getObject } from "../fields/index.ts";
 import type {
   ObjectDefinition,
   WindowBoundDefinition,

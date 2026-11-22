@@ -190,9 +190,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   // Bookings requires Programs: installed first, it is refused and says so.
   await refreshSchemaRegistry(db.query);
-  const early = await refusal(
-    run("extension.install", { id: "bookings", shipped: true }, staff()),
-  );
+  const early = await refusal(run("extension.install", { id: "bookings", shipped: true }, staff()));
   expect(JSON.stringify(early)).toContain("requires the programs extension");
   await run("extension.install", { id: "programs", shipped: true }, staff());
   await run("extension.install", { id: "bookings", shipped: true }, staff());
@@ -294,7 +292,7 @@ describe("the timetable", () => {
     expect(starts[0]).toBe("2026-03-30T19:00:00.000Z");
     expect(starts).toContain("2026-04-06T20:00:00.000Z");
     // The class type opens 70 days ahead, so the horizon reaches past the default 56.
-    expect(starts.at(-1)?.slice(0, 10) >= "2026-06-04").toBe(true);
+    expect((starts.at(-1) ?? "").slice(0, 10) >= "2026-06-04").toBe(true);
     const type = await get(CLASS_TYPE, farType);
     expect(made.items[0]?.values).toMatchObject({
       title: type.values.name,
@@ -388,9 +386,11 @@ describe("a member books and cancels", () => {
     const late = await book(who, await klass(3 * HOUR, lateType));
     expect(late.result).toBe("booked");
     expect(await left(passId)).toBe(4);
-    expect(
-      await run("x.bookings.cancel", { bookingId: late.bookingId }, as(who)),
-    ).toMatchObject({ result: "preview", state: "late_cancelled", late: true });
+    expect(await run("x.bookings.cancel", { bookingId: late.bookingId }, as(who))).toMatchObject({
+      result: "preview",
+      state: "late_cancelled",
+      late: true,
+    });
     // Asking to cancel "in time" is refused: it is late, and the use is not given back.
     expect(
       await run(
@@ -418,9 +418,9 @@ describe("a member books and cancels", () => {
     );
     expect(started.result).toBe("booked");
     expect(await left(passId)).toBe(3);
-    expect(
-      await run("x.bookings.cancel", { bookingId: started.bookingId }, as(who)),
-    ).toMatchObject({ result: "refused", reason: "too_late" });
+    expect(await run("x.bookings.cancel", { bookingId: started.bookingId }, as(who))).toMatchObject(
+      { result: "refused", reason: "too_late" },
+    );
     for (const expect_ of ["cancelled", "late_cancelled"]) {
       expect(
         await run(
@@ -440,9 +440,9 @@ describe("a member books and cancels", () => {
     const id = await klass(45 * MINUTE);
     const booked = await book(who, id);
     // Late from 60 minutes (the default): 45 minutes before is late.
-    expect(
-      await run("x.bookings.cancel", { bookingId: booked.bookingId }, as(who)),
-    ).toMatchObject({ state: "late_cancelled" });
+    expect(await run("x.bookings.cancel", { bookingId: booked.bookingId }, as(who))).toMatchObject({
+      state: "late_cancelled",
+    });
     // The organisation moves it to 30 minutes: now in time.
     await run(
       "extensionSettings.update",
@@ -574,7 +574,10 @@ describe("staff and privacy", () => {
       staff(),
     );
     expect(list.bookings).toEqual([
-      expect.objectContaining({ person: expect.objectContaining({ id: done.personId }), paidAtDesk: true }),
+      expect.objectContaining({
+        person: expect.objectContaining({ id: done.personId }),
+        paidAtDesk: true,
+      }),
     ]);
   });
 
@@ -588,9 +591,10 @@ describe("staff and privacy", () => {
     await book(bob, id);
     const bobs = await run<{ bookings: { id: string }[] }>("x.bookings.mine", {}, as(bob));
     expect(bobs.bookings.map((b) => b.id)).not.toContain(hers.bookingId);
-    expect(
-      await run("x.bookings.cancel", { bookingId: hers.bookingId }, as(bob)),
-    ).toMatchObject({ result: "refused", reason: "not_found" });
+    expect(await run("x.bookings.cancel", { bookingId: hers.bookingId }, as(bob))).toMatchObject({
+      result: "refused",
+      reason: "not_found",
+    });
     expect(
       await run(
         "x.bookings.cancel",

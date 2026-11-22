@@ -66,9 +66,10 @@ function ClassItem({
 }) {
   const book = bookings.useBook();
   const cancel = bookings.useCancel();
-  const [preview, setPreview] = useState<{ state: "cancelled" | "late_cancelled"; message: string } | null>(
-    null,
-  );
+  const [preview, setPreview] = useState<{
+    state: "cancelled" | "late_cancelled";
+    message: string;
+  } | null>(null);
   const name = klass.title ?? "Class";
   return (
     <View>

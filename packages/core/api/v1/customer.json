@@ -2525,6 +2525,629 @@
       ]
     },
     {
+      "name": "x.bookings.book",
+      "description": "Book the signed-in member into a class with what they already hold (a membership or a pass): the host spends one use of the one whose use would lapse first, or of `holderId` when they name one. No money moves. Answers booked, or refused with the reason the host gave: booking not open yet (with when it opens), closed, booked by the gym only, nothing to pay with, already booked, or full. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "holderId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A membership or pass of theirs to spend, when they hold several"
+          }
+        },
+        "required": ["classId"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "booked"
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "classId": {
+                "type": "string"
+              },
+              "holderId": {
+                "description": "The membership or pass a use was spent from; null when paid at the desk",
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["result", "bookingId", "classId", "holderId"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_open",
+                  "closed",
+                  "staff_only",
+                  "no_use",
+                  "already_booked",
+                  "full",
+                  "too_late",
+                  "not_found",
+                  "changed"
+                ],
+                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. staff_only: this class is booked by the gym (or is not running). no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, ended, not_covered…)",
+                "type": ["string", "null"]
+              },
+              "opensAt": {
+                "type": ["string", "null"]
+              },
+              "closesAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["result", "reason", "message", "detail", "opensAt", "closesAt"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.bookings.classGet",
+        "x.bookings.mine",
+        "x.bookings.timetable"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.cancel",
+      "description": "Cancel one of the signed-in member's bookings. First without `confirm`: the host says whether a cancel now is in time (`cancelled`, the class's use given back) or late (`late_cancelled`, the use kept), by its clock. Then with `confirm: true` and `expect` set to that answer: cancelled as said, or refused if it has become late meanwhile, so a member never loses a use they were told they would keep. After the class starts it cannot be cancelled. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "confirm": {
+            "default": false,
+            "type": "boolean"
+          },
+          "expect": {
+            "type": "string",
+            "enum": ["cancelled", "late_cancelled"],
+            "description": "What the preview said; with confirm, cancel only into this state"
+          }
+        },
+        "required": ["bookingId"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": ["preview", "cancelled", "late_cancelled"]
+              },
+              "state": {
+                "type": "string",
+                "enum": ["cancelled", "late_cancelled"]
+              },
+              "late": {
+                "type": "boolean",
+                "description": "A late cancel keeps the use the booking spent"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["result", "state", "late", "message"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_open",
+                  "closed",
+                  "staff_only",
+                  "no_use",
+                  "already_booked",
+                  "full",
+                  "too_late",
+                  "not_found",
+                  "changed"
+                ],
+                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. staff_only: this class is booked by the gym (or is not running). no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, ended, not_covered…)",
+                "type": ["string", "null"]
+              },
+              "opensAt": {
+                "type": ["string", "null"]
+              },
+              "closesAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["result", "reason", "message", "detail", "opensAt", "closesAt"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.bookings.classGet",
+        "x.bookings.mine",
+        "x.bookings.timetable"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.classGet",
+      "description": "One scheduled class of the timetable: its name, class type, start and end in its own time zone, coach, room, notes for members and how many places are left. Not found once it is not scheduled. Never who is booked. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["classId"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "class": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "description": "The class's name (its class type's, unless renamed)",
+                "type": ["string", "null"]
+              },
+              "classType": {
+                "type": ["string", "null"]
+              },
+              "startsAt": {
+                "description": "When it starts (ISO 8601, UTC)",
+                "type": ["string", "null"]
+              },
+              "endsAt": {
+                "type": ["string", "null"]
+              },
+              "timeZone": {
+                "description": "The class's IANA time zone: show its times in this zone.",
+                "type": ["string", "null"]
+              },
+              "room": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": ["string", "null"]
+                      }
+                    },
+                    "required": ["id", "name"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "coach": {
+                "anyOf": [
+                  {
+                    "allOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": ["string", "null"]
+                              }
+                            },
+                            "required": ["id", "name"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "photo": {
+                            "type": ["string", "null"]
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "notes": {
+                "type": ["string", "null"]
+              },
+              "places": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": ["available", "low", "sold_out"]
+                  },
+                  "available": {
+                    "description": "Places left; null when unlimited",
+                    "type": ["number", "null"]
+                  }
+                },
+                "required": ["status"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "classType",
+              "startsAt",
+              "endsAt",
+              "timeZone",
+              "room",
+              "coach",
+              "notes",
+              "places"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": ["class"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.mine",
+      "description": "The signed-in member's own bookings, soonest class first: each with its state (booked, cancelled, cancelled late…), the membership or pass it spent from, and its class (name, start and end in its own time zone, coach, room, whether it still runs). Only their own bookings exist here. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": ["booked", "cancelled", "late_cancelled"]
+          },
+          "upcoming": {
+            "default": true,
+            "description": "Only classes that have not started",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "bookings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": ["string", "null"]
+                },
+                "holderId": {
+                  "type": ["string", "null"]
+                },
+                "classId": {
+                  "type": ["string", "null"]
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "startsAt": {
+                  "type": ["string", "null"]
+                },
+                "endsAt": {
+                  "type": ["string", "null"]
+                },
+                "timeZone": {
+                  "description": "The class's IANA time zone: show its times in this zone.",
+                  "type": ["string", "null"]
+                },
+                "classState": {
+                  "description": "scheduled, cancelled or done",
+                  "type": ["string", "null"]
+                },
+                "coach": {
+                  "type": ["string", "null"]
+                },
+                "room": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": [
+                "id",
+                "state",
+                "holderId",
+                "classId",
+                "title",
+                "startsAt",
+                "endsAt",
+                "timeZone",
+                "classState",
+                "coach",
+                "room"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["bookings"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.timetable",
+      "description": "The gym's timetable: its scheduled classes between two times (default: the next 7 days), soonest first, each with its name, class type, start and end in its own time zone, coach, room, notes for members and how many places are left. Filter by class type or coach. Only what the public may read: never who is booked. Booking rules (when booking opens, whether the gym books it) are the host's: book answers with them. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            ],
+            "description": "From this time (ISO 8601). Default: now"
+          },
+          "to": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            ],
+            "description": "Until this time. Default: 7 days after from"
+          },
+          "classType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "coach": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "classes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "description": "The class's name (its class type's, unless renamed)",
+                  "type": ["string", "null"]
+                },
+                "classType": {
+                  "type": ["string", "null"]
+                },
+                "startsAt": {
+                  "description": "When it starts (ISO 8601, UTC)",
+                  "type": ["string", "null"]
+                },
+                "endsAt": {
+                  "type": ["string", "null"]
+                },
+                "timeZone": {
+                  "description": "The class's IANA time zone: show its times in this zone.",
+                  "type": ["string", "null"]
+                },
+                "room": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": ["string", "null"]
+                        }
+                      },
+                      "required": ["id", "name"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "coach": {
+                  "anyOf": [
+                    {
+                      "allOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": ["string", "null"]
+                                }
+                              },
+                              "required": ["id", "name"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "photo": {
+                              "type": ["string", "null"]
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "notes": {
+                  "type": ["string", "null"]
+                },
+                "places": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["available", "low", "sold_out"]
+                    },
+                    "available": {
+                      "description": "Places left; null when unlimited",
+                      "type": ["number", "null"]
+                    }
+                  },
+                  "required": ["status"],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "classType",
+                "startsAt",
+                "endsAt",
+                "timeZone",
+                "room",
+                "coach",
+                "notes",
+                "places"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["classes"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "bookings"
+    },
+    {
       "name": "x.content.categories",
       "description": "Every category of posts, by name: its id, name and address (slug), for a site's menu or a post's label. Read-only. (Extension tool from Content 0.2.0.)",
       "risk": "read",
