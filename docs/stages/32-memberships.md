@@ -14,8 +14,8 @@ stage 32" section); `packages/core/src/orders/`, `packages/core/src/capacity/`,
 
 Status: **32a built** (steps 1 to 4; never run on real Stripe: the test-mode runbook waits for
 the owner); **32a spec agreed** (interview 2026-11-22: questions 1 to 7, each with its recommended
-answer); **32b agreed** (questions 8 to 16 answered the same day; it waits for
-stage 31). The decisions already made at stage
+answer); **32b agreed** (questions 8 to 16 answered the same day; built beside
+stage 31: steps 5 and 6 built). The decisions already made at stage
 42's interview are listed below and are not asked again. Where this spec guesses, it says
 **(guess)**.
 
@@ -730,6 +730,69 @@ way, or decided what it left open:
   to 8); a customer booking through a pack's tool is exercised by stage 31's build (the fixture
   proves the host's side for every staff actor, the dry run and a customer's `allowance.get`);
   `cos ext test`'s harness does not simulate the behaviour.
+
+## Built: 32b step 6 (2026-11-22)
+ADRs [0510](../adr/0510-what-a-subscription-grants.md) (`sellable.recurring.grants`: what a
+subscription grants, kept in step with it), [0511](../adr/0511-the-memberships-pack-and-passes.md)
+(the Memberships pack, passes and `grants.valid`) and
+[0512](../adr/0512-one-per-person-and-tools-only-a-person-may-call.md) (the intro offer's one per
+Person, `sellable.onePerPerson`, and tools only a person may call, `humanOnly`), migrations 0580
+and 0581, the pack `packs/memberships` (a new npm package, `@composable-os/pack-memberships`).
+Where the build read the spec one way, or decided what it left open:
+
+- **The name.** `recurring.grants` is `sellable.recurring.grants`, the plan's own; it is not stage
+  31's `recurring` behaviour (a timetable rule, ADR 0500). The documents say so where both appear.
+- **What follows the subscription.** The membership is granted by the first verified read that
+  reports the subscription running (any state but incomplete or expired), once
+  (`core_subscription_grant`), and its state follows every later read: on trial, active, past due,
+  unpaid, paused, ended (final). Its `until` is when it stops giving: the moment it ended, its
+  period's end when set to end, a `cancel_at`, or 30 days of failing while past due (32a's access
+  rule), so the allowance refuses a class after it without a rule of its own. The spec's
+  membership states (`active`, `paused`, `ended`, `void`) became the subscription's own (no `void`:
+  nothing voids a membership in this step).
+- **Payer and holder.** Staff start a subscription paid by one Person and held by another
+  (`holderPersonId`); a customer is refused until stage 31's family link, which then needs only
+  `holderFor` to allow a dependant.
+- **Passes.** Valid from when they are granted for the type's days (`grants.valid`, a platform
+  addition to `sellable.grants`). A drop-in is a pass of one (the spec's guess). No `used` or
+  `expired` states (the spec's): the host's count and `until` say it, and a state would need a
+  clock or a hook. A full refund voids a pass and its spent uses stay (tested).
+- **The intro offer** is `sellable.onePerPerson` on the pass type: one per Person across every
+  pass type marked so, only for a buyer who proved who they are, held from the order's start (two
+  orders at once give one), used when paid, released only when the unpaid order expires or is
+  cancelled, followed through a merge.
+- **Every term of a membership or a pass is read-only**: the host and the pack's own tools write
+  them; the generic record operations cannot. Giving a pass by hand is `x.memberships.givePass`
+  (permission `memberships:passes`, grantable; a person only: `humanOnly`, a new ToolSpec flag);
+  voiding one staff gave is `voidPass` (the same), or a button on the pass, and nothing else (ADR
+  0513). Deviation: the spec's "`subscriptions:manage` or the right permission" is the pack's own
+  grantable permission.
+- **Class types** are Programs' (`programs.classtype`), so the pack requires Programs; limits by
+  weekday and time of day are fields of the plan and the pass type, copied onto what they grant.
+  The holders' `spendsOn` names `bookings.booking` with the fields its host fills (`classType`,
+  `weekday`, `minute`); until Bookings lands, the spend is tested with a fixture spender with those
+  ids, and the Bookings pack must declare them and `paidBy: ["memberships"]`.
+- **Plans** are monthly (`recurring.interval` is fixed per object); plans and pass types are on sale
+  by a status field (`on_sale`), not `publishable` (a price list is not content; as `courses.plan`).
+- **Tax**: the gym dues code (`txcd_50021001`), without a place; whether the provider needs the
+  gym's address is an open check for the runbook.
+- **After the independent review (2026-11-22; [ADR 0513](../adr/0513-a-granted-holder-keeps-what-it-was-granted.md)):**
+  a live holder, or a granted one not final, cannot go to the Trash (void or end it first), and a
+  granted one in the Trash that is not final is not restored; voiding a pass is the host's (a
+  refund) or `voidPass`'s, a move only named tools may make (`states.moves[].tools`), never another
+  staff write; a holder's terms are written only by the host or a tool only a person with a
+  permission calls; the contract holds a granted holder's terms read-only and its live states the
+  host's; a pass given by hand gets the host's dates and, for an intro offer, uses the Person's one;
+  a merge keeps one intro offer (used over held), and an order whose hold a merge released grants
+  nothing and tells staff; dropping a plan's grants is refused while subscriptions still running
+  hold one; `holderPersonId` and `now` are staff-only input, out of the customer's contract;
+  `allowance.list` reads up to 50 holders at once and says `payable`; a plan's `per` is required; a
+  refunded period tells staff the membership keeps running. Disputes are not read by the host yet.
+- **Not built in this step**: plan changes and pauses (the next step); the dashboard and the rest of
+  the Person tab (step 7; this step has the views, the Person's Memberships and Passes tabs and a
+  staff holdings block); `cos memberships import` and the subscription import (step 8); continuation
+  offers on membership plans (32a's work for courses; a membership plan's offers need its blocks);
+  a guardian's read (stage 31's family link).
 
 ## Questions for the interview
 Ordered by how much each changes the build; 32a's first. All were decided on 2026-11-22:

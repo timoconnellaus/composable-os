@@ -340,6 +340,18 @@ export class Executor {
       ...(input.caller.principal
         ? { outside: { principal: input.caller.principal, tool: input.tool } }
         : {}),
+      // Which tool this run is, from the installed manifest (ADR 0513): a move only named tools
+      // may make, and a holder's terms, read it from the run's calls.
+      tool: {
+        name: input.tool,
+        humanOnly: manifest.tools?.[input.tool]?.humanOnly === true,
+        permission: manifest.tools?.[input.tool]?.permission ?? null,
+        // The person who called it, when a person did (the pipeline refused anyone else for a
+        // humanOnly tool): who gave what a person's tool gives.
+        ...(input.caller.principal || input.caller.actor !== "human"
+          ? {}
+          : { startedBy: input.caller.userId }),
+      },
       ...(input.cascade ? { cascade: input.cascade } : {}),
     };
     const host = new RunHost(this.#env, run);

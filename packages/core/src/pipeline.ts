@@ -111,6 +111,8 @@ import {
 } from "./principals.ts";
 import type { RateLimitBinding } from "./rate-limit.ts";
 import type { MediaStore } from "./records/media.ts";
+import { touchesPersonApproves } from "./records/person-approves.ts";
+import { ALWAYS_REVIEWED_PUBLISHERS } from "./records/publish.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { loadApprovalPolicy } from "./settings.ts";
 import type { UpdaterRuntime } from "./updates.ts";
@@ -288,7 +290,8 @@ function packRoleRefusal(role: HeldPackRole, op: AnyOperation): ForbiddenError {
 
 /** The object an operation reads or writes, for extension permission checks. */
 export function operationObject(op: AnyOperation, input: unknown): string | null {
-  if (op.name.startsWith("record.") || op.name.startsWith("my.")) {
+  // state.resolve reads one object's record as the write would (ADR 0507): granted by object.
+  if (op.name.startsWith("record.") || op.name.startsWith("my.") || op.name === "state.resolve") {
     const object = (input as { object?: unknown } | null)?.object;
     return typeof object === "string" ? object : null;
   }
@@ -702,9 +705,14 @@ async function invokeOnce<O extends AnyOperation>(
   // Bookkeeping (opening a change set, revoking a token) is never queued; deny still applies.
   if (op.bookkeeping && decision === "review") decision = "auto";
   // Some changes always wait for a person (extension installs and upgrades, ADR 0041).
+  // A person's own fields and settings (a gym's booking rules, ADR 0507): anyone else's write of
+  // one waits for a person, as an AI's publish does (ADR 0480).
   const forced =
     op.alwaysReview === true ||
-    (Array.isArray(op.alwaysReview) && op.alwaysReview.includes(ctx.actor));
+    (Array.isArray(op.alwaysReview) && op.alwaysReview.includes(ctx.actor)) ||
+    (!ctx.approval &&
+      ALWAYS_REVIEWED_PUBLISHERS.includes(ctx.actor) &&
+      (await touchesPersonApproves(ctx.db.query, op.name, input)));
   if (forced && decision === "auto" && !ctx.approval) decision = "review";
   // What routed it to review (ADR 0204): the adjudicator never approves floor or forced reviews.
   let reviewSource: ReviewSource = forced
@@ -1593,6 +1601,14 @@ function outsideError(error: unknown): OperationError {
   if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "trial_held") {
     return typed;
   }
+  // Their own second order for something sold once per Person, started at the same moment
+  // (migration 0581, ADR 0512): told it is held, and no more than that.
+  if (
+    typed.code === "conflict" &&
+    (typed.details as { rule?: unknown })?.rule === "once_per_person"
+  ) {
+    return typed;
+  }
   // The same for a continuation offer's page (migration 0532, ADR 0491): the caller's own offer.
   const offerRule = (typed.details as { rule?: unknown })?.rule;
   if (typed.code === "conflict" && (offerRule === "offer_held" || offerRule === "offer_changed")) {
@@ -1680,6 +1696,23 @@ async function invokeOutside<O extends AnyOperation>(
   // Counted once the call is one this caller may make at all, and before any work is done for it.
   // A tool's own calls are part of the one call that started the tool.
   if (!ctx.tool) await checkOutsideRateLimit(ctx.rateLimit, principal, op.name);
+  // An option only staff may pass is not the customer's or the public's to send (it is not in
+  // their contract either).
+  const staffKeys = (op.staffInput ?? []).filter(
+    (key) =>
+      rawInput !== null &&
+      typeof rawInput === "object" &&
+      (rawInput as Record<string, unknown>)[key] !== undefined,
+  );
+  if (staffKeys.length) {
+    throw new ValidationError(
+      `Invalid input for ${op.name}: ${staffKeys.join(", ")} is for staff`,
+      {
+        field: staffKeys[0],
+        rule: "staff_input",
+      },
+    );
+  }
   const parsed = op.input.safeParse(rawInput);
   if (!parsed.success) {
     throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });

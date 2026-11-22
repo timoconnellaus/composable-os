@@ -655,13 +655,27 @@ describe("holders not live at the spender's time", () => {
       rule: "allowance",
       reason: "not_theirs",
     });
-    // In the Trash, it cannot be spent; restored, it can.
+    // A live holder cannot go to the Trash (ADR 0513): paused first, then it can. In the Trash
+    // it cannot be spent; restored and made active again, it can.
     const trashed = await pass(p, { uses: 5, per: "total" });
+    expect(
+      await refusal(invoke("record.delete", { object: PASS, id: trashed }, staff())),
+    ).toMatchObject({ rule: "allowance", reason: "holder_live" });
+    await invoke(
+      "record.update",
+      { object: PASS, id: trashed, values: { state: "paused" } },
+      staff(),
+    );
     await invoke("record.delete", { object: PASS, id: trashed }, staff());
     expect(await refusal(book(p, c, { holder: trashed }))).toMatchObject({
       reason: "not_live",
     });
     await invoke("record.restore", { object: PASS, id: trashed }, staff());
+    await invoke(
+      "record.update",
+      { object: PASS, id: trashed, values: { state: "active" } },
+      staff(),
+    );
     await book(p, c, { holder: trashed });
   });
 

@@ -64,6 +64,8 @@ describe("default closed (criterion 1)", () => {
     expect([...openTo("customer")].sort()).toEqual([
       // Stage 32b (ADR 0493): a customer's own pass or membership, its uses spent and left.
       "allowance.get",
+      // Stage 32b review (ADR 0513): up to 50 of their own holders at once, as allowance.get.
+      "allowance.list",
       "capacity.get",
       // Stage 28 (ADR 0442): what the public reads of content, a customer reads too.
       "content.get",
@@ -385,6 +387,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "access.check",
       // Stage 32b (ADR 0493): it reads a holder's counters once the seam shows the holder.
       "allowance.get",
+      // Stage 32b review (ADR 0513): allowance.get for up to 50 of a customer's own holders at once.
+      "allowance.list",
       // Stage 28 (ADR 0442): they read redirects, preview links and the cache's generation.
       "content.get",
       "content.list",
@@ -402,6 +406,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "order.checkout",
       "order.start",
       "order.view",
+      // Stage 31a (ADR 0504): it reads a booking whole and its class's rules, as the write does.
+      "state.resolve",
       // Stage 32a (ADR 0485): the host calls the payments gatekeeper for the payer.
       "subscription.cancel",
       "subscription.offer.mine",

@@ -83,7 +83,7 @@ export const socialProfileSchema = z.object({
   handle: shortText(100).optional(),
 });
 
-const personWritableFields = {
+export const personWritableFields = {
   givenName: shortText(100).nullish(),
   familyName: shortText(100).nullish(),
   displayName: shortText(200)
@@ -286,7 +286,7 @@ export function personSnapshot(person: PersonSnapshotSource): Record<string, unk
 
 // --- Writing helpers ---------------------------------------------------------------------------
 
-function normaliseEmails(emails: z.output<typeof emailInputSchema>[]) {
+export function normaliseEmails(emails: z.output<typeof emailInputSchema>[]) {
   const list = withPrimary(emails, "email").map((e) => ({
     email: e.email,
     label: e.label ?? null,
@@ -1114,7 +1114,7 @@ export const personMerge = defineOperation({
       ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),
     ]);
     // Orders, subscriptions, their checkouts and trials follow the Person (stage 32a, #221).
-    queueMergeOrders(ctx, survivor.id, merged.id);
+    await queueMergeOrders(ctx, survivor.id, merged.id);
     await queueMergeSubscriptions(ctx, survivor.id, merged.id);
     // Passes' and memberships' terms and uses follow the Person too (stage 32b, ADR 0494).
     queueMergeAllowances(ctx, survivor.id, merged.id);

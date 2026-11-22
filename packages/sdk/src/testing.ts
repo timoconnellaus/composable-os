@@ -180,7 +180,11 @@ function riskOf(operation: string): string {
 
 function objectOf(operation: string, input: Record<string, unknown>): string | null {
   // As the host's operationObject: record.* and my.* name their object in the input.
-  if (operation.startsWith("record.") || operation.startsWith("my."))
+  if (
+    operation.startsWith("record.") ||
+    operation.startsWith("my.") ||
+    operation === "state.resolve"
+  )
     return typeof input.object === "string" ? input.object : null;
   const prefix = operation.split(".")[0] ?? "";
   return (CORE_OBJECT_NAMES as readonly string[]).includes(prefix) ? prefix : null;
@@ -538,10 +542,17 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
           observer?.(name, body, value);
           return { ok: true, value };
         } catch (error) {
-          const e = error as { code?: string; message?: string };
+          const e = error as { code?: string; message?: string; details?: unknown };
+          // As the real host: a refusal's details (its rule) reach the tool, as OpsCallError's.
           return {
             ok: false,
-            error: { code: e.code ?? "internal", message: e.message ?? String(error) },
+            error: {
+              code: e.code ?? "internal",
+              message: e.message ?? String(error),
+              ...(e.code && e.code !== "internal" && e.details !== undefined
+                ? { details: e.details }
+                : {}),
+            },
           };
         }
       },

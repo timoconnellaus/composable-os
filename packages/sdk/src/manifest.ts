@@ -107,6 +107,7 @@ export const fieldManifestSchema = z.object({
   editableOptions: z.boolean().optional(),
   default: z.union([z.string().max(1000), z.number(), z.boolean()]).optional(),
   defaultSetting: z.string().max(40).optional(),
+  personApproves: z.boolean().optional(),
   to: z.string().max(80).optional(),
   many: z.boolean().optional(),
   expression: z.string().max(2000).optional(),
@@ -212,6 +213,7 @@ export const objectManifestSchema = z.object({
       read: z.array(z.string().max(40)).max(100),
       write: z.array(z.string().max(40)).max(100),
       requireAccess: z.array(z.string().max(40)).max(10).optional(),
+      createOnly: z.array(z.string().max(40)).max(100).optional(),
     })
     .strict()
     .optional(),
@@ -322,6 +324,8 @@ export const toolManifestSchema = z.object({
   customerFields: z.record(z.string().max(80), z.array(z.string().max(40)).max(50)).optional(),
   /** The permission a staff caller needs (`<id>:<word>`), for the extension's roles (ADR 0436). */
   permission: z.string().max(80).optional(),
+  /** Only a person may call it (ADR 0512). */
+  humanOnly: z.literal(true).optional(),
   inputSchema: jsonSchemaObject,
   outputSchema: jsonSchemaObject,
 });
@@ -406,6 +410,7 @@ export const settingManifestSchema = z.object({
   min: z.number().optional(),
   max: z.number().optional(),
   options: z.array(optionSchema).max(200).optional(),
+  personApproves: z.boolean().optional(),
 });
 export type SettingManifest = z.infer<typeof settingManifestSchema>;
 
@@ -631,6 +636,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ...(tool.recordAction ? { recordAction: tool.recordAction } : {}),
           ...(tool.audiences ? { audiences: [...tool.audiences] } : {}),
           ...(tool.permission ? { permission: tool.permission } : {}),
+          ...(tool.humanOnly ? { humanOnly: true as const } : {}),
           ...(tool.customerFields
             ? {
                 customerFields: Object.fromEntries(
@@ -1277,6 +1283,18 @@ export function validateManifest(
     }
   }
 
+  // Fields a customer sets only when they make the record (ADR 0507): each one of its write list.
+  for (const [name, object] of Object.entries(m.objects)) {
+    for (const fieldName of object.customer?.createOnly ?? []) {
+      if (!object.customer?.write.includes(fieldName)) {
+        contract(
+          `objects.${name}.customer.createOnly`,
+          `"${fieldName}" must be one the customer writes (customer.write)`,
+        );
+      }
+    }
+  }
+
   // A customer's write that needs access to what it points to (stage 42, ADR 0478): relations of
   // the object to one record of another of this extension's objects that declares `access`.
   for (const [name, object] of Object.entries(m.objects)) {
@@ -1441,6 +1459,12 @@ export function validateManifest(
     const open = (tool.audiences ?? []).filter((audience) => audience !== "staff");
     if (tool.audiences && new Set(tool.audiences).size !== tool.audiences.length) {
       contract(`tools.${name}.audiences`, "audiences lists one twice");
+    }
+    if (tool.humanOnly && open.length) {
+      contract(
+        `tools.${name}.humanOnly`,
+        `A tool only a person on the staff may call cannot be open to ${open.join(" and ")} callers`,
+      );
     }
     if (open.length && tool.risk !== "read" && tool.risk !== "write") {
       contract(

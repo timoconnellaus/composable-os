@@ -29,6 +29,8 @@ export interface ContractOperation {
   output: JsonSchema;
   /** For a mutation: the operations whose query results it makes stale. */
   invalidates: string[];
+  /** Input keys only staff may pass: dropped from every other audience's contract. */
+  staffInput?: string[];
   /**
    * In a release's committed files only: the pack whose tool it is (`withPacks`). A deployment's
    * own manifest names none: it serves the packs it installed (`forPacks`).
@@ -100,6 +102,7 @@ export function buildContract(operations: readonly AnyOperation[]): ApiContract 
       kind,
       input: jsonSchema(op.input, "input"),
       output: jsonSchema(op.output, "output"),
+      ...(op.staffInput?.length ? { staffInput: [...op.staffInput] } : {}),
       invalidates:
         kind === "mutation"
           ? queries
@@ -116,14 +119,25 @@ export function buildContract(operations: readonly AnyOperation[]): ApiContract 
 }
 
 /** The contract as one audience sees it: only what they may call, nothing else named. */
+/** An object schema without the properties `keys` names (and not requiring them). */
+function withoutKeys(schema: JsonSchema, keys: readonly string[]): JsonSchema {
+  const properties = { ...((schema.properties as Record<string, unknown> | undefined) ?? {}) };
+  for (const key of keys) delete properties[key];
+  const required = ((schema.required as string[] | undefined) ?? []).filter(
+    (k) => !keys.includes(k),
+  );
+  return { ...schema, properties, ...(schema.required ? { required } : {}) };
+}
+
 export function contractFor(contract: ApiContract, audience: Audience): ApiContract {
   const mine = contract.operations.filter((op) => op.audiences.includes(audience));
   const names = new Set(mine.map((op) => op.name));
   return {
     version: contract.version,
-    operations: mine.map((op) => ({
+    operations: mine.map(({ staffInput, ...op }) => ({
       ...op,
       audiences: [audience],
+      input: audience === "staff" || !staffInput ? op.input : withoutKeys(op.input, staffInput),
       invalidates: op.invalidates.filter((n) => names.has(n)),
     })),
   };

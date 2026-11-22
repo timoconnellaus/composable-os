@@ -338,6 +338,28 @@ export async function holderWrite(
 }
 
 /**
+ * A holder's terms (ADR 0513): the fields that say whose uses they are, how many, over what,
+ * between which dates and in which zone, and the holder fields its conditions compare with. Only
+ * the host writes them, or the holder's own extension through a tool only a person with a
+ * permission may call (`personsTool`), never any other code of the extension.
+ */
+export function holderTerms(object: ObjectDefinition): ReadonlySet<string> {
+  const def = holderOf(object);
+  if (!def) return new Set();
+  const out = new Set<string>([def.person, def.uses]);
+  if ("field" in def.per) out.add(def.per.field);
+  for (const f of [def.from, def.until, def.zone]) if (f) out.add(f);
+  for (const target of def.spendsOn) {
+    for (const clause of target.when) {
+      for (const v of [clause.in, clause.atLeast, clause.below]) {
+        if (typeof v === "string") out.add(v);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Refuses a customer creating a holder (ADR 0494): passes and memberships are granted by the host
  * (a paid order, a subscription) or made by staff, never by a customer, whatever a tool allows.
  */
@@ -833,7 +855,25 @@ export async function spenderWrite(
       );
     }
   }
-  const spending = entering && !open;
+  // Paid another way (ADR 0506): a record marked so enters its spend states spending nothing,
+  // and the mark does not change while it is in one (or holds a use), so it cannot be turned on
+  // to skip a spend already owed or off to leave one unpaid.
+  const isWaived = (values: Values | null) => {
+    const v = def.waived ? values?.[def.waived] : undefined;
+    return v === true || v === 1 || v === "1" || v === "true";
+  };
+  const state = object.states.field;
+  if (def.waived && before !== null && isWaived(before) !== isWaived(after)) {
+    const inSpend = (values: Values) =>
+      typeof values[state] === "string" && def.spendIn.includes(values[state] as string);
+    if (open || inSpend(before) || inSpend(after)) {
+      throw new ValidationError(
+        `Whether ${object.label.toLowerCase()} spends a use is decided when it is made: it cannot change now`,
+        { rule: "allowance", reason: "waived_kept", field: def.waived },
+      );
+    }
+  }
+  const spending = entering && !open && !isWaived(after);
   const respending = open !== null && !returning && repointed;
   const fill = before === null || entering || repointed;
   const read = fill

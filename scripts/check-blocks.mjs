@@ -86,7 +86,7 @@ export const RULES = [
 const PURCHASE_OPERATION =
   /^(?:order\.(?:start|checkout|cancel)|subscription\.(?:start|cancel|resume|portal|change|pause)|x\.[a-z0-9]+\.(?:buy|orderStart|checkout|subscribe))$/;
 const PURCHASE_CODE =
-  /\b(?:price|prices|useBuy|checkout|orderStart|formatPrice|formatMinor|useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal)\b/;
+  /\b(?:price|prices|useBuy\w*|checkout|orderStart|formatPrice|formatMinor|useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal)\b/;
 /** A subscription's billing operations: never in a native block (stage 32a, ADR 0490). */
 const BILLING_OPERATION = /^subscription\.(?:start|cancel|resume|portal|change|pause)$/;
 const NATIVE_BILLING =

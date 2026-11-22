@@ -123,13 +123,13 @@ export const SOLUTIONS: readonly Solution[] = [
       notYet: [
         {
           title: "Class bookings",
-          body: "Classes from a timetable, booked on your site and app. Waitlists that move people in on their own, late-cancel rules for each class type, parents booking for their children, and one-to-one sessions booked by staff.",
-          status: "design",
+          body: "Classes made from your weekly timetable, booked and cancelled on your site and app within each class type's rules: when booking opens and closes, when a cancel is late, and classes only staff book. Staff book anyone, walk-ins too. Still to come: waitlists that move people in on their own, parents booking for their children, and one-to-one sessions booked by staff.",
+          status: "building",
         },
         {
           title: "Memberships and passes",
-          body: "Memberships that renew on their own, and class passes that give a number of visits, used up as people book. Waits for class bookings.",
-          status: "design",
+          body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins and an intro offer, one per person. Members see what they have left. Used up as people book, once class bookings are built.",
+          status: "building",
         },
         {
           title: "Moving from your booking system",
@@ -138,7 +138,7 @@ export const SOLUTIONS: readonly Solution[] = [
         },
       ],
       notYetNote:
-        "Class bookings, memberships and passes, and the move from your booking system are what would replace it. None is built yet, so until they are, your booking system stays.",
+        "Class bookings, memberships and passes, and the move from your booking system are what would replace it. None is finished yet, so until they are, your booking system stays.",
       own: "The thing no software does the way your gym does it. We build that piece for you.",
     },
     first: {
@@ -150,7 +150,7 @@ export const SOLUTIONS: readonly Solution[] = [
     questions: [
       {
         q: "Can we keep our booking system for now?",
-        a: "Yes. Class bookings and memberships aren't built yet, so your booking system stays while the rest moves. Moving from it comes after they are built.",
+        a: "Yes. Class bookings and memberships are being built, so your booking system stays while the rest moves. Moving from it comes after both are built.",
       },
       {
         q: "Can members use it on their phones?",

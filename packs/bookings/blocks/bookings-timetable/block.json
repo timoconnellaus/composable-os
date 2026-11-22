@@ -1,0 +1,11 @@
+{
+  "name": "bookings-timetable",
+  "pack": "bookings",
+  "skin": "web",
+  "operations": ["x.bookings.timetable", "x.bookings.mine", "x.bookings.book", "x.bookings.cancel"],
+  "files": ["timetable.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-bookings": "*"
+  }
+}

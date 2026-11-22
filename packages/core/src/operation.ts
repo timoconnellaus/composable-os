@@ -279,6 +279,27 @@ export interface AssistantTurn {
 export interface ExtensionCaller {
   id: string;
   permissions: PermissionsManifest;
+  /**
+   * The tool whose run makes this call, set by the runtime from the installed manifest (never
+   * from input): its name, whether only a person may call it, and the permission it declares.
+   * A move only named tools may make (ADR 0513), and a holder's terms (ADR 0513), read it.
+   */
+  tool?: { name: string; humanOnly: boolean; permission: string | null; startedBy?: string };
+}
+
+/**
+ * The calling tool of `extensionId` when it is `humanOnly` with a permission (ADR 0513): the
+ * pipeline refused anyone but a person holding that permission when the tool was called, so a
+ * write it makes is that person's act. Null otherwise.
+ */
+export function personsTool(
+  ctx: { extension?: ExtensionCaller | undefined; actor?: string },
+  extensionId: string | undefined,
+): string | null {
+  const caller = ctx.extension;
+  if (!caller || !extensionId || caller.id !== extensionId) return null;
+  const tool = caller.tool;
+  return tool?.humanOnly && tool.permission ? tool.name : null;
 }
 
 /** A record as a session's pending actions would leave it (ADR 0022). */
@@ -393,6 +414,13 @@ export interface OperationDefinition<
    * which a customer never calls themselves. Shown in open-operations.json.
    */
   toolOnly?: boolean;
+  /**
+   * Input keys only staff may pass (stage 32b review): left out of the customer's and the public's
+   * contract, and refused from a customer or the public by the pipeline before the handler runs.
+   * For an operation open to all three whose input has one staff-only option (a cancel's `now`, a
+   * subscription's `holderPersonId`).
+   */
+  staffInput?: readonly string[];
   /** Actor types allowed to call it at all. Default: every actor. */
   actors?: readonly Actor[];
   /**

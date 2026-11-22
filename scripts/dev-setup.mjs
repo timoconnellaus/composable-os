@@ -166,6 +166,25 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       readFileSync(join(root, "packs/courses", file), "utf8"),
     ]),
   );
+  // And Bookings (stage 31a), which requires Programs, the same way, for its e2e spec. Until the
+  // Memberships pack is connected (step 4), local dev's Bookings also lets the e2e spec's fixture
+  // holder (`bkfixture.pass`) pay; the shipped pack names only the Memberships pack's holders.
+  const bookings = Object.fromEntries(
+    ["index.ts", "tools.ts"].map((file) => [
+      file,
+      readFileSync(join(root, "packs/bookings", file), "utf8").replace(
+        'paidBy: ["memberships.membership", "memberships.pass"]',
+        'paidBy: ["memberships.membership", "memberships.pass", "bkfixture.pass"]',
+      ),
+    ]),
+  );
+  // And Memberships (stage 32b), which requires Programs, the same way, for its e2e spec.
+  const memberships = Object.fromEntries(
+    ["index.ts", "tools.ts"].map((file) => [
+      file,
+      readFileSync(join(root, "packs/memberships", file), "utf8"),
+    ]),
+  );
   // And Content (stage 28), the same way, for its e2e spec.
   const content = Object.fromEntries(
     ["index.ts", "tools.ts"].map((file) => [
@@ -204,6 +223,8 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       { id: "programs", version: "0.1.0", optional: true, files: programs },
       { id: "content", version: "0.2.0", optional: true, files: content },
       { id: "courses", version: "0.1.0", optional: true, files: courses },
+      { id: "bookings", version: "0.1.0", optional: true, files: bookings },
+      { id: "memberships", version: "0.1.0", optional: true, files: memberships },
     ].filter((extension) => asOrgExtension(extension.id)),
   });
   const hash = createHash("sha256").update(text).digest("hex");

@@ -74,6 +74,8 @@ export const ID_PREFIXES = {
   capacityClaim: "clm",
   /** A use spent from an allowance holder by a spender (stage 32b, ADR 0493). */
   allowanceUse: "alu",
+  /** A Person's one purchase of something sold once per Person (stage 32b, ADR 0512). */
+  sellableOnce: "sbo",
   /** An invite for a staff account (ADR 0455). */
   userInvite: "uin",
   // Stage 28 (ADR 0444): a picture of the media library.

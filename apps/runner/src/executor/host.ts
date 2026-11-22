@@ -121,6 +121,8 @@ export interface RunState {
    * module but `ops`, `storage` and `log`.
    */
   outside?: { principal: OutsidePrincipal; tool: string };
+  /** The tool this run is, from the installed manifest (ADR 0513); absent for automations. */
+  tool?: { name: string; humanOnly: boolean; permission: string | null; startedBy?: string };
   /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
   cascade?: ToolCascade;
 }
@@ -262,7 +264,11 @@ export class RunHost extends RpcTarget {
             origin: this.#toolOrigin(),
             db: createCrmDb(this.#env.DB),
             floor: parseFloor(this.#env.APPROVAL_FLOOR),
-            extension: { id: run.extensionId, permissions: run.permissions },
+            extension: {
+              id: run.extensionId,
+              permissions: run.permissions,
+              ...(run.tool ? { tool: run.tool } : {}),
+            },
             ...this.#events(),
             ...(await this.#tools(operation)),
           });

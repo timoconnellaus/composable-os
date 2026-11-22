@@ -76,6 +76,7 @@ export async function startSubscription(
     returnUrl: string;
     email?: string | undefined;
     offerId?: string | undefined;
+    holderPersonId?: string | undefined;
   },
 ): Promise<StartedSubscription> {
   // The same setup "a plan is on sale" reads (ADR 0459), so the two cannot drift.
@@ -123,6 +124,10 @@ export async function startSubscription(
       { rule: "payer" },
     );
   }
+  // Who holds what it grants (ADR 0487, stage 32b): the payer, unless staff name another Person
+  // (a parent paying for a child's membership). A customer buying for someone else waits for the
+  // family link (stage 31): until then it is refused, never guessed.
+  const holderPersonId = await holderFor(ctx, personId, input.holderPersonId);
   const { currency } = setup;
   if (!currency) {
     throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
@@ -200,7 +205,7 @@ export async function startSubscription(
     : await decideTrial(
         ctx,
         {
-          holderPersonId: personId,
+          holderPersonId,
           planObject: plan.object,
           planId: plan.recordId,
           caller: openedBy,
@@ -262,9 +267,10 @@ export async function startSubscription(
       id,
       provider: target.provider,
       ref: opened.ref,
-      // One Person pays and holds in 32a; 32b lets a payer hold for someone else (ADR 0487).
+      // The payer, and who holds what it grants: the same Person unless staff named another
+      // (ADR 0487; stage 32b).
       payer_person_id: personId,
-      holder_person_id: personId,
+      holder_person_id: holderPersonId,
       email,
       placed_as: caller.kind,
       plan_object: plan.object,
@@ -306,7 +312,7 @@ export async function startSubscription(
       holdTrialStatement(ctx, {
         checkoutId: id,
         checkoutRef: opened.ref,
-        holderPersonId: personId,
+        holderPersonId,
         planObject: plan.object,
         planId: plan.recordId,
         url: opened.url,
@@ -328,6 +334,29 @@ export async function startSubscription(
     noTrial: decision.give ? null : decision.reason,
     expiresAt,
   };
+}
+
+/**
+ * Who holds what a subscription grants (ADR 0487): the payer, or another live Person staff name
+ * (a parent paying for a child). A customer or a guest naming one is refused: a customer's "buy
+ * for my child" waits for stage 31's family link, which is where the host will check the link.
+ */
+async function holderFor(
+  ctx: HandlerContext,
+  payerPersonId: string,
+  named: string | undefined,
+): Promise<string> {
+  if (named === undefined || named === payerPersonId) return payerPersonId;
+  if (ctx.principal.kind !== "staff") {
+    throw new ValidationError(
+      "Only staff start a subscription for someone else, for now: you subscribe for yourself",
+      { field: "holderPersonId", rule: "holder" },
+    );
+  }
+  // Through the seam, as staff read people: one in the Trash (a merged one is) is not found.
+  const person = await ctx.records.get("person", named).catch(() => null);
+  if (!person) throw new NotFoundError("person", named);
+  return named;
 }
 
 /**

@@ -87,9 +87,13 @@ await writeFile(
 // @composable-os/sdk as one ES module for the sandbox (specifier `cos-sdk`), shipped as a Text module so the
 // runner never parses it as code.
 await writeFile(join(out, "sdk-bundle.txt"), sdkSource);
+// The packs' sources go in a Text module too (2026-11-22): as a JS literal they were parsed as
+// code at every cold start and grew the main module by each pack's whole source (8 packs, 359 KiB
+// of a 7,168 KiB budget); as text they are one JSON.parse, and not part of the main module.
+await writeFile(join(out, "shipped.txt"), JSON.stringify(shipped));
 await writeFile(
   join(out, "shipped.ts"),
-  `${banner}/** The packs this release carries (every packs/<id>/), the shipped extensions, as source. */\nexport const PRODUCT_PACKS: readonly string[] = ${JSON.stringify([...product.packs].sort())};\nexport const SHIPPED_EXTENSIONS: readonly { id: string; version: string; optional?: boolean; label?: string; description?: string; files: Record<string, string> }[] = ${JSON.stringify(shipped, null, 2)};\n`,
+  `${banner}/** The packs this release carries (every packs/<id>/), the shipped extensions, as source. */\nimport SHIPPED_TEXT from "./shipped.txt";\nexport const PRODUCT_PACKS: readonly string[] = ${JSON.stringify([...product.packs].sort())};\nexport const SHIPPED_EXTENSIONS: readonly { id: string; version: string; optional?: boolean; label?: string; description?: string; files: Record<string, string> }[] = JSON.parse(SHIPPED_TEXT);\n`,
 );
 
 // The checker's Dynamic Worker: one ES module with the compiler, the declarations and the entry.

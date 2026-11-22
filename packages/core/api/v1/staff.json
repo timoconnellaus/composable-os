@@ -8379,6 +8379,10 @@
             "type": "string",
             "description": "The time the period was read for"
           },
+          "payable": {
+            "type": "boolean",
+            "description": "It can pay for something at `at`: live, out of the Trash and within its dates (uses aside)"
+          },
           "period": {
             "type": "object",
             "properties": {
@@ -8417,7 +8421,163 @@
           "object",
           "id",
           "at",
+          "payable",
           "period"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "allowance.list",
+      "description": "allowance.get for up to 50 holders of one object at once (a member's passes): each one's numbers in the period containing `at` (default now), and whether it can pay then. Staff any; a signed-in customer their own only: an id they cannot see is left out. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81,
+            "description": "An extension object that holds an allowance"
+          },
+          "ids": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": [
+          "object",
+          "ids"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "personId": {
+                  "description": "Staff only",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "uses": {
+                  "description": "Uses per period; null is unlimited. Left out when the caller may not read it",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "per": {
+                  "type": "string",
+                  "enum": [
+                    "total",
+                    "week",
+                    "month"
+                  ]
+                },
+                "zone": {
+                  "description": "The time zone weeks and months are counted in",
+                  "type": "string"
+                },
+                "validFrom": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "validUntil": {
+                  "description": "A spender's time must be before this",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "live": {
+                  "description": "Its state lets it be spent (not paused, used up, ended or void)",
+                  "type": "boolean"
+                },
+                "at": {
+                  "type": "string",
+                  "description": "The time the period was read for"
+                },
+                "payable": {
+                  "type": "boolean",
+                  "description": "It can pay for something at `at`: live, out of the Trash and within its dates (uses aside)"
+                },
+                "period": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "description": "total, week:<Monday's local date> or month:<YYYY-MM>"
+                    },
+                    "startsAt": {
+                      "type": "string"
+                    },
+                    "endsAt": {
+                      "type": "string"
+                    },
+                    "used": {
+                      "type": "number"
+                    },
+                    "left": {
+                      "description": "Uses that can still be spent in it; 0 when the holder cannot pay then, null when unlimited",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "startsAt",
+                    "endsAt",
+                    "used",
+                    "left"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "at",
+                "payable",
+                "period"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
         ],
         "additionalProperties": false
       },
@@ -39574,6 +39734,267 @@
       ]
     },
     {
+      "name": "person.createWith",
+      "description": "Create a new person and one record of an extension object that points at them (its `field`, a relation to person), in one batch: if the record is refused (for example a booking into a full class), the person is not created either. The platform's duplicate check runs first: an email that already belongs to a live person is refused (conflict, rule person_exists, naming them), and possible duplicates (same name, same phone…) are refused (conflict, rule possible_duplicates, listing them) unless allowDuplicates is true because you checked they are different people. Returns both ids.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "person": {
+            "type": "object",
+            "properties": {
+              "givenName": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "familyName": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "displayName": {
+                "description": "Shown name. Defaults to given + family name, or the primary email.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "emails": {
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "email": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "description": "e.g. work, personal",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 50
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "primary": {
+                      "description": "Exactly one email is primary; default the first.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "email"
+                  ]
+                }
+              },
+              "phones": {
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "number": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 50
+                    },
+                    "label": {
+                      "description": "e.g. mobile, work",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 50
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "primary": {
+                      "description": "Exactly one phone is primary; default the first.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "number"
+                  ]
+                }
+              },
+              "location": {
+                "description": "Free text, e.g. 'Sydney, Australia'",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "timezone": {
+                "description": "IANA timezone, e.g. Australia/Sydney",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "socialProfiles": {
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "network": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 50,
+                      "description": "e.g. linkedin, x, github"
+                    },
+                    "url": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "format": "uri"
+                    },
+                    "handle": {
+                      "type": "string",
+                      "maxLength": 100
+                    }
+                  },
+                  "required": [
+                    "network",
+                    "url"
+                  ]
+                }
+              },
+              "avatarKey": {
+                "description": "R2 object key of an uploaded avatar",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ownerId": {
+                "description": "The user who owns this person",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "User id (usr_…)"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "description": {
+                "description": "Markdown",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 50000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tags": {
+                "maxItems": 50,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 50
+                },
+                "description": "Tag names. Unknown tags are created. Replaces the record's tags."
+              }
+            }
+          },
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81,
+            "description": "The extension object, e.g. bookings.booking"
+          },
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "Its relation to person, e.g. person"
+          },
+          "values": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "additionalProperties": {}
+          },
+          "allowDuplicates": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "person",
+          "object",
+          "field"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "personId",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "person.get",
+        "person.list"
+      ]
+    },
+    {
       "name": "person.delete",
       "description": "Move a person to Trash (soft delete). They disappear from lists, search and views, and their emails become free for other people. They can be restored with person.restore for 30 days, after which they are purged. Activities and tasks linked to them are kept.",
       "risk": "destructive",
@@ -50199,6 +50620,12 @@
           },
           "offerId": {
             "description": "Take your continuation offer (subscription.offer.mine): free until its date, then charged. A signed-in customer's own offer only.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "holderPersonId": {
+            "description": "Staff only: the Person who holds what it gives (a child whose parent pays), when not the payer. The payer, named by email, is billed; the trial and access are the holder's.",
             "type": "string",
             "minLength": 1,
             "maxLength": 64
@@ -63801,6 +64228,955 @@
       "invalidates": []
     },
     {
+      "name": "x.bookings.bookFor",
+      "description": "Staff book a person into a class: someone on file (`personId`; look them up with findPeople first), or a walk-in not on file yet (`newPerson`). A walk-in and their booking are made in one batch, so a refused booking leaves nobody behind; the platform's duplicate check runs first, and a match is answered (person_exists or possible_duplicates, with who) rather than made twice: book them, or pass confirmNew when you checked it is someone else. Staff are not bound by the booking windows or by 'booked by staff only'; a class that was cancelled or is over, the places, one booking per person per class and the use it spends still hold. With `paidAtDesk` it spends no use (they paid at the desk). Audited. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "newPerson": {
+            "type": "object",
+            "properties": {
+              "givenName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "familyName": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "email": {
+                "type": "string",
+                "maxLength": 320,
+                "allOf": [
+                  {
+                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                  },
+                  {
+                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "givenName"
+            ],
+            "additionalProperties": {},
+            "description": "A walk-in who is not on file yet"
+          },
+          "confirmNew": {
+            "default": false,
+            "description": "The possible duplicates were checked: this is someone new",
+            "type": "boolean"
+          },
+          "holderId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "paidAtDesk": {
+            "default": false,
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "classId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "booked"
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "classId": {
+                "type": "string"
+              },
+              "holderId": {
+                "description": "The membership or pass a use was spent from; null when paid at the desk",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "personId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "classId",
+              "holderId",
+              "personId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_open",
+                  "closed",
+                  "staff_only",
+                  "no_use",
+                  "already_booked",
+                  "full",
+                  "too_late",
+                  "not_found",
+                  "changed",
+                  "not_running",
+                  "person_exists",
+                  "possible_duplicates"
+                ],
+                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, ended, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opensAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "closesAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "reasons"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "For person_exists and possible_duplicates: who is already on file"
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "opensAt",
+              "closesAt"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.cancelFor",
+      "description": "Staff cancel a booking, decided by the host's clock as a member's own cancel is: in time (`cancelled`, the use given back) until the class type's late-cancel time, late (`late_cancelled`, the use kept) after it, not at all once the class has started. With `keepUse` it is cancelled late whatever the time. To give a use back after the late point, a person uses returnUse. The place is given back either way. Only a booked booking can be cancelled; one that has moved on is reported as changed. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "keepUse": {
+            "default": false,
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "bookingId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": [
+                  "cancelled",
+                  "late_cancelled"
+                ]
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "late": {
+                "type": "boolean",
+                "description": "A late cancel keeps the use the booking spent"
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "late"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_open",
+                  "closed",
+                  "staff_only",
+                  "no_use",
+                  "already_booked",
+                  "full",
+                  "too_late",
+                  "not_found",
+                  "changed",
+                  "not_running",
+                  "person_exists",
+                  "possible_duplicates"
+                ],
+                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, ended, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opensAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "closesAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "reasons"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "For person_exists and possible_duplicates: who is already on file"
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "opensAt",
+              "closesAt"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.classList",
+      "description": "A class's list for staff and coaches: the class (as on the day view) and every booking of it with the person's name, its state (booked, cancelled, cancelled late…), whether they paid at the desk, the membership or pass it spent from and who booked it. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "classId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "class": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "classType": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "startsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "timeZone": {
+                "description": "The class's IANA time zone: show its times in this zone.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "coach": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "room": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "places": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "booked": {
+                "type": "number",
+                "description": "Places taken"
+              },
+              "held": {
+                "type": "number"
+              },
+              "available": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "staffOnly": {
+                "type": "boolean",
+                "description": "Its class type is booked by staff only"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "classType",
+              "startsAt",
+              "endsAt",
+              "timeZone",
+              "coach",
+              "room",
+              "places",
+              "booked",
+              "held",
+              "available",
+              "state",
+              "staffOnly"
+            ],
+            "additionalProperties": false
+          },
+          "bookings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "person": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidAtDesk": {
+                  "type": "boolean"
+                },
+                "holderId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "bookedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "person",
+                "state",
+                "paidAtDesk",
+                "holderId",
+                "bookedBy"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "class",
+          "bookings"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.day",
+      "description": "Staff's day view: every class on one local date (scheduled, cancelled or done), in start order, with its class type, coach, room, places, how many are booked and held, and whether its class type is booked by staff only. For the front desk and coaches. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "The local date, YYYY-MM-DD"
+          },
+          "timeZone": {
+            "default": "UTC",
+            "description": "The zone the date is in (the gym's, e.g. Australia/Sydney)",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "classes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "classType": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "startsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "timeZone": {
+                  "description": "The class's IANA time zone: show its times in this zone.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "coach": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "room": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "places": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "booked": {
+                  "type": "number",
+                  "description": "Places taken"
+                },
+                "held": {
+                  "type": "number"
+                },
+                "available": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "staffOnly": {
+                  "type": "boolean",
+                  "description": "Its class type is booked by staff only"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "classType",
+                "startsAt",
+                "endsAt",
+                "timeZone",
+                "coach",
+                "room",
+                "places",
+                "booked",
+                "held",
+                "available",
+                "state",
+                "staffOnly"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "date",
+          "classes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.findPeople",
+      "description": "Staff look a person up before booking them: People on file whose name or email contains the text, at most 10, with their email. Use it at the desk before adding a walk-in, so a member is booked as themselves. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "email"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "people"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.returnUse",
+      "description": "A person on the staff cancels a booking and gives its use back whatever the time: after the late-cancel point, or after the class (a member who was ill, a class the coach missed). A person's own act: the assistant, MCP clients, automations and other code cannot call it. The reason is kept on the booking and in the audit log. Only a booked booking. (Extension tool from Bookings 0.1.0.)",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "bookingId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "excused"
+              },
+              "bookingId": {
+                "type": "string"
+              },
+              "late": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "result",
+              "bookingId",
+              "late"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_open",
+                  "closed",
+                  "staff_only",
+                  "no_use",
+                  "already_booked",
+                  "full",
+                  "too_late",
+                  "not_found",
+                  "changed",
+                  "not_running",
+                  "person_exists",
+                  "possible_duplicates"
+                ],
+                "description": "not_open: booking has not opened yet (see opensAt). closed: booking has closed. not_running: the class was cancelled or is over. person_exists: someone on file has that email (see people). possible_duplicates: people on file may be this person (see people; book one of them, or ask again with confirmNew). staff_only: this class is booked by the gym. no_use: nothing the member holds can pay for it (see detail). already_booked: they already have a place. full: no places left. too_late: the class has started, so it cannot be cancelled. not_found: no such class or booking of theirs. changed: it changed meanwhile; try again."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, ended, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opensAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "closesAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "reasons"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "For person_exists and possible_duplicates: who is already on file"
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "opensAt",
+              "closesAt"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople"
+      ],
+      "pack": "bookings"
+    },
+    {
       "name": "x.content.categories",
       "description": "Every category of posts, by name: its id, name and address (slug), for a site's menu or a post's label. Read-only. (Extension tool from Content 0.2.0.)",
       "risk": "read",
@@ -64589,6 +65965,303 @@
       },
       "invalidates": [],
       "pack": "leads"
+    },
+    {
+      "name": "x.memberships.givePass",
+      "description": "Give a person a pass by hand, free, with the reason: a pass type's classes, or fewer if given (never more), valid from now for the type's days, as the host works them out for a pass bought. An intro offer given this way is the person's one: refused if they have had it. Recorded as given by staff, with who gave it and why. A person on the staff only (never the assistant or an automation), with the memberships:passes permission. Returns the pass. (Extension tool from Memberships 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "passTypeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          },
+          "uses": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Fewer classes than the pass type gives; default: the type's"
+          }
+        },
+        "required": [
+          "personId",
+          "passTypeId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "passId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "passId",
+          "status",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.memberships.holdings"
+      ],
+      "pack": "memberships"
+    },
+    {
+      "name": "x.memberships.holdings",
+      "description": "For staff: one person's memberships and passes, with their state, what each allows, when it stops or expires, and the classes used and left now, as the host counts them. Read-only. (Extension tool from Memberships 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "personId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "holdings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "classTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Class type ids; empty: every class type"
+                },
+                "weekdays": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "1 Monday to 7 Sunday; empty: every day"
+                },
+                "fromMinute": {
+                  "description": "Classes starting at or after, minutes after midnight",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "untilMinute": {
+                  "description": "Classes starting before, minutes after midnight",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "membership",
+                    "pass"
+                  ]
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "description": "The record's own state, as the host keeps it"
+                },
+                "uses": {
+                  "description": "Per period for a membership, in all for a pass; null: unlimited",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "per": {
+                  "type": "string",
+                  "enum": [
+                    "total",
+                    "week",
+                    "month"
+                  ]
+                },
+                "from": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "until": {
+                  "description": "When it stops or expires",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "live": {
+                  "type": "boolean",
+                  "description": "It can pay for a class now (the host's answer)"
+                },
+                "period": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "startsAt": {
+                          "type": "string"
+                        },
+                        "endsAt": {
+                          "type": "string"
+                        },
+                        "used": {
+                          "type": "number"
+                        },
+                        "left": {
+                          "description": "Null: unlimited",
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "startsAt",
+                        "endsAt",
+                        "used",
+                        "left"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "This week, this month or in all, as the host counts it"
+                }
+              },
+              "required": [
+                "classTypes",
+                "weekdays",
+                "fromMinute",
+                "untilMinute",
+                "id",
+                "kind",
+                "title",
+                "status",
+                "uses",
+                "per",
+                "from",
+                "until",
+                "live",
+                "period"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "holdings"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "memberships"
+    },
+    {
+      "name": "x.memberships.voidPass",
+      "description": "Void a pass by hand, with the reason: it pays for no more classes; classes already booked with it stay booked. For a pass bought, refund its order instead (a full refund voids it). A person on the staff only, with the memberships:passes permission. Returns the pass. (Extension tool from Memberships 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "passId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "passId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "passId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "passId",
+          "status",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.memberships.holdings"
+      ],
+      "pack": "memberships"
     },
     {
       "name": "x.programs.assign",

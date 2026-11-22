@@ -4,12 +4,17 @@
 // plus the Deals and Leads packs, ready today; Ticketing, Content, Programs and Courses are packs
 // that are built and merged (stages 27, 28, 41 and 42) but have not run for a customer yet, and
 // say so. Courses' monthly subscription (stage 32a step 3) and moving subscribers from another
-// platform (continuation offers, step 4) are built too, with the rest of the card. The last card is the
-// piece built only for this business.
+// platform (continuation offers, step 4) are built too, with the rest of the card. Bookings is
+// being built: its spine (stage 31a step 3: the timetable, booking and cancelling within each
+// class type's rules, staff bookings) is merged, the rest is in progress. Memberships (stage
+// 32b) is being built: its plans, memberships and passes are merged (step 6); plan changes,
+// pauses and the bookings that spend them are not yet. The last card is the piece built only
+// for this business.
 import { STATUS } from "../status.ts";
 import Icon from "./Icon.astro";
 
 const BUILT = STATUS.built;
+const BUILDING = STATUS.building;
 
 const pieces = [
   {
@@ -36,6 +41,16 @@ const pieces = [
     soon: BUILT,
     title: "Courses",
     body: "Video lessons sold one at a time, in bundles or by a monthly subscription with a free trial, with progress, and only those who hold them can play them. Members cancel and update their card on the web. Subscribers moving from another platform continue free until the date they have already paid up to.",
+  },
+  {
+    soon: BUILDING,
+    title: "Bookings",
+    body: "Classes made from a weekly timetable, booked and cancelled on the web and in the app within each class type's rules: when booking opens and closes, and when a cancel is late. Staff book anyone, walk-ins too.",
+  },
+  {
+    soon: STATUS.building,
+    title: "Memberships",
+    body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins and an intro offer, one per person. Members see what they have left.",
   },
 ];
 ---

@@ -1,0 +1,12 @@
+{
+  "name": "memberships-native-mine",
+  "pack": "memberships",
+  "skin": "native",
+  "operations": ["x.memberships.mine", "subscription.list"],
+  "files": ["mine-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-memberships": "*"
+  },
+  "noPurchase": true
+}

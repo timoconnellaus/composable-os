@@ -103,6 +103,10 @@ export interface AllowanceHolderSpec {
  * - `paidBy`: holders of other extensions that may pay for it, by object (`memberships.pass`) or
  *   by extension (`memberships`). Left out, only this extension's holders. A holder naming a
  *   spender of another extension that does not list it is refused at install.
+ * - `waived` (ADR 0506): a read-only boolean field of its own. A record created with it true
+ *   enters its spend states without spending (a walk-in who paid at the desk, a drop-in paid by
+ *   its order). Only the host and this extension's own code set it, never a customer, and it
+ *   cannot change while the record is in a spend state.
  *
  * Every field a holder's condition reads must be one the host fills (`copy` or `local`), so no
  * caller (a customer, staff, an AI) sets what pays for it.
@@ -117,6 +121,7 @@ export interface AllowanceSpenderSpec {
   local?: { weekday?: string; minute?: string; zone?: string };
   movedFrom?: { field: string; state: string };
   paidBy?: readonly string[];
+  waived?: string;
 }
 
 /** The allowance behaviour: an object holds uses or spends them, never both. */
@@ -177,6 +182,7 @@ export const allowanceManifestSchema = z.union([
             .optional(),
           movedFrom: z.object({ field: fieldName, state: stateValue }).strict().optional(),
           paidBy: z.array(path).min(1).max(20).optional(),
+          waived: fieldName.optional(),
         })
         .strict(),
     })
@@ -480,6 +486,14 @@ export function checkObjectAllowance(
     if (!/^[a-z][a-z0-9]{1,29}(\.[a-z][a-z0-9]{0,29})?$/.test(payer)) {
       contract(`${sp}.paidBy.${i}`, `"${payer}" must be an extension id or <extension>.<object>`);
     }
+  }
+  if (s.waived !== undefined) {
+    // Paid another way (ADR 0506): only the host and the extension's own code say so.
+    const waived = fieldOf(object, s.waived);
+    if (waived?.type !== "boolean" || !waived.readOnly) {
+      contract(`${sp}.waived`, `"${s.waived}" must be a read-only boolean field of ${name}`);
+    }
+    notCustomerWritten(s.waived, `${sp}.waived`, "whether it spends a use");
   }
   if (s.movedFrom) {
     const rel = fieldOf(object, s.movedFrom.field);

@@ -281,11 +281,18 @@ export function checkObjectRecurring(
   }
   if (recurring.horizonAtLeast) {
     const h = recurring.horizonAtLeast;
-    const target = Object.hasOwn(m.objects, h.object) ? m.objects[h.object] : undefined;
+    // One of this extension's objects, or another extension's object with a number field this
+    // extension adds to it (a class type of Programs' carrying Bookings' window, ADR 0505).
+    const added = h.object.includes(".") ? m.fields?.[h.object] : undefined;
+    const target = added
+      ? ({ fields: added } as unknown as ObjectManifest)
+      : Object.hasOwn(m.objects, h.object)
+        ? m.objects[h.object]
+        : undefined;
     if (!target) {
       contract(
         `${path}.horizonAtLeast.object`,
-        `"${h.object}" must be one of this extension's objects`,
+        `"${h.object}" must be one of this extension's objects, or an object this extension adds fields to`,
       );
     } else {
       expect(

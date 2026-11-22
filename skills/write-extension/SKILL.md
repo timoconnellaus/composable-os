@@ -71,6 +71,12 @@ Read these before writing. They are the source of truth; this skill only gives t
 6. **Declare permissions**, the least that works. Your own objects need none. `read` and `write`
    name other objects, `operations` names operations exactly, and any of them needs `"ops"` in
    `modules`. Views, tabs and panels over other objects need no permission; only code does.
+   Never list `record.*`, `my.*` or `state.resolve` in `operations`: they are granted by object,
+   and a listed one reaches every object. A field or setting only a person should change (a
+   gym's booking rules) is `personApproves: true`: anyone else's write of it waits for a person's
+   approval (not a tool's `humanOnly`, which refuses everyone else). A
+   customer field set only when the record is made (a booking's class) goes in
+   `customer.createOnly` (ADR 0507).
 7. **Add indexes and seeds.** One index for each field a list filters or sorts by. `seed` for
    set-up records people will then edit (Deals: `objects.pipeline.seed`, `objects.stage.seed`).
 8. **Show it.** `navigation` (`main`, `settings` for set-up records, `none`), `navigationOrder`,
@@ -133,14 +139,27 @@ extension declares it; it never implements it. Each behaviour the platform has i
   and ADR 0502.
 - **Windows and staff-only rules** on `states`: a move's `window: { from?, until? }` and
   `staffOnly: "<boolean field>"`, and the same on `states.create` for every create, bind
-  customers (staff and the host are not bound). An end is `"<datetime field>"` or
+  customers (staff and the host are not bound). A move only a person should make (voiding a pass)
+  is `by: ["host"], tools: ["<tool>"]`: only the host and that tool make it, and the tool is
+  `humanOnly` with a `permission` (ADR 0513). An end is `"<datetime field>"` or
   `{ at, daysBefore?, minutesBefore?, zone? }`, each a field of the record or
-  `<relation>.<field>` (`klass.startsAt`) or a number: "opens 7 local days before, closes 30
-  minutes before". `states.requests: { cancel: ["cancelled", "late_cancelled"] }` lets a caller
-  write `cancel` and the host pick the state by the clock; `states.create.in: { waiting:
-  ["staff", "customer"] }` lists states a record may be created in besides `initial`, and who
-  may. Never decide "late" or "too early" in a tool. See `StateMove` and `StatesSpec` in
-  `packages/sdk/src/states.ts` and ADR 0503.
+  `<relation>.<field>` (`klass.startsAt`), up to two relations away (`class.classType.lateMinutes`,
+  every field on the way your own, including fields you add to another pack's object), or a
+  number: "opens 7 local days before, closes 30 minutes before". A number may also be `{ field,
+  setting }`: the field, else your extension's number setting of that name (a class type's own
+  rule over the organisation's default, read in the write, never copied). `staffOnly` may list
+  several booleans, a boolean formula among them (a class that is not scheduled).
+  `states.requests: { cancel: ["cancelled", "late_cancelled"] }` lets a caller write `cancel`
+  and the host pick the state by the clock, and a tool shows the member which first with
+  `state.resolve { object, id, request }`; `states.create.in: { waiting: ["staff", "customer"] }`
+  lists states a record may be created in besides `initial`, and who may (a customer never
+  creates in any other). `states.create.closed: "<boolean path>"` closes creates to everyone but
+  the host (a class that is cancelled). `states.follows: { relation, when: { <parent state>:
+  <state> }, from }` moves your live records when the record they point to moves (a class
+  cancelled cancels its bookings, in its batch; ADR 0507). A request is resolved by the clock for
+  every caller but a person. Never decide "late" or
+  "too early" in a tool. See `StateMove` and `StatesSpec` in `packages/sdk/src/states.ts`, ADRs
+  0503 and 0505, and Bookings: `packs/bookings/index.ts`.
 - **`recurring`** on a series object: a weekly rule in local time that makes records of another
   of your objects ahead (a timetable line makes its classes). Declare the rule's fields (a
   `multiSelect` of `mon`…`sun`, an `HH:MM` text field, a length in minutes, from and until
@@ -164,8 +183,13 @@ extension declares it; it never implements it. Each behaviour the platform has i
   in the same batch, and voids them on a full refund. The granted object declares `states` with a
   `host` move into `void` from every state that is not final; a `code` goes in a `readOnly` text
   field; every required field must be set, and the granted object has no `owner`, and no
-  `requireOneOf` or choice `requires` the grant does not always fill. A line that grants holds at
-  most the record's `maxPerOrder` (10 when unset) and an order at most 100 grants. Only a pack or
+  `requireOneOf` or choice `requires` the grant does not always fill. What is granted for a time
+  (a pass valid for 30 days) adds `valid: { from?, until?, days?: "item.<number field>" }`: the
+  host writes its dates when it grants it. Something a Person may buy only once (an intro offer)
+  declares `onePerPerson: "<boolean field>"`: while true on a record, one per Person across the
+  object's records with it on, bought signed in, held from the order's start (ADR 0512). A line
+  that grants holds at most the record's `maxPerOrder` (10 when unset) and an order at most 100
+  grants. Only a pack or
   the org's own extension (its client repo) may declare `sellable`: one written in the workspace
   is refused, since selling to the public is a reviewed change. Never create tickets or check a
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
@@ -179,14 +203,19 @@ extension declares it; it never implements it. Each behaviour the platform has i
   (required with `states`), a timezone field and `emptyIsUnlimited: true` if an empty uses means
   unlimited (otherwise it means none). Keep these fields out of `customer.write` and every tool's
   `customerFields`, and declare no fields named `used` or `left` (the host adds them). A customer
-  never creates a holder: grant it from an order or make it as staff. A spender declares `states` and `allowance: { spends:
+  never creates a holder: grant it from an order or make it as staff. A granted holder (what
+  `grants` or `recurring.grants` makes) keeps its terms `readOnly`, and only the host moves it into a
+  live state; a live holder, or a granted one not ended or void, cannot go to the Trash; your own
+  code writes a holder's terms only from a `humanOnly` tool with a `permission` (ADR 0513). A spender declares `states` and `allowance: { spends:
   { person, holder, spendIn, returnIn, at?, copy?, local?, movedFrom? } }`: a text field for the
   holder's id (callers may set it to choose), the states that spend and give back, its time (a
   datetime of its own or `relation.field`), read-only fields the host copies from one relation away
   and the local `weekday` and `minute` it fills, and `paidBy` (holder objects or extensions of
   other packs that may pay for it; left out, only yours). Conditions read only the fields the host
   fills (`copy`, `local`). Changing what a spender points at while it holds a use spends again for
-  the new target, or is refused.
+  the new target, or is refused. A spender paid outside the allowance (a walk-in at the desk)
+  names `waived: "<read-only boolean>"`, set by your own code when it is made: it then spends
+  nothing, and the mark cannot change while it is in a spend state (ADR 0506).
   Never count uses or pick a holder in a tool: the host spends in the write that moves the record.
   See `AllowanceSpec` in `packages/sdk/src/allowance.ts` and ADRs 0493 and 0494.
 
@@ -269,7 +298,13 @@ extension declares it; it never implements it. Each behaviour the platform has i
   every live record while the host's record says it runs. The one free trial per person, the
   provider's page, cancelling and the portal are the host's: a tool or a block never decides them,
   and a native block never calls a subscription's billing operation (the block lint). See Courses'
-  `plan`.
+  `plan`. A plan whose subscription gives a record of its own (a membership, an allowance holder)
+  declares `sellable.recurring.grants: { object, set, from?, until?, states }` (`set` from `item`,
+  `item.<field>`, `subscription`, `subscription.holder`, `subscription.payer`; `states` maps each
+  subscription state to one of the granted object's, `ended`'s final, with host moves between them):
+  the host makes it when the provider first reports the subscription running and moves it with
+  every verified event, its `until` when it stops giving. It is not the `recurring` behaviour
+  above. See Memberships' `plan` (ADR 0510).
 - **An extension built on another** declares `requires: ["<id>"]` (Courses requires Programs): the
   host refuses to install it until that one is installed and on.
 

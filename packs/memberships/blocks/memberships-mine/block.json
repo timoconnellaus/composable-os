@@ -1,0 +1,17 @@
+{
+  "name": "memberships-mine",
+  "pack": "memberships",
+  "skin": "web",
+  "operations": [
+    "x.memberships.mine",
+    "subscription.list",
+    "subscription.cancel",
+    "subscription.resume",
+    "subscription.portal"
+  ],
+  "files": ["mine.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card"],
+  "packages": {
+    "@composable-os/pack-memberships": "*"
+  }
+}
