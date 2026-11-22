@@ -486,6 +486,41 @@ function randomSecret(): string {
   return toHex(crypto.getRandomValues(new Uint8Array(32)));
 }
 
+/** The fake payment provider's switch and its signing secret (issue #217, ADR 0485). */
+const FAKE_PROVIDER_VAR = "PAYMENTS_FAKE_PROVIDER";
+const FAKE_SECRET = "FAKE_WEBHOOK_SECRET";
+
+/**
+ * Gives a gatekeeper that turns the fake payment provider on its own signing secret: generated
+ * once, when none is stored on the Worker and none is supplied (`--secret`), never printed (the
+ * redactor hides it) and never written anywhere but the Worker. Later deploys keep the stored one
+ * (`keep_bindings`). The default secret is public, so without this the fake runs on localhost
+ * only. Which environments may turn the fake on is cos deploy's check (a live one may not).
+ * Also drops a plain var of the same name an older deployment state carried: it is a secret now.
+ */
+export function generateFakePaymentsSecrets(
+  manifest: { workers: { name: string; secrets?: { name: string }[] }[] },
+  gatekeepers: string[],
+  vars: Record<string, Record<string, string>>,
+  secrets: Record<string, Record<string, string>>,
+  stored: Map<string, string[]>,
+  redactor: { add(value: string): void },
+): void {
+  for (const name of gatekeepers) {
+    const worker = manifest.workers.find((w) => w.name === name);
+    if (!worker?.secrets?.some((s) => s.name === FAKE_SECRET)) continue;
+    if (vars[name] && FAKE_SECRET in vars[name]) {
+      const { [FAKE_SECRET]: _plain, ...rest } = vars[name];
+      vars[name] = rest;
+    }
+    if (vars[name]?.[FAKE_PROVIDER_VAR] !== "true") continue;
+    if (stored.get(name)?.includes(FAKE_SECRET) || secrets[name]?.[FAKE_SECRET]) continue;
+    const secret = randomSecret();
+    redactor.add(secret);
+    secrets[name] = { ...secrets[name], [FAKE_SECRET]: secret };
+  }
+}
+
 export async function latestVersion(s: ReleaseSource, channel: Channel): Promise<string> {
   const releases = await listReleases(channel, s.github);
   const latest = releases[0];
@@ -706,11 +741,14 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
       );
     }
   }
+  // The secrets already stored on each chosen gatekeeper, as deployed.
+  const gatekeeperSet = new Map<string, string[]>();
   for (const name of gatekeepers) {
     const worker = manifest.workers.find((w) => w.name === name);
     const set = scripts.has(deployedAs(name))
       ? await s.api.listSecrets(s.accountId, deployedAs(name))
       : [];
+    gatekeeperSet.set(name, set);
     for (const secret of worker?.secrets ?? []) {
       if (!secret.required || set.includes(secret.name) || secrets[name]?.[secret.name]) continue;
       if (flags.yes || !io.interactive) {
@@ -770,6 +808,7 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
       vars[worker] = { ...vars[worker], ...values };
     }
   }
+  generateFakePaymentsSecrets(manifest, gatekeepers, vars, secrets, gatekeeperSet, deps.redactor);
   const sendEmailFlag = str(flags, "send-email");
   const sendEmail: DeploymentState["sendEmail"] = {
     ...(previous?.sendEmail ?? {}),
