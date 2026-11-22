@@ -22,20 +22,24 @@ import { getObject } from "../fields/index.ts";
 import type { ClaimsDefinition, ObjectDefinition, WaitlistDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
-import { boundMoment, pathReader } from "../records/windows.ts";
+import { boundMoment, pathReader, staffOnlySet } from "../records/windows.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
 import { creditSimulatedClaim, readCounter } from "./records.ts";
 
-/** How many live (held or confirmed) claims a claimant record has now. */
-async function liveClaims(db: HandlerContext["db"], object: string, id: string): Promise<number> {
-  const row = await db
+/** The ids of a claimant record's live (held or confirmed) claims now. */
+async function liveClaimIds(
+  db: HandlerContext["db"],
+  object: string,
+  id: string,
+): Promise<string[]> {
+  const rows = await db
     .selectFrom("core_capacity_claim")
-    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .select("id")
     .where("for_type", "=", object)
     .where("for_id", "=", id)
     .where("state", "in", ["held", "confirmed"])
-    .executeTakeFirst();
-  return Number(row?.n ?? 0);
+    .execute();
+  return rows.map((r) => r.id);
 }
 
 /** How many waitlist holds `t`'s waitlist has on `on` now. */
@@ -136,31 +140,25 @@ export async function beforeCutoff(
 
 /**
  * The statements that hand one place on `on` to the waitlist when the claimant record `claimant`
- * gave a place back on it in this batch (its claim released at `now`, by the statements queued
- * before these) and anyone other than it is waiting there: the counter's held up by one and a
- * waitlist hold, both on the same two conditions, so both happen or neither does. Keyed to the
- * claim really released, not to the state change: a record that holds nothing (an erased
- * Person's booking, kept anonymous) hands nothing on when it moves (ADR 0520).
+ * gave a place back on it in this batch, and anyone other than it is waiting there: the counter's
+ * held up by one and a waitlist hold, both on the same two conditions, so both happen or neither
+ * does. Keyed to the claim really released, not to the state change (ADR 0520): `claims` are the
+ * ids of the record's claims that were live when the write was planned, and the condition is that
+ * one of them is now released, at `now`, on `on`. A claim goes from live to released once, so
+ * only the batch that released it can match. A record holding nothing (an erased Person's
+ * booking, kept anonymous) has no live claim, and is given no hand-on.
  */
 export function handOnStatements(
   t: WaitlistTarget,
   on: string,
   claimant: string,
+  claims: readonly string[],
   id: string,
   now: string,
 ): CompiledQuery[] {
-  const released = `EXISTS (SELECT 1 FROM core_capacity_claim r WHERE r.for_type = ? AND r.for_id = ? AND r.object_type = ? AND r.record_id = ? AND r.state = 'released' AND r.released_at = ?)`;
+  const released = `EXISTS (SELECT 1 FROM core_capacity_claim r WHERE r.id IN (SELECT value FROM json_each(?)) AND r.object_type = ? AND r.record_id = ? AND r.state = 'released' AND r.released_at = ?)`;
   const conditions = `${released} AND ${waitersSql(t)}`;
-  const params = [
-    t.object.name,
-    claimant,
-    t.claims.object,
-    on,
-    now,
-    on,
-    t.waitlist.state,
-    claimant,
-  ];
+  const params = [JSON.stringify(claims), t.claims.object, on, now, on, t.waitlist.state, claimant];
   return [
     CompiledQuery.raw(
       `UPDATE core_capacity SET held = held + 1, updated_at = ? WHERE object_type = ? AND record_id = ? AND ${conditions}`,
@@ -192,8 +190,36 @@ export async function handOnAfterRelease(
     .executeTakeFirst()) as Record<string, unknown> | undefined;
   const on = row?.[t.onColumn];
   if (typeof on !== "string" || !on) return;
+  // Read before the erase's batch runs: the claims it is about to release.
+  const claims = await liveClaimIds(ctx.db, object.name, id);
+  if (!claims.length) return;
   if (!(await beforeCutoff(ctx, t, { [t.claims.on]: on }))) return;
-  ctx.write(...handOnStatements(t, on, id, newId("capacityClaim"), ctx.now));
+  ctx.write(...handOnStatements(t, on, id, claims, newId("capacityClaim"), ctx.now));
+}
+
+/**
+ * Erasing a waiter's Person takes the waiter out of the queue (ADR 0520): nobody can be promoted
+ * into a place for no one, and those behind move up. For a record of a claimant with a waitlist
+ * that is waiting now, the statements to queue in the erase's batch after it is deleted (the
+ * waitlist's holds go back if nobody else waits); null when it is not waiting.
+ */
+export async function erasedWaiter(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+): Promise<CompiledQuery[] | null> {
+  const t = waitlistOf(object);
+  if (!t) return null;
+  // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
+  const row = (await (ctx.db as Kysely<any>)
+    .selectFrom(t.source)
+    .select([t.onColumn, t.stateColumn])
+    .where("id", "=", id)
+    .executeTakeFirst()) as Record<string, unknown> | undefined;
+  if (!row || row[t.stateColumn] !== t.waitlist.state) return null;
+  const on = row[t.onColumn];
+  if (typeof on !== "string" || !on) return [];
+  return releaseHoldsStatements(t, on, ctx.now, { unlessWaiting: { except: id } });
 }
 
 /**
@@ -359,6 +385,18 @@ export async function waitlistMove(
     // A promotion: the waiter's place is the waitlist's hold, given back here and claimed next.
     // Only the host's promotion takes the waitlist's hold; a waiter moving themselves in (a free
     // place after the cut-off, say) claims a free place like anyone, never one owed to the queue.
+    // Nobody moves into a class that is closed (cancelled, or marked done early): the same
+    // flags that close it to a create (`states.create.closed`) close it to a waiter's move in,
+    // the host's promotion included (ADR 0520).
+    if (was === waiting && is === t.waitlist.promote) {
+      const closed = object.states?.create?.closed;
+      if (closed && (await staffOnlySet(pathReader(ctx, object, after), closed))) {
+        throw new ValidationError(`${object.label} cannot move in now: what it is for is closed`, {
+          rule: "state_closed",
+          field,
+        });
+      }
+    }
     if (was === waiting && is === t.waitlist.promote && by === "host") {
       if (typeof onAfter === "string" && onAfter) {
         ctx.write(...takeHoldStatements(t, onAfter, ctx.now));
@@ -394,12 +432,10 @@ export async function waitlistMove(
   const to = placeKind(t.claims, is);
   if (from !== null && to === null && typeof onBefore === "string" && onBefore) {
     // Only a record that holds a place gives one back: an erased Person's booking, kept in its
-    // state holding nothing, hands nothing on (the SQL also checks the claim it releases).
-    if (
-      (await liveClaims(ctx.db, object.name, id)) > 0 &&
-      (await beforeCutoff(ctx, t, before ?? after))
-    ) {
-      ctx.write(...handOnStatements(t, onBefore, id, newId("capacityClaim"), ctx.now));
+    // state holding nothing, hands nothing on. The SQL is keyed to these claims being released.
+    const claims = await liveClaimIds(ctx.db, object.name, id);
+    if (claims.length && (await beforeCutoff(ctx, t, before ?? after))) {
+      ctx.write(...handOnStatements(t, onBefore, id, claims, newId("capacityClaim"), ctx.now));
     }
   }
 }
@@ -434,10 +470,11 @@ export async function waitlistPosition(
 }
 
 /**
- * The waiters on `on`, first first (by when each was made). With `untriedSince` (the oldest
+ * The waiters on `on`, first first (by when each was made). With `untriedSince` (the newest
  * hold's time) and a declared `passedOverAt`, only those not passed over since then: a waiter
- * already tried for these holds is not tried again, so the sweep moves down a long queue across
- * ticks instead of giving the place away after the first page (ADR 0520).
+ * passed over since the latest place was handed on is not tried again this round, so the sweep
+ * moves down a long queue across ticks instead of giving the place away after the first page;
+ * a waiter passed over before it is tried again for it (ADR 0520).
  */
 export async function waitersOn(
   db: HandlerContext["db"],

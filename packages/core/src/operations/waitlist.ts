@@ -289,8 +289,8 @@ export async function runWaitlistDue(
   };
   const now = () => (clock?.() ?? new Date()).toISOString();
 
-  for (const row of due) {
-    result.records += 1;
+  /** Settles one record's holds this tick. */
+  const settle = async (row: (typeof due)[number]) => {
     const object = row.for_id;
     const on = row.record_id;
     const holds = Number(row.holds);
@@ -308,7 +308,7 @@ export async function runWaitlistDue(
         on,
         holds,
       });
-      continue;
+      return;
     }
     /** Gives the holds read here back to everyone. */
     const release = async (why: string) => {
@@ -342,7 +342,8 @@ export async function runWaitlistDue(
         });
       }
     };
-    const waiters = await waitersOn(db.query, t, on, maxWaiters, String(row.oldest));
+    // Tried this round: passed over since the newest hold was made (finding 2 of round two).
+    const waiters = await waitersOn(db.query, t, on, maxWaiters, before);
     // Untried waiters beyond this page wait for the next tick, when the ones tried are noted.
     const more = waiters.length >= maxWaiters && t.passedOverColumn !== undefined;
     let outcome: "taken" | "release" | "wait" = "release";
@@ -364,8 +365,21 @@ export async function runWaitlistDue(
         ) {
           continue;
         }
-        if (r.rule === "waitlist" && r.reason === "closed") {
+        // The cut-off has come, or the class is closed (cancelled, done): the holds go back.
+        if ((r.rule === "waitlist" && r.reason === "closed") || r.rule === "state_closed") {
           outcome = "release";
+          break;
+        }
+        // A floor or policy denies the host's step: nothing here may write, so the holds stay
+        // held (the class shows full) until the deny is lifted; logged every tick (ADR 0520).
+        if (r.code === "denied") {
+          result.failed += 1;
+          console.error("waitlist: the approval policy denies the waitlist's step", {
+            object,
+            on,
+            error: messageOf(error),
+          });
+          outcome = "wait";
           break;
         }
         // Two spends raced on their holder: they keep their place; the next tick tries again.
@@ -391,13 +405,29 @@ export async function runWaitlistDue(
           on,
           error: messageOf(error),
         });
-        await passOver(id, `error:${r.rule ?? r.code ?? "unknown"}`);
+        // The reason a member reads says nothing internal: the log has the error.
+        await passOver(id, "unavailable");
       }
     }
-    if (promoted >= holds) continue;
-    if (outcome === "wait" || outcome === "taken") continue;
-    if (more) continue;
+    if (promoted >= holds) return;
+    if (outcome === "wait" || outcome === "taken") return;
+    if (more) return;
     await release(waiters.length ? "nobody waiting could take them" : "nobody left to try");
+  };
+
+  for (const row of due) {
+    result.records += 1;
+    // One record's fault never stops the others: it is logged and counted, and the next is read.
+    try {
+      await settle(row);
+    } catch (error) {
+      result.failed += 1;
+      console.error("waitlist: a record's holds could not be settled", {
+        object: row.for_id,
+        on: row.record_id,
+        error: messageOf(error),
+      });
+    }
   }
   return result;
 }

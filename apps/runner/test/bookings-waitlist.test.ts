@@ -621,6 +621,108 @@ describe("review findings (PR #248)", () => {
     expect(await left(bPass)).toBe(4);
   });
 
+  it("round two, finding 2: a waiter passed over for an older place is tried again for a newer one", async () => {
+    const type = await create("programs.classtype", { name: unique("Twice") });
+    const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 2);
+    const [x, y, a, b] = (await Promise.all(["tx", "ty", "ta", "tb"].map((l) => member(l)))) as [
+      CustomerPrincipal,
+      CustomerPrincipal,
+      CustomerPrincipal,
+      CustomerPrincipal,
+    ];
+    await givePass(x);
+    await givePass(y);
+    await givePass(b);
+    const xBooked = await book(x, k);
+    const yBooked = await book(y, k);
+    // a waits first with nothing to pay; b behind, with a pass.
+    const aWaits = await book(a, k);
+    const bWaits = await book(b, k);
+    expect([aWaits.result, bWaits.result]).toEqual(["waiting", "waiting"]);
+    await run(
+      "x.bookings.cancel",
+      { bookingId: xBooked.bookingId, confirm: true, expect: "cancelled" },
+      as(x),
+    );
+    // A page of one: a passed over, the place kept for the queue.
+    expect(await runWaitlistDue(db, { maxWaiters: 1 })).toMatchObject({
+      passedOver: 1,
+      promoted: 0,
+    });
+    // a gets a pass; y frees a second place.
+    await givePass(a);
+    await run(
+      "x.bookings.cancel",
+      { bookingId: yBooked.bookingId, confirm: true, expect: "cancelled" },
+      as(y),
+    );
+    await runWaitlistDue(db);
+    // Both are moved in: a is tried again for the newer place, nothing goes to the public.
+    expect((await get(BOOKING, aWaits.bookingId as string)).state).toBe("booked");
+    expect((await get(BOOKING, bWaits.bookingId as string)).state).toBe("booked");
+    expect(await counter(k)).toEqual({ places: 2, held: 0, taken: 2 });
+  });
+
+  it("round two: a class marked done early takes nobody in from its waitlist, and its holds go back", async () => {
+    const type = await create("programs.classtype", { name: unique("Done") });
+    const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 1);
+    const [a, b] = (await Promise.all(["da", "db"].map((l) => member(l)))) as [
+      CustomerPrincipal,
+      CustomerPrincipal,
+    ];
+    await givePass(a);
+    await givePass(b);
+    const aBooked = await book(a, k);
+    const bWaits = await book(b, k);
+    await run(
+      "x.bookings.cancel",
+      { bookingId: aBooked.bookingId, confirm: true, expect: "cancelled" },
+      as(a),
+    );
+    expect(await counter(k)).toEqual({ places: 1, held: 1, taken: 0 });
+    await run("record.update", { object: CLASS, id: k, values: { state: "done" } }, staff());
+    // The waiter's own move in is refused; the host does not promote; the hold goes back.
+    expect(await book(b, k)).toMatchObject({ result: "refused" });
+    await runWaitlistDue(db);
+    expect((await get(BOOKING, bWaits.bookingId as string)).state).toBe("waiting");
+    expect(await counter(k)).toEqual({ places: 1, held: 0, taken: 0 });
+  });
+
+  it("round two: erasing a waiting member who named a pass takes them out of the queue", async () => {
+    const type = await create("programs.classtype", { name: unique("Erase") });
+    const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 1);
+    const [a, b, c] = (await Promise.all(["ea", "eb", "ec"].map((l) => member(l)))) as [
+      CustomerPrincipal,
+      CustomerPrincipal,
+      CustomerPrincipal,
+    ];
+    await givePass(a);
+    const bPass = await givePass(b);
+    await givePass(c);
+    const aBooked = await book(a, k);
+    const bWaits = await book(b, k, { holderId: bPass });
+    const cWaits = await book(c, k);
+    expect(cWaits).toMatchObject({ result: "waiting", position: 2 });
+    await run("person.erase", { id: b.personId }, staff());
+    const after = await run<{ position: number }>(
+      "waitlist.position",
+      { object: BOOKING, id: cWaits.bookingId },
+      staff(),
+    );
+    expect(after.position).toBe(1);
+    const gone = await run("record.get", { object: BOOKING, id: bWaits.bookingId }, staff())
+      .then(() => "found")
+      .catch((e: { code?: string }) => e.code);
+    expect(gone).toBe("not_found");
+    await run(
+      "x.bookings.cancel",
+      { bookingId: aBooked.bookingId, confirm: true, expect: "cancelled" },
+      as(a),
+    );
+    await runWaitlistDue(db);
+    expect((await get(BOOKING, cWaits.bookingId as string)).state).toBe("booked");
+  });
+
   it("a member cannot read another member's place in the queue", async () => {
     const type = await create("programs.classtype", { name: unique("Private") });
     const k = await klass(type, new Date(Date.now() + 2 * DAY).toISOString(), 1);

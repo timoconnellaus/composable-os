@@ -95,8 +95,11 @@ claimant object gives its waitlist's holds back with its claims.
   discarded the statements that give the hold back) and read as "taken": the place sat silently
   until the cut-off. A queued system step could not be applied anyway (its user is no one's). So
   `waitlist.promote`, `waitlist.passOver` and `waitlist.release` declare `hostStep`: from the
-  `system` origin the gate never queues them; a `deny` still applies, and the step counts and logs
-  it each tick. The dry run also counts the hold's return now (`creditSimulatedClaim`), so any
+  `system` origin the gate never queues them. This turns a `review` into `auto` whether it came
+  from the org's policy or from the deploy floor: for these three steps the floor's "only ever
+  stricter" does not hold, which is the point (a review could never be applied). A `deny` still
+  applies, and the step counts and logs it each tick. The audit row shows `auto`; it has no field
+  for why, so the reason is this ADR and the `hostStep` flag on the operation. The dry run also counts the hold's return now (`creditSimulatedClaim`), so any
   simulation of a promotion is judged as the real batch.
 - **The hand-on is keyed to a place really given back.** Its two statements also require that this
   record's claim was released in this batch, and the engine reads first that the record holds one:
@@ -122,7 +125,36 @@ claimant object gives its waitlist's holds back with its claims.
   Each tick settles every record it reads, so none keeps the first places of the read.
 - **The cut-off is read on the real clock.** The runner's step no longer passes the tick's time: a
   tick that runs late does not promote after the cut-off.
+- **What a deny does.** A `deny` (policy or floor) on the automation actor's writes refuses the
+  three steps too: nothing promotes and nothing gives the holds back, so a class with holds stays
+  full to the public until the deny is lifted; the step logs and counts it on every tick and moves
+  on to the other records. That is accepted: a deny on automation writes is a deployment's
+  emergency brake (it also stops orders expiring and timetables generating), and the host writing
+  the places back anyway would be the very write it forbids. Lifting it, the next tick promotes,
+  or at or past the cut-off gives the holds back.
 - **Paid at the desk is not for the waitlist.** Bookings' `bookFor` refuses `paidAtDesk` with
   `waitlist: true`: nobody pays at the desk for a place they may not get (and a later promotion would
   then spend nothing). A record made `waiting` with `waived` through the generic operations is
   promoted spending nothing, as the mark says.
+
+## Amended 2026-11-23, second review (before merge)
+
+- **An erased waiter leaves the queue.** Erasing a Person deletes their waiting records in the
+  erase's batch, whether or not the relation is required, and gives the waitlist's holds back if
+  nobody else waits (`erasedWaiter`, from `records/erase-stores.ts`). Before, a waiter whose
+  relation was optional stayed `waiting` with no Person, counted in positions and could be promoted
+  into a place for no one. A holder they had named goes with their allowance rows.
+- **"Tried" is per round, not per oldest hold.** A waiter is skipped only if passed over since the
+  newest hold was made: one passed over for an older place is tried again when another frees.
+- **The hand-on's own key.** The engine reads the record's live claim ids when it plans the
+  write, and the two statements require one of those claims to be released, at this write's time,
+  on this class: a claim goes from live to released once, so only the batch that released it
+  matches. (The read is what finds "holds nothing"; the SQL makes the hand-on the release's own.)
+- **A closed class takes nobody in.** The flags that close a record to a create
+  (`states.create.closed`: the Bookings class cancelled or done) refuse a move from the waiting
+  state into the promote state too, by anyone, the host's promotion included (`state_closed`);
+  the sweep then gives the holds back.
+- **One record's fault never stops the step.** Each record is settled in its own try; a fault is
+  logged and counted, and the next record is read.
+- **What a member reads.** An unexpected refusal passes a waiter over with the reason
+  `unavailable`; the detail is only in the log.

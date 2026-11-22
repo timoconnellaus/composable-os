@@ -108,8 +108,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "assistant/routines.ts": [2, WHY.sql],
   "automations/records.ts": [7, WHY.org],
   // The waitlist (ADR 0520): the host's own conditions, its reads of who waits on a class and
-  // of an erased booking's class.
-  "capacity/waitlist.ts": [4, WHY.org],
+  // of an erased booking's class and state.
+  "capacity/waitlist.ts": [5, WHY.org],
   "dashboards/describe.ts": [5, WHY.sql],
   "dashboards/overview.ts": [12, WHY.sql],
   "duplicates/check.ts": [5, WHY.write],

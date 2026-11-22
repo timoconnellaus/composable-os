@@ -527,6 +527,60 @@ describe("review findings (PR #248)", () => {
     expect(await counter(k)).toEqual({ places: 2, held: 0, taken: 2 });
   });
 
+  it("round two, finding 1: erasing a waiter's Person takes them out of the queue; nobody is promoted for no one", async () => {
+    const k = await klass(1);
+    const a = await book(k);
+    const erased = await person("waiter-gone");
+    const w1 = (
+      await invoke(
+        "record.create",
+        { object: BOOKING, values: { klass: k, person: erased, state: "waiting" } },
+        at(NOW),
+      )
+    ).id as string;
+    const w2 = await book(k, "waiting");
+    expect(await invoke("waitlist.position", { object: BOOKING, id: w2 }, context(admin))).toEqual({
+      position: 2,
+      waiting: 2,
+    });
+    await invoke("person.erase", { id: erased }, at(NOW));
+    // The erased waiter's record is gone (its relation is optional here: deleted all the same).
+    const gone = await env.DB.prepare(
+      `SELECT count(*) AS n FROM core_capacity_claim WHERE for_type = ? AND for_id = ?`,
+    )
+      .bind(BOOKING, w1)
+      .first<{ n: number }>();
+    expect(gone?.n).toBe(0);
+    await expect(
+      invoke("record.get", { object: BOOKING, id: w1 }, context(admin)),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(await invoke("waitlist.position", { object: BOOKING, id: w2 }, context(admin))).toEqual({
+      position: 1,
+      waiting: 1,
+    });
+    // The next place goes to the next waiter, not to a record of no one.
+    await move(a, "cancelled");
+    await tick(NOW);
+    expect((await values(w2)).state).toBe("booked");
+    expect(await counter(k)).toEqual({ places: 1, held: 0, taken: 1 });
+  });
+
+  it("round two: the last waiter erased gives the waitlist's holds back at once", async () => {
+    const k = await klass(1);
+    const a = await book(k);
+    const erased = await person("last-gone");
+    await invoke(
+      "record.create",
+      { object: BOOKING, values: { klass: k, person: erased, state: "waiting" } },
+      at(NOW),
+    );
+    await move(a, "cancelled");
+    expect(await counter(k)).toEqual({ places: 1, held: 1, taken: 0 });
+    await invoke("person.erase", { id: erased }, at(NOW));
+    expect(await counter(k)).toEqual({ places: 1, held: 0, taken: 0 });
+    expect(await holds(k)).toBe(0);
+  });
+
   it("finding 3: a waiting booking cannot be pointed at another class", async () => {
     const full = await klass(1);
     await book(full);
