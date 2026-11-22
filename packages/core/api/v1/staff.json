@@ -30269,6 +30269,170 @@
       ]
     },
     {
+      "name": "media.videoFromUrl",
+      "description": "Add a video to the media library by Stream copying it from an address (https only): a file the old platform or a Vimeo or Wistia account serves. Stream fetches it; the item is `processing` until Stream says ready (media.videoRefresh). Every video needs a token to play. A person only: an import runs it (cos courses import).",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "format": "uri"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 (hex) of the file's bytes, or of the address it is copied from"
+          }
+        },
+        "required": [
+          "name",
+          "url"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "image",
+                  "video",
+                  "file"
+                ],
+                "description": "A picture, a video or a downloadable file"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "alt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "uploading",
+                      "processing",
+                      "ready",
+                      "failed"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "A video: uploading, processing (Stream is encoding it), ready to play, or failed"
+              },
+              "stateReason": {
+                "description": "A failed video: Stream's reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "duration": {
+                "description": "A video's length in seconds",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "createdBy": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "name",
+              "type",
+              "bytes",
+              "width",
+              "height",
+              "alt",
+              "state",
+              "stateReason",
+              "duration",
+              "createdAt",
+              "createdBy"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "item"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "media.findByHash",
+        "media.get",
+        "media.list",
+        "media.play",
+        "media.serve",
+        "media.settings.get"
+      ]
+    },
+    {
       "name": "media.videoRefresh",
       "description": "Ask Cloudflare Stream how one video is (processing, ready or failed, its length and size) and keep the answer on the item, with its captions' states. If anything had made the video playable without a token, it is made to require one again.",
       "risk": "write",
@@ -30468,6 +30632,11 @@
             "minimum": 1,
             "maximum": 29999999999,
             "description": "The file's size in bytes (under 30 GB): Stream takes no more than this"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 (hex) of the file's bytes, or of the address it is copied from"
           }
         },
         "required": [
