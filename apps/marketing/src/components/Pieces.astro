@@ -5,9 +5,10 @@
 // that are built and merged (stages 27, 28, 41 and 42) but have not run for a customer yet, and
 // say so; Courses' subscriptions are being built (stage 32a). The last card is the piece built
 // only for this business.
+import { STATUS } from "../status.ts";
 import Icon from "./Icon.astro";
 
-const BUILT = "Built, not yet live";
+const BUILT = STATUS.built;
 
 const pieces = [
   {

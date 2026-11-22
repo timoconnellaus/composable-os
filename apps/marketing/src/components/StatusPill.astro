@@ -1,0 +1,11 @@
+---
+// A piece's status, in the site's words (status.ts). Anything short of "Ready today" is dashed.
+import { STATUS, type Status } from "../status.ts";
+
+interface Props {
+  status: Status;
+}
+const { status } = Astro.props;
+---
+
+<span class:list={["soon", { ready: status === "ready" }]}>{STATUS[status]}</span>

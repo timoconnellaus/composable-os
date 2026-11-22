@@ -1,6 +1,6 @@
 # ADR 0465: The site sells a product built for the business and looked after
 
-Status: accepted, 2026-11-21 (website interview). Amends the landing page part of
+Status: accepted, 2026-11-21 (website interview); amended 2026-11-22 (solutions pages). Amends the landing page part of
 [ADR 0191](0191-saas-and-enterprise-model.md).
 
 ## Context
@@ -30,7 +30,8 @@ be in such a product, not the offer.
   a `waitlist` submission and the rows already stored stay.
 - **Proof is real or absent.** Ghetto is the first client; its quote and case study are added
   when they exist. Until then the page shows plain facts and nothing invented. A piece that is
-  not finished says so on the page ("being built", "in design").
+  not finished says so on the page ("being built", "in design"; "planned" added 2026-11-22, see
+  below).
 - **Design language:** light only; Poppins; a pale blue page on a near-white frame; one lime pill
   button for the action and a dark pill in the header; blue arches behind the product picture;
   navy and lime as accents. The hero's picture is an invented business's product (a coffee
@@ -39,6 +40,24 @@ be in such a product, not the offer.
   change that adds or alters something the site describes updates the site and `SITE.md` in the
   same pull request (`AGENTS.md`). Site work follows the `landing-page-generator` skill
   (`.claude/skills/landing-page-generator`), and its three checks run on the built page.
+
+## Amended 2026-11-22: solutions pages
+Decided by the owner at an interview on 2026-11-22.
+- **Solutions have their own pages,** the first at `/solutions/gyms/` ("For gyms and studios"),
+  and the home page has a short Solutions section linking to them. The home page speaks to any
+  business. An owner of one kind of business, often arriving from a search for that kind of
+  software, needs to see the whole system for a business like theirs: the subscriptions it would
+  replace, and which of those it can replace today. The section and the route serve any number of
+  solutions (`apps/marketing/src/solutions.ts`); only solutions that exist are listed.
+- **The same offer, angle, look and one action** as the home page. Each solution's page has its
+  own call form, so "Book a call" never leaves the page.
+- **Every piece is shown with its status,** including what is not built, so a gym owner can see
+  what would replace their booking system and that it is not there yet. "Planned" (on the
+  roadmap, no spec) joins the status words, and "In design" means a spec is agreed; `SITE.md`
+  defines them all.
+- **The first client may be named on the gym page** as being moved onto the platform, not live:
+  the name only. No quote, logo, price, numbers, the systems it is leaving, or case study until
+  there is a real one. The rule that proof is real or absent stands.
 
 ## Consequences
 - The site no longer shows the plans ADR 0191 describes. Whether the hosted SaaS in ADR 0191 is

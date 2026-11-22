@@ -1,12 +1,22 @@
 ---
+// The close and the call form (#call). A solution's page passes its own heading and lead.
 import CallForm from "./CallForm.astro";
+
+interface Props {
+  heading?: string;
+  lead?: string;
+}
+const {
+  heading = "Tell us how your business runs.",
+  lead = "Zero BS AI will tell you what we'd compose for it, and what it would take.",
+} = Astro.props;
 ---
 
 <section id="call" class="final tint" aria-labelledby="call-title">
   <div class="wrap">
     <div class="reveal">
-      <h2 id="call-title">Tell us how your business runs.</h2>
-      <p class="lead">Zero BS AI will tell you what we'd compose for it, and what it would take.</p>
+      <h2 id="call-title">{heading}</h2>
+      <p class="lead">{lead}</p>
       <CallForm />
       <p class="fine">
         We reply within one working day. No newsletter, and no trackers on this site.
