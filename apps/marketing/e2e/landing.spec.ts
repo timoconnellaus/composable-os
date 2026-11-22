@@ -293,32 +293,45 @@ test("the header fits a narrow phone", async ({ page }) => {
 test.describe("on a phone", () => {
   const paths = ["/", ...SOLUTIONS.map((solution) => `/solutions/${solution.slug}/`)];
   for (const path of paths)
-    for (const width of [320, 360, 390]) {
-      test(`${path} at ${width}px: the header's logo, action and menu sit side by side, 44px tall`, async ({
-        page,
-      }) => {
-        await page.setViewportSize({ width, height: 740 });
-        await page.goto(path);
-        const header = page.locator("header.site");
-        const box = async (locator: Locator) => {
-          const found = await locator.boundingBox();
-          if (!found) throw new Error("not rendered");
-          return found;
-        };
-        const logo = await box(header.locator(".logo"));
-        const action = await box(header.getByRole("link", { name: CTA }));
-        const menu = await box(header.getByRole("button", { name: "Open menu" }));
-        // The logo's box can shrink while its name spills under the action, so check both.
-        expect(
-          await header.locator(".logo").evaluate((el) => el.scrollWidth <= el.clientWidth),
-        ).toBe(true);
-        expect(logo.x + logo.width).toBeLessThanOrEqual(action.x);
-        expect(action.x + action.width).toBeLessThanOrEqual(menu.x);
-        expect(menu.x + menu.width).toBeLessThanOrEqual(width);
-        expect(action.height).toBeGreaterThanOrEqual(44);
-        expect(menu.height).toBeGreaterThanOrEqual(44);
-      });
-    }
+    for (const width of [320, 360, 390])
+      for (const font of ["Poppins", "a wide fallback font"]) {
+        test(`${path} at ${width}px in ${font}: the header's logo, action and menu sit side by side, 44px tall`, async ({
+          page,
+        }) => {
+          await page.setViewportSize({ width, height: 740 });
+          await page.goto(path);
+          // Before Poppins loads, or where it never does, a system font shows; DejaVu Sans (Linux)
+          // and Verdana are among the widest, so the bar has to hold with them too.
+          if (font !== "Poppins")
+            await page.addStyleTag({
+              content: ':root { --font: Verdana, "DejaVu Sans", sans-serif; }',
+            });
+          await page.evaluate(() => document.fonts.ready);
+          const header = page.locator("header.site");
+          const box = async (locator: Locator) => {
+            const found = await locator.boundingBox();
+            if (!found) throw new Error("not rendered");
+            return found;
+          };
+          const logo = await box(header.locator(".logo"));
+          const action = await box(header.getByRole("link", { name: CTA }));
+          const menu = await box(header.getByRole("button", { name: "Open menu" }));
+          // The logo's box can shrink while its name spills under the action, so check both.
+          expect(
+            await header.locator(".logo").evaluate((el) => el.scrollWidth <= el.clientWidth),
+          ).toBe(true);
+          expect(logo.x + logo.width).toBeLessThanOrEqual(action.x);
+          expect(action.x + action.width).toBeLessThanOrEqual(menu.x);
+          expect(menu.x + menu.width).toBeLessThanOrEqual(width);
+          expect(action.height).toBeGreaterThanOrEqual(44);
+          expect(menu.height).toBeGreaterThanOrEqual(44);
+          // In Poppins the whole name shows; a wide fallback may end it in an ellipsis.
+          if (font === "Poppins")
+            expect(
+              await header.locator(".logo-name").evaluate((el) => el.scrollWidth <= el.clientWidth),
+            ).toBe(true);
+        });
+      }
 
   test("the call form's fields are 16px text and 44px targets, with the right keyboards", async ({
     page,

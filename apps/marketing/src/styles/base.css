@@ -283,6 +283,19 @@ header.site.scrolled::after {
   text-decoration: none;
   white-space: nowrap;
 }
+/* In the bar the name gives way before the action or the menu does: it ends in an ellipsis if a
+   wide fallback font is showing before Poppins loads, and never runs under the action. */
+.nav .logo {
+  min-width: 0;
+}
+.logo-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav .btn,
+.menu-btn {
+  flex: none;
+}
 .logo svg {
   width: 34px;
   height: 22px;
