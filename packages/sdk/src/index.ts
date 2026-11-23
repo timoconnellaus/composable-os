@@ -18,6 +18,7 @@ export * from "./recurring.ts";
 export * from "./renamed.ts";
 export * from "./rich-text.ts";
 export * from "./rich-text-fixture.ts";
+export * from "./routine-mail.ts";
 export {
   type AutomationRunValue,
   AutomationStepError,

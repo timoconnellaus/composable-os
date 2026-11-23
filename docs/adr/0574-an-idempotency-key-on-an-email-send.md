@@ -36,3 +36,7 @@ failing on the second email, the run retried: each address once, keys `run:0` to
 - Bookings' coalescing turn (ADR 0572) is likewise held by the first run of the chain, and given up
   only after its send succeeds (its own step), so a compose or send step that fails and is retried
   still tells.
+
+## Amended 2026-11-23 (ADR 0590)
+Routine mail is keyed by the host, not the pack: each email's row by the run its chain began with,
+the kind, the message, the record and the recipient, and its send by `routine:<row id>`.

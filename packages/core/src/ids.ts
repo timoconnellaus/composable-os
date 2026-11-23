@@ -85,6 +85,8 @@ export const ID_PREFIXES = {
   /** A family link: a guardian and a dependant (stage 31a, ADR 0540). */
   personLink: "pln",
   refundDue: "rdu",
+  /** A routine email the host was asked to send (ADR 0590). */
+  routineMail: "rml",
   /** An agreement document (stage 44, ADR 0640). */
   agreementDocument: "agd",
   /** A published version of an agreement document, never changed (stage 44, ADR 0640). */

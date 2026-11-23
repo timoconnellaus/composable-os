@@ -7,6 +7,7 @@
 import {
   type ActingUser,
   type Actor,
+  OperationError,
   type Origin,
   type PendingApproval,
   ROLES,
@@ -128,6 +129,41 @@ export interface RunAsContext {
   rootEventId: string;
   /** Test mode (ADR 0133): nothing reaches the gatekeeper. */
   test: boolean;
+}
+
+/**
+ * The org email-send connection an automation's slot is bound to, for its routine mail
+ * (ADR 0590): the person who bound it consented to the pack's mail going out from it.
+ */
+export async function routineMailConnection(
+  env: Env,
+  automationId: string,
+): Promise<{ connectionId: string; resource: string }> {
+  const { results } = await env.DB.prepare(
+    `SELECT c.id, c.resources, c.scope, c.status, u.deactivated_at AS owner_deactivated_at
+     FROM core_automation_binding b
+     JOIN core_integration_connection c ON c.id = b.connection_id
+     JOIN core_user u ON u.id = c.owner_user_id
+     WHERE b.automation_id = ? AND b.gatekeeper = 'email-send' AND b.revoked_at IS NULL
+     ORDER BY b.slot`,
+  )
+    .bind(automationId)
+    .all<{
+      id: string;
+      resources: string;
+      scope: string;
+      status: string;
+      owner_deactivated_at: string | null;
+    }>();
+  for (const row of results) {
+    if (row.scope !== "org" || row.status !== "active" || row.owner_deactivated_at) continue;
+    const key = (JSON.parse(row.resources) as { key?: unknown }[])[0]?.key;
+    if (typeof key === "string") return { connectionId: row.id, resource: key };
+  }
+  throw new OperationError(
+    "forbidden",
+    `No usable org email-send connection is bound to ${automationId}: bind one to send its email`,
+  );
 }
 
 interface BoundRow extends Row {

@@ -18,12 +18,15 @@ import {
   type ExtensionHost,
   ForbiddenError,
   invokeByName,
+  OperationError,
   type Origin,
   type OutsidePrincipal,
   PendingApprovalError,
   type Permission,
   parseFloor,
+  prepareRoutineMail,
   queueEventSink,
+  refreshSchemaRegistry,
   resolveExtensionOperation,
   type TestSimulation,
   type TodayLimits,
@@ -35,7 +38,13 @@ import type { ExtensionManifest } from "@composable-os/sdk";
 import { runModelRole } from "../extensions/ai.ts";
 import { CODE_MAX_CALLS } from "../extensions/code-mode.ts";
 import { embedsFromEvents } from "../extensions/embeddings.ts";
-import { boundGatekeeperCall, gatekeeperCall } from "../integrations/code.ts";
+import {
+  boundGatekeeperCall,
+  gatekeeperCall,
+  gatekeeperErrorCode,
+  routineMailConnection,
+} from "../integrations/code.ts";
+import { hostFor } from "../integrations/runtime.ts";
 import { HOST_METHODS, type HostModule, isGatekeeperModule, isHostModule } from "./worker-code.ts";
 
 export const MAX_LOGS = 200;
@@ -98,6 +107,9 @@ export interface RunOperation {
  * principal, with the run's cascade tags on their origin, and post-commit events. In test mode
  * (ADR 0133) they run against `simulate` and send no events.
  */
+/** Gatekeepers whose answers carry no outside text (a sent message's id): ADR 0590. */
+const SEND_ONLY: ReadonlySet<string> = new Set(["email-send", "slack-post"]);
+
 export interface AutomationRunContext {
   automationId: string;
   runId: string;
@@ -139,6 +151,18 @@ export interface RunState {
   };
   /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
   cascade?: ToolCascade;
+  /**
+   * Who stands behind what the run writes (ADR 0590), from its verified caller: an AI's call, or
+   * an automation not shipped in a pack's own code, is an AI's; otherwise the host's.
+   */
+  standing?: "ai" | "host";
+  /** The values a person gave the tool (normal forms): what equals one of them is theirs. */
+  given?: ReadonlySet<string>;
+  /**
+   * Set once the run used a model (`codemode:ai`) or read outside text through a gatekeeper:
+   * what it writes from then on is an AI's (ADR 0590).
+   */
+  usedModel?: boolean;
   /**
    * The calling staff account's pack role limit to today (ADR 0553): the run's record reads and
    * writes of these objects reach today's records only, whatever the extension may read.
@@ -222,14 +246,34 @@ export class RunHost extends RpcTarget {
         return this.#storage(method as "get" | "set" | "del" | "list", list);
       case "log":
         return this.#log(list);
+      case "routine-mail":
+        return this.#routineMail(list);
       case "ai":
+        // A model's words may reach what the run writes from now on (ADR 0590).
+        run.usedModel = true;
         return json(
           await runModelRole(this.#env, method as "summarise" | "extract" | "classify", list),
         );
       default:
-        if (isGatekeeperModule(module)) return this.#gatekeeper(module, method, list);
+        if (isGatekeeperModule(module)) {
+          // A gatekeeper's answer may carry outside text (a web page, a mailbox, an MCP server's
+          // reply): what the run writes from now on is an AI's, as after a model (ADR 0590, the
+          // fourth review). Only the two that send and answer with an id do not.
+          if (!SEND_ONLY.has(module)) run.usedModel = true;
+          return this.#gatekeeper(module, method, list);
+        }
         throw new Error(`Unknown host module ${module}`);
     }
+  }
+
+  /** Who stands behind what this run writes (ADR 0590), for the pipeline's marks. */
+  #marks(): { markStanding: "ai" | "host"; markGiven?: ReadonlySet<string> } {
+    const run = this.#run;
+    // After a model or outside text, nothing the run writes is a person's, not even what equals
+    // their input (the model may have chosen it).
+    if (run.usedModel) return { markStanding: "ai" };
+    if (run.standing === "ai") return { markStanding: "ai" };
+    return { markStanding: "host", ...(run.given ? { markGiven: run.given } : {}) };
   }
 
   /** A read tool's sandbox (RunState.readOnly): refuses what is not a read, before it runs. */
@@ -339,6 +383,8 @@ export class RunHost extends RpcTarget {
             // The caller's pack role limit to today holds on every call of this run, and on the
             // runs of tools it calls (ADR 0553): the pipeline holds it before each operation.
             ...(run.roleToday ? { roleToday: run.roleToday } : {}),
+            // Who stands behind what the tool writes (ADR 0590): its caller, not the extension.
+            ...this.#marks(),
             ...(run.simulate ? { simulate: run.simulate } : this.#events()),
             ...(await this.#tools(operation)),
           });
@@ -390,6 +436,7 @@ export class RunHost extends RpcTarget {
         floor: parseFloor(this.#env.APPROVAL_FLOOR),
         extension: { id: run.extensionId, permissions: run.permissions },
         reason: `Automation ${automation.automationId}`,
+        ...this.#marks(),
         ...(await this.#tools(operation)),
         ...(automation.events ? { events: automation.events } : {}),
         ...(automation.events && embedsFromEvents(this.#env) ? { embedViaEvents: true } : {}),
@@ -553,6 +600,77 @@ export class RunHost extends RpcTarget {
           .execute();
         return rows.map((r) => ({ key: r.key, value: JSON.parse(r.value) as unknown }));
       }
+    }
+  }
+
+  /**
+   * `codemode:routine-mail` (ADR 0590): a shipped extension's declared email, sent by the host.
+   * Only an automation run answers: not a tool (whoever called it), not Code Mode, not a customer.
+   * The extension, its automation and the run are this run's, set by the host; the core decides
+   * the rest from the database (`prepareRoutineMail`) and the integration host sends each row.
+   */
+  async #routineMail(args: unknown[]): Promise<unknown> {
+    const run = this.#run;
+    const automation = run.automation;
+    const started = Date.now();
+    const reply = (value: Envelope) => {
+      run.operations.push({
+        operation: "routineMail.send",
+        ok: value.ok,
+        ...(value.ok ? {} : { code: value.error.code }),
+        ms: Date.now() - started,
+        object: "routine-mail",
+        step: null,
+        writes: 0,
+      });
+      return json(value);
+    };
+    if (!automation || run.code || run.outside || run.tool || run.readOnly) {
+      return reply({
+        ok: false,
+        error: {
+          code: "forbidden",
+          message: "Routine mail is sent only by an automation of a shipped extension",
+        },
+      });
+    }
+    // Test mode (ADR 0133) sends nothing and records nothing.
+    if (automation.simulate) {
+      return reply({ ok: true, value: { sent: 0, held: 0, off: false, none: true } });
+    }
+    const env = this.#env as unknown as Env;
+    const db = createCrmDb(env.DB).query;
+    try {
+      await refreshSchemaRegistry(db);
+      const connection = await routineMailConnection(env, automation.automationId);
+      const prepared = await prepareRoutineMail(db, {
+        extensionId: run.extensionId,
+        automationId: automation.automationId,
+        runId: automation.runId,
+        connectionId: connection.connectionId,
+        send: args[0],
+      });
+      let sent = 0;
+      let held = 0;
+      for (const done of prepared.done) {
+        if (done.status === "sent" && done.routine) sent += 1;
+        else if (done.status === "waiting" || !done.routine) held += done.status === "off" ? 0 : 1;
+      }
+      let off = prepared.off;
+      for (const row of prepared.toSend) {
+        const outcome = await hostFor(env, connection.connectionId).sendRoutineMail({
+          id: row.id,
+          resource: connection.resource,
+        });
+        if (outcome.status === "sent") sent += 1;
+        else if (outcome.status === "waiting") held += 1;
+        else if (outcome.status === "off") off = true;
+      }
+      return reply({ ok: true, value: { sent, held, off, none: prepared.none } });
+    } catch (error) {
+      const code = error instanceof OperationError ? error.code : gatekeeperErrorCode(error);
+      const message = error instanceof Error ? error.message : String(error);
+      return reply({ ok: false, error: { code, message: message.slice(0, 2000) } });
     }
   }
 

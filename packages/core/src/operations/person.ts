@@ -1279,6 +1279,18 @@ export const personMerge = defineOperation({
         absorbedId: merged.id,
         familyLinks: `${plan.moved} moved, ${plan.ended} ended, ${plan.deleted} deleted${plan.history ? `, ${plan.history} past moved` : ""}`,
       },
+      // ADR 0590: the merged addresses and name carry both People's marks, never a fresh one.
+      marks: {
+        copied: Object.fromEntries(
+          (["emails", "displayName", "givenName", "familyName"] as const).map((field) => [
+            field,
+            [
+              { object: "person", id: survivor.id, field, value: personSnapshot(survivor)[field] },
+              { object: "person", id: merged.id, field, value: personSnapshot(merged)[field] },
+            ],
+          ]),
+        ),
+      },
     });
     ctx.recordChange({
       object: "person",

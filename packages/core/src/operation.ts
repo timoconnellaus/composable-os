@@ -40,6 +40,11 @@ import type { RecordAccess } from "./visibility/records.ts";
 
 /** One record touched by an operation, recorded as field diffs in core_audit_changes. */
 export interface RecordChange {
+  /**
+   * What the host filled itself or copied from other records (ADR 0590): their marks are the
+   * host's, or their sources'.
+   */
+  marks?: import("./routine-mail/marks.ts").ChangeMarks | undefined;
   /** Registry object name: `person`, `organisation`, `task`, ... */
   object: string;
   id: string;
@@ -160,6 +165,13 @@ export interface HandlerContext {
   readonly roleToday?: import("./pack-role-today.ts").TodayLimits | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
+  /**
+   * Who stands behind what this call writes, when a tool or automation run made it (ADR 0590):
+   * carried into a tool it calls, so a tool called by an AI's (or a model-using) run stays an AI's.
+   */
+  readonly markStanding?: "person" | "customer" | "public" | "default" | "host" | "ai" | undefined;
+  /** The values the person who started the run gave it (normal forms), carried on likewise. */
+  readonly markGiven?: ReadonlySet<string> | undefined;
   /**
    * Set only while an approved pending action is applied: which action, who approved it (a
    * person's user id, or the adjudicator's principal) and the preview they approved. A publish

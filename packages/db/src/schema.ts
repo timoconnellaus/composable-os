@@ -1175,6 +1175,52 @@ export interface CoreSellableRefundDueTable {
   updated_at: string;
 }
 
+/** Migration 0750 (ADR 0590): one routine email the host was asked to send. */
+export interface CoreRoutineMailTable {
+  id: string;
+  kind: string;
+  message: string;
+  extension_id: string;
+  record_object: string;
+  record_id: string;
+  recipient: string;
+  recipient_rule: "person" | "guardian" | "order";
+  recipient_person_id: Defaulted<string | null>;
+  recipient_key: string;
+  about_person_id: Defaulted<string | null>;
+  automation_id: string;
+  run_id: string;
+  trigger_type: string;
+  triggered_by: Defaulted<string | null>;
+  idempotency_key: string;
+  routine: number;
+  ordinary: Defaulted<number>;
+  claimed_at: Defaulted<string | null>;
+  held_reason: Defaulted<string | null>;
+  status: "off" | "ready" | "sending" | "sent" | "waiting" | "denied" | "failed";
+  connection_id: Defaulted<string | null>;
+  subject: Defaulted<string | null>;
+  body: Defaulted<string | null>;
+  calendar: Defaulted<string | null>;
+  related: Defaulted<string | null>;
+  sources: Defaulted<string | null>;
+  pending_action_id: Defaulted<string | null>;
+  error: Defaulted<string | null>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Migration 0750 (ADR 0590): who stands behind a record field's current value. */
+export interface CoreValueMarkTable {
+  object_type: string;
+  record_id: string;
+  field: string;
+  value_hash: string;
+  standing: "person" | "customer" | "public" | "default" | "host" | "ai";
+  by_id: string | null;
+  at: string;
+}
+
 /** Migration 0650: a guardian's write's guard; its trigger stores nothing. */
 export interface CorePersonLinkGuardTable {
   guardian_id: string;
@@ -2678,6 +2724,8 @@ export interface CoreDatabase {
   core_agreement_minor: CoreAgreementMinorTable;
   core_person_link_guard: CorePersonLinkGuardTable;
   core_sellable_refund_due: CoreSellableRefundDueTable;
+  core_routine_mail: CoreRoutineMailTable;
+  core_value_mark: CoreValueMarkTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
   core_recurrence_exception: CoreRecurrenceExceptionTable;

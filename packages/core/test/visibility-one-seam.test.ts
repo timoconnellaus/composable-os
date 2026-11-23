@@ -159,12 +159,16 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "orders/refund-due.ts": [1, WHY.host],
   "orders/orders.ts": [2, WHY.host],
   "records/erase-log.ts": [1, WHY.write],
-  "records/erase-stores.ts": [1, WHY.write],
+  // Erase (and, ADR 0590, the marks of the erased person's orders).
+  "records/erase-stores.ts": [2, WHY.write],
   "records/erase-subject.ts": [6, WHY.write],
   "records/erase.ts": [8, WHY.write],
   "records/links.ts": [10, WHY.part],
   "records/tags.ts": [1, WHY.part],
   "retention.ts": [1, WHY.org],
+  // Routine mail (ADR 0590): the host reads the record it is about, its order, its person and
+  // the orders an address paid itself, for a shipped pack's automation run with no caller.
+  "routine-mail/index.ts": [4, WHY.org],
   // The host's read of a period's order by its invoice (stage 32a, ADR 0486).
   "subscriptions/periods.ts": [1, WHY.host],
   // Whether a paid invoice is the first period after a pause the host asked for (stage 32b, ADR 0531).

@@ -34,6 +34,12 @@ export interface ToolCaller {
   roleToday?: import("../pack-role-today.ts").TodayLimits;
   /** The person who approved this call, when another actor's call was approved (ADR 0552). */
   approvedBy?: string;
+  /**
+   * A tool called by a tool or an automation (ADR 0590): who stands behind what the calling run
+   * writes, and the values its person gave it. The called tool writes no better than its caller.
+   */
+  markStanding?: "host" | "ai";
+  markGiven?: string[];
 }
 
 export interface RunToolInput {

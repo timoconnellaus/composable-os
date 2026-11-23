@@ -13,6 +13,7 @@ import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { CORE_PERMISSION_NAMESPACES } from "../principals.ts";
+import { routineMailAvailableNotice } from "../routine-mail/index.ts";
 import { hasAccessSourceKind } from "../visibility/access.ts";
 // The host's own kinds of access source register themselves when loaded: loaded here too, so the
 // install check (and `cos ext check`, which bundles it alone) knows them (ADR 0488).
@@ -252,6 +253,27 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       message: `A runtime extension cannot declare a permission an admin grants. ${why}`,
     });
   }
+  // Routine mail goes to members without a person's approval (ADR 0590): only a shipped
+  // extension's declaration may say what it says, so code written in the app declares none and
+  // gets no module to send it.
+  for (const name of Object.keys(manifest.routineMail ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `routineMail.${name}`,
+      message: `A runtime extension cannot declare routine mail. ${why}`,
+    });
+  }
+  manifest.permissions.modules.forEach((module, i) => {
+    if (module === "routine-mail") {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `permissions.modules.${i}`,
+        message: `A runtime extension cannot send routine mail. ${why}`,
+      });
+    }
+  });
   for (const name of Object.keys(manifest.roles ?? {})) {
     issues.push({
       stage: "contract",
@@ -514,6 +536,12 @@ export async function installExtension(
         oc.columns(["extension_id", "commit_oid"]).doUpdateSet({ installed_at: ctx.now }),
       ),
   );
+  // Routine mail (ADR 0590, D1): off until a human admin turns it on; the admins are told once.
+  if (Object.keys(manifest.routineMail ?? {}).length) {
+    ctx.write(
+      ...(await routineMailAvailableNotice(ctx.db, input.id, manifest.label ?? input.id, ctx.now)),
+    );
+  }
   // The extension's automations join the registry (ADR 0130); enabled flags and pauses persist.
   ctx.write(
     ...automationSyncStatements(ctx.db, {

@@ -62,7 +62,38 @@ async function check(dir: string, json: boolean, io: ExtIo): Promise<number> {
   for (const line of outsideSummary(result.manifest)) io.out(line);
   // So is what its staff roles let an account do (ADR 0436).
   for (const line of rolesSummary(result.manifest)) io.out(line);
+  // And what it emails members without a person's approval (ADR 0590).
+  for (const line of routineMailSummary(result.manifest)) io.out(line);
   return 0;
+}
+
+/**
+ * One line for each kind of routine mail the manifest declares (ADR 0590): email the host sends
+ * without a person's approval, about which record, and its messages. Empty when it declares none.
+ */
+export function routineMailSummary(
+  manifest:
+    | {
+        id: string;
+        routineMail?: Record<
+          string,
+          { label: string; about: string; on?: boolean; messages: Record<string, unknown> }
+        >;
+      }
+    | null
+    | undefined,
+): string[] {
+  const kinds = Object.entries(manifest?.routineMail ?? {});
+  if (!manifest || !kinds.length) return [];
+  return [
+    "This extension declares routine email, sent without a person's approval to whoever the " +
+      "record belongs to. Review its words:",
+    ...kinds.map(
+      ([name, kind]) =>
+        `  ${manifest.id}.${name} (${kind.label}): about ${kind.about}; messages ` +
+        `${Object.keys(kind.messages).join(", ")}${kind.on === false ? "; off until an admin turns it on" : ""}`,
+    ),
+  ];
 }
 
 /**

@@ -53,6 +53,7 @@
 import { defineExtension } from "@composable-os/sdk";
 import { bookingsAutomations } from "./automations.ts";
 import { bookingsDashboards } from "./dashboards.ts";
+import { bookingsRoutineMail } from "./routine-mail.ts";
 import {
   book,
   bookFor,
@@ -161,11 +162,12 @@ export default defineExtension({
     // waitlist.position: where a waiter stands in the queue (a member: their own only).
     // me.family: the member's own id, and the children staff linked to them (ADR 0540).
     // order.startHeld: a drop-in, the booking made with its order by the host (ADR 0560).
-    // The messages (automations.ts): person.link.list (a child's live guardians, who are written
-    // to), order.get (whether a drop-in was paid, and who paid), extensionSettings.list (the link
-    // in each email and the waiting list's cut-off), notification.send (staff told of a class
-    // whose list was not taken); email-send, the members' mail; storage, which class changes are
-    // still to be told (several edits within two minutes make one email).
+    // The messages (automations.ts): order.get (whether a drop-in was paid), extensionSettings.list
+    // (the waiting list's cut-off), notification.send (staff told of a class whose list was not
+    // taken); person.link.list, a child's live guardians on staff's screens. routine-mail, the
+    // members' email (routine-mail.ts, ADR 0590: the host decides who it goes to and what it
+    // says), sent from the email-send connection a person binds to each automation; storage,
+    // which class changes are still to be told (several edits within two minutes make one email).
     // agreement.listHealthNotes: the "health note" mark beside a name on a class list (stage 44,
     // decision 18), a yes or no per Person on the class's bookings (the host reads them) and
     // nothing of the form; the host gives it only when a person called the tool themselves.
@@ -183,7 +185,7 @@ export default defineExtension({
       "notification.send",
       "agreement.listHealthNotes",
     ],
-    modules: ["ops", "email-send", "storage"],
+    modules: ["ops", "routine-mail", "email-send", "storage"],
   },
   // Bookings' fields on Programs' class type: how it shows, and its booking rules when they
   // differ from the organisation's (Settings → Extensions → Bookings). Empty: the organisation's.
@@ -999,6 +1001,8 @@ export default defineExtension({
   },
   // The organisation's booking rules, which a class type's own values override. Changed by a
   // person with the extensions permission (Settings → Extensions → Bookings).
+  // The members' email (ADR 0590): routine mail the host sends without a person's approval.
+  routineMail: bookingsRoutineMail,
   settings: {
     opensDays: {
       type: "number",
@@ -1077,7 +1081,8 @@ export default defineExtension({
       label: "Where members see their bookings",
       description:
         "The page on your site where a signed-in member sees their bookings (https), linked from " +
-        "every booking email. Empty: the emails say to sign in.",
+        "every booking email, when it is on your site (Settings → Routine email). Empty: the emails " +
+        "say to sign in.",
       // The link every member email carries: a person's to change, as the booking rules are.
       personApproves: true,
     },

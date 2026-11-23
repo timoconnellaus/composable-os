@@ -9,6 +9,7 @@ import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
+import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
 import type { StatesSpec } from "./states.ts";
@@ -41,7 +42,15 @@ export const GATEKEEPER_MODULES = [
 export type GatekeeperModuleName = (typeof GATEKEEPER_MODULES)[number];
 
 /** Host modules an extension can ask for (ADR 0025). There is no HTTP module. */
-export const HOST_MODULES = ["ops", "storage", "log", "ai", ...GATEKEEPER_MODULES] as const;
+export const HOST_MODULES = [
+  "ops",
+  "storage",
+  "log",
+  "ai",
+  // Routine mail (ADR 0590): a shipped pack's declared emails, in its automations only.
+  "routine-mail",
+  ...GATEKEEPER_MODULES,
+] as const;
 export type HostModuleName = (typeof HOST_MODULES)[number];
 
 /** Risk classes an extension tool may declare (schema and extension risks are host-only). */
@@ -576,6 +585,11 @@ export interface ExtensionContext {
   ai: AiModule;
   /** A gatekeeper declared in permissions.modules, e.g. `ctx.gatekeeper("email-send")`. */
   gatekeeper(name: GatekeeperModuleName): GatekeeperModule;
+  /**
+   * Sends a routine email this extension declares (ADR 0590): in an automation of a shipped
+   * extension only. Declare the "routine-mail" module.
+   */
+  routineMail: RoutineMailModule;
   /** Who started this tool, from the host (ADR 0436). Absent in automations. */
   caller?: StartedBy;
 }
@@ -922,6 +936,12 @@ export interface ExtensionSpec {
    * this extension's roles holds cannot be grantable (a grant never lifts a role's limits).
    */
   grantable?: readonly string[];
+  /**
+   * Routine mail (ADR 0590): fixed emails about this extension's records that the host sends
+   * without a person's approval, each a kind an admin can turn off. Only shipped extensions may
+   * declare it, and only their automations send it (`ctx.routineMail.send`).
+   */
+  routineMail?: Record<string, RoutineMailSpec>;
   /**
    * What each grantable permission gives, in plain words, shown to the admin who ticks it
    * (`{ "bookings:desk": "Works the front desk: ..." }`). Absent: the tools it opens are listed.

@@ -34,6 +34,7 @@ import type { ExtensionManifest, ManifestIssue, ValidateOptions } from "./manife
 import { CORE_OBJECT_NAMES, toManifest, validateManifest } from "./manifest.ts";
 import { checkGrant } from "./permissions.ts";
 import { documentMaxBytesOf, documentSchemaOf } from "./rich-text.ts";
+import type { RoutineSendInput, RoutineSendResult } from "./routine-mail.ts";
 import { buildContext, type RawHostModules, runExtension } from "./runtime.ts";
 
 type Values = Record<string, unknown> & { id: string };
@@ -63,6 +64,18 @@ export interface TestHostOptions {
     string,
     (call: { connectionId: string; resource: string; method: string; args: unknown[] }) => unknown
   >;
+  /**
+   * What `ctx.routineMail.send` answers (ADR 0590). Every call is recorded in `routineSends`;
+   * with no fake each answers one email sent. The host decides who it goes to and what it says,
+   * so a pack's test checks which kind, record, message and values it asked for.
+   */
+  routineMail?: (send: RoutineSendInput) => RoutineSendResult | Promise<RoutineSendResult>;
+}
+
+/** A routine email an automation asked the host to send (`ctx.routineMail.send`). */
+export interface RoutineSend extends RoutineSendInput {
+  /** The step it was asked in. */
+  step: string | null;
 }
 
 /** A call a tool or automation made through `ctx.gatekeeper(name).call(...)`. */
@@ -159,6 +172,8 @@ export interface TestHost {
   notifications: SentNotification[];
   /** Every call through a gatekeeper module, in order. */
   gatekeeperCalls: GatekeeperCall[];
+  /** Every routine email asked for, in order (ADR 0590). */
+  routineSends: RoutineSend[];
   /**
    * Runs automation `name` in memory, start to finish: conditions checked on the trigger
    * record, waits skipped (and recorded), steps held to the declarations.
@@ -623,6 +638,27 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
       types: async () => "",
     };
   }
+  const routineSends: RoutineSend[] = [];
+  if (has("routine-mail")) {
+    raw["routine-mail"] = {
+      send: async (input) => {
+        const send = structuredClone(input) as RoutineSendInput;
+        routineSends.push({ ...send, step: currentStep });
+        try {
+          const value = options.routineMail
+            ? await options.routineMail(send)
+            : { sent: 1, held: 0, off: false, none: false };
+          return { ok: true, value };
+        } catch (error) {
+          const e = error as { code?: string; message?: string };
+          return {
+            ok: false,
+            error: { code: e.code ?? "internal", message: e.message ?? String(error) },
+          };
+        }
+      },
+    };
+  }
   if (has("ai")) {
     const ai: AiModule = {
       summarise: async (text) => String(text).slice(0, 100),
@@ -841,6 +877,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     records,
     notifications,
     gatekeeperCalls,
+    routineSends,
     runAutomation,
     publish,
     async runTool<T>(

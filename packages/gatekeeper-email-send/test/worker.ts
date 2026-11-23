@@ -43,11 +43,22 @@ export class FakeEmail extends WorkerEntrypoint {
 class FakeQueue extends RpcTarget {
   readonly #autoApply: ((id: number) => Promise<void>) | undefined;
   readonly #hostSignIn: boolean;
+  readonly #routine: { siteOrigin: string | null } | null;
 
-  constructor(autoApply?: (id: number) => Promise<void>, hostSignIn = false) {
+  constructor(
+    autoApply?: (id: number) => Promise<void>,
+    hostSignIn = false,
+    routine: { siteOrigin: string | null } | null = null,
+  ) {
     super();
     this.#autoApply = autoApply;
     this.#hostSignIn = hostSignIn;
+    this.#routine = routine;
+  }
+
+  /** As the CRM's integration host answers: only for its own routine mail, decided routine (ADR 0590). */
+  async hostRoutineMail(): Promise<{ siteOrigin: string | null } | null> {
+    return this.#routine;
   }
 
   /** As the CRM's integration host answers: true only for its own sign-in mail (ADR 0456). */
@@ -75,7 +86,11 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
   /** Resolves `url` through a fresh account, creates the facet and opens a session. */
   async open(
     url: string,
-    options: { autoApply?: boolean; hostSignIn?: boolean } = {},
+    options: {
+      autoApply?: boolean;
+      hostSignIn?: boolean;
+      hostRoutine?: { siteOrigin: string | null };
+    } = {},
   ): Promise<ResourceDescription> {
     const account = this.ctx.exports.EmailSendAccount({});
     const { class: gatekeeperClass } = await account.getGatekeeperClassFor(url);
@@ -87,6 +102,7 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
     const queue = new FakeQueue(
       options.autoApply ? (id) => facet.applyAction(id) : undefined,
       options.hostSignIn === true,
+      options.hostRoutine ?? null,
     );
     this.#session = (await facet.startSession(queue as never)) as unknown as EmailSendSession;
     return facet.describe();

@@ -55,6 +55,7 @@ decorators, because the CRM app's Vite dev server does not transform them. `list
 | `email.send` | Send email | `false` | Any send with a recipient outside `INTERNAL_DOMAINS` |
 | `email.internal` | Send email to colleagues | `true` | Every recipient's domain is in `INTERNAL_DOMAINS` |
 | `email.signin` | Send sign-in codes | `true` | The host's own sign-in code (ADR 0456): the session's queue says `isHostSignInMail()` and the message is exactly the code template (`src/sign-in.ts`) |
+| `email.routine` | Send members' routine email | `false` | A shipped pack's routine mail (ADR 0590): the session's queue answers `hostRoutineMail()` (only the host's `sendRoutineMail`, for a row it decided routine) and the message has routine shape: one recipient, plain text, no cc, bcc, reply-to or HTML, every link on the business's site (`src/routine.ts`). The host's gate, not an admin's switch, lets it apply |
 
 `email.signin` is decided from the session's approval queue, which only the CRM's integration host
 answers, for its own `callAsHost` with purpose `sign-in`: nothing in the message can claim it. A

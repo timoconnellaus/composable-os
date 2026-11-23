@@ -6,6 +6,7 @@
 // assistant may call it, but only inside a chat turn, and the words are the person's, passed by
 // code: a model, an agent or another assistant can never supply them. High-risk items need the
 // second step here on the server too, whichever operation asks.
+
 import type { ApprovalVia, CoreDatabase, CrmDb, PendingActionStatus } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
@@ -66,6 +67,7 @@ import {
 } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { PUBLISH_OPERATIONS } from "../records/publish.ts";
+import { approvalMarkStatements } from "../routine-mail/marks.ts";
 
 // --- Schemas -----------------------------------------------------------------------------------
 
@@ -1143,7 +1145,24 @@ async function approveActions(
         const status = outcome.ok ? "applied" : "failed";
         const statusReason = outcome.ok ? null : `Failed: ${outcome.message}`;
         if (!outcome.ok) failed.add(action.id);
+        // A held routine email a person approved (ADR 0590): exactly the values it showed, as
+        // they were when it was prepared, are a person's from now on.
+        const routine = outcome.ok
+          ? await ctx.db
+              .selectFrom("core_routine_mail")
+              .select("sources")
+              .where("pending_action_id", "=", action.id)
+              .executeTakeFirst()
+          : undefined;
+        let shown: { o: string; r: string; f: string; h: string }[] = [];
+        try {
+          shown = routine?.sources ? JSON.parse(routine.sources) : [];
+        } catch {}
+        const marks = shown.length
+          ? await approvalMarkStatements(ctx.db, shown, approver, ctx.now)
+          : [];
         await crm.batch([
+          ...marks,
           ctx.db
             .updateTable("core_pending_action")
             .set({

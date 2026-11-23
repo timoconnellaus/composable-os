@@ -16,6 +16,7 @@
 import { defineExtension } from "@composable-os/sdk";
 import { ticketingAutomations } from "./automations.ts";
 import { ticketingDashboards } from "./dashboards.ts";
+import { ticketingRoutineMail } from "./routine-mail.ts";
 import {
   checkIn,
   eventsOnSale,
@@ -39,7 +40,9 @@ export default defineExtension({
     // sales summary. person.get (read person): the holder's name a check-in reports.
     read: ["person"],
     // public.list and capacity.get: the events on sale and their places, for the public.
-    // extensionSettings.list: the pages the buyer's emails link to. email-send: the buyer's mail.
+    // extensionSettings.list: the pages the blocks link to. routine-mail: the buyer's and the
+    // holder's email (routine-mail.ts, ADR 0590), sent by the host from the email-send
+    // connection an admin binds to each automation.
     // order.settings.get: the currency the sales summary's amounts are in (staff).
     operations: [
       "order.start",
@@ -50,7 +53,7 @@ export default defineExtension({
       "extensionSettings.list",
       "order.settings.get",
     ],
-    modules: ["ops", "email-send"],
+    modules: ["ops", "routine-mail", "email-send"],
   },
   objects: {
     event: {
@@ -253,7 +256,14 @@ export default defineExtension({
         },
         event: { type: "relation", label: "Event", to: "ticketing.event", required: true },
         holder: { type: "relation", label: "Holder", to: "person" },
-        order: { type: "text", label: "Order" },
+        // Which order granted it, set by the host's grant (ADR 0590, the fourth review): never
+        // written by a caller, or a ticket could be moved to another buyer's order and mailed.
+        order: {
+          type: "text",
+          label: "Order",
+          readOnly: true,
+          description: "The order that granted this ticket, set by the host.",
+        },
         state: {
           type: "select",
           label: "State",
@@ -338,16 +348,21 @@ export default defineExtension({
       label: "Where buyers see their tickets",
       description:
         "The page on your site or app where a signed-in buyer sees their tickets. Linked from the " +
-        "tickets email, with ?order=<id>.",
+        "tickets email, with ?order=<id>, when it is on your site (Settings → Routine email).",
+      // The link in every buyer's email: a person's to change.
+      personApproves: true,
     },
     payUrl: {
       type: "text",
       label: "Where buyers pay a balance",
       description:
         "The page where a signed-in buyer pays what is owed on an order. Linked from the balance " +
-        "reminders, with ?order=<id>.",
+        "reminders, with ?order=<id>, when it is on your site (Settings → Routine email).",
+      personApproves: true,
     },
   },
+  // The buyer's and the holder's email (ADR 0590): routine mail the host sends on its own.
+  routineMail: ticketingRoutineMail,
   automations: ticketingAutomations,
   roles: {
     door: {

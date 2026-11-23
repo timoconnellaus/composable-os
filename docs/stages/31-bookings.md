@@ -1037,6 +1037,9 @@ it left open:
 - **Approval**: under Balanced each email waits for a person (an automation's outbound action),
   as Ticketing's do; nothing here loosens that. A reviewed kind for a pack's transactional mail
   (as ADR 0456 did for sign-in codes) is the platform's to add, with the owner.
+  *Resolved 2026-11-23 ([ADR 0590](../adr/0590-routine-mail.md), the owner's decision): the
+  members' emails are routine mail, declared by the pack and sent by the host without approval
+  under Balanced (each kind an admin can turn off, a held one waiting for a person as before).*
 - **The dashboard** (criterion 16): the spec's reports over the classes in the dates, a cancelled
   class counting for none. Uses spent by plan stay on the Memberships dashboard (Bookings does not
   require Memberships). Saved views: no-shows and late cancels this month; "Classes under half
@@ -1062,6 +1065,11 @@ it left open:
   reminder reads the primary address (issue #257). The site says staff approve what is sent:
   under Balanced every member email waits for a person until the owner decides how routine
   emails send.
+- **Routine mail** (2026-11-23, `feat/routine-mail`, [ADR 0590](../adr/0590-routine-mail.md)): the
+  owner decided; the open question above is resolved. Bookings declares its member emails
+  (`packs/bookings/routine-mail.ts`) and its automations ask the host for them; the host chooses
+  the recipients, fills the words, and sends them on their own under Balanced. The site now says
+  members are emailed when they book, when a class changes or is cancelled, and with a reminder.
 
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.

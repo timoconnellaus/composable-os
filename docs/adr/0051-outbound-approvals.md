@@ -8,3 +8,8 @@ Status: accepted, 2026-11-04 (stage 6 interview). Context: `docs/research/gateke
 - **Automations** declare the connections they need. The approver binds each to a connection they own or an org connection, with consent recorded and revocable. Revocation, or the owner leaving, pauses the automation and notifies an admin.
 
 > Amended 2026-11-05 (stage 6a build): implemented as recorded in ADRs 0110 (one integration host per connection), 0111 (outbound actions, observations, simulation per facet), 0112 (sync service), 0113 (webhooks and integration events) and 0114 (own gatekeepers, native pickers, `codemode:<gatekeeper>`). Automation run-as and notification delivery follow in stage 6b, after stage 5.
+
+> Amended 2026-11-23 (ADR 0590): routine mail, a shipped pack's declared email the host composes
+> and addresses itself, applies without review under Balanced and Autonomous through its own kind
+> (`email.routine`, not auto-approvable: no admin switch makes anything else routine). Cautious and
+> the deploy floor still hold it.

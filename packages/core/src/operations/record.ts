@@ -5,6 +5,7 @@
 //
 // Core objects keep their own operations (person.update, …); `record.update` on a core object
 // writes only extension fields (into side tables), and `record.get` returns them.
+
 import {
   type DocumentSchema,
   documentRefs,
@@ -68,6 +69,7 @@ import {
   seriesCreated,
   setRecurringWriter,
 } from "../recurring/index.ts";
+import { type ChangeMarks, CREATED, type MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
   assertHolderTrashable,
@@ -659,6 +661,10 @@ export async function createRecord(
     recurringConfirm?: number | undefined;
     /** Fields the visibility seam itself sets for a customer (`guardians.madeBy`, ADR 0540). */
     seamSet?: ReadonlySet<string>;
+    /** Fields the host copies from other records (ADR 0590): their marks are the sources'. */
+    copied?: Record<string, MarkSource[]>;
+    /** Fields the host generates itself, not anyone's words (a ticket's code): `default`. */
+    generated?: readonly string[];
   } = {},
 ): Promise<string> {
   const requester = options.by ?? (object.states?.requests ? callerMover(ctx) : undefined);
@@ -734,16 +740,129 @@ export async function createRecord(
         timeline: options.assignmentTimeline !== false,
       })
     : undefined;
+  const after = valuesOf(prepared);
   const warnings = warningsOf(ctx, object.name, id);
   ctx.recordChange({
     object: object.name,
     id,
     action: "create",
-    after: valuesOf(prepared),
+    after,
     assignment: assigned,
+    marks: await createMarks(
+      ctx,
+      object,
+      values,
+      withDefaults,
+      after,
+      by,
+      options.copied,
+      options.generated,
+    ),
     ...(warnings.length ? { warnings } : {}),
   });
   return id;
+}
+
+/**
+ * Who stands behind a new record's values (ADR 0590): what the caller gave is the caller's; a
+ * title taken from a related record (`titleDefault`) and a moved booking's values (`movedFrom`)
+ * carry their sources' marks; a declared default is a default; everything else the host filled
+ * (and everything a host write sets) is the host's.
+ */
+async function createMarks(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  given: Record<string, unknown>,
+  withDefaults: Record<string, unknown>,
+  after: Record<string, unknown>,
+  by: Mover,
+  copiedIn: Record<string, MarkSource[]> | undefined,
+  generated: readonly string[] = [],
+): Promise<ChangeMarks> {
+  const filled = (v: unknown) => v !== undefined && v !== null && v !== "";
+  const copied: Record<string, MarkSource[]> = { ...(copiedIn ?? {}) };
+  const titleField = object.titleField;
+  if (
+    titleField &&
+    object.titleDefault &&
+    !filled(given[titleField]) &&
+    filled(after[titleField])
+  ) {
+    for (const name of object.titleDefault.from) {
+      const to = object.fields.find((f) => f.name === name)?.options?.to;
+      const target = to ? getObject(to) : undefined;
+      const relatedId = withDefaults[name];
+      if (!to || !target || typeof relatedId !== "string" || !relatedId) continue;
+      const field = target.titleField ?? (to === "person" ? "displayName" : "name");
+      copied[titleField] = [
+        { object: to, id: relatedId, field, value: await titleOf(ctx, to, relatedId) },
+      ];
+      break;
+    }
+  }
+  // A move (ADR 0551): the new record's values that are the old one's carry the old one's marks.
+  const moved =
+    object.allowance?.kind === "spender" ? object.allowance.movedFrom?.field : undefined;
+  const oldId = moved ? after[moved] : undefined;
+  if (moved && typeof oldId === "string") {
+    const old = await loadRecord(ctx, object, oldId);
+    for (const [field, value] of Object.entries(after)) {
+      if (field === moved || !old || copied[field]) continue;
+      if (JSON.stringify(old.values[field] ?? null) === JSON.stringify(value ?? null)) {
+        copied[field] = [{ object: object.name, id: oldId, field, value }];
+      }
+    }
+    copied[CREATED] = [{ object: object.name, id: oldId, field: CREATED, value: "" }];
+  }
+  // A default taken from an extension setting is the setting's writer's: a default only when the
+  // setting is one a person approves (ADR 0552), else the host's (an AI may write settings).
+  const fromSetting = new Set(await settingDefaults(ctx, object, given, withDefaults));
+  const defaulted = Object.keys(after).filter(
+    (f) =>
+      generated.includes(f) ||
+      (!filled(given[f]) &&
+        filled(withDefaults[f]) &&
+        !copied[f] &&
+        !fromSetting.has(f) &&
+        by !== "host"),
+  );
+  const hostFilled = Object.keys(after).filter(
+    (f) => (by === "host" || !Object.hasOwn(given, f)) && !copied[f] && !defaulted.includes(f),
+  );
+  return { copied, hostFilled, defaulted };
+}
+
+/**
+ * The fields of a new record filled from an extension setting (`defaultSetting`) that is not one a
+ * person approves: who stands behind them is whoever last wrote the setting (ADR 0590).
+ */
+async function settingDefaults(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  given: Record<string, unknown>,
+  withDefaults: Record<string, unknown>,
+): Promise<string[]> {
+  const fields = object.fields.filter(
+    (f) =>
+      f.options?.defaultSetting &&
+      (given[f.name] === undefined || given[f.name] === null || given[f.name] === "") &&
+      withDefaults[f.name] !== undefined &&
+      withDefaults[f.name] !== null &&
+      JSON.stringify(withDefaults[f.name]) !== JSON.stringify(f.options?.default ?? null),
+  );
+  if (!fields.length || !object.extension) return [];
+  const row = await ctx.db
+    .selectFrom("core_extensions")
+    .select("manifest")
+    .where("id", "=", object.extension)
+    .executeTakeFirst();
+  let settings: Record<string, { personApproves?: boolean }> = {};
+  try {
+    settings = (JSON.parse(row?.manifest ?? "{}") as { settings?: typeof settings }).settings ?? {};
+  } catch {}
+  return fields
+    .filter((f) => settings[f.options?.defaultSetting ?? ""]?.personApproves !== true)
+    .map((f) => f.name);
 }
 
 /**
@@ -940,6 +1059,8 @@ export async function updateRecord(
     movedInto?: string | undefined;
     /** Platform code only: a value names a record made in this same batch (ADR 0560). */
     checkReferences?: boolean;
+    /** Fields the host copies from other records (ADR 0590): their marks are the sources'. */
+    copied?: Record<string, MarkSource[]>;
   } = {},
 ): Promise<boolean> {
   const before = await loadRecord(ctx, object, id);
@@ -1063,6 +1184,14 @@ export async function updateRecord(
     before: snapshot(before),
     after,
     ...(timeline ? { timeline } : {}),
+    // ADR 0590: what the caller wrote is theirs; what the host wrote (a host write, or values it
+    // added) is the host's, or its sources' when it copied them.
+    marks: {
+      copied: options.copied ?? {},
+      hostFilled: Object.keys(after).filter(
+        (f) => (by === "host" || !Object.hasOwn(values, f)) && !options.copied?.[f],
+      ),
+    },
     ...(warnings.length ? { warnings } : {}),
   });
   return true;

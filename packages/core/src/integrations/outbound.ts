@@ -74,7 +74,18 @@ export interface OutboundSubmission {
    * unless the floor denies it. Set only by the integration host for its own calls.
    */
   hostMessage?: boolean | undefined;
+  /**
+   * Routine mail (ADR 0590): the host's own send of a row of `core_routine_mail`, set only by the
+   * integration host for its `callAsHost` with purpose `routine-mail`. `routine` is the host's
+   * decision that it may go without a person; it applies only when the gatekeeper also gave the
+   * send its routine kind (one recipient, plain text, links only to the business's site).
+   * Anything else from that queue, a held one included, always waits for a person.
+   */
+  routineMail?: { routine: boolean; ordinary?: boolean } | undefined;
 }
+
+/** Gatekeeper kinds of routine mail (ADR 0590): email-send's, and the fake outbox's. */
+export const ROUTINE_MAIL_KINDS: ReadonlySet<string> = new Set(["email.routine", "fake.routine"]);
 
 /**
  * Kinds that are always reviewed, whoever submits them and whatever the policy, the floor, an
@@ -225,6 +236,11 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
   const now = s.now ?? new Date().toISOString();
   const input = outboundInput(s);
   const policy = await loadApprovalPolicy(db.query);
+  // Routine mail (ADR 0590): the host decided it, and the gatekeeper confirmed its shape.
+  const routine =
+    s.routineMail?.routine === true &&
+    input.actionKind !== null &&
+    ROUTINE_MAIL_KINDS.has(input.actionKind.tag);
   const kind = input.actionKind
     ? await db.query
         .selectFrom("core_outbound_kind")
@@ -239,6 +255,7 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
       outbound: {
         autoApprovable: input.autoApprovable,
         enabled: kind?.auto_approve === 1 && kind.auto_approvable === 1,
+        routine,
       },
     },
     policy,
@@ -254,12 +271,19 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
   if (decision === "auto" && provisional.length) decision = "review";
   // An agent's email or post always waits for the person, whatever the policy (ADR 0344).
   if (decision === "auto" && s.origin.jobId) decision = "review";
+  // Routine mail the host held (over the daily cap, a value not routine, an AI's change no person
+  // approved), or that the gatekeeper did not confirm: a person decides, whatever the preset.
+  // A pack whose routine email is not turned on yet (D1) sends as before: the policy decides.
+  if (decision === "auto" && s.routineMail && !routine && !s.routineMail.ordinary) {
+    decision = "review";
+  }
 
   // outbound.message (ADR 0238): a message an AI actor wrote is read before it leaves. A finding,
   // or no answer, turns an automatic send into a review; Jev never lets one through.
   let check: OutboundCheck | null = null;
   let judgeUsage: JudgeCallUsage | undefined;
-  if (decision !== "deny" && s.judge && textFromAi(s.actor, s.origin)) {
+  // Routine mail's words are the shipped pack's declaration, not an AI's: not read here.
+  if (decision !== "deny" && s.judge && !routine && textFromAi(s.actor, s.origin)) {
     const checked = await checkOutbound({
       judge: s.judge,
       db: db.query,

@@ -106,3 +106,19 @@ out by hand).
   counts (classes in the dates) open nothing, since a booking list cannot filter on its class's
   start.
 - A guardian in the Trash is not written to (person.get does not answer for them).
+
+## Amended 2026-11-23: routine mail (ADR 0590)
+- **Members' email is routine mail**: the pack declares its emails (`packs/bookings/routine-mail.ts`:
+  confirmations, waiting list news, class changes, class cancellations, reminders, drop-in payments
+  and refunds), and the automations ask the host for one (`ctx.routineMail.send`) naming a kind, a
+  message and a booking. The host decides who it goes to (the same addressees as above, now its
+  rule, not the pack's), fills the words from the booking and its class, and sends it without a
+  person's approval under Balanced, unless an admin turned the kind off, or it holds the email for
+  a person (a value that is not routine, more than 20 to one address in a day, a change an AI made
+  that nobody approved, the Cautious preset or a floor of review). The consequence "under Balanced
+  every email waits for a person" no longer holds.
+- **Wording**: a guardian's email always reads "Sam is booked into …" (the slot cannot vary with
+  `madeBy`), and the last line is "You can see your bookings when you sign in[: link]", the link
+  only when `bookingsUrl` is on the gym's own site (Settings → Routine email).
+- **Exactly once**: the host keys each email by the run its chain began with, the kind, the
+  message, the booking and the recipient, so the pack no longer passes `<runId>:<n>` keys.

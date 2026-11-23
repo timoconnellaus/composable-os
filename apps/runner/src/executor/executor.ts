@@ -21,6 +21,7 @@ import {
   type RunToolInput,
   type RunToolResult,
   type SourceIssue,
+  toolRunStanding,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import {
@@ -290,6 +291,7 @@ export class Executor {
       .innerJoin("core_user as u", "u.id", "e.user_id")
       .select([
         "e.status",
+        "e.source",
         "e.manifest",
         "e.failure_count",
         "e.last_good_commit",
@@ -363,6 +365,16 @@ export class Executor {
                 { startedBy: input.caller.approvedBy, startedByApproval: true }
               : {}),
       },
+      // Who stands behind what the tool writes (ADR 0590, the third review), from the pipeline's
+      // verified caller. The tool's code chooses what it writes, so its writes are the host's,
+      // except a value equal to one the person who ran it (or approved an AI's call of it, never
+      // the adjudicator) gave it, which is theirs (`given`). An AI's call is an AI's; a model used
+      // in the run makes the rest of it an AI's (host.ts). A customer's call is theirs anyway.
+      // Only a shipped pack's own tool writes as the host (the fourth review): a runtime
+      // extension's code was authored in the app, perhaps by an AI, so it writes as an AI, the
+      // person's own given values still theirs. A tool called by another run writes no better
+      // than that run (its standing and given values carried in `caller`).
+      ...toolRunStanding(input.caller, row.source, input.input),
       ...(input.cascade ? { cascade: input.cascade } : {}),
       ...(input.readOnly || input.dryRun
         ? { readOnly: { dryRun: Boolean(input.dryRun), tool: input.tool } }
@@ -491,6 +503,7 @@ export class Executor {
       ? {
           // The principal installExtension creates (it may not exist yet; nothing is written).
           status: "active" as const,
+          source: "runtime" as const,
           manifest: JSON.stringify(draft.manifest),
           failure_count: 0,
           user_id: extensionPrincipalId(input.extensionId),
@@ -502,6 +515,7 @@ export class Executor {
           .innerJoin("core_user as u", "u.id", "e.user_id")
           .select([
             "e.status",
+            "e.source",
             "e.manifest",
             "e.failure_count",
             "u.id as user_id",
@@ -548,6 +562,15 @@ export class Executor {
       runId: input.automation.runId,
       extensionId: input.extensionId,
       automation: input.automation,
+      // Who stands behind what an automation writes (ADR 0590, the third review): the host only
+      // for an automation shipped in an installed pack's own code; one authored in the app (by an
+      // AI, or in a runtime extension) writes as an AI, so mail it causes is held for a person.
+      standing:
+        !draft &&
+        row.source === "shipped" &&
+        Object.hasOwn(manifest.automations ?? {}, input.request.automation)
+          ? "host"
+          : "ai",
       modules: new Set(modules),
       user: { id: row.user_id, email: row.email, name: row.name, role: "member" },
       permissions: manifest.permissions,
