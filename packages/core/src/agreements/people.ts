@@ -20,12 +20,17 @@
 //   - a copy waiting for a person's approval: that approval is turned down and redacted here; the
 //     copy row is cancelled and, if it ever reached the email gatekeeper, owes a scrub of the
 //     gatekeeper's storage (migration 0855's trigger; `copy.ts` asks the gatekeeper).
+//   - a child's paper form sent to them as its guardian (ADR 0648): the copy row is the child's
+//     acceptance's, but its address is theirs: cleared, with who it went to, the copy cancelled if
+//     not yet gone and its scrub owed (migration 0857). Erasing the child clears it the other way,
+//     with the child's acceptance, and never takes the guardian's address into the child's erase.
 // The database allows exactly these updates and deletes (migrations 0851 and 0855); nothing else
 // in an acceptance changes.
 //
 // Merge: acceptances, and acceptances made as a guardian, follow the merged Person to the
 // survivor (the trigger allows a move only to the Person's `merged_into_id`, which the merge set
-// earlier in its batch); the minor mark is kept if either Person had it. Nothing in an
+// earlier in its batch), as does whom a child's paper copy went to; the minor mark is kept if
+// either Person had it. Nothing in an
 // acceptance changes; a buyer's acceptances not yet settled are nobody's and are not touched.
 import { sql } from "kysely";
 import type { HandlerContext } from "../operation.ts";
@@ -47,8 +52,11 @@ const ADDRESS_BATCH = 50;
  * paper form's copy): that address is the other person's, and erasing the child must not touch
  * them (the review of PR #288). A buyer's acceptance settled to them is left out too: its address
  * is theirs only if it is already one of their addresses, which erase has from their record.
- * Copies go to the acceptance's own address, so they add nothing. Read in bounded batches until
- * none is left (the second review of PR #288: nobody is un-erasable).
+ * Copies go to the acceptance's own address, so they add nothing, except a child's paper form
+ * sent to the parent or guardian staff picked (ADR 0648): that copy row belongs to the child's
+ * acceptance but its address is the guardian's (`guardian_id`), so it is the guardian's to erase
+ * and never the child's. Read in bounded batches until none is left (the second review of PR
+ * #288: nobody is un-erasable).
  */
 export async function agreementAddresses(
   ctx: HandlerContext,
@@ -59,11 +67,15 @@ export async function agreementAddresses(
   const out: string[] = [];
   for (let after = ""; ; ) {
     const { rows } = await sql<{ address: string }>`
-      SELECT DISTINCT lower(trim(a.email)) AS address FROM core_agreement_acceptance a
-      WHERE a.email IS NOT NULL AND (
-        (a.by = 'self' AND a.person_id IN ${people})
-        OR (a.by = 'guardian' AND a.agent_person_id IN ${people}))
-        AND lower(trim(a.email)) > ${after}
+      SELECT address FROM (
+        SELECT lower(trim(a.email)) AS address FROM core_agreement_acceptance a
+        WHERE a.email IS NOT NULL AND (
+          (a.by = 'self' AND a.person_id IN ${people})
+          OR (a.by = 'guardian' AND a.agent_person_id IN ${people}))
+        UNION
+        SELECT lower(trim(c.to_address)) AS address FROM core_agreement_copy c
+        WHERE c.to_address IS NOT NULL AND c.guardian_id IN ${people})
+      WHERE address > ${after}
       ORDER BY address
       LIMIT ${ADDRESS_BATCH}`.execute(ctx.db);
     out.push(...rows.map((r) => r.address).filter(Boolean));
@@ -206,9 +218,11 @@ export async function queueEraseAgreements(
     ),
     // A copy waiting for a person: its approval, turned down below (the copy row's id is
     // cleared by the erase trigger, so it is read now).
+    // A child's paper form sent to them as its guardian counts too (ADR 0648).
     sql<{ id: string }>`SELECT c.pending_action_id AS id FROM core_agreement_copy c
       JOIN core_agreement_acceptance a ON a.id = c.acceptance_id
-      WHERE (a.person_id IN ${people} OR a.agent_person_id IN ${people})
+      WHERE (a.person_id IN ${people} OR a.agent_person_id IN ${people}
+          OR c.guardian_id IN ${people})
         AND c.pending_action_id IS NOT NULL`.execute(ctx.db),
   ]);
   const guests = await buyerAcceptances(ctx, personIds, addresses);
@@ -284,6 +298,20 @@ export async function queueEraseAgreements(
       ctx.db,
     ),
     sql`DELETE FROM core_agreement_minor WHERE person_id IN ${people}`.compile(ctx.db),
+    // A child's paper form sent to them as its guardian (ADR 0648): the acceptance is the
+    // child's and stays as it is, but the address on its copy is theirs. It is cleared with who
+    // it went to, a copy not yet gone is never sent, and one that reached the email gatekeeper
+    // owes a scrub there, as any copy of theirs (migration 0857 allows exactly this, once their
+    // Person is gone). A copy already cleared by the child's own erase only loses the id.
+    sql`UPDATE core_agreement_copy SET
+        scrub_due_at = CASE WHEN attempts > 0 AND to_address IS NOT NULL THEN ${ctx.now}
+          ELSE scrub_due_at END,
+        scrub_owed_since = CASE WHEN attempts > 0 AND to_address IS NOT NULL
+          THEN coalesce(scrub_owed_since, ${ctx.now}) ELSE scrub_owed_since END,
+        to_address = NULL, next_at = NULL, error = NULL, pending_action_id = NULL,
+        state = CASE WHEN state IN ('sent', 'failed') THEN state ELSE 'cancelled' END,
+        guardian_id = NULL, guardian_erased_at = ${ctx.now}
+      WHERE guardian_id IN ${people}`.compile(ctx.db),
   );
   if (unsettled.length) {
     // A paid order nobody settled, whose address erase just cleared: kept detached.
@@ -322,6 +350,11 @@ export function queueMergeAgreements(
       .updateTable("core_agreement_acceptance")
       .set({ agent_person_id: survivorId })
       .where("agent_person_id", "=", mergedId),
+    // A child's paper form sent to them as its guardian (ADR 0648): who it went to follows them.
+    ctx.db
+      .updateTable("core_agreement_copy")
+      .set({ guardian_id: survivorId })
+      .where("guardian_id", "=", mergedId),
     sql`INSERT OR IGNORE INTO core_agreement_minor (person_id, set_by, set_at) SELECT ${survivorId}, set_by, set_at FROM core_agreement_minor WHERE person_id = ${mergedId}`.compile(
       ctx.db,
     ),

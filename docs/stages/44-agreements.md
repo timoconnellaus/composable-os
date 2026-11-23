@@ -1455,8 +1455,8 @@ Deviations from the text above, and why:
 ### Step 3: after the review of PR #280 (2026-11-23)
 
 Fixed in the same PR (ADR 0644 amended): a minor who would pay where the payer must agree is
-refused (`minor_payer`; a parent or guardian buys it). **Coordinator decisions, owner to
-confirm:** a guest's acceptance counts only for its own purchase, never at a later point; a
+refused (`minor_payer`; a parent or guardian buys it). **The owner's decisions of 2026-11-24**
+(first made by the coordinator, the owner since confirmed them): a guest's acceptance counts only for its own purchase, never at a later point; a
 guest's purchase with a minor's address stands, the child stays due for a guardian, and staff
 with `agreements:manage` are told. `order.setPerson` takes only a Person with the order's
 address, and a minor only once nothing is due. Left as a follow-up (an issue): staff-given
@@ -1491,7 +1491,7 @@ Every path, and its copy:
 | A customer for themselves (`me.agreements.accept`) | At once after the commit, to their sign-in address |
 | A guardian for a child | At once, to the guardian's sign-in address; the PDF names the guardian and shows their name typed and strokes only to them |
 | A guest with their purchase | When it settles to the purchase's Person (the verified payment, `order.setPerson`, a confirmed subscription), by the minute cron, to the address it was bought with; none if the order closes unpaid |
-| Paper | Only when a person with `agreements:paper` presses "Email a copy": shown the address first (`agreement.copy.preview`), and confirming it (`confirmTo`, refused if it is not the host's address now), to the Person's sign-in address or primary email; refused when there is none, and for a child's form (staff give the guardian the PDF) |
+| Paper | Only when a person with `agreements:paper` presses "Email a copy": shown the address first (`agreement.copy.preview`), and confirming it (`confirmTo`, refused if it is not the host's address now), to the Person's sign-in address or primary email; refused when there is none. For a child's form (changed 2026-11-24, ADR 0648): never to the child, but to the linked parent or guardian staff pick from those the preview lists, at the host's address for them; refused, and staff give the guardian the PDF, only when no linked guardian has an address |
 | The desk (step 6) | Made by the same trigger (`self` or `guardian` with an address); step 6 adds the previous address and its words |
 
 Deviations and decisions, and why:
@@ -1523,9 +1523,11 @@ Deviations and decisions, and why:
   (staff, behind Access) and `/api/v1/agreements/…` (a customer on the host's hostname or over the
   client-app binding; staff by session too).
 - **A paper form's copy goes to the Person it is for, an adult**, and is refused when they have
-  none. For a child (a marked minor or a live dependant) it is refused for now (coordinator's
-  decision after the review of PR #283, the owner being asked): staff give the guardian the PDF
-  download. `paperCopyRecipient` is the one place that decides it.
+  none. For a child (a marked minor or a live dependant) it was refused at first (coordinator's
+  decision after the review of PR #283, the owner being asked): staff gave the guardian the PDF
+  download. `paperCopyRecipient` is the one place that decides it. **Changed 2026-11-24 (the
+  owner's decision, ADR 0648, `feat/stage-44-paper-copy-guardian`):** see "After the owner's
+  decision on a child's paper copy" below.
 - **The copy is not routine mail** (ADR 0590): that is a pack automation's mail held per run, not a
   general host template path, so the copy uses `callAsHost` as the spec first said.
 - **A deployment with no email channel** keeps copies queued until one is set, reads none of them
@@ -1559,6 +1561,37 @@ error category and its pending approval's id, and cancels any copy not yet sent.
 binding's types allow) and in mail clients; the copy through the real email-send gatekeeper and
 the real integration host together (each is tested with the other's double: the runner with the
 fake outbox, the gatekeeper with a fake queue).
+
+### Step 4: after the owner's decision on a child's paper copy (`feat/stage-44-paper-copy-guardian`, 2026-11-24)
+
+The owner decided that a child's paper form copy goes to the linked parent or guardian staff pick
+(ADR 0648, amending ADR 0645; migration 0857). Built:
+
+- `agreement.copy.preview` returns, for a child's paper form, `guardians`: each live guardian of
+  the child (as the seam reads a live link) with an address the host may send to (their linked,
+  active sign-in address, else their primary address), with their Person id, name and that
+  address, and only those the member of staff may see. `refused: "minor"` now means no such
+  guardian.
+- `agreement.copy.send` takes `guardianId` and `confirmTo` (the host's current address for that
+  guardian, else `agreement_copy_address_changed`). Refused: no choice when one is needed
+  (`agreement_copy_guardian_required`), anyone not a live guardian of the child at the send, or a
+  guardian given for an adult's form (`agreement_copy_not_guardian`), a guardian with no address
+  (`agreement_copy_no_address`), and no guardian with an address (`agreement_copy_minor`).
+- Migration 0857: the copy row's `guardian_id` and `guardian_erased_at`; the insert trigger allows,
+  for a paper acceptance only, a live guardian's own address and nothing wider; the update
+  trigger lets the guardian change only to a merge's survivor, or to nothing once their Person is
+  gone, recorded with the address cleared, and lets a scrub be owed then.
+- The copy is drawn as the guardian's own download of a child's paper form (no name on the form,
+  no signer, no note) and says it is for someone linked to them as their parent or guardian.
+- Erase: the guardian's address on the child's copy is theirs (`agreementAddresses`, the approval
+  turned down, the address and id cleared, the scrub owed); erasing the child clears it with the
+  acceptance and never takes the guardian's address. Merge moves `guardian_id` to the survivor.
+- The staff screen: the Person page's Agreements tab gets "Email a copy" on a paper acceptance (the
+  button step 4 left for later), which shows the adult's address, or lists the child's guardians
+  with their addresses to pick from, then confirms.
+
+Not built: an e2e journey for "Email a copy" (the operations' tests cover it in workerd; the
+screen is a dialog over them).
 
 ## Step 5: build notes (`feat/stage-44-blocks`, 2026-11-24)
 

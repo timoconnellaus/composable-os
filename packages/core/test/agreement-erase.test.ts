@@ -2008,3 +2008,230 @@ describe("a checkout or subscription shared by payer and holder (round 2, the co
     expect({ ...sub, holder_person_id: subBefore?.holder_person_id }).toEqual(subBefore);
   });
 });
+
+describe("a child's paper form sent to the guardian staff picked (ADR 0648)", () => {
+  /** A paper form for the child, its copy sent to `guardian` as staff pick them. */
+  async function paperToGuardian(
+    childId: string,
+    guardian: { id: string; email: string },
+    versionId = guardianDoc.versionId,
+  ) {
+    const paper = await run<{ id: string }>(
+      "agreement.recordPaper",
+      {
+        personId: childId,
+        versionId,
+        signedOn: new Date().toISOString().slice(0, 10),
+        typedName: "Fixture Paper Name",
+      },
+      staff(),
+    );
+    await run(
+      "agreement.copy.send",
+      { acceptanceId: paper.id, guardianId: guardian.id, confirmTo: guardian.email },
+      staff(),
+    );
+    return paper.id;
+  }
+
+  it("erasing the child: the copy loses the guardian's address with the child's acceptance, and the guardian's address is never the child's to erase", async () => {
+    const { parent, child } = await family("gpc");
+    const parentId = parent.principal.personId;
+    const childId = child.principal.personId;
+    const paper = await paperToGuardian(childId, { id: parentId, email: parent.email });
+    expect(await row("core_agreement_copy", "acceptance_id", paper)).toMatchObject({
+      state: "sent",
+      to_address: parent.email,
+      guardian_id: parentId,
+    });
+    // The row is the child's acceptance's, but the address on it is the guardian's.
+    expect(await agreementAddresses({ db: db.query } as never, [childId])).toEqual([]);
+    expect(await agreementAddresses({ db: db.query } as never, [parentId])).toContain(
+      parent.email.toLowerCase(),
+    );
+    await erase(childId);
+    expect(await row("core_agreement_copy", "acceptance_id", paper)).toMatchObject({
+      state: "sent",
+      to_address: null,
+      guardian_id: parentId,
+      scrub_due_at: null,
+      scrubbed_at: expect.any(String),
+    });
+    expect(mail.history.get(`agreement-copy:${paper}`)).toEqual({ to: [], subject: "[erased]" });
+    // Nothing of the guardian's went with the child.
+    expect(
+      await row("core_erased_address", "hash", await erasedAddressHash(parent.email)),
+    ).toBeNull();
+    expect(await row("core_customer", "person_id", parentId)).not.toBeNull();
+    expect(await row("core_person_emails", "email", parent.email)).toMatchObject({
+      person_id: parentId,
+    });
+    // Whom it went to goes only with that guardian's own erase.
+    await expect(
+      env.DB.prepare(
+        "UPDATE core_agreement_copy SET guardian_id = NULL, guardian_erased_at = ? WHERE acceptance_id = ?",
+      )
+        .bind(new Date().toISOString(), paper)
+        .run(),
+    ).rejects.toThrow(/core_agreement_copy_fixed/);
+    await erase(parentId);
+    expect(await row("core_agreement_copy", "acceptance_id", paper)).toMatchObject({
+      guardian_id: null,
+      guardian_erased_at: expect.any(String),
+      to_address: null,
+      scrub_due_at: null,
+    });
+  });
+
+  it("erasing the guardian: their address leaves the child's copy, which is cancelled or scrubbed; the child's acceptance stays", async () => {
+    const { parent, child } = await family("gpg");
+    const parentId = parent.principal.personId;
+    const childId = child.principal.personId;
+    // One copy already sent, and one held for a person's approval.
+    const sent = await paperToGuardian(childId, { id: parentId, email: parent.email });
+    mail.modes.push("pending");
+    const held = await paperToGuardian(
+      childId,
+      { id: parentId, email: parent.email },
+      drawn.versionId,
+    );
+    const waiting = await row("core_agreement_copy", "acceptance_id", held);
+    expect(waiting).toMatchObject({ state: "waiting", guardian_id: parentId });
+    const actionId = waiting?.pending_action_id as string;
+    // Never cleared while the guardian is there.
+    await expect(
+      env.DB.prepare(
+        "UPDATE core_agreement_copy SET to_address = NULL, guardian_id = NULL, guardian_erased_at = ?, state = 'cancelled', next_at = NULL WHERE acceptance_id = ?",
+      )
+        .bind(new Date().toISOString(), held)
+        .run(),
+    ).rejects.toThrow(/core_agreement_copy_fixed/);
+
+    await erase(parentId);
+    for (const id of [sent, held]) {
+      expect(await row("core_agreement_copy", "acceptance_id", id), id).toMatchObject({
+        state: id === sent ? "sent" : "cancelled",
+        to_address: null,
+        guardian_id: null,
+        guardian_erased_at: expect.any(String),
+        pending_action_id: null,
+        scrub_due_at: null,
+        scrubbed_at: expect.any(String),
+      });
+      // The child's acceptance is the child's: untouched.
+      expect(await row("core_agreement_acceptance", "id", id)).toMatchObject({
+        person_id: childId,
+        erased_at: null,
+      });
+    }
+    // The waiting approval is turned down and redacted; the gatekeeper's send dropped.
+    const action = await row("core_pending_action", "id", actionId);
+    expect(action).toMatchObject({ status: "rejected", input: JSON.stringify("[erased]") });
+    expect(JSON.stringify(action)).not.toContain(parent.email);
+    expect(mail.waiting.has(`agreement-copy:${held}`)).toBe(false);
+    expect(mail.history.get(`agreement-copy:${sent}`)).toEqual({ to: [], subject: "[erased]" });
+    // The address was theirs: on the erased-address list.
+    expect(
+      await row("core_erased_address", "hash", await erasedAddressHash(parent.email)),
+    ).not.toBeNull();
+    // Nothing puts an address back.
+    await expect(
+      env.DB.prepare("UPDATE core_agreement_copy SET to_address = ? WHERE acceptance_id = ?")
+        .bind(parent.email, sent)
+        .run(),
+    ).rejects.toThrow(/core_agreement_copy_fixed/);
+  });
+
+  it("a merge moves whom the copy went to onto the survivor, and nothing else", async () => {
+    const { parent, child } = await family("gpm");
+    const parentId = parent.principal.personId;
+    const paper = await paperToGuardian(child.principal.personId, {
+      id: parentId,
+      email: parent.email,
+    });
+    const before = await row("core_agreement_copy", "acceptance_id", paper);
+    // Only to the merge's survivor.
+    await expect(
+      env.DB.prepare("UPDATE core_agreement_copy SET guardian_id = ? WHERE acceptance_id = ?")
+        .bind(child.principal.personId, paper)
+        .run(),
+    ).rejects.toThrow(/core_agreement_copy_fixed/);
+    const survivor = await createBuyer(admin, "gpms");
+    await env.DB.prepare("DELETE FROM core_customer WHERE person_id = ?")
+      .bind(survivor.principal.personId)
+      .run();
+    await run(
+      "person.merge",
+      { survivorId: survivor.principal.personId, mergedId: parentId },
+      staff(),
+    );
+    expect(await row("core_agreement_copy", "acceptance_id", paper)).toEqual({
+      ...before,
+      guardian_id: survivor.principal.personId,
+    });
+  });
+});
+
+describe("whom a child's paper copy went to, in the database (migration 0857)", () => {
+  it("goes only once that guardian is gone, recorded as their erase, and only with the address", async () => {
+    const at = new Date().toISOString();
+    const send = async (label: string) => {
+      const { parent, child } = await family(label);
+      const paper = await run<{ id: string }>(
+        "agreement.recordPaper",
+        {
+          personId: child.principal.personId,
+          versionId: guardianDoc.versionId,
+          signedOn: at.slice(0, 10),
+          typedName: "Fixture Paper Name",
+        },
+        staff(),
+      );
+      await run(
+        "agreement.copy.send",
+        { acceptanceId: paper.id, guardianId: parent.principal.personId, confirmTo: parent.email },
+        staff(),
+      );
+      return { parent, child, paper: paper.id };
+    };
+    // As if the guardian's row went by some other path than erase.
+    const gone = (personId: string) =>
+      env.DB.prepare("DELETE FROM core_person WHERE id = ?").bind(personId).run();
+    const update = (setSql: string, id: string, ...values: (string | null)[]) =>
+      env.DB.prepare(`UPDATE core_agreement_copy SET ${setSql} WHERE acceptance_id = ?`)
+        .bind(...values, id)
+        .run();
+
+    // The guardian gone while the address is still on the row: who it went to never goes
+    // without the address.
+    const one = await send("gdb1");
+    await gone(one.parent.principal.personId);
+    await expect(
+      update("guardian_id = NULL, guardian_erased_at = ?", one.paper, at),
+    ).rejects.toThrow(/core_agreement_copy_fixed/);
+    await update("guardian_id = NULL, guardian_erased_at = ?, to_address = NULL", one.paper, at);
+    expect(await row("core_agreement_copy", "acceptance_id", one.paper)).toMatchObject({
+      guardian_id: null,
+      guardian_erased_at: at,
+      to_address: null,
+    });
+    // Recorded once: never changed or cleared after.
+    await expect(update("guardian_erased_at = NULL", one.paper)).rejects.toThrow(
+      /core_agreement_copy_fixed/,
+    );
+
+    // The child erased first (the address already gone), then the guardian: who it went to goes
+    // only with its record of the erase.
+    const two = await send("gdb2");
+    await erase(two.child.principal.personId);
+    await gone(two.parent.principal.personId);
+    await expect(update("guardian_id = NULL", two.paper)).rejects.toThrow(
+      /core_agreement_copy_fixed/,
+    );
+    await update("guardian_id = NULL, guardian_erased_at = ?", two.paper, at);
+    expect(await row("core_agreement_copy", "acceptance_id", two.paper)).toMatchObject({
+      guardian_id: null,
+      guardian_erased_at: at,
+    });
+  });
+});

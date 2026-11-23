@@ -6466,7 +6466,7 @@
     },
     {
       "name": "agreement.copy.preview",
-      "description": "Before Email a copy of a paper form: the address the host would send it to (the Person's sign-in address, or their primary email), or why it would not be sent (a child's form, or no address), and whether a copy was already asked for. Show the address to the person, who confirms it with agreement.copy.send. A person on the staff with agreements:paper. Read-only.",
+      "description": "Before Email a copy of a paper form: the address the host would send it to (the Person's sign-in address, or their primary email), or, for a child's form, the parents and guardians linked to the child now that you may see and that have an address, each with the address it would go to, to choose one; or why it would not be sent (a child with no such guardian, or no address), and whether a copy was already asked for. Show the address to the person, who confirms it with agreement.copy.send. A person on the staff with agreements:paper. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -6494,10 +6494,36 @@
             "type": "string"
           },
           "to": {
+            "description": "An adult's form: the address it would go to",
             "type": [
               "string",
               "null"
             ]
+          },
+          "guardians": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string",
+                  "description": "The address the host holds for them, where it would go"
+                }
+              },
+              "required": [
+                "personId",
+                "name",
+                "to"
+              ],
+              "additionalProperties": false
+            },
+            "description": "A child's form: the linked parents and guardians to choose from"
           },
           "refused": {
             "anyOf": [
@@ -6536,6 +6562,7 @@
         "required": [
           "acceptanceId",
           "to",
+          "guardians",
           "refused",
           "state"
         ],
@@ -6545,7 +6572,7 @@
     },
     {
       "name": "agreement.copy.send",
-      "description": "Email a paper form's copy (Email a copy): the signed PDF goes, as the host's own mail, to the address the host holds for the Person it is for, which agreement.copy.preview showed. `confirmTo` is that address as the person saw it: if the host's address changed since (an edit, by anyone), it is refused and shown again. Once only: asking again answers how the first one went. Refused for a child's form and for a Person with no address. A person on the staff with agreements:paper only.",
+      "description": "Email a paper form's copy (Email a copy): the signed PDF goes, as the host's own mail, to the address the host holds for the Person it is for, which agreement.copy.preview showed; for a child's form, to the linked parent or guardian chosen (`guardianId`, one the preview listed), at the address the host holds for them. `confirmTo` is that address as the person saw it: if the host's address changed since (an edit, by anyone), it is refused and shown again. Once only: asking again answers how the first one went. Refused for a child's form with no linked guardian who has an address, for anyone who is not a live guardian of the child, and for a Person with no address. A person on the staff with agreements:paper only.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -6559,6 +6586,12 @@
             "minLength": 1,
             "maxLength": 64,
             "description": "The paper acceptance's id (aga_…)"
+          },
+          "guardianId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A child's form: the linked parent or guardian to send it to (per_…), as the preview listed"
           },
           "confirmTo": {
             "type": "string",

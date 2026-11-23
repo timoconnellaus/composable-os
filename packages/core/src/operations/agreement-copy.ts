@@ -6,7 +6,8 @@
 //   agreement.version.pdf      a person on the staff: a version's blank form, to sign on paper
 //   agreement.copy.preview     a person on the staff with agreements:paper: where it would go
 //   agreement.copy.send       a person on the staff with agreements:paper: email a paper form's
-//                              copy to the Person's own address
+//                              copy to the Person's own address, or for a child's to the parent
+//                              or guardian staff pick (ADR 0648)
 //
 // Each returns what the PDF says (`document`); the host's download route
 // (apps/app/src/server/http/agreement-pdf.ts) draws it with the email gatekeeper's PDF writer, so
@@ -18,6 +19,7 @@ import {
   acceptanceDocument,
   acceptanceFacts,
   blankDocument,
+  type PaperCopyGuardian,
   paperCopyRecipient,
   sendCopiesNow,
 } from "../agreements/copy.ts";
@@ -201,10 +203,46 @@ async function paperCopyTarget(ctx: HandlerContext, acceptanceId: string) {
   };
 }
 
+/** Whether this member of staff may see a Person, through the seam (never an error). */
+async function visible(ctx: HandlerContext, personId: string): Promise<boolean> {
+  try {
+    await ctx.records.get("person", personId);
+    return true;
+  } catch (error) {
+    if (error instanceof NotFoundError || error instanceof ForbiddenError) return false;
+    throw error;
+  }
+}
+
+/**
+ * A child's live guardians this member of staff may see, each with the address the host holds
+ * for them; none with an address are left out. Never another guardian's name or address than
+ * the seam shows them.
+ */
+async function guardianChoices(
+  ctx: HandlerContext,
+  guardians: readonly PaperCopyGuardian[],
+): Promise<{ personId: string; name: string; to: string }[]> {
+  const out: { personId: string; name: string; to: string }[] = [];
+  for (const g of guardians) {
+    if (g.to && (await visible(ctx, g.personId))) {
+      out.push({ personId: g.personId, name: g.name, to: g.to });
+    }
+  }
+  return out;
+}
+
 const REFUSED = {
   minor:
-    "This form is for a child: a copy is not emailed to them. Download the PDF and give it to their parent or guardian.",
+    "This form is for a child, and no parent or guardian linked to them has an email address to send the copy to. Download the PDF and give it to their parent or guardian.",
   no_address: "This Person has no email address to send the copy to.",
+  guardian_no_address:
+    "This parent or guardian has no email address to send the copy to: choose another, or download the PDF and give it to them.",
+  not_guardian:
+    "That Person is not a parent or guardian linked to this child now: look at who to send it to again.",
+  choose_guardian:
+    "This form is for a child: its copy goes to a parent or guardian linked to them. Choose which one.",
+  adult: "This form is for an adult: its copy goes to them, not to anyone else.",
 } as const;
 
 const copyState = z.enum(["queued", "sending", "sent", "waiting", "failed", "cancelled"]);
@@ -213,13 +251,24 @@ export const agreementCopyPreview = defineOperation({
   name: "agreement.copy.preview",
   description:
     "Before Email a copy of a paper form: the address the host would send it to (the Person's " +
-    "sign-in address, or their primary email), or why it would not be sent (a child's form, or " +
+    "sign-in address, or their primary email), or, for a child's form, the parents and guardians " +
+    "linked to the child now that you may see and that have an address, each with the address it " +
+    "would go to, to choose one; or why it would not be sent (a child with no such guardian, or " +
     "no address), and whether a copy was already asked for. Show the address to the person, who " +
     "confirms it with agreement.copy.send. A person on the staff with agreements:paper. Read-only.",
   input: z.object({ acceptanceId: id("The paper acceptance's id (aga_…)") }).strict(),
   output: z.object({
     acceptanceId: z.string(),
-    to: z.string().nullable(),
+    to: z.string().nullable().describe("An adult's form: the address it would go to"),
+    guardians: z
+      .array(
+        z.object({
+          personId: z.string(),
+          name: z.string(),
+          to: z.string().describe("The address the host holds for them, where it would go"),
+        }),
+      )
+      .describe("A child's form: the linked parents and guardians to choose from"),
     refused: z.enum(["minor", "no_address"]).nullable(),
     state: copyState.nullable().describe("A copy already asked for: how it went"),
   }),
@@ -230,10 +279,19 @@ export const agreementCopyPreview = defineOperation({
   async handler(input, ctx) {
     if (ctx.actor !== "human") throw new ForbiddenError("Only a person emails a paper form's copy");
     const { facts, existing, recipient } = await paperCopyTarget(ctx, input.acceptanceId);
+    const guardians =
+      "guardians" in recipient ? await guardianChoices(ctx, recipient.guardians) : [];
     return {
       acceptanceId: facts.id,
       to: "to" in recipient ? recipient.to : null,
-      refused: "refused" in recipient ? recipient.refused : null,
+      guardians,
+      // A child's form with no guardian this person may send it to is refused as a child's.
+      refused:
+        "refused" in recipient
+          ? recipient.refused
+          : "guardians" in recipient && !guardians.length
+            ? "minor"
+            : null,
       state: existing?.state ?? null,
     };
   },
@@ -243,14 +301,19 @@ export const agreementCopySend = defineOperation({
   name: "agreement.copy.send",
   description:
     "Email a paper form's copy (Email a copy): the signed PDF goes, as the host's own mail, to " +
-    "the address the host holds for the Person it is for, which agreement.copy.preview showed. " +
-    "`confirmTo` is that address as the person saw it: if the host's address changed since (an " +
-    "edit, by anyone), it is refused and shown again. Once only: asking again answers how the " +
-    "first one went. Refused for a child's form and for a Person with no address. A person on " +
-    "the staff with agreements:paper only.",
+    "the address the host holds for the Person it is for, which agreement.copy.preview showed; " +
+    "for a child's form, to the linked parent or guardian chosen (`guardianId`, one the preview " +
+    "listed), at the address the host holds for them. `confirmTo` is that address as the person " +
+    "saw it: if the host's address changed since (an edit, by anyone), it is refused and shown " +
+    "again. Once only: asking again answers how the first one went. Refused for a child's form " +
+    "with no linked guardian who has an address, for anyone who is not a live guardian of the " +
+    "child, and for a Person with no address. A person on the staff with agreements:paper only.",
   input: z
     .object({
       acceptanceId: id("The paper acceptance's id (aga_…)"),
+      guardianId: id(
+        "A child's form: the linked parent or guardian to send it to (per_…), as the preview listed",
+      ).optional(),
       confirmTo: z
         .string()
         .min(3)
@@ -267,29 +330,62 @@ export const agreementCopySend = defineOperation({
     if (ctx.actor !== "human") throw new ForbiddenError("Only a person emails a paper form's copy");
     const { facts, existing, recipient } = await paperCopyTarget(ctx, input.acceptanceId);
     if (existing) return { acceptanceId: facts.id, state: existing.state };
-    if ("refused" in recipient) {
-      throw new ValidationError(REFUSED[recipient.refused], {
-        rule: recipient.refused === "minor" ? "agreement_copy_minor" : "agreement_copy_no_address",
-      });
+    // The address is the host's record, never an input: the confirmation only proves the person
+    // saw the one the host holds now. For a child's form, the guardian chosen must be a live
+    // guardian of the child this person may see, with an address; migration 0857 checks the
+    // link and the address again in the batch.
+    let to: string;
+    let guardianId: string | null = null;
+    if ("to" in recipient) {
+      if (input.guardianId) {
+        throw new ValidationError(REFUSED.adult, { rule: "agreement_copy_not_guardian" });
+      }
+      to = recipient.to;
+    } else if ("guardians" in recipient) {
+      const guardians = recipient.guardians;
+      if (!input.guardianId) {
+        if (!(await guardianChoices(ctx, guardians)).length) {
+          throw new ValidationError(REFUSED.minor, { rule: "agreement_copy_minor" });
+        }
+        throw new ValidationError(REFUSED.choose_guardian, {
+          rule: "agreement_copy_guardian_required",
+        });
+      }
+      const chosen = guardians.find((g) => g.personId === input.guardianId);
+      // Not a live guardian of the child, or one this person may not see: the same answer, so
+      // the refusal says nothing of who is linked.
+      if (!chosen || !(await visible(ctx, chosen.personId))) {
+        throw new ValidationError(REFUSED.not_guardian, { rule: "agreement_copy_not_guardian" });
+      }
+      if (!chosen.to) {
+        throw new ValidationError(REFUSED.guardian_no_address, {
+          rule: "agreement_copy_no_address",
+        });
+      }
+      to = chosen.to;
+      guardianId = chosen.personId;
+    } else {
+      throw new ValidationError(REFUSED.no_address, { rule: "agreement_copy_no_address" });
     }
-    // The address is the host's record of the Person's, never an input: the confirmation only
-    // proves the person saw the one the host holds now.
-    if (recipient.to.toLowerCase() !== input.confirmTo.trim().toLowerCase()) {
+    if (to.toLowerCase() !== input.confirmTo.trim().toLowerCase()) {
       throw new ConflictError(
-        "This Person's address changed since it was shown: look at it again before sending.",
+        guardianId
+          ? "This parent or guardian's address changed since it was shown: look at it again before sending."
+          : "This Person's address changed since it was shown: look at it again before sending.",
         { rule: "agreement_copy_address_changed" },
       );
     }
     ctx.write(
       ctx.db.insertInto("core_agreement_copy").values({
         acceptance_id: facts.id,
-        to_address: recipient.to,
+        to_address: to,
         state: "queued",
         send_key: `agreement-copy:${facts.id}`,
         attempts: 0,
         queued_at: ctx.now,
         next_at: ctx.now,
         requested_by: ctx.user.id,
+        guardian_id: guardianId,
       }),
     );
     const integrations = ctx.integrations;

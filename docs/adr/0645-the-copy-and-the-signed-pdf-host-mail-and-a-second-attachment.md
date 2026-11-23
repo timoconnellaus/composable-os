@@ -187,3 +187,11 @@ the host asks email-send, through its own agreements queue only (`callAsHost`, m
 key and blank the recipients and subject of its history lines. Erase also turns down and redacts
 the host's pending approval of a waiting copy. A copy row that ever reached the gatekeeper owes the
 scrub until it is done (`scrub_due_at`, `scrubbed_at`, migration 0855).
+
+## Amended 2026-11-24: a child's paper form goes to the guardian staff pick ([ADR 0648](0648-a-childs-paper-form-copy-goes-to-the-guardian-staff-pick.md))
+"Paper for a child" above is replaced by the owner's decision of 2026-11-24: a child's paper form is
+still never emailed to the child, but "Email a copy" sends it to the live parent or guardian of the
+child that staff pick, at the address the host holds for them (their linked sign-in address, else
+their primary address). Staff are refused, and download the PDF, only when no linked guardian has
+an address. Migration 0857 records the guardian on the copy row and checks their address and live
+link in the database.
