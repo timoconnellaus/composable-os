@@ -10,11 +10,14 @@
 // - **Local time is the rule.** 06:00 is 06:00 on both sides of a clock change: the instant moves,
 //   the wall clock does not. A time in a change's gap moves forward by the gap; a time that
 //   happens twice is the first (time/local.ts). Each record stores its instant and its zone.
-// - **Exceptions.** A record changed by someone other than the host (its time, a copied field,
-//   its state) is marked edited and never written by the series again; one cancelled stays
-//   cancelled, and one deleted is not made again (its date's key is kept).
-// - **Changing a series** applies at once, in the write's batch, to its future records nobody
-//   edited: copied fields (places never below what is claimed), times, and dates no longer in
+// - **Exceptions** (ADR 0620, amending 0500). A copied field changed by someone other than the
+//   host (a coach swapped on one class) is that record's own (core_recurrence_exception, with who
+//   and when): the series never writes it again and still writes the rest. A record whose time,
+//   zone or state was changed by hand is detached whole and never written by the series again;
+//   one cancelled stays cancelled, and one deleted is not made again (its date's key is kept).
+//   `recurring.follow` makes a field, or a record detached whole, follow the series again.
+// - **Changing a series** applies at once, in the write's batch, to its future records not
+//   detached whole, field by field (never a field a record keeps as its own): copied fields (places never below what is claimed), times, and dates no longer in
 //   the rule (removed, or cancelled when places are claimed on them). Moving or cancelling records
 //   with claimed places needs `recurring.change` with the count confirmed. **Ending** it (its
 //   `ended` states) does the same for every future record, edited or not.
@@ -22,7 +25,7 @@
 //   the future records already made in them are cancelled (a host move into `cancel`).
 import { WEEKDAYS } from "@composable-os/sdk";
 import { addDaysToDate } from "../automations/cron.ts";
-import { ConflictError, ValidationError } from "../errors.ts";
+import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, RecurringDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -40,10 +43,20 @@ import {
 import { visibleSource } from "../visibility/index.ts";
 import {
   armSeriesStatement,
+  batchOf,
+  clearExceptionStatement,
+  clearExceptionsStatement,
+  guardAndBumpOccurrence,
+  guardAndBumpSeriesOccurrences,
+  guardSeries,
   guardStatement,
   markEditedStatement,
+  noteException,
+  noteSeriesBump,
   occurrenceStatement,
-  seriesVersion,
+  reattachStatement,
+  recordKey,
+  setExceptionStatement,
 } from "./bookkeeping.ts";
 
 /**
@@ -297,8 +310,7 @@ export async function generateSeries(
 ): Promise<GenerateResult> {
   const def = object.recurring;
   if (!def) throw new ValidationError(`${object.label} has no recurring schedule`);
-  const version = await seriesVersion(ctx.db, object.name, id);
-  ctx.write(guardStatement("series", object.name, id, version));
+  await guardSeries(ctx, object.name, id);
   const now = Date.parse(ctx.now);
   const { timezone } = await loadGeneralSettings(ctx.db);
   const series = await records().load(ctx, object, id);
@@ -310,6 +322,7 @@ export async function generateSeries(
   const rule = series && !isEnded(def, series) ? ruleOf(def, series, timezone) : null;
   if (!series || !rule) {
     ctx.write(armSeriesStatement(object.name, id, nextDaily, ctx.now));
+    noteSeriesBump(ctx, object.name, id);
     return { made: 0, more: false };
   }
   const last = addDaysToDate(today, await horizonOf(ctx, def));
@@ -350,6 +363,7 @@ export async function generateSeries(
   }
   const more = due.length > batch.length;
   ctx.write(armSeriesStatement(object.name, id, more ? ctx.now : nextDaily, ctx.now));
+  noteSeriesBump(ctx, object.name, id);
   if (!more) {
     ctx.write(
       ctx.db
@@ -376,41 +390,308 @@ function closuresOf(object: string): RecurringDefinition[] {
   );
 }
 
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/** The fields of a generated record its series sets as one: its time, its end and its zone. */
+function timeFieldsOf(def: RecurringDefinition): string[] {
+  return [def.into.starts, def.into.ends, def.into.zone].filter((f): f is string => Boolean(f));
+}
+
+/** The occurrence a series made a record for, or null (a one-off record). */
+async function occurrenceOf(ctx: HandlerContext, object: string, id: string) {
+  return (
+    (await ctx.db
+      .selectFrom("core_recurrence_occurrence")
+      .select(["series_object", "series_id", "local_date", "edited_at", "version"])
+      .where("object_type", "=", object)
+      .where("record_id", "=", id)
+      .executeTakeFirst()) ?? null
+  );
+}
+
+type OccurrenceRow = NonNullable<Awaited<ReturnType<typeof occurrenceOf>>>;
+
 /**
- * A write to a generated record by someone other than the host that changes what its series
- * sets (its times, zone, copied fields) or its state: the record is marked edited, and the series
- * never writes to it again. Returns the host values to add to the write (`into.changed`).
+ * Queues the guard that the record's occurrence is as read and the bump that fails a change of its
+ * series planned before this write (ADR 0620): of a series change and an edit to one of its
+ * records racing, exactly one commits. Edits of different records, and runs, do not contend.
  */
-export function generatedRecordEdited(
+async function guardRecord(ctx: HandlerContext, object: string, id: string, row: OccurrenceRow) {
+  await guardAndBumpOccurrence(ctx, {
+    object,
+    record: id,
+    seriesObject: row.series_object,
+    seriesId: row.series_id,
+    date: row.local_date,
+    version: Number(row.version),
+  });
+}
+
+/** Sets or clears a field exception, and notes it for the rest of the batch. */
+function writeException(
+  ctx: HandlerContext,
+  object: string,
+  id: string,
+  field: string,
+  set: boolean,
+): void {
+  ctx.write(
+    set
+      ? setExceptionStatement(object, id, field, ctx.user.id, ctx.now)
+      : clearExceptionStatement(object, id, field),
+  );
+  noteException(ctx, recordKey(object, id), field, set);
+}
+
+/** A series' values: as this batch wrote them, else as stored. */
+async function seriesValuesOf(
+  ctx: HandlerContext,
+  seriesObject: ObjectDefinition,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const queued = batchOf(ctx).seriesValues.get(recordKey(seriesObject.name, id));
+  if (queued) return queued;
+  return records().load(ctx, seriesObject, id);
+}
+
+/**
+ * A write to a generated record by someone other than the host (ADR 0500, amended by ADR 0620).
+ *
+ * - A change of a **copied field** (its coach, room, places) makes that field the record's own:
+ *   a row in core_recurrence_exception with who and when. The series never writes that field of
+ *   that record again, and still writes its others. Set by hand back to the value the series
+ *   gives it now, the field follows the series again (its exception is cleared).
+ * - A change of its **time, end, zone or state** detaches the whole record, as before: the
+ *   occurrence is marked edited, `into.changed` is set, and the series never writes to it again.
+ * - A record a series made and one its series has already detached whole: nothing more.
+ *
+ * Either way the write guards its occurrence's version and bumps it, so a series change planned
+ * before it fails and is made again from the new state. What it did is noted for the rest of the
+ * batch (a series change later in the same batch sees it). Returns the host values to add to the
+ * write (`into.changed`).
+ */
+export async function generatedRecordEdited(
   ctx: HandlerContext,
   object: ObjectDefinition,
   id: string,
   before: Record<string, unknown>,
   after: Record<string, unknown>,
   by: Mover,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   if (by === "host") return {};
   const defs = seriesObjectsOf(object.name).map((o) => o.recurring as RecurringDefinition);
   if (!defs.length) return {};
-  const watched = new Set<string>(object.states ? [object.states.field] : []);
-  for (const def of defs) {
-    for (const f of [def.into.starts, def.into.ends, def.into.zone, ...Object.keys(def.copy)]) {
-      if (f) watched.add(f);
-    }
+  const stateField = object.states?.field;
+  const differs = (f: string) => !same(before[f], after[f]);
+  const changedFlag = (def: RecurringDefinition | undefined) => {
+    const changed = def?.into.changed ?? defs.find((d) => d.into.changed)?.into.changed;
+    return changed && before[changed] !== true ? { [changed]: true } : {};
+  };
+  const occurrence = await occurrenceOf(ctx, object.name, id);
+  const seriesObject = occurrence ? getObject(occurrence.series_object) : null;
+  const def = seriesObject?.recurring;
+  if (!occurrence || !seriesObject || !def) {
+    // Not a record a series made (a one-off): as before, any change of what a series would set
+    // marks it changed. There is no series to guard.
+    const watched = new Set<string>(stateField ? [stateField] : []);
+    for (const d of defs)
+      for (const f of [...timeFieldsOf(d), ...Object.keys(d.copy)]) watched.add(f);
+    if (![...watched].some(differs)) return {};
+    ctx.write(markEditedStatement(object.name, id, ctx.now));
+    return changedFlag(undefined);
   }
-  const differs = [...watched].some(
-    (f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null),
-  );
-  if (!differs) return {};
-  ctx.write(markEditedStatement(object.name, id, ctx.now));
-  const changed = defs.find((def) => def.into.changed)?.into.changed;
-  return changed && before[changed] !== true ? { [changed]: true } : {};
+  const whole = [...timeFieldsOf(def), ...(stateField ? [stateField] : [])].some(differs);
+  const copied = Object.keys(def.copy).filter(differs);
+  if (!whole && !copied.length) return {};
+  // Detached whole already (by hand, or under the rule before ADR 0620): the series leaves it be.
+  const key = recordKey(object.name, id);
+  const batch = batchOf(ctx);
+  // Guarded and bumped detached or not: a `recurring.follow` reattaching it meanwhile must fail.
+  await guardRecord(ctx, object.name, id, occurrence);
+  if (occurrence.edited_at || batch.detached.has(key)) return changedFlag(def);
+  batch.values.set(key, { ...(batch.values.get(key) ?? {}), ...after });
+  if (whole) {
+    ctx.write(markEditedStatement(object.name, id, ctx.now));
+    batch.detached.add(key);
+    return changedFlag(def);
+  }
+  const series = await seriesValuesOf(ctx, seriesObject, occurrence.series_id);
+  for (const field of copied) {
+    const source = def.copy[field] as string;
+    writeException(ctx, object.name, id, field, !(series && same(after[field], series[source])));
+  }
+  return {};
 }
 
 /** A series created or restored from Trash: due now, so the minute cron makes its records. */
 export function seriesCreated(ctx: HandlerContext, object: ObjectDefinition, id: string): void {
   if (!object.recurring) return;
   ctx.write(armSeriesStatement(object.name, id, ctx.now, ctx.now));
+  noteSeriesBump(ctx, object.name, id);
+}
+
+/** A generated record's exceptions: whether it is detached whole, and the fields it keeps. */
+export interface RecordExceptions {
+  /** Made by a series (false: a one-off, which has no exceptions). */
+  generated: boolean;
+  series: { object: string; id: string; date: string } | null;
+  /** Detached whole (its time or state changed by hand, or a copied field before ADR 0620). */
+  detached: boolean;
+  fields: { field: string; setBy: string; setAt: string }[];
+}
+
+/** What a record keeps as its own of what its series sets (`recurring.exceptions`). */
+export async function exceptionsOf(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+): Promise<RecordExceptions> {
+  const occurrence = await occurrenceOf(ctx, object.name, id);
+  if (!occurrence) return { generated: false, series: null, detached: false, fields: [] };
+  const rows = await ctx.db
+    .selectFrom("core_recurrence_exception")
+    .select(["field", "set_by", "set_at"])
+    .where("object_type", "=", object.name)
+    .where("record_id", "=", id)
+    .orderBy("field")
+    .execute();
+  return {
+    generated: true,
+    series: {
+      object: occurrence.series_object,
+      id: occurrence.series_id,
+      date: occurrence.local_date,
+    },
+    detached: occurrence.edited_at !== null,
+    fields: rows.map((r) => ({ field: r.field, setBy: r.set_by, setAt: r.set_at })),
+  };
+}
+
+/** What `recurring.follow` did. */
+export interface FollowResult {
+  /** Fields that follow the series again (their value is the series' now). */
+  followed: string[];
+  /** Fields kept as the record's own because they were not named (a record detached whole). */
+  kept: string[];
+  /** It was detached whole and is now the series' again. */
+  reattached: boolean;
+}
+
+/**
+ * "Follow the series" (ADR 0620): the named copied fields of a generated record (default every
+ * one) take the series' values now, as the host, and follow it from now on. A record detached
+ * whole (by the rule before ADR 0620, or its time put back since) is the series' again, provided
+ * its time, end and zone are the series' for its date (else refused: it was moved by hand, and
+ * following would move it); its copied fields that are not named and differ from the series are
+ * kept as exceptions, so following changes nothing but what was asked. Past, cancelled and
+ * finished records are never changed by their series, and are refused.
+ */
+export async function followSeries(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  fields?: readonly string[],
+): Promise<FollowResult> {
+  const occurrence = await occurrenceOf(ctx, object.name, id);
+  const seriesObject = occurrence ? getObject(occurrence.series_object) : null;
+  const def = seriesObject?.recurring;
+  if (!occurrence || !seriesObject || !def) {
+    throw new ValidationError(`This ${object.label.toLowerCase()} was not made by a series`, {
+      rule: "recurring_not_generated",
+    });
+  }
+  const copied = Object.keys(def.copy);
+  for (const f of fields ?? []) {
+    if (!copied.includes(f)) {
+      throw new ValidationError(`${f} is not a field the series sets`, {
+        field: "fields",
+        rule: "recurring_not_copied",
+        copied,
+      });
+    }
+  }
+  // An empty list is refused rather than read as "every field" (omit it for that).
+  if (fields && !fields.length) {
+    throw new ValidationError("Name at least one field, or leave fields out for every one", {
+      field: "fields",
+      rule: "recurring_no_fields",
+    });
+  }
+  const named = fields ? [...new Set(fields)] : copied;
+  const record = await records().load(ctx, object, id);
+  const series = await records().load(ctx, seriesObject, occurrence.series_id);
+  if (!record) throw new NotFoundError(object.name, id);
+  if (!series) throw new NotFoundError(seriesObject.name, occurrence.series_id);
+  const stateField = object.states?.field;
+  const finals = new Set((object.states?.moves ?? []).filter((m) => m.final).map((m) => m.to));
+  const state = stateField ? record[stateField] : null;
+  const starts = Date.parse(String(record[def.into.starts] ?? ""));
+  if (
+    !(starts > Date.parse(ctx.now)) ||
+    (typeof state === "string" && (state === def.cancel || finals.has(state)))
+  ) {
+    throw new ConflictError(
+      `This ${object.label.toLowerCase()} has passed, or is cancelled or finished: its series no longer changes it.`,
+      { rule: "recurring_past" },
+    );
+  }
+  const { timezone } = await loadGeneralSettings(ctx.db);
+  const rule = isEnded(def, series) ? null : ruleOf(def, series, timezone);
+  if (!rule || !ruleIncludes(rule, occurrence.local_date)) {
+    throw new ConflictError(
+      `Its series no longer makes a ${object.label.toLowerCase()} on ${occurrence.local_date}.`,
+      { rule: "recurring_not_in_series", date: occurrence.local_date },
+    );
+  }
+  const wanted = occurrenceValues(def, rule, occurrenceOn(rule, occurrence.local_date), series);
+  const reattached = occurrence.edited_at !== null;
+  const kept: string[] = [];
+  if (reattached) {
+    const moved = timeFieldsOf(def).filter((f) => !same(record[f], wanted[f]));
+    // Compared with the series as it is now: a record dated before a `recurring.change { from }`
+    // kept the old time, so it reads as moved too (ADR 0620, a stated limit: no series history).
+    if (moved.length) {
+      throw new ConflictError(
+        `This ${object.label.toLowerCase()}'s time is not its series' for its date (it was moved by hand, or the series changed from a later date), so it cannot follow its series without moving. Change its time to the series' first.`,
+        { rule: "recurring_moved", fields: moved },
+      );
+    }
+    // A state changed by hand (paused) detached it too: put it back first (a made record starts
+    // in the initial state, and the series would otherwise move a record its states hold back).
+    const initial = object.states?.initial;
+    if (stateField && initial && state !== initial) {
+      throw new ConflictError(
+        `This ${object.label.toLowerCase()} is ${String(state)}, changed by hand; move it back to ${initial} before it follows its series.`,
+        { rule: "recurring_state", state, initial },
+      );
+    }
+    ctx.write(reattachStatement(object.name, id));
+    for (const f of copied) {
+      if (named.includes(f)) continue;
+      // Not named: kept as its own where it differs, and no exception left where it does not.
+      const differs = !same(record[f], wanted[f]);
+      writeException(ctx, object.name, id, f, differs);
+      if (differs) kept.push(f);
+    }
+  }
+  await guardRecord(ctx, object.name, id, occurrence);
+  const values: Record<string, unknown> = {};
+  for (const f of named) {
+    writeException(ctx, object.name, id, f, false);
+    if (!same(record[f], wanted[f])) values[f] = wanted[f] ?? null;
+  }
+  // Places are never set below what is claimed (capacity's own rule): kept at the claimed.
+  const places = object.capacity?.places;
+  if (places && typeof values[places] === "number") {
+    const claimed = await claimedOn(ctx, object, id);
+    if ((values[places] as number) < claimed) values[places] = claimed;
+  }
+  const changed = def.into.changed;
+  if (reattached && changed && record[changed] === true) values[changed] = null;
+  if (Object.keys(values).length) {
+    await records().update(ctx, object, id, values, { by: "host" });
+  }
+  return { followed: named, kept, reattached };
 }
 
 /** What a change to a series does to one of its future records. */
@@ -502,9 +783,12 @@ export async function seriesChanged(
   const changed =
     options.trashed ||
     watched.some((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null));
-  const version = await seriesVersion(ctx.db, object.name, id);
-  ctx.write(guardStatement("series", object.name, id, version));
+  await guardSeries(ctx, object.name, id);
   ctx.write(armSeriesStatement(object.name, id, ctx.now, ctx.now));
+  noteSeriesBump(ctx, object.name, id);
+  // A hand edit later in this batch compares with the series as written here.
+  const batch = batchOf(ctx);
+  batch.seriesValues.set(recordKey(object.name, id), after);
   if (!changed) return;
   const generated = generatedOf(def);
   const { timezone } = await loadGeneralSettings(ctx.db);
@@ -516,21 +800,58 @@ export async function seriesChanged(
   const today = zones.map((z) => localParts(now, z).date).sort()[0] as string;
   const first =
     options.from && parseLocalDate(options.from) && options.from > today ? options.from : today;
+  // Guarded and bumped against hand edits (ADR 0620), read before the rows below: a hand edit
+  // committing between the two reads would otherwise be counted yet not seen.
+  await guardAndBumpSeriesOccurrences(ctx, object.name, id, first);
   const rows = await ctx.db
     .selectFrom("core_recurrence_occurrence")
-    .select(["local_date", "record_id", "edited_at"])
+    .select(["local_date", "record_id", "edited_at", "version"])
     .where("series_object", "=", object.name)
     .where("series_id", "=", id)
     .where("local_date", ">=", first)
     .orderBy("local_date")
     .execute();
+  // The fields each of those records keeps as its own (ADR 0620): the series writes the rest.
+  const own = new Map<string, Set<string>>();
+  if (!ended) {
+    const exceptions = await ctx.db
+      .selectFrom("core_recurrence_exception as e")
+      .innerJoin("core_recurrence_occurrence as o", (join) =>
+        join.onRef("o.object_type", "=", "e.object_type").onRef("o.record_id", "=", "e.record_id"),
+      )
+      .select(["e.record_id", "e.field"])
+      .where("o.series_object", "=", object.name)
+      .where("o.series_id", "=", id)
+      .where("o.local_date", ">=", first)
+      .execute();
+    for (const e of exceptions) {
+      const fields = own.get(e.record_id) ?? new Set<string>();
+      fields.add(e.field);
+      own.set(e.record_id, fields);
+    }
+  }
+  // What this batch queued before the change (a hand edit of one of its records): the reads above
+  // cannot see it, so it is added here.
+  for (const row of rows) {
+    const queued = batch.exceptions.get(recordKey(generated.name, row.record_id));
+    if (!queued) continue;
+    const fields = own.get(row.record_id) ?? new Set<string>();
+    for (const [field, set] of queued) {
+      if (set) fields.add(field);
+      else fields.delete(field);
+    }
+    own.set(row.record_id, fields);
+  }
+  const versions = new Map(rows.map((r) => [r.record_id, Number(r.version)]));
   const finals = new Set((generated.states?.moves ?? []).filter((m) => m.final).map((m) => m.to));
   const stateField = generated.states?.field;
   const plans: Planned[] = [];
   for (const row of rows) {
-    if (row.edited_at && !ended) continue;
-    const record = await records().load(ctx, generated, row.record_id);
-    if (!record) continue;
+    const key = recordKey(generated.name, row.record_id);
+    if ((row.edited_at || batch.detached.has(key)) && !ended) continue;
+    const stored = await records().load(ctx, generated, row.record_id);
+    if (!stored) continue;
+    const record = { ...stored, ...(batch.values.get(key) ?? {}) };
     const starts = Date.parse(String(record[def.into.starts] ?? ""));
     if (!(starts > now)) continue;
     const state =
@@ -552,10 +873,16 @@ export async function seriesChanged(
       continue;
     }
     const wanted = occurrenceValues(def, rule, occurrenceOn(rule, row.local_date), after);
+    const kept = own.get(row.record_id);
+    // The series now gives a kept field the record's own value: indistinguishable from following
+    // it, so the exception goes (as when a person sets it back by hand).
+    for (const f of kept ?? []) {
+      if (Object.hasOwn(wanted, f) && same(record[f], wanted[f])) {
+        writeException(ctx, generated.name, row.record_id, f, false);
+      }
+    }
     const values = Object.fromEntries(
-      Object.entries(wanted).filter(
-        ([f, v]) => JSON.stringify(record[f] ?? null) !== JSON.stringify(v ?? null),
-      ),
+      Object.entries(wanted).filter(([f, v]) => !kept?.has(f) && !same(record[f], v)),
     );
     // Places are never set below what is claimed (capacity's own rule): kept at the claimed.
     const places = generated.capacity?.places;
@@ -611,11 +938,17 @@ export async function seriesChanged(
     } else {
       // Removed, and its date's key with it: the date can be made again if the rule returns to it.
       await records().remove(ctx, generated, plan.id);
+      batch.removed.set(recordKey(generated.name, plan.id), {
+        series: recordKey(object.name, id),
+        date: plan.date,
+        version: versions.get(plan.id) ?? 0,
+      });
       ctx.write(
         ctx.db
           .deleteFrom("core_recurrence_occurrence")
           .where("object_type", "=", generated.name)
           .where("record_id", "=", plan.id),
+        clearExceptionsStatement(generated.name, plan.id),
       );
     }
   }

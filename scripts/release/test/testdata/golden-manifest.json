@@ -564,6 +564,10 @@
       "sha256": "3a259fde475685273a9b2311b68ea20093ef6aacb0aa0b3dc64d027e2e24d941"
     },
     {
+      "name": "0810_recurrence_exceptions.sql",
+      "sha256": "2d744aeb49e99bbaa2254189c3926304ab0c7964d7a8e419922073da58288fb1"
+    },
+    {
       "name": "0850_agreements.sql",
       "sha256": "ac44a255fe73e8195da0f8ef6fed7572e561918517d138581094d9f46e2789e5"
     }

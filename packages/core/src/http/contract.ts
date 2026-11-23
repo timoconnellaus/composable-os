@@ -75,12 +75,15 @@ function jsonSchema(schema: z.ZodType, io: "input" | "output"): JsonSchema {
 
 /**
  * What a write makes stale, from what it writes: its namespace (`person.update` writes people,
- * `x.deals.win` writes the Deals extension's records). A customer's own records are one
+ * `x.deals.win` writes the Deals extension's records; `recurring.*` writes records). A customer's own records are one
  * namespace, `me.*` and `my.*` together, and a pack's tool writes them too.
  */
 function staleGroup(name: string): string {
   const [first, second] = name.split(".");
   if (first === "me" || first === "my") return "self";
+  // A recurring schedule's operations write records (a series' classes, their exceptions), and
+  // record.update sets and clears the exceptions recurring.exceptions reads (ADR 0620).
+  if (first === "recurring") return "record";
   if (first === "x") return `x.${second}`;
   return first ?? name;
 }

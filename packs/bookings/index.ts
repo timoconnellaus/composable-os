@@ -7,7 +7,8 @@
 // Everything that is a rule is the host's, declared here as behaviours (ADR 0404):
 //   - a series makes its classes ahead in local time across clock changes (`recurring`, ADR 0500),
 //     never less far ahead than the longest booking window a class type sets (`horizonAtLeast`),
-//     never on a closure's dates, and never over a class staff changed by hand;
+//     never on a closure's dates, and never over what staff changed by hand on a class (a coach
+//     swapped stays swapped while the series' new room or time still reaches it, ADR 0620);
 //   - a class has places (`capacity`), and a booking holds one by its state (`claims`, ADR 0501),
 //     refused by the database past the places, for every actor;
 //   - one live booking per Person per class (`unique`, ADR 0502);
@@ -416,7 +417,10 @@ export default defineExtension({
           type: "boolean",
           label: "Changed from its series",
           readOnly: true,
-          description: "Edited by hand: its series no longer changes it.",
+          description:
+            "Moved, or its state changed, by hand: its series no longer changes it. A field " +
+            "changed by hand alone (another coach that day) stays this class's own, and later " +
+            "changes to its series still reach the rest.",
         },
         cancelledReason: {
           type: "longText",

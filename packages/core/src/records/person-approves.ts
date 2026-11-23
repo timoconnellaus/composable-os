@@ -9,7 +9,7 @@
 // for whom is identity, and a merge moves, ends or deletes links.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
-import { getObject } from "../fields/index.ts";
+import { getObject, listObjects } from "../fields/index.ts";
 import { hasLiveLink } from "./person-links.ts";
 
 type Values = Record<string, unknown>;
@@ -27,6 +27,13 @@ function setsPersonApproves(object: unknown, values: unknown): boolean {
   );
 }
 
+/** The fields of `object` a recurring series copies onto it (ADR 0500's `copy` targets). */
+function copiedFieldsOf(object: string): string[] {
+  return listObjects().flatMap((o) =>
+    o.recurring?.generates === object ? Object.keys(o.recurring.copy) : [],
+  );
+}
+
 /** Whether the call `operation` with `input` sets a human-only field or setting. */
 export async function touchesPersonApproves(
   db: Kysely<CoreDatabase>,
@@ -40,6 +47,15 @@ export async function touchesPersonApproves(
     case "recurring.change":
     case "recurring.close":
       return setsPersonApproves(input.object, input.values);
+    // Following the series writes the named fields (default every copied one) from the series
+    // (ADR 0620): a human-only field among them is a person's to change.
+    case "recurring.follow": {
+      if (typeof input.object !== "string") return false;
+      const named = Array.isArray(input.fields)
+        ? input.fields.filter((f): f is string => typeof f === "string")
+        : copiedFieldsOf(input.object);
+      return setsPersonApproves(input.object, Object.fromEntries(named.map((f) => [f, null])));
+    }
     case "record.createMany":
     case "record.import": {
       const records = Array.isArray(input.records) ? input.records : [];
