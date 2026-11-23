@@ -23,3 +23,9 @@ The site (`apps/marketing`, now composableos.dev) no longer presents the hosted 
 waitlist. It sells a product built for the business by Zero BS AI and maintained on one
 subscription ([ADR 0465](0465-the-site-sells-a-built-and-maintained-product.md)). The rest of this
 record is left as decided; ADR 0465 does not decide whether the hosted SaaS is still built.
+
+## Amended 2026-11-23: client products are hosted by default
+[ADR 0610](0610-three-homes-for-a-client-hosted-by-default.md) decides where a client product runs:
+our account by default, in three tiers. "Dedicated" above is its bespoke tier and "managed in
+their own account" its own-account tier. Client products do not use the control plane's sign-up,
+plans or billing. Whether the hosted CRM is sold by sign-up is still not decided.
