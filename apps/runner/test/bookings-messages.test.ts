@@ -249,7 +249,7 @@ beforeAll(async () => {
   });
   admin = await createAdmin();
   // Sends are outbound actions: under Autonomous an automation's are applied at once, so they
-  // reach the outbox; Balanced (each waits for a person) is tested at the end.
+  // reach the outbox; Balanced (routine email goes on its own, ADR 0590) is tested at the end.
   await setPreset("autonomous");
   await refreshSchemaRegistry(db.query);
   for (const id of ["programs", "bookings", "memberships"]) {
