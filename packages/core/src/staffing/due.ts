@@ -15,9 +15,9 @@ import type { HandlerContext } from "../operation.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { localParts } from "../time/local.ts";
 import { shiftTitle, shiftZone } from "./changes.ts";
-import { loadShift, UNCOVERED_WINDOW_DAYS } from "./index.ts";
-import { endOfferStatement, OFFER_CUTOFF_MINUTES, pastCutoff, whenOf } from "./offers.ts";
-import { queueNotice, rosterers, shiftLink, staffName } from "./rosterers.ts";
+import { loadShift } from "./index.ts";
+import { endOfferStatement, pastCutoff, whenOf } from "./offers.ts";
+import { queueNotice, rosterers, rosterNumbers, shiftLink, staffName } from "./rosterers.ts";
 
 /** The most open offers one tick looks at. */
 const OFFERS_PER_TICK = 50;
@@ -85,17 +85,21 @@ export async function uncoveredShifts(
 }
 
 /** The latest shift start whose offer has closed at `now` (unix seconds). */
-const cutoffOf = (now: string) => Math.floor(Date.parse(now) / 1000) + OFFER_CUTOFF_MINUTES * 60;
+const cutoffOf = (now: string, cutoffMinutes: number) =>
+  Math.floor(Date.parse(now) / 1000) + cutoffMinutes * 60;
 
 /** Open offers past their cut-off lapse; those whose shift is gone are cancelled. */
-async function lapseOffers(ctx: HandlerContext): Promise<{ lapsed: number; cancelled: number }> {
+async function lapseOffers(
+  ctx: HandlerContext,
+  cutoffMinutes: number,
+): Promise<{ lapsed: number; cancelled: number }> {
   // The offers whose cut-off has come, nearest first, by the index on their shift's start: however
   // many far ones are open, these are read.
   const open = await ctx.db
     .selectFrom("core_staff_offer")
     .selectAll()
     .where("state", "=", "open")
-    .where("starts", "<=", cutoffOf(ctx.now))
+    .where("starts", "<=", cutoffOf(ctx.now, cutoffMinutes))
     .orderBy("starts")
     .limit(OFFERS_PER_TICK)
     .execute();
@@ -110,7 +114,7 @@ async function lapseOffers(ctx: HandlerContext): Promise<{ lapsed: number; cance
       cancelled += 1;
       continue;
     }
-    if (!pastCutoff(s.shift.starts, ctx.now)) continue;
+    if (!pastCutoff(s.shift.starts, ctx.now, cutoffMinutes)) continue;
     ctx.write(endOfferStatement(ctx, offer.id, "lapsed", "Nobody took it before the cut-off."));
     lapsed += 1;
     const title = shiftTitle(s.object, s.values);
@@ -138,7 +142,7 @@ async function lapseOffers(ctx: HandlerContext): Promise<{ lapsed: number; cance
 }
 
 /** Once a local day, from DAILY_NOTICE_HOUR: the rosterers hear of every uncovered shift ahead. */
-async function dailyUncovered(ctx: HandlerContext): Promise<number> {
+async function dailyUncovered(ctx: HandlerContext, uncoveredDays: number): Promise<number> {
   if (!listObjects().some((o) => o.staffed)) return 0;
   const { timezone } = await loadGeneralSettings(ctx.db);
   const nowMs = Date.parse(ctx.now);
@@ -157,7 +161,7 @@ async function dailyUncovered(ctx: HandlerContext): Promise<number> {
       .onConflict((oc) => oc.column("name").doUpdateSet({ last_date: local.date })),
   );
   const now = Math.floor(nowMs / 1000);
-  const shifts = await uncoveredShifts(ctx, now, now + UNCOVERED_WINDOW_DAYS * 86_400);
+  const shifts = await uncoveredShifts(ctx, now, now + uncoveredDays * 86_400);
   if (!shifts.length) return 0;
   const lines: string[] = [];
   for (const s of shifts.slice(0, 30)) {
@@ -166,7 +170,7 @@ async function dailyUncovered(ctx: HandlerContext): Promise<number> {
   if (shifts.length > 30) lines.push(`and ${shifts.length - 30} more`);
   await queueNotice(ctx, {
     to: await rosterers(ctx.db),
-    title: `${shifts.length} shift${shifts.length === 1 ? " has" : "s have"} nobody on ${shifts.length === 1 ? "it" : "them"} in the next ${UNCOVERED_WINDOW_DAYS} days`,
+    title: `${shifts.length} shift${shifts.length === 1 ? " has" : "s have"} nobody on ${shifts.length === 1 ? "it" : "them"} in the next ${uncoveredDays} days`,
     body: lines.join("\n"),
     dedupeKey: `staffing.uncovered.${local.date}`,
   });
@@ -184,7 +188,7 @@ export async function staffingWorkDue(db: Kysely<CoreDatabase>, nowIso: string):
     .selectFrom("core_staff_offer")
     .select("id")
     .where("state", "=", "open")
-    .where("starts", "<=", cutoffOf(nowIso))
+    .where("starts", "<=", cutoffOf(nowIso, (await rosterNumbers(db)).cutoffMinutes))
     .limit(1)
     .executeTakeFirst();
   if (due) return true;
@@ -203,7 +207,8 @@ export async function staffingWorkDue(db: Kysely<CoreDatabase>, nowIso: string):
 export async function staffingDue(
   ctx: HandlerContext,
 ): Promise<{ lapsed: number; cancelled: number; uncovered: number }> {
-  const { lapsed, cancelled } = await lapseOffers(ctx);
-  const uncovered = await dailyUncovered(ctx);
+  const numbers = await rosterNumbers(ctx.db);
+  const { lapsed, cancelled } = await lapseOffers(ctx, numbers.cutoffMinutes);
+  const uncovered = await dailyUncovered(ctx, numbers.uncoveredDays);
   return { lapsed, cancelled, uncovered };
 }

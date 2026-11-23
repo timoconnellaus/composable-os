@@ -21,7 +21,7 @@ import { jsonList } from "../records/common.ts";
 import { armSeriesStatement, noteSeriesBump } from "../recurring/bookkeeping.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { whenOf } from "./offers.ts";
-import { queueNotice, rosterers, shiftLink, staffName } from "./rosterers.ts";
+import { actingAccount, queueNotice, rosterers, shiftLink, staffName } from "./rosterers.ts";
 
 /** The most future shifts one deactivation names (it clears every one, whatever the number). */
 const NAMED_MAX = 50;
@@ -216,7 +216,7 @@ export async function leaveRoster(
     ctx.write(
       CompiledQuery.raw(
         `UPDATE ${table} SET ${p.column} = NULL, updated_at = ?, updated_by = ? WHERE id = ? AND ${p.column} = ?`,
-        [ctx.now, ctx.user.id, p.id, p.was],
+        [ctx.now, actingAccount(ctx), p.id, p.was],
       ),
       guard(1),
       armSeriesStatement(p.object, p.id, ctx.now, ctx.now),
@@ -243,7 +243,7 @@ export async function leaveRoster(
     ctx.write(
       CompiledQuery.raw(
         `UPDATE ${table} SET ${who} = NULL, updated_at = ?, updated_by = ? WHERE deleted_at IS NULL AND id IN (SELECT value FROM json_each(?)) AND ${who} IN (SELECT value FROM json_each(?))`,
-        [ctx.now, ctx.user.id, JSON.stringify(mine.map((s) => s.id)), JSON.stringify(was)],
+        [ctx.now, actingAccount(ctx), JSON.stringify(mine.map((s) => s.id)), JSON.stringify(was)],
       ),
       guard(mine.length),
     );
@@ -270,7 +270,12 @@ export async function leaveRoster(
     ctx.write(
       ctx.db
         .updateTable("core_staff_offer")
-        .set({ state: "cancelled", ended_at: ctx.now, ended_by: ctx.user.id, why: "deactivated" })
+        .set({
+          state: "cancelled",
+          ended_at: ctx.now,
+          ended_by: actingAccount(ctx),
+          why: "deactivated",
+        })
         .where("id", "=", offer.id),
     );
     if (offer.to_account === account) {

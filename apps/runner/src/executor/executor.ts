@@ -352,6 +352,11 @@ export class Executor {
         humanOnly: manifest.tools?.[input.tool]?.humanOnly === true,
         personApproves: manifest.tools?.[input.tool]?.personApproves === true,
         permission: manifest.tools?.[input.tool]?.permission ?? null,
+        // The staff account it was called for, from the pipeline's verified caller (ADR 0625):
+        // what an operation about "me" reads (the roster's own shifts, who may roster).
+        ...(input.caller.principal
+          ? {}
+          : { calledBy: { account: input.caller.userId, actor: input.caller.actor } }),
         // The person who called it, when a person did (the pipeline refused anyone else for a
         // humanOnly tool), or the person who approved another actor's call of a tool a person
         // approves (ADR 0552): who gave what a person's tool gives.

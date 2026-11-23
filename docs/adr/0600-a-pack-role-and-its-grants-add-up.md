@@ -192,3 +192,13 @@ classes and full lists. For a coach who also works the desk."). Ticking saves at
   covers the role alone; a coach who also works the desk uses the staff app for the desk.
 - Stage 14a's composed roles and teams hand out sets of these grants; the authority decision stays
   in `staffAuthority`.
+
+## Amendment, 2026-11-23 (stage 45 step 4, ADR 0625)
+`staffAuthority` gains one rule before the account's role: a tool all of whose permissions are
+restricted is allowed by `role` for an admin only, else by `grant` for a grant of it; a pack role
+never allows one. A fixed-role account may be granted a restricted pack permission (a coach who
+also rosters: `bookings.coach` with `rostering:roster` and `rostering:manage`), never a core one.
+Rostering's team tools name the team role's permission and the grantable `rostering:roster`, with
+`grantLiftsRoleLimits` (the team role has no limits to lift). See
+[ADR 0625](0625-restricted-pack-permissions.md) and
+[ADR 0626](0626-the-rostering-pack-and-bookings-additions.md).

@@ -585,6 +585,8 @@ export interface RecurringDefinition {
   horizonDays: number;
   /** The horizon is never less than the largest value of this object's number field (days). */
   horizonAtLeast?: { object: string; field: string } | undefined;
+  /** The extension's number setting (days) that sets the horizon when it holds a value (ADR 0626). */
+  horizonSetting?: { extension: string; name: string } | undefined;
 }
 
 export function defineObject<const O extends ObjectDefinition>(object: O): O {

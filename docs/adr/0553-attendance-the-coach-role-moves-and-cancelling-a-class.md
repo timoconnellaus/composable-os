@@ -143,3 +143,10 @@ and `apps/app/e2e/bookings.spec.ts` ("a coach ticks who came on a class's list",
   only on a call the role allows (`roleLimitsFor`), never on one a grant allows, so it never blocks
   the desk and a grant never lifts it off the roster or a tick. See
   [ADR 0600](0600-a-pack-role-and-its-grants-add-up.md).
+
+## Amendment, 2026-11-23 (stage 45 step 4, ADR 0626)
+A coach granted Rostering's `rostering:roster` reads the whole future roster (every class and duty
+shift, who is on it, its time, kind and place) and offers and takes shifts, through Rostering's
+tools; the coach role itself still reaches class lists, bookings and names only today. The roster
+read returns nothing of a class's bookings, places or list, nor any Person. And a class's and a
+series' coach are now `personApproves`: an assistant's swap waits for a person.

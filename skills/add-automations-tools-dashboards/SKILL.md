@@ -49,7 +49,11 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    declares `permission: "<id>:<word>"` (or a list, any one of which opens it, ADR 0600); the role
    lists it. Admins and members call it as they call any tool. A tool that only a person on the staff may call (giving something free by hand)
    declares `humanOnly: true`: the host refuses the assistant, MCP clients, automations and other
-   extensions' code (Memberships: `givePass`, ADR 0512). `ctx.caller` says who started a tool (`{ kind: "staff", userId, name }`, a
+   extensions' code (Memberships: `givePass`, ADR 0512). A tool whose input carries something the
+   audit log must never keep (a note about someone's leave) lists those fields in `redact`
+   (Rostering: `away`). A tool only admins and accounts granted it should call names a
+   **restricted** permission (see `write-extension`, Roles; Rostering's `rostering:manage`).
+   `ctx.caller` says who started a tool (`{ kind: "staff", userId, name }`, a
    customer or the public), from the host and never from the input: record who did something
    with it (Ticketing: `checkIn` sets `usedBy`). Extensions cannot read users (`user.*` is never
    granted), so keep a name you need to show later on the record.

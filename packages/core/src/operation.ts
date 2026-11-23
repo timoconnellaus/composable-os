@@ -322,6 +322,14 @@ export interface ExtensionCaller {
     startedBy?: string;
     /** `startedBy` approved another actor's call rather than calling it themselves. */
     startedByApproval?: true;
+    /**
+     * The staff account the tool was called for, and by which actor (stage 45, ADR 0625): the
+     * pipeline's verified caller (a person, or the account an assistant or MCP client acts for;
+     * an automation's or another extension's run is its extension's account). The run's own calls
+     * act as the extension; an operation that is about the caller (the roster's "my shifts", who
+     * may roster) reads this, never the input.
+     */
+    calledBy?: { account: string; actor: string };
   };
 }
 
@@ -440,6 +448,13 @@ export interface OperationDefinition<
    * role, a pack role included (ADR 0600).
    */
   packGrantable?: readonly string[];
+  /**
+   * Every one of `packPermissions` is restricted (ADR 0625): the tool is held by admins and by a
+   * grant of one of `packGrantable`, never through the account's own role (a member's
+   * `records:write`) or a pack role. A runtime extension's tool naming one (refused at install)
+   * has no pack permissions and so is an admin's only.
+   */
+  packRestricted?: boolean;
   risk: RiskClass;
   /**
    * Core operations only, and only ones open to customers or the public: the handler keeps the

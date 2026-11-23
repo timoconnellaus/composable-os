@@ -861,6 +861,9 @@ function recurringDefinition(object: ObjectState): Pick<ObjectDefinition, "recur
                 },
           }
         : {}),
+      ...(declared.horizonSetting
+        ? { horizonSetting: { extension: object.extensionId, name: declared.horizonSetting } }
+        : {}),
     },
   };
 }

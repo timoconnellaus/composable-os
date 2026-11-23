@@ -994,13 +994,24 @@ describe("warnings", () => {
     )
       .bind(ext, admin.id, NOW, NOW)
       .run();
-    const tool = context(admin, {
+    // As in the runtime: the run's calls act as the extension's account, for the admin who called
+    // the tool (`calledBy`): the admin, a rosterer, learns that the person is away.
+    const extAccount = await createUser("member");
+    await env.DB.prepare("UPDATE core_user SET kind = 'extension' WHERE id = ?")
+      .bind(extAccount.id)
+      .run();
+    const tool = context(extAccount, {
       actor: "extension",
       clock: () => new Date(NOW),
       extension: {
         id: ext,
         permissions: { operations: ["staffing.check"], objects: {} } as never,
-        tool: { name: "check", humanOnly: false, permission: null },
+        tool: {
+          name: "check",
+          humanOnly: false,
+          permission: null,
+          calledBy: { account: admin.id, actor: "human" },
+        },
       },
     });
     const checked = await invoke(

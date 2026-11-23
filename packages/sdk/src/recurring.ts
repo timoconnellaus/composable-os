@@ -43,6 +43,9 @@ export const RECURRING_HORIZON_MAX = 366;
  * - `horizonAtLeast` (optional): another of this extension's objects and a number field of it in
  *   days (a class type's booking window): the horizon is never less than the largest value any
  *   live record of it holds, so a class can be booked as soon as its window opens.
+ * - `horizonSetting` (optional, ADR 0626): a number setting of this extension, in days, that
+ *   sets the horizon instead of `horizonDays` (a business choosing how far ahead its duties are
+ *   made); `horizonDays` stays the default while the setting is empty.
  *
  * Made records are never made twice (the host keys each on the series and its local date). A
  * record edited by staff (its time, copied fields or state) is never overwritten or made again;
@@ -66,6 +69,7 @@ export interface RecurringScheduleSpec {
   closures?: { object: string; from: string; until: string };
   horizonDays?: number;
   horizonAtLeast?: { object: string; field: string };
+  horizonSetting?: string;
 }
 
 const fieldName = z.string().max(40);
@@ -107,6 +111,7 @@ export const recurringManifestSchema = z
       .optional(),
     horizonDays: z.number().int().min(1).max(RECURRING_HORIZON_MAX).optional(),
     horizonAtLeast: z.object({ object: fieldName, field: fieldName }).strict().optional(),
+    horizonSetting: z.string().max(64).optional(),
   })
   .strict();
 export type RecurringScheduleManifest = z.infer<typeof recurringManifestSchema>;
@@ -276,6 +281,17 @@ export function checkObjectRecurring(
       contract(
         `${path}.cancel`,
         `${generatedName} needs a move into "${recurring.cancel}" that the host may make`,
+      );
+    }
+  }
+  if (recurring.horizonSetting !== undefined) {
+    const setting = Object.hasOwn(m.settings, recurring.horizonSetting)
+      ? m.settings[recurring.horizonSetting]
+      : undefined;
+    if (setting?.type !== "number") {
+      contract(
+        `${path}.horizonSetting`,
+        `"${recurring.horizonSetting}" must be a number setting of this extension (days)`,
       );
     }
   }
