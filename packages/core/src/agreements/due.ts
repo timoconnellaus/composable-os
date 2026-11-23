@@ -164,6 +164,21 @@ export interface AcceptanceFact {
    * the form (a form signed long ago is not new because it was typed in today).
    */
   countsFrom: string;
+  /** A guest's: what it was taken with (its order or subscription checkout). */
+  orderId?: string | null;
+  subscriptionCheckout?: string | null;
+}
+
+/**
+ * Whether a guest's acceptance, settled to its Person, counts for them at a later point
+ * (coordinator decision of 2026-11-23 on the review of PR #280, owner to confirm; ADR 0644).
+ * It does not: a guest's acceptance is the evidence for the purchase it came with (checked in
+ * that buying call, `enforcePurchase`), never for anything after it. Anyone may type an address,
+ * so counting it later would let a stranger's cheap guest purchase stand in for a member's own
+ * agreement, or a minor's own guest purchase for a guardian's. The one place to relax it.
+ */
+export function guestAcceptanceCountsLater(_acceptance: AcceptanceFact): boolean {
+  return false;
 }
 
 /** `now` less `months` calendar months (the host's clock, UTC). */
@@ -195,6 +210,8 @@ export function countingAcceptance(
       if (reason === "never") reason = "guardian";
       continue;
     }
+    // A guest's counts only for its own purchase (ADR 0644, coordinator decision).
+    if (a.by === "guest" && !guestAcceptanceCountsLater(a)) continue;
     if (version.number < doc.agreeFrom) {
       reason = "agree_again";
       continue;
@@ -231,7 +248,17 @@ export async function acceptancesOf(
   if (!personIds.length || !documentIds.length) return out;
   const rows = await db
     .selectFrom("core_agreement_acceptance")
-    .select(["id", "person_id", "document_id", "version_id", "by", "accepted_at", "signed_on"])
+    .select([
+      "id",
+      "person_id",
+      "document_id",
+      "version_id",
+      "by",
+      "accepted_at",
+      "signed_on",
+      "order_id",
+      "subscription_checkout",
+    ])
     .where("person_id", "in", [...personIds])
     // An erased acceptance (its Person's, or the guardian's who made it) no longer counts.
     .where("erased_at", "is", null)
@@ -247,6 +274,8 @@ export async function acceptancesOf(
       by: row.by,
       acceptedAt: row.accepted_at,
       countsFrom: row.signed_on ? `${row.signed_on}T00:00:00.000Z` : row.accepted_at,
+      orderId: row.order_id,
+      subscriptionCheckout: row.subscription_checkout,
     });
     out.set(key, list);
   }
@@ -332,19 +361,145 @@ export function agreementsGuard(rev: number): CompiledQuery {
  */
 export async function requireNothingDue(db: Db, query: DueQuery): Promise<CompiledQuery> {
   const { rev, due } = await agreementsDue(db, query);
-  if (due.length) {
-    throw new ValidationError(
-      `Something must be agreed to first: ${due.map((d) => d.title).join(", ")}`,
-      {
-        rule: "agreements_due",
-        documents: due.map((d) => ({
-          documentId: d.documentId,
-          title: d.title,
-          versionId: d.version.id,
-          personId: d.personId,
-        })),
-      },
-    );
-  }
+  if (due.length) throw dueRefusal(due);
   return agreementsGuard(rev);
+}
+
+/**
+ * The refusal when something is due: `invalid_input`, `rule: "agreements_due"`, and the documents
+ * by id, title and the version to read. A known Person's carry whose each is (the caller's own,
+ * their dependant's, or for staff the Person's); a guest's carry no Person at all.
+ */
+export function dueRefusal(
+  due: readonly {
+    documentId: string;
+    title: string;
+    version: DueVersion;
+    personId?: string | null;
+  }[],
+  message?: string,
+): ValidationError {
+  return new ValidationError(
+    message ?? `Something must be agreed to first: ${due.map((d) => d.title).join(", ")}`,
+    {
+      rule: "agreements_due",
+      documents: due.map((d) => ({
+        documentId: d.documentId,
+        title: d.title,
+        versionId: d.version.id,
+        ...(d.personId ? { personId: d.personId } : {}),
+      })),
+    },
+  );
+}
+
+/** A document a guest must agree to with their purchase: no Person is read for it. */
+export interface GuestDueDocument {
+  documentId: string;
+  kind: string;
+  title: string;
+  who: "participant" | "payer";
+  version: DueVersion;
+}
+
+/**
+ * What a guest (the public, buying without an account) must agree to at these points in the
+ * buying call, and the counter, read first (stage 44 step 3, ADR 0644). No Person is read: a guest
+ * is an unknown adult paying for themselves, so every live document attached there that is for
+ * everyone is due, whatever the address matches, and the answer says nothing about whether the
+ * address has agreed before (spec 44: "a guest who is already a member and has agreed is asked
+ * again"). A `dependants` document never applies: a guest buys for no one else.
+ */
+export async function guestDue(
+  db: Db,
+  points: readonly string[],
+): Promise<{ rev: number; due: GuestDueDocument[] }> {
+  const rev = await readRev(db);
+  const seen = new Set<string>();
+  const due: GuestDueDocument[] = [];
+  for (const point of new Set(points)) {
+    for (const doc of await attachedDocuments(db, point)) {
+      if (seen.has(doc.id) || doc.forWhom !== "everyone") continue;
+      seen.add(doc.id);
+      due.push({
+        documentId: doc.id,
+        kind: doc.kind,
+        title: doc.title,
+        who: doc.who,
+        version: doc.current,
+      });
+    }
+  }
+  return { rev, due };
+}
+
+/**
+ * `agreementsDue` at several points at once (an order with lines at different points): each
+ * document once per Person, with the counter read before any of them.
+ */
+export async function agreementsDueAt(
+  db: Db,
+  points: readonly string[],
+  query: Omit<DueQuery, "point">,
+): Promise<{ rev: number; due: DueDocument[] }> {
+  const rev = await readRev(db);
+  const seen = new Set<string>();
+  const due: DueDocument[] = [];
+  for (const point of new Set(points)) {
+    for (const doc of (await agreementsDue(db, { ...query, point })).due) {
+      const key = `${doc.personId}\u0000${doc.documentId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      due.push(doc);
+    }
+  }
+  return { rev, due };
+}
+
+/**
+ * A payer document that a minor would be the payer for (stage 44 step 3, the review of PR
+ * #280): a Person a parent or guardian agrees for (marked a minor, or a live dependant) cannot be
+ * the one who pays where the business asks the payer to agree, and nothing they do satisfies it.
+ * A parent or guardian buys it for them. Returns the documents, or none.
+ *
+ * Whether a guardian's own earlier agreement could let a minor pay instead is the owner's to
+ * decide: this is the one place to relax it.
+ */
+export async function minorPayerDocuments(
+  db: Db,
+  points: readonly string[],
+  payer: string | null,
+): Promise<{ documentId: string; title: string; version: DueVersion }[]> {
+  if (!payer || !points.length) return [];
+  if (!isMinor(await personFacts(db, payer))) return [];
+  const seen = new Set<string>();
+  const out: { documentId: string; title: string; version: DueVersion }[] = [];
+  for (const point of new Set(points)) {
+    for (const doc of await attachedDocuments(db, point)) {
+      if (doc.who !== "payer" || seen.has(doc.id)) continue;
+      seen.add(doc.id);
+      out.push({ documentId: doc.id, title: doc.title, version: doc.current });
+    }
+  }
+  return out;
+}
+
+/** The refusal for a minor paying where the payer must agree: no acceptance of theirs counts. */
+export function minorPayerRefusal(
+  documents: readonly { documentId: string; title: string; version: DueVersion }[],
+): ValidationError {
+  return new ValidationError(
+    "A parent or guardian needs to buy this for you: the person who pays must agree to " +
+      documents.map((d) => d.title).join(", "),
+    {
+      rule: "agreements_due",
+      reason: "minor_payer",
+      documents: documents.map((d) => ({
+        documentId: d.documentId,
+        title: d.title,
+        versionId: d.version.id,
+        reason: "minor_payer",
+      })),
+    },
+  );
 }

@@ -71,3 +71,11 @@ start, and numbers a class type overrides over the organisation's defaults.
   class, so a change of a class type's rule or the organisation's setting holds at once.
 - The dry run is an operation: `state.resolve { object, id, request }` (tool-only, staff and
   customer, a customer of their own records only; ADR 0504).
+
+## Amended 2026-11-23: the engine asks an agreement point (stage 44 step 3, [ADR 0644](0644-enforcement-nobody-pays-or-books-without-what-is-due.md))
+Beside its windows, staff-only rule and `closed` flag, the engine asks an object's agreement point
+(`agreements.enter`, `person`) for every caller's write, every actor, every path (`record.create`,
+`record.update`, `my.create`, `my.update`, the record import, a pack's tools, MCP): a record created
+in a listed state, moved into one (except, with `claims`, between two states that both hold the
+place), or given to another Person while in one, is refused while something is due for its Person
+(`agreements_due`), and the batch carries the guard. The host's own moves are never asked.

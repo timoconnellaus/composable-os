@@ -5,6 +5,7 @@
 //
 // Billing follows the payer (ADR 0487): the payer starts it, cancels or resumes it, and opens the
 // portal for the card; what it grants follows the holder, who is the payer in 32a.
+import { enforcePurchase, type GuestAcceptance, pointsOfObjects } from "../agreements/enforce.ts";
 import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { SubscriptionState } from "../fields/subscription.ts";
@@ -77,6 +78,8 @@ export async function startSubscription(
     email?: string | undefined;
     offerId?: string | undefined;
     holderPersonId?: string | undefined;
+    /** A visitor's acceptances, carried in the buying call (stage 44 step 3). */
+    agreements?: readonly GuestAcceptance[] | undefined;
   },
 ): Promise<StartedSubscription> {
   // The same setup "a plan is on sale" reads (ADR 0459), so the two cannot drift.
@@ -146,6 +149,21 @@ export async function startSubscription(
       rule: "total",
     });
   }
+  // Nobody starts a membership without the agreements they need (stage 44 step 3, ADR 0644): a
+  // continuation offer is a start too (ADR 0491), so a moved member agrees before their first
+  // charge here. Asked before the provider's page is opened or handed out again (an open page
+  // with its trial, an offer's page), with the guard in this batch; participant documents for the
+  // holder, payer documents for the payer. A visitor's acceptances in the call are recorded after
+  // the checkout row (below), Person-less until the provider confirms the subscription.
+  const id = newId("subscription");
+  const agreed = await enforcePurchase(
+    ctx,
+    pointsOfObjects([plan.object]),
+    { guest: caller.kind === "public", participant: holderPersonId, payer: personId },
+    input.agreements,
+  );
+  const guestRows = await agreed.guestRows({ subscriptionCheckout: id, email });
+  if (agreed.guards.length) ctx.write(...agreed.guards);
   // The payer's provider customer, when they have one already: one card and one portal for them.
   // Only for a caller who has proved who they are: a signed-in customer starting their own, or
   // staff. A guest only typed an address; reusing that address's customer would attach the
@@ -231,7 +249,6 @@ export async function startSubscription(
   }
   const trialDays = decision.give ? plan.recurring.trialDays : null;
   const trialEnd = offer && "offerId" in offer ? offer.trialEnd : null;
-  const id = newId("subscription");
   const request: SubscriptionCheckoutRequest = {
     subscriptionId: id,
     amount: plan.unitPrice,
@@ -285,6 +302,8 @@ export async function startSubscription(
       offer_id: offer && "offerId" in offer ? offer.offerId : null,
       created_at: ctx.now,
     }),
+    // After the row: a guest's acceptance names a checkout that must exist (migration 0851).
+    ...guestRows,
   );
   // Read defensively: a moment that is not one is reported as none, never thrown on after the
   // page was opened (the gatekeeper validates it too).

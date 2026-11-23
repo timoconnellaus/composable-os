@@ -14,6 +14,7 @@
 //     renewal needing the payer to confirm it keeps the provider's link for the payer.
 import type { CoreDatabase, CoreSubscriptionTable } from "@composable-os/db";
 import { type Kysely, type Selectable, sql } from "kysely";
+import { guestMinorNotice } from "../agreements/enforce.ts";
 import { NotFoundError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { type SubscriptionState, subscriptionObject } from "../fields/subscription.ts";
@@ -563,6 +564,9 @@ async function createFromCheckout(
   });
   postSubscriptionMove(ctx, row, null);
   // What a membership plan's subscription grants (ADR 0510), once its record is written.
+  // A guest's subscription landing on a minor tells staff (ADR 0644); its acceptances settle by
+  // trigger in this batch (migration 0853).
+  await guestMinorNotice(ctx, { subscriptionCheckout: checkout.id }, checkout.holder_person_id);
   await followSubscriptionGrant(ctx, row);
   await trialConfirmed(ctx, row);
   if (checkout.offer_id) await offerConfirmed(ctx, checkout.offer_id, checkout.trial_end, row);

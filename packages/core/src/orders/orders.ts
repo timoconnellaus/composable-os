@@ -11,6 +11,12 @@
 //     only platform code passes `by: "host"`, and no operation takes the mover from its input.
 import type { CoreDatabase, CoreOrderTable } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
+import {
+  enforcePurchase,
+  type GuestAcceptance,
+  guestMinorNotice,
+  pointsOfObjects,
+} from "../agreements/enforce.ts";
 import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { type OrderState, orderObject } from "../fields/order.ts";
@@ -347,6 +353,13 @@ export interface NewOrder {
    */
   id?: string;
   priced?: readonly PricedLine[];
+  /**
+   * Who it is for, when not the order's Person (stage 44 step 3): a drop-in a guardian buys for a
+   * dependant (`order.startHeld`). Left out, the order's Person.
+   */
+  participantId?: string | null;
+  /** A visitor's acceptances, carried in the buying call (only `placedAs: "public"`). */
+  agreements?: readonly GuestAcceptance[] | undefined;
 }
 
 export interface StartedOrder {
@@ -409,8 +422,23 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     }
   }
 
-  const minutes = await loadOrderExpiryMinutes(ctx.db);
   const id = input.id ?? newId("order");
+  // Nobody pays without the agreements they need (stage 44 step 3, ADR 0644): asked at the points
+  // the bought objects declare, before anything is written, with the guard in this batch. A
+  // visitor's acceptances in the call are checked now and recorded after the order (below).
+  const agreed = await enforcePurchase(
+    ctx,
+    pointsOfObjects(lines.map((line) => line.object)),
+    {
+      guest: input.placedAs === "public",
+      participant: input.participantId === undefined ? input.personId : input.participantId,
+      payer: input.personId,
+    },
+    input.agreements,
+  );
+  const guestRows = await agreed.guestRows({ orderId: id, email: input.email });
+
+  const minutes = await loadOrderExpiryMinutes(ctx.db);
   const row: OrderRow = {
     id,
     person_id: input.personId,
@@ -477,6 +505,9 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
       }),
     ),
     ...outcome.history,
+    ...agreed.guards,
+    // After the order: a guest's acceptance names an order that must exist (migration 0851).
+    ...guestRows,
   );
   // One per Person (ADR 0512): refused, or held in this batch, after the order it names.
   await holdOncePerPerson(
@@ -571,6 +602,11 @@ export async function changeOrder(
     after: orderSnapshot(next),
   });
   if (to !== row.state) postOrderMove(ctx, next, row.state);
+  // A guest's purchase landing on a minor tells staff (ADR 0644): the batch that pays it or
+  // gives it its Person settles its acceptances (migration 0853).
+  if (next.person_id && next.paid > 0) {
+    await guestMinorNotice(ctx, { orderId: row.id }, next.person_id);
+  }
   return next;
 }
 

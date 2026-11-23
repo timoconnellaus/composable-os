@@ -26,6 +26,9 @@
 // the order they made or the one the caller proved is theirs (their own Person through the seam,
 // or the order's token), and answer only with what a customer may read of an order.
 import { z } from "zod";
+import { isMinor, personFacts } from "../agreements/due.ts";
+import { enforcePurchase, guestAcceptancesSchema, pointsOfObjects } from "../agreements/enforce.ts";
+import { sameEmailPeople } from "../customers/accounts.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import { ORDER_STATES } from "../fields/order.ts";
@@ -291,6 +294,7 @@ export const orderStartInput = z.object({
       "The buyer's email address. Required when the caller is not a signed-in customer; a " +
         "signed-in customer's order uses their account's address and must not pass one.",
     ),
+  agreements: guestAcceptancesSchema.optional(),
 });
 
 export const orderStart = defineOperation({
@@ -300,9 +304,12 @@ export const orderStart = defineOperation({
     "(with an email address) or staff. The host prices it from the records: a caller never " +
     "sends a price or a total. The order starts pending and is not paid: paying happens on the " +
     "payment provider's page (order.checkout), and only the provider's confirmation marks it " +
-    "paid. An unpaid order expires after a few minutes. Returns the order with its lines and " +
-    "amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the " +
-    "only way back to the order (order.view).",
+    "paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the " +
+    "business needs for what is bought: refused with rule agreements_due and the documents " +
+    "while any is due (a guest passes their acceptances in `agreements`; a signed-in customer " +
+    "agrees first; staff send a link, sign at the desk or record paper). Returns the order with " +
+    "its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, " +
+    "which is the only way back to the order (order.view).",
   input: orderStartInput,
   output: orderSchema.extend({
     token: z.string().nullable().describe("A guest's key to this order. Null for everyone else."),
@@ -312,6 +319,8 @@ export const orderStart = defineOperation({
   audiences: ["staff", "customer", "public"],
   hostInternal: true,
   mcp: { expose: false },
+  // What a visitor typed, drew and answered never reaches the audit log.
+  redact: ["agreements"],
   // Never the token: it is the guest's, and the audit log is read by staff.
   auditSummary: (output) => ({ id: output.id }),
   async handler(input, ctx) {
@@ -349,10 +358,29 @@ export const orderStart = defineOperation({
       placedAs: caller.kind,
       pay: input.pay,
       accessHash: token ? await hashOrderToken(token) : null,
+      agreements: input.agreements,
     });
     return { ...fromRow(started.row, started.lines.map(toLine), isStaff(ctx)), token };
   },
 });
+
+/**
+ * The People an address is theirs: the live ones with it, and the survivor of any merge of one
+ * that had it.
+ */
+async function addressPeople(ctx: HandlerContext, email: string): Promise<Set<string>> {
+  if (!email) return new Set();
+  const people = new Set(await sameEmailPeople(ctx.db, email));
+  const merged = await ctx.db
+    .selectFrom("core_person_emails as e")
+    .innerJoin("core_person as p", "p.id", "e.person_id")
+    .select("p.merged_into_id")
+    .where("e.email", "=", email)
+    .where("p.merged_into_id", "is not", null)
+    .execute();
+  for (const row of merged) if (row.merged_into_id) people.add(row.merged_into_id);
+  return people;
+}
 
 // --- Reading an order --------------------------------------------------------------------------
 
@@ -507,6 +535,32 @@ export const orderSetPerson = defineOperation({
     }
     // The person must be one the caller can see, and live.
     await ctx.records.get("person", input.personId);
+    // One of the People the order's address matches, or the survivor of merging them (stage 44,
+    // the review of PR #280): never a Person with another address, whom the order's guest
+    // acceptances would otherwise settle to.
+    if (!(await addressPeople(ctx, row.email ?? "")).has(input.personId)) {
+      throw new ValidationError(
+        "That Person does not have this order's address: merge the People who do, then pass the " +
+          "one that remains",
+        { field: "personId", rule: "order_person" },
+      );
+    }
+    // A minor is the order's only once nothing is due for them (a guest's acceptances never count
+    // for a minor): a parent, a guardian or a paper form agrees first, or the order is refunded.
+    if (isMinor(await personFacts(ctx.db, input.personId))) {
+      const lines = await ctx.db
+        .selectFrom("core_order_line")
+        .select("object_type")
+        .where("order_id", "=", row.id)
+        .execute();
+      const agreed = await enforcePurchase(
+        ctx,
+        pointsOfObjects(lines.map((line) => line.object_type)),
+        { guest: false, participant: input.personId, payer: input.personId },
+        undefined,
+      );
+      if (agreed.guards.length) ctx.write(...agreed.guards);
+    }
     const next = await changeOrder(
       ctx,
       row,
@@ -1075,6 +1129,7 @@ export const orderStartHeld = defineOperation({
       .max(320)
       .optional()
       .describe("The buyer's address: required for a guest; a signed-in customer passes none"),
+    agreements: guestAcceptancesSchema.optional(),
   }),
   output: orderSchema.extend({
     recordId: z.string().describe("The record made and held for the order"),
@@ -1086,6 +1141,7 @@ export const orderStartHeld = defineOperation({
   hostInternal: true,
   toolOnly: true,
   mcp: { expose: false },
+  redact: ["agreements"],
   auditSummary: (output) => ({ id: output.id, recordId: output.recordId }),
   async handler(input, ctx) {
     const started = await startHeld(ctx, input);

@@ -172,6 +172,10 @@ export default defineExtension({
         balanceDue: { type: "date", label: "Balance due" },
       },
       capacity: { places: "places", pool: "event", show: "low", lowAt: 10 },
+      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so a
+      // ticket sells as before until the business attaches a document (a waiver) to "event". The
+      // buyer agrees for themselves (ADR 0644).
+      agreements: { point: "event", label: "Buying a ticket", suggests: ["waiver"] },
       sellable: {
         price: "price",
         saleWindow: { from: "onSaleFrom", until: "onSaleUntil" },

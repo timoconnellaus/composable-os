@@ -568,6 +568,15 @@ export const buy = defineTool({
       courseId: id.optional(),
       bundleId: id.optional(),
       email: z.string().trim().max(320).optional().describe("A guest's email address"),
+      agreements: z
+        .array(z.record(z.string(), z.unknown()))
+        .max(20)
+        .optional()
+        .describe(
+          "A guest only: their acceptances of what is due, passed on to the host as they are (each " +
+            "{ versionId, typedName, signature?, answers? }); the host checks and records them. A " +
+            "signed-in member agrees first.",
+        ),
     })
     .refine((v) => Boolean(v.courseId) !== Boolean(v.bundleId), {
       message: "Name a course or a bundle, not both",
@@ -610,6 +619,7 @@ export const buy = defineTool({
       ],
       pay: "full",
       ...(input.email === undefined ? {} : { email: input.email }),
+      ...(input.agreements === undefined ? {} : { agreements: input.agreements }),
     });
     return {
       id: order.id,

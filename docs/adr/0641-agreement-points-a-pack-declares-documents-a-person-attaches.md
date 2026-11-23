@@ -53,3 +53,11 @@ an `enter` on an object without states, and a missing person relation.
 Amended again 2026-11-23 (the review of PR #274): the counter also moves when someone becomes or
 stops being a minor, a family link starts or ends, and a Person goes to or from the Trash, is
 merged or is erased (triggers in migration 0851; ADR 0642's amendment lists them).
+
+## Amended 2026-11-23: the points are asked (stage 44 step 3, [ADR 0644](0644-enforcement-nobody-pays-or-books-without-what-is-due.md))
+`createOrder`, `startSubscription` and the transition engine ask the points (`agreements/enforce.ts`)
+and carry the guard. Shipped points: `membership` (`memberships.plan`, `memberships.passtype`, and
+`memberships.pass` with `enter: ["active"]` for a pass staff give by hand), `booking`
+(`bookings.booking`, `enter: ["booked", "waiting"]`), `event` (`ticketing.tickettype`) and `course`
+(`courses.course`, `courses.bundle`, `courses.plan`). A point that goes away on a pack upgrade is
+still the reconciler's work named in the spec (not built here).
