@@ -499,6 +499,21 @@ async function assertReferences(ctx: HandlerContext, prepared: PreparedValue[]) 
       }
       continue;
     }
+    // A checklist field (ADR 0650) picks an active template.
+    if (p.field.fieldType === "checklist") {
+      const found = await ctx.db
+        .selectFrom("core_checklist")
+        .select("id")
+        .where("id", "in", jsonList(ids))
+        .where("active", "=", 1)
+        .execute();
+      if (found.length !== new Set(ids).size) {
+        throw new ValidationError(`${p.field.name}: no such checklist in use`, {
+          field: p.field.name,
+        });
+      }
+      continue;
+    }
     if (p.field.fieldType === "relation" && p.field.options?.to) {
       const target = getObject(p.field.options.to);
       if (!target) throw new ValidationError(`${p.field.name}: unknown target object`);

@@ -56,6 +56,16 @@ const shift = z.object({
     .object({ id: z.string(), to: z.string().nullable(), from: z.string().nullable() })
     .nullable(),
   warnings: z.array(warning).nullable().describe("For someone who rosters only"),
+  checklist: z
+    .object({
+      name: z.string(),
+      state: z
+        .enum(["not_started", "in_progress", "done", "missed", "cancelled"])
+        .nullable()
+        .describe("For its person and whoever rosters only"),
+    })
+    .nullable()
+    .describe("Its checklist, if it has one"),
 });
 
 const roster = z.object({
@@ -904,4 +914,182 @@ export const exportPeriod = defineTool({
   permission: PAY,
   humanOnly: true,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.payPeriod.export", input)) as never,
+});
+
+// --- Checklists (stage 45 step 4b, ADR 0650) -------------------------------------------------------
+// A duty may carry a checklist its shift's person ticks off. Every checklist tool is a person's own,
+// at the screen (`humanOnly`): a tick says a person did the step, and how a checklist went is read
+// only by its person and whoever rosters, never by an assistant. The host decides whose it is to
+// tick (the shift's person, or whoever rosters, for them, with why) and whether it may be ticked
+// now; these tools ask and pass on what it answers.
+
+const checklistTick = z.object({
+  done: z.boolean(),
+  why: z.string().nullable(),
+  note: z.string().nullable(),
+  by: z.string(),
+  byName: z.string(),
+  for: z.string(),
+  forName: z.string(),
+  onBehalf: z.boolean(),
+  onBehalfWhy: z.string().nullable(),
+  at: z.string(),
+  label: z.string().describe('"Ticked by X", or "Ticked by X for Y"'),
+});
+
+const checklistRun = z.object({
+  id: z.string(),
+  object: z.string(),
+  record: z.string(),
+  template: z.object({ id: z.string(), name: z.string(), version: z.number() }),
+  state: z.enum(["open", "done", "missed", "cancelled"]),
+  account: z.string().nullable(),
+  name: z.string().nullable(),
+  opens: z.string(),
+  closes: z.string(),
+  tickUntil: z.string(),
+  madeAt: z.string(),
+  closedAt: z.string().nullable(),
+  closedBy: z.string().nullable(),
+  closedByName: z.string().nullable(),
+  closedWhy: z.string().nullable(),
+  steps: z.array(
+    z.object({
+      position: z.number(),
+      text: z.string(),
+      required: z.boolean(),
+      asksNote: z.boolean(),
+      tick: checklistTick.nullable(),
+      missed: z.boolean(),
+    }),
+  ),
+  corrections: z.array(
+    z.object({ id: z.string(), text: z.string(), by: z.string(), byName: z.string(), at: z.string() }),
+  ),
+});
+
+const shiftRef = { object: z.string().min(1).max(81), id: z.string().min(1).max(64) };
+
+export const checklist = defineTool({
+  description:
+    "A shift's checklist and how it is going: each step, its tick (who ticked it, and for whom), " +
+    "what was missed, and corrections; before it opens, its steps. Its person and whoever " +
+    "rosters only; `canTick` says whether you may tick it now. A person's own read.",
+  input: z.object(shiftRef),
+  output: z.object({
+    template: z.object({ id: z.string(), name: z.string() }).nullable(),
+    run: checklistRun.nullable(),
+    preview: z
+      .array(z.object({ text: z.string(), required: z.boolean(), asksNote: z.boolean() }))
+      .nullable(),
+    opens: z.string().nullable(),
+    closes: z.string().nullable(),
+    tickUntil: z.string().nullable(),
+    canTick: z.boolean(),
+    onBehalf: z.boolean(),
+    forName: z.string().nullable(),
+  }),
+  risk: "read",
+  permission: [...TEAM],
+  grantLiftsRoleLimits: true,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("checklist.forRecord", input)) as never,
+});
+
+export const tick = defineTool({
+  description:
+    "Tick one step of your shift's checklist: done (with a note where the step asks for one), " +
+    "not done (with why), or clear your tick. From when the shift starts until 2 hours after it " +
+    "ends. Whoever rosters may tick someone's for them, saying why (forWhy): it is kept as " +
+    "ticked by them for that person. A person's own act.",
+  input: z.object({
+    ...shiftRef,
+    step: z.number().int().min(0).max(49),
+    state: z.enum(["done", "not_done", "clear"]),
+    note: z.string().trim().max(1000).optional(),
+    why: z.string().trim().max(500).optional(),
+    forWhy: z.string().trim().max(500).optional(),
+  }),
+  output: z.object({
+    run: z.string(),
+    step: z.number(),
+    state: z.enum(["done", "not_done", "clear"]),
+    ticked: z.number(),
+    of: z.number(),
+  }),
+  risk: "write",
+  permission: [...TEAM],
+  grantLiftsRoleLimits: true,
+  humanOnly: true,
+  // What someone writes on a step, why it was not done, why it was ticked for them: private.
+  redact: ["note", "why", "forWhy"],
+  handler: async (input, ctx) => (await ctx.ops.call("checklist.tick", input)) as never,
+});
+
+export const checklistDone = defineTool({
+  description:
+    "Mark your shift's checklist done, once every required step is ticked. Done is final: it " +
+    "never changes again. Whoever rosters may mark someone's done for them, saying why. A " +
+    "person's own act.",
+  input: z.object({ ...shiftRef, forWhy: z.string().trim().max(500).optional() }),
+  output: z.object({ run: z.string(), state: z.literal("done") }),
+  risk: "write",
+  permission: [...TEAM],
+  grantLiftsRoleLimits: true,
+  humanOnly: true,
+  redact: ["forWhy"],
+  handler: async (input, ctx) => (await ctx.ops.call("checklist.complete", input)) as never,
+});
+
+export const checklistRuns = defineTool({
+  description:
+    "How checklists went, by checklist and date: every run from `from` to `to` (local dates, at " +
+    "most 62 days), with its shift, its person, whether it is open, done, missed or cancelled, " +
+    "the steps ticked, those missed, and ticks made for the person by someone else. Whoever " +
+    "rosters, a person only.",
+  input: z.object({
+    from: localDate,
+    to: localDate,
+    template: z.string().min(1).max(64).optional(),
+  }),
+  output: z.object({
+    zone: z.string(),
+    runs: z.array(
+      z.object({
+        id: z.string(),
+        object: z.string(),
+        record: z.string(),
+        title: z.string(),
+        template: z.object({ id: z.string(), name: z.string() }),
+        state: z.enum(["open", "done", "missed", "cancelled"]),
+        account: z.string().nullable(),
+        name: z.string().nullable(),
+        opens: z.string(),
+        closes: z.string(),
+        steps: z.number(),
+        ticked: z.number(),
+        onBehalf: z.number(),
+        missed: z.array(z.string()),
+        corrections: z.number(),
+      }),
+    ),
+    truncated: z.boolean(),
+  }),
+  risk: "read",
+  permission: MANAGE,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("checklist.runs", input)) as never,
+});
+
+export const checklistCorrect = defineTool({
+  description:
+    "Add a correction beside a closed checklist (done, missed or cancelled): a note kept with " +
+    "it, never a change to its ticks. Whoever rosters, a person only.",
+  input: z.object({ run: z.string().min(1).max(64), text: z.string().trim().min(1).max(1000) }),
+  output: z.object({ id: z.string(), run: z.string() }),
+  risk: "write",
+  permission: MANAGE,
+  humanOnly: true,
+  redact: ["text"],
+  handler: async (input, ctx) => (await ctx.ops.call("checklist.correct", input)) as never,
 });

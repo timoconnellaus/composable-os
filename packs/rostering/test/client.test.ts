@@ -41,6 +41,7 @@ const shift = (over: Partial<RosterShift> = {}): RosterShift => ({
   mine: false,
   offer: null,
   warnings: null,
+  checklist: null,
   ...over,
 });
 

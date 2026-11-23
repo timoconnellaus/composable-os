@@ -992,6 +992,23 @@ async function approveActions(
   // A roster change (stage 45, ADRs 0625 and 0626): a restricted tool's call is approved only by
   // someone who holds the tool, and a write of who works a shift only by someone who rosters.
   await assertRosterApprover(ctx, ctx.db, targets);
+  // An AI's checklist (stage 45 step 4b, ADR 0650): approved only by a person who may write
+  // checklists themselves, so what staff are asked to follow is always a person's.
+  const checklist = targets.find((t) => t.operation === "checklist.save");
+  if (checklist) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A checklist is approved by a person, never by an AI actor", {
+        actionId: checklist.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "checklists:write")) {
+      throw new ForbiddenError(
+        "Approving a checklist needs the checklists permission (checklists:write)",
+        { actionId: checklist.id, permission: "checklists:write" },
+      );
+    }
+  }
   const targetIds = new Set(targets.map((t) => t.id));
   // Out-of-order approval is refused: dependencies must be applied or approved together.
   const depIds = [...new Set(targets.flatMap((t) => parse<string[]>(t.depends_on, [])))];

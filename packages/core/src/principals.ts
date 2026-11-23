@@ -86,6 +86,10 @@ export type Role = (typeof ROLES)[number];
  * - `agreements:health` read a health form's answers (stage 44, ADR 0643): health information.
  *   Admins by default, grantable; a person only whatever is granted, and every read is audited.
  *   No AI actor reads them, with any grant.
+ * - `checklists:write` write the business's checklist templates (stage 45 step 4b, ADR 0650).
+ *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
+ *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
+ *   asked to follow is always one a person approved.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -104,6 +108,7 @@ export const PERMISSIONS = [
   "agreements:manage",
   "agreements:paper",
   "agreements:health",
+  "checklists:write",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -140,6 +145,7 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:manage",
   "agreements:paper",
   "agreements:health",
+  "checklists:write",
 ] as const;
 
 /**

@@ -35,5 +35,6 @@ export {
 export * from "./sellable.ts";
 export * from "./slug.ts";
 export * from "./staffed.ts";
+export * from "./checklists.ts";
 export * from "./states.ts";
 export * from "./unique.ts";

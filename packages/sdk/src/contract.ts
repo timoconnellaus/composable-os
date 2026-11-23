@@ -12,6 +12,7 @@ import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
+import type { ChecklistsSpec } from "./checklists.ts";
 import type { StatesSpec } from "./states.ts";
 import type { UniqueSpec } from "./unique.ts";
 
@@ -179,6 +180,14 @@ export type FieldSpec =
     })
   | (Omit<FieldBase, "default" | "defaultSetting"> & {
       /**
+       * A checklist (stage 45 step 4b, ADR 0650): one of the business's checklist templates
+       * (Settings → Checklists), by id; only an active one may be picked. Named by an object's
+       * `checklists.template`, it gives each record a run of it to tick off.
+       */
+      type: "checklist";
+    })
+  | (Omit<FieldBase, "default" | "defaultSetting"> & {
+      /**
        * A record's address (stage 28, ADR 0442): lowercase letters and digits in words joined
        * by hyphens, at most 120 characters, unique among the object's live records. Left empty
        * on a new record, the host makes one from the title. Name it as `publishable.slug`.
@@ -295,6 +304,12 @@ export interface ObjectSpec {
    * write with its warnings (away, not qualified, no one on it).
    */
   staffed?: StaffedSpec;
+  /**
+   * A checklist the record's person ticks off (see ChecklistsSpec, ADR 0650): a run of the
+   * template its `template` field names, made by the host, ticked by the person (or by someone who
+   * rosters, for them), never changed once done, read only by the person and those who roster.
+   */
+  checklists?: ChecklistsSpec;
   /**
    * The record's owner: a `user` field of this object (ADR 0246, stage 14). Assignment rules set
    * it when a record is created without one, and stage 14's visibility policies read it.

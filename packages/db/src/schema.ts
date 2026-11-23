@@ -1408,6 +1408,75 @@ export interface CoreStaffFeedTable {
   created_at: string;
 }
 
+/** Migration 0815 (stage 45 step 4b, ADR 0650): a checklist template. Not personal. */
+export interface CoreChecklistTable {
+  id: string;
+  name: string;
+  purpose: string | null;
+  active: number;
+  version: number;
+  created_by: string;
+  created_at: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+/** Migration 0815: a template's steps as they are now (position from 0). */
+export interface CoreChecklistStepTable {
+  checklist_id: string;
+  position: number;
+  text: string;
+  required: number;
+  asks_note: number;
+}
+
+/**
+ * Migration 0815: a run of a template on one record, its steps copied as they were (JSON). The
+ * database refuses every change of a closed run, and of its ticks.
+ */
+export interface CoreChecklistRunTable {
+  id: string;
+  object_type: string;
+  record_id: string;
+  checklist_id: string;
+  version: number;
+  name: string;
+  steps: string;
+  account_id: string | null;
+  /** Unix seconds, kept current while open. */
+  opens: number;
+  closes: number;
+  state: "open" | "done" | "missed" | "cancelled";
+  made_at: string;
+  closed_at: string | null;
+  closed_by: string | null;
+  closed_why: string | null;
+  missed_steps: string | null;
+}
+
+/** Migration 0815: one tick of a run's step, keeping who ticked it and for whom. */
+export interface CoreChecklistTickTable {
+  run_id: string;
+  position: number;
+  done: number;
+  why: string | null;
+  note: string | null;
+  ticked_by: string;
+  ticked_for: string;
+  on_behalf: number;
+  on_behalf_why: string | null;
+  ticked_at: string;
+}
+
+/** Migration 0815: a correction someone who rosters added beside a closed run. */
+export interface CoreChecklistNoteTable {
+  id: string;
+  run_id: string;
+  text: string;
+  written_by: string;
+  written_at: string;
+}
+
 /** Migration 0812 (stage 45, ADR 0624): a batch's count guard; nothing is stored. */
 export interface CoreStaffGuardTable {
   expected: number;
@@ -2911,6 +2980,11 @@ export interface CoreDatabase {
   core_staff_qualification: CoreStaffQualificationTable;
   core_staff_away: CoreStaffAwayTable;
   core_staff_feed: CoreStaffFeedTable;
+  core_checklist: CoreChecklistTable;
+  core_checklist_step: CoreChecklistStepTable;
+  core_checklist_run: CoreChecklistRunTable;
+  core_checklist_tick: CoreChecklistTickTable;
+  core_checklist_note: CoreChecklistNoteTable;
   core_staff_offer: CoreStaffOfferTable;
   core_staff_run: CoreStaffRunTable;
   core_staff_guard: CoreStaffGuardTable;

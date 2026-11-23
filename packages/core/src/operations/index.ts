@@ -72,6 +72,7 @@ import { routineMailOperations } from "./routine-mail.ts";
 import { searchOperations } from "./search.ts";
 import { settingsOperations } from "./settings.ts";
 import { setupOperations } from "./setup.ts";
+import { checklistOperations } from "./checklist.ts";
 import { staffingOperations } from "./staffing.ts";
 import { staffingFeedOperations } from "./staffing-feed.ts";
 import { staffingPayOperations } from "./staffing-pay.ts";
@@ -177,6 +178,7 @@ export const coreOperations = [
   ...staffingFeedOperations,
   ...staffingPayOperations,
   ...staffingScreenOperations,
+  ...checklistOperations,
   ...allowanceOperations,
   ...waitlistOperations,
   ...agreementOperations,
