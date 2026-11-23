@@ -556,6 +556,8 @@ export interface StaffedDefinition {
   pattern?: { link: string; who: string } | undefined;
   payBefore?: { field: string } | undefined;
   payAfter?: { field: string } | undefined;
+  /** What shows a shift was worked (ADR 0627): `object` is the evidence object's registry name. */
+  evidence?: { object: string; link: string; by: string } | undefined;
 }
 
 /** The SDK's RecurringScheduleSpec with the objects' registry names (ADR 0500). */

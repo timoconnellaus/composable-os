@@ -978,14 +978,25 @@ export interface StaffingRulesSpec {
   /** A restricted permission of this extension's tools: who holds it (and admins) roster. */
   rosters: string;
   /**
-   * Number settings of this extension the host reads, each `personApproves`; the host's defaults
-   * when left out.
+   * A restricted, grantable permission of this extension's tools: who holds it (and admins) read
+   * who is counted for pay, the pay periods' totals, and lock, reopen and export them (ADR 0627).
+   */
+  pays?: string;
+  /**
+   * Settings of this extension the host reads, each `personApproves`; the host's defaults when
+   * left out.
    */
   settings?: {
-    /** Minutes before a shift starts that offers close (default 60). */
+    /** Minutes before a shift starts that offers close (default 60). A number setting. */
     offerCutoffMinutes?: string;
-    /** Days ahead a shift with nobody on it is warned about and told (default 14). */
+    /** Days ahead a shift with nobody on it is warned about and told (default 14). A number. */
     uncoveredDays?: string;
+    /** The pay period: a select of `weekly`, `fortnightly`, `monthly` (ADR 0627). */
+    payPeriod?: string;
+    /** The local date (YYYY-MM-DD) one weekly or fortnightly period starts: a text setting. */
+    payPeriodStart?: string;
+    /** The day of the month (1 to 28) a monthly period starts: a number setting. */
+    payPeriodDay?: string;
   };
 }
 

@@ -332,6 +332,33 @@ export function toOperationError(error: unknown): OperationError {
       rule: "offer_fixed",
     });
   }
+  // A locked pay period never changes (migration 0813, ADR 0627): a shift inside one keeps its
+  // person, times, kind and whether it is live; its not-worked marks and who was counted stay.
+  // The answer names no period's totals.
+  if (message.includes("core_pay_period_locked")) {
+    return new ConflictError(
+      "This is inside a locked pay period, so nothing was changed. Whoever handles pay reopens the period first.",
+      { rule: "pay_period_locked" },
+    );
+  }
+  if (
+    message.includes("core_pay_period_overlap") ||
+    message.includes("core_pay_period_held") ||
+    message.includes("UNIQUE constraint failed: core_pay_period")
+  ) {
+    return new ConflictError(
+      "This pay period, or one overlapping it, is already locked, so nothing was changed.",
+      { rule: "pay_period_held" },
+    );
+  }
+  if (message.includes("core_pay_period_fixed")) {
+    return new ConflictError(
+      "A locked pay period and its lines never change, so nothing was changed.",
+      {
+        rule: "pay_period_fixed",
+      },
+    );
+  }
   // A live shift whose end is not after its start (ADR 0621), written by a path that does not
   // check first: the trigger on the staffed object's table refuses it.
   if (message.includes("core_staff_time_backwards")) {

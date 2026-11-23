@@ -95,6 +95,51 @@ function hostWith(): TestHost {
       }),
       "staffing.qualifications": () => ({ items: [] }),
       "staffing.uncovered": () => ({ items: [{ ...SUMMARY, offered: false }] }),
+      "staffing.markNotWorked": (input) => ({
+        object: input.object,
+        id: input.id,
+        notWorked: input.notWorked,
+        changed: true,
+      }),
+      "staffing.payBasis": (input) => ({
+        account: input.account,
+        from: "2026-06-01",
+        changed: true,
+      }),
+      "staffing.payBases": () => ({ today: "2026-06-01", items: [], truncated: false }),
+      "staffing.payPeriod.list": () => ({
+        setting: { period: "fortnightly", start: "2026-06-01", day: 1, zone: "Australia/Sydney" },
+        set: true,
+        periods: [],
+      }),
+      "staffing.payPeriod.totals": () => ({
+        period: {
+          start: "2026-06-01",
+          end: "2026-06-14",
+          zone: "Australia/Sydney",
+          locked: false,
+          preview: true,
+          version: null,
+        },
+        totals: [],
+        lines: [],
+        minutes: 0,
+        hours: "0.00",
+      }),
+      "staffing.payPeriod.lock": (input) => ({
+        id: "ppe_1",
+        start: input.start,
+        end: "2026-06-14",
+        version: 1,
+      }),
+      "staffing.payPeriod.reopen": (input) => ({ id: "ppe_1", start: input.start, version: 1 }),
+      "staffing.payPeriod.export": (input) => ({
+        filename: `pay-${input.start}-to-2026-06-14-v1.csv`,
+        contentType: "text/csv",
+        csv: "name\r\n",
+        locked: true,
+        version: 1,
+      }),
     },
   });
 }
@@ -110,12 +155,23 @@ describe("the manifest", () => {
   it("declares the team role, the grants, the restricted permission and the roster's rules", () => {
     const m = hostWith().manifest;
     expect(m.roles.team).toMatchObject({ permissions: ["rostering:team"], read: [] });
-    expect(m.grantable).toEqual(["rostering:roster", "rostering:manage"]);
-    expect(m.restricted).toEqual(["rostering:manage"]);
+    expect(m.grantable).toEqual(["rostering:roster", "rostering:manage", "rostering:pay"]);
+    expect(m.restricted).toEqual(["rostering:manage", "rostering:pay"]);
     expect(m.staffing).toEqual({
       rosters: "rostering:manage",
-      settings: { offerCutoffMinutes: "offerCutoffMinutes", uncoveredDays: "uncoveredDays" },
+      pays: "rostering:pay",
+      settings: {
+        offerCutoffMinutes: "offerCutoffMinutes",
+        uncoveredDays: "uncoveredDays",
+        payPeriod: "payPeriod",
+        payPeriodStart: "payPeriodStart",
+        payPeriodDay: "payPeriodDay",
+      },
     });
+    // The pay period: fortnightly by default, from a date the business sets; a person's to change.
+    expect(m.settings.payPeriod).toMatchObject({ default: "fortnightly", personApproves: true });
+    expect(m.settings.payPeriodStart?.personApproves).toBe(true);
+    expect(m.settings.payPeriodDay?.personApproves).toBe(true);
     // The shift is a staffed record; the series makes it, 8 weeks ahead unless the setting says.
     expect(m.objects.shift?.staffed).toMatchObject({ who: { field: "staff" }, kind: "duty" });
     expect(m.objects.dutyseries?.recurring).toMatchObject({
@@ -142,15 +198,29 @@ describe("the manifest", () => {
       "awayFor",
       "awayList",
       "uncovered",
+      "markNotWorked",
     ]) {
       expect(tools[name]?.permission, name).toBe("rostering:manage");
     }
+    // Pay: restricted, and a person's only: an assistant never reads or changes it.
+    const PAY = ["payBasis", "payBases", "periods", "periodTotals", "lock", "reopen", "export"];
+    for (const name of PAY) {
+      expect(tools[name]?.permission, name).toBe("rostering:pay");
+      expect(tools[name]?.humanOnly, name).toBe(true);
+    }
+    // What the audit log never keeps: how someone is counted, why a period was reopened or a
+    // shift not worked.
+    expect(tools.payBasis?.redact).toEqual(["basis"]);
+    expect(tools.reopen?.redact).toEqual(["reason"]);
+    expect(tools.markNotWorked?.redact).toEqual(["reason"]);
     // A person's own acts: never an assistant's.
     for (const name of ["offer", "withdraw", "take", "away", "back", "awayFor", "awayList"]) {
       expect(tools[name]?.humanOnly, name).toBe(true);
     }
     // Roster changes an assistant may ask for, applied by a person.
-    for (const name of ["assign", "qualify"]) expect(tools[name]?.personApproves, name).toBe(true);
+    for (const name of ["assign", "qualify", "markNotWorked"]) {
+      expect(tools[name]?.personApproves, name).toBe(true);
+    }
     // Reads open to an assistant.
     for (const name of [
       "week",
@@ -291,5 +361,54 @@ describe("the rosterers' tools", () => {
     const out = await host.runTool<{ items: unknown[] }>("uncovered", {});
     expect(out.items).toHaveLength(1);
     expect(callsTo(host, "staffing.uncovered")[0]?.input).toEqual({});
+  });
+});
+
+describe("the pay tools", () => {
+  it("markNotWorked passes the shift, the mark and why", async () => {
+    const host = hostWith();
+    await host.runTool("markNotWorked", {
+      object: "bookings.class",
+      id: "cls_1",
+      reason: "Nobody ran it",
+    });
+    expect(callsTo(host, "staffing.markNotWorked")[0]?.input).toEqual({
+      object: "bookings.class",
+      id: "cls_1",
+      notWorked: true,
+      reason: "Nobody ran it",
+    });
+  });
+
+  it("each pay tool asks the host's pay operation, passing only what it was given", async () => {
+    const host = hostWith();
+    await host.runTool("payBasis", { account: "usr_ann", basis: "by_time" }, { caller: ME });
+    await host.runTool("payBases", {}, { caller: ME });
+    await host.runTool("periods", {}, { caller: ME });
+    await host.runTool("periodTotals", { start: "2026-06-01" }, { caller: ME });
+    await host.runTool("lock", { start: "2026-06-01" }, { caller: ME });
+    await host.runTool(
+      "reopen",
+      { start: "2026-06-01", reason: "A late correction" },
+      { caller: ME },
+    );
+    const out = await host.runTool<{ filename: string }>(
+      "export",
+      { start: "2026-06-01" },
+      { caller: ME },
+    );
+    expect(out.filename).toBe("pay-2026-06-01-to-2026-06-14-v1.csv");
+    expect(callsTo(host, "staffing.payBasis")[0]?.input).toEqual({
+      account: "usr_ann",
+      basis: "by_time",
+    });
+    expect(callsTo(host, "staffing.payPeriod.list")[0]?.input).toEqual({});
+    expect(callsTo(host, "staffing.payPeriod.totals")[0]?.input).toEqual({ start: "2026-06-01" });
+    expect(callsTo(host, "staffing.payPeriod.lock")[0]?.input).toEqual({ start: "2026-06-01" });
+    expect(callsTo(host, "staffing.payPeriod.reopen")[0]?.input).toEqual({
+      start: "2026-06-01",
+      reason: "A late correction",
+    });
+    expect(callsTo(host, "staffing.payPeriod.export")[0]?.input).toEqual({ start: "2026-06-01" });
   });
 });

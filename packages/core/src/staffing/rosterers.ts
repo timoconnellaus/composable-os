@@ -59,8 +59,24 @@ interface StaffingDeclaration {
   extension: string;
   rosters: string;
   grantable: boolean;
-  settings: { offerCutoffMinutes?: string; uncoveredDays?: string };
+  /** Who handles pay (ADR 0627), when declared and still grantable. */
+  pays: string | null;
+  settings: {
+    offerCutoffMinutes?: string;
+    uncoveredDays?: string;
+    payPeriod?: string;
+    payPeriodStart?: string;
+    payPeriodDay?: string;
+  };
 }
+
+const SETTING_KEYS = [
+  "offerCutoffMinutes",
+  "uncoveredDays",
+  "payPeriod",
+  "payPeriodStart",
+  "payPeriodDay",
+] as const;
 
 /** The installed, active, shipped packs that declare the roster's rules (ADR 0626). */
 async function declarations(db: Kysely<CoreDatabase>): Promise<StaffingDeclaration[]> {
@@ -77,23 +93,27 @@ async function declarations(db: Kysely<CoreDatabase>): Promise<StaffingDeclarati
     try {
       const staffing = JSON.parse(row.staffing ?? "null") as {
         rosters?: unknown;
+        pays?: unknown;
         settings?: Record<string, unknown>;
       } | null;
       const grantable = parseGrants(row.grantable);
       if (typeof staffing?.rosters !== "string") continue;
       const settings = staffing.settings ?? {};
+      const named: StaffingDeclaration["settings"] = {};
+      for (const k of SETTING_KEYS) {
+        const value = settings[k];
+        if (typeof value === "string") named[k] = value;
+      }
       out.push({
         extension: row.id,
         rosters: staffing.rosters,
         grantable: grantable.includes(staffing.rosters),
-        settings: {
-          ...(typeof settings.offerCutoffMinutes === "string"
-            ? { offerCutoffMinutes: settings.offerCutoffMinutes }
-            : {}),
-          ...(typeof settings.uncoveredDays === "string"
-            ? { uncoveredDays: settings.uncoveredDays }
-            : {}),
-        },
+        // A pay permission no longer declared grantable is nobody's grant (admins still hold it).
+        pays:
+          typeof staffing.pays === "string" && grantable.includes(staffing.pays)
+            ? staffing.pays
+            : null,
+        settings: named,
       });
     } catch {
       // A manifest that does not parse declares nothing (fail closed: admins only).
@@ -148,6 +168,42 @@ export async function assertMayRoster(ctx: HandlerContext, what: string): Promis
     `Only someone who rosters may ${what}. Offer your own shift instead, or ask whoever rosters.`,
     { rule: "rostering" },
   );
+}
+
+/**
+ * Whether the staff account `account` handles pay (ADR 0627): an active person who is an admin,
+ * or whom a human admin granted the pay permission a shipped pack declares (`staffing.pays`).
+ */
+export async function isPayer(db: Kysely<CoreDatabase>, account: string): Promise<boolean> {
+  const row = await db
+    .selectFrom("core_user")
+    .select(["role", "kind", "deactivated_at", "granted_permissions"])
+    .where("id", "=", account)
+    .executeTakeFirst();
+  if (!row || row.kind !== "human" || row.deactivated_at) return false;
+  if (row.role === "admin") return true;
+  const grants = parseGrants(row.granted_permissions);
+  if (!grants.length) return false;
+  return (await declarations(db)).some((d) => d.pays !== null && grants.includes(d.pays));
+}
+
+/** The pay period's settings as the pack declaring the roster's rules sets them, or null. */
+export async function payPeriodSettings(db: Kysely<CoreDatabase>): Promise<{
+  period: unknown;
+  start: unknown;
+  day: unknown;
+} | null> {
+  const declared = (await declarations(db)).find(
+    (d) => d.settings.payPeriod && d.settings.payPeriodStart && d.settings.payPeriodDay,
+  );
+  if (!declared) return null;
+  const values = await extensionSettingValues(db, declared.extension);
+  const { payPeriod, payPeriodStart, payPeriodDay } = declared.settings;
+  return {
+    period: payPeriod ? values[payPeriod] : undefined,
+    start: payPeriodStart ? values[payPeriodStart] : undefined,
+    day: payPeriodDay ? values[payPeriodDay] : undefined,
+  };
 }
 
 /** Every active rosterer's account: admins, and those granted the rosterers' permission. */

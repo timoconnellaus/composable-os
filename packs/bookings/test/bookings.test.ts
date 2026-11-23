@@ -114,6 +114,9 @@ describe("bookings pack (test host)", () => {
       "reminderMinutes",
       "dropInPrice",
       "staffOnly",
+      // Pay only (stage 45 step 6, ADR 0627): set-up and pack-down minutes for the coach.
+      "rosterBeforeMinutes",
+      "rosterAfterMinutes",
     ]);
     expect(h.manifest.settings).toMatchObject({
       opensDays: { default: 7, max: 56 },
@@ -943,7 +946,15 @@ describe("bookings pack (test host)", () => {
       live: ["scheduled", "done"],
       place: "room.name",
       pattern: { link: "series", who: "coach" },
+      // Pay (ADR 0627): the class type's set-up and pack-down minutes, and the list as evidence.
+      payBefore: { field: "classType.rosterBeforeMinutes" },
+      payAfter: { field: "classType.rosterAfterMinutes" },
+      evidence: { object: "booking", link: "class", by: "markedBy" },
     });
+    // Set-up and pack-down minutes feed pay: a person's to change.
+    const classtype = m.fields["programs.classtype"] ?? {};
+    expect(classtype.rosterBeforeMinutes?.personApproves).toBe(true);
+    expect(classtype.rosterAfterMinutes?.personApproves).toBe(true);
     expect(m.objects.coach?.unique).toEqual([{ fields: ["user"] }]);
   });
 

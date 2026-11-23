@@ -97,6 +97,8 @@ export const ID_PREFIXES = {
   staffOffer: "sfo",
   /** A time a staff member said they cannot work (stage 45, ADR 0622). */
   staffAway: "saw",
+  /** One locked version of a pay period (stage 45 step 6, ADR 0627). */
+  payPeriod: "ppe",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

@@ -23,9 +23,14 @@
 //   - `rostering:roster`: the same tools, grantable, for an account with another role (a coach's
 //     `bookings.coach`); ordinary staff hold the tools anyway;
 //   - `rostering:manage`: restricted, held by admins and by grant only (decision 16, nobody at
-//     first): put people on shifts, qualifications, others' unavailability, the uncovered shifts.
-//     Its holders are the rosterers the host tells and lets roster (`staffing.rosters`).
-// Not in this step: the checklist on a duty (4b), the calendar feed (5), pay (6), the screens (7).
+//     first): put people on shifts, qualifications, others' unavailability, the uncovered shifts,
+//     marking a shift not worked. Its holders are the rosterers the host tells and lets roster
+//     (`staffing.rosters`);
+//   - `rostering:pay` (step 6, ADR 0627): restricted, held by admins and by grant only: who is
+//     counted for pay, the pay periods' totals, lock, reopen and export. Every pay tool is a
+//     person's only (`humanOnly`): an assistant never reads or changes pay, whatever is granted.
+//     The host holds no rates and no money: hours and counts, which payroll applies rates to.
+// Not in this step: the checklist on a duty (4b), the calendar feed (5), the screens (7).
 import { defineExtension } from "@composable-os/sdk";
 import {
   assign,
@@ -34,12 +39,20 @@ import {
   awayList,
   back,
   check,
+  exportPeriod,
+  lock,
+  markNotWorked,
   mine,
   myAway,
   offer,
   offers,
+  payBases,
+  payBasis,
+  periods,
+  periodTotals,
   qualifications,
   qualify,
+  reopen,
   take,
   uncovered,
   week,
@@ -83,6 +96,14 @@ export default defineExtension({
       "staffing.qualify",
       "staffing.qualifications",
       "staffing.uncovered",
+      "staffing.markNotWorked",
+      "staffing.payBasis",
+      "staffing.payBases",
+      "staffing.payPeriod.list",
+      "staffing.payPeriod.totals",
+      "staffing.payPeriod.lock",
+      "staffing.payPeriod.reopen",
+      "staffing.payPeriod.export",
     ],
     modules: ["ops"],
   },
@@ -303,11 +324,50 @@ export default defineExtension({
       max: 120,
       personApproves: true,
     },
+    // The pay period (decision 20, ADR 0627): fortnightly by default, from a date the business
+    // chooses (until it is set, nothing is totalled), or monthly from a day of the month.
+    payPeriod: {
+      type: "select",
+      label: "Pay period",
+      description: "How long each pay period is. Totals are made per period, for payroll.",
+      options: [
+        { value: "weekly", label: "Weekly" },
+        { value: "fortnightly", label: "Fortnightly" },
+        { value: "monthly", label: "Monthly" },
+      ],
+      default: "fortnightly",
+      personApproves: true,
+    },
+    payPeriodStart: {
+      type: "text",
+      label: "A pay period starts on (weekly or fortnightly)",
+      description:
+        "The date one pay period starts, YYYY-MM-DD (it fixes the weekday). Until it is set, " +
+        "nothing is totalled.",
+      personApproves: true,
+    },
+    payPeriodDay: {
+      type: "number",
+      label: "A monthly pay period starts on day",
+      description: "The day of the month each monthly pay period starts, 1 to 28.",
+      default: 1,
+      min: 1,
+      max: 28,
+      personApproves: true,
+    },
   },
-  // The host's roster rules read these (ADR 0626): who rosters, and the numbers above.
+  // The host's roster rules read these (ADRs 0626 and 0627): who rosters, who handles pay, and
+  // the settings above.
   staffing: {
     rosters: "rostering:manage",
-    settings: { offerCutoffMinutes: "offerCutoffMinutes", uncoveredDays: "uncoveredDays" },
+    pays: "rostering:pay",
+    settings: {
+      offerCutoffMinutes: "offerCutoffMinutes",
+      uncoveredDays: "uncoveredDays",
+      payPeriod: "payPeriod",
+      payPeriodStart: "payPeriodStart",
+      payPeriodDay: "payPeriodDay",
+    },
   },
   // Someone rostered who has no other access (a cleaner): the roster and their own shifts, offers
   // and takes, their time off, nothing else (ADR 0436). No record reads: only its tools.
@@ -323,17 +383,22 @@ export default defineExtension({
   },
   // The team's tools for an account with another role (a coach), and the rosterers' permission
   // (decision 16: the owner and admins hold it; it is granted to nobody at first).
-  grantable: ["rostering:roster", "rostering:manage"],
+  grantable: ["rostering:roster", "rostering:manage", "rostering:pay"],
   grantableLabels: {
     "rostering:roster":
       "Rostering: see the roster and their own shifts, offer and take shifts, and say when they " +
       "are away. For a coach or anyone with another role who is rostered.",
     "rostering:manage":
       "Rostering, rosters others: put people on shifts, say who may do which work, record " +
-      "others' time off and see everyone's, and see shifts with nobody on them. Admins hold it.",
+      "others' time off and see everyone's, see shifts with nobody on them, and mark a shift not " +
+      "worked. Admins hold it.",
+    "rostering:pay":
+      "Rostering, pay: say who is counted for pay, see each pay period's hours and shifts, lock, " +
+      "reopen and export them for payroll. No rates or money are held. Admins hold it.",
   },
-  // Held by admins and by grant only (ADR 0625): a member does not hold the rosterers' tools.
-  restricted: ["rostering:manage"],
+  // Held by admins and by grant only (ADR 0625): a member does not hold the rosterers' tools or
+  // pay.
+  restricted: ["rostering:manage", "rostering:pay"],
   tools: {
     week,
     mine,
@@ -351,5 +416,13 @@ export default defineExtension({
     awayFor,
     awayList,
     uncovered,
+    markNotWorked,
+    payBasis,
+    payBases,
+    periods,
+    periodTotals,
+    lock,
+    reopen,
+    export: exportPeriod,
   },
 });

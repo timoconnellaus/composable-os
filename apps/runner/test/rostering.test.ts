@@ -146,6 +146,18 @@ const MANAGE_TOOLS = [
   "awayFor",
   "awayList",
   "uncovered",
+  "markNotWorked",
+].map((t) => `x.rostering.${t}`);
+/** Pay (step 6): restricted, and a person's only. */
+const PAY = "rostering:pay";
+const PAY_TOOLS = [
+  "payBasis",
+  "payBases",
+  "periods",
+  "periodTotals",
+  "lock",
+  "reopen",
+  "export",
 ].map((t) => `x.rostering.${t}`);
 
 let admin: ActingUser;
@@ -540,6 +552,7 @@ describe("restricted permissions (criterion 8, ADR 0625)", () => {
       },
       "x.rostering.awayList": {},
       "x.rostering.uncovered": {},
+      "x.rostering.markNotWorked": { object: SHIFT, id: shift, reason: "Not here" },
     };
     for (const name of MANAGE_TOOLS) {
       for (const who of [member, viewer]) {
@@ -1113,6 +1126,306 @@ export default defineExtension({ id: "rogue", version: "0.1.0", contractVersion:
     );
     expect(out.issues.some((i) => i.code === "outside_audience" && i.path === "staffing")).toBe(
       true,
+    );
+  });
+});
+
+// --- Pay (step 6, ADR 0627) -----------------------------------------------------------------------
+
+describe("pay (step 6: criteria 8 and 10 on the shipped packs)", () => {
+  const start = () => localDate(-28 * DAY);
+  const inputs = (account: string): Record<string, unknown> => ({
+    "x.rostering.payBasis": { account, basis: "by_time" },
+    "x.rostering.payBases": {},
+    "x.rostering.periods": {},
+    "x.rostering.periodTotals": { start: start() },
+    "x.rostering.lock": { start: start() },
+    "x.rostering.reopen": { start: start(), reason: "A correction" },
+    "x.rostering.export": { start: start() },
+  });
+  const setStart = () =>
+    run(
+      "extensionSettings.update",
+      { extension: "rostering", values: { payPeriodStart: start() } },
+      staff(),
+    );
+
+  it("a member, a viewer and a rosterer are refused every pay tool until granted pay; an AI always", async () => {
+    await setStart();
+    const member = await account("Member Pay", "member");
+    const viewer = await account("Viewer Pay", "viewer");
+    const rosterer = await account("Rosterer Pay", "member");
+    await grant(rosterer, [MANAGE]);
+    for (const name of PAY_TOOLS) {
+      for (const who of [member, viewer, rosterer]) {
+        const error = await refusal(run(name, inputs(who.id)[name], asUser(who)));
+        expect([name, who.name, error.code]).toEqual([name, who.name, "forbidden"]);
+      }
+    }
+    // An admin holds them; a member granted pay holds them.
+    await run("x.rostering.periods", {}, staff());
+    await grant(member, [PAY]);
+    await run("x.rostering.periods", {}, asUser(member));
+    await run("x.rostering.periodTotals", { start: start() }, asUser(member));
+    // An assistant or an MCP client acting for an admin or a granted member: refused, every one.
+    for (const who of [admin, member]) {
+      for (const actor of ["assistant", "mcp"] as const) {
+        const ctx = asUser(who, {
+          actor,
+          origin: { surface: actor === "mcp" ? "mcp" : "assistant" },
+        });
+        for (const name of PAY_TOOLS) {
+          const error = await refusal(run(name, inputs(who.id)[name], ctx));
+          expect([name, actor, error.code]).toEqual([name, actor, "forbidden"]);
+        }
+      }
+    }
+    // Marking a shift not worked: an assistant's request waits for a person.
+    const shift = await dutyShift(-2 * HOUR, admin.id);
+    const asked = await refusal(
+      run(
+        "x.rostering.markNotWorked",
+        { object: SHIFT, id: shift, reason: "Not here" },
+        staff({ actor: "assistant", origin: { surface: "assistant" } }),
+      ),
+    );
+    expect(asked.code).toBe("pending_approval");
+  });
+
+  it("a class with set-up minutes is totalled, locked, exported and then kept", async () => {
+    await setStart();
+    const paid = await coach("Paid Coach Pat");
+    const withSetup = await create("programs.classtype", {
+      name: unique("Spin"),
+      "bookings.rosterBeforeMinutes": 15,
+      "bookings.rosterAfterMinutes": 5,
+    });
+    const startsAt = new Date(Date.now() - 20 * DAY).toISOString();
+    const klassId = await create(CLASS, {
+      classType: withSetup,
+      startsAt,
+      endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString(),
+      timezone: ZONE,
+      places: 10,
+      coach: paid.profile,
+    });
+    await run(
+      "x.rostering.payBasis",
+      { account: paid.user.id, basis: "by_class", from: localDate(-60 * DAY) },
+      staff(),
+    );
+    type Totals = {
+      totals: { account: string; shifts: number; minutes: number; hours: string }[];
+      period: { locked: boolean };
+    };
+    const preview = await run<Totals>("x.rostering.periodTotals", { start: start() }, staff());
+    expect(preview.period.locked).toBe(false);
+    expect(preview.totals.find((t) => t.account === paid.user.id)).toMatchObject({
+      shifts: 1,
+      minutes: 80,
+      hours: "1.33",
+    });
+    await run("x.rostering.lock", { start: start() }, staff());
+    const locked = await run<Totals>("x.rostering.periodTotals", { start: start() }, staff());
+    expect(locked.period.locked).toBe(true);
+    const file = await run<{ csv: string; locked: boolean }>(
+      "x.rostering.export",
+      { start: start() },
+      staff(),
+    );
+    expect(file.locked).toBe(true);
+    expect(file.csv).toContain("Paid Coach Pat");
+    expect(file.csv).not.toContain("PREVIEW");
+    // The class is kept: its time is refused, for an admin too.
+    const moved = await refusal(
+      run(
+        "record.update",
+        {
+          object: CLASS,
+          id: klassId,
+          values: { endsAt: new Date(Date.parse(startsAt) + 2 * HOUR).toISOString() },
+        },
+        staff(),
+      ),
+    );
+    expect(moved.details?.rule).toBe("pay_period_locked");
+    // Nothing of what it totals in the audit log: which period, and who.
+    const audit = await env.DB.prepare(
+      "SELECT input, result FROM core_audit WHERE operation LIKE 'staffing.pay%' OR operation LIKE 'x.rostering.%'",
+    ).all<{ input: string | null; result: string | null }>();
+    for (const r of audit.results) {
+      expect(`${r.input} ${r.result}`).not.toMatch(/"minutes"|"hours"|by_class|"csv"/);
+    }
+    await run("x.rostering.reopen", { start: start(), reason: "Checked again" }, staff());
+  });
+});
+
+// --- The review of PR #287 -----------------------------------------------------------------------
+
+describe("a redacted input in the approval queue is read only by who could approve it", () => {
+  it("why a shift was not worked: a viewer and a member see it redacted; a rosterer and an admin see it", async () => {
+    const shift = await dutyShift(-30 * HOUR, admin.id);
+    const asked = await refusal(
+      run(
+        "x.rostering.markNotWorked",
+        { object: SHIFT, id: shift, reason: "A private reason" },
+        staff({ actor: "assistant", origin: { surface: "assistant" } }),
+      ),
+    );
+    expect(asked.code).toBe("pending_approval");
+    const actionId = (asked.details as { actionId: string }).actionId;
+    const row = await env.DB.prepare("SELECT change_set_id FROM core_pending_action WHERE id = ?")
+      .bind(actionId)
+      .first<{ change_set_id: string }>();
+    const changeSetId = row?.change_set_id as string;
+    const viewer = await account("Viewer Rex", "viewer");
+    const member = await account("Member Rex", "member");
+    const rosterer = await account("Rosterer Rex", "member");
+    await grant(rosterer, [MANAGE]);
+    const reads = async (user: ActingUser) => {
+      const got = JSON.stringify(await run("approval.get", { changeSetId }, asUser(user)));
+      const status = JSON.stringify(await run("approval.status", { actionId }, asUser(user)));
+      const list = JSON.stringify(await run("approval.list", { status: "all" }, asUser(user)));
+      expect(list).not.toContain("A private reason");
+      expect(got.includes("A private reason")).toBe(status.includes("A private reason"));
+      return got.includes("A private reason");
+    };
+    expect(await reads(viewer)).toBe(false);
+    expect(await reads(member)).toBe(false);
+    expect(await reads(rosterer)).toBe(true);
+    expect(await reads(admin)).toBe(true);
+    const redacted = await run<{ actions: { id: string; input: { reason?: unknown } }[] }>(
+      "approval.get",
+      { changeSetId },
+      asUser(member),
+    );
+    expect(redacted.actions.find((a) => a.id === actionId)?.input.reason).toBe("[redacted]");
+    // What the queue's notice says names nothing of it.
+    const notices = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE title LIKE '%A private reason%' OR body LIKE '%A private reason%'",
+    ).first<{ n: number }>();
+    expect(notices?.n).toBe(0);
+  });
+});
+
+describe("what pay is totalled from is a rosterer's to change, with Rostering installed", () => {
+  const minutes = "bookings.rosterBeforeMinutes";
+  const ai = () => staff({ actor: "assistant", origin: { surface: "assistant" } });
+  async function people() {
+    const member = await account(unique("Member Min"), "member");
+    const rosterer = await account(unique("Rosterer Min"), "member");
+    await grant(rosterer, [MANAGE]);
+    return { member, rosterer };
+  }
+  const rostering = async (promise: Promise<unknown>) => {
+    const e = await refusal(promise);
+    expect([e.code, e.details?.rule]).toEqual(["forbidden", "rostering"]);
+  };
+
+  it("a class type's set-up and pack-down minutes, by update, create and createMany", async () => {
+    const { member, rosterer } = await people();
+    const kind = await create("programs.classtype", { name: unique("Pilates") });
+    await rostering(
+      run(
+        "record.update",
+        { object: "programs.classtype", id: kind, values: { [minutes]: 30 } },
+        asUser(member),
+      ),
+    );
+    await rostering(
+      run(
+        "record.update",
+        { object: "programs.classtype", id: kind, values: { "bookings.rosterAfterMinutes": 30 } },
+        asUser(member),
+      ),
+    );
+    await rostering(
+      run(
+        "record.create",
+        { object: "programs.classtype", values: { name: unique("Barre"), [minutes]: 30 } },
+        asUser(member),
+      ),
+    );
+    await rostering(
+      run(
+        "record.createMany",
+        { object: "programs.classtype", records: [{ name: unique("Barre"), [minutes]: 30 }] },
+        asUser(member),
+      ),
+    );
+    // The rest of a class type is still a member's, and a rosterer sets the minutes.
+    await run(
+      "record.update",
+      { object: "programs.classtype", id: kind, values: { "bookings.colour": "#123456" } },
+      asUser(member),
+    );
+    await run(
+      "record.update",
+      { object: "programs.classtype", id: kind, values: { [minutes]: 15 } },
+      asUser(rosterer),
+    );
+    expect((await get("programs.classtype", kind))[minutes]).toBe(15);
+  });
+
+  it("an assistant's change of them waits, and only a rosterer's approval applies it", async () => {
+    const { member, rosterer } = await people();
+    const kind = await create("programs.classtype", { name: unique("Spin") });
+    const asked = await refusal(
+      run(
+        "record.update",
+        { object: "programs.classtype", id: kind, values: { [minutes]: 45 } },
+        ai(),
+      ),
+    );
+    expect(asked.code).toBe("pending_approval");
+    const id = (asked.details as { actionId: string }).actionId;
+    expect((await refusal(run("approval.approve", { actionIds: [id] }, asUser(member)))).code).toBe(
+      "forbidden",
+    );
+    await run("approval.approve", { actionIds: [id] }, asUser(rosterer));
+    expect((await get("programs.classtype", kind))[minutes]).toBe(45);
+  });
+
+  it("the times of a class that has started: a rosterer's; a future class still a member's", async () => {
+    const { member, rosterer } = await people();
+    const c = await coach(unique("Coach Min"));
+    const started = await klass(-2 * DAY, c.profile);
+    const future = await klass(20 * DAY, c.profile);
+    const later = (id: string, hours: number) =>
+      get(CLASS, id).then((v) => ({
+        endsAt: new Date(Date.parse(String(v.startsAt)) + hours * HOUR).toISOString(),
+      }));
+    await rostering(
+      run(
+        "record.update",
+        { object: CLASS, id: started, values: await later(started, 5) },
+        asUser(member),
+      ),
+    );
+    // Nor moved into the past by a member.
+    await rostering(
+      run(
+        "record.update",
+        {
+          object: CLASS,
+          id: future,
+          values: {
+            startsAt: new Date(Date.now() - 3 * DAY).toISOString(),
+            endsAt: new Date(Date.now() - 3 * DAY + HOUR).toISOString(),
+          },
+        },
+        asUser(member),
+      ),
+    );
+    await run(
+      "record.update",
+      { object: CLASS, id: future, values: await later(future, 2) },
+      asUser(member),
+    );
+    await run(
+      "record.update",
+      { object: CLASS, id: started, values: await later(started, 2) },
+      asUser(rosterer),
     );
   });
 });

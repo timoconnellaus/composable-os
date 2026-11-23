@@ -185,6 +185,10 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // holders' accounts and their kinds' and places' names; nothing of a booking or a Person.
   "staffing/week.ts": [3, WHY.host],
   "operations/staffing.ts": [2, WHY.host],
+  // Pay periods (step 6, ADR 0627): a period's shifts (person, times, kind, title, place), their
+  // holders' accounts, their kinds' names and set-up minutes, and the evidence object's marker
+  // only (who took a class list, never a booking's person), for someone who handles pay.
+  "staffing/pay.ts": [6, WHY.host],
   // The host's read of a period's order by its invoice (stage 32a, ADR 0486).
   "subscriptions/periods.ts": [1, WHY.host],
   // Whether a paid invoice is the first period after a pause the host asked for (stage 32b, ADR 0531).
