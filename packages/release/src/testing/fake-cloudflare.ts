@@ -8,6 +8,8 @@
 // It is strict where the real API is: unknown routes 404, a Durable Object migration must carry
 // the right old_tag, a version upload cannot carry migrations, and bearer tokens must match.
 
+import { isLocationHint } from "@composable-os/product";
+
 export interface SqlEngine {
   /** Runs SQL. Multi-statement SQL without params runs atomically. Returns one result set. */
   query(sql: string, params: unknown[]): Promise<Record<string, unknown>[]>;
@@ -74,6 +76,12 @@ export class FakeCloudflare {
   readonly calls: { method: string; path: string }[] = [];
   readonly d1 = new Map<string, { name: string; engine: SqlEngine }>();
   readonly r2 = new Set<string>();
+  /**
+   * Every D1 and R2 create, with the location hint it carried (`primary_location_hint` for D1,
+   * `locationHint` for R2, ADR 0580), or undefined when it carried none. A hint the real API
+   * would refuse is refused here too.
+   */
+  readonly creates: { type: "d1" | "r2"; name: string; locationHint: string | undefined }[] = [];
   /** R2 objects by `<bucket>/<key>` (the object upload API, stage 24). */
   readonly r2Objects = new Map<string, Uint8Array>();
   readonly kv = new Map<string, string>();
@@ -265,6 +273,10 @@ export class FakeCloudflare {
       if (method === "POST") {
         const name = String(b.name);
         if ([...this.d1.values()].some((d) => d.name === name)) return fail(400, 7502, "exists");
+        const hint = b.primary_location_hint;
+        if (hint !== undefined && !isLocationHint(hint))
+          return fail(400, 7400, "invalid primary_location_hint");
+        this.creates.push({ type: "d1", name, locationHint: hint });
         const uuid = this.id("d1");
         this.d1.set(uuid, { name, engine: this.options.sql() });
         return ok({ uuid, name });
@@ -303,6 +315,10 @@ export class FakeCloudflare {
     // R2, KV, queues, Vectorize
     if (path === `${a}/r2/buckets`) {
       if (method === "POST") {
+        const hint = b.locationHint;
+        if (hint !== undefined && !isLocationHint(hint))
+          return fail(400, 10040, "invalid locationHint");
+        this.creates.push({ type: "r2", name: String(b.name), locationHint: hint });
         this.r2.add(String(b.name));
         return ok({ name: b.name });
       }

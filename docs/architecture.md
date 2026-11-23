@@ -77,7 +77,10 @@ gatekeepers.
   attestation store; `gh attestation verify` in the CLI when available.
 - **Deploy engine** ([ADR 0163](adr/0163-deploy-engine-over-the-cloudflare-api.md)) and the
   **create-composable-os** CLI ([ADR 0165](adr/0165-installer-cli-and-deployment-state.md)); installer choices
-  live in D1 (`core_install`) so every later deploy matches.
+  live in D1 (`core_install`) so every later deploy matches. One of them is an optional
+  **location hint** ([ADR 0580](adr/0580-a-location-hint-on-new-installs.md); `--location`, or
+  `location` in a client's `product.ts`), sent only when the D1 database and R2 buckets are
+  created: a preference Cloudflare follows best effort, never applied to a store that exists.
 - **Self-updater** ([ADR 0054](adr/0054-self-updater.md), [ADR 0164](adr/0164-update-procedure-preflight-and-rollback.md)):
   `update.*` operations (human admins) behind an `UpdaterRuntime` port; preflight blocks an
   update that would break a runtime extension; history and bookmarks in `core_update_runs`.

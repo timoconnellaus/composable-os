@@ -16,6 +16,7 @@ import { pathToFileURL } from "node:url";
 import type { ApiContract, PackRolesFile } from "@composable-os/core/http-contract";
 import {
   type ClientProductDefinition,
+  clientLocation,
   clientNameMaps,
   clientNames,
   clientWeb,
@@ -1303,13 +1304,21 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   // this environment's app redirect. Set on every deploy, so the list is always the product's.
   hostFlags["native-redirect-uris"] = nativeRedirectUris(product, environment);
 
-  // The host: install, upgrade to the product's version, or repair; vars set for the product.
+  // Where the host's database and buckets are made (ADR 0580): product.ts's location hint, sent
+  // only when they are created at the first install. A host that exists is never moved: the
+  // install step says so when product.ts names a hint other than the one it was made with. Always
+  // passed, so a client host's location is product.ts's and the installer never asks.
+  hostFlags.location = clientLocation(product, environment) ?? "none";
   const found = ownHost?.state ? ownHost : legacyHost;
+
+  // The host: install, upgrade to the product's version, or repair; vars set for the product.
   if (found?.state && found.state.version !== product.platform.version) {
     io.out(
       `The host${envLabel} is on ${found.state.version}; moving it to ${product.platform.version}.`,
     );
-    const code = await upgradeHost({ ...hostFlags }, scoped);
+    // The install step below speaks for the location; the upgrade does not repeat it.
+    const { location: _location, ...upgradeFlags } = hostFlags;
+    const code = await upgradeHost(upgradeFlags, scoped);
     if (code !== 0) return code;
   }
   const code = await install(hostFlags, scoped);

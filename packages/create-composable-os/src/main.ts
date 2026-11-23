@@ -40,9 +40,12 @@ import {
   getRelease,
   healthSmoke,
   installedExtensionsViaApi,
+  isLocationHint,
   JUDGE_BYOK_VAR,
   JUDGE_GATEWAY_PROVIDER,
   killSwitchControl,
+  LOCATION_HINTS,
+  type LocationHint,
   listReleases,
   locateDeployment,
   MODEL_ROLES_VAR,
@@ -153,6 +156,11 @@ Options
   --hostname <h>         "workers.dev" (default) or a hostname on one of your zones
   --zone <name>          the zone of a custom hostname (default: inferred from it)
   --identity <i>         better-auth (default) or cloudflare-access
+  --location <hint>      a location hint for the D1 database and R2 buckets a first install
+                         creates: none (default), or ${Object.keys(LOCATION_HINTS).join(", ")}
+                         (oc is Oceania). A preference Cloudflare follows where it can, not a
+                         guarantee; KV, queues and Vectorize take none. An existing install is
+                         never moved (docs/deploying.md "Where data is stored")
   --gatekeepers <list>   optional gatekeeper Workers to install, e.g. google,email-send
   --ai <on|off>          in-app AI: Workers AI and the demo-records Vectorize index (default on,
                          or COS_AI). Off: AI features say "AI is not configured". Upgrades keep
@@ -495,6 +503,24 @@ function aiChoice(flags: Flags, env: Env): boolean | undefined {
   throw new CliError("--ai is on or off");
 }
 
+/**
+ * `--location`: a location hint for the stores a first install creates (ADR 0580), `none` for no
+ * hint, or undefined when not given.
+ */
+function locationChoice(flags: Flags): LocationHint | "none" | undefined {
+  const value = str(flags, "location")?.trim().toLowerCase();
+  if (value === undefined || value === "") return undefined;
+  if (value === "none" || isLocationHint(value)) return value;
+  throw new CliError(
+    `--location is none or a location hint: ${Object.keys(LOCATION_HINTS).join(", ")}`,
+  );
+}
+
+/** What a hint is, in a line: "oc (Oceania)", or "none". */
+export function describeLocation(hint: LocationHint | undefined): string {
+  return hint ? `${hint} (${LOCATION_HINTS[hint]})` : "none";
+}
+
 function randomSecret(): string {
   return toHex(crypto.getRandomValues(new Uint8Array(32)));
 }
@@ -657,6 +683,31 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
   }
   if (identity !== "better-auth" && identity !== "cloudflare-access") {
     throw new CliError("--identity is better-auth or cloudflare-access");
+  }
+
+  // Where new stores are made (ADR 0580): a location hint sent when the D1 database and the R2
+  // buckets are created, chosen at the first install. An install that exists keeps what it was
+  // made with: a database or a bucket cannot be moved by a setting, so nothing is sent to one.
+  const locationFlag = locationChoice(flags);
+  let locationHint: LocationHint | undefined = previous?.locationHint;
+  if (!previous) {
+    let choice = locationFlag;
+    if (choice === undefined && io.interactive && !flags.yes) {
+      choice = (await choose(
+        io,
+        "Data location hint for the new database and file bucket (a preference Cloudflare follows where it can, not a guarantee; oc is Oceania):",
+        ["none", ...Object.keys(LOCATION_HINTS)],
+        "none",
+      )) as LocationHint | "none";
+    }
+    locationHint = choice === undefined || choice === "none" ? undefined : choice;
+  } else if (
+    locationFlag !== undefined &&
+    (locationFlag === "none" ? undefined : locationFlag) !== previous.locationHint
+  ) {
+    io.out(
+      `Location: this host exists, made with location hint ${describeLocation(previous.locationHint)}. Its database and file buckets stay where Cloudflare put them: a setting cannot move them (moving one is an export into a new install). --location ${locationFlag} changes nothing here.`,
+    );
   }
 
   // Gatekeepers.
@@ -848,6 +899,11 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
     `\nInstalling ${s.product.label} ${version} into account ${s.accountId} at https://${hostname}`,
   );
   if (!ai) io.out("In-app AI is off (--ai off): no Workers AI or Vectorize bindings.");
+  if (!previous && locationHint) {
+    io.out(
+      `Location hint: ${describeLocation(locationHint)}, sent when the D1 database and R2 buckets are created. Cloudflare follows it where it can; it is not a guarantee of where data is kept, and KV, queues, Vectorize and logs take no hint.`,
+    );
+  }
   io.out("Resources:");
   const resources = {
     ...(previous?.resources ?? {}),
@@ -857,6 +913,7 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
       neededResources(manifest, gatekeepers, { ai }),
       (l) => io.out(l),
       previous?.resourceNames ?? names?.resources,
+      { locationHint },
     )),
   };
   const base: DeploymentState = {
@@ -881,6 +938,7 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
         : {}),
     vars,
     ...(sendEmail && Object.keys(sendEmail).length ? { sendEmail } : {}),
+    ...(locationHint ? { locationHint } : {}),
     resources,
     bundleDigest: digest,
     installedAt: previous?.installedAt ?? new Date().toISOString(),
@@ -1007,6 +1065,12 @@ export async function upgrade(flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
   const s = await session(flags, deps);
   const { databaseId, state: found } = await locate(s, flags);
+  const locationFlag = locationChoice(flags);
+  if (locationFlag !== undefined) {
+    io.out(
+      `Location: an upgrade never changes where data is stored. This host was made with location hint ${describeLocation(found.locationHint)}; its database and file buckets stay where they are (moving one is an export into a new install). --location changes nothing.`,
+    );
+  }
   const channel = found.channel;
   const target = str(flags, "version") ?? (await latestVersion(s, channel));
   if (compareVersions(target, found.version) <= 0) {
@@ -1188,6 +1252,9 @@ async function status(flags: Flags, deps: Deps): Promise<number> {
   );
   io.out(
     `  sign-in: ${state.identityProvider}; gatekeepers: ${state.gatekeepers.join(", ") || "none"}; AI: ${state.ai === false ? "off" : "on"}`,
+  );
+  io.out(
+    `  location hint at install: ${describeLocation(state.locationHint)} (a preference, not a guarantee)`,
   );
   io.out(
     newer.length
