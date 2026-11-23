@@ -141,6 +141,28 @@ const IDEMPOTENCY_LIMITS: Partial<Record<QueueClass, number>> = { agreements: 20
 const LEGACY_IDEMPOTENCY_PREFIX = "idem:";
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{1,200}$/;
 
+/**
+ * Copies the host scrubbed (ADR 0646): `scrubbed:<copy key>` → when. Kept per copy, bounded by
+ * acceptances like the agreements mail's keys, so a send under the key stays refused.
+ */
+const SCRUBBED_PREFIX = "scrubbed:";
+const SCRUBBED_ORDER = "scrubbedorder:";
+const SCRUBBED_LIMIT = 20_000;
+/** A copy's own key: `agreement-copy:<acceptance id>`. */
+const COPY_KEY = /^agreement-copy:[A-Za-z0-9_]{1,80}$/;
+/** What a scrubbed send's history line says instead of its recipients and subject. */
+const SCRUBBED_SUBJECT = "[erased]";
+/** The journal's own records (namespace `email`), read back through `ActionJournal.get`. */
+const JOURNAL_RECORDS = "email:action:";
+
+/** The copy's own key of an agreement send's key (a retry's `:<n>` suffix dropped). */
+function copyKeyOf(key: string): string | null {
+  if (!key.startsWith(AGREEMENT_KEY_PREFIX)) return null;
+  const [prefix, id] = key.split(":");
+  const base = `${prefix}:${id}`;
+  return COPY_KEY.test(base) ? base : null;
+}
+
 /** A send's idempotency key, checked, and the message without it. */
 function splitIdempotencyKey(input: unknown): { key: string | null; rest: unknown } {
   if (!input || typeof input !== "object" || !("idempotencyKey" in input)) {
@@ -161,7 +183,16 @@ function splitIdempotencyKey(input: unknown): { key: string | null; rest: unknow
  * What the journal stores for one send: the sender at submit time, the validated message, and the
  * class of queue that sent it (ADR 0645; absent on sends from before it: a caller's).
  */
-type StoredEmail = { from: string; message: ParsedMessage; queue?: QueueClass };
+type StoredEmail = {
+  from: string;
+  message: ParsedMessage;
+  queue?: QueueClass;
+  /**
+   * An agreement's copy: the copy's own key (`agreement-copy:<acceptance id>`, without a retry's
+   * suffix), by which the host scrubs it once the acceptance is erased (ADR 0646).
+   */
+  copy?: string;
+};
 
 type Actions = {
   send: StoredEmail;
@@ -296,6 +327,10 @@ type SessionBackend = {
   /** How many sends wait in the same pool as `queueClass`'s (independent host mail, or the rest). */
   pendingIn(queueClass: QueueClass): number;
   listSent(viewer: QueueClass): EmailSendRecord[];
+  /** Whether the host scrubbed this copy key (its acceptance was erased): never sent again. */
+  isScrubbed(copy: string): boolean;
+  /** Scrubs one copy (ADR 0646): see `scrubAgreementCopy`. */
+  scrub(copy: string): Promise<{ dropped: number; redacted: number }>;
   internalDomains(): string | undefined;
   allowedDomains(): string | undefined;
 };
@@ -345,6 +380,12 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
           : isInternal(parsed, this.#backend.internalDomains())
             ? "sendInternal"
             : "send";
+    // An agreement's copy is known by its own key, without a retry's suffix: once the host scrubbed
+    // it (the acceptance was erased, ADR 0646), nothing under it is queued or sent again.
+    const copy = parsed.agreement && key ? copyKeyOf(key) : null;
+    if (copy && this.#backend.isScrubbed(copy)) {
+      throw new Error("Refused: this copy's agreement was erased, and it is not sent.");
+    }
     // A caller retrying a step passes the same key: the send it already made is answered again,
     // never queued twice (ADR 0574). Keys are remembered per queue class only (not the kind: the
     // host may decide a routine email held on its retry, or a caller's recipients make it
@@ -368,7 +409,7 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     try {
       id = await this.#backend.submit(
         this.#queue,
-        { from: sender, message: parsed, queue: queueClass },
+        { from: sender, message: parsed, queue: queueClass, ...(copy ? { copy } : {}) },
         kind,
       );
     } catch (error) {
@@ -411,6 +452,29 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     };
     await this.#queue.authorizeObservation(observation);
     return rows;
+  }
+
+  /**
+   * The host's own agreements mail only (ADR 0646): scrubs what this sender holds of one copy of
+   * a signed agreement whose acceptance was erased, by the copy's key (`agreement-copy:<id>`). A
+   * send of it still waiting is dropped (never sent), a later send under the key is refused, and
+   * its recipients and subject leave the sent history. It returns counts only: nothing of any
+   * message is read back. Every other caller (a person, an extension, an automation, the
+   * assistant, MCP) is refused; the class comes from how the host opened the queue, never from
+   * the input. Not in the agent-facing types.
+   */
+  async scrubAgreementCopy(input: {
+    key?: unknown;
+  }): Promise<{ done: true; dropped: number; redacted: number }> {
+    if ((await queueClassOf(this.#queue)) !== "agreements") {
+      throw new Error("Refused: only the host's own agreements mail scrubs a copy.");
+    }
+    const key = input && typeof input === "object" ? input.key : undefined;
+    if (typeof key !== "string" || !COPY_KEY.test(key)) {
+      throw new TypeError("Invalid scrub: key must be agreement-copy:<acceptance id>.");
+    }
+    const { dropped, redacted } = await this.#backend.scrub(key);
+    return { done: true, dropped, redacted };
   }
 
   /** The sender address; resource configuration, not provider data, so no observation. */
@@ -456,6 +520,10 @@ export class EmailSendGatekeeper
     } catch (error) {
       // Checked before anything is sent, so the email is known not to have gone out.
       throw new ActionApplyError(error instanceof Error ? error.message : String(error));
+    }
+    // A copy the host scrubbed while it waited (its acceptance was erased, ADR 0646): never sent.
+    if (email.copy && this.#isScrubbed(email.copy)) {
+      throw new ActionApplyError("Refused: this copy's agreement was erased, and it is not sent.");
     }
     const { message } = email;
     let messageId: string;
@@ -547,6 +615,59 @@ export class EmailSendGatekeeper
     }
   }
 
+  #isScrubbed(copy: string): boolean {
+    return this.ctx.storage.kv.get(SCRUBBED_PREFIX + copy) !== undefined;
+  }
+
+  /**
+   * Scrubs one copy of a signed agreement (ADR 0646), serialized with apply and reject so no send
+   * of it is mid-delivery: marks the key scrubbed (a later send or apply of it is refused), drops
+   * every send of it the journal still holds (waiting, failed, or one whose submission is in
+   * flight), and blanks the recipients and subject of its history lines.
+   */
+  #scrub(copy: string): Promise<{ dropped: number; redacted: number }> {
+    return this.#actions().runExclusive(() => {
+      const kv = this.ctx.storage.kv;
+      if (!this.#isScrubbed(copy)) {
+        kv.put(SCRUBBED_PREFIX + copy, Date.now());
+        kv.put(`${SCRUBBED_ORDER}${String(Date.now()).padStart(15, "0")}:${copy}`, copy);
+        const entries = [...kv.list<string>({ prefix: SCRUBBED_ORDER })];
+        for (const [entry, old] of entries.slice(0, Math.max(0, entries.length - SCRUBBED_LIMIT))) {
+          kv.delete(entry);
+          kv.delete(SCRUBBED_PREFIX + old);
+        }
+      }
+      const ids = new Set<number>();
+      // Sends made under the copy's key or a retry's (`<key>:<n>`), as the agreements mail's.
+      const slot = `${IDEMPOTENCY_PREFIX}agreements:${copy}`;
+      for (const [key, value] of kv.list<number | string>({ prefix: slot })) {
+        const rest = key.slice(slot.length);
+        if ((rest === "" || /^:\d+$/.test(rest)) && typeof value === "number") ids.add(value);
+      }
+      // And any the journal holds for it, remembered under a key or not yet.
+      for (const [key] of kv.list({ prefix: JOURNAL_RECORDS })) {
+        const id = Number(key.slice(JOURNAL_RECORDS.length));
+        if (Number.isSafeInteger(id) && this.#journal.get(id)?.action.payload.copy === copy) {
+          ids.add(id);
+        }
+      }
+      let dropped = 0;
+      let redacted = 0;
+      for (const id of ids) {
+        if (this.#journal.get(id)) {
+          this.#journal.remove(id);
+          dropped += 1;
+        }
+        const entry = kv.get<HistoryEntry>(historyKey(id));
+        if (entry && (entry.to.length || entry.subject !== SCRUBBED_SUBJECT)) {
+          kv.put(historyKey(id), { ...entry, to: [], subject: SCRUBBED_SUBJECT });
+          redacted += 1;
+        }
+      }
+      return { dropped, redacted };
+    });
+  }
+
   /** Sends waiting in `queueClass`'s pool: the host's independent mail, or everyone else's. */
   #pendingIn(queueClass: QueueClass): number {
     const independent = INDEPENDENT_CLASSES.has(queueClass);
@@ -563,10 +684,12 @@ export class EmailSendGatekeeper
     outcome: Pick<HistoryEntry, "status" | "sentAt" | "messageId">,
   ): void {
     const kv = this.ctx.storage.kv;
+    // A scrubbed copy's line keeps that it was sent or turned down, never to whom or what.
+    const scrubbed = email.copy !== undefined && this.#isScrubbed(email.copy);
     const entry: HistoryEntry = {
       id,
-      to: recipientsOf(email.message),
-      subject: email.message.subject,
+      to: scrubbed ? [] : recipientsOf(email.message),
+      subject: scrubbed ? SCRUBBED_SUBJECT : email.message.subject,
       ...(email.queue && email.queue !== "caller" ? { queue: email.queue } : {}),
       ...outcome,
     };
@@ -654,6 +777,8 @@ export class EmailSendGatekeeper
       pendingIn: (queueClass) => this.#pendingIn(queueClass),
 
       listSent: (viewer) => this.#listSent(viewer),
+      isScrubbed: (copy) => this.#isScrubbed(copy),
+      scrub: (copy) => this.#scrub(copy),
       internalDomains: () => this.env.INTERNAL_DOMAINS,
       allowedDomains: () => this.env.ALLOWED_SENDER_DOMAINS,
     };

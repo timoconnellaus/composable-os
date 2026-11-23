@@ -75,6 +75,7 @@ import { Route as AppSettingsAgreementsIndexRouteImport } from './routes/_app/se
 import { Route as AppSettingsAgreementsIdRouteImport } from './routes/_app/settings/agreements.$id'
 import { Route as AppSettingsAgreementsAcceptancesRouteImport } from './routes/_app/settings/agreements.acceptances'
 import { Route as AppSettingsAgreementsHealthRouteImport } from './routes/_app/settings/agreements.health'
+import { Route as AppSettingsAgreementsKeptRouteImport } from './routes/_app/settings/agreements.kept'
 import { Route as AppXObjectIndexRouteImport } from './routes/_app/x/$object/index'
 import { Route as AppXObjectIdRouteImport } from './routes/_app/x/$object/$id'
 import { Route as ApiAssistantThreadStopRouteImport } from './routes/api/assistant/thread.stop'
@@ -421,6 +422,12 @@ const AppSettingsAgreementsHealthRoute =
     path: '/settings/agreements/health',
     getParentRoute: () => AppRoute,
   } as any)
+const AppSettingsAgreementsKeptRoute =
+  AppSettingsAgreementsKeptRouteImport.update({
+    id: '/settings/agreements/kept',
+    path: '/settings/agreements/kept',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppXObjectIndexRoute = AppXObjectIndexRouteImport.update({
   id: '/x/$object/',
   path: '/x/$object/',
@@ -508,6 +515,7 @@ export interface FileRoutesByFullPath {
   '/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
   '/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
   '/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
+  '/settings/agreements/kept': typeof AppSettingsAgreementsKeptRoute
   '/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -579,6 +587,7 @@ export interface FileRoutesByTo {
   '/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
   '/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
   '/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
+  '/settings/agreements/kept': typeof AppSettingsAgreementsKeptRoute
   '/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -652,6 +661,7 @@ export interface FileRoutesById {
   '/_app/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
   '/_app/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
   '/_app/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
+  '/_app/settings/agreements/kept': typeof AppSettingsAgreementsKeptRoute
   '/_app/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -725,6 +735,7 @@ export interface FileRouteTypes {
     | '/settings/agreements/$id'
     | '/settings/agreements/acceptances'
     | '/settings/agreements/health'
+    | '/settings/agreements/kept'
     | '/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -796,6 +807,7 @@ export interface FileRouteTypes {
     | '/settings/agreements/$id'
     | '/settings/agreements/acceptances'
     | '/settings/agreements/health'
+    | '/settings/agreements/kept'
     | '/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -868,6 +880,7 @@ export interface FileRouteTypes {
     | '/_app/settings/agreements/$id'
     | '/_app/settings/agreements/acceptances'
     | '/_app/settings/agreements/health'
+    | '/_app/settings/agreements/kept'
     | '/_app/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -1353,6 +1366,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAgreementsHealthRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/agreements/kept': {
+      id: '/_app/settings/agreements/kept'
+      path: '/settings/agreements/kept'
+      fullPath: '/settings/agreements/kept'
+      preLoaderRoute: typeof AppSettingsAgreementsKeptRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/x/$object/': {
       id: '/_app/x/$object/'
       path: '/x/$object'
@@ -1439,6 +1459,7 @@ interface AppRouteChildren {
   AppSettingsAgreementsIdRoute: typeof AppSettingsAgreementsIdRoute
   AppSettingsAgreementsAcceptancesRoute: typeof AppSettingsAgreementsAcceptancesRoute
   AppSettingsAgreementsHealthRoute: typeof AppSettingsAgreementsHealthRoute
+  AppSettingsAgreementsKeptRoute: typeof AppSettingsAgreementsKeptRoute
   AppXObjectIdRoute: typeof AppXObjectIdRoute
   AppSettingsAgreementsIndexRoute: typeof AppSettingsAgreementsIndexRoute
   AppXObjectIndexRoute: typeof AppXObjectIndexRoute
@@ -1499,6 +1520,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsAgreementsIdRoute: AppSettingsAgreementsIdRoute,
   AppSettingsAgreementsAcceptancesRoute: AppSettingsAgreementsAcceptancesRoute,
   AppSettingsAgreementsHealthRoute: AppSettingsAgreementsHealthRoute,
+  AppSettingsAgreementsKeptRoute: AppSettingsAgreementsKeptRoute,
   AppXObjectIdRoute: AppXObjectIdRoute,
   AppSettingsAgreementsIndexRoute: AppSettingsAgreementsIndexRoute,
   AppXObjectIndexRoute: AppXObjectIndexRoute,

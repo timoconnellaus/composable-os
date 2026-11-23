@@ -1176,6 +1176,23 @@ export interface CoreAgreementCopyTable {
   error: string | null;
   /** Paper: the staff user who pressed "Email a copy". */
   requested_by: string | null;
+  /**
+   * Migration 0855 (stage 44 step 8, ADR 0646): the email gatekeeper still holds something of an
+   * erased acceptance's copy (a waiting send, its history line): the host asks it to scrub them.
+   */
+  scrub_due_at: Defaulted<string | null>;
+  /** When the gatekeeper confirmed the scrub. */
+  scrubbed_at: Defaulted<string | null>;
+}
+
+/**
+ * Migration 0855 (stage 44 step 8, ADR 0646): a kept acceptance a person on the staff holds for a
+ * dispute or a claim; the retention purge passes it by until the hold is released.
+ */
+export interface CoreAgreementHoldTable {
+  acceptance_id: string;
+  held_by: string;
+  held_at: string;
 }
 
 /**
@@ -2783,6 +2800,7 @@ export interface CoreDatabase {
   core_agreement_answer: CoreAgreementAnswerTable;
   core_agreement_minor: CoreAgreementMinorTable;
   core_agreement_copy: CoreAgreementCopyTable;
+  core_agreement_hold: CoreAgreementHoldTable;
   core_person_link_guard: CorePersonLinkGuardTable;
   core_sellable_refund_due: CoreSellableRefundDueTable;
   core_routine_mail: CoreRoutineMailTable;

@@ -431,6 +431,15 @@ export function toOperationError(error: unknown): OperationError {
       rule: "agreement_copy_address",
     });
   }
+  // A hold on a kept acceptance (migration 0855, ADR 0646): only on one kept after an erase.
+  if (message.includes("core_agreement_hold_not_kept")) {
+    return new OperationError("not_found", "No kept acceptance with that id.", {
+      rule: "agreement_not_kept",
+    });
+  }
+  if (message.includes("core_agreement_hold_fixed")) {
+    return new ConflictError("That acceptance is already on hold.", { rule: "agreement_held" });
+  }
   if (message.includes("core_agreement_copy_fixed")) {
     return new ConflictError("A copy's address is fixed once it is written.", {
       rule: "agreement_copy_fixed",

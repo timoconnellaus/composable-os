@@ -160,7 +160,9 @@ export interface IntegrationRuntime {
      * by the host for `origin` (ADR 0456); the queue tells the gatekeeper it is the host's
      * sign-in mail, which no other caller can say. `agreements`: the copy of a signed agreement
      * (ADR 0645), one send; the queue tells the gatekeeper it may carry the signed PDF, which no
-     * other caller can say, and the send is the system's (no AI writes or reads it).
+     * other caller can say, and the send is the system's (no AI writes or reads it). Or
+     * `scrubAgreementCopy` once the acceptance is erased (ADR 0646): the gatekeeper scrubs that
+     * copy for this queue only.
      */
     purpose: "orders" | "sign-in" | "agreements";
     origin?: "system.customer-mail" | "system.staff-mail";

@@ -107,7 +107,7 @@ export const meAgreementsPdf = defineOperation({
 });
 
 /** A Person staff may see, through the seam; an erased or person-less one is the manager's. */
-async function requireVisible(ctx: HandlerContext, personId: string | null): Promise<void> {
+export async function requireVisible(ctx: HandlerContext, personId: string | null): Promise<void> {
   if (personId) {
     await ctx.records.get("person", personId);
     return;

@@ -44,6 +44,7 @@ import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { type CustomerPrincipal, holdsPermission } from "../principals.ts";
 import { isLiveDependant } from "../visibility/guardians.ts";
+import { requireVisible } from "./agreement-copy.ts";
 
 const id = (what: string) => z.string().min(1).max(64).describe(what);
 const BY = ["self", "guardian", "guest", "paper"] as const;
@@ -992,16 +993,20 @@ export const agreementAcceptanceGet = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     const row = (await acceptanceRows(ctx)
-      .select(["a.typed_name", "a.signed_by", "a.note"])
+      .select(["a.typed_name", "a.signed_by", "a.note", "a.erased_at"])
       .where("a.id", "=", input.id)
       .executeTakeFirst()) as
       | (AcceptanceRow & {
           typed_name: string | null;
           signed_by: string | null;
           note: string | null;
+          erased_at: string | null;
         })
       | undefined;
     if (!row) throw new NotFoundError("acceptance", input.id);
+    // Whose it is decides who reads it, as for the PDF (ADR 0646): a Person staff may see through
+    // the seam; one kept after an erase, or a buyer's not yet settled, the manager's only.
+    await requireVisible(ctx, row.erased_at ? null : row.person_id);
     const counting = row.person_id
       ? (await standing(ctx, row.person_id, await personFacts(ctx.db, row.person_id))).counting
       : new Set<string>();

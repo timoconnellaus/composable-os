@@ -262,8 +262,9 @@ export const trashPurge = defineOperation({
       ctx,
       purged.filter((r) => r.object === "person").map((r) => r.id),
     );
-    // And their agreements as an erased Person's (ADR 0642): answers gone, acceptances detached.
-    queueEraseAgreements(
+    // And their agreements as an erased Person's (ADRs 0642 and 0646): answers gone, acceptances
+    // kept detached for the retention period, a copy's waiting approval turned down.
+    await queueEraseAgreements(
       ctx,
       purged.filter((r) => r.object === "person").map((r) => r.id),
     );

@@ -630,6 +630,9 @@ class FakeSession extends RpcTarget {
   listSent() {
     return this.#gk.listSent(this.#queue);
   }
+  scrubAgreementCopy(input: { key?: unknown }) {
+    return this.#gk.scrubAgreementCopy(this.#queue, input);
+  }
   post(message: { channel: string; text: string }) {
     return this.#gk.slack(this.#queue, "post", String(message?.channel ?? ""), message?.text);
   }
@@ -815,6 +818,13 @@ export class FakeGatekeeper extends DurableObject<
         `Invalid email: idempotencyKey ${AGREEMENT_KEY_PREFIX}… is the host's own agreements mail's.`,
       );
     }
+    // A copy the host scrubbed (its acceptance was erased, ADR 0646) is never queued again.
+    if (key?.startsWith(AGREEMENT_KEY_PREFIX)) {
+      const copy = key.split(":").slice(0, 2).join(":");
+      if (this.ctx.storage.kv.get(`scrubbed:${copy}`) !== undefined) {
+        throw new Error("Refused: this copy's agreement was erased, and it is not sent.");
+      }
+    }
     // Per queue class only, as email-send keeps them (never per kind: a retried send may be
     // decided another kind, and must still find its first send).
     const slot = key ? `idemc:${queueClass}:${key}` : null;
@@ -938,6 +948,46 @@ export class FakeGatekeeper extends DurableObject<
           : { tag: "fake.slack.post", label: "Post to a channel" },
     });
     return { id, status: this.#journal().actions[id]?.status === "sent" ? "posted" : "pending" };
+  }
+
+  /**
+   * The host's agreements mail only, as email-send (ADR 0646): a waiting send of the copy is
+   * turned down, later sends under its key are refused, and its journal entries lose their
+   * recipients, subject and text. Counts only.
+   */
+  async scrubAgreementCopy(
+    queue: QueueStub,
+    input: { key?: unknown },
+  ): Promise<{ done: true; dropped: number; redacted: number }> {
+    this.#require("outbox");
+    if ((await queueClassOf(queue)) !== "agreements") {
+      throw new Error("Refused: only the host's own agreements mail scrubs a copy.");
+    }
+    const key = input?.key;
+    if (typeof key !== "string" || !/^agreement-copy:[A-Za-z0-9_]{1,80}$/.test(key)) {
+      throw new TypeError("Invalid scrub: key must be agreement-copy:<acceptance id>.");
+    }
+    const kv = this.ctx.storage.kv;
+    kv.put(`scrubbed:${key}`, Date.now());
+    const journal = this.#journal();
+    let dropped = 0;
+    let redacted = 0;
+    const slot = `idemc:agreements:${key}`;
+    for (const [name, id] of kv.list<number>({ prefix: slot })) {
+      const rest = name.slice(slot.length);
+      const entry = journal.actions[id];
+      if (!entry || (rest !== "" && !/^:\d+$/.test(rest))) continue;
+      if (entry.status === "pending") {
+        entry.status = "rejected";
+        dropped += 1;
+      }
+      entry.to = [];
+      entry.subject = "[erased]";
+      entry.text = "";
+      redacted += 1;
+    }
+    kv.put("journal", journal);
+    return { done: true, dropped, redacted };
   }
 
   async listSent(queue: QueueStub) {

@@ -519,6 +519,11 @@ export async function sendAgreementCopies(
     return run;
   }
 
+  // What the gatekeeper still holds of erased acceptances' copies, scrubbed first (a sweep only).
+  if (!options.acceptanceIds) {
+    await scrubErasedCopies(deps, { target: resolved.target, at, now });
+  }
+
   const due: string[] = [];
   for (const state of OPEN_STATES) {
     if (due.length >= SWEEP) break;
@@ -546,7 +551,11 @@ export async function sendAgreementCopies(
       RETURNING send_key, attempts, to_address`.execute(db);
     const claimed = rows[0];
     if (!claimed) continue;
-    const settle = (set: {
+    // Settles the claim. A row erased while its send was in flight is no longer "sending" (the
+    // erase cancelled it): what the gatekeeper did with the send is then scrubbed after it, so
+    // the scrub always follows the last send (migration 0855, ADR 0646).
+    let reached = false;
+    const settle = async (set: {
       state: "queued" | "sent" | "waiting" | "failed" | "cancelled";
       error?: CopyError | null;
       attempts?: number;
@@ -554,13 +563,15 @@ export async function sendAgreementCopies(
       send_key?: string;
       pending_action_id?: string | null;
       sent_at?: string | null;
-    }) =>
-      db
+    }) => {
+      const [result] = await db
         .updateTable("core_agreement_copy")
         .set({ claimed_at: null, ...set })
         .where("acceptance_id", "=", id)
         .where("state", "=", "sending")
         .execute();
+      if (reached && !Number(result?.numUpdatedRows ?? 0)) await owesScrub(db, id, at);
+    };
 
     // Erased since it was queued (a claim taken over from a crashed sender included): never sent.
     const facts = await acceptanceFacts(db, id);
@@ -577,6 +588,7 @@ export async function sendAgreementCopies(
       continue;
     }
     let result: Awaited<ReturnType<NonNullable<IntegrationRuntime["callAsHost"]>>>;
+    reached = true;
     try {
       result = await call({
         connectionId: resolved.target.connectionId,
@@ -680,6 +692,103 @@ export async function sendAgreementCopies(
   }
   return run;
 }
+
+/** A scrub is owed again, from now: the sender's send outlived the erase. */
+async function owesScrub(db: Db, acceptanceId: string, at: string): Promise<void> {
+  await db
+    .updateTable("core_agreement_copy")
+    .set({ scrub_due_at: at })
+    .where("acceptance_id", "=", acceptanceId)
+    .where("to_address", "is", null)
+    .execute();
+}
+
+/** How many owed scrubs one sweep asks for. */
+const SCRUB_SWEEP = 25;
+/** A scrub the gatekeeper could not finish is asked again after this. */
+const SCRUB_RETRY_MS = 15 * 60_000;
+
+/**
+ * Asks the email gatekeeper to scrub what it still holds of erased acceptances' copies (stage 44
+ * step 8, ADR 0646): a send still waiting is dropped (never sent), a later send under the copy's
+ * key is refused, and the recipient and subject leave its sent history. Only the host's own
+ * agreements mail can ask it (`callAsHost`, purpose `agreements`, method `scrubAgreementCopy`),
+ * by the copy's key alone, and it reads nothing back. A scrub that fails, or that the gatekeeper
+ * could not finish, stays owed and is asked again.
+ */
+export async function scrubErasedCopies(
+  deps: CopyDeps,
+  options: {
+    target?: { connectionId: string; resource: string };
+    acceptanceIds?: readonly string[];
+    at?: string;
+    now?: Date;
+  } = {},
+): Promise<{ scrubbed: number; owed: number }> {
+  const db = deps.db;
+  const now = options.now ?? deps.clock?.() ?? new Date();
+  const at = options.at ?? now.toISOString();
+  const run = { scrubbed: 0, owed: 0 };
+  const call = deps.integrations?.callAsHost?.bind(deps.integrations);
+  if (!call) return run;
+  if (options.acceptanceIds && !options.acceptanceIds.length) return run;
+  let query = db
+    .selectFrom("core_agreement_copy")
+    .select("acceptance_id")
+    .where("scrub_due_at", "is not", null)
+    .where("scrub_due_at", "<=", at)
+    .orderBy("scrub_due_at")
+    .limit(SCRUB_SWEEP);
+  if (options.acceptanceIds) {
+    query = query.where("acceptance_id", "in", [...options.acceptanceIds]);
+  }
+  const owed = await query.execute();
+  if (!owed.length) return run;
+  let target = options.target;
+  if (!target) {
+    const settings = await loadDeliverySettings(db);
+    const resolved = settings.email
+      ? await resolveChannelTarget(db, "email", settings.email)
+      : { problem: "no email channel" };
+    if ("problem" in resolved) return { scrubbed: 0, owed: owed.length };
+    target = resolved.target;
+  }
+  for (const { acceptance_id: id } of owed) {
+    let done = false;
+    try {
+      const result = await call({
+        connectionId: target.connectionId,
+        resource: target.resource,
+        method: "scrubAgreementCopy",
+        args: [{ key: copyKey(id) }],
+        purpose: "agreements",
+      });
+      done = (result.value as { done?: unknown } | null)?.done === true;
+    } catch (error) {
+      // The error's kind only: nothing of the copy.
+      console.error("agreement copy scrub not done; asked again later", errorKind(error));
+    }
+    if (done) {
+      await db
+        .updateTable("core_agreement_copy")
+        .set({ scrub_due_at: null, scrubbed_at: at })
+        .where("acceptance_id", "=", id)
+        .execute();
+      run.scrubbed += 1;
+    } else {
+      await db
+        .updateTable("core_agreement_copy")
+        .set({ scrub_due_at: later(now, SCRUB_RETRY_MS) })
+        .where("acceptance_id", "=", id)
+        .where("scrub_due_at", "is not", null)
+        .execute();
+      run.owed += 1;
+    }
+  }
+  return run;
+}
+
+const errorKind = (error: unknown) => (error instanceof Error ? error.name : "error");
 
 /**
  * Sends the copies of acceptances just recorded, right after the commit. Best effort: what does
