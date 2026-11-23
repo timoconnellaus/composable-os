@@ -1687,8 +1687,8 @@ and delete them when an order closes unpaid. Step 4 (migration 0854,
 **copy**: `core_agreement_copy` keeps, beside each acceptance, whether its copy went (the
 acceptance never changes); triggers make the row when a person agrees (to the acceptance's own
 address) and when a guest's acceptance settles to its purchase (to the address it was bought
-with), and `agreement.copy.send` makes one for a paper form (to the Person's own address, a person
-with `agreements:paper`); no caller names an address and none can be changed.
+with), and `agreement.copy.send` makes one for an adult's paper form (to the Person's own address, shown first by `agreement.copy.preview` and confirmed; a person
+with `agreements:paper`); no caller names an address and none can be changed. Idempotency keys are kept apart by the class of queue sending (`hostPurpose`), the copy's refused to any other, and a caller's `listSent` never shows the host's agreements, sign-in or orders mail.
 `agreements/copy.ts` sends it after the commit, and the minute cron sends what did not go, through
 `callAsHost` with purpose `agreements`: the host's own mail, applied unless the deploy-time floor
 denies it, with a system origin so no AI's outbound check reads it, and the idempotency key

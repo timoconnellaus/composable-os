@@ -8,8 +8,6 @@
 // Not a template for production gatekeepers: no PKCE, no credentials, a trivially simple journal.
 // See packages/gatekeeper-email-send and packages/gatekeeper-slack-post for real ones.
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
-// The email-send gatekeeper's rule for an agreement's copy (ADR 0645). The module imports only
-// types: the fake makes no PDF.
 import {
   AGREEMENT_FILENAME,
   agreementSummary,
@@ -17,6 +15,14 @@ import {
   isAgreementShaped,
   isHostAgreementMail,
 } from "../../../../packages/gatekeeper-email-send/src/agreement.ts";
+// The email-send gatekeeper's rule for an agreement's copy (ADR 0645). The module imports only
+// types: the fake makes no PDF.
+import {
+  AGREEMENT_KEY_PREFIX,
+  HOST_PRIVATE_CLASSES,
+  type QueueClass,
+  queueClassOf,
+} from "../../../../packages/gatekeeper-email-send/src/queue-class.ts";
 import {
   hostRoutineMail,
   isRoutineShaped,
@@ -578,6 +584,8 @@ interface Journal {
       independent?: boolean;
       /** The names of what was attached (an agreement's copy, ADR 0645); the fake makes no file. */
       attachments?: string[];
+      /** The class of queue that sent it, when the host's (ADR 0645). */
+      queue?: QueueClass;
     }
   >;
 }
@@ -798,10 +806,20 @@ export class FakeGatekeeper extends DurableObject<
     const text = String(message?.text ?? "").slice(0, 20_000);
     if (!to.length || !subject) throw new Error("send needs `to` and a `subject`");
     const internal = message.internal === true;
-    // A retried send with the same key answers the first one's receipt (ADR 0574), as email-send.
+    // A retried send with the same key answers the first one's receipt (ADR 0574), as email-send:
+    // keys are remembered per class of queue, and the copy's keys are the agreements mail's alone.
+    const queueClass = await queueClassOf(queue);
     const key = typeof message.idempotencyKey === "string" ? message.idempotencyKey : null;
-    if (key) {
-      const known = this.ctx.storage.kv.get<number>(`idem:${key}`);
+    if (key?.startsWith(AGREEMENT_KEY_PREFIX) && queueClass !== "agreements") {
+      throw new Error(
+        `Invalid email: idempotencyKey ${AGREEMENT_KEY_PREFIX}… is the host's own agreements mail's.`,
+      );
+    }
+    const slot = key
+      ? `idem:${queueClass}:${message.agreement ? "agreement" : "mail"}:${key}`
+      : null;
+    if (slot) {
+      const known = this.ctx.storage.kv.get<number>(slot);
       if (known !== undefined) {
         return {
           id: known,
@@ -857,9 +875,10 @@ export class FakeGatekeeper extends DurableObject<
       text,
       ...(signIn || routine || agreement ? { independent: true } : {}),
       ...(agreement ? { attachments: [AGREEMENT_FILENAME] } : {}),
+      ...(queueClass !== "caller" ? { queue: queueClass } : {}),
     };
     this.ctx.storage.kv.put("journal", journal);
-    if (key) this.ctx.storage.kv.put(`idem:${key}`, id);
+    if (slot) this.ctx.storage.kv.put(slot, id);
     const related = Array.isArray(message.relatedRecords) ? message.relatedRecords.map(String) : [];
     await queue.submitAction(id, {
       title: `Send email: ${subject}`,
@@ -928,13 +947,17 @@ export class FakeGatekeeper extends DurableObject<
       description: "",
       subresources: [],
     });
-    // Pending sends are simulated: they show as if sent, marked pending.
-    return Object.entries(this.#journal().actions).map(([id, a]) => ({
-      id: Number(id),
-      to: a.to,
-      subject: a.subject,
-      status: a.status,
-    }));
+    // Pending sends are simulated: they show as if sent, marked pending. The host's agreements,
+    // sign-in and orders mail only to that same queue, as email-send (ADR 0645).
+    const viewer = await queueClassOf(queue);
+    return Object.entries(this.#journal().actions)
+      .filter(([, a]) => !a.queue || !HOST_PRIVATE_CLASSES.has(a.queue) || a.queue === viewer)
+      .map(([id, a]) => ({
+        id: Number(id),
+        to: a.to,
+        subject: a.subject,
+        status: a.status,
+      }));
   }
 
   async applyAction(action: number): Promise<void> {

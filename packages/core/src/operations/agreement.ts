@@ -16,6 +16,7 @@
 // audience only: nothing here is open to customers or the public.
 import { sql } from "kysely";
 import { z } from "zod";
+import { AGREEMENT_PDF_MAX_PAGES, fitsSignedPdf } from "../agreements/copy.ts";
 import {
   AGREEMENT_CHANGES,
   AGREEMENT_FOR,
@@ -295,6 +296,19 @@ function publishProblems(doc: DocumentRow): string[] {
   if (!bodyHasText(parse(doc.draft_body))) problems.push("The body has no text");
   if (!doc.draft_tick_label) problems.push("The tick label (the words beside the box) is empty");
   if (doc.kind === "health" && !doc.draft_questions) problems.push("A health form needs questions");
+  // The signed PDF must be able to hold it, with the longest record and answers it may carry
+  // (stage 44 step 4, ADR 0645): measured by the PDF writer itself.
+  if (
+    !problems.length &&
+    !fitsSignedPdf({
+      title: doc.draft_title,
+      body: parse(doc.draft_body),
+      tickLabel: doc.draft_tick_label ?? "",
+      questions: parse<Question[]>(doc.draft_questions),
+    })
+  ) {
+    problems.push(`The signed PDF would be longer than ${AGREEMENT_PDF_MAX_PAGES} pages`);
+  }
   return problems;
 }
 

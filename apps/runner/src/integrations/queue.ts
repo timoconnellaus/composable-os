@@ -199,6 +199,15 @@ export class HostQueue extends RpcTarget {
   }
 
   /**
+   * Which of the host's own purposes opened this queue, or null for a caller's (ADR 0645, after
+   * the review of PR #283). A gatekeeper keeps the host's mail apart by it (idempotency keys,
+   * `listSent`); the answer comes from how the host opened the queue, never from the caller.
+   */
+  async hostPurpose(): Promise<string | null> {
+    return this.#caller.kind === "system" ? this.#caller.purpose : null;
+  }
+
+  /**
    * Whether this session is the host's own agreements mail (ADR 0645): the copy of a signed
    * agreement. Email-send attaches the signed PDF only for such a session; the answer comes from
    * how the host opened the queue, never from anything the caller sent.
@@ -219,6 +228,32 @@ export class HostQueue extends RpcTarget {
 
   async submitAction(action: number, description: OutboundDescription): Promise<void> {
     const host = this.#host;
+    // An agreement's copy submitted again (ADR 0645: a retry of one whose first submission was cut
+    // off): if a person's approval already waits for it, that is the answer, never a second one.
+    if (this.#caller.kind === "system" && this.#caller.purpose === "agreements") {
+      const waiting = await createCrmDb(host.env.DB)
+        .query.selectFrom("core_pending_action")
+        .select(["id", "change_set_id", "expires_at"])
+        .where("connection_id", "=", host.connectionId)
+        .where("facet_key", "=", host.facetKey)
+        .where("gk_action", "=", action)
+        .where("status", "=", "pending")
+        .executeTakeFirst();
+      if (waiting) {
+        this.pending.push({
+          status: "pending_approval",
+          changeSetId: waiting.change_set_id,
+          actionId: waiting.id,
+          operation: "integration.outbound",
+          provisionalIds: [],
+          dependsOn: [],
+          expiresAt: waiting.expires_at,
+          simulated: null,
+          message: "Waiting for a person's approval.",
+        });
+        return;
+      }
+    }
     const routine =
       this.#caller.kind === "system" && this.#caller.purpose === "routine-mail"
         ? this.#caller.routine

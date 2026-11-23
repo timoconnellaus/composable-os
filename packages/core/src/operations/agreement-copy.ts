@@ -4,7 +4,8 @@
 //   agreement.acceptance.pdf   a person on the staff: any one, health answers only with
 //                              agreements:health; every download audited (no value in the row)
 //   agreement.version.pdf      a person on the staff: a version's blank form, to sign on paper
-//   agreement.copy.send        a person on the staff with agreements:paper: email a paper form's
+//   agreement.copy.preview     a person on the staff with agreements:paper: where it would go
+//   agreement.copy.send       a person on the staff with agreements:paper: email a paper form's
 //                              copy to the Person's own address
 //
 // Each returns what the PDF says (`document`); the host's download route
@@ -17,10 +18,10 @@ import {
   acceptanceDocument,
   acceptanceFacts,
   blankDocument,
-  paperCopyAddress,
+  paperCopyRecipient,
   sendCopiesNow,
 } from "../agreements/copy.ts";
-import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { afterCommit, defineOperation, type HandlerContext } from "../operation.ts";
 import { holdsPermission } from "../principals.ts";
 
@@ -172,56 +173,119 @@ export const agreementVersionPdf = defineOperation({
   },
 });
 
+/** A paper acceptance staff may email a copy of, and where it would go, or why it would not. */
+async function paperCopyTarget(ctx: HandlerContext, acceptanceId: string) {
+  const facts = await acceptanceFacts(ctx.db, acceptanceId);
+  if (!facts || facts.erased || !facts.personId) {
+    throw new NotFoundError("acceptance", acceptanceId);
+  }
+  await requireVisible(ctx, facts.personId);
+  if (facts.by !== "paper") {
+    throw new ValidationError(
+      "A copy of this acceptance went to whoever agreed when it was made; only a paper form's is emailed on request.",
+      { rule: "agreement_copy_not_paper" },
+    );
+  }
+  const existing = await ctx.db
+    .selectFrom("core_agreement_copy")
+    .select("state")
+    .where("acceptance_id", "=", facts.id)
+    .executeTakeFirst();
+  return {
+    facts: { ...facts, personId: facts.personId },
+    existing,
+    recipient: await paperCopyRecipient(ctx.db, facts.personId),
+  };
+}
+
+const REFUSED = {
+  minor:
+    "This form is for a child: a copy is not emailed to them. Download the PDF and give it to their parent or guardian.",
+  no_address: "This Person has no email address to send the copy to.",
+} as const;
+
+const copyState = z.enum(["queued", "sending", "sent", "waiting", "failed", "cancelled"]);
+
+export const agreementCopyPreview = defineOperation({
+  name: "agreement.copy.preview",
+  description:
+    "Before Email a copy of a paper form: the address the host would send it to (the Person's " +
+    "sign-in address, or their primary email), or why it would not be sent (a child's form, or " +
+    "no address), and whether a copy was already asked for. Show the address to the person, who " +
+    "confirms it with agreement.copy.send. A person on the staff with agreements:paper. Read-only.",
+  input: z.object({ acceptanceId: id("The paper acceptance's id (aga_…)") }).strict(),
+  output: z.object({
+    acceptanceId: z.string(),
+    to: z.string().nullable(),
+    refused: z.enum(["minor", "no_address"]).nullable(),
+    state: copyState.nullable().describe("A copy already asked for: how it went"),
+  }),
+  permission: "agreements:paper",
+  risk: "read",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    if (ctx.actor !== "human") throw new ForbiddenError("Only a person emails a paper form's copy");
+    const { facts, existing, recipient } = await paperCopyTarget(ctx, input.acceptanceId);
+    return {
+      acceptanceId: facts.id,
+      to: "to" in recipient ? recipient.to : null,
+      refused: "refused" in recipient ? recipient.refused : null,
+      state: existing?.state ?? null,
+    };
+  },
+});
+
 export const agreementCopySend = defineOperation({
   name: "agreement.copy.send",
   description:
     "Email a paper form's copy (Email a copy): the signed PDF goes, as the host's own mail, to " +
-    "the address the host holds for the Person it is for (their sign-in address, or their " +
-    "primary email). Once only: asking again answers how the first one went. Refused when the " +
-    "Person has no address. A person on the staff with agreements:paper only.",
-  input: z.object({ acceptanceId: id("The paper acceptance's id (aga_…)") }).strict(),
-  output: z.object({
-    acceptanceId: z.string(),
-    state: z.enum(["queued", "sending", "sent", "waiting", "failed", "cancelled"]),
-  }),
+    "the address the host holds for the Person it is for, which agreement.copy.preview showed. " +
+    "`confirmTo` is that address as the person saw it: if the host's address changed since (an " +
+    "edit, by anyone), it is refused and shown again. Once only: asking again answers how the " +
+    "first one went. Refused for a child's form and for a Person with no address. A person on " +
+    "the staff with agreements:paper only.",
+  input: z
+    .object({
+      acceptanceId: id("The paper acceptance's id (aga_…)"),
+      confirmTo: z
+        .string()
+        .min(3)
+        .max(320)
+        .describe("The address agreement.copy.preview showed, as the person confirmed it"),
+    })
+    .strict(),
+  output: z.object({ acceptanceId: z.string(), state: copyState }),
   permission: "agreements:paper",
   risk: "write",
   actors: ["human"],
   mcp: { expose: false },
   async handler(input, ctx) {
     if (ctx.actor !== "human") throw new ForbiddenError("Only a person emails a paper form's copy");
-    const facts = await acceptanceFacts(ctx.db, input.acceptanceId);
-    if (!facts || facts.erased || !facts.personId) {
-      throw new NotFoundError("acceptance", input.acceptanceId);
-    }
-    await requireVisible(ctx, facts.personId);
-    if (facts.by !== "paper") {
-      throw new ValidationError(
-        "A copy of this acceptance went to whoever agreed when it was made; only a paper form's is emailed on request.",
-        { rule: "agreement_copy_not_paper" },
-      );
-    }
-    const existing = await ctx.db
-      .selectFrom("core_agreement_copy")
-      .select("state")
-      .where("acceptance_id", "=", facts.id)
-      .executeTakeFirst();
+    const { facts, existing, recipient } = await paperCopyTarget(ctx, input.acceptanceId);
     if (existing) return { acceptanceId: facts.id, state: existing.state };
-    // The address is the host's record of the Person's, never an input.
-    const to = await paperCopyAddress(ctx.db, facts.personId);
-    if (!to) {
-      throw new ValidationError("This Person has no email address to send the copy to.", {
-        rule: "agreement_copy_no_address",
+    if ("refused" in recipient) {
+      throw new ValidationError(REFUSED[recipient.refused], {
+        rule: recipient.refused === "minor" ? "agreement_copy_minor" : "agreement_copy_no_address",
       });
+    }
+    // The address is the host's record of the Person's, never an input: the confirmation only
+    // proves the person saw the one the host holds now.
+    if (recipient.to.toLowerCase() !== input.confirmTo.trim().toLowerCase()) {
+      throw new ConflictError(
+        "This Person's address changed since it was shown: look at it again before sending.",
+        { rule: "agreement_copy_address_changed" },
+      );
     }
     ctx.write(
       ctx.db.insertInto("core_agreement_copy").values({
         acceptance_id: facts.id,
-        to_address: to,
+        to_address: recipient.to,
         state: "queued",
         send_key: `agreement-copy:${facts.id}`,
         attempts: 0,
         queued_at: ctx.now,
+        next_at: ctx.now,
         requested_by: ctx.user.id,
       }),
     );
@@ -242,5 +306,6 @@ export const agreementCopyOperations = [
   meAgreementsPdf,
   agreementAcceptancePdf,
   agreementVersionPdf,
+  agreementCopyPreview,
   agreementCopySend,
 ] as const;

@@ -140,7 +140,10 @@ describe("the agreement part", () => {
     ]) {
       resetFakes();
       const h = await host(options);
-      await expect(send(h, message)).rejects.toThrow(/agreement is attached only by the host/);
+      // With the copy's key, refused for the key; without one, for the attachment.
+      await expect(send(h, message)).rejects.toThrow(/is the host's own agreements mail's/);
+      const { idempotencyKey: _key, ...keyless } = message;
+      await expect(send(h, keyless)).rejects.toThrow(/agreement is attached only by the host/);
       expect(submissions).toEqual([]);
     }
   });
@@ -216,12 +219,14 @@ describe("the agreement part", () => {
     expect(text).not.toMatch(/Answer: (Yes|No)/);
   });
 
-  it("a retried send with the same key queues nothing more", async () => {
+  it("a retried send with the same key makes no second email", async () => {
     const h = await host({ hostAgreement: true });
     const first = await send(h, message);
+    await h.apply(first.id);
     const again = await send(h, message);
-    expect(again.id).toBe(first.id);
+    expect(again).toEqual({ status: "sent", id: first.id });
     expect(submissions).toHaveLength(1);
+    expect(sentEmails).toHaveLength(1);
   });
 
   it("is never the sign-in or the routine kind", async () => {
@@ -370,5 +375,99 @@ describe("the PDF writer", () => {
     );
     // Four points: a move and three lines, stroked.
     expect(file).toMatch(/\d+(\.\d+)? \d+(\.\d+)? m( \d+(\.\d+)? \d+(\.\d+)? l){3} S/);
+  });
+});
+
+describe("keys and lists are kept apart by who is sending (the review of PR #283)", () => {
+  it("another caller cannot take the copy's key, and a key another caller used never answers the host's send", async () => {
+    const h = await host({});
+    // The copy's key itself: refused to every queue but the host's agreements mail.
+    await expect(
+      send(h, {
+        to: ["attacker@outside.test"],
+        subject: "anything",
+        text: "hi",
+        idempotencyKey: message.idempotencyKey,
+      }),
+    ).rejects.toThrow(/is the host's own agreements mail's/);
+    for (const options of [{ hostSignIn: true }, { hostRoutine: { siteOrigin: null } }]) {
+      await h.open(SENDER_URL, options);
+      await expect(
+        send(h, {
+          to: ["a@outside.test"],
+          subject: "x",
+          text: "y",
+          idempotencyKey: message.idempotencyKey,
+        }),
+      ).rejects.toThrow(/is the host's own agreements mail's/);
+    }
+    expect(submissions).toEqual([]);
+    // Any other key two sessions share: each class's own send.
+    await h.open(SENDER_URL, {});
+    const theirs = await send(h, {
+      to: ["attacker@outside.test"],
+      subject: "anything",
+      text: "hi",
+      idempotencyKey: "shared-key-1",
+    });
+    await h.open(SENDER_URL, { hostSignIn: true });
+    const ours = await send(h, {
+      to: ["member@members.test"],
+      subject: "x",
+      text: "y",
+      idempotencyKey: "shared-key-1",
+    });
+    expect(ours.id).not.toBe(theirs.id);
+    expect(submissions).toHaveLength(2);
+    // The host's copy, sent after a caller sent anything at all: its own, with its attachment.
+    await h.open(SENDER_URL, { hostAgreement: true });
+    const copy = await send(h, message);
+    await h.apply(copy.id);
+    expect(sentEmails.map((m) => [m.to, (m.attachments ?? []).length])).toEqual([
+      [["member@members.test"], 1],
+    ]);
+  });
+
+  it("a copy whose first submission was cut off is submitted again, once applied it is sent, and one turned down is refused", async () => {
+    const h = await host({ hostAgreement: true });
+    const first = await send(h, message);
+    expect(first.status).toBe("pending");
+    // The retry finds it still waiting: submitted to the queue again, the same action.
+    const again = await send(h, message);
+    expect(again.id).toBe(first.id);
+    expect(submissions.map(([id]) => id)).toEqual([first.id, first.id]);
+    await h.apply(first.id);
+    expect((await send(h, message)).status).toBe("sent");
+    expect(submissions).toHaveLength(2);
+    expect(sentEmails).toHaveLength(1);
+    // Turned down: refused plainly, never left waiting for nothing.
+    resetFakes();
+    const other = { ...message, idempotencyKey: "agreement-copy:aga_fixture9" };
+    const pending = await send(h, other);
+    await h.reject(pending.id);
+    await expect(send(h, other)).rejects.toThrow(/Refused: this email was turned down/);
+    expect(sentEmails).toEqual([]);
+  });
+
+  it("listSent shows the host's agreements, sign-in and orders mail only to that same queue", async () => {
+    const h = await host({ hostAgreement: true });
+    const copy = await send(h, message);
+    await h.apply(copy.id);
+    const waiting = await send(h, { ...message, idempotencyKey: "agreement-copy:aga_fixture3" });
+    expect(waiting.status).toBe("pending");
+    const own = (await h.call("listSent", [])) as { id: number }[];
+    expect(own.map((r) => r.id).sort()).toEqual([copy.id, waiting.id].sort());
+    for (const options of [{}, { hostSignIn: true }, { hostRoutine: { siteOrigin: null } }]) {
+      await h.open(SENDER_URL, options);
+      const listed = JSON.stringify(await h.call("listSent", []));
+      expect(listed, JSON.stringify(options)).not.toContain("member@members.test");
+      expect(listed).not.toContain("your copy of");
+    }
+    // A caller's own mail stays listed to callers.
+    await h.open(SENDER_URL, {});
+    const mine = await send(h, { to: ["colleague@example.com"], subject: "Mine", text: "x" });
+    expect(((await h.call("listSent", [])) as { id: number }[]).map((r) => r.id)).toContain(
+      mine.id,
+    );
   });
 });

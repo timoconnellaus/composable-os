@@ -876,7 +876,14 @@ export class IntegrationHost extends DurableObject<Env> {
     const { value, queue } = await this.#withSession(input.resource, caller, async (session) =>
       toJson(await session[input.method](...input.args)),
     );
-    return { value, pending: queue.pending, applied: queue.applied, failed: queue.failed };
+    return {
+      value,
+      pending: queue.pending,
+      applied: queue.applied,
+      failed: queue.failed,
+      // What the deploy-time floor refused: the host's own calls tell a refusal from a wait.
+      ...(queue.denied.length ? { denied: queue.denied } : {}),
+    };
   }
 
   /**

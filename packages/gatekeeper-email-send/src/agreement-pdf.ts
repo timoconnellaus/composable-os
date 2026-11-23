@@ -218,6 +218,9 @@ function hex(bytes: readonly number[]): string {
 
 /** A number as PDF writes it: fixed precision, so the same input gives the same bytes. */
 function num(n: number): string {
+  // Values are checked by their callers; anything not a finite number is drawn at 0, never as
+  // `NaN` or `Infinity` in the file.
+  if (!Number.isFinite(n)) return "0";
   const fixed = (Math.round(n * 100) / 100).toFixed(2);
   return fixed.replace(/\.?0+$/, "") || "0";
 }
@@ -231,6 +234,8 @@ const RIGHT = PAGE_WIDTH - 56;
 const TOP = PAGE_HEIGHT - 60;
 const BOTTOM = 76;
 const MAX_PAGES = 400;
+/** The deepest a nested list indents: deeper items stay at this indent, on the page. */
+const MAX_INDENT = 6 * 14;
 
 const BODY_SIZE = 10.5;
 
@@ -456,8 +461,9 @@ function renderList(layout: Layout, list: PdfList, x: number): void {
   list.items.forEach((item, index) => {
     const marker = list.style === "ordered" ? `${index + 1}.` : "•";
     const prefix: Segment = { font: "F1", bytes: layout.encode(`${marker} `) };
-    layout.paragraph(piecesOf(item.content, "F1"), x + 14, BODY_SIZE, { firstPrefix: prefix });
-    if (item.list) renderList(layout, item.list, x + 14);
+    const indent = Math.min(x + 14, LEFT + MAX_INDENT);
+    layout.paragraph(piecesOf(item.content, "F1"), indent, BODY_SIZE, { firstPrefix: prefix });
+    if (item.list) renderList(layout, item.list, indent);
   });
 }
 
@@ -743,6 +749,14 @@ function utf16Hex(text: string): string {
     for (const u of units) out += u.toString(16).padStart(4, "0").toUpperCase();
   }
   return `${out}>`;
+}
+
+/** The most pages a file may have: a document longer than this is refused when published. */
+export const AGREEMENT_PDF_MAX_PAGES = MAX_PAGES;
+
+/** How many pages `doc` takes, or throws when it is longer than the writer draws. */
+export function agreementPdfPages(doc: AgreementPdf): number {
+  return layoutPages(doc).length;
 }
 
 /** The PDF file of `doc`. The same `doc` always gives the same bytes. */

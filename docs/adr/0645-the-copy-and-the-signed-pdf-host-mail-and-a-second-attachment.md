@@ -77,8 +77,8 @@ supplies would let anyone send any file to anyone.
 ## Consequences
 - A deployment with no email channel set (Settings, Notification delivery) keeps copies queued
   until one is: they go when it is set, not lost.
-- A copy held for a person by the floor stays `waiting` once approved; the row does not learn of
-  the later send.
+- A copy held for a person was left `waiting` after approval (superseded below, 2026-11-23: it is
+  asked about again until it is sent).
 - The standard fonts draw Latin text only: a name in another script is `?` in the file (the record
   keeps it exactly). A publish does not yet refuse what the PDF cannot draw (the spec's open
   check); a later step can, or embed a font.
@@ -100,3 +100,50 @@ acceptance); the same bytes for a download and the attachment; the blank form.
 `apps/runner/test/agreement-copy.test.ts`: through the real integration host, applied at once as
 the system's, once per key, refused to every other caller and purpose.
 `apps/app/test/agreement-pdf.test.ts`: the routes, over the host's hostname and the binding.
+
+## Amended 2026-11-23: after the security review of PR #283 (before it merged)
+
+- **Idempotency keys are kept apart by who is sending.** Email-send remembered one key space per
+  sender facet for every caller, and answered a known key before it checked the message, the
+  queue or the kind; the copy's key is predictable and its acceptance id listable by MCP, so a
+  caller could take `agreement-copy:<id>` first and the person got nothing. Now:
+  - the integration host's queue says which of its purposes opened it (`hostPurpose`:
+    agreements, sign-in, routine-mail, orders; a caller's queue says none), and email-send reads
+    the class from it (`queue-class.ts`, the fake outbox too);
+  - a key is remembered under its class and the send's kind, and looked up only after the
+    message is checked and its kind decided, so a key answers only a send from the same class of
+    caller, of the same kind;
+  - `agreement-copy:` keys are refused from every queue but the agreements mail's.
+  Sign-in and order mail pass no key today; routine mail's `routine:<row id>` had the same
+  exposure and is now apart too. Callers' queues (a person, MCP, the assistant, automations,
+  extensions) still share one class among themselves, as before. Keys remembered before this
+  change no longer match (a retry within that window may send again).
+- **A copy never waits for nothing.**
+  - The floor refusing it is `failed`, not `waiting` (`callAsHost` now returns `denied`).
+  - When a retried copy's key finds the send still waiting in the journal (its first submission
+    was cut off before the host applied it), email-send submits it to the queue again; the host's
+    queue answers with a person's approval if one already waits for it, and decides it otherwise.
+    One turned down or failed is refused plainly (`Refused: …`) and recorded `failed`.
+  - A copy held for a person is asked about again (15 minutes, doubling, at most a day) until it
+    is sent (then `sent`, as `agreement.acceptance.get` reports) or turned down.
+  - **When a copy can wait for a person at all:** under today's gate, never in practice. The host's
+    own message applies at once unless the deploy-time floor denies it (`hostMessage` overrides a
+    floor or policy that would review); `waiting` exists for a change of that rule, and for a send
+    the host could not see decided (re-asked as above).
+- **`listSent()`** shows the host's agreements, sign-in and orders mail only to that same queue:
+  no caller reads who agreed to what, who signed in or who bought.
+- **The backlog.** The sender reads nothing until the integration host and an email channel are
+  there; then each open state's due rows in index order (`next_at` is set on every row it still
+  has work for), stopping at its limit. With copies queued and no channel, admins are told once.
+- **Paper for a child** (coordinator's decision, the owner being asked): not emailed; staff give
+  the guardian the PDF download. One function decides (`paperCopyRecipient`). "Email a copy" first
+  shows the address (`agreement.copy.preview`) and `agreement.copy.send` takes it back as
+  `confirmTo`, refused if it is not the host's address now. A paper form's name, signer and note
+  are in a person's download only for an adult's own form; for a minor's, only staff's.
+- **A guest's copy names the buyer as typed**, never the Person staff matched the address to.
+- **Erase** clears a copy's address and cancels any copy not yet sent, a claimed one included.
+  Cancelling a person's pending approval of such a copy and scrubbing the gatekeeper's journal
+  entry are step 8's.
+- **The PDF writer measures publishing**: `agreement.publish` refuses a body whose signed PDF,
+  with the longest record and answers it may carry, would pass 400 pages. Core now imports the
+  writer for that measure, so cos-runner carries it.

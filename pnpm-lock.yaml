@@ -701,6 +701,9 @@ importers:
       '@composable-os/db':
         specifier: workspace:*
         version: link:../db
+      '@composable-os/gatekeeper-email-send':
+        specifier: workspace:*
+        version: link:../gatekeeper-email-send
       '@composable-os/product':
         specifier: workspace:*
         version: link:../product

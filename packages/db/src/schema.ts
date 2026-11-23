@@ -1163,7 +1163,7 @@ export interface CoreAgreementMinorTable {
  */
 export interface CoreAgreementCopyTable {
   acceptance_id: string;
-  to_address: string;
+  to_address: string | null;
   state: "queued" | "sending" | "sent" | "waiting" | "failed" | "cancelled";
   /** The idempotency key of the current try (`agreement-copy:<acceptance id>` first). */
   send_key: string;

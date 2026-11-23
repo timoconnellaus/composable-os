@@ -165,7 +165,9 @@ describe("the host's agreements mail", () => {
           extra,
         ),
         JSON.stringify(extra),
-      ).rejects.toThrow(/agreement is attached only by the host/);
+      ).rejects.toThrow(
+        /agreement is attached only by the host|is the host's own agreements mail's/,
+      );
       expect(await sentTo(to)).toEqual([]);
     }
     for (const purpose of ["orders", "sign-in"] as const) {
@@ -180,7 +182,9 @@ describe("the host's agreements mail", () => {
           ...(purpose === "sign-in" ? { origin: "system.customer-mail" as const } : {}),
         }) as Promise<unknown>,
         purpose,
-      ).rejects.toThrow(/agreement is attached only by the host/);
+      ).rejects.toThrow(
+        /agreement is attached only by the host|is the host's own agreements mail's/,
+      );
       expect(await sentTo(to)).toEqual([]);
     }
     // Only one send, and only `send`.
@@ -236,5 +240,131 @@ describe("the host's agreements mail", () => {
       .bind(id)
       .first<{ state: string }>();
     expect(row?.state).toBe("sent");
+  });
+});
+
+describe("keys and lists kept apart by who is sending (the review of PR #283)", () => {
+  const mcp = (): Partial<InvocationContext> => ({
+    actor: "mcp",
+    origin: { surface: "mcp", sessionId: `cap_${unique("s")}`, clientId: "c" },
+  });
+
+  async function paperAcceptance() {
+    const { id: documentId } = await op<{ id: string }>(admin, "agreement.create", {
+      title: unique("Fixture waiver"),
+      kind: "waiver",
+    });
+    const saved = await op<{ hash: string; rev: number }>(admin, "agreement.draft.save", {
+      id: documentId,
+      body: { blocks: [{ type: "paragraph", content: [{ type: "text", text: "Fixture text." }] }] },
+      tickLabel: "I have read this fixture",
+    });
+    const { version } = await op<{ version: { id: string } }>(admin, "agreement.publish", {
+      documentId,
+      draftHash: saved.hash,
+      draftRev: saved.rev,
+      number: 1,
+      change: "small",
+    });
+    const email = `${unique("paper")}@outside.test`;
+    const person = await op<{ id: string }>(admin, "person.create", {
+      givenName: unique("Member"),
+      emails: [{ email }],
+    });
+    const hash = await env.DB.prepare("SELECT hash FROM core_agreement_version WHERE id = ?")
+      .bind(version.id)
+      .first<{ hash: string }>();
+    const id = `aga_${unique("pp")}`;
+    await env.DB.prepare(
+      "INSERT INTO core_agreement_acceptance (id, document_id, version_id, shown_hash, person_id, by, how, typed_name, channel, accepted_at, signed_on, recorded_by) VALUES (?, ?, ?, ?, ?, 'paper', 'paper', 'Fixture Name', 'paper', ?, '2026-11-01', ?)",
+    )
+      .bind(id, documentId, version.id, hash?.hash, person.id, new Date().toISOString(), admin.id)
+      .run();
+    return { id, email };
+  }
+
+  it("an MCP client cannot take a paper form's copy key first: the person still gets their copy", async () => {
+    const { id, email } = await paperAcceptance();
+    const attacker = `${unique("attacker")}@outside.test`;
+    await expect(
+      op(
+        admin,
+        "integration.call",
+        {
+          connectionId,
+          resource: "OUTBOX",
+          method: "send",
+          args: [
+            {
+              to: [attacker],
+              subject: "hello",
+              text: "hi",
+              idempotencyKey: `agreement-copy:${id}`,
+            },
+          ],
+        },
+        mcp(),
+      ),
+    ).rejects.toThrow(/is the host's own agreements mail's/);
+    expect(await sentTo(attacker)).toEqual([]);
+    const preview = await op<{ to: string }>(admin, "agreement.copy.preview", { acceptanceId: id });
+    const out = await op<{ state: string }>(admin, "agreement.copy.send", {
+      acceptanceId: id,
+      confirmTo: preview.to,
+    });
+    expect(out.state).toBe("sent");
+    const got = await sentTo(email);
+    expect(got).toHaveLength(1);
+    expect(got[0]?.attachments).toEqual(["agreement.pdf"]);
+  });
+
+  it("two sessions sharing one key each get their own send, through the integration host", async () => {
+    const key = `shared-${unique("k")}`;
+    const theirs = `${unique("theirs")}@outside.test`;
+    const ours = `${unique("ours")}@outside.test`;
+    await op(
+      admin,
+      "integration.call",
+      {
+        connectionId,
+        resource: "OUTBOX",
+        method: "send",
+        args: [{ to: [theirs], subject: "Theirs", text: "x", idempotencyKey: key }],
+      },
+      // A person on the staff (their own send applies), so nothing waits ahead of the host's.
+      {},
+    );
+    expect(await sentTo(theirs)).toHaveLength(1);
+    // The host's orders mail with the very same key: its own send, not the caller's answer.
+    const result = await integrations.callAsHost?.({
+      connectionId: target.connectionId,
+      resource: target.resource,
+      method: "send",
+      args: [{ to: [ours], subject: "Ours", text: "y", idempotencyKey: key }],
+      purpose: "orders",
+    });
+    expect(result?.applied).toHaveLength(1);
+    expect(await sentTo(ours)).toHaveLength(1);
+  });
+
+  it("a caller's listSent does not show the host's copies", async () => {
+    const to = `${unique("listed")}@outside.test`;
+    await integrations.callAsHost?.({
+      connectionId: target.connectionId,
+      resource: target.resource,
+      method: "send",
+      args: [copy(to)],
+      purpose: "agreements",
+    });
+    expect(await sentTo(to)).toHaveLength(1);
+    for (const extra of [{}, mcp()]) {
+      const listed = await op<{ value: unknown }>(
+        admin,
+        "integration.call",
+        { connectionId, resource: "OUTBOX", method: "listSent", args: [] },
+        extra,
+      );
+      expect(JSON.stringify(listed.value)).not.toContain(to);
+    }
   });
 });

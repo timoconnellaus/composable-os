@@ -56,6 +56,11 @@ export interface IntegrationCallResult {
     outcome: "refused" | "unknown" | "retryable";
     message: string;
   }[];
+  /**
+   * Actions the gate denied (the deploy-time floor) and rejected on the facet: never sent. Set by
+   * the host's own calls (`callAsHost`), so the copy of an agreement tells a refusal from a wait.
+   */
+  denied?: number[];
 }
 
 export interface ConnectStart {

@@ -56,8 +56,15 @@ function calendarsOf(message: ParsedMessage): EmailCalendarEvent[] {
 }
 
 import type { SenderConfiguratorRpc } from "./configurator/sender-configurator-types";
+import {
+  AGREEMENT_KEY_PREFIX,
+  HOST_PRIVATE_CLASSES,
+  type QueueClass,
+  queueClassOf,
+} from "./queue-class";
 import { hostRoutineMail, isRoutineShaped, ROUTINE_KIND } from "./routine";
 import { assertSenderAllowed, SENDER_URL_PATTERN, senderFromUrl, senderUrl } from "./sender";
+
 import { isHostSignInMail, isSignInCodeMessage, SIGN_IN_KIND } from "./sign-in";
 import {
   type EmailTransport,
@@ -130,8 +137,11 @@ function splitIdempotencyKey(input: unknown): { key: string | null; rest: unknow
 
 // ── Actions ─────────────────────────────────────────────────────────
 
-/** What the journal stores for one send: the sender at submit time and the validated message. */
-type StoredEmail = { from: string; message: ParsedMessage };
+/**
+ * What the journal stores for one send: the sender at submit time, the validated message, and the
+ * class of queue that sent it (ADR 0645; absent on sends from before it: a caller's).
+ */
+type StoredEmail = { from: string; message: ParsedMessage; queue?: QueueClass };
 
 type Actions = {
   send: StoredEmail;
@@ -147,6 +157,8 @@ type HistoryEntry = {
   id: number;
   to: string[];
   subject: string;
+  /** The class of queue that sent it (ADR 0645); absent: a caller's. */
+  queue?: QueueClass;
   status: "sent" | "rejected";
   sentAt?: string;
   messageId?: string;
@@ -209,19 +221,21 @@ const sendDefinition = (internal: boolean, kind?: ActionKind, autoApprovable?: b
   },
 });
 
+const SEND_DEFINITIONS = {
+  send: sendDefinition(false),
+  sendInternal: sendDefinition(true),
+  // The host's sign-in code (ADR 0456): an independent send, so it never waits behind another.
+  sendSignIn: sendDefinition(false, SIGN_IN_KIND),
+  // Routine mail (ADR 0590): the host's own decision, not an admin's switch, lets it apply,
+  // so it is not auto-approvable; an independent send, so it never waits behind another.
+  sendRoutine: sendDefinition(false, ROUTINE_KIND, false),
+  // The copy of a signed agreement (ADR 0645): the host's own mail, applied by the host's
+  // decision (its `callAsHost`), never by an admin's switch; an independent send.
+  sendAgreement: sendDefinition(false, AGREEMENT_KIND, false),
+} satisfies Record<SendKind, ReturnType<typeof sendDefinition>>;
+
 const actions = defineActions<EmailHost, Actions>(
-  {
-    send: sendDefinition(false),
-    sendInternal: sendDefinition(true),
-    // The host's sign-in code (ADR 0456): an independent send, so it never waits behind another.
-    sendSignIn: sendDefinition(false, SIGN_IN_KIND),
-    // Routine mail (ADR 0590): the host's own decision, not an admin's switch, lets it apply,
-    // so it is not auto-approvable; an independent send, so it never waits behind another.
-    sendRoutine: sendDefinition(false, ROUTINE_KIND, false),
-    // The copy of a signed agreement (ADR 0645): the host's own mail, applied by the host's
-    // decision (its `callAsHost`), never by an admin's switch; an independent send.
-    sendAgreement: sendDefinition(false, AGREEMENT_KIND, false),
-  },
+  SEND_DEFINITIONS,
   // Email Service has no per-user authority to pin: the Worker's own binding sends every email,
   // and apply re-checks the sender domain against the current configuration instead.
   { fence: "none", vendorId: "email-send" },
@@ -247,10 +261,19 @@ type SessionBackend = {
   sender: string;
   submit(queue: RpcStub<ApprovalQueue>, email: StoredEmail, kind: SendKind): Promise<number>;
   wasSent(id: number): boolean;
-  /** The send an idempotency key already made (ADR 0574), "busy" while it is being made. */
-  recall(key: string): number | "busy" | null;
-  remember(key: string, id: number | "busy" | null): void;
-  listSent(): EmailSendRecord[];
+  /**
+   * Submits a journalled send that is still waiting to its queue again, as it was described
+   * (ADR 0645: a copy whose first submission was cut off before the host applied it). False when
+   * it is no longer waiting (applied, rejected or failed).
+   */
+  resubmit(queue: RpcStub<ApprovalQueue>, id: number): Promise<boolean>;
+  /**
+   * The send an idempotency key already made (ADR 0574), "busy" while it is being made. `slot` is
+   * the key within its queue class and kind: one class's key never answers another's send.
+   */
+  recall(slot: string): number | "busy" | null;
+  remember(slot: string, id: number | "busy" | null): void;
+  listSent(viewer: QueueClass): EmailSendRecord[];
   internalDomains(): string | undefined;
   allowedDomains(): string | undefined;
 };
@@ -267,15 +290,14 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
 
   /** Validates the message and queues it for approval. */
   async send(message: EmailSendMessage): Promise<EmailSendReceipt> {
-    // A caller retrying a step passes the same key: the send it already made is answered again,
-    // never queued twice (ADR 0574).
     const { key, rest } = splitIdempotencyKey(message);
-    if (key) {
-      const known = this.#backend.recall(key);
-      if (known === "busy") throw new Error("A send with this idempotency key is in progress.");
-      if (known !== null) {
-        return { status: this.#backend.wasSent(known) ? "sent" : "pending", id: known };
-      }
+    // Who is sending, from how the host opened the queue (ADR 0645, after the review of PR #283).
+    const queueClass = await queueClassOf(this.#queue);
+    // The copy's keys are the host's agreements mail's alone: no other caller may take one first.
+    if (key?.startsWith(AGREEMENT_KEY_PREFIX) && queueClass !== "agreements") {
+      throw new TypeError(
+        `Invalid email: idempotencyKey ${AGREEMENT_KEY_PREFIX}… is the host's own agreements mail's.`,
+      );
     }
     const parsed = parseMessage(rest);
     const sender = this.#backend.sender;
@@ -301,22 +323,56 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
           : isInternal(parsed, this.#backend.internalDomains())
             ? "sendInternal"
             : "send";
-    if (key) this.#backend.remember(key, "busy");
+    // A caller retrying a step passes the same key: the send it already made is answered again,
+    // never queued twice (ADR 0574). Keys are remembered per queue class and kind, so a key only
+    // ever answers a send from the same class of caller, of the same kind.
+    const slot = key ? `${queueClass}:${kind}:${key}` : null;
+    if (slot) {
+      const known = this.#backend.recall(slot);
+      if (known === "busy") throw new Error("A send with this idempotency key is in progress.");
+      if (known !== null) return this.#again(known, queueClass);
+    }
+    if (slot) this.#backend.remember(slot, "busy");
     let id: number;
     try {
-      id = await this.#backend.submit(this.#queue, { from: sender, message: parsed }, kind);
+      id = await this.#backend.submit(
+        this.#queue,
+        { from: sender, message: parsed, queue: queueClass },
+        kind,
+      );
     } catch (error) {
-      if (key) this.#backend.remember(key, null);
+      if (slot) this.#backend.remember(slot, null);
       throw error;
     }
-    if (key) this.#backend.remember(key, id);
+    if (slot) this.#backend.remember(slot, id);
     // An auto-approved send may already have been applied while the submission was in flight.
     return { status: this.#backend.wasSent(id) ? "sent" : "pending", id };
   }
 
-  /** Lists recent sends, pending ones included, after recording the read. */
+  /**
+   * The answer to a send its key already made. The host's agreements mail re-drives one that is
+   * still waiting (its first submission may have been cut off before the host applied it: the
+   * queue decides it again, and finds a person's pending approval if there is one), and is told
+   * plainly when it was turned down, so it is never left waiting for nothing.
+   */
+  async #again(id: number, queueClass: QueueClass): Promise<EmailSendReceipt> {
+    if (this.#backend.wasSent(id)) return { status: "sent", id };
+    if (queueClass === "agreements") {
+      if (!(await this.#backend.resubmit(this.#queue, id))) {
+        throw new Error("Refused: this email was turned down or failed, and is not sent again.");
+      }
+      return { status: this.#backend.wasSent(id) ? "sent" : "pending", id };
+    }
+    return { status: "pending", id };
+  }
+
+  /**
+   * Lists recent sends, pending ones included, after recording the read. The host's own
+   * agreements, sign-in and orders mail is listed only to that same queue (ADR 0645): a caller
+   * never reads who agreed to what, who signed in or who bought.
+   */
   async listSent(): Promise<EmailSendRecord[]> {
-    const rows = this.#backend.listSent();
+    const rows = this.#backend.listSent(await queueClassOf(this.#queue));
     const observation: ObservationDescription = {
       title: "List sent email",
       description: `Listed ${rows.length} recent ${rows.length === 1 ? "email" : "emails"} from the sender address.`,
@@ -457,6 +513,7 @@ export class EmailSendGatekeeper
       id,
       to: recipientsOf(email.message),
       subject: email.message.subject,
+      ...(email.queue && email.queue !== "caller" ? { queue: email.queue } : {}),
       ...outcome,
     };
     kv.put(historyKey(id), entry);
@@ -465,27 +522,34 @@ export class EmailSendGatekeeper
     for (const key of keys.slice(0, Math.max(0, keys.length - HISTORY_LIMIT))) kv.delete(key);
   }
 
-  /** History plus the sends still awaiting approval, newest first. */
-  #listSent(): EmailSendRecord[] {
+  /** History plus the sends still awaiting approval, newest first, as `viewer` may see them. */
+  #listSent(viewer: QueueClass): EmailSendRecord[] {
+    const visible = (queue: QueueClass | undefined) =>
+      !queue || !HOST_PRIVATE_CLASSES.has(queue) || queue === viewer;
     const settled = [
       ...this.ctx.storage.kv.list<HistoryEntry>({ prefix: HISTORY_PREFIX, reverse: true }),
-    ].map(
-      ([, entry]): EmailSendRecord => ({
-        id: entry.id,
-        to: entry.to,
-        subject: entry.subject,
-        status: entry.status,
-        ...(entry.sentAt ? { sentAt: entry.sentAt } : {}),
-      }),
-    );
-    const pending = this.#journal.listPending().map(
-      ({ id, action }): EmailSendRecord => ({
-        id,
-        to: recipientsOf(action.payload.message),
-        subject: action.payload.message.subject,
-        status: "pending",
-      }),
-    );
+    ]
+      .filter(([, entry]) => visible(entry.queue))
+      .map(
+        ([, entry]): EmailSendRecord => ({
+          id: entry.id,
+          to: entry.to,
+          subject: entry.subject,
+          status: entry.status,
+          ...(entry.sentAt ? { sentAt: entry.sentAt } : {}),
+        }),
+      );
+    const pending = this.#journal
+      .listPending()
+      .filter(({ action }) => visible(action.payload.queue))
+      .map(
+        ({ id, action }): EmailSendRecord => ({
+          id,
+          to: recipientsOf(action.payload.message),
+          subject: action.payload.message.subject,
+          status: "pending",
+        }),
+      );
     return [...pending, ...settled].sort((a, b) => b.id - a.id).slice(0, LIST_LIMIT);
   }
 
@@ -517,9 +581,20 @@ export class EmailSendGatekeeper
       sender: this.#sender(),
       submit: (queue, email, kind) => this.#actions().submit(queue, kind, email),
       wasSent: (id) => this.#journal.wasApplied(id),
+      resubmit: async (queue, id) => {
+        const waiting = this.#journal.listPending().find((p) => p.id === id);
+        if (!waiting) return false;
+        const definition = SEND_DEFINITIONS[waiting.action.kind];
+        await queue.submitAction(id, {
+          ...definition.describe(waiting.action.payload),
+          autoApprovable: definition.autoApprovable === true,
+          actionKind: definition.kind,
+        });
+        return true;
+      },
       recall: (key) => this.#recall(key),
       remember: (key, id) => this.#remember(key, id),
-      listSent: () => this.#listSent(),
+      listSent: (viewer) => this.#listSent(viewer),
       internalDomains: () => this.env.INTERNAL_DOMAINS,
       allowedDomains: () => this.env.ALLOWED_SENDER_DOMAINS,
     };

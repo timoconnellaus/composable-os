@@ -18,6 +18,12 @@
 // Nothing here puts a name typed, a signature or an answer in a log, an error or the approval
 // card; the error column holds the gatekeeper's words, which never carry the message.
 import type { CoreDatabase } from "@composable-os/db";
+// The email gatekeeper's PDF writer measures what it can draw (no imports of its own).
+import {
+  AGREEMENT_PDF_MAX_PAGES,
+  type AgreementPdf,
+  agreementPdfPages,
+} from "@composable-os/gatekeeper-email-send/agreement-pdf";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { type Kysely, sql } from "kysely";
@@ -25,9 +31,11 @@ import { NotFoundError, OperationError } from "../errors.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import { resolveChannelTarget } from "../notifications/channels.ts";
 import { loadDeliverySettings } from "../notifications/preferences.ts";
+import { notifyStatements } from "../notifications/send.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import type { Signature } from "./capture.ts";
 import { type Question, versionIntact } from "./documents.ts";
+import { isMinor, personFacts } from "./due.ts";
 
 type Db = Kysely<CoreDatabase>;
 
@@ -111,6 +119,53 @@ export async function versionDocument(db: Db, versionId: string): Promise<Agreem
   };
 }
 
+export { AGREEMENT_PDF_MAX_PAGES };
+
+/**
+ * Whether a version with these words fits the signed PDF the writer draws, with the longest
+ * record and answers an acceptance of it may carry: every question answered yes with the longest
+ * note, a full record and a signature (after the review of PR #283). The writer's own measure.
+ */
+export function fitsSignedPdf(draft: {
+  title: string;
+  body: unknown;
+  tickLabel: string;
+  questions: readonly Question[] | null;
+}): boolean {
+  const long = (n: number) => "W ".repeat(Math.ceil(n / 2)).slice(0, n);
+  try {
+    agreementPdfPages({
+      business: long(200),
+      title: draft.title,
+      versionNumber: 1_000_000,
+      versionHash: "0".repeat(64),
+      body: (draft.body ?? { blocks: [] }) as AgreementPdf["body"],
+      tickLabel: draft.tickLabel,
+      ...(draft.questions?.length
+        ? {
+            questions: draft.questions.map((q) => ({ key: q.key, text: q.text })),
+            answers: draft.questions.map((q) => ({ key: q.key, yes: true, note: long(1_000) })),
+          }
+        : {}),
+      record: Array.from({ length: 12 }, (_, i) => ({ label: `Line ${i}`, value: long(300) })),
+      signature: {
+        width: 1000,
+        height: 400,
+        strokes: [
+          [
+            [0, 0],
+            [1000, 400],
+          ],
+        ],
+      },
+      acceptanceId: `aga_${"0".repeat(26)}`,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The blank form of a version, to print and sign on paper. */
 export async function blankDocument(db: Db, versionId: string): Promise<AgreementDocument> {
   return { ...(await versionDocument(db, versionId)), blank: true };
@@ -191,19 +246,29 @@ export async function acceptanceDocument(
     : [];
   const nameOf = (id: string | null) =>
     (id && people.find((p) => p.id === id)?.display_name) || null;
-  // Whether the name typed and the signature are this view's to see (step 2's rule).
+  // Whether the name typed and the signature are this view's to see (step 2's rule: only
+  // whoever agreed). A paper form's name is whoever signed it: shown to the Person it is for
+  // when they are an adult; for a minor the host cannot tell which parent signed, so only staff
+  // see it (after the review of PR #283).
   const agreedBy = a.by === "guardian" ? a.agent_person_id : a.person_id;
-  const theirs = view.kind === "staff" || (view.me !== null && view.me === agreedBy);
+  const paperForMinor =
+    a.by === "paper" && a.person_id !== null && isMinor(await personFacts(db, a.person_id));
+  const theirs =
+    view.kind === "staff" || (view.me !== null && view.me === agreedBy && !paperForMinor);
   const record: { label: string; value: string }[] = [];
   record.push({
     label: "For",
     value:
-      nameOf(a.person_id) ??
-      (a.erased_at
-        ? "A person whose record was erased"
-        : a.by === "guest"
-          ? "A visitor buying without an account"
-          : "Unknown"),
+      // A guest's copy goes to the address the purchase was made with, which more than one
+      // Person may share: it names the buyer as they typed it, never the Person staff matched.
+      a.by === "guest" && view.kind === "person" && a.typed_name
+        ? `${a.typed_name} (as typed when buying)`
+        : (nameOf(a.person_id) ??
+          (a.erased_at
+            ? "A person whose record was erased"
+            : a.by === "guest"
+              ? "A visitor buying without an account"
+              : "Unknown")),
   });
   if (a.by === "paper") {
     const staff = a.recorded_by
@@ -370,20 +435,60 @@ export interface CopyRun {
   notSetUp: string | null;
 }
 
-/** A try may be claimed again once it has been "sending" this long (a sender that crashed). */
+/** A claim may be taken again once it has been "sending" this long (a sender that crashed). */
 const STALE_MS = 10 * 60_000;
 const MAX_ATTEMPTS = 8;
 const SWEEP = 25;
+/** The states the sender still has work for, each read in its own index range. */
+const OPEN_STATES = ["queued", "sending", "waiting"] as const;
 
-const backoff = (attempts: number, now: Date) =>
-  new Date(now.getTime() + Math.min(60, 2 ** attempts) * 60_000).toISOString();
+const later = (now: Date, ms: number) => new Date(now.getTime() + ms).toISOString();
+/** After a refusal it may be tried again: 2, 4, 8 … minutes, at most an hour. */
+const retryAt = (attempts: number, now: Date) => later(now, Math.min(60, 2 ** attempts) * 60_000);
+/** A copy held for a person is asked about again: 15, 30, 60 … minutes, at most a day. */
+const askAgainAt = (attempts: number, now: Date) =>
+  later(now, Math.min(1_440, 15 * 2 ** Math.max(0, attempts - 1)) * 60_000);
 
 const short = (message: string) => message.replace(/\s+/g, " ").slice(0, 500);
 
 /**
+ * Tells admins, once, that copies are waiting for an email channel (after the review of PR #283).
+ * The notice names no one: how many, and where to set it.
+ */
+async function noChannelNotice(db: Db, now: string): Promise<void> {
+  const admins = await db
+    .selectFrom("core_user")
+    .select("id")
+    .where("kind", "=", "human")
+    .where("role", "=", "admin")
+    .where("deactivated_at", "is", null)
+    .execute();
+  if (!admins.length) return;
+  const plan = await notifyStatements(
+    db,
+    {
+      to: admins.map((a) => ({ userId: a.id })),
+      type: "system.message",
+      title: "Copies of signed agreements are waiting to be emailed",
+      body:
+        "No email channel is set, so the copies people are owed of what they agreed to wait. " +
+        "Set one in Settings, Notification delivery; they go out once it is set.",
+      link: null,
+      dedupeKey: "agreement-copy:no-channel",
+      source: { actor: "system" },
+    },
+    now,
+  );
+  for (const statement of plan.statements) await db.executeQuery(statement.compile());
+}
+
+/**
  * Sends the copies that are due: those of `acceptanceIds` (right after they were recorded), or
- * every queued one (the minute cron). Each row is claimed by one sender; a claim left by a sender
- * that crashed is taken again after ten minutes, with the same idempotency key.
+ * what the minute cron finds. It reads nothing until a channel and the integration host are there;
+ * then each open state's due rows in index order, stopping at the limit. Each row is claimed by
+ * one sender; a claim left by a sender that crashed is taken again after ten minutes, with the
+ * same idempotency key, and a copy held for a person is asked about again until it is sent or
+ * turned down.
  */
 export async function sendAgreementCopies(
   deps: CopyDeps,
@@ -393,27 +498,7 @@ export async function sendAgreementCopies(
   const db = deps.db;
   const now = deps.clock?.() ?? new Date();
   const at = now.toISOString();
-  const stale = new Date(now.getTime() - STALE_MS).toISOString();
-  let query = db
-    .selectFrom("core_agreement_copy")
-    .select("acceptance_id")
-    .where((eb) =>
-      eb.or([
-        eb.and([
-          eb("state", "=", "queued"),
-          eb.or([eb("next_at", "is", null), eb("next_at", "<=", at)]),
-        ]),
-        eb.and([eb("state", "=", "sending"), eb("claimed_at", "<", stale)]),
-      ]),
-    )
-    .orderBy("queued_at")
-    .limit(SWEEP);
-  if (options.acceptanceIds) {
-    if (!options.acceptanceIds.length) return run;
-    query = query.where("acceptance_id", "in", [...options.acceptanceIds]);
-  }
-  const due = await query.execute();
-  if (!due.length) return run;
+  if (options.acceptanceIds && !options.acceptanceIds.length) return run;
 
   const call = deps.integrations?.callAsHost?.bind(deps.integrations);
   if (!call) {
@@ -421,31 +506,52 @@ export async function sendAgreementCopies(
     return run;
   }
   const settings = await loadDeliverySettings(db);
-  if (!settings.email) {
-    run.notSetUp = "no email channel is set in Settings, Notification delivery";
-    return run;
-  }
-  const resolved = await resolveChannelTarget(db, "email", settings.email);
+  const resolved = settings.email
+    ? await resolveChannelTarget(db, "email", settings.email)
+    : { problem: "no email channel is set in Settings, Notification delivery" };
   if ("problem" in resolved) {
     run.notSetUp = resolved.problem;
+    const anyQueued = await db
+      .selectFrom("core_agreement_copy")
+      .select("acceptance_id")
+      .where("state", "=", "queued")
+      .limit(1)
+      .executeTakeFirst();
+    if (anyQueued) await noChannelNotice(db, at);
     return run;
   }
 
-  for (const { acceptance_id: id } of due) {
+  const due: string[] = [];
+  for (const state of OPEN_STATES) {
+    if (due.length >= SWEEP) break;
+    let query = db
+      .selectFrom("core_agreement_copy")
+      .select("acceptance_id")
+      .where("state", "=", state)
+      .where("next_at", "<=", at)
+      .orderBy("next_at")
+      .limit(SWEEP - due.length);
+    if (options.acceptanceIds) {
+      query = query.where("acceptance_id", "in", [...options.acceptanceIds]);
+    }
+    for (const row of await query.execute()) due.push(row.acceptance_id);
+  }
+
+  for (const id of due) {
     // One sender per row: the claim either takes it or finds it taken.
-    const { rows } = await sql<{ send_key: string; attempts: number; to_address: string }>`
+    const { rows } = await sql<{ send_key: string; attempts: number; to_address: string | null }>`
       UPDATE core_agreement_copy
-      SET state = 'sending', claimed_at = ${at}, attempts = attempts + 1
-      WHERE acceptance_id = ${id} AND (
-        (state = 'queued' AND (next_at IS NULL OR next_at <= ${at}))
-        OR (state = 'sending' AND claimed_at < ${stale}))
+      SET state = 'sending', claimed_at = ${at}, next_at = ${later(now, STALE_MS)},
+        attempts = attempts + 1
+      WHERE acceptance_id = ${id} AND state IN ('queued', 'sending', 'waiting')
+        AND next_at <= ${at}
       RETURNING send_key, attempts, to_address`.execute(db);
     const claimed = rows[0];
     if (!claimed) continue;
     const settle = (set: {
       state: "queued" | "sent" | "waiting" | "failed" | "cancelled";
       error?: string | null;
-      next_at?: string | null;
+      next_at: string | null;
       send_key?: string;
       pending_action_id?: string | null;
       sent_at?: string | null;
@@ -457,8 +563,9 @@ export async function sendAgreementCopies(
         .where("state", "=", "sending")
         .execute();
 
+    // Erased since it was queued (a claim taken over from a crashed sender included): never sent.
     const facts = await acceptanceFacts(db, id);
-    if (!facts || facts.erased || !facts.personId) {
+    if (!facts || facts.erased || !facts.personId || !claimed.to_address) {
       await settle({ state: "cancelled", next_at: null });
       continue;
     }
@@ -466,7 +573,7 @@ export async function sendAgreementCopies(
     try {
       message = await copyMessage(db, id);
     } catch (error) {
-      await settle({ state: "failed", error: short(errorText(error)) });
+      await settle({ state: "failed", error: short(errorText(error)), next_at: null });
       run.failed += 1;
       continue;
     }
@@ -488,15 +595,15 @@ export async function sendAgreementCopies(
         purpose: "agreements",
       });
     } catch (error) {
-      // Refused before it was queued (nothing was sent): a malformed message is final; anything
-      // else (the queue full, a send with this key in flight, the host unreachable) is tried
-      // again later with the same key.
+      // Refused before it was queued, or a send the gatekeeper says was turned down or failed:
+      // final. Anything else (the queue full, a send with this key in flight, the host
+      // unreachable) is tried again later with the same key.
       const text = short(errorText(error));
-      if (/Invalid email/.test(text) || claimed.attempts >= MAX_ATTEMPTS) {
-        await settle({ state: "failed", error: text });
+      if (/Invalid email|Refused:/.test(text) || claimed.attempts >= MAX_ATTEMPTS) {
+        await settle({ state: "failed", error: text, next_at: null });
         run.failed += 1;
       } else {
-        await settle({ state: "queued", error: text, next_at: backoff(claimed.attempts, now) });
+        await settle({ state: "queued", error: text, next_at: retryAt(claimed.attempts, now) });
         run.retrying += 1;
       }
       continue;
@@ -507,16 +614,29 @@ export async function sendAgreementCopies(
     if (result.applied.length || receipt?.status === "sent") {
       await settle({ state: "sent", sent_at: at, error: null, next_at: null });
       run.sent += 1;
+    } else if (result.denied?.length) {
+      // The deploy-time floor refused it: never sent, and not asked about again.
+      await settle({
+        state: "failed",
+        error: "Refused by the deploy-time approval floor",
+        next_at: null,
+      });
+      run.failed += 1;
     } else if (pending) {
-      // The deploy-time floor holds it for a person: it goes when they approve it.
-      await settle({ state: "waiting", pending_action_id: pending.actionId, error: null });
+      // A person must approve it: asked about again until it is sent or turned down.
+      await settle({
+        state: "waiting",
+        pending_action_id: pending.actionId,
+        error: null,
+        next_at: askAgainAt(claimed.attempts, now),
+      });
       run.waiting += 1;
     } else if (failed?.outcome === "retryable" && claimed.attempts < MAX_ATTEMPTS) {
       // Known not sent (a rate limit): a new key, since this one now names a send that failed.
       await settle({
         state: "queued",
         error: short(failed.message),
-        next_at: backoff(claimed.attempts, now),
+        next_at: retryAt(claimed.attempts, now),
         send_key: `${copyKey(id)}:${claimed.attempts + 1}`,
       });
       run.retrying += 1;
@@ -529,14 +649,15 @@ export async function sendAgreementCopies(
             ? `It may or may not have gone out: ${failed.message}`
             : failed.message,
         ),
+        next_at: null,
       });
       run.failed += 1;
     } else {
-      // Not applied and not waiting: the deploy-time floor refused it, or a retry of a send
-      // already held for a person.
+      // Neither sent nor waiting on a decision the host can see: asked about again later.
       await settle({
         state: "waiting",
-        error: "Not sent at once: the deploy-time approval floor holds or refuses it",
+        error: "Not sent yet: asked again later",
+        next_at: askAgainAt(claimed.attempts, now),
       });
       run.waiting += 1;
     }
@@ -568,8 +689,27 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** The address a paper form's copy goes to: the Person's sign-in address, or their primary one. */
-export async function paperCopyAddress(db: Db, personId: string): Promise<string | null> {
+/**
+ * Where a paper form's copy goes, or why it does not: the one place that decides it.
+ *
+ * - For a Person who is a minor (marked, or a live dependant): not sent for now (coordinator's
+ *   decision after the review of PR #283, the owner being asked). A child's address is never
+ *   used; staff give the guardian the PDF download instead. Sending to a guardian would change
+ *   only this branch.
+ * - Otherwise the Person's own sign-in address (an active, linked account's), or their primary
+ *   address; none: not sent.
+ */
+export async function paperCopyRecipient(
+  db: Db,
+  personId: string,
+): Promise<{ to: string } | { refused: "minor" | "no_address" }> {
+  if (isMinor(await personFacts(db, personId))) return { refused: "minor" };
+  const to = await paperCopyAddress(db, personId);
+  return to ? { to } : { refused: "no_address" };
+}
+
+/** The address the host holds for a Person: their sign-in address, or their primary one. */
+async function paperCopyAddress(db: Db, personId: string): Promise<string | null> {
   const account = await db
     .selectFrom("core_customer")
     .select("email")

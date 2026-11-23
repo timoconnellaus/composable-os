@@ -1313,7 +1313,8 @@ accept), sign-off
 The **copy** is the email the host sends, as its own mail, to whoever agreed, once per acceptance:
 at once when a person agrees (to their sign-in address; a guardian gets the copy of what they
 agreed for a child), when a guest's purchase settles (to the address it was bought with), and for
-a paper form only when staff press "Email a copy" (to the Person's own address). The address is
+a paper form only when staff press "Email a copy" (to the Person's own address; never for a
+child's form). The address is
 always the host's record, never a caller's, and no AI composes, sends, redirects or reads it
 (ADR 0645). The **signed PDF** is the version's words and the record of the acceptance (who, how,
 when, the name typed, the signature drawn), attached to the copy as `agreement.pdf` and downloaded
