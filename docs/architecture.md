@@ -1579,8 +1579,10 @@ Holders carry read-only `used` and `left`; `allowance.get` reads a period; `rec_
 
 **Agreements** (stage 44, ADRs [0640](adr/0640-agreement-documents-versions-nobody-changes-published-by-a-person.md)
 and [0641](adr/0641-agreement-points-a-pack-declares-documents-a-person-attaches.md),
-`packages/core/src/agreements/`, `operations/agreement.ts`, `packages/sdk/src/agreements.ts`;
-step 1 built). The documents a business asks people to agree to are core tables, not records
+and [0642](adr/0642-acceptances-a-record-nobody-changes-and-who-may-agree-for-whom.md) and
+[0643](adr/0643-health-answers-read-by-a-person-with-the-permission-every-read-audited.md),
+`packages/core/src/agreements/`, `operations/agreement.ts`, `operations/agreement-acceptance.ts`,
+`packages/sdk/src/agreements.ts`; steps 1 and 2 built). The documents a business asks people to agree to are core tables, not records
 (migration 0850), in no `rec_*` view: `core_agreement_document` (its kind, state and working copy),
 `core_agreement_version` (each published wording and its terms, with the SHA-256 of everything it
 holds, recomputed on read; triggers refuse every update and delete, an insert over an existing id
@@ -1591,10 +1593,20 @@ or from a date the minute cron honours), attaching it to points and retiring it 
 `actors: ["human"]`, so no AI actor can do or queue them. An object marks where agreement may be
 needed with the `agreements` behaviour (`point`, `label`, `suggests`, and `enter` and `person` for a
 record a caller makes); in step 1 it is inert. Every publish, attach, detach, retire and scheduled
-version taking effect bumps `core_agreement_rev`, which the guard of step 2 compares at commit.
-Acceptances, `agreementsDue`, enforcement in the orders pipeline and the transition engine, health
-answers, the copy and PDF, signing at the desk and cooling off are the later steps
-(`docs/stages/44-agreements.md`).
+version taking effect bumps `core_agreement_rev`. Step 2 (migration 0851) adds
+`core_agreement_acceptance` (one record that a person agreed to one version; triggers refuse
+every change but settlement, merge and erase, for every statement shape, and check at insert
+that the version is open, its hash was shown, a minor is not agreeing for themselves and a
+guardian's link is live), `core_agreement_signature` (strokes), `core_agreement_answer` (health
+answers: read only by `agreement.answers.get`, `agreements:health`, a person, every read audited
+through the pipeline's `auditReads`), `core_agreement_minor`, and the `agreements` kind of
+`core_write_guard`. `agreementsDue` (`agreements/due.ts`) is the one place that answers what a
+Person must still agree to at a point; a batch that relied on it carries the guard on the
+counter, so a change committed between the read and the commit fails it. Every acceptance goes
+through `agreements/accept.ts`: `me.agreements.accept` (a customer, for themselves or a live
+dependant) and `agreement.recordPaper` (staff, a person). Enforcement in the orders pipeline and
+the transition engine, the copy and PDF, signing at the desk, cooling off and retention are the
+later steps (`docs/stages/44-agreements.md`).
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be

@@ -211,6 +211,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot call another extension's tool (${operation}). ${why}`,
       });
     }
+    // A health mark is health information (stage 44, ADR 0643): only reviewed pack code asks.
+    if (operation === "agreement.listHealthNotes") {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `permissions.operations.${i}`,
+        message: `A runtime extension cannot read health notes (${operation}). ${why}`,
+      });
+    }
   });
   for (const [name, tool] of Object.entries(manifest.tools)) {
     const open = (tool.audiences ?? []).filter((audience) => audience !== "staff");

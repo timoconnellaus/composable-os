@@ -3,6 +3,7 @@
 
 import { type SqlBool, sql } from "kysely";
 import { z } from "zod";
+import { queueEraseAgreements } from "../agreements/people.ts";
 import { queueEraseAllowances } from "../allowance/people.ts";
 import { ValidationError } from "../errors.ts";
 import { mediaObject } from "../fields/media.ts";
@@ -258,6 +259,11 @@ export const trashPurge = defineOperation({
     );
     // A purged Person's passes' and memberships' uses go as an erased Person's do (ADR 0494).
     queueEraseAllowances(
+      ctx,
+      purged.filter((r) => r.object === "person").map((r) => r.id),
+    );
+    // And their agreements as an erased Person's (ADR 0642): answers gone, acceptances detached.
+    queueEraseAgreements(
       ctx,
       purged.filter((r) => r.object === "person").map((r) => r.id),
     );

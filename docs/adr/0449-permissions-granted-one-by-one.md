@@ -92,3 +92,7 @@ role's account may hold (`forFixedRole`). See [ADR 0600](0600-a-pack-role-and-it
 `agreements:manage` (write agreement documents; publish, attach, detach and retire them) joins the
 core permissions an admin may grant one by one. Publishing, attaching, detaching and retiring stay a
 person's whatever is granted (`actors: ["human"]`).
+
+Amended 2026-11-23 (stage 44 step 2, ADRs 0642 and 0643): `agreements:paper` (record that a
+person signed on paper) and `agreements:health` (read health answers, each read audited) join
+the grantable core permissions. Both are a person's whatever is granted (`actors: ["human"]`).

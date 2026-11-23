@@ -297,6 +297,8 @@ export interface ExtensionCaller {
     /** One permission, or several (any one opens the tool, ADR 0600). */
     permission: string | readonly string[] | null;
     startedBy?: string;
+    /** `startedBy` approved another actor's call rather than calling it themselves. */
+    startedByApproval?: true;
   };
 }
 
@@ -476,6 +478,12 @@ export interface OperationDefinition<
    * or the actors it applies to.
    */
   alwaysReview?: true | readonly Actor[];
+  /**
+   * A read that writes an audit row for every successful call, a person's included (stage 44,
+   * ADR 0643: who read whose health answers). The row holds `auditSummary`'s result, never the
+   * output, so give one that names no value read.
+   */
+  auditReads?: true;
   /** A small JSON summary of the result for the audit log. Default: touched records or id. */
   auditSummary?: (output: z.output<Out>, input: z.output<In>) => unknown;
   mcp?: McpOptions;
@@ -516,6 +524,12 @@ export function isHostTool(op: AnyOperation): boolean {
 
 export const OPERATION_NAME_RE = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
 
+/**
+ * The operations whose every read is audited (`auditReads`): their audit rows say who read
+ * whose health information, so no AI actor lists them (audit.list).
+ */
+export const AUDITED_READS = new Set<string>();
+
 /** Defines an operation. Checks the definition is complete; the registry test checks them all. */
 export function defineOperation<
   const Name extends string,
@@ -526,6 +540,7 @@ export function defineOperation<
   if (problems.length) {
     throw new Error(`Operation ${definition.name}: ${problems.join("; ")}`);
   }
+  if (definition.auditReads) AUDITED_READS.add(definition.name);
   return Object.freeze({ ...definition });
 }
 
@@ -558,6 +573,13 @@ export function operationProblems(op: AnyOperation): string[] {
     problems.push("actors must list known actor types");
   }
   if (typeof op.handler !== "function") problems.push("handler missing");
+  if (op.auditReads !== undefined) {
+    if (op.auditReads !== true) problems.push("auditReads is true or left out");
+    if (op.risk !== "read") problems.push("auditReads is for reads (every write is audited)");
+    if (typeof op.auditSummary !== "function") {
+      problems.push("auditReads needs an auditSummary that names no value read");
+    }
+  }
   problems.push(...audienceProblems(op));
   if (op.hostInternal !== undefined) {
     if (op.hostInternal !== true) problems.push("hostInternal is true or left out");

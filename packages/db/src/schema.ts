@@ -662,6 +662,8 @@ export interface CoreNotificationsTable {
   dedupe_key: string | null;
   read_at: string | null;
   created_at: string;
+  /** Migration 0851 (stage 44): shown to the person only, never to an AI acting for them. */
+  human_only: ColumnType<number, number | undefined, number>;
 }
 
 /** Migration 0170 (ADR 0170): a person's consent that an automation uses a connection. */
@@ -1103,6 +1105,57 @@ export interface CoreAgreementRevTable {
 }
 
 /**
+ * Migration 0851 (stage 44 step 2, ADR 0642): one record that a person agreed to one version. The
+ * database refuses any change but setting its Person (settlement, merge) and clearing who it
+ * names (erase).
+ */
+export interface CoreAgreementAcceptanceTable {
+  id: string;
+  document_id: string;
+  version_id: string;
+  shown_hash: string;
+  context: Defaulted<string | null>;
+  person_id: string | null;
+  by: "self" | "guardian" | "guest" | "paper";
+  agent_person_id: Defaulted<string | null>;
+  account_id: Defaulted<string | null>;
+  order_id: Defaulted<string | null>;
+  subscription_checkout: Defaulted<string | null>;
+  email: Defaulted<string | null>;
+  how: "typed" | "drawn" | "paper";
+  typed_name: string | null;
+  channel: "web" | "app" | "paper" | "desk";
+  desk_session_id: Defaulted<string | null>;
+  accepted_at: string;
+  signed_on: Defaulted<string | null>;
+  recorded_by: Defaulted<string | null>;
+  signed_by: Defaulted<string | null>;
+  note: Defaulted<string | null>;
+  erased_at: Defaulted<string | null>;
+}
+
+/** Migration 0851 (ADR 0642): a drawn signature's strokes, beside its acceptance. */
+export interface CoreAgreementSignatureTable {
+  acceptance_id: string;
+  strokes: string;
+}
+
+/** Migration 0851 (ADR 0643): a health form's answers. Health information. */
+export interface CoreAgreementAnswerTable {
+  acceptance_id: string;
+  answers: string;
+  any_yes: 0 | 1;
+  entered_by: Defaulted<string | null>;
+}
+
+/** Migration 0851 (ADR 0642): a Person staff marked as a minor. */
+export interface CoreAgreementMinorTable {
+  person_id: string;
+  set_by: string;
+  set_at: string;
+}
+
+/**
  * Migration 0690 (ADR 0560): a refund the host owes on a record bought through `sellable.moves`
  * (a drop-in booking cancelled in time, or its class cancelled). The minute cron asks for it.
  */
@@ -1140,7 +1193,7 @@ export interface CoreRecurrenceSeriesTable {
 
 /** Migration 0560: a guard on what a batch was planned from (never holds a row). */
 export interface CoreWriteGuardTable {
-  kind: "claimed" | "claimant" | "series" | "full";
+  kind: "claimed" | "claimant" | "series" | "full" | "unmoved" | "held_cap" | "agreements";
   object_type: string;
   record_id: string;
   expected: number;
@@ -2579,6 +2632,10 @@ export interface CoreDatabase {
   core_agreement_version: CoreAgreementVersionTable;
   core_agreement_point: CoreAgreementPointTable;
   core_agreement_rev: CoreAgreementRevTable;
+  core_agreement_acceptance: CoreAgreementAcceptanceTable;
+  core_agreement_signature: CoreAgreementSignatureTable;
+  core_agreement_answer: CoreAgreementAnswerTable;
+  core_agreement_minor: CoreAgreementMinorTable;
   core_person_link_guard: CorePersonLinkGuardTable;
   core_sellable_refund_due: CoreSellableRefundDueTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;

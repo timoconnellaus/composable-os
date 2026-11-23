@@ -40,6 +40,12 @@ function AgreementsPage() {
       back={{ to: "/settings", label: "Settings" }}
       description="The documents people agree to, written by the business. A document is needed nowhere until a person publishes it and attaches it to a place."
     >
+      <Button asChild variant="outline" className="w-fit">
+        <Link to="/settings/agreements/acceptances">Acceptances and who has something due</Link>
+      </Button>
+      <Button asChild variant="outline" className="w-fit">
+        <Link to="/settings/agreements/health">Health forms</Link>
+      </Button>
       <NewDocument />
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

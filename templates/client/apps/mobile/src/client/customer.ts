@@ -53,6 +53,38 @@ export type Operations = {
     output: { object: string; id: string; values: Record<string, unknown>; kind: "preview" };
   };
   /**
+   * Agree to a version of a document, as a signed-in customer: for yourself, or with forPersonId for a child linked to you. Give the name you type, a signature for a document agreed to by drawing, and every answer for a health form. Recorded for good and never changed. Refused for yourself when a parent or guardian agrees for you.
+   */
+  "me.agreements.accept": {
+    kind: "mutation";
+    input: { versionId: string; forPersonId?: string; typedName: string; signature?: { width: 1000; height: 400; strokes: [number, number][][] }; answers?: { key: string; yes: boolean; note?: string }[] };
+    output: { id: string; documentId: string; versionNumber: number; acceptedAt: string };
+  };
+  /**
+   * What you, as a signed-in customer, and each child linked to you still have to agree to: each due document's version in effect, to read and agree to with me.agreements.accept. canAgree is false for someone a parent or guardian agrees for. Read-only.
+   */
+  "me.agreements.due": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { people: ({ personId: string; name: string; self: boolean; canAgree: boolean; due: ({ documentId: string; kind: string; title: string; reason: ("never") | ("agree_again") | ("ask_again") | ("guardian"); version: { id: string; documentId: string; number: number; kind: string; title: string; body: unknown; tickLabel: string; questions: ({ key: string; text: string; noteOnYes: boolean }[]) | (null); how: ("typed") | ("drawn"); effectiveFrom: string; hash: string } })[] })[] };
+  };
+  /**
+   * One of your acceptances, or a linked child's, as a signed-in customer: the version as you were shown it, a health form's answers, and the name typed and the signature drawn when you are the one who agreed (another guardian's are not shown). Read-only.
+   */
+  "me.agreements.get": {
+    kind: "query";
+    input: { id: string };
+    output: { id: string; documentId: string; title: string; kind: string; versionId: string; versionNumber: number; personId: (string) | (null); by: ("self") | ("guardian") | ("guest") | ("paper"); how: ("typed") | ("drawn") | ("paper"); channel: ("web") | ("app") | ("paper") | ("desk"); acceptedAt: string; agentPersonId: (string) | (null); recordedBy: (string) | (null); signedOn: (string) | (null); counts: boolean; version: { id: string; documentId: string; number: number; kind: string; title: string; body: unknown; tickLabel: string; questions: ({ key: string; text: string; noteOnYes: boolean }[]) | (null); how: ("typed") | ("drawn"); effectiveFrom: string; hash: string }; typedName: (string) | (null); signature: ({ width: number; height: number; strokes: number[][][] }) | (null); answers: ({ key: string; yes: boolean; note?: string }[]) | (null) };
+  };
+  /**
+   * Your agreements, as a signed-in customer, and those of each child linked to you: every acceptance, newest first, with the document, the version, who agreed and how, and whether it is the one that counts now. me.agreements.get reads one. Read-only.
+   */
+  "me.agreements.list": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { items: ({ id: string; documentId: string; title: string; kind: string; versionId: string; versionNumber: number; personId: (string) | (null); by: ("self") | ("guardian") | ("guest") | ("paper"); how: ("typed") | ("drawn") | ("paper"); channel: ("web") | ("app") | ("paper") | ("desk"); acceptedAt: string; agentPersonId: (string) | (null); recordedBy: (string) | (null); signedOn: (string) | (null); counts: boolean })[] };
+  };
+  /**
    * Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.
    */
   "me.deleteAccount": {
@@ -262,13 +294,17 @@ export const operations = {
   "content.get": { kind: "query", invalidates: [] },
   "content.list": { kind: "query", invalidates: [] },
   "content.preview": { kind: "query", invalidates: [] },
-  "me.deleteAccount": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.agreements.accept": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.agreements.due": { kind: "query", invalidates: [] },
+  "me.agreements.get": { kind: "query", invalidates: [] },
+  "me.agreements.list": { kind: "query", invalidates: [] },
+  "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.family","me.get","me.sessions.list","my.get","my.list"] },
   "me.family": { kind: "query", invalidates: [] },
   "me.get": { kind: "query", invalidates: [] },
   "me.sessions.list": { kind: "query", invalidates: [] },
-  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
-  "me.signOut": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
-  "me.update": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.signOut": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.update": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.family","me.get","me.sessions.list","my.get","my.list"] },
   "media.play": { kind: "query", invalidates: [] },
   "media.serve": { kind: "query", invalidates: [] },
   "my.get": { kind: "query", invalidates: [] },

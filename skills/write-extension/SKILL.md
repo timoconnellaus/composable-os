@@ -219,6 +219,15 @@ extension declares it; it never implements it. Each behaviour the platform has i
   Never count uses or pick a holder in a tool: the host spends in the write that moves the record.
   See `AllowanceSpec` in `packages/sdk/src/allowance.ts` and ADRs 0493 and 0494.
 
+- **`healthNotes`** on an object: its records make a list staff read (a class's bookings), on
+  which the host may mark "health note" beside a Person whose current health form has a yes (stage
+  44, ADR 0643). `healthNotes: { list, person }`: `list` is a relation (one record) to the list's
+  own object (the class), `person` a relation to `person`. A tool a person calls asks
+  `agreement.listHealthNotes { records, value }` (add it to `permissions.operations`) with the
+  list's record id; the host reads the People itself and answers a yes or no each, never the form.
+  Only a shipped or repository extension may declare the operation. See Bookings:
+  `objects.booking.healthNotes`.
+
 - **`public`** on an object: what the public may read (ADR 0438), `public: { read: [fields],
   when?: { field, in } | { via, field, in } }`: the fields, of the records whose state (a select
   field of the record, or of the one its `via` relation points to) is one of `in`. Left without

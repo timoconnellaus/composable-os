@@ -5,6 +5,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
+import { mergeMovesAgreements, queueMergeAgreements } from "../agreements/people.ts";
 import { queueMergeAllowances } from "../allowance/people.ts";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { queueMergeCustomers } from "../customers/merge.ts";
@@ -1151,6 +1152,22 @@ export const personMerge = defineOperation({
         { permission: "people:link" },
       );
     }
+    // Moving what someone agreed to (acceptances, a health form, the minor mark) is a person's act
+    // with agreements:manage, never an AI's or one an AI asks for (stage 44, ADR 0642).
+    if (await mergeMovesAgreements(ctx, merged.id)) {
+      if (ctx.actor !== "human") {
+        throw new ForbiddenError(
+          `${merged.displayName} has agreements, which a merge would move: only a person merges them`,
+          { rule: "agreements_merge" },
+        );
+      }
+      if (!holdsPermission(ctx.user, ctx.permissionGrants, "agreements:manage")) {
+        throw new ForbiddenError(
+          `${merged.displayName} has agreements, which a merge would move: merging them needs agreements:manage`,
+          { permission: "agreements:manage" },
+        );
+      }
+    }
     queueMergeLinks(ctx, survivor.id, merged.id, plan);
     const familyLinks = {
       moved: plan.moved,
@@ -1207,6 +1224,8 @@ export const personMerge = defineOperation({
         .set({ merged_into_id: survivor.id })
         .where("merged_into_id", "=", merged.id),
     );
+    // Acceptances follow the Person, after merged_into_id is set (the trigger checks it, ADR 0642).
+    queueMergeAgreements(ctx, survivor.id, merged.id);
     // One primary affiliation per person: the survivor's wins.
     if (survivor.primaryAffiliation) {
       ctx.write(
@@ -1313,7 +1332,8 @@ export const personErase = defineOperation({
     "them are deleted or redacted, and their addresses are added to the erased-address list so " +
     "mail sync does not collect them again. Their customer account, its sessions and sign-in " +
     "codes, invites for their addresses and their erase requests are deleted (an open request " +
-    "is closed as erased). Cannot be undone; use person.delete for a " +
+    "is closed as erased). Their health answers and minor mark are deleted; what they agreed to is " +
+    "kept, no longer theirs. Cannot be undone; use person.delete for a " +
     "reversible delete.",
   input: z.object({ id: personId }),
   output: z.object({

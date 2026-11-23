@@ -44,6 +44,30 @@
       "hostInternal": true
     },
     {
+      "name": "me.agreements.accept",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.agreements.due",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.agreements.get",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.agreements.list",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "me.deleteAccount",
       "audiences": ["customer"],
       "risk": "write",

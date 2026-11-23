@@ -375,6 +375,8 @@ export async function grantable(
     "subscriptions:manage": "End or keep going customers' subscriptions",
     "people:link": "Link a parent or guardian to a child, and end the link",
     "agreements:manage": "Write agreement documents, and publish, attach and retire them",
+    "agreements:paper": "Record that someone signed an agreement on paper",
+    "agreements:health": "Read members' health form answers (every read is logged)",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({

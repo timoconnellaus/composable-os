@@ -594,6 +594,606 @@
       "invalidates": []
     },
     {
+      "name": "me.agreements.accept",
+      "description": "Agree to a version of a document, as a signed-in customer: for yourself, or with forPersonId for a child linked to you. Give the name you type, a signature for a document agreed to by drawing, and every answer for a health form. Recorded for good and never changed. Refused for yourself when a parent or guardian agrees for you.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The version's id (agv_…), as me.agreements.due gave it"
+          },
+          "forPersonId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A child linked to you (per_…); left out: yourself"
+          },
+          "typedName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The name the person typed beside the box: personal data, never shown to an AI"
+          },
+          "signature": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "number",
+                "const": 1000
+              },
+              "height": {
+                "type": "number",
+                "const": 400
+              },
+              "strokes": {
+                "minItems": 1,
+                "maxItems": 30,
+                "type": "array",
+                "items": {
+                  "minItems": 1,
+                  "maxItems": 5000,
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 400
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                }
+              }
+            },
+            "required": ["width", "height", "strokes"],
+            "additionalProperties": false,
+            "description": "A drawn signature as strokes in a 1000 by 400 box: personal data"
+          },
+          "answers": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                "yes": {
+                  "type": "boolean"
+                },
+                "note": {
+                  "type": "string",
+                  "maxLength": 1000
+                }
+              },
+              "required": ["key", "yes"],
+              "additionalProperties": false
+            },
+            "description": "A health form's answers: health information, never shown to an AI or logged"
+          }
+        },
+        "required": ["versionId", "typedName"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "versionNumber": {
+            "type": "number"
+          },
+          "acceptedAt": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "documentId", "versionNumber", "acceptedAt"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.agreements.due",
+      "description": "What you, as a signed-in customer, and each child linked to you still have to agree to: each due document's version in effect, to read and agree to with me.agreements.accept. canAgree is false for someone a parent or guardian agrees for. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "self": {
+                  "type": "boolean"
+                },
+                "canAgree": {
+                  "type": "boolean",
+                  "description": "False when a parent or guardian agrees for them"
+                },
+                "due": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "documentId": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": ["never", "agree_again", "ask_again", "guardian"]
+                      },
+                      "version": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "documentId": {
+                            "type": "string"
+                          },
+                          "number": {
+                            "type": "number"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "body": {},
+                          "tickLabel": {
+                            "type": "string"
+                          },
+                          "questions": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string"
+                                    },
+                                    "text": {
+                                      "type": "string"
+                                    },
+                                    "noteOnYes": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": ["key", "text", "noteOnYes"],
+                                  "additionalProperties": false
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "how": {
+                            "type": "string",
+                            "enum": ["typed", "drawn"]
+                          },
+                          "effectiveFrom": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "documentId",
+                          "number",
+                          "kind",
+                          "title",
+                          "body",
+                          "tickLabel",
+                          "questions",
+                          "how",
+                          "effectiveFrom",
+                          "hash"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["documentId", "kind", "title", "reason", "version"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["personId", "name", "self", "canAgree", "due"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["people"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.agreements.get",
+      "description": "One of your acceptances, or a linked child's, as a signed-in customer: the version as you were shown it, a health form's answers, and the name typed and the signature drawn when you are the one who agreed (another guardian's are not shown). Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The acceptance's id (aga_…)"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "versionId": {
+            "type": "string"
+          },
+          "versionNumber": {
+            "type": "number"
+          },
+          "personId": {
+            "type": ["string", "null"]
+          },
+          "by": {
+            "type": "string",
+            "enum": ["self", "guardian", "guest", "paper"]
+          },
+          "how": {
+            "type": "string",
+            "enum": ["typed", "drawn", "paper"]
+          },
+          "channel": {
+            "type": "string",
+            "enum": ["web", "app", "paper", "desk"]
+          },
+          "acceptedAt": {
+            "type": "string"
+          },
+          "agentPersonId": {
+            "description": "The guardian who agreed for a dependant",
+            "type": ["string", "null"]
+          },
+          "recordedBy": {
+            "description": "Paper: the staff user who recorded it",
+            "type": ["string", "null"]
+          },
+          "signedOn": {
+            "description": "Paper: the date on the form",
+            "type": ["string", "null"]
+          },
+          "counts": {
+            "type": "boolean",
+            "description": "Whether it is the acceptance that counts for its document now"
+          },
+          "version": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "documentId": {
+                "type": "string"
+              },
+              "number": {
+                "type": "number"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "body": {},
+              "tickLabel": {
+                "type": "string"
+              },
+              "questions": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "noteOnYes": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["key", "text", "noteOnYes"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "how": {
+                "type": "string",
+                "enum": ["typed", "drawn"]
+              },
+              "effectiveFrom": {
+                "type": "string"
+              },
+              "hash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "documentId",
+              "number",
+              "kind",
+              "title",
+              "body",
+              "tickLabel",
+              "questions",
+              "how",
+              "effectiveFrom",
+              "hash"
+            ],
+            "additionalProperties": false
+          },
+          "typedName": {
+            "type": ["string", "null"]
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "strokes": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": ["width", "height", "strokes"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "answers": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "yes": {
+                      "type": "boolean"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["key", "yes"],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "documentId",
+          "title",
+          "kind",
+          "versionId",
+          "versionNumber",
+          "personId",
+          "by",
+          "how",
+          "channel",
+          "acceptedAt",
+          "agentPersonId",
+          "recordedBy",
+          "signedOn",
+          "counts",
+          "version",
+          "typedName",
+          "signature",
+          "answers"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.agreements.list",
+      "description": "Your agreements, as a signed-in customer, and those of each child linked to you: every acceptance, newest first, with the document, the version, who agreed and how, and whether it is the one that counts now. me.agreements.get reads one. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "versionId": {
+                  "type": "string"
+                },
+                "versionNumber": {
+                  "type": "number"
+                },
+                "personId": {
+                  "type": ["string", "null"]
+                },
+                "by": {
+                  "type": "string",
+                  "enum": ["self", "guardian", "guest", "paper"]
+                },
+                "how": {
+                  "type": "string",
+                  "enum": ["typed", "drawn", "paper"]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": ["web", "app", "paper", "desk"]
+                },
+                "acceptedAt": {
+                  "type": "string"
+                },
+                "agentPersonId": {
+                  "description": "The guardian who agreed for a dependant",
+                  "type": ["string", "null"]
+                },
+                "recordedBy": {
+                  "description": "Paper: the staff user who recorded it",
+                  "type": ["string", "null"]
+                },
+                "signedOn": {
+                  "description": "Paper: the date on the form",
+                  "type": ["string", "null"]
+                },
+                "counts": {
+                  "type": "boolean",
+                  "description": "Whether it is the acceptance that counts for its document now"
+                }
+              },
+              "required": [
+                "id",
+                "documentId",
+                "title",
+                "kind",
+                "versionId",
+                "versionNumber",
+                "personId",
+                "by",
+                "how",
+                "channel",
+                "acceptedAt",
+                "agentPersonId",
+                "recordedBy",
+                "signedOn",
+                "counts"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "me.deleteAccount",
       "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
       "risk": "write",
@@ -631,7 +1231,16 @@
         "required": ["disabled", "sessionsEnded", "eraseRequest"],
         "additionalProperties": false
       },
-      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
     },
     {
       "name": "me.family",
@@ -842,7 +1451,16 @@
         "required": ["id", "revoked"],
         "additionalProperties": false
       },
-      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
     },
     {
       "name": "me.signOut",
@@ -864,7 +1482,16 @@
         "required": ["signedOut"],
         "additionalProperties": false
       },
-      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
     },
     {
       "name": "me.update",
@@ -948,7 +1575,16 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
     },
     {
       "name": "media.play",
@@ -3185,6 +3821,9 @@
         ]
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -3343,6 +3982,9 @@
         ]
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -3482,6 +4124,9 @@
         ]
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -3785,6 +4430,9 @@
         ]
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -4192,6 +4840,9 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -4966,6 +5617,9 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -5072,6 +5726,9 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -5917,6 +6574,9 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -6071,6 +6731,9 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -6303,6 +6966,9 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -7145,6 +7811,9 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
         "me.family",
         "me.get",
         "me.sessions.list",

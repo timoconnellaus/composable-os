@@ -72,6 +72,8 @@ import { Route as ApiAssistantTurnRouteImport } from './routes/api/assistant/tur
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AppSettingsAgreementsIndexRouteImport } from './routes/_app/settings/agreements.index'
 import { Route as AppSettingsAgreementsIdRouteImport } from './routes/_app/settings/agreements.$id'
+import { Route as AppSettingsAgreementsAcceptancesRouteImport } from './routes/_app/settings/agreements.acceptances'
+import { Route as AppSettingsAgreementsHealthRouteImport } from './routes/_app/settings/agreements.health'
 import { Route as AppXObjectIndexRouteImport } from './routes/_app/x/$object/index'
 import { Route as AppXObjectIdRouteImport } from './routes/_app/x/$object/$id'
 import { Route as ApiAssistantThreadStopRouteImport } from './routes/api/assistant/thread.stop'
@@ -401,6 +403,18 @@ const AppSettingsAgreementsIdRoute = AppSettingsAgreementsIdRouteImport.update({
   path: '/settings/agreements/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsAgreementsAcceptancesRoute =
+  AppSettingsAgreementsAcceptancesRouteImport.update({
+    id: '/settings/agreements/acceptances',
+    path: '/settings/agreements/acceptances',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppSettingsAgreementsHealthRoute =
+  AppSettingsAgreementsHealthRouteImport.update({
+    id: '/settings/agreements/health',
+    path: '/settings/agreements/health',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppXObjectIndexRoute = AppXObjectIndexRouteImport.update({
   id: '/x/$object/',
   path: '/x/$object/',
@@ -485,6 +499,8 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof AppSettingsIndexRoute
   '/subscriptions/': typeof AppSubscriptionsIndexRoute
   '/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
+  '/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
+  '/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
   '/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -553,6 +569,8 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsIndexRoute
   '/subscriptions': typeof AppSubscriptionsIndexRoute
   '/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
+  '/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
+  '/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
   '/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -623,6 +641,8 @@ export interface FileRoutesById {
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/subscriptions/': typeof AppSubscriptionsIndexRoute
   '/_app/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
+  '/_app/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
+  '/_app/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
   '/_app/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -693,6 +713,8 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/subscriptions/'
     | '/settings/agreements/$id'
+    | '/settings/agreements/acceptances'
+    | '/settings/agreements/health'
     | '/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -761,6 +783,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/subscriptions'
     | '/settings/agreements/$id'
+    | '/settings/agreements/acceptances'
+    | '/settings/agreements/health'
     | '/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -830,6 +854,8 @@ export interface FileRouteTypes {
     | '/_app/settings/'
     | '/_app/subscriptions/'
     | '/_app/settings/agreements/$id'
+    | '/_app/settings/agreements/acceptances'
+    | '/_app/settings/agreements/health'
     | '/_app/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -1294,6 +1320,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAgreementsIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/agreements/acceptances': {
+      id: '/_app/settings/agreements/acceptances'
+      path: '/settings/agreements/acceptances'
+      fullPath: '/settings/agreements/acceptances'
+      preLoaderRoute: typeof AppSettingsAgreementsAcceptancesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/agreements/health': {
+      id: '/_app/settings/agreements/health'
+      path: '/settings/agreements/health'
+      fullPath: '/settings/agreements/health'
+      preLoaderRoute: typeof AppSettingsAgreementsHealthRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/x/$object/': {
       id: '/_app/x/$object/'
       path: '/x/$object'
@@ -1377,6 +1417,8 @@ interface AppRouteChildren {
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppSubscriptionsIndexRoute: typeof AppSubscriptionsIndexRoute
   AppSettingsAgreementsIdRoute: typeof AppSettingsAgreementsIdRoute
+  AppSettingsAgreementsAcceptancesRoute: typeof AppSettingsAgreementsAcceptancesRoute
+  AppSettingsAgreementsHealthRoute: typeof AppSettingsAgreementsHealthRoute
   AppXObjectIdRoute: typeof AppXObjectIdRoute
   AppSettingsAgreementsIndexRoute: typeof AppSettingsAgreementsIndexRoute
   AppXObjectIndexRoute: typeof AppXObjectIndexRoute
@@ -1434,6 +1476,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppSubscriptionsIndexRoute: AppSubscriptionsIndexRoute,
   AppSettingsAgreementsIdRoute: AppSettingsAgreementsIdRoute,
+  AppSettingsAgreementsAcceptancesRoute: AppSettingsAgreementsAcceptancesRoute,
+  AppSettingsAgreementsHealthRoute: AppSettingsAgreementsHealthRoute,
   AppXObjectIdRoute: AppXObjectIdRoute,
   AppSettingsAgreementsIndexRoute: AppSettingsAgreementsIndexRoute,
   AppXObjectIndexRoute: AppXObjectIndexRoute,
