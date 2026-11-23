@@ -16,9 +16,11 @@ deployment, Control plane, Release), ADRs [0001](../adr/0001-self-hosted-single-
 `products/crm/apps/control/src/` (`dispatch/`, `instances.ts`, `rollout.ts`, `lifecycle.ts`,
 `metering.ts`).
 
-Status: **spec agreed** (owner interviewed 2026-11-23, and answered the open questions the same
-day: decisions 13 to 22). Workers for Platforms is on in the fleet's account, and the owner has
-said build step 1 may start.
+Status: **replaced in large part by [stage 47](47-one-host-many-clients.md)** (2026-11-23,
+[ADR 0611](../adr/0611-one-host-a-database-per-client.md)). The owner chose one host with a
+database per client, after step 1's checks below. What stands from this spec: decisions 13 to 22,
+and the step 1 results as the record of why the namespace was not used. The design sections
+(the namespace, `cos-dispatch`, the fleet update, the Stream broker) are not built.
 
 ## Goal
 
@@ -416,12 +418,28 @@ The two ways forward, for the owner to choose between (decision 1 named the name
 | Still needed either way | The registry, the fleet update and holds, the Stream broker, usage, the move, custom hostnames for a client's own domain | The same |
 | Workers for Platforms | Not needed until the standard tier or the limit | Needed now |
 
-**Proposed: ordinary Workers in our account now.** It needs no change to the host and none of the
-three failures applies. Everything else in this spec stays, with `cos-dispatch` needed only for a
-client's own domain when its DNS is elsewhere. The namespace is looked at again for the standard
-tier, or when the fleet nears the limit, or when Cloudflare supports these in a namespace. The
-`hosting: "fleet"` field and the registry do not say which of the two a host is on, so a host can
-be moved from one to the other later without the client noticing.
+### The second round: routing through a fleet Worker (2026-11-23)
+
+The owner's first answer was to make the namespace work, so the route around each failure was
+tested on the real namespace too, with an ordinary Worker of ours in the middle:
+
+| Check | Result |
+| --- | --- |
+| A namespace Worker calling its sibling through a service binding to the fleet Worker, which passes the call on (the binding carries `props` naming the client and the sibling) | **Works**, as a plain call and with a stub returned for a named entrypoint |
+| The same binding with `props` naming another client | **Refused** by the fleet Worker, as written |
+| The fleet Worker consuming a client's queue and passing each batch to the client's Worker | **Works** |
+| A Workflow defined on the fleet Worker, one Workflow per client on the same class, started from a namespace Worker and running its step in the client's Worker | **Works**, two Workflows side by side |
+
+So a namespace can hold the host if every call between a client's Workers, every queue batch and
+every Workflow step goes through a fleet Worker. The host would then run in one shape when hosted
+and another in a client's own account.
+
+### What was chosen
+
+Neither. The owner expects dozens of gyms on one standard product, and a test showed the
+platform's database code runs unchanged on a Durable Object per client. The layout is one host
+with a database per client: [stage 47](47-one-host-many-clients.md),
+[ADR 0611](../adr/0611-one-host-a-database-per-client.md).
 
 ## Decided by this spec, open to override
 

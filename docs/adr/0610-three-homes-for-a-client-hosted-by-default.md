@@ -93,3 +93,12 @@ From the owner's answers to stage 46's open questions, the same day:
 - Hosted hostnames are on `composableos.app`. A moved host's source is kept for 90 days. Fair-use
   limits are set after two months of reported usage.
 
+## Amended 2026-11-23: not a namespace, and not a set of Workers per client
+[ADR 0611](0611-one-host-a-database-per-client.md): hosted clients share one deployment of the
+host, each with a database of its own in a Durable Object. The checks this record promised were
+run (stage 46, step 1): a host's own Workers cannot be bound to each other, consume queues or run
+Workflows inside a dispatch namespace. The three tiers, the default of our account, the leaving
+promise and the reasons for a client's own account stand. "Its own host" in the table above now
+reads "its own database on the shared host" for the standard and bespoke tiers. The first client
+is to be the standard product's first gym, not only a bespoke client.
+
