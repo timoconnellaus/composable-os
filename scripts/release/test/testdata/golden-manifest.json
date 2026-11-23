@@ -561,7 +561,7 @@
     },
     {
       "name": "0750_routine_mail.sql",
-      "sha256": "0ca336b701d5d3e0b6c24daa5c63e8b169a821811bb1963d0a87b93c53360af1"
+      "sha256": "b8be1f42a43d8dc87175a4ce716a6fcdaf6babe4e48c605a575af84dc4c37077"
     },
     {
       "name": "0770_clear_fixed_role_grants.sql",

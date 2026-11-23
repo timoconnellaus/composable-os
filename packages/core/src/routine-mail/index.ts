@@ -567,6 +567,19 @@ async function verifiedAddress(db: Db, personId: string, address: string): Promi
   return Boolean(row?.email && row.email.trim().toLowerCase() === address.trim().toLowerCase());
 }
 
+/** Whether `address` paid an order of this Person's (the address a payment was applied for). */
+async function paidAddress(db: Db, personId: string, address: string): Promise<boolean> {
+  const row = await db
+    .selectFrom("core_order")
+    .select("id")
+    .where("person_id", "=", personId)
+    .where("paid", ">", 0)
+    .where((eb) => eb.fn("lower", ["email"]), "=", address.trim().toLowerCase())
+    .limit(1)
+    .executeTakeFirst();
+  return Boolean(row);
+}
+
 /** A person not in the Trash and not merged away: their primary address and name. */
 async function livePerson(
   db: Db,
@@ -891,6 +904,9 @@ export async function prepareRoutineMail(
     for (const source of records.sources.values()) {
       const row = await records.get(source.object, source.id);
       for (const field of source.fields) {
+        const shownValue = row?.[field];
+        // Nothing shown (an optional slot left empty): nothing to stand behind.
+        if (shownValue === null || shownValue === undefined || shownValue === "") continue;
         if (source.object === object && source.id === send.record && field === personField)
           continue;
         await check(
@@ -904,6 +920,7 @@ export async function prepareRoutineMail(
       }
     }
     // Each address it goes to.
+    let paidByMember = false;
     for (const recipient of recipients) {
       if (recipient.rule === "order") {
         // A paid order's own address (the one that paid), or a customer's verified address.
@@ -926,6 +943,11 @@ export async function prepareRoutineMail(
       }
       if (!recipient.personId) continue;
       if (await verifiedAddress(db, recipient.personId, recipient.address)) continue;
+      // The address that paid: the Person's own paid order's address (a ticket's holder).
+      if (await paidAddress(db, recipient.personId, recipient.address)) {
+        if (recipient.personId === aboutPersonId) paidByMember = true;
+        continue;
+      }
       const emails = await db
         .selectFrom("core_person_emails")
         .select("email")
@@ -940,14 +962,17 @@ export async function prepareRoutineMail(
         `${recipient.address}`,
       );
     }
-    // The member's name, in a guardian's email: a person's write, or the member's own.
+    // The member's name: a person's write, or the member's own (signed in, or typed at checkout
+    // when paying from the address the email goes to: a visitor's name, to themselves).
     if (aboutPersonId && memberName !== null) {
       await check(
         "person",
         aboutPersonId,
         "displayName",
         memberName,
-        ["person", "customer", "default"],
+        paidByMember && recipients.every((r) => r.personId === aboutPersonId)
+          ? ["person", "customer", "public", "default"]
+          : ["person", "customer", "default"],
         "the member's name",
       );
     }

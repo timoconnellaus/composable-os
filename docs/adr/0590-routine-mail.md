@@ -260,8 +260,10 @@ prepared, an older or purged row). Replaced, as the coordinator decided:
   place and times) needs a `person` or `default` mark for the value it has now; the record's
   existence, its link to its Person and its state need any mark but `ai` (or `public` for the link);
   each address needs a `person`/`default` mark on the Person's address list, or is the Person's own
-  verified sign-in address; a paid order's address needs the order not made by an AI; a guardian's
-  email shows the member's name, which may also be the member's own (`customer`). No mark, a mark for
+  verified sign-in address or an address that paid one of the Person's orders; a paid order's
+  address needs the order not made by an AI; the member's name may be the member's own (`customer`),
+  or, only when every address is the member's own and one paid, the name they typed at checkout
+  (`public`: a visitor's own name, sent to themselves). No mark, a mark for
   another value (the hash differs), the host's or an AI's, or any failure to read a mark: held,
   prepared and waiting, never lost. There is no audit-log search. The run's cause (an AI's
   unapproved change starting the run) is still checked from its root audit row.

@@ -10,7 +10,7 @@
 // theirs. A field the host filled with no source named is the host's (not routine), except a
 // declared default (`default`).
 import type { CoreDatabase } from "@composable-os/db";
-import type { Compilable, Kysely } from "kysely";
+import { type Compilable, CompiledQuery, type Kysely } from "kysely";
 
 export type Standing = "person" | "customer" | "public" | "default" | "host" | "ai";
 
@@ -89,6 +89,9 @@ export async function valueHash(value: unknown): Promise<string> {
 
 type Db = Kysely<CoreDatabase>;
 
+/** Bytes of JSON per marks statement (D1 caps one bound value at 2 MB). */
+const MARKS_CHUNK_BYTES = 500_000;
+
 /** A source's standing: its mark, when the mark is for the value it had; else the host's. */
 async function sourceStanding(db: Db, source: MarkSource): Promise<Standing> {
   const mark = await db
@@ -125,6 +128,7 @@ export async function markStatements(
   now: string,
 ): Promise<Compilable[]> {
   const out: Compilable[] = [];
+  const all: { o: string; r: string; f: string; h: string; s: Standing }[] = [];
   for (const change of changes) {
     if (change.action === "erase") {
       out.push(
@@ -137,42 +141,50 @@ export async function markStatements(
     }
     const host = new Set(change.marks?.hostFilled ?? []);
     const defaulted = new Set(change.marks?.defaulted ?? []);
-    const rows: { field: string; value: unknown; standing: Standing }[] = [];
-    for (const [field, value] of Object.entries(change.after)) {
+    const fields = Object.entries(change.after);
+    if (change.action === "create" || change.action === "restore") fields.push([CREATED, ""]);
+    for (const [field, value] of fields) {
       const copied = change.marks?.copied?.[field];
       let s: Standing = standing;
       if (copied?.length) {
         const of = await Promise.all(copied.map((c) => sourceStanding(db, c)));
         s = weakest([...of, ...(standing === "ai" ? (["ai"] as const) : [])]);
-      } else if (defaulted.has(field))
+      } else if (defaulted.has(field)) {
         s = weakest(["default", standing === "ai" ? "ai" : "default"]);
-      else if (host.has(field)) s = weakest(["host", standing]);
-      rows.push({ field, value, standing: s });
+      } else if (host.has(field)) {
+        s = weakest(["host", standing]);
+      }
+      all.push({ o: change.object, r: change.id, f: field, h: await valueHash(value), s });
     }
-    if (change.action === "create" || change.action === "restore") {
-      rows.push({ field: CREATED, value: "", standing });
+  }
+  // One statement for the batch's marks (chunked by bytes, as the audit's changes are written:
+  // D1 caps one bound value at 2 MB), so a bulk write adds one statement, not one per record.
+  const chunks: string[] = [];
+  let chunk: typeof all = [];
+  let bytes = 0;
+  for (const row of all) {
+    const size = JSON.stringify(row).length + 1;
+    if (chunk.length && bytes + size > MARKS_CHUNK_BYTES) {
+      chunks.push(JSON.stringify(chunk));
+      chunk = [];
+      bytes = 0;
     }
-    for (const row of rows) {
-      const value_hash = await valueHash(row.value);
-      out.push(
-        db
-          .insertInto("core_value_mark")
-          .values({
-            object_type: change.object,
-            record_id: change.id,
-            field: row.field,
-            value_hash,
-            standing: row.standing,
-            by_id: byId,
-            at: now,
-          })
-          .onConflict((oc) =>
-            oc
-              .columns(["object_type", "record_id", "field"])
-              .doUpdateSet({ value_hash, standing: row.standing, by_id: byId, at: now }),
-          ),
-      );
-    }
+    chunk.push(row);
+    bytes += size;
+  }
+  if (chunk.length) chunks.push(JSON.stringify(chunk));
+  for (const json of chunks) {
+    out.push(
+      CompiledQuery.raw(
+        `INSERT INTO core_value_mark (object_type, record_id, field, value_hash, standing, by_id, at)
+         SELECT json_extract(j.value, '$.o'), json_extract(j.value, '$.r'),
+           json_extract(j.value, '$.f'), json_extract(j.value, '$.h'),
+           json_extract(j.value, '$.s'), ?, ? FROM json_each(?) j WHERE true
+         ON CONFLICT (object_type, record_id, field) DO UPDATE SET value_hash = excluded.value_hash,
+           standing = excluded.standing, by_id = excluded.by_id, at = excluded.at`,
+        [byId, now, json],
+      ) as unknown as Compilable,
+    );
   }
   return out;
 }

@@ -382,6 +382,11 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
         .deleteFrom("core_search_docs")
         .where("object_type", "=", record.object)
         .where("record_id", "=", record.id),
+      // Who stood behind its values (ADR 0590): hashes of what it said.
+      ctx.db
+        .deleteFrom("core_value_mark")
+        .where("object_type", "=", record.object)
+        .where("record_id", "=", record.id),
     );
   }
 
@@ -905,6 +910,13 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
   if (s.object !== "person") return 0;
   const ids = jsonList(s.recordIds);
   const addresses = jsonList(s.addresses.length ? s.addresses.map((a) => a.toLowerCase()) : [""]);
+  // Who stood behind their values (ADR 0590): hashes, but keyed by their ids or, for what is
+  // keyed by an address (a customer invite), their addresses; deleted.
+  ctx.write(
+    ctx.db
+      .deleteFrom("core_value_mark")
+      .where((eb) => eb.or([eb("record_id", "in", ids), eb("record_id", "in", addresses)])),
+  );
   // Their routine mail (ADR 0590): who was sent what about which record. Deleted, by Person or
   // by address (a guardian's, a paid visitor's), and every row about their records, those sent
   // to a guardian about an erased child included (D5).
