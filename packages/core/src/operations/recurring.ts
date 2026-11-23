@@ -162,9 +162,12 @@ export const recurringFollow = defineOperation({
     id: recordId,
     fields: z
       .array(z.string().min(1).max(64))
+      .min(1)
       .max(50)
       .optional()
-      .describe("The fields to follow the series again; default every field the series sets."),
+      .describe(
+        "The fields to follow the series again (at least one); leave it out for every field the series sets.",
+      ),
   }),
   output: z.object({
     followed: z.array(z.string()),

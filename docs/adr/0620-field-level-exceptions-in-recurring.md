@@ -46,18 +46,26 @@ still follow.
   the rule is removed (or cancelled with places taken) whether or not it has field exceptions: the
   exception is about a field on a date, not about the date; its exception rows go with it. Ending
   or trashing the series deals with every future record as before.
-- **Races are guarded at commit with the existing series guard**, with no new guard kind (so
-  `core_write_guard`, which other builds also rebuild, is untouched). Every write by anyone but
-  the host to a generated record that changes something the series owns (an exception set or
-  cleared, the record detached, `recurring.follow`) guards on its series' version as read and
-  bumps it, in its own batch. Runs and changes already guard on the version they read. So of a
-  series change and an edit to one of its records racing, exactly one commits; the other fails
-  whole (`conflict`, `recurring_stale`) and is made again from what is there now. A batch that
-  guards and bumps one series several times (a bulk edit of five of its classes, an edit beside a
-  change of the series) counts the bumps it has queued, so it never trips its own guard
-  (`guardSeries` and `noteSeriesBump`, keyed on the batch's `write`). A run racing an edit fails and
-  is made on the next tick, as a run racing a change already did.
-- **Upgrade: nothing already generated changes meaning.** The migration adds a table and nothing
+- **Races are guarded at commit per occurrence** (amended in review, below): each occurrence has a
+  `version` (migration 0810), and `core_recurrence_guard` (migration 0810's own guard table and
+  trigger, so `core_write_guard`, which other builds rebuild, is untouched) checks it in the batch.
+  - A write by anyone but the host to a generated record that changes something the series owns
+    (an exception set or cleared, the record detached, `recurring.follow`) guards that its
+    occurrence's version is as read and bumps it.
+  - A change of a series guards that the sum of its occurrences' versions from the date it applies
+    from is as read, and bumps them all.
+  - So of a series change and an edit to one of its records racing, exactly one commits; the other
+    fails whole (`conflict`, `recurring_stale`) and is made again from what is there now. **Edits
+    of different records of one series do not contend**, and neither an edit nor a cancel contends
+    with a generation run (runs only add occurrences; runs and changes still guard the series'
+    version against each other, as before).
+- **One batch sees what it queued.** Queued writes are invisible to the batch's own reads, so the
+  batch keeps what it queued (keyed on its `write`, shared by every context of the batch): bumps,
+  exceptions set and cleared, records detached, values written by hand, and series values written.
+  Each later guard and plan in the batch adds them. A hand edit and a series edit of the same field
+  in one batch therefore keep the hand's value as an exception in either order; the series' value
+  used for "set back by hand" is the one the batch wrote.
+- **Upgrade: nothing already generated changes meaning.** The migration adds the exception and guard tables and a version column (0 on every row), and nothing
   else. Every occurrence detached under the old rule (`edited_at` set) stays detached whole,
   exactly as before, its `changed` true, whatever field caused it: the old rule recorded no field,
   and guessing one from history could make a class follow a series it was meant to ignore. A
@@ -77,11 +85,40 @@ still follow.
   changes, so a class whose coach was swapped and whose time the series then moves sends one
   "class changed" message (its time), and the swap itself sends nothing (stage 31 decision 16).
   The automation reads the change's diff, on main and on the routine-mail branch alike.
-- A staff edit racing a run of its series (at most a minute after the series is written, and once a
-  day) fails and is tried again by the person; rare, and the price of a guard that holds.
+- A staff edit fails as `recurring_stale` only when a change of its own series commits between
+  its read and its commit; the person (or the tool) tries again.
 - **The import** (stage 31a step 10, not built) must write classes that differ from their series
   through the record operations as staff, or write the exception rows itself, so a coach different
   from the series' is imported as a coach exception (stage 45's "The move"), never by a host write
   that would leave it following the series, nor as a whole detach.
 - Records detached under the old rule show `changed` until someone follows them again; the class
   list's filter on `changed` still finds them.
+
+## Amended 2026-11-23 (review of PR #271, before merge)
+- **The guard is per occurrence, not the series' version.** As first built, every hand edit
+  guarded and bumped its series' version, so two edits of different classes of one series, or a
+  cancel and a generation run, failed each other as `recurring_stale`: rare for a person, common
+  for a tool or an assistant firing several writes. The review asked for a retry in the pipeline
+  or a narrower guard. **Retrying was rejected**: a handler may call other operations (each
+  committed on its own), call a gatekeeper or queue events before its batch commits, so running it
+  again is not sound for every caller. The guard was narrowed instead (above).
+- **A batch sees what it queued** (above): a hand edit and a series edit of the same field in one
+  batch lost the hand's value and pinned the record to the series' value, because the series
+  change read the stored record. Both orders are tested.
+- **A series that comes to a record's own value clears its exception**, for the same reason as a
+  hand set-back: an exception equal to the series' value is indistinguishable from following it.
+- **`recurring.follow { fields: [] }` is refused** (`invalid_input`): only leaving `fields` out
+  means every field.
+- **Reattaching leaves no exception on a field equal to the series'**: a field not named either
+  becomes an exception (it differs) or has its exception cleared (it does not).
+- **Reattaching refuses a record whose state was changed by hand** (`recurring_state`, a paused
+  class): a made record starts in its object's initial state, and a series must not move a record
+  its states hold back. Move it back first, as a moved record's time is put back first.
+- **A limit, stated**: reattaching compares the record's time with the series as it is now. There
+  is no history of a series, so a record dated before a `recurring.change { from }` that kept the
+  old time reads as moved (`recurring_moved`, whose message says so) even though nobody moved it.
+  Following a field of a record dated before such a change writes the series' current value.
+- **Exceptions on a field taken out of `copy` are deleted at the extension's reconcile**, so none
+  is left that `recurring.follow` would refuse to clear.
+- **The API contract**: `recurring.*` invalidates the record reads, and `record.*` writes
+  invalidate `recurring.exceptions` (one stale group).

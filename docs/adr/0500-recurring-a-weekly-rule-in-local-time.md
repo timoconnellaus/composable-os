@@ -131,5 +131,6 @@ else. The documents call that one `sellable.recurring.grants`, never "the recurr
 host (a coach swapped on one class) is that record's own field exception, and the series still
 writes the record's other fields; a change of its times, zone or state still detaches it whole.
 Records detached under the rule above stay detached whole; `recurring.follow` makes one follow
-again. Edits to a series' records guard and bump its version, so they and a change of the series
-cannot overwrite each other. See [ADR 0620](0620-field-level-exceptions-in-recurring.md).
+again. An edit to one of a series' records and a change of the series guard each other per
+occurrence (`core_recurrence_guard`), so they cannot overwrite each other; edits of different
+records do not contend. See [ADR 0620](0620-field-level-exceptions-in-recurring.md).

@@ -1103,8 +1103,9 @@ still writes the rest; set back by hand to the series' value, or `recurring.foll
 again (`recurring.exceptions` reads them). A record whose time or state staff change is detached
 whole and left alone, as are those detached before ADR 0620. A change to the series reaches its
 future records at once, field by field, in its batch, and moving or cancelling records with places
-taken needs `recurring.change` with the count confirmed. Edits to a series' records guard and bump
-its version, so an edit and a series change racing cannot overwrite each other. Closures cancel the records
+taken needs `recurring.change` with the count confirmed. A hand edit and a series change guard
+each other per occurrence (migration 0810's `core_recurrence_guard`), so racing they cannot
+overwrite each other, while edits of different records of one series do not contend. Closures cancel the records
 they cover and nothing is made in them (`recurring.close` with the count when they cover booked
 records). Runs and changes are planned from a read and guarded at commit (`core_write_guard`: the
 series' version, each planned record's places), so a race fails as a conflict instead of leaving

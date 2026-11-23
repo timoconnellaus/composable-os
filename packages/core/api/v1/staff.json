@@ -42996,7 +42996,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -43300,7 +43301,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -43364,7 +43366,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -43421,7 +43424,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -43785,7 +43789,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -44102,7 +44107,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -44170,7 +44176,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -44256,7 +44263,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -44364,7 +44372,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -44465,7 +44474,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -44687,7 +44697,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -44789,7 +44800,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -45076,6 +45088,14 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions",
         "recurring.exceptions"
       ]
     },
@@ -45141,6 +45161,14 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions",
         "recurring.exceptions"
       ]
     },
@@ -45263,7 +45291,8 @@
             "maxLength": 64
           },
           "fields": {
-            "description": "The fields to follow the series again; default every field the series sets.",
+            "description": "The fields to follow the series again (at least one); leave it out for every field the series sets.",
+            "minItems": 1,
             "maxItems": 50,
             "type": "array",
             "items": {
@@ -45305,6 +45334,14 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions",
         "recurring.exceptions"
       ]
     },
@@ -45360,6 +45397,14 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions",
         "recurring.exceptions"
       ]
     },

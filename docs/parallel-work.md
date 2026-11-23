@@ -55,7 +55,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | AQ | 0710–0729 | 0570–0579 | Stage 31a step 9, messages, the reminder, the calendar file and the dashboard (`feat/stage-31a-messages`) | in flight |
 | AT | 0770–0789 | 0600–0609 | A coach who also works the desk (`feat/coach-desk-permissions`, issue #258): `bookings:desk`, grants on a pack-role account adding up with its role; migration 0770, ADR 0600 | in flight |
 | AU | 0790–0809 | 0610–0619 | Stage 46, Hosted clients (spec and ADR 0610; no migrations yet) | specced |
-| AV | 0810–0829 | 0620–0629 | Stage 45, Rostering. Step 1, field-level exceptions in `recurring` (`feat/stage-45-recurring-exceptions`): migration 0810, ADR 0620; the later steps take theirs from here (AS and AU are claimed on their branches) | in flight |
+| AV | 0810–0829 | 0620–0629 | Stage 45, Rostering. Step 1, field-level exceptions in `recurring` (`feat/stage-45-recurring-exceptions`): migration 0810, ADR 0620; the later steps take theirs from here (AS is claimed on its branch) | in flight |
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.

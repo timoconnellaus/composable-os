@@ -21,7 +21,7 @@ step 1); stage [31](31-bookings.md) (all of 31a, and 31b's time-range claim); `p
 `tools.ts`, `automations.ts`, `dashboards.ts`), `packages/gatekeeper-email-send/src/calendar.ts`.
 
 Status: **spec agreed** (owner interviewed 2026-11-23 and answered the open questions the same day:
-decisions 14 to 21). Build step 1, field-level exceptions in `recurring`, is built
+decisions 14 to 25). Build step 1, field-level exceptions in `recurring`, is built
 ([ADR 0620](../adr/0620-field-level-exceptions-in-recurring.md), migration 0810). Builds on stage
 31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
 never specced. Where this spec guesses, it says **(guess)**.
@@ -128,6 +128,15 @@ payroll. Members see what they see today: the coach's name on each class.
 | 19 | **Set-up and pack-down time is possible but optional**: a number of minutes per class type, default 0, that adds to pay hours only and never makes two classes clash | question 6, (b), optional |
 | 20 | **The pay period is fortnightly.** The period and its start day are a setting, defaulting to fortnightly | question 7 |
 | 21 | **A shift can be offered and taken in the app until 1 hour before it starts** (a setting, default 60 minutes) | question 8, (a) |
+
+The checklist design's four open points, put to the owner afterwards (2026-11-23):
+
+| # | Decision | Was |
+| --- | --- | --- |
+| 22 | **No photos for now.** A step is a tick and an optional note only | the design's photo steps |
+| 23 | **Who sees how checklists went** (done, missed, and who was on the shift): the person themselves, and people who can roster (the owner and admins). Not all staff. A host-enforced read rule | the design's "staff records" |
+| 24 | **Ticking on someone's behalf: yes**, by people who can roster, with a reason, recorded as "ticked by X for Y" (both kept, never shown as the shift person's own tick) | the design's proposal |
+| 25 | **The assistant may draft a template**; a person approves it before it is used | the design's proposal |
 
 ## The design in one page
 
@@ -299,8 +308,10 @@ Three warnings, worked out by the host for a shift and a person:
   reads a record's exceptions.
 - **Upgrade**: records detached whole before step 1 stay detached whole; nothing generated changes
   meaning. A person re-attaches one with `recurring.follow`.
-- **Races**: an edit to a series' record guards and bumps the series' version, so of a series
-  change and an edit racing, one commits and the other fails as `recurring_stale`.
+- **Races**: an edit to a series' record and a change of the series guard each other per
+  occurrence (`core_recurrence_guard`), so of the two racing one commits and the other fails as
+  `recurring_stale`; edits of different records of one series, and runs, do not contend. One batch
+  sees what it queued (a hand edit and a series edit of one field in one batch keep the hand's).
 - `changed` stays true for a whole-record edit only. Bookings' `changed` field's description
   says so.
 
@@ -447,9 +458,9 @@ not done, which is what later automation builds on.
   | Table | What |
   | --- | --- |
   | `core_checklist` | A **template**: name, what it is for, active, version, who wrote it and when |
-  | `core_checklist_step` | Its **steps**, in order: the text, whether it is required, and what it asks for besides a tick: nothing, a **note**, or a **photo** |
-  | `core_checklist_run` | A **run**: one template version attached to one record (object, record), its person (the staff account who ticks), opened, completed or missed, and when |
-  | `core_checklist_tick` | One **tick** per step of a run: by whom, when, the note or the photo (a media id), or "not done" with why |
+  | `core_checklist_step` | Its **steps**, in order: the text, whether it is required, and whether it asks for a note (optional on any step). No photos (decision 22) |
+  | `core_checklist_run` | A **run**: one template version attached to one record (object, record), its person (the staff account whose shift it is), opened, completed or missed, and when |
+  | `core_checklist_tick` | One **tick** per step of a run: the account that ticked, the account it was for (the run's person), whether on their behalf and why, when, the note, or "not done" with why |
 
 - **Attaching**: an object declares `checklists: { template, who, opens, closes, live }`: the field
   that names the template (Rostering's `rostering.duty.checklist`, reached from the shift through
@@ -463,32 +474,41 @@ not done, which is what later automation builds on.
   the new person; a run with ticks stays with who ticked and the new person continues it.
 - **Who writes templates**: a person holding `checklists:write`, a core permission that admins
   hold and that can be granted to a member one by one (ADR 0449). **The assistant may draft** a
-  template or its steps; a draft is applied only when a person approves it (`personApproves` on
-  the template's fields, ADR 0507's shape): it never changes what staff are asked to do on its own.
+  template or its steps (decision 25); a draft is not used until a person approves it
+  (`personApproves` on the template's fields, ADR 0507's shape): it never changes what staff are
+  asked to do on its own.
 - **Who ticks**: the run's person, from their shift, on the web or the app, from when it opens until
-  it closes plus a grace period (2 hours, guess). A rosterer may tick on someone's behalf with a
-  reason, recorded as theirs (a shift worked by someone else on the day). Nobody else, and **never
-  an AI actor** (`humanOnly`): a tick says a person did the step.
-- **Done is final**: the person marks the run done (every required step ticked or marked "not done"
-  with why). A **completed run is immutable**: a trigger refuses any insert, change or delete of
-  its ticks, for everyone. A correction is a note added to the run by a rosterer, kept beside it,
-  never a change to a tick. A run not done by its close and grace is closed by the host as
-  **missed**, with the steps that were not ticked.
-- **Photos** are private media (stage 28's media, ADR 0444) in the staff scope: never published,
-  never in a public or customer read, shown only to staff who may read the record, with location
-  metadata dropped at upload (guess). A step that asks for a photo says what of (the room, not
-  people). They are deleted with their run when its record is deleted for good, and an erasure of a
-  Person does not reach them because nothing links a photo to a Person.
-- **What staff and managers see**: the person sees their shift's checklist on "my shifts" and ticks
-  it there. Rosterers see each shift's checklist state on the roster (none, not started, in
-  progress, done, missed), a run's ticks with who and when, and a Checklists view of runs by
-  template and date with the steps missed. Runs and ticks are staff records (readable by staff
-  with `records:read`, as tasks are): they are about the premises, not about anyone's pay or leave.
+  it closes plus a grace period (2 hours, guess). **A rosterer may tick on someone's behalf**
+  (decision 24), with a reason (a shift worked by someone else on the day). Such a tick records
+  both accounts: the rosterer who ticked and the person it was for, with the reason, and every
+  screen and export shows it as "ticked by X for Y"; it is never shown or counted as the shift
+  person's own tick. Nobody else ticks, and **never an AI actor** (`humanOnly`): a tick says a
+  person did the step.
+- **Done is final**: the person (or a rosterer on their behalf, recorded as above) marks the run
+  done: every required step ticked or marked "not done" with why. A **completed run is
+  immutable**: a trigger refuses any insert, change or delete of its ticks, for everyone. A
+  correction is a note added to the run by a rosterer, kept beside it, never a change to a tick. A
+  run not done by its close and grace is closed by the host as **missed**, with the steps that
+  were not ticked.
+- **Who sees how it went** (decision 23), held by the host for every path: a run, its ticks and
+  whether it was missed are read only by the run's person and by rosterers (`rostering:manage`:
+  the owner and admins, and anyone granted it). Checklist runs are core tables in no `rec_*` view,
+  so no dashboard, `query.sql`, `export.csv` or the assistant's record reads reach them; they are
+  read through tool-only operations that check the caller is the run's person or a rosterer. Other
+  staff see that a shift has a checklist (it is on the roster), never how it went. Templates and
+  their steps are not personal and are readable by every staff account.
+- **What the person and rosterers see**: the person sees their shift's checklist on "my shifts" and
+  ticks it there. Rosterers see each shift's checklist state on the roster (none, not started, in
+  progress, done, missed), a run's ticks with who ticked and for whom, and a Checklists view of
+  runs by template and date with the steps missed.
 - **Its place in the build**: step 4b, after the Rostering pack's duty shifts (step 4), beside
   steps 5 to 7. Duty shifts ship with a time and a person first; the checklist follows without
   holding the roster up.
-- **Left out, as follow-ons**: a step missed twice raising a task (the automation this is built
-  for, next); checklists on a class type, an event or a new member's first week (each a
+- **Left out, as follow-ons**: **photos on a step** (left out by the owner's decision 22; when
+  they come, the media path must be checked first: today's media library stores an upload's bytes
+  as given, strips no location or other metadata, and nothing could enforce "the room, not
+  people"); a step missed twice raising a task (the automation this is built for, next);
+  checklists on a class type, an event or a new member's first week (each a
   `checklists` declaration of its pack); a second person signing a run off; steps that depend on
   an answer; scores; ticking offline; a checklist with no shift (a daily opening check on its own).
 
@@ -693,11 +713,13 @@ coaches, series with their coach, one-off and future classes):
     tells rosterers, cancels their offers and keeps past shifts; `staffing.forget` keeps locked pay
     lines and is refused while an unlocked period counts them.
 13. **Checklists** (step 4b): a duty with a checklist gives each of its shifts a run of the template
-    as it was; only the shift's person (or a rosterer, with a reason) ticks it, and an AI actor is
-    refused; a step asking for a note or a photo is not done without one; a completed run refuses
+    as it was; only the shift's person, or a rosterer on their behalf with a reason, ticks it, and
+    an AI actor is refused; a tick on someone's behalf keeps both accounts and reads "ticked by X
+    for Y" everywhere; a step asking for a note is not done without one; a completed run refuses
     every change to its ticks, for everyone; a run not done by its close is missed, with the steps
-    not ticked, and rosterers are told; an assistant's template waits for a person; a photo is never
-    in a public or customer read.
+    not ticked, and rosterers are told; a run (missed or not) is read by its person and rosterers
+    only, and by no other staff account, `rec_*` view, dashboard, `query.sql`, `export.csv` or AI
+    read; an assistant's template is not used until a person approves it.
 14. `pnpm lint typecheck test`, `cos ext check` and `cos ext test` on `packs/rostering` and
     `packs/bookings`, the block lint, and one e2e test per journey (the owner rosters a week with a
     warning; a coach offers a shift and another takes it; a cleaner sees their shifts and adds leave;
@@ -740,7 +762,7 @@ trigger keeping a completed run unchanged). No `x_*` table is touched by a migra
 | 2 | **`staffed` and the time claim**: the declaration, `core_staff_time` and its trigger, warnings in the write's answer, `staffing.check`; Bookings' class declares it, `bookings.coach.user` unique | `packages/sdk` (the declaration, contract), `packages/core/src/staffing/` (new), `records/` writes (the claim in the batch), a migration, `packs/bookings/index.ts` | **Yes, now**, but **not beside 31b** (same piece: one session builds it) and agree with stage 44 step 2 on the order of `core_write_guard` migrations |
 | 3 | **Qualifications, unavailability, offers and takes, uncovered**, the host's notices, `user.deactivate`'s answer | `staffing/`, `operations/user.ts` (deactivate), notifications, a migration | After step 2. Beside 43 and 44, which do not touch these files |
 | 4 | **Permissions**: restricted pack permissions; the `rostering.team` role; the Rostering pack's spine (duties, duty series, duty shifts with a time and a person, tools, settings); `personApproves` on Bookings' coach fields | `pack-roles.ts`, `extensions/tools.ts`, `packages/sdk/src/manifest.ts`, `packs/rostering` (new), `packs/bookings/index.ts` | ADR 0600 has merged, so after steps 2 and 3. Not beside other pack-role work |
-| 4b | **Checklists**: the templates, steps, runs and ticks, the `checklists` declaration and the `checklist` field type, the immutability trigger, photos as private media, Settings → Checklists, the duty's `checklist`, ticking on "my shifts" | `packages/core/src/checklists/` (new), `packages/sdk` (the declaration, the field type), a migration, `packs/rostering` | After step 4, beside 5 to 7: the roster does not wait for it (decision 15) |
+| 4b | **Checklists**: the templates, steps, runs and ticks, the `checklists` declaration and the `checklist` field type, the immutability trigger, the read rule (the person and rosterers only), Settings → Checklists, the duty's `checklist`, ticking on "my shifts" | `packages/core/src/checklists/` (new), `packages/sdk` (the declaration, the field type), a migration, `packs/rostering` | After step 4, beside 5 to 7: the roster does not wait for it (decision 15) |
 | 5 | **The feed** and the shared calendar writer | `apps/app/src/server/http/` (a route), `access-layout.ts`, `packages/gatekeeper-email-send/src/calendar.ts` (moved), a migration | Beside anything but stage 43 step 3 (sign-in routes) and stage 44 step 4 (the same gatekeeper files): agree the order |
 | 6 | **Pay**: the basis, periods, totals with evidence, lock, export | `staffing/pay.ts` (new), `packs/rostering` tools, a migration | Yes, after step 3 |
 | 7 | **Blocks and hooks**: the week grid, assign, patterns, qualifications, pay (web); my shifts, offers, availability, calendar, the roster (web and native); role clients with grants; `cos rostering import`; the checklist blocks once 4b is merged | `packs/rostering/blocks`, `client/`, `packages/client` codegen (`mobile.roles`), `packages/create-composable-os` | Yes, once steps 3 and 4 are merged |
@@ -762,7 +784,8 @@ a shift), so it gets the most careful review.
 - **No undo of a take**; offer it on, or a rosterer reassigns.
 - **Uncovered shifts are surfaced 14 days ahead** (offers closing 1 hour before is decision 21).
 - **Checklists are the platform's, not a pack's**, a completed run never changes, and an AI never
-  ticks (decision 15's design).
+  ticks (decision 15's design; decisions 22 to 25 settle photos, who sees, ticking for someone and
+  the assistant).
 - **A private feed, not emailed calendar files**.
 - **Nobody sees their own pay totals through the pay tools**; pay is `rostering:pay`'s, a person
   only.
@@ -770,7 +793,8 @@ a shift), so it gets the most careful review.
 
 ## Questions for the owner
 None open. The eight questions of the proposal were answered on 2026-11-23: decisions 14 to 21
-(question 1 is decision 14, question 8 is decision 21). The questions as they were put, with the
+(question 1 is decision 14, question 8 is decision 21); the checklist design's four points the
+same day: decisions 22 to 25. The questions as they were put, with the
 recommendations, are in this file's history.
 
 ## Sources

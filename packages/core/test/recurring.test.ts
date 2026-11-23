@@ -930,8 +930,84 @@ const bulkEdit = defineOperation({
     return { ok: true };
   },
 });
+// One batch: a class's field by hand and the series' same field, in either order.
+const sameBatch = defineOperation({
+  name: "fixture.sameBatch",
+  description: "Test fixture: a class edit and a series edit of one field, in one batch.",
+  input: z.object({
+    series: z.string(),
+    klass: z.string(),
+    hand: z.string(),
+    seriesCoach: z.string(),
+    seriesFirst: z.boolean(),
+  }),
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    const editClass = () =>
+      updateRecord(ctx, requireExtensionObject(KLASS), input.klass, { coach: input.hand });
+    const editSeries = () =>
+      updateRecord(ctx, requireExtensionObject(SERIES), input.series, {
+        coach: input.seriesCoach,
+      });
+    if (input.seriesFirst) {
+      await editSeries();
+      await editClass();
+    } else {
+      await editClass();
+      await editSeries();
+    }
+    return { ok: true };
+  },
+});
+// A hand edit of one class planned, then another person's edit of another class of the series
+// committed first.
+const editThenEditOther = defineOperation({
+  name: "fixture.editThenEditOther",
+  description: "Test fixture: two hand edits of different classes of one series, racing.",
+  input: z.object({ klass: z.string(), other: z.string(), now: z.string() }),
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    await updateRecord(ctx, requireExtensionObject(KLASS), input.klass, { coach: "Coach P" });
+    await invoke(
+      "record.update",
+      { object: KLASS, id: input.other, values: { state: "cancelled" } },
+      as(input.now),
+    );
+    return { ok: true };
+  },
+});
+// A run of the series planned, then a hand edit of one of its classes committed first.
+const runThenEdit = defineOperation({
+  name: "fixture.runThenEdit",
+  description: "Test fixture: a run of a series, with a hand edit committed under it.",
+  input: z.object({ series: z.string(), klass: z.string(), now: z.string() }),
+  output: z.object({ made: z.number(), more: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    const result = await generateSeries(ctx, requireExtensionObject(SERIES), input.series, 2);
+    await invoke(
+      "record.update",
+      { object: KLASS, id: input.klass, values: { coach: "Coach R" } },
+      as(input.now),
+    );
+    return result;
+  },
+});
 const fieldRaces = createInvoker(
-  createRegistry([...coreRegistry.list(), changeThenEdit, editThenChange, bulkEdit]),
+  createRegistry([
+    ...coreRegistry.list(),
+    changeThenEdit,
+    editThenChange,
+    bulkEdit,
+    sameBatch,
+    editThenEditOther,
+    runThenEdit,
+  ]),
 );
 
 const setCoach = (id: string, coach: string, now: string) =>
@@ -1131,5 +1207,148 @@ describe("field-level exceptions (ADR 0620)", () => {
       ["Coach B", 5],
       ["Coach A", 5],
     ]);
+  });
+
+  // --- Review of PR #271 ---------------------------------------------------------------------------
+
+  it("a hand edit and a series edit of the same field in one batch: the hand edit stands, in either order", async () => {
+    const now = "2029-06-04T00:00:00.000Z";
+    const id = await series({ firstDate: "2029-06-04" }, now);
+    await tick(now);
+    const [c0, c1] = await made(id);
+    if (!c0 || !c1) throw new Error("expected classes");
+    // The class first, then the series.
+    await fieldRaces.invoke(
+      "fixture.sameBatch",
+      { series: id, klass: c0.id, hand: "HAND", seriesCoach: "NEW", seriesFirst: false },
+      as(now),
+    );
+    let classes = await made(id);
+    expect([classes[0]?.values.coach, classes[1]?.values.coach]).toEqual(["HAND", "NEW"]);
+    expect((await own(c0.id)).map((r) => r[0])).toEqual(["coach"]);
+    // The series first, then the class: still the hand's, and its exception.
+    await fieldRaces.invoke(
+      "fixture.sameBatch",
+      { series: id, klass: c1.id, hand: "HAND2", seriesCoach: "NEWER", seriesFirst: true },
+      as(now),
+    );
+    classes = await made(id);
+    expect(classes.slice(0, 3).map((c) => c.values.coach)).toEqual(["HAND", "HAND2", "NEWER"]);
+    expect((await own(c1.id)).map((r) => r[0])).toEqual(["coach"]);
+    // A hand value equal to the series' new value in the same batch is no exception.
+    const c2 = classes[2];
+    if (!c2) throw new Error("expected a class");
+    await fieldRaces.invoke(
+      "fixture.sameBatch",
+      { series: id, klass: c2.id, hand: "SAME", seriesCoach: "SAME", seriesFirst: true },
+      as(now),
+    );
+    expect(await own(c2.id)).toEqual([]);
+    // Neither class is pinned: a later change reaches the one that follows.
+    await invoke("record.update", { object: SERIES, id, values: { coach: "LATER" } }, as(now));
+    classes = await made(id);
+    expect(classes.slice(0, 4).map((c) => c.values.coach)).toEqual([
+      "HAND",
+      "HAND2",
+      "LATER",
+      "LATER",
+    ]);
+  });
+
+  it("two people editing different classes of one series at once both succeed", async () => {
+    const now = "2029-07-02T00:00:00.000Z";
+    const id = await series({ firstDate: "2029-07-02" }, now);
+    await tick(now);
+    const [c0, c1] = await made(id);
+    if (!c0 || !c1) throw new Error("expected classes");
+    await fieldRaces.invoke(
+      "fixture.editThenEditOther",
+      { klass: c0.id, other: c1.id, now },
+      as(now),
+    );
+    const classes = await made(id);
+    expect(classes[0]?.values.coach).toBe("Coach P");
+    expect(classes[1]?.values.state).toBe("cancelled");
+  });
+
+  it("a run of the series and a hand edit at once both commit, and the next tick makes the rest once", async () => {
+    const now = "2029-08-06T00:00:00.000Z";
+    await tick(now); // Every other series in this file first.
+    const id = await series({ firstDate: "2029-08-06" }, now);
+    await runRecurringDue(db, { clock: () => new Date(now), maxRecords: 2 });
+    const [c0] = await made(id);
+    if (!c0) throw new Error("expected a class");
+    const out = await fieldRaces.invoke(
+      "fixture.runThenEdit",
+      { series: id, klass: c0.id, now },
+      { ...as(now), actor: "automation" },
+    );
+    expect(out).toMatchObject({ made: 2 });
+    await tick(now);
+    const classes = await made(id);
+    expect(classes[0]?.values.coach).toBe("Coach R");
+    expect(classes.map((c) => c.date)).toEqual(tuesdaysAndThursdays("2029-08-07", "2029-11-05"));
+  });
+
+  it("a series that comes to a class's own value clears its exception; an empty fields list is refused", async () => {
+    const now = "2029-09-03T00:00:00.000Z";
+    const id = await series({ firstDate: "2029-09-03" }, now);
+    await tick(now);
+    const [c0] = await made(id);
+    if (!c0) throw new Error("expected a class");
+    await setCoach(c0.id, "Coach B", now);
+    await invoke("record.update", { object: SERIES, id, values: { coach: "Coach B" } }, as(now));
+    expect(await own(c0.id)).toEqual([]);
+    await invoke("record.update", { object: SERIES, id, values: { coach: "Coach C" } }, as(now));
+    expect((await made(id))[0]?.values.coach).toBe("Coach C");
+    await expect(
+      invoke("recurring.follow", { object: KLASS, id: c0.id, fields: [] }, as(now)),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("reattaching leaves no exception on a field equal to the series', and refuses a state changed by hand", async () => {
+    const now = "2029-10-01T00:00:00.000Z";
+    const id = await series({ firstDate: "2029-10-01" }, now);
+    await tick(now);
+    const [c0, c1] = await made(id);
+    if (!c0 || !c1) throw new Error("expected classes");
+    // Detached whole before ADR 0620, with an exception row left on a field now equal to the series'.
+    await env.DB.prepare("UPDATE core_recurrence_occurrence SET edited_at = ? WHERE record_id = ?")
+      .bind(now, c0.id)
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO core_recurrence_exception (object_type, record_id, field, set_by, set_at) VALUES (?, ?, 'places', ?, ?)",
+    )
+      .bind(KLASS, c0.id, admin.id, now)
+      .run();
+    expect(
+      await invoke("recurring.follow", { object: KLASS, id: c0.id, fields: ["coach"] }, as(now)),
+    ).toEqual({ followed: ["coach"], kept: [], reattached: true });
+    expect(await own(c0.id)).toEqual([]);
+    // Paused by hand: detached, and put back before it follows.
+    await invoke(
+      "record.update",
+      { object: KLASS, id: c1.id, values: { state: "paused" } },
+      as(now),
+    );
+    await expect(
+      invoke("recurring.follow", { object: KLASS, id: c1.id }, as(now)),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_state" } });
+  });
+
+  it("an exception on a field the series no longer copies is cleaned up at reconcile", async () => {
+    const now = "2029-11-05T00:00:00.000Z";
+    const id = await series({ firstDate: "2029-11-05" }, now);
+    await tick(now);
+    const [c0] = await made(id);
+    if (!c0) throw new Error("expected a class");
+    await setCoach(c0.id, "Coach B", now);
+    await env.DB.prepare(
+      "INSERT INTO core_recurrence_exception (object_type, record_id, field, set_by, set_at) VALUES (?, ?, 'name', ?, ?)",
+    )
+      .bind(KLASS, c0.id, admin.id, now)
+      .run();
+    await reconcile(timetable(ext));
+    expect((await own(c0.id)).map((r) => r[0])).toEqual(["coach"]);
   });
 });

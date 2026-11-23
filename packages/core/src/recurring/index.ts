@@ -43,15 +43,19 @@ import {
 import { visibleSource } from "../visibility/index.ts";
 import {
   armSeriesStatement,
-  bumpSeriesStatement,
+  batchOf,
   clearExceptionStatement,
   clearExceptionsStatement,
+  guardAndBumpOccurrence,
+  guardAndBumpSeriesOccurrences,
   guardSeries,
   guardStatement,
   markEditedStatement,
+  noteException,
   noteSeriesBump,
   occurrenceStatement,
   reattachStatement,
+  recordKey,
   setExceptionStatement,
 } from "./bookkeeping.ts";
 
@@ -405,15 +409,48 @@ async function occurrenceOf(ctx: HandlerContext, object: string, id: string) {
   );
 }
 
+type OccurrenceRow = NonNullable<Awaited<ReturnType<typeof occurrenceOf>>>;
+
 /**
- * Queues, once for each such write, the guard that the series is as read and the bump that fails
- * any run or change of it planned before this write (ADR 0620): of a change to a series and an
- * edit to one of its records racing, exactly one commits.
+ * Queues the guard that the record's occurrence is as read and the bump that fails a change of its
+ * series planned before this write (ADR 0620): of a series change and an edit to one of its
+ * records racing, exactly one commits. Edits of different records, and runs, do not contend.
  */
-async function guardAndBump(ctx: HandlerContext, seriesObject: string, seriesId: string) {
-  await guardSeries(ctx, seriesObject, seriesId);
-  ctx.write(bumpSeriesStatement(seriesObject, seriesId, ctx.now));
-  noteSeriesBump(ctx, seriesObject, seriesId);
+async function guardRecord(ctx: HandlerContext, object: string, id: string, row: OccurrenceRow) {
+  await guardAndBumpOccurrence(ctx, {
+    object,
+    record: id,
+    seriesObject: row.series_object,
+    seriesId: row.series_id,
+    date: row.local_date,
+  });
+}
+
+/** Sets or clears a field exception, and notes it for the rest of the batch. */
+function writeException(
+  ctx: HandlerContext,
+  object: string,
+  id: string,
+  field: string,
+  set: boolean,
+): void {
+  ctx.write(
+    set
+      ? setExceptionStatement(object, id, field, ctx.user.id, ctx.now)
+      : clearExceptionStatement(object, id, field),
+  );
+  noteException(ctx, recordKey(object, id), field, set);
+}
+
+/** A series' values: as this batch wrote them, else as stored. */
+async function seriesValuesOf(
+  ctx: HandlerContext,
+  seriesObject: ObjectDefinition,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const queued = batchOf(ctx).seriesValues.get(recordKey(seriesObject.name, id));
+  if (queued) return queued;
+  return records().load(ctx, seriesObject, id);
 }
 
 /**
@@ -427,8 +464,9 @@ async function guardAndBump(ctx: HandlerContext, seriesObject: string, seriesId:
  *   occurrence is marked edited, `into.changed` is set, and the series never writes to it again.
  * - A record a series made and one its series has already detached whole: nothing more.
  *
- * Either way the write guards its series' version and bumps it, so a series change or run planned
- * before it fails and is made again from the new state. Returns the host values to add to the
+ * Either way the write guards its occurrence's version and bumps it, so a series change planned
+ * before it fails and is made again from the new state. What it did is noted for the rest of the
+ * batch (a series change later in the same batch sees it). Returns the host values to add to the
  * write (`into.changed`).
  */
 export async function generatedRecordEdited(
@@ -465,20 +503,20 @@ export async function generatedRecordEdited(
   const copied = Object.keys(def.copy).filter(differs);
   if (!whole && !copied.length) return {};
   // Detached whole already (by hand, or under the rule before ADR 0620): the series leaves it be.
-  if (occurrence.edited_at) return changedFlag(def);
-  await guardAndBump(ctx, seriesObject.name, occurrence.series_id);
+  const key = recordKey(object.name, id);
+  const batch = batchOf(ctx);
+  if (occurrence.edited_at || batch.detached.has(key)) return changedFlag(def);
+  await guardRecord(ctx, object.name, id, occurrence);
+  batch.values.set(key, { ...(batch.values.get(key) ?? {}), ...after });
   if (whole) {
     ctx.write(markEditedStatement(object.name, id, ctx.now));
+    batch.detached.add(key);
     return changedFlag(def);
   }
-  const series = await records().load(ctx, seriesObject, occurrence.series_id);
+  const series = await seriesValuesOf(ctx, seriesObject, occurrence.series_id);
   for (const field of copied) {
     const source = def.copy[field] as string;
-    if (series && same(after[field], series[source])) {
-      ctx.write(clearExceptionStatement(object.name, id, field));
-    } else {
-      ctx.write(setExceptionStatement(object.name, id, field, ctx.user.id, ctx.now));
-    }
+    writeException(ctx, object.name, id, field, !(series && same(after[field], series[source])));
   }
   return {};
 }
@@ -570,7 +608,14 @@ export async function followSeries(
       });
     }
   }
-  const named = fields?.length ? [...new Set(fields)] : copied;
+  // An empty list is refused rather than read as "every field" (omit it for that).
+  if (fields && !fields.length) {
+    throw new ValidationError("Name at least one field, or leave fields out for every one", {
+      field: "fields",
+      rule: "recurring_no_fields",
+    });
+  }
+  const named = fields ? [...new Set(fields)] : copied;
   const record = await records().load(ctx, object, id);
   const series = await records().load(ctx, seriesObject, occurrence.series_id);
   if (!record) throw new NotFoundError(object.name, id);
@@ -601,24 +646,36 @@ export async function followSeries(
   const kept: string[] = [];
   if (reattached) {
     const moved = timeFieldsOf(def).filter((f) => !same(record[f], wanted[f]));
+    // Compared with the series as it is now: a record dated before a `recurring.change { from }`
+    // kept the old time, so it reads as moved too (ADR 0620, a stated limit: no series history).
     if (moved.length) {
       throw new ConflictError(
-        `This ${object.label.toLowerCase()} was moved by hand, so it cannot follow its series without moving. Change its time back to the series' first.`,
+        `This ${object.label.toLowerCase()}'s time is not its series' for its date (it was moved by hand, or the series changed from a later date), so it cannot follow its series without moving. Change its time to the series' first.`,
         { rule: "recurring_moved", fields: moved },
+      );
+    }
+    // A state changed by hand (paused) detached it too: put it back first (a made record starts
+    // in the initial state, and the series would otherwise move a record its states hold back).
+    const initial = object.states?.initial;
+    if (stateField && initial && state !== initial) {
+      throw new ConflictError(
+        `This ${object.label.toLowerCase()} is ${String(state)}, changed by hand; move it back to ${initial} before it follows its series.`,
+        { rule: "recurring_state", state, initial },
       );
     }
     ctx.write(reattachStatement(object.name, id));
     for (const f of copied) {
-      if (!named.includes(f) && !same(record[f], wanted[f])) {
-        ctx.write(setExceptionStatement(object.name, id, f, ctx.user.id, ctx.now));
-        kept.push(f);
-      }
+      if (named.includes(f)) continue;
+      // Not named: kept as its own where it differs, and no exception left where it does not.
+      const differs = !same(record[f], wanted[f]);
+      writeException(ctx, object.name, id, f, differs);
+      if (differs) kept.push(f);
     }
   }
-  await guardAndBump(ctx, seriesObject.name, occurrence.series_id);
+  await guardRecord(ctx, object.name, id, occurrence);
   const values: Record<string, unknown> = {};
   for (const f of named) {
-    ctx.write(clearExceptionStatement(object.name, id, f));
+    writeException(ctx, object.name, id, f, false);
     if (!same(record[f], wanted[f])) values[f] = wanted[f] ?? null;
   }
   // Places are never set below what is claimed (capacity's own rule): kept at the claimed.
@@ -727,6 +784,9 @@ export async function seriesChanged(
   await guardSeries(ctx, object.name, id);
   ctx.write(armSeriesStatement(object.name, id, ctx.now, ctx.now));
   noteSeriesBump(ctx, object.name, id);
+  // A hand edit later in this batch compares with the series as written here.
+  const batch = batchOf(ctx);
+  batch.seriesValues.set(recordKey(object.name, id), after);
   if (!changed) return;
   const generated = generatedOf(def);
   const { timezone } = await loadGeneralSettings(ctx.db);
@@ -746,6 +806,9 @@ export async function seriesChanged(
     .where("local_date", ">=", first)
     .orderBy("local_date")
     .execute();
+  // None of them written by hand since read, and each bumped, so a hand edit planned before this
+  // change fails rather than land over it (ADR 0620).
+  await guardAndBumpSeriesOccurrences(ctx, object.name, id, first);
   // The fields each of those records keeps as its own (ADR 0620): the series writes the rest.
   const own = new Map<string, Set<string>>();
   if (!ended) {
@@ -765,13 +828,27 @@ export async function seriesChanged(
       own.set(e.record_id, fields);
     }
   }
+  // What this batch queued before the change (a hand edit of one of its records): the reads above
+  // cannot see it, so it is added here.
+  for (const row of rows) {
+    const queued = batch.exceptions.get(recordKey(generated.name, row.record_id));
+    if (!queued) continue;
+    const fields = own.get(row.record_id) ?? new Set<string>();
+    for (const [field, set] of queued) {
+      if (set) fields.add(field);
+      else fields.delete(field);
+    }
+    own.set(row.record_id, fields);
+  }
   const finals = new Set((generated.states?.moves ?? []).filter((m) => m.final).map((m) => m.to));
   const stateField = generated.states?.field;
   const plans: Planned[] = [];
   for (const row of rows) {
-    if (row.edited_at && !ended) continue;
-    const record = await records().load(ctx, generated, row.record_id);
-    if (!record) continue;
+    const key = recordKey(generated.name, row.record_id);
+    if ((row.edited_at || batch.detached.has(key)) && !ended) continue;
+    const stored = await records().load(ctx, generated, row.record_id);
+    if (!stored) continue;
+    const record = { ...stored, ...(batch.values.get(key) ?? {}) };
     const starts = Date.parse(String(record[def.into.starts] ?? ""));
     if (!(starts > now)) continue;
     const state =
@@ -794,6 +871,13 @@ export async function seriesChanged(
     }
     const wanted = occurrenceValues(def, rule, occurrenceOn(rule, row.local_date), after);
     const kept = own.get(row.record_id);
+    // The series now gives a kept field the record's own value: indistinguishable from following
+    // it, so the exception goes (as when a person sets it back by hand).
+    for (const f of kept ?? []) {
+      if (Object.hasOwn(wanted, f) && same(record[f], wanted[f])) {
+        writeException(ctx, generated.name, row.record_id, f, false);
+      }
+    }
     const values = Object.fromEntries(
       Object.entries(wanted).filter(([f, v]) => !kept?.has(f) && !same(record[f], v)),
     );
