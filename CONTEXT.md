@@ -1265,6 +1265,49 @@ membership at once for a full refund of what they paid, each refund still waitin
 `orders:refund`.
 _Avoid_: trial (a plan's free first days), grace period
 
+**Shift** (the `staffed` behaviour; stage 45, proposed)
+A time someone works: a class (its coach works it) or a **duty shift** (cleaning, opening up), with
+at most one staff account on it. **Covered** when it has a person, **uncovered** when it has none.
+A record declares `staffed` to be one. One person's shifts never overlap: a **double-booking** is
+refused by the database, for every actor.
+_Avoid_: session, slot, booking
+
+**Roster** (stage 45, proposed)
+Every shift in a range, with who works each. The **pattern** is its regular week (a class series'
+coach, a duty series' person); an **exception** is one date changed from it, and only that field
+leaves the series. A **rosterer** may roster others (`rostering:manage`). Not Bookings' tool
+`roster`, which is a class's list.
+_Avoid_: rota, schedule (an automation's trigger), timetable (the members' classes)
+
+**Duty** (Rostering; stage 45, proposed)
+A kind of work that is not a class (Cleaning, Open up), done in **duty shifts** made by a **duty
+series** (`recurring`) with its regular person.
+_Avoid_: task (a base record), job
+
+**Qualified** and **Unavailable** (stage 45, proposed)
+A staff member is **qualified** for a kind of shift (a class type, a duty) when a rosterer says they
+may do it; only the qualified may take an offered shift, and rostering anyone else is a warning.
+**Unavailable** (away) is a time they said they cannot work: one-off (leave) or **regular** (every
+Wednesday afternoon). Both are host tables keyed by the staff account, in no `rec_*` view.
+_Avoid_: skill, certification, availability (say when they are away)
+
+**Offer** and **Take** (stage 45, proposed)
+A shift's person **offers** it; a qualified, free person **takes** it, with nobody approving, and
+rosterers are told. Exactly one take succeeds. Until it is taken the shift is the offerer's; at the
+cut-off (1 hour before, a setting) the offer **lapses**.
+_Avoid_: swap request, trade, bid
+
+**Calendar feed** (stage 45, proposed)
+A private address, made of a revocable token, that a staff member's phone calendar subscribes to:
+their own shifts only, nothing of members or other staff.
+_Avoid_: calendar sync, invite (the booking email's calendar file)
+
+**Counted for pay** and **Pay period** (stage 45, proposed)
+A staff member is counted **by time**, **by class** or not at all. A **pay period** (weekly,
+fortnightly or monthly) totals the hours and classes of the counted; a **locked** period's totals no
+longer change and are exported for payroll. No rates or amounts. Read only with `rostering:pay`.
+_Avoid_: timesheet, payroll, wages
+
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
