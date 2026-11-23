@@ -55,6 +55,7 @@ import { UnconfirmedEmailNotice } from "#/components/confirm-email";
 import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { formatDate, initials } from "#/lib/format";
+import { splitGrants, toggledGrants } from "#/lib/grants";
 import { OperationCallError } from "#/lib/operations";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 import { ALL_USERS_INPUT } from "#/lib/users-adapter";
@@ -513,11 +514,36 @@ function FixedRoleGrants({ user }: { user: ListedUser }) {
   const { grantable } = useAccessChoices();
   const save = useOpMutation("user.setPermissions", { invalidates: ["user.list"] });
   const choices = grantable.filter((g) => g.forFixedRole);
-  if (!choices.length) return null;
+  const allowed = choices.map((g) => g.permission);
   const name = user.name ?? user.email ?? user.id;
-  const held = user.permissions ?? [];
+  // Only what the account may hold is sent; a stored grant that no longer applies (its pack was
+  // removed) is shown so an admin can take it away, and never makes a tick fail.
+  const stored = user.permissions ?? [];
+  const { held, stale: unheld } = splitGrants(stored, allowed);
+  const stale = grantable.length ? unheld : [];
+  if (!choices.length && !stale.length) return null;
   return (
     <fieldset className="grid w-full gap-2 sm:pl-11" aria-label={`Also allowed for ${name}`}>
+      {stale.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>No longer applies: {stale.join(", ")}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={save.isPending}
+            onClick={async () => {
+              try {
+                await save.mutateAsync({ id: user.id, permissions: held });
+                toast.success(`Removed ${stale.join(", ")} from ${name}`);
+              } catch (error) {
+                toast.error(errorMessage(error));
+              }
+            }}
+          >
+            Remove
+          </Button>
+        </div>
+      )}
       {choices.map((g) => {
         const id = `fixed-${user.id}-${g.permission}`;
         return (
@@ -528,9 +554,7 @@ function FixedRoleGrants({ user }: { user: ListedUser }) {
               checked={held.includes(g.permission)}
               disabled={save.isPending}
               onCheckedChange={async (checked) => {
-                const next = checked
-                  ? [...held, g.permission]
-                  : held.filter((p) => p !== g.permission);
+                const next = toggledGrants(stored, allowed, g.permission, checked === true);
                 try {
                   await save.mutateAsync({ id: user.id, permissions: next });
                   toast.success(
@@ -556,8 +580,15 @@ function FixedRoleGrants({ user }: { user: ListedUser }) {
 /** Permissions granted one by one (ADR 0449), set whole with user.setPermissions. */
 function GrantsDialog({ user, onClose }: { user: ListedUser; onClose: () => void }) {
   const save = useOpMutation("user.setPermissions", { invalidates: ["user.list"] });
+  const { grantable } = useAccessChoices();
   const [value, setValue] = useState<string[]>(user.permissions ?? []);
   const name = user.name ?? user.email ?? user.id;
+  // A stored grant that is no longer grantable is shown and dropped on save (ADR 0600).
+  const split = splitGrants(
+    value,
+    grantable.map((g) => g.permission),
+  );
+  const stale = grantable.length ? split.stale : [];
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
@@ -569,6 +600,11 @@ function GrantsDialog({ user, onClose }: { user: ListedUser; onClose: () => void
           </DialogDescription>
         </DialogHeader>
         <PermissionChecks idPrefix={`grant-${user.id}`} value={value} onChange={setValue} />
+        {stale.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            No longer applies, and saving removes it: {stale.join(", ")}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
@@ -577,7 +613,10 @@ function GrantsDialog({ user, onClose }: { user: ListedUser; onClose: () => void
             disabled={save.isPending}
             onClick={async () => {
               try {
-                await save.mutateAsync({ id: user.id, permissions: value });
+                await save.mutateAsync({
+                  id: user.id,
+                  permissions: grantable.length ? split.held : value,
+                });
                 toast.success(`Saved ${name}'s permissions`);
                 onClose();
               } catch (error) {

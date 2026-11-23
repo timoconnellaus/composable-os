@@ -35,8 +35,13 @@ export function toolOperation(
   const audiences = source === "shipped" ? tool.audiences : undefined;
   // Likewise a tool's permission, which a role of the extension can hold (ADR 0436).
   const packPermissions = source === "shipped" ? toolPermissions(tool) : [];
-  const packGrantable = packPermissions.filter((p) => (manifest.grantable ?? []).includes(p));
-  const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}:${(manifest.grantable ?? []).join(",")}`;
+  // A tool a role also reaches opens to a grant only when it says so (ADR 0600, as the check does).
+  const roleHeld = new Set(Object.values(manifest.roles ?? {}).flatMap((r) => r.permissions));
+  const lifts = tool.grantLiftsRoleLimits === true || !packPermissions.some((p) => roleHeld.has(p));
+  const packGrantable = lifts
+    ? packPermissions.filter((p) => (manifest.grantable ?? []).includes(p))
+    : [];
+  const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}:${(manifest.grantable ?? []).join(",")}:${[...roleHeld].join(",")}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const op = defineOperation({

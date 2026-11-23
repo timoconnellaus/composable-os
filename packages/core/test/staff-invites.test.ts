@@ -158,6 +158,20 @@ describe("user.invite", () => {
       ).toBe("invalid_input");
     }
     expect((await refusal(invite({ email: "not an address" }))).code).toBe("invalid_input");
+    // A fixed role and a core permission: a core one is never a fixed role's (ADR 0600).
+    const fixedCore = await refusal(
+      invite({
+        email: `${unique("d")}@example.com`,
+        packRole: "invitefix.door",
+        permissions: ["records:publish"],
+      }),
+    );
+    expect(fixedCore.code).toBe("invalid_input");
+    expect(fixedCore.message).toContain("fixed role invitefix.door");
+    // Without a fixed role the same permission is granted as before.
+    expect(
+      await invite({ email: `${unique("e")}@example.com`, permissions: ["records:publish"] }),
+    ).toMatchObject({ permissions: ["records:publish"] });
   });
 
   it("is changed and revoked by an admin, audited", async () => {

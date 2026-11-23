@@ -332,6 +332,8 @@ export const toolManifestSchema = z.object({
   humanOnly: z.literal(true).optional(),
   /** A person approves anyone else's call (ADR 0552). */
   personApproves: z.literal(true).optional(),
+  /** The grant opens it without the role's limits, on purpose (ADR 0600). */
+  grantLiftsRoleLimits: z.literal(true).optional(),
   inputSchema: jsonSchemaObject,
   outputSchema: jsonSchemaObject,
 });
@@ -675,6 +677,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
             : {}),
           ...(tool.humanOnly ? { humanOnly: true as const } : {}),
           ...(tool.personApproves ? { personApproves: true as const } : {}),
+          ...(tool.grantLiftsRoleLimits ? { grantLiftsRoleLimits: true as const } : {}),
           ...(tool.customerFields
             ? {
                 customerFields: Object.fromEntries(
@@ -1636,6 +1639,27 @@ export function validateManifest(
       );
     }
   });
+  // A tool a role reaches and a grant opens too is the grant's without the role's limits (ADR
+  // 0600): only where the tool says so, so a grantable permission added to a role's own tool is
+  // refused rather than silently lifting the role's today off it.
+  for (const [name, tool] of Object.entries(m.tools)) {
+    const permissions = toolPermissions(tool);
+    const both =
+      permissions.some((p) => roleHeld.has(p)) &&
+      permissions.some((p) => (m.grantable ?? []).includes(p));
+    if (both && !tool.grantLiftsRoleLimits) {
+      contract(
+        `tools.${name}.permission`,
+        "This tool names a permission a role holds and a grantable one, so a grant would open it without the role's limits: set grantLiftsRoleLimits if that is meant, or give the grant a tool of its own",
+      );
+    }
+    if (tool.grantLiftsRoleLimits && !both) {
+      contract(
+        `tools.${name}.grantLiftsRoleLimits`,
+        "grantLiftsRoleLimits is for a tool naming both a permission a role holds and a grantable one",
+      );
+    }
+  }
   for (const permission of Object.keys(m.grantableLabels ?? {})) {
     if (!(m.grantable ?? []).includes(permission)) {
       contract(`grantableLabels.${permission}`, `"${permission}" is not in grantable`);

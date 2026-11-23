@@ -55,6 +55,12 @@ SDK; `packPermissions` and `packGrantable` on the tool's operation). Bookings' `
 `["bookings:coach", "bookings:desk"]`: the coach reaches it through the role, held to today, and
 the desk any day. Each name is checked as before (`<pack>:<word>`, once each).
 
+A tool naming both a permission a role holds and a grantable one must say so on purpose:
+`grantLiftsRoleLimits: true` (set on `day` only). Without it the contract check refuses the tool,
+and the host does not open it to the grant either, so adding `bookings:desk` to `roster` or
+`markAttended` later cannot lift the today limit off the coach's own tools by accident. The flag on
+a tool that does not name both is refused too.
+
 ### What a pack role's account may be granted
 - **Only pack permissions a shipped, installed pack declares grantable** (any such pack, not only
   the role's own: a coach at the desk may also be given `memberships:passes`). Each opens only the
@@ -71,6 +77,16 @@ the desk any day. Each name is checked as before (`<pack>:<word>`, once each).
 - Who gives it: a human admin only (`user.setPermissions`: `users:manage`, `actors: ["human"]`, not
   on MCP), on the Users page. Never the assistant, an MCP client, an automation or the account
   itself. Audited as a change to the user, the list before and after.
+
+### Grants stored before this decision (migration 0770)
+Before, `user.setPermissions`, `user.setPackRole` and the invites could leave grantable pack
+permissions stored on a pack-role account, where they counted for nothing. Honoured now, they would
+come alive on upgrade with no admin's act. Migration 0770 clears every grant stored on an account
+holding a pack role, and on pending invites with one: they counted for nothing, so nothing anyone
+relied on is lost. One audit row (`migration.clearFixedRoleGrants`) says how many accounts and
+invites were cleared, with each account's list before and after recorded on it; an admin re-ticks
+what they want. The Users page sends only the grants an account may hold now, and shows any stored
+grant that no longer applies (a removed pack's) so an admin can take it away.
 
 ### How a call's authority is decided
 One function decides it, `staffAuthority(user, rights, op, input)` in
@@ -99,10 +115,19 @@ Call by call, for a coach granted `bookings:desk`:
   rest refused, as before). On any other object: refused.
 - Anything else: refused.
 
-So the union is exactly "the coach role's reach, plus the granted tools' reach". What a granted
-tool reaches includes what its own calls reach (a shipped pack's code, as for any staff member who
-holds the tool): a grantable tool that called `roster` would read another day's list. Bookings'
-desk tools call no coach tool.
+So the union is exactly "the coach role's reach, plus the granted tools' reach".
+
+### Accepted, in plain words
+- **A tool run a grant started calls other tools without the role's limit.** What a granted tool
+  reaches includes what its own calls reach (a shipped pack's code, as for any staff member who
+  holds the tool): a grantable tool that called `roster` would read another day's list. No shipped
+  desk tool calls another tool. A pack author must not add a grantable tool that reads through a
+  coach tool (or any role's limited tool).
+- **What a coach with the desk permission can see.** `findPeople` returns up to 10 People's names
+  and emails per search of two letters or more, so repeated searches can list the whole directory.
+  `classList` shows, for any class on any day, every booking's person, state, whether they paid at
+  the desk, the membership or pass it spent from, and who booked it. That is the desk's work, and
+  it is what the admin's tick gives.
 
 Without a pack role nothing changes: the role, or a core grant (`role`), else a grantable pack
 permission (`grant`). Taking the pack role away leaves the account a viewer with its pack grants.
@@ -145,11 +170,18 @@ classes and full lists. For a coach who also works the desk."). Ticking saves at
   Loosened, it fails: with the limit dropped whenever any grant is held, the granted coach's
   roster and the nested-tool tests fail; with the limit always carried (as before), those and the
   grant-and-revoke test fail (the desk's booking into next week is refused).
+- `packages/db/test/fixed-role-grants-migration.test.ts`: migration 0770 clears a coach's and a
+  door account's stored grants and a fixed-role invite's, leaves a member's and a plain invite's,
+  and audits the count and each account's change. `packages/core/test/staff-invites.test.ts`: an
+  invite with a fixed role and a core permission is refused. `apps/app/test/grants.test.ts`: the
+  Users page sends only grants the account may hold.
 - `packages/core/test/permission-grants.test.ts`: registry-wide, for a fixture pack shaped like
   Bookings (a role limited to today, a role tool, a grantable tool, a tool either opens): the grant
   never closes anything, opens exactly the tool naming it, carries the limit exactly when the role
   allows; core grants and a role-held permission as a grant change nothing; a grant stops counting
-  when the pack stops declaring it; the contract refuses a role-held permission as grantable.
+  when the pack stops declaring it; the contract refuses a role-held permission as grantable, and a
+  role's tool given a grantable permission without `grantLiftsRoleLimits` (which the host then does
+  not open to the grant).
 - `packs/bookings/test/bookings.test.ts`, `packages/extension-check/test/check.test.ts`
   (`cos ext check` prints what each grantable permission opens).
 

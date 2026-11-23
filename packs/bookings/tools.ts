@@ -1298,6 +1298,8 @@ export const day = defineTool({
   // The coach role holds it (ADR 0436), today's only; the desk any day, so a coach granted the
   // desk reaches it through the grant (ADR 0600); staff hold it as any read tool.
   permission: ["bookings:coach", "bookings:desk"],
+  // On purpose: a coach granted the desk sees any day's classes here (ADR 0600).
+  grantLiftsRoleLimits: true,
   async handler(input, ctx) {
     const from = localMidnight(input.date, input.timeZone);
     const next = new Date(Date.parse(`${input.date}T00:00:00Z`) + DAY).toISOString().slice(0, 10);

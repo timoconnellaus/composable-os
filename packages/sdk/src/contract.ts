@@ -619,6 +619,13 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * what an AI may propose but a person decides (cancelling a class). Staff only, and not a read.
    */
   personApproves?: boolean;
+  /**
+   * A tool naming both a permission one of this extension's roles holds and a grantable one
+   * (ADR 0600) says so on purpose: an account given the grant calls it without the role's limits
+   * (Bookings' `day`, the desk's any day). Without it, such a tool is refused by the check, so a
+   * grantable permission added to a role's own tool never lifts the role's limits by accident.
+   */
+  grantLiftsRoleLimits?: boolean;
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
 }
 

@@ -256,6 +256,7 @@ describe("a pack role and its grants add up, each call by one authority (ADR 060
         output: z.object({}),
         risk: "read",
         permission: ["deskpack:coach", "deskpack:desk"],
+        grantLiftsRoleLimits: true,
         handler: () => ({}),
       }),
       other: defineTool({
@@ -350,15 +351,27 @@ describe("a pack role and its grants add up, each call by one authority (ADR 060
       issues((c) => {
         c.grantable = ["deskpack:desk", "deskpack:coach"];
       }),
-    ).toEqual([expect.stringContaining('grantable.1: "deskpack:coach" is held by a role')]);
+    ).toEqual([
+      expect.stringContaining('grantable.1: "deskpack:coach" is held by a role'),
+      // And the coach's own tool would then be opened by a grant: refused too.
+      expect.stringContaining("tools.tick.permission: This tool names a permission a role holds"),
+    ]);
     expect(
       issues((c) => {
-        (c.tools.day as { permission: unknown }).permission = ["deskpack:coach", "other:desk"];
+        (c.tools.day as { permission: unknown }).permission = [
+          "deskpack:coach",
+          "deskpack:desk",
+          "other:desk",
+        ];
       }),
     ).toEqual([expect.stringContaining('not "other:desk"')]);
     expect(
       issues((c) => {
-        (c.tools.day as { permission: unknown }).permission = ["deskpack:desk", "deskpack:desk"];
+        (c.tools.day as { permission: unknown }).permission = [
+          "deskpack:coach",
+          "deskpack:desk",
+          "deskpack:desk",
+        ];
       }),
     ).toEqual([expect.stringContaining("each permission once")]);
     expect(
@@ -366,6 +379,31 @@ describe("a pack role and its grants add up, each call by one authority (ADR 060
         c.grantableLabels = { "deskpack:coach": "Fixture words for a permission not grantable." };
       }),
     ).toEqual([expect.stringContaining("is not in grantable")]);
+    // A role's own tool given the grantable permission too, without saying the grant lifts the
+    // role's limits for it: refused, and the host would not open it to the grant either.
+    const tickToo = (c: typeof m) => {
+      (c.tools.tick as { permission: unknown }).permission = ["deskpack:coach", "deskpack:desk"];
+    };
+    expect(issues(tickToo)).toEqual([
+      expect.stringContaining("tools.tick.permission: This tool names a permission a role holds"),
+    ]);
+    const copy = structuredClone(m);
+    tickToo(copy);
+    const tick = toolOperation(
+      copy,
+      "tick",
+      copy.tools.tick as (typeof m.tools)[string],
+      "shipped",
+    );
+    expect(tick.packGrantable).toBeUndefined();
+    expect(staffAuthority(viewer, both, tick, {})).toBe("packRole");
+    expect(roleLimitsFor(both, tick)).toEqual(today);
+    // The flag where the tool does not name both: refused.
+    expect(
+      issues((c) => {
+        (c.tools.book as { grantLiftsRoleLimits?: true }).grantLiftsRoleLimits = true;
+      }),
+    ).toEqual([expect.stringContaining("tools.book.grantLiftsRoleLimits")]);
   });
 
   it("a grant stops counting once the pack no longer declares it grantable", () => {
