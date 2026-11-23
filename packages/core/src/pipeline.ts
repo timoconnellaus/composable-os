@@ -105,9 +105,10 @@ import { holdRoleToday, type TodayLimits } from "./pack-role-today.ts";
 import {
   type HeldPackRole,
   loadStaffRights,
-  packRoleReaches,
+  roleLimitsFor,
   type StaffRights,
   staffMayCall,
+  staffRightsReach,
 } from "./pack-roles.ts";
 import {
   ACTORS,
@@ -312,7 +313,7 @@ async function loadExtensionCaller(db: CrmDb, userId: string): Promise<Extension
 function packRoleRefusal(role: HeldPackRole, op: AnyOperation): ForbiddenError {
   return new ForbiddenError(`The ${role.label} role cannot ${op.name}`, {
     packRole: role.name,
-    ...(op.packPermission ? { permission: op.packPermission } : {}),
+    ...(op.packPermissions ? { permission: op.packPermissions.join(" or ") } : {}),
   });
 }
 
@@ -694,9 +695,10 @@ async function invokeOnce<O extends AnyOperation>(
     parsed.success ? refreshSchemaRegistry(ctx.db.query) : null,
   ]);
   const { packRole, grants } = rights;
-  // The limit to today: the account's pack role's, or one a tool run carries for its caller.
-  const roleToday: TodayLimits | undefined = packRole?.today ?? ctx.roleToday;
-  if (packRole && !packRoleReaches(packRole, op)) {
+  // The limit to today: the account's pack role's when the role is what allows this call (not a
+  // pack permission granted to it, ADR 0600), or one a tool run carries for its caller.
+  const roleToday: TodayLimits | undefined = roleLimitsFor(rights, op) ?? ctx.roleToday;
+  if (packRole && !staffRightsReach(rights, op)) {
     const error = packRoleRefusal(packRole, op);
     const gate = evaluateGate(
       { actor: ctx.actor, risk: op.risk, bulkSize: 1 },
@@ -806,7 +808,8 @@ async function invokeOnce<O extends AnyOperation>(
       throw error;
     }
   }
-  // A pack role replaces what the account's own role grants (ADR 0436).
+  // A pack role replaces what the account's own role grants (ADR 0436); pack permissions granted
+  // to it add up with it (ADR 0600).
   if (!staffMayCall(ctx.user, rights, op, input)) {
     const error = packRole
       ? packRoleRefusal(packRole, op)

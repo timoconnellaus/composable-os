@@ -604,8 +604,12 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * any tool (a viewer only when the tool's risk is `read`); a staff account given one of this
    * extension's roles holds it only when the role lists it. Only shipped extensions and an org's
    * own may declare it.
+   *
+   * Or a list: any one of them opens the tool (ADR 0600). Bookings' day view is the coach's and
+   * the desk's (`["bookings:coach", "bookings:desk"]`): a coach reaches it through the role, held
+   * to the role's limits, and a coach granted the desk's permission reaches it through the grant.
    */
-  permission?: string;
+  permission?: string | readonly string[];
   /**
    * Only a person may call it (ADR 0512): the assistant, an MCP client, an automation and other
    * extensions' code are refused by the host, as a core operation with `actors: ["human"]` is.
@@ -621,6 +625,13 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * what an AI may propose but a person decides (cancelling a class). Staff only, and not a read.
    */
   personApproves?: boolean;
+  /**
+   * A tool naming both a permission one of this extension's roles holds and a grantable one
+   * (ADR 0600) says so on purpose: an account given the grant calls it without the role's limits
+   * (Bookings' `day`, the desk's any day). Without it, such a tool is refused by the check, so a
+   * grantable permission added to a role's own tool never lifts the role's limits by accident.
+   */
+  grantLiftsRoleLimits?: boolean;
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
 }
 
@@ -894,9 +905,16 @@ export interface ExtensionSpec {
    * Permissions of this extension's tools (`<id>:<word>`) a human admin may grant to a staff
    * account one by one (ADR 0449), on top of its role: a coach who is a member granted the
    * permission of a tool a member could not otherwise call. Only shipped extensions and an org's
-   * own may declare them.
+   * own may declare them. An account holding one of the installed packs' roles may be granted
+   * them too: what it holds is the role and its grants, added up (ADR 0600). A permission one of
+   * this extension's roles holds cannot be grantable (a grant never lifts a role's limits).
    */
   grantable?: readonly string[];
+  /**
+   * What each grantable permission gives, in plain words, shown to the admin who ticks it
+   * (`{ "bookings:desk": "Works the front desk: ..." }`). Absent: the tools it opens are listed.
+   */
+  grantableLabels?: Readonly<Record<string, string>>;
 }
 
 const EXTENSION = Symbol.for("ops.extension");

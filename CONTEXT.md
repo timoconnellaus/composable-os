@@ -1148,8 +1148,16 @@ nothing else follows. A class whose list nobody took has no no-shows (stage 31, 
 _Avoid_: absence, missed class
 
 **Coach** (the Bookings role)
-The pack role `bookings.coach`: the day's classes, a class list and ticking names, nothing else (no
-money, no other people, no booking or cancelling). An account holds one pack role (ADR 0436).
+The pack role `bookings.coach`: the day's classes, a class list and ticking names, today's only;
+nothing else (no money, no other people, no booking or cancelling). An account holds one pack role
+(ADR 0436). A coach who also works the desk is granted the **Desk permission** on top (ADR 0600).
+
+**Desk permission** (Bookings)
+`bookings:desk`, the front desk's tools: find people, book anyone (a walk-in too) into any class,
+cancel and move bookings, give a use back, any day's classes and a class's full list. Every member
+of staff holds them; a human admin grants them to a coach, whose role they add to (the coach's own
+list and ticks stay today's). Not cancelling a class, refunds, or any record read.
+_Avoid_: desk role (it is a permission, not a pack role), front-desk access
 
 **Moved** (a booking)
 A booking staff moved to another class: the new booking is made naming it (`movedFrom`), and in the
@@ -1560,7 +1568,9 @@ _Avoid_: published (stage 28's word for a version), visible (the seam's word for
 **Pack role**
 A fixed staff role a pack declares (ADR 0436): the permissions of its own tools and the objects of
 its own an account given it may read. A human admin gives at most one to a staff account; while
-it is held, it is all that account may do, on every operation. The door role is Ticketing's.
+it is held, it and the pack permissions granted to the account (ADR 0600) are all that account may
+do, on every operation; the role's limits bind only the calls the role allows. The door role is
+Ticketing's.
 Stage 14a's roles and teams will extend it.
 _Avoid_: role (alone, it means admin, member or viewer), team, scope
 
@@ -1572,8 +1582,9 @@ _Avoid_: scanner role, coach role
 **Permission grant**
 A named permission a human admin grants one staff account on top of its role (ADR 0449):
 `records:publish` (a coach who is a member publishes programs), `orders:refund`, or a pack tool's
-permission the pack declares grantable. Read from the account on every call; a pack role replaces
-it; it never lets an AI actor do what only a person may.
+permission the pack declares grantable. Read from the account on every call; it adds up with the
+account's role, and with a pack role too when it is a pack's permission (a core one is refused to a
+fixed role's account, ADR 0600); it never lets an AI actor do what only a person may.
 _Avoid_: role (a role is admin, member or viewer), scope (an MCP token's)
 
 **Through their own records** (`customerVia`)

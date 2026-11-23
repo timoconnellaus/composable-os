@@ -55,6 +55,7 @@ import { UnconfirmedEmailNotice } from "#/components/confirm-email";
 import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { formatDate, initials } from "#/lib/format";
+import { splitGrants, toggledGrants } from "#/lib/grants";
 import { OperationCallError } from "#/lib/operations";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 import { ALL_USERS_INPUT } from "#/lib/users-adapter";
@@ -123,12 +124,16 @@ function PermissionChecks({
   idPrefix,
   value,
   onChange,
+  fixedRole = false,
 }: {
   idPrefix: string;
   value: string[];
   onChange: (next: string[]) => void;
+  /** For an account with a fixed role: only what may be added to one (a pack's, ADR 0600). */
+  fixedRole?: boolean;
 }) {
-  const { grantable } = useAccessChoices();
+  const { grantable: all } = useAccessChoices();
+  const grantable = fixedRole ? all.filter((g) => g.forFixedRole) : all;
   if (!grantable.length) return null;
   return (
     <fieldset className="grid gap-2">
@@ -157,7 +162,7 @@ function PermissionChecks({
 }
 
 function InviteCard() {
-  const { packRoles } = useAccessChoices();
+  const { packRoles, grantable } = useAccessChoices();
   const invite = useOpMutation("user.invite", { invalidates: ["user.invites"] });
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("member");
@@ -173,7 +178,13 @@ function InviteCard() {
         email,
         role,
         packRole: packRole === NONE ? null : packRole,
-        permissions: packRole === NONE ? permissions : [],
+        // A fixed role's account may be granted a pack's permissions only (ADR 0600).
+        permissions:
+          packRole === NONE
+            ? permissions
+            : permissions.filter((p) =>
+                grantable.some((g) => g.permission === p && g.forFixedRole),
+              ),
       });
       toast.success(
         result.signIn === "access"
@@ -252,14 +263,18 @@ function InviteCard() {
               </div>
             )}
           </div>
-          {packRole !== NONE ? (
+          {packRole !== NONE && (
             <p className="text-xs text-muted-foreground">
-              {packRoles.find((r) => r.name === packRole)?.description} This is all the account may
-              do.
+              {packRoles.find((r) => r.name === packRole)?.description} This, and what you tick
+              below, is all the account may do.
             </p>
-          ) : (
-            <PermissionChecks idPrefix="invite" value={permissions} onChange={setPermissions} />
           )}
+          <PermissionChecks
+            idPrefix="invite"
+            value={permissions}
+            onChange={setPermissions}
+            fixedRole={packRole !== NONE}
+          />
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -476,6 +491,7 @@ function UserList() {
                       Permissions
                     </Button>
                   )}
+                  {u.packRole && <FixedRoleGrants user={u} />}
                 </>
               ) : (
                 <Badge variant="outline">{u.packRole ?? ROLE_COPY[role].label}</Badge>
@@ -489,11 +505,90 @@ function UserList() {
   );
 }
 
+/**
+ * What an account with a fixed role may be given on top of it (ADR 0600): a pack's permissions,
+ * each one tick on the account's row, in the pack's own words (a coach given the Bookings desk).
+ * Saved at once with user.setPermissions; the host counts it from the account's next call.
+ */
+function FixedRoleGrants({ user }: { user: ListedUser }) {
+  const { grantable } = useAccessChoices();
+  const save = useOpMutation("user.setPermissions", { invalidates: ["user.list"] });
+  const choices = grantable.filter((g) => g.forFixedRole);
+  const allowed = choices.map((g) => g.permission);
+  const name = user.name ?? user.email ?? user.id;
+  // Only what the account may hold is sent; a stored grant that no longer applies (its pack was
+  // removed) is shown so an admin can take it away, and never makes a tick fail.
+  const stored = user.permissions ?? [];
+  const { held, stale: unheld } = splitGrants(stored, allowed);
+  const stale = grantable.length ? unheld : [];
+  if (!choices.length && !stale.length) return null;
+  return (
+    <fieldset className="grid w-full gap-2 sm:pl-11" aria-label={`Also allowed for ${name}`}>
+      {stale.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>No longer applies: {stale.join(", ")}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={save.isPending}
+            onClick={async () => {
+              try {
+                await save.mutateAsync({ id: user.id, permissions: held });
+                toast.success(`Removed ${stale.join(", ")} from ${name}`);
+              } catch (error) {
+                toast.error(errorMessage(error));
+              }
+            }}
+          >
+            Remove
+          </Button>
+        </div>
+      )}
+      {choices.map((g) => {
+        const id = `fixed-${user.id}-${g.permission}`;
+        return (
+          <div key={g.permission} className="flex items-start gap-2 text-sm">
+            <Checkbox
+              id={id}
+              className="mt-0.5"
+              checked={held.includes(g.permission)}
+              disabled={save.isPending}
+              onCheckedChange={async (checked) => {
+                const next = toggledGrants(stored, allowed, g.permission, checked === true);
+                try {
+                  await save.mutateAsync({ id: user.id, permissions: next });
+                  toast.success(
+                    checked
+                      ? `${name} may now also: ${g.label}`
+                      : `${name} no longer has: ${g.label}`,
+                  );
+                } catch (error) {
+                  toast.error(errorMessage(error));
+                }
+              }}
+            />
+            <Label htmlFor={id} className="font-normal leading-snug">
+              {g.label}
+            </Label>
+          </div>
+        );
+      })}
+    </fieldset>
+  );
+}
+
 /** Permissions granted one by one (ADR 0449), set whole with user.setPermissions. */
 function GrantsDialog({ user, onClose }: { user: ListedUser; onClose: () => void }) {
   const save = useOpMutation("user.setPermissions", { invalidates: ["user.list"] });
+  const { grantable } = useAccessChoices();
   const [value, setValue] = useState<string[]>(user.permissions ?? []);
   const name = user.name ?? user.email ?? user.id;
+  // A stored grant that is no longer grantable is shown and dropped on save (ADR 0600).
+  const split = splitGrants(
+    value,
+    grantable.map((g) => g.permission),
+  );
+  const stale = grantable.length ? split.stale : [];
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
@@ -505,6 +600,11 @@ function GrantsDialog({ user, onClose }: { user: ListedUser; onClose: () => void
           </DialogDescription>
         </DialogHeader>
         <PermissionChecks idPrefix={`grant-${user.id}`} value={value} onChange={setValue} />
+        {stale.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            No longer applies, and saving removes it: {stale.join(", ")}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
@@ -513,7 +613,10 @@ function GrantsDialog({ user, onClose }: { user: ListedUser; onClose: () => void
             disabled={save.isPending}
             onClick={async () => {
               try {
-                await save.mutateAsync({ id: user.id, permissions: value });
+                await save.mutateAsync({
+                  id: user.id,
+                  permissions: grantable.length ? split.held : value,
+                });
                 toast.success(`Saved ${name}'s permissions`);
                 onClose();
               } catch (error) {
