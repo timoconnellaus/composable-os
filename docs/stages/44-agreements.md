@@ -1309,7 +1309,9 @@ Operations (every one with its audience, actors, permission and risk class):
 | `agreement.person` | staff | every actor (no mark, no capability for an AI) | records:read | read |
 | `agreement.acceptances` | staff | every actor | records:read | read |
 | `agreement.due.list` | staff | every actor | records:read | read |
-| `agreement.healthNotes` | staff | human; extension inside a tool a person called | records:read | read |
+| `agreement.healthNotes` | staff | human | agreements:health | read, every read audited |
+| `agreement.listHealthNotes` | staff | extension, inside a tool a person called themselves | records:read | read |
+| `agreement.healthReviews` | staff | human | agreements:health | read, every read audited |
 | `agreement.acceptance.get` | staff | human | records:read | read |
 | `agreement.answers.get` | staff | human | agreements:health | read, every read audited |
 | `agreement.recordPaper` | staff | human | agreements:paper | write |
@@ -1358,3 +1360,23 @@ before planning the batch (it refuses with `rule: "agreements_due"` and the docu
 guard it returns in the batch; for a guest, insert `by: "guest"` rows with the order (the table
 and its triggers already allow a Person-less guest row, its settlement and its deletion) through
 an `accept.ts` path for guests; the guard's conflict is `rule: "agreements_changed"`.
+
+### Step 2: after the security review of PR #274 (2026-11-23)
+
+Fixed in the same PR (ADRs 0642 and 0643 amended): the health notice names no Person and sends
+staff to Settings → Agreements → Health forms (`agreement.healthReviews`); `agreement.healthNotes`
+needs `agreements:health` and is audited, and pack code asks `agreement.listHealthNotes` for its
+own list, only when a person called the tool themselves (not an approval of an AI's call), never
+from a runtime extension; the counter moves on a minor mark, a family link, the Trash, a merge and
+an erase; a detach needs the Person gone and never enables a delete; a guest's row needs a real
+order and attaches only to its Person; a merge that moves agreements is a person's with
+`agreements:manage`; a minor never agrees as a guardian; a document attached nowhere is refused
+and a repeat of the same version records nothing; paper counts from its date for "ask again"; one
+rule for what applies (a payer document never for a child).
+
+**Decision (coordinator, 2026-11-23, owner to confirm): erasing a guardian.** Erasing a person
+treats the acceptances they made as a guardian as their own: the record that a guardian agreed,
+the version and the time stay for the retention period; the guardian's typed name and drawn
+signature are cleared, the address stays (as decision 15 keeps it), `erased_at` is set so step 8's
+purge covers the row, and it no longer counts for the child. Migration 0851 was edited in place
+(it was not on `main`).

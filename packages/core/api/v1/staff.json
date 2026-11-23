@@ -5691,7 +5691,11 @@
             ]
           },
           "typedName": {
-            "type": "string"
+            "description": "Null once the guardian who typed it was erased",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "signature": {
             "anyOf": [
@@ -6212,7 +6216,9 @@
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
+        "agreement.healthReviews",
         "agreement.list",
+        "agreement.listHealthNotes",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
@@ -6270,7 +6276,9 @@
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
+        "agreement.healthReviews",
         "agreement.list",
+        "agreement.listHealthNotes",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
@@ -6436,7 +6444,9 @@
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
+        "agreement.healthReviews",
         "agreement.list",
+        "agreement.listHealthNotes",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
@@ -6685,7 +6695,9 @@
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
+        "agreement.healthReviews",
         "agreement.list",
+        "agreement.listHealthNotes",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
@@ -7160,7 +7172,7 @@
     },
     {
       "name": "agreement.healthNotes",
-      "description": "For a class list: which of these People answered yes on their current health form, as a yes or no each (a mark, nothing of the form). For a person on the staff, or a pack's tool a person called; never an AI. Read-only.",
+      "description": "Which of these People answered yes on their current health form, as a yes or no each (a mark, nothing of the form). A person on the staff with agreements:health only; every read is audited. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -7209,6 +7221,63 @@
         },
         "required": [
           "notes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.healthReviews",
+      "description": "The People whose current health form has a yes, newest first, for staff with agreements:health to look at (where a health notice sends them). Every read is audited. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "acceptanceId": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "acceptedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "acceptanceId",
+                "personId",
+                "name",
+                "title",
+                "acceptedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
         ],
         "additionalProperties": false
       },
@@ -7360,6 +7429,79 @@
         },
         "required": [
           "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.listHealthNotes",
+      "description": "For a pack's own list (a class's bookings): the host reads the People on the records of the calling pack's own object whose field equals the value, and says which answered yes on their current health form (a mark only). Pack code inside a tool a person called themselves only. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "records": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "The calling pack's own object whose records make the list (bookings.booking)"
+          },
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The field that ties a record to the list (class)"
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The list's record id (the class)"
+          },
+          "person": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The relation to the Person (person)"
+          }
+        },
+        "required": [
+          "records",
+          "field",
+          "value",
+          "person"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "healthNote": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "personId",
+                "healthNote"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "notes"
         ],
         "additionalProperties": false
       },
@@ -7624,7 +7766,7 @@
             }
           },
           "healthNote": {
-            "description": "A yes on their current health form; null unless a person is asking",
+            "description": "A yes on their current health form; null unless the caller may read answers",
             "type": [
               "boolean",
               "null"
@@ -8030,7 +8172,9 @@
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
+        "agreement.healthReviews",
         "agreement.list",
+        "agreement.listHealthNotes",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
@@ -8485,7 +8629,9 @@
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
+        "agreement.healthReviews",
         "agreement.list",
+        "agreement.listHealthNotes",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
@@ -8640,7 +8786,9 @@
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
+        "agreement.healthReviews",
         "agreement.list",
+        "agreement.listHealthNotes",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
@@ -8696,7 +8844,9 @@
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
+        "agreement.healthReviews",
         "agreement.list",
+        "agreement.listHealthNotes",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
@@ -8737,7 +8887,9 @@
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
+        "agreement.healthReviews",
         "agreement.list",
+        "agreement.listHealthNotes",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",

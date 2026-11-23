@@ -5,7 +5,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
-import { queueMergeAgreements } from "../agreements/people.ts";
+import { mergeMovesAgreements, queueMergeAgreements } from "../agreements/people.ts";
 import { queueMergeAllowances } from "../allowance/people.ts";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { queueMergeCustomers } from "../customers/merge.ts";
@@ -1151,6 +1151,22 @@ export const personMerge = defineOperation({
         `${merged.displayName} has family links (a parent or a child), which a merge would move: merging them needs people:link`,
         { permission: "people:link" },
       );
+    }
+    // Moving what someone agreed to (acceptances, a health form, the minor mark) is a person's act
+    // with agreements:manage, never an AI's or one an AI asks for (stage 44, ADR 0642).
+    if (await mergeMovesAgreements(ctx, merged.id)) {
+      if (ctx.actor !== "human") {
+        throw new ForbiddenError(
+          `${merged.displayName} has agreements, which a merge would move: only a person merges them`,
+          { rule: "agreements_merge" },
+        );
+      }
+      if (!holdsPermission(ctx.user, ctx.permissionGrants, "agreements:manage")) {
+        throw new ForbiddenError(
+          `${merged.displayName} has agreements, which a merge would move: merging them needs agreements:manage`,
+          { permission: "agreements:manage" },
+        );
+      }
     }
     queueMergeLinks(ctx, survivor.id, merged.id, plan);
     const familyLinks = {

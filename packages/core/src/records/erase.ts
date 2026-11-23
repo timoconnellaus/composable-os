@@ -340,8 +340,6 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   await queueEraseOrders(ctx, subject);
   // Their passes' and memberships' uses, and the uses they spent (stage 32b, ADR 0494).
   if (subject.object === "person") queueEraseAllowances(ctx, [...recordIds]);
-  // Their health answers and minor mark go now; their acceptances stay, detached (ADR 0642).
-  if (subject.object === "person") queueEraseAgreements(ctx, [...recordIds]);
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.
@@ -366,6 +364,9 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
         : ctx.db.deleteFrom("core_organisation").where("id", "in", ids),
     );
   }
+  // Their health answers and minor mark go now; their acceptances stay, detached (ADR 0642).
+  // After the Person's row is deleted: the acceptance triggers allow a detach only then.
+  if (subject.object === "person") queueEraseAgreements(ctx, [...recordIds]);
 
   // 5. FTS5 keeps deleted terms in older index segments until they are merged. Merge now, after
   // every delete above, so the erased values leave the search index's storage, not just its

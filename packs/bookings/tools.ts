@@ -1359,7 +1359,7 @@ export const classList = defineTool({
   permission: "bookings:desk",
   async handler(input, ctx) {
     const { klass, bookings, names } = await listOf(ctx, input.classId);
-    const notes = await healthNotesOf(ctx, names);
+    const notes = await healthNotesOf(ctx, klass.id, names);
     return {
       class: klass,
       bookings: bookings.map((booking) => {
@@ -1630,16 +1630,16 @@ async function listOf(ctx: Ctx, classId: string) {
 }
 
 /**
- * Who on a list answered yes on their current health form (stage 44, decision 18): a mark, no
- * content, asked of the host. Null when the host gives none: a list the assistant reads, or a
- * host without agreements.
+ * Who on a class's list answered yes on their current health form (stage 44, decision 18): a
+ * mark, no content. The host reads the People from the class's bookings itself (never ids from
+ * here). Null when the host gives none: a list the assistant reads, or an approved AI's call.
  */
-async function healthNotesOf(ctx: Ctx, names: Map<string, string | null>) {
+async function healthNotesOf(ctx: Ctx, classId: string, names: Map<string, string | null>) {
   if (!names.size) return null;
   try {
     const { notes } = await ctx.ops.call<{ notes: { personId: string; healthNote: boolean }[] }>(
-      "agreement.healthNotes",
-      { personIds: [...names.keys()] },
+      "agreement.listHealthNotes",
+      { records: BOOKING, field: "class", value: classId, person: "person" },
     );
     return new Set(notes.filter((n) => n.healthNote).map((n) => n.personId));
   } catch (error) {
@@ -1672,7 +1672,7 @@ export const roster = defineTool({
   permission: "bookings:coach",
   async handler(input, ctx) {
     const { klass, bookings, names } = await listOf(ctx, input.classId);
-    const notes = await healthNotesOf(ctx, names);
+    const notes = await healthNotesOf(ctx, klass.id, names);
     return {
       class: klass,
       bookings: bookings.map((booking) => {

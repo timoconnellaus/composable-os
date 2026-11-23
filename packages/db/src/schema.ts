@@ -1121,7 +1121,7 @@ export interface CoreAgreementAcceptanceTable {
   subscription_checkout: Defaulted<string | null>;
   email: Defaulted<string | null>;
   how: "typed" | "drawn" | "paper";
-  typed_name: string;
+  typed_name: string | null;
   channel: "web" | "app" | "paper" | "desk";
   desk_session_id: Defaulted<string | null>;
   accepted_at: string;

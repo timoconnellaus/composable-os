@@ -51,3 +51,17 @@ gets no mark; a pack-role coach is refused; the notice names nothing; `query.sql
 agreements table, no view names one, `search.global`, `export.csv` and the assistant's person
 summary (the model's input) hold none of it, and no audit row of any operation does.
 `packs/bookings/test/bookings.test.ts`: the roster's mark, and none when the host gives none.
+
+## Amended 2026-11-23: the security review of PR #274
+
+- **The notice names no Person**: no name, no id and no link to them, because an AI acting for a
+  recipient reads their notices (`notification.list`). It sends staff to Settings → Agreements →
+  Health forms, `agreement.healthReviews`: `agreements:health`, a person only, every read audited.
+- **Marks for staff need the permission**: `agreement.healthNotes { personIds }` is now
+  `agreements:health`, `actors: ["human"]`, every read audited; the Person tab shows the mark only
+  to a caller who holds it.
+- **Pack code names a list, not people**: `agreement.listHealthNotes { records, field, value,
+  person }` (actors `extension` only) reads the People itself from the calling pack's own object
+  (`bookings.booking` where `class` is the class), and is refused unless a person called the tool
+  themselves: a run started by a person's approval of another actor's call
+  (`startedByApproval`, set by the runner) gets no mark. A runtime extension may not declare it.

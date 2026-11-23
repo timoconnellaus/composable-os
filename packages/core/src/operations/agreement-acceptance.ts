@@ -39,8 +39,10 @@ import {
   personFacts,
 } from "../agreements/due.ts";
 import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
+import { getObject } from "../fields/index.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { type CustomerPrincipal, holdsPermission } from "../principals.ts";
+import { viewColumnOf } from "../records/columns.ts";
 import { isLiveDependant } from "../visibility/guardians.ts";
 
 const id = (what: string) => z.string().min(1).max(64).describe(what);
@@ -433,7 +435,7 @@ export const meAgreementsGet = defineOperation({
   input: z.object({ id: id("The acceptance's id (aga_…)") }),
   output: acceptanceSummary.extend({
     version: versionOut,
-    typedName: z.string(),
+    typedName: z.string().nullable(),
     signature: strokesOut,
     answers: answersOut.nullable(),
   }),
@@ -447,7 +449,7 @@ export const meAgreementsGet = defineOperation({
     const row = (await acceptanceRows(ctx)
       .select(["a.typed_name"])
       .where("a.id", "=", input.id)
-      .executeTakeFirst()) as (AcceptanceRow & { typed_name: string }) | undefined;
+      .executeTakeFirst()) as (AcceptanceRow & { typed_name: string | null }) | undefined;
     // Someone else's is as if it did not exist.
     if (!row?.person_id || !people.has(row.person_id)) {
       throw new NotFoundError("acceptance", input.id);
@@ -519,6 +521,19 @@ export const meAgreementsAccept = defineOperation({
     if (guardian && !(await isLiveDependant(ctx.db, me.personId, forPerson))) {
       throw new NotFoundError("person", forPerson);
     }
+    // Only a document asked of them: attached somewhere and applying to that Person.
+    const asked = await ctx.db
+      .selectFrom("core_agreement_version")
+      .select("document_id")
+      .where("id", "=", input.versionId)
+      .executeTakeFirst();
+    const facts = await personFacts(ctx.db, forPerson);
+    const { documents } = await standing(ctx, forPerson, facts);
+    if (!asked || !documents.some((d) => d.documentId === asked.document_id)) {
+      throw new ValidationError("This document is not asked of you.", {
+        rule: "agreement_not_asked",
+      });
+    }
     const signIn = await ctx.signIn?.();
     const planned = await planAcceptance(
       ctx.db,
@@ -534,15 +549,16 @@ export const meAgreementsAccept = defineOperation({
         typedName: input.typedName,
         signature: input.signature,
         answers: input.answers,
+        idempotent: true,
       },
       ctx.now,
     );
-    ctx.write(...planned.statements);
+    if (planned.statements.length) ctx.write(...planned.statements);
     return {
       id: planned.id,
       documentId: planned.documentId,
       versionNumber: planned.versionNumber,
-      acceptedAt: ctx.now,
+      acceptedAt: planned.acceptedAt,
     };
   },
 });
@@ -575,7 +591,7 @@ export const agreementPerson = defineOperation({
     healthNote: z
       .boolean()
       .nullable()
-      .describe("A yes on their current health form; null unless a person is asking"),
+      .describe("A yes on their current health form; null unless the caller may read answers"),
     can: z.object({
       recordPaper: z.boolean(),
       setMinor: z.boolean(),
@@ -626,8 +642,10 @@ export const agreementPerson = defineOperation({
         agentName: row.agent_person_id ? (people.get(row.agent_person_id) ?? null) : null,
         recordedByName: row.recorded_by ? (users.get(row.recorded_by) ?? null) : null,
       })),
-      // A health mark is for a person on the staff to see, never an AI's read.
-      healthNote: person ? (await healthYes(ctx, [input.personId])).has(input.personId) : null,
+      // A health mark is for a person on the staff who may read health answers, never an AI's.
+      healthNote: holds("agreements:health")
+        ? (await healthYes(ctx, [input.personId])).has(input.personId)
+        : null,
       can: {
         recordPaper: holds("agreements:paper"),
         setMinor: holds("people:link"),
@@ -774,27 +792,145 @@ export const agreementDueList = defineOperation({
   },
 });
 
+const notesOut = z.object({
+  notes: z.array(z.object({ personId: z.string(), healthNote: z.boolean() })),
+});
+
 export const agreementHealthNotes = defineOperation({
   name: "agreement.healthNotes",
   description:
-    "For a class list: which of these People answered yes on their current health form, as a " +
-    "yes or no each (a mark, nothing of the form). For a person on the staff, or a pack's tool " +
-    "a person called; never an AI. Read-only.",
+    "Which of these People answered yes on their current health form, as a yes or no each (a " +
+    "mark, nothing of the form). A person on the staff with agreements:health only; every read " +
+    "is audited. Read-only.",
   input: z.object({ personIds: z.array(id("A Person (per_…)")).max(200) }),
-  output: z.object({ notes: z.array(z.object({ personId: z.string(), healthNote: z.boolean() })) }),
-  permission: "records:read",
+  output: notesOut,
+  permission: "agreements:health",
   risk: "read",
-  actors: ["human", "extension"],
+  actors: ["human"],
   mcp: { expose: false },
+  auditReads: true,
+  auditSummary: (_output, input) => ({ personIds: input.personIds }),
+  redactResult: ["notes"],
   async handler(input, ctx) {
-    // Pack code only inside a tool a person called (the runtime sets who started it): the
-    // assistant calling the same tool gets no mark.
-    if (ctx.actor === "extension" && !ctx.extension?.tool?.startedBy) {
-      throw new ForbiddenError("A health note is for a person on the staff to see");
-    }
     const ids = [...new Set(input.personIds)];
     const yes = await healthYes(ctx, ids);
     return { notes: ids.map((personId) => ({ personId, healthNote: yes.has(personId) })) };
+  },
+});
+
+export const agreementListHealthNotes = defineOperation({
+  name: "agreement.listHealthNotes",
+  description:
+    "For a pack's own list (a class's bookings): the host reads the People on the records of " +
+    "the calling pack's own object whose field equals the value, and says which answered yes " +
+    "on their current health form (a mark only). Pack code inside a tool a person called " +
+    "themselves only. Read-only.",
+  input: z.object({
+    // Not `object`: a pack role's today limits read that key as a record operation's (ADR 0553).
+    records: z
+      .string()
+      .min(1)
+      .max(80)
+      .describe("The calling pack's own object whose records make the list (bookings.booking)"),
+    field: z.string().min(1).max(64).describe("The field that ties a record to the list (class)"),
+    value: z.string().min(1).max(64).describe("The list's record id (the class)"),
+    person: z.string().min(1).max(64).describe("The relation to the Person (person)"),
+  }),
+  output: notesOut,
+  permission: "records:read",
+  risk: "read",
+  actors: ["extension"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    // A person called the tool themselves (the runner sets startedBy, from the installed tool
+    // and the caller, never from input); not the assistant, and not an approval of an AI's call.
+    const caller = ctx.extension;
+    if (!caller?.tool?.startedBy || caller.tool.startedByApproval) {
+      throw new ForbiddenError("A health note is for a person on the staff to see");
+    }
+    // The pack's own object only, and the People the host itself reads from its records.
+    const object = getObject(input.records);
+    if (!object || object.extension !== caller.id) {
+      throw new ForbiddenError("A health note is read for the calling pack's own records only");
+    }
+    const tie = object.fields.find((f) => f.name === input.field);
+    const who = object.fields.find((f) => f.name === input.person);
+    const tieColumn = tie ? viewColumnOf(tie) : null;
+    const whoColumn =
+      who && who.fieldType === "relation" && who.options?.to === "person" && !who.options.many
+        ? viewColumnOf(who)
+        : null;
+    if (!tieColumn || !whoColumn) {
+      throw new ValidationError("field and person must be fields of the object", {
+        rule: "health_notes_list",
+      });
+    }
+    const { rows } = await sql<{
+      p: string | null;
+    }>`SELECT DISTINCT ${sql.ref(whoColumn)} AS p FROM ${sql.table(object.source)} WHERE ${sql.ref(tieColumn)} = ${input.value} LIMIT 200`.execute(
+      ctx.db,
+    );
+    const ids = rows.map((r) => r.p).filter((p): p is string => typeof p === "string" && !!p);
+    const yes = await healthYes(ctx, ids);
+    return { notes: ids.map((personId) => ({ personId, healthNote: yes.has(personId) })) };
+  },
+});
+
+export const agreementHealthReviews = defineOperation({
+  name: "agreement.healthReviews",
+  description:
+    "The People whose current health form has a yes, newest first, for staff with " +
+    "agreements:health to look at (where a health notice sends them). Every read is audited. " +
+    "Read-only.",
+  input: z.object({}),
+  output: z.object({
+    items: z.array(
+      z.object({
+        acceptanceId: z.string(),
+        personId: z.string(),
+        name: z.string().nullable(),
+        title: z.string(),
+        acceptedAt: z.string(),
+      }),
+    ),
+  }),
+  permission: "agreements:health",
+  risk: "read",
+  actors: ["human"],
+  mcp: { expose: false },
+  auditReads: true,
+  auditSummary: (output) => ({ count: output.items.length }),
+  redactResult: ["items"],
+  async handler(_input, ctx) {
+    const rows = await ctx.db
+      .selectFrom("core_agreement_answer as n")
+      .innerJoin("core_agreement_acceptance as a", "a.id", "n.acceptance_id")
+      .innerJoin("core_agreement_version as v", "v.id", "a.version_id")
+      .select(["a.id", "a.person_id", "a.accepted_at", "v.title"])
+      .where("n.any_yes", "=", 1)
+      .where("a.person_id", "is not", null)
+      .where("a.erased_at", "is", null)
+      .orderBy("a.accepted_at", "desc")
+      .limit(500)
+      .execute();
+    const people = [...new Set(rows.map((r) => r.person_id as string))];
+    const yes = await healthYes(ctx, people);
+    const names = await namesOf(ctx, people);
+    const seen = new Set<string>();
+    const items = [];
+    for (const row of rows) {
+      const personId = row.person_id as string;
+      if (!yes.has(personId) || seen.has(personId)) continue;
+      seen.add(personId);
+      items.push({
+        acceptanceId: row.id,
+        personId,
+        name: names.get(personId) ?? null,
+        title: row.title,
+        acceptedAt: row.accepted_at,
+      });
+    }
+    return { items };
   },
 });
 
@@ -808,7 +944,7 @@ export const agreementAcceptanceGet = defineOperation({
   output: acceptanceSummary.extend({
     version: versionOut.nullable(),
     personName: z.string().nullable(),
-    typedName: z.string(),
+    typedName: z.string().nullable().describe("Null once the guardian who typed it was erased"),
     signature: strokesOut,
     agentName: z.string().nullable(),
     recordedByName: z.string().nullable(),
@@ -825,7 +961,11 @@ export const agreementAcceptanceGet = defineOperation({
       .select(["a.typed_name", "a.signed_by", "a.note"])
       .where("a.id", "=", input.id)
       .executeTakeFirst()) as
-      | (AcceptanceRow & { typed_name: string; signed_by: string | null; note: string | null })
+      | (AcceptanceRow & {
+          typed_name: string | null;
+          signed_by: string | null;
+          note: string | null;
+        })
       | undefined;
     if (!row) throw new NotFoundError("acceptance", input.id);
     const counting = row.person_id
@@ -1037,6 +1177,8 @@ export const agreementAcceptanceOperations = [
   agreementAcceptances,
   agreementDueList,
   agreementHealthNotes,
+  agreementListHealthNotes,
+  agreementHealthReviews,
   agreementAcceptanceGet,
   agreementAnswersGet,
   agreementRecordPaper,

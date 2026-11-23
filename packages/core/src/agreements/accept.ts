@@ -43,6 +43,11 @@ export interface AcceptRequest {
   };
   /** The staff user who typed in a paper form's answers. */
   enteredBy?: string | null;
+  /**
+   * The same person agreeing to the same version again (with the same answers) records nothing
+   * and sends nothing: the existing acceptance is the answer (review of PR #274, 7b).
+   */
+  idempotent?: boolean;
 }
 
 export interface PlannedAcceptance {
@@ -52,6 +57,9 @@ export interface PlannedAcceptance {
   title: string;
   versionNumber: number;
   anyYes: boolean;
+  /** True when an identical acceptance already stood: `id` is it, and nothing is written. */
+  existing: boolean;
+  acceptedAt: string;
   statements: (Compilable | CompiledQuery)[];
 }
 
@@ -67,11 +75,13 @@ async function healthReaders(db: Db): Promise<string[]> {
 
 /**
  * The notice a health "yes" sends (decision 19): to staff who may read the answers, saying only
- * that a form needs a look. No name, question or answer: a notice may go out by email or Slack.
+ * that a form needs a look. No Person (no name, no id, no link to them), question or answer: an
+ * AI acting for a recipient can read their notices (notification.list), and a notice may go out
+ * by email or Slack. It sends them to Settings → Agreements → Health forms, which only a person
+ * with agreements:health opens (agreement.healthReviews, every read audited).
  */
 export async function healthYesNotice(
   db: Db,
-  personId: string,
   acceptanceId: string,
   now: string,
 ): Promise<Compilable[]> {
@@ -83,8 +93,9 @@ export async function healthYesNotice(
       to: readers.map((userId) => ({ userId })),
       type: "system.message",
       title: "A member's health form needs a look",
-      body: "Someone answered yes to a health question. Open their Agreements tab to read it.",
-      link: { kind: "record", object: "person", id: personId },
+      body: "Someone answered yes to a health question. Open Settings, Agreements, Health forms.",
+      link: null,
+      // Not shown by notification.list; one notice per acceptance.
       dedupeKey: `agreement-health:${acceptanceId}`,
       source: { actor: "system" },
     },
@@ -151,6 +162,10 @@ export async function planAcceptance(
   }
   if (request.by === "guardian") {
     const guardian = request.agentPersonId ?? "";
+    // A minor never agrees for anyone (review of PR #274, 7a).
+    if (isMinor(await personFacts(db, guardian))) {
+      throw new ForbiddenError("A parent or guardian agrees for you.", { rule: "agreement_minor" });
+    }
     if (!(await isLiveDependant(db, guardian, request.personId))) {
       // As if the Person were not there: a link is shown only to its own people (ADR 0540).
       throw new NotFoundError("person", request.personId);
@@ -206,6 +221,39 @@ export async function planAcceptance(
     });
   }
 
+  if (request.idempotent) {
+    const same = await db
+      .selectFrom("core_agreement_acceptance as a")
+      .leftJoin("core_agreement_answer as n", "n.acceptance_id", "a.id")
+      .select(["a.id", "a.accepted_at", "n.answers"])
+      .where("a.person_id", "=", request.personId)
+      .where("a.version_id", "=", version.id)
+      .where("a.by", "=", request.by)
+      .where("a.erased_at", "is", null)
+      .where((eb) =>
+        request.by === "guardian"
+          ? eb("a.agent_person_id", "=", request.agentPersonId ?? "")
+          : eb("a.agent_person_id", "is", null),
+      )
+      .orderBy("a.accepted_at", "desc")
+      .execute();
+    const wanted = answers ? JSON.stringify(answers.answers) : null;
+    const match = same.find((row) => (row.answers ?? null) === wanted);
+    if (match) {
+      return {
+        id: match.id,
+        documentId: version.document_id,
+        kind: version.kind,
+        title: version.title,
+        versionNumber: version.number,
+        anyYes: answers?.anyYes ?? false,
+        existing: true,
+        acceptedAt: match.accepted_at,
+        statements: [],
+      };
+    }
+  }
+
   const id = newId("agreementAcceptance");
   const statements: (Compilable | CompiledQuery)[] = [
     agreementsGuard(rev),
@@ -251,7 +299,7 @@ export async function planAcceptance(
     statements.push(linkGuardStatement(request.agentPersonId, request.personId));
   }
   if (answers?.anyYes) {
-    statements.push(...(await healthYesNotice(db, request.personId, id, now)));
+    statements.push(...(await healthYesNotice(db, id, now)));
   }
   return {
     id,
@@ -260,6 +308,8 @@ export async function planAcceptance(
     title: version.title,
     versionNumber: version.number,
     anyYes: answers?.anyYes ?? false,
+    existing: false,
+    acceptedAt: now,
     statements,
   };
 }

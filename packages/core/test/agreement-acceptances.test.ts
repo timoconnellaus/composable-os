@@ -9,6 +9,7 @@ import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 import { planAcceptance } from "../src/agreements/accept.ts";
 import { agreementsDue, requireNothingDue } from "../src/agreements/due.ts";
+import { checkManifest } from "../src/extensions/install.ts";
 import {
   type ActingUser,
   type Actor,
@@ -316,6 +317,11 @@ describe("an acceptance cannot be changed", () => {
       "UPDATE core_agreement_document SET state = 'live', current_version_id = ?, agree_from = 1 WHERE id = ?",
     )
       .bind(forged.id, id)
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO core_agreement_point (document_id, point, attached_at, attached_by) VALUES (?, ?, 'now', 'usr_x')",
+    )
+      .bind(id, OTHER)
       .run();
     const refused = await refusal(accept(await person(), { versionId: forged.id }));
     expect(refused).toMatchObject({ code: "conflict", details: { rule: "agreement_not_intact" } });
@@ -651,7 +657,12 @@ describe("a signed-in customer agrees", () => {
       nowIso(),
     );
     await invoke("person.link.end", { id: link.id }, context(admin));
-    await expect(db.batch(planned.statements)).rejects.toThrow(/core_person_link_not_live/);
+    // Ending the link moves the agreements counter, so the whole batch fails on its guard; and
+    // without that guard, the family link's own guard fails it too.
+    await expect(db.batch(planned.statements)).rejects.toThrow(/core_agreements_changed/);
+    await expect(db.batch(planned.statements.slice(1))).rejects.toThrow(
+      /core_person_link_not_live/,
+    );
     // Ended, the parent cannot agree for them at all; another Person never could.
     expect(
       await refusal(accept(parent, { versionId: doc.versionId, forPersonId: child })),
@@ -1052,3 +1063,444 @@ async function newPoint(tag: string): Promise<string> {
   );
   return point;
 }
+
+// The security review of PR #274: each of these failed before its fix.
+describe("the review of PR #274", () => {
+  const yesAnswers = [
+    { key: "heart", yes: true, note: "Fixture note" },
+    { key: "joints", yes: false },
+  ];
+
+  it("1: a health notice names no Person, so an AI reading notifications learns nobody", async () => {
+    const health = await liveDocument("health", { points: [OTHER] });
+    const subject = await person("Notice");
+    const done = (await accept(subject, { versionId: health.versionId, answers: yesAnswers })) as {
+      id: string;
+    };
+    const name = (await invoke("person.get", { id: subject }, context(admin))).displayName;
+    for (const extra of AI_ACTORS.slice(0, 2)) {
+      const seen = JSON.stringify(
+        await invoke("notification.list", { limit: 100 }, context(admin, extra)),
+      );
+      expect(seen).toContain("health form needs a look");
+      expect(seen).not.toContain(subject);
+      expect(seen).not.toContain(name);
+      expect(seen).not.toContain(done.id);
+    }
+  });
+
+  it("2: health notes need agreements:health for staff, and pack code gets them only for its own list from a person", async () => {
+    const health = await liveDocument("health", { points: [OTHER] });
+    const subject = await person("Mark");
+    await accept(subject, { versionId: health.versionId, answers: yesAnswers });
+    // Plain staff are refused; a person with the permission reads it, audited.
+    expect(
+      await refusal(invoke("agreement.healthNotes", { personIds: [subject] }, context(member))),
+    ).toMatchObject({ code: "forbidden", details: { permission: "agreements:health" } });
+    const read = await invoke("agreement.healthNotes", { personIds: [subject] }, context(admin));
+    expect(read.notes).toEqual([{ personId: subject, healthNote: true }]);
+    const audit = await env.DB.prepare(
+      "SELECT result FROM core_audit WHERE operation = 'agreement.healthNotes' AND user_id = ? AND outcome = 'ok'",
+    )
+      .bind(admin.id)
+      .all<{ result: string }>();
+    expect(audit.results.length).toBeGreaterThan(0);
+    expect(JSON.stringify(audit.results)).not.toContain('"healthNote"');
+    // The pack's own list: an extension whose object holds the Person.
+    const ext = extId("hn");
+    await reconcile(
+      manifest(ext, {
+        permissions: {
+          read: [],
+          write: [],
+          operations: ["agreement.listHealthNotes"],
+          modules: [],
+        },
+        objects: {
+          seat: {
+            label: "Seat",
+            plural: "Seats",
+            titleField: "name",
+            fields: {
+              name: { type: "text", label: "Name" },
+              slot: { type: "text", label: "Slot" },
+              person: { type: "relation", label: "Person", to: "person" },
+            },
+          },
+        },
+      }),
+    );
+    await invoke(
+      "record.create",
+      { object: `${ext}.seat`, values: { name: "A", slot: "s1", person: subject } },
+      context(admin),
+    );
+    const asPack = (tool: Record<string, unknown> | undefined, id = ext) =>
+      context(admin, {
+        actor: "extension",
+        origin: { surface: "extension", extensionId: id },
+        extension: {
+          id,
+          permissions: { operations: ["agreement.listHealthNotes"], modules: [] } as never,
+          ...(tool ? { tool: tool as never } : {}),
+        },
+      });
+    const input = { records: `${ext}.seat`, field: "slot", value: "s1", person: "person" };
+    const tool = { name: "list", humanOnly: false, permission: null, startedBy: admin.id };
+    expect((await invoke("agreement.listHealthNotes", input, asPack(tool))).notes).toEqual([
+      { personId: subject, healthNote: true },
+    ]);
+    // No person started the tool, or a person approved an AI's call: refused.
+    for (const t of [
+      { ...tool, startedBy: undefined },
+      { ...tool, startedByApproval: true },
+      undefined,
+    ]) {
+      expect((await refusal(invoke("agreement.listHealthNotes", input, asPack(t)))).code).toBe(
+        "forbidden",
+      );
+    }
+    // Another extension's object is refused.
+    expect(
+      (await refusal(invoke("agreement.listHealthNotes", input, asPack(tool, "bookings")))).code,
+    ).toBe("forbidden");
+    // A runtime extension may not declare it.
+    const checked = await checkManifest(
+      db.query,
+      extId("rt"),
+      manifest(extId("rt"), {
+        permissions: {
+          read: [],
+          write: [],
+          operations: ["agreement.listHealthNotes"],
+          modules: [],
+        },
+      }),
+      nowIso(),
+      { source: "runtime" },
+    );
+    expect(JSON.stringify(checked.issues)).toContain("cannot read health notes");
+    // The Person tab shows the mark only to staff who may read answers.
+    const tab = await invoke("agreement.person", { personId: subject }, context(member));
+    expect(tab.healthNote).toBeNull();
+  });
+
+  it("3: becoming a minor, a link starting or ending, the Trash and a merge each fail a guard taken before", async () => {
+    const own = await newPoint("acr");
+    await liveDocument("guardian", { points: [own], forWhom: "dependants" });
+    const guarded = async (change: () => Promise<unknown>, subject: string) => {
+      const guard = await requireNothingDue(db.query, {
+        point: own,
+        participant: subject,
+        payer: subject,
+        now: nowIso(),
+      });
+      await change();
+      await expect(
+        env.DB.batch([env.DB.prepare(guard.sql).bind(...guard.parameters)]),
+      ).rejects.toThrow(/core_agreements_changed/);
+    };
+    const a = await person();
+    await guarded(
+      () => invoke("agreement.setMinor", { personId: a, minor: true }, context(admin)),
+      a,
+    );
+    const b = await person();
+    const parent = await person("Parent");
+    let link: { id: string } | null = null;
+    const rev = async () =>
+      (await env.DB.prepare("SELECT rev FROM core_agreement_rev").first<{ rev: number }>())?.rev;
+    const before = await rev();
+    link = await invoke("person.link.add", { guardianId: parent, dependantId: b }, context(admin));
+    expect(await rev()).toBeGreaterThan(before ?? 0);
+    const c = await person();
+    const linked = link as { id: string };
+    await guarded(() => invoke("person.link.end", { id: linked.id }, context(admin)), c);
+    await guarded(() => invoke("person.delete", { id: c }, context(admin)), c);
+    await guarded(() => invoke("person.restore", { id: c }, context(admin)), c);
+    const d = await person();
+    await guarded(() => invoke("person.merge", { survivorId: c, mergedId: d }, context(admin)), c);
+  });
+
+  it("4: erasing a guardian clears their name and strokes on the child's acceptance and keeps the record", async () => {
+    const drawn = await liveDocument("waiver", { points: [OTHER], how: "drawn" });
+    const parent = await person("Parent");
+    const child = await person("Child");
+    await invoke("person.link.add", { guardianId: parent, dependantId: child }, context(admin));
+    const done = (await accept(
+      parent,
+      { versionId: drawn.versionId, forPersonId: child, signature: SIGNATURE },
+      { kind: "customer", customerId: "cus_parent", personId: parent },
+    )) as { id: string };
+    await invoke("person.erase", { id: parent }, context(admin));
+    const row = await acceptanceRow(done.id);
+    expect(row).toMatchObject({
+      person_id: child,
+      by: "guardian",
+      agent_person_id: null,
+      account_id: null,
+      typed_name: null,
+      version_id: drawn.versionId,
+    });
+    expect(row?.erased_at).toBeTruthy();
+    expect(
+      await env.DB.prepare("SELECT 1 FROM core_agreement_signature WHERE acceptance_id = ?")
+        .bind(done.id)
+        .first(),
+    ).toBeNull();
+    // It no longer counts for the child: another guardian, or paper, agrees again.
+    const tab = await invoke("agreement.person", { personId: child }, context(admin));
+    expect(
+      tab.documents.find((x: { documentId: string }) => x.documentId === drawn.id)?.status,
+    ).toBe("due");
+  });
+
+  it("5: a raw writer cannot detach a live Person's acceptance, forge a guest's, or attach one to anyone", async () => {
+    const doc = await liveDocument("waiver", { points: [OTHER] });
+    const a = await person();
+    const done = (await accept(a, { versionId: doc.versionId })) as { id: string };
+    // (a) Detaching while the Person exists is refused, so the row cannot then be deleted.
+    await expect(
+      env.DB.prepare(
+        "UPDATE core_agreement_acceptance SET person_id = NULL, erased_at = 'x' WHERE id = ?",
+      )
+        .bind(done.id)
+        .run(),
+    ).rejects.toThrow(/immutable/);
+    await expect(
+      env.DB.prepare("DELETE FROM core_agreement_acceptance WHERE id = ?").bind(done.id).run(),
+    ).rejects.toThrow(/immutable/);
+    const { hash } = (await env.DB.prepare("SELECT hash FROM core_agreement_version WHERE id = ?")
+      .bind(doc.versionId)
+      .first<{ hash: string }>()) as { hash: string };
+    const guest = (personId: string | null, orderId: string) =>
+      env.DB.prepare(
+        `INSERT INTO core_agreement_acceptance (id, document_id, version_id, shown_hash, person_id,
+           by, how, typed_name, channel, accepted_at, order_id) VALUES (?, ?, ?, ?, ?, 'guest', 'typed', 'N', 'web', 'now', ?)`,
+      )
+        .bind(`aga_${unique("guest")}`, doc.id, doc.versionId, hash, personId, orderId)
+        .run();
+    // (b) A guest's with a Person, or with an order that does not exist.
+    await expect(guest(a, "ord_madeup")).rejects.toThrow(/immutable/);
+    await expect(guest(null, "ord_madeup")).rejects.toThrow(/immutable/);
+    // (c) A guest's on a real order attaches only to that order's Person.
+    const orderId = `ord_${unique("raw")}`;
+    const owner = await person("Buyer");
+    await env.DB.prepare(
+      "INSERT INTO core_order (id, person_id, currency, total, placed_as, created_at, updated_at) VALUES (?, NULL, 'AUD', 100, 'public', 'now', 'now')",
+    )
+      .bind(orderId)
+      .run();
+    const guestId = `aga_${unique("guest")}`;
+    await env.DB.prepare(
+      `INSERT INTO core_agreement_acceptance (id, document_id, version_id, shown_hash, person_id,
+         by, how, typed_name, channel, accepted_at, order_id) VALUES (?, ?, ?, ?, NULL, 'guest', 'typed', 'N', 'web', 'now', ?)`,
+    )
+      .bind(guestId, doc.id, doc.versionId, hash, orderId)
+      .run();
+    const attach = (personId: string) =>
+      env.DB.prepare("UPDATE core_agreement_acceptance SET person_id = ? WHERE id = ?")
+        .bind(personId, guestId)
+        .run();
+    await expect(attach(a)).rejects.toThrow(/immutable/);
+    await env.DB.prepare("UPDATE core_order SET person_id = ? WHERE id = ?")
+      .bind(owner, orderId)
+      .run();
+    await expect(attach(a)).rejects.toThrow(/immutable/);
+    await attach(owner);
+  });
+
+  it("6: a merge that moves acceptances is a person's, with agreements:manage", async () => {
+    const doc = await liveDocument("waiver", { points: [OTHER] });
+    const survivor = await person("Survivor");
+    const merged = await person("Merged");
+    await accept(merged, { versionId: doc.versionId });
+    const input = { survivorId: survivor, mergedId: merged };
+    expect(await refusal(invoke("person.merge", input, context(member)))).toMatchObject({
+      code: "forbidden",
+      details: { permission: "agreements:manage" },
+    });
+    await setPreset("cautious");
+    try {
+      const ai = await refusal(invoke("person.merge", input, aiContext(AI_ACTORS[0] as never)));
+      expect(ai.code).toBe("forbidden");
+      expect(ai).not.toBeInstanceOf(PendingApprovalError);
+    } finally {
+      await setPreset("balanced");
+    }
+  });
+
+  it("7a: a Person marked minor cannot agree as a guardian, by the operation or the database", async () => {
+    const doc = await liveDocument("guardian", { points: [OTHER], forWhom: "dependants" });
+    const teen = await person("Teen");
+    const child = await person("Child");
+    await invoke("person.link.add", { guardianId: teen, dependantId: child }, context(admin));
+    await invoke("agreement.setMinor", { personId: teen, minor: true }, context(admin));
+    expect(
+      await refusal(accept(teen, { versionId: doc.versionId, forPersonId: child })),
+    ).toMatchObject({ details: { rule: "agreement_minor" } });
+    const { hash } = (await env.DB.prepare("SELECT hash FROM core_agreement_version WHERE id = ?")
+      .bind(doc.versionId)
+      .first<{ hash: string }>()) as { hash: string };
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO core_agreement_acceptance (id, document_id, version_id, shown_hash, person_id,
+           by, agent_person_id, how, typed_name, channel, accepted_at) VALUES (?, ?, ?, ?, ?, 'guardian', ?, 'typed', 'N', 'web', 'now')`,
+      )
+        .bind(`aga_${unique("minor")}`, doc.id, doc.versionId, hash, child, teen)
+        .run(),
+    ).rejects.toThrow(/core_agreement_minor_self/);
+  });
+
+  it("7b: a document attached nowhere is refused, and agreeing again to the same version records nothing", async () => {
+    const { id } = await invoke(
+      "agreement.create",
+      { title: unique("Loose"), kind: "waiver" },
+      context(admin),
+    );
+    const saved = await invoke(
+      "agreement.draft.save",
+      { id, body: body("Fixture text."), tickLabel: "I have read this fixture" },
+      context(admin),
+    );
+    const { version } = await invoke(
+      "agreement.publish",
+      { documentId: id, draftHash: saved.hash, draftRev: saved.rev, number: 1, change: "small" },
+      context(admin),
+    );
+    const a = await person();
+    expect(await refusal(accept(a, { versionId: version.id }))).toMatchObject({
+      details: { rule: "agreement_not_asked" },
+    });
+    const health = await liveDocument("health", { points: [OTHER] });
+    const first = (await accept(a, { versionId: health.versionId, answers: yesAnswers })) as {
+      id: string;
+    };
+    const again = (await accept(a, { versionId: health.versionId, answers: yesAnswers })) as {
+      id: string;
+    };
+    expect(again.id).toBe(first.id);
+    const rows = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_agreement_acceptance WHERE person_id = ? AND version_id = ?",
+    )
+      .bind(a, health.versionId)
+      .first<{ n: number }>();
+    expect(rows?.n).toBe(1);
+    const notices = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE dedupe_key LIKE ?",
+    )
+      .bind(`agreement-health:${first.id}`)
+      .first<{ n: number }>();
+    const readers = await env.DB.prepare(
+      "SELECT count(DISTINCT user_id) AS n FROM core_notifications WHERE dedupe_key = ?",
+    )
+      .bind(`agreement-health:${first.id}`)
+      .first<{ n: number }>();
+    expect(notices?.n).toBe(readers?.n);
+  });
+
+  it("7c: a paper form counts for ask-again from the date on the form", async () => {
+    const own = await newPoint("acp");
+    const health = await liveDocument("health", { points: [own], askAgainMonths: 1 });
+    const a = await person();
+    // A version published today accepts a form dated from the day before (time zones).
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    await invoke(
+      "agreement.recordPaper",
+      { personId: a, versionId: health.versionId, signedOn: yesterday, typedName: "Fixture" },
+      context(admin),
+    );
+    const due = (when: number) =>
+      agreementsDue(db.query, {
+        point: own,
+        participant: a,
+        payer: a,
+        now: new Date(Date.now() + when).toISOString(),
+      });
+    expect((await due(0)).due).toEqual([]);
+    // Thirty days after the form's date (less than a month after it was typed in), it is due.
+    const days = (n: number) => n * 86_400_000;
+    const monthAfterForm = Date.parse(`${yesterday}T00:00:00.000Z`);
+    const after = new Date(monthAfterForm);
+    after.setUTCMonth(after.getUTCMonth() + 1);
+    expect((await due(after.getTime() - Date.now() + days(0) + 60_000)).due).toMatchObject([
+      { reason: "ask_again" },
+    ]);
+  });
+
+  it("7d: a payer document is never due for a child, in the Person tab or the question", async () => {
+    const own = await newPoint("acy");
+    const { id } = await invoke(
+      "agreement.create",
+      { title: unique("Payer"), kind: "terms" },
+      context(admin),
+    );
+    const saved = await invoke(
+      "agreement.draft.save",
+      { id, body: body("Fixture text."), tickLabel: "I have read this fixture", who: "payer" },
+      context(admin),
+    );
+    await invoke(
+      "agreement.publish",
+      { documentId: id, draftHash: saved.hash, draftRev: saved.rev, number: 1, change: "small" },
+      context(admin),
+    );
+    await invoke("agreement.attach", { documentId: id, points: [own] }, context(admin));
+    const parent = await person("Parent");
+    const child = await person("Child");
+    await invoke("person.link.add", { guardianId: parent, dependantId: child }, context(admin));
+    const tab = await invoke("agreement.person", { personId: child }, context(admin));
+    expect(tab.documents.map((x: { documentId: string }) => x.documentId)).not.toContain(id);
+    const asked = await agreementsDue(db.query, {
+      point: own,
+      participant: child,
+      payer: parent,
+      now: nowIso(),
+    });
+    expect(asked.due).toMatchObject([{ documentId: id, personId: parent }]);
+  });
+
+  it("7e: each layer of the guardian's live-link check refuses on its own", async () => {
+    const doc = await liveDocument("guardian", { points: [OTHER], forWhom: "dependants" });
+    const stranger = await person("Stranger");
+    const child = await person("Child");
+    await invoke(
+      "person.link.add",
+      { guardianId: await person(), dependantId: child },
+      context(admin),
+    );
+    // The operation.
+    expect(
+      await refusal(accept(stranger, { versionId: doc.versionId, forPersonId: child })),
+    ).toMatchObject({ code: "not_found" });
+    // The plan, called directly.
+    expect(
+      await refusal(
+        planAcceptance(
+          db.query,
+          {
+            versionId: doc.versionId,
+            personId: child,
+            by: "guardian",
+            agentPersonId: stranger,
+            channel: "web",
+            typedName: "N",
+          },
+          nowIso(),
+        ),
+      ),
+    ).toMatchObject({ code: "not_found" });
+    // The 0851 trigger, with no link at all.
+    const { hash } = (await env.DB.prepare("SELECT hash FROM core_agreement_version WHERE id = ?")
+      .bind(doc.versionId)
+      .first<{ hash: string }>()) as { hash: string };
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO core_agreement_acceptance (id, document_id, version_id, shown_hash, person_id,
+           by, agent_person_id, how, typed_name, channel, accepted_at) VALUES (?, ?, ?, ?, ?, 'guardian', ?, 'typed', 'N', 'web', 'now')`,
+      )
+        .bind(`aga_${unique("nolink")}`, doc.id, doc.versionId, hash, child, stranger)
+        .run(),
+    ).rejects.toThrow(/core_person_link_not_live/);
+  });
+});

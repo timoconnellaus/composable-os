@@ -277,10 +277,11 @@ function AcceptanceDialog({
           <div className="grid gap-2 text-sm" data-testid="acceptance-detail">
             <p>
               Name {one.data.by === "paper" ? "on the form" : "typed"}:{" "}
-              <strong>{one.data.typedName}</strong>
-              {one.data.typedName.trim().toLowerCase() !== personName.trim().toLowerCase() && (
-                <span className="text-muted-foreground"> (their record says {personName})</span>
-              )}
+              <strong>{one.data.typedName ?? "(erased with the guardian who typed it)"}</strong>
+              {one.data.typedName &&
+                one.data.typedName.trim().toLowerCase() !== personName.trim().toLowerCase() && (
+                  <span className="text-muted-foreground"> (their record says {personName})</span>
+                )}
             </p>
             {one.data.signedBy && <p>Signed by: {one.data.signedBy}</p>}
             {one.data.note && <p>Note: {one.data.note}</p>}

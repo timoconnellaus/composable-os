@@ -159,6 +159,11 @@ export interface AcceptanceFact {
   versionId: string;
   by: "self" | "guardian" | "guest" | "paper";
   acceptedAt: string;
+  /**
+   * When it counts from, for "ask again after": the host's time, or for paper the date written on
+   * the form (a form signed long ago is not new because it was typed in today).
+   */
+  countsFrom: string;
 }
 
 /** `now` less `months` calendar months (the host's clock, UTC). */
@@ -182,7 +187,7 @@ export function countingAcceptance(
   const minor = isMinor(facts);
   const cutoff = doc.askAgainMonths ? monthsBefore(now, doc.askAgainMonths) : null;
   let reason: DueReason = "never";
-  const newest = [...acceptances].sort((a, b) => (a.acceptedAt < b.acceptedAt ? 1 : -1));
+  const newest = [...acceptances].sort((a, b) => (a.countsFrom < b.countsFrom ? 1 : -1));
   for (const a of newest) {
     const version = doc.versions.get(a.versionId);
     if (!version || version.effectiveFrom > now) continue;
@@ -194,7 +199,7 @@ export function countingAcceptance(
       reason = "agree_again";
       continue;
     }
-    if (cutoff && a.acceptedAt <= cutoff) {
+    if (cutoff && a.countsFrom <= cutoff) {
       if (reason !== "agree_again") reason = "ask_again";
       continue;
     }
@@ -203,9 +208,18 @@ export function countingAcceptance(
   return { acceptance: null, reason };
 }
 
-/** Whether a document applies to a Person at all: a `dependants` one only to a minor. */
-export const appliesTo = (doc: Attached, participant: PersonFacts) =>
-  doc.forWhom === "everyone" || isMinor(participant);
+/**
+ * Whether a document applies (one rule for every caller): a `dependants` document only when the
+ * participant is a minor, and a `payer` document only to a Person who may pay, never a minor. In
+ * a Person's own standing (the Person tab, "before you go on") they are both participant and
+ * the one it is for.
+ */
+export const appliesTo = (
+  doc: Attached,
+  participant: PersonFacts,
+  person: PersonFacts = participant,
+) =>
+  (doc.forWhom === "everyone" || isMinor(participant)) && (doc.who !== "payer" || !isMinor(person));
 
 /** A Person's acceptances of these documents, without anything they typed or drew. */
 export async function acceptancesOf(
@@ -217,8 +231,10 @@ export async function acceptancesOf(
   if (!personIds.length || !documentIds.length) return out;
   const rows = await db
     .selectFrom("core_agreement_acceptance")
-    .select(["id", "person_id", "document_id", "version_id", "by", "accepted_at"])
+    .select(["id", "person_id", "document_id", "version_id", "by", "accepted_at", "signed_on"])
     .where("person_id", "in", [...personIds])
+    // An erased acceptance (its Person's, or the guardian's who made it) no longer counts.
+    .where("erased_at", "is", null)
     .where("document_id", "in", [...documentIds])
     .execute();
   for (const row of rows) {
@@ -230,6 +246,7 @@ export async function acceptancesOf(
       versionId: row.version_id,
       by: row.by,
       acceptedAt: row.accepted_at,
+      countsFrom: row.signed_on ? `${row.signed_on}T00:00:00.000Z` : row.accepted_at,
     });
     out.set(key, list);
   }
@@ -273,8 +290,8 @@ export async function agreementsDue(
   for (const doc of docs) {
     const personId = doc.who === "payer" ? query.payer : query.participant;
     if (!personId) continue;
-    if (doc.forWhom === "dependants" && !(participantFacts && isMinor(participantFacts))) continue;
     const personFact = facts.get(personId) as PersonFacts;
+    if (!appliesTo(doc, participantFacts ?? personFact, personFact)) continue;
     const { acceptance, reason } = countingAcceptance(
       doc,
       personFact,

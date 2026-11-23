@@ -75,9 +75,16 @@ function host(operations: Record<string, (input: Record<string, unknown>) => unk
       "person.get": (input) =>
         input.id === "per_ann" ? { id: "per_ann", displayName: "Ann" } : null,
       // A list's health notes (stage 44): the host's yes or no per Person, nothing of the form.
-      "agreement.healthNotes": (input) => ({
-        notes: (input.personIds as string[]).map((personId) => ({ personId, healthNote: true })),
-      }),
+      // The host reads the class's bookings' People itself; the pack names only the list.
+      "agreement.listHealthNotes": (input) => {
+        expect(input).toEqual({
+          records: "bookings.booking",
+          field: "class",
+          value: "cls_1",
+          person: "person",
+        });
+        return { notes: [{ personId: "per_ann", healthNote: true }] };
+      },
       // The member and the child staff linked to them (ADR 0540), as the host says.
       "me.family": () => ({
         self: { personId: "per_me", name: "Mo" },
@@ -241,7 +248,7 @@ describe("bookings pack (test host)", () => {
       "extensionSettings.list",
       "notification.send",
       // A class list's "health note" mark (stage 44, decision 18).
-      "agreement.healthNotes",
+      "agreement.listHealthNotes",
     ]);
     const rules = m.fields["programs.classtype"] ?? {};
     for (const name of [
@@ -1116,7 +1123,7 @@ describe("bookings pack (test host)", () => {
     ]);
     // A list the host gives no mark for (the assistant reading it): no mark, the list as before.
     const unmarked = await host({
-      "agreement.healthNotes": () => {
+      "agreement.listHealthNotes": () => {
         throw new ExtensionToolError("forbidden", "A health note is for a person on the staff");
       },
     }).runTool<{ bookings: Record<string, unknown>[] }>(

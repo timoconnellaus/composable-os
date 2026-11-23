@@ -49,3 +49,7 @@ an `enter` on an object without states, and a missing person relation.
   counter moved before the commit. `requireNothingDue` refuses with `rule: "agreements_due"` and
   the due documents, or returns the guard for the caller's batch; every acceptance carries it.
   Step 3 wires it into the orders pipeline, subscription start and the transition engine.
+
+Amended again 2026-11-23 (the review of PR #274): the counter also moves when someone becomes or
+stops being a minor, a family link starts or ends, and a Person goes to or from the Trash, is
+merged or is erased (triggers in migration 0851; ADR 0642's amendment lists them).

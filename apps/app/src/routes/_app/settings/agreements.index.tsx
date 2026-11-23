@@ -43,6 +43,9 @@ function AgreementsPage() {
       <Button asChild variant="outline" className="w-fit">
         <Link to="/settings/agreements/acceptances">Acceptances and who has something due</Link>
       </Button>
+      <Button asChild variant="outline" className="w-fit">
+        <Link to="/settings/agreements/health">Health forms</Link>
+      </Button>
       <NewDocument />
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

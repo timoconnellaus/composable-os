@@ -25,12 +25,13 @@ delete trigger (the review of step 1).
   - an insert over an existing id (so `INSERT OR REPLACE`, `INSERT OR IGNORE` and an upsert are
     refused before any conflict resolution), a change of id, and an `UPDATE OR REPLACE` (the table
     has no unique index but its key, so no allowed update can delete another row);
-  - every column but three movements, all host code: its Person set where it was a guest's and
-    null (settlement, step 3), or moved to the Person's `merged_into_id` (merge); and who it names
-    cleared to null on erase (the Person with `erased_at` set once, the agent, the account, the
-    address). Nothing is set back, and an erased acceptance is nobody's again;
-  - a delete, except of an erased one (step 8's retention purge) or a guest's with no Person (an
-    unpaid order, step 3). No operation updates or deletes one.
+  - every column but these movements (as amended below, 2026-11-23): a guest's Person set to its
+    order's Person (settlement, step 3); a Person or guardian moved to their `merged_into_id`
+    (merge); and, once the Person or the guardian who agreed is gone from `core_person` (erase),
+    who it names cleared and `erased_at` set once. Nothing is set back, and an erased acceptance
+    is nobody's again;
+  - a delete, except a guest's with no Person (an unpaid order, step 3). Erased ones are kept;
+    step 8 adds the retention purge. No operation updates or deletes one.
 - **What the database checks on insert**, whatever the writer: the version is of a live document
   and is its current or a scheduled one, and the hash shown is the version's; a Person-less row
   is only a guest's; a `self` acceptance is refused for a minor (a Person staff marked, or a live
@@ -79,3 +80,45 @@ answers refused any update or delete; a guardian's acceptance, its link ended be
 failing the batch; a dependant's and a marked minor's own refused by the operation and the
 database; paper naming its staff user, refused to every AI actor and to staff without the
 permission; erase and merge.
+
+## Amended 2026-11-23: the security review of PR #274
+
+- **What changes what is due bumps the counter**, by trigger in migration 0851 so every writer
+  does: a minor mark set or cleared; a family link made, ended, re-pointed or deleted; a Person
+  moved to or from the Trash, merged (`merged_into_id`) or deleted (erase, the Trash purge);
+  besides every publish, version taking effect, attach, detach and retire (ADR 0640). A batch
+  planned from a read before any of them fails on the `agreements` guard.
+- **Erasing a guardian** (coordinator decision of 2026-11-23, **owner to confirm**): erasing a
+  person treats the acceptances they made as a guardian as their own. The record that a guardian
+  agreed, the version and the time stay for the retention period; the guardian, their account,
+  their typed name and their drawn signature are cleared; the address stays, as decision 15 keeps
+  it for a person's own; `erased_at` is set, so the acceptance no longer counts for the child (a
+  guardian or paper agrees again) and step 8's purge covers it. The child's health answers are
+  the child's and stay. Erase keeps the address on a person's own acceptances too (the earlier
+  text said it cleared it; it never did).
+- **Detaching needs the Person gone**: the triggers allow clearing the Person (or the guardian)
+  only when that Person has no `core_person` row, so erase and the purge queue the detach after
+  deleting the Person. A detach never enables a delete: an erased acceptance is kept.
+- **Guests**: a guest's row is inserted with no Person and an order (or subscription checkout)
+  that exists, and its Person can be set only to that order's Person (or the checkout's payer or
+  holder).
+- **A minor never agrees for anyone**: refused by `accept.ts` and the insert trigger.
+- **One version once**: `me.agreements.accept` refuses a document not attached anywhere that
+  applies to that Person (`agreement_not_asked`), and agreeing again to the same version (with the
+  same answers) returns the existing acceptance, writing and sending nothing. Different health
+  answers make a new acceptance (a person may update their answers).
+- **Paper counts from its date**: "ask again after" counts a paper acceptance from `signed_on`.
+- **One rule for what applies** (`appliesTo`): a `dependants` document only when the participant
+  is a minor, a `payer` document never to a minor; the Person tab, "before you go on" and
+  `agreementsDue` all use it.
+- **A merge that moves agreements** (acceptances, as the Person or as a guardian, or the minor
+  mark) is a person's act with `agreements:manage`: refused to any AI actor (so never queued for
+  approval) and to staff without it.
+- **What a raw writer with database access can still do**: insert a forged acceptance for a live
+  Person that copies a real version's hash (SQLite cannot sign: the copy emailed in step 4 is the
+  person's own evidence); set an order's Person and then attach a guest's acceptance to it; set
+  `merged_into_id` on a Person and then move acceptances to it; delete the minor mark or a family
+  link (each bumps the counter). **What it cannot**: change what an acceptance says, detach one
+  from a Person who exists, delete one (other than an unsettled guest's), insert one for a minor
+  themselves or by a minor guardian, insert a guardian's without a live link, a guest's with a
+  Person or without a real order, or one of a version not open or with another hash.

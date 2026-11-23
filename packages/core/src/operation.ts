@@ -297,6 +297,8 @@ export interface ExtensionCaller {
     /** One permission, or several (any one opens the tool, ADR 0600). */
     permission: string | readonly string[] | null;
     startedBy?: string;
+    /** `startedBy` approved another actor's call rather than calling it themselves. */
+    startedByApproval?: true;
   };
 }
 
