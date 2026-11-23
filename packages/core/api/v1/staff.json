@@ -77356,6 +77356,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -77514,6 +77515,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -77678,6 +77680,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -77864,6 +77867,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -78275,6 +78279,152 @@
       "pack": "rostering"
     },
     {
+      "name": "x.rostering.feed",
+      "description": "Whether you have a private calendar feed of your own shifts (for your phone's calendar), and when its address was made. The address itself is shown only once, by feedRotate. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "Whether you have a calendar feed (its address is never shown again)"
+          },
+          "createdAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "active",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.feedRevoke",
+      "description": "Turn your calendar feed off: its address stops working (a calendar app keeps the shifts it last fetched and gets no more). An admin may turn off anyone's (account). A person's own act. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Someone else's: an admin only"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "account",
+          "revoked"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.candidates",
+        "x.rostering.check",
+        "x.rostering.export",
+        "x.rostering.feed",
+        "x.rostering.me",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.patterns",
+        "x.rostering.payBases",
+        "x.rostering.people",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.planCheck",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.feedRotate",
+      "description": "A new private address for your calendar feed: your own shifts, from two weeks back to four months ahead, for a calendar app to subscribe to. Any old address stops working at once. Shown this once: anyone with it sees your shifts, so do not share it. A person's own act. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The address on this host: put its origin before it (https://, or webcal:// to open it in a calendar app)"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.candidates",
+        "x.rostering.check",
+        "x.rostering.export",
+        "x.rostering.feed",
+        "x.rostering.me",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.patterns",
+        "x.rostering.payBases",
+        "x.rostering.people",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.planCheck",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
       "name": "x.rostering.follow",
       "description": "Put a shift of a weekly pattern back to its pattern's person: it drops its own person and follows the pattern again. Refused for a one-off shift, and if the pattern's person is on another shift then. Whoever rosters; an assistant may ask, and a person applies it. (Extension tool from Rostering 0.1.0.)",
       "risk": "write",
@@ -78363,6 +78513,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -78429,6 +78580,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -78511,6 +78663,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -79122,6 +79275,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -79688,6 +79842,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -80720,6 +80875,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -80788,6 +80944,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -80882,6 +81039,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -81015,6 +81173,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
@@ -81497,6 +81656,7 @@
         "x.rostering.candidates",
         "x.rostering.check",
         "x.rostering.export",
+        "x.rostering.feed",
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",

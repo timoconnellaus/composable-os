@@ -245,6 +245,18 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       });
     }
   }
+  // What the host keeps of a tool's answer is the audit trail's (ADR 0628): only reviewed pack
+  // code may keep part of it out.
+  for (const [name, tool] of Object.entries(manifest.tools)) {
+    if (tool.redactResult?.length) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `tools.${name}.redactResult`,
+        message: `A runtime extension cannot keep a tool's answer out of the audit log. ${why}`,
+      });
+    }
+  }
   if (manifest.grantable?.length) {
     issues.push({
       stage: "contract",

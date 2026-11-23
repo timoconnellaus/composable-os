@@ -19,7 +19,7 @@
 //
 // Who may do what (the permissions are the pack's, ADRs 0600 and 0625):
 //   - `rostering:team`: the team role's (a cleaner with no other access): the roster, their own
-//     shifts, offers and takes, their unavailability;
+//     shifts, offers and takes, their unavailability, their calendar feed;
 //   - `rostering:roster`: the same tools, grantable, for an account with another role (a coach's
 //     `bookings.coach`); ordinary staff hold the tools anyway;
 //   - `rostering:manage`: restricted, held by admins and by grant only (decision 16, nobody at
@@ -30,9 +30,12 @@
 //     counted for pay, the pay periods' totals, lock, reopen and export. Every pay tool is a
 //     person's only (`humanOnly`): an assistant never reads or changes pay, whatever is granted.
 //     The host holds no rates and no money: hours and counts, which payroll applies rates to.
-// The screens (step 7) are this pack's blocks (blocks/) over its headless entry (client/): they
-// show what the tools answer and decide nothing. Not yet: the checklist on a duty (step 4b) and
-// the calendar feed (step 5).
+//   - every rostered person's own private calendar feed (step 5, ADR 0628): `feed`, `feedRotate`
+//     and `feedRevoke`, the team's, a person's own acts; the host serves the feed and keeps only
+//     its token's hash.
+// The screens (step 7, ADR 0629) are this pack's blocks (blocks/) over its headless entry
+// (client/): they show what the tools answer and decide nothing. Not yet: the checklist on a duty
+// (step 4b).
 import { defineExtension } from "@composable-os/sdk";
 import {
   assign,
@@ -43,6 +46,9 @@ import {
   candidates,
   check,
   exportPeriod,
+  feed,
+  feedRevoke,
+  feedRotate,
   follow,
   lock,
   markNotWorked,
@@ -120,6 +126,9 @@ export default defineExtension({
       "staffing.setPattern",
       "staffing.follow",
       "staffing.planCheck",
+      "staffing.feed.status",
+      "staffing.feed.rotate",
+      "staffing.feed.revoke",
     ],
     modules: ["ops"],
   },
@@ -391,8 +400,8 @@ export default defineExtension({
     team: {
       label: "Rostered team",
       description:
-        "Sees the roster and their own shifts, offers and takes shifts, and says when they are " +
-        "away. Nothing else: no records, no people, no settings.",
+        "Sees the roster and their own shifts, offers and takes shifts, says when they are away " +
+        "and has their own calendar feed. Nothing else: no records, no people, no settings.",
       permissions: ["rostering:team"],
       read: [],
     },
@@ -402,8 +411,9 @@ export default defineExtension({
   grantable: ["rostering:roster", "rostering:manage", "rostering:pay"],
   grantableLabels: {
     "rostering:roster":
-      "Rostering: see the roster and their own shifts, offer and take shifts, and say when they " +
-      "are away. For a coach or anyone with another role who is rostered.",
+      "Rostering: see the roster and their own shifts, offer and take shifts, say when they are " +
+      "away and have their own calendar feed. For a coach or anyone with another role who is " +
+      "rostered.",
     "rostering:manage":
       "Rostering, rosters others: put people on shifts, say who may do which work, record " +
       "others' time off and see everyone's, see shifts with nobody on them, and mark a shift not " +
@@ -426,6 +436,9 @@ export default defineExtension({
     away,
     back,
     myAway,
+    feed,
+    feedRotate,
+    feedRevoke,
     assign,
     check,
     qualify,

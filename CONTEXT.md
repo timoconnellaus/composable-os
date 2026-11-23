@@ -1396,7 +1396,7 @@ field leaves the series (a field exception, built: ADR 0620). Not Bookings' tool
 a class's list. Its screens (step 7, ADR 0629) are Rostering's blocks: the **week grid** (read only
 for the team; a rosterer's shift opens **assign**: who could take it first, from the host's
 `candidates`), the regular week (**patterns**), **qualifications**, everyone's time off and **pay**
-on the web; **my shifts**, **offered to me**, **my availability** and the roster day by day on the
+on the web; **my shifts**, **offered to me**, **my availability**, **my calendar** and the roster day by day on the
 web and in the app. A screen asks the host who is reading (`me`: whether they roster, whether they
 handle pay) and shows only what that allows. A **role client with grants** is a mobile app's
 client for a pack role that also holds the tools a grant opens (a coach with `rostering:roster`).
@@ -1429,9 +1429,13 @@ is **withdrawn** by its offerer or a rosterer, and **cancelled** by the host whe
 someone else, is cancelled, removed, or its person leaves. A person's own act: never an assistant's.
 _Avoid_: swap request, trade, bid
 
-**Calendar feed** (stage 45, proposed)
+**Calendar feed** (stage 45, built in step 5: ADR 0628)
 A private address, made of a revocable token, that a staff member's phone calendar subscribes to:
-their own shifts only, nothing of members or other staff.
+their own shifts only (each its kind of work, place and times), nothing of members or other staff.
+The address is a secret shown once to the person who makes it, and kept only as a hash; it stops
+working when they rotate or revoke it, an admin revokes it, they are deactivated, or they lose the
+pack's permission. The format is the **calendar writer** (`@composable-os/calendar-file`), which
+the booking email's calendar file shares.
 _Avoid_: calendar sync, invite (the booking email's calendar file)
 
 **Counted for pay** and **Pay period** (stage 45, built in step 6: ADR 0627)

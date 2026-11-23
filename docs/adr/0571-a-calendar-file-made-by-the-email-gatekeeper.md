@@ -59,3 +59,12 @@ cancellation's `METHOD:CANCEL`.
 values of a signed agreement, from which the gatekeeper makes `agreement.pdf` when the send is
 applied. Only the host's own agreements mail (`callAsHost` with purpose `agreements`) may carry
 it, in the copy's shape; any other caller with it is refused. No caller supplies bytes.
+
+## Amended 2026-11-24: the writer is shared (stage 45 step 5)
+The RFC 5545 writer moved out of `calendar.ts` into its own zero-dependency package,
+`@composable-os/calendar-file`, which the host's staff calendar feed uses too
+([ADR 0628](0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)). The gatekeeper's
+`calendar.ts` keeps what an email's event holds (its checks, its file names, the approver's line) and
+writes it with the package; the file is unchanged line for line. The shared writer also removes any
+control character but a tab from text before escaping it (the gatekeeper already refuses them), so a
+value can never end its line wherever it comes from.

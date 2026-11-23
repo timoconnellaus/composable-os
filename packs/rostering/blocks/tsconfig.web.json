@@ -22,6 +22,7 @@
     "rostering-pay/*.tsx",
     "rostering-my-shifts/*.tsx",
     "rostering-offers/*.tsx",
-    "rostering-my-availability/*.tsx"
+    "rostering-my-availability/*.tsx",
+    "rostering-my-calendar/*.tsx"
   ]
 }

@@ -138,6 +138,15 @@ function hostWith(): TestHost {
         changed: true,
       }),
       "staffing.payBases": () => ({ today: "2026-06-01", items: [], truncated: false }),
+      "staffing.feed.status": () => ({ active: true, createdAt: "2026-06-01T00:00:00.000Z" }),
+      "staffing.feed.rotate": () => ({
+        path: "/api/v1/staffing/feed/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.ics",
+        createdAt: "2026-06-01T00:00:00.000Z",
+      }),
+      "staffing.feed.revoke": (input) => ({
+        account: (input as { account?: string }).account ?? "usr_sam",
+        revoked: true,
+      }),
       "staffing.payPeriod.list": () => ({
         setting: { period: "fortnightly", start: "2026-06-01", day: 1, zone: "Australia/Sydney" },
         set: true,
@@ -228,6 +237,9 @@ describe("the manifest", () => {
       "away",
       "back",
       "myAway",
+      "feed",
+      "feedRotate",
+      "feedRevoke",
     ];
     for (const name of team) {
       expect(tools[name]?.permission, name).toEqual(["rostering:team", "rostering:roster"]);
@@ -295,6 +307,42 @@ describe("the manifest", () => {
       expect(tools[name]?.humanOnly, name).toBeUndefined();
       expect(tools[name]?.risk, name).toBe("read");
     }
+  });
+});
+
+describe("the calendar feed's tools (ADR 0628)", () => {
+  it("making, changing and turning off the feed are a person's own; its address is never kept", () => {
+    const tools = hostWith().manifest.tools;
+    for (const name of ["feedRotate", "feedRevoke"]) {
+      expect(tools[name]?.humanOnly, name).toBe(true);
+      expect(tools[name]?.risk, name).toBe("write");
+    }
+    expect(tools.feedRotate?.redactResult).toEqual(["path"]);
+    // Whether one has a feed is open to an assistant: it never holds the address.
+    expect(tools.feed?.humanOnly).toBeUndefined();
+    expect(tools.feed?.risk).toBe("read");
+    expect(Object.keys(tools.feed?.outputSchema.properties ?? {}).sort()).toEqual([
+      "active",
+      "createdAt",
+    ]);
+  });
+
+  it("each asks the host's feed operation for the caller, naming nobody", async () => {
+    const host = hostWith();
+    expect(await host.runTool("feed", {}, { caller: ME })).toEqual({
+      active: true,
+      createdAt: "2026-06-01T00:00:00.000Z",
+    });
+    const made = await host.runTool<{ path: string }>("feedRotate", {}, { caller: ME });
+    expect(made.path).toMatch(/^\/api\/v1\/staffing\/feed\/[A-Za-z0-9_-]{43}\.ics$/);
+    await host.runTool("feedRevoke", {}, { caller: ME });
+    await host.runTool("feedRevoke", { account: "usr_ann" }, { caller: ME });
+    expect(callsTo(host, "staffing.feed.status")[0]?.input).toEqual({});
+    expect(callsTo(host, "staffing.feed.rotate")[0]?.input).toEqual({});
+    expect(callsTo(host, "staffing.feed.revoke").map((c) => c.input)).toEqual([
+      {},
+      { account: "usr_ann" },
+    ]);
   });
 });
 

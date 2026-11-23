@@ -197,6 +197,9 @@ async function callOperation(
         hash: await inputHash(op.name, input),
         now,
         replyFor: (outcome) => replyFor(outcome, outside),
+        // An answer holding keys never stored (a calendar feed's address, ADR 0628): the key is
+        // kept, its response is not; a replay is told the call was applied.
+        ...(op.redactResult?.length ? { secret: (reply: HttpReply) => reply.status < 300 } : {}),
       },
       async (inBatch) => {
         try {

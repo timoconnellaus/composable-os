@@ -27,6 +27,9 @@ import type {
   candidates,
   check,
   exportPeriod,
+  feed,
+  feedRevoke,
+  feedRotate,
   follow,
   lock,
   markNotWorked,
@@ -92,6 +95,9 @@ export type RosteringOperations = {
   "x.rostering.lock": { kind: "mutation" } & Io<typeof lock>;
   "x.rostering.reopen": { kind: "mutation" } & Io<typeof reopen>;
   "x.rostering.export": { kind: "query" } & Io<typeof exportPeriod>;
+  "x.rostering.feed": { kind: "query" } & Io<typeof feed>;
+  "x.rostering.feedRotate": { kind: "mutation" } & Io<typeof feedRotate>;
+  "x.rostering.feedRevoke": { kind: "mutation" } & Io<typeof feedRevoke>;
 };
 
 type Name = keyof RosteringOperations & string;
@@ -122,6 +128,7 @@ export type Period = Periods["periods"][number];
 export type PeriodTotals = Out<"x.rostering.periodTotals">;
 export type PayExport = Out<"x.rostering.export">;
 export type PlanCheck = Out<"x.rostering.planCheck">;
+export type FeedState = Out<"x.rostering.feed">;
 
 /** The client of every operation this entry calls (ADR 0453). */
 export type RosteringClient = PackClient<RosteringOperations>;
@@ -287,6 +294,17 @@ export function patternWhen(p: Pattern): string {
   return [days, p.time, p.length ? `${p.length} minutes` : null].filter(Boolean).join(" ");
 }
 
+/**
+ * A calendar feed's address, from the host's origin (`https://admin.example.com`) and the path the
+ * host gave once (`feedRotate`): the https address to copy into a calendar app, and the webcal one
+ * that opens a phone's calendar to subscribe. Never kept: the screen shows it and forgets it.
+ */
+export function feedAddresses(hostUrl: string, path: string): { https: string; webcal: string } {
+  const origin = new URL(hostUrl).origin;
+  const https = new URL(path, origin).toString().replace(/^http:/, "https:");
+  return { https, webcal: https.replace(/^https:/, "webcal:") };
+}
+
 /** A pay basis as a person reads it. */
 export function basisLabel(basis: string): string {
   if (basis === "by_time") return "By time (hours)";
@@ -330,6 +348,7 @@ export type RosterRefusalKind =
   | "recurring_moved"
   | "recurring_past"
   | "deactivate_confirm"
+  | "address_lost"
   | "not_found"
   | "invalid"
   | "network"
@@ -404,6 +423,16 @@ const FALLBACK: Partial<Record<RosterRefusalKind, string>> = {
 export function rosterRefusal(error: unknown): RosterRefusal {
   const e = record(error);
   if (e?.name === "NetworkError") return { kind: "network", message: FALLBACK.network as string };
+  // A retried call whose answer the host never keeps (a new calendar address): it was made, but
+  // cannot be shown again.
+  const reason = record(record(error)?.details)?.reason;
+  if (reason === "idempotency_response_lost") {
+    return {
+      kind: "address_lost",
+      message:
+        "A new address was made, but it could not be shown again, and it is never kept. Make a new address: the one just made stops working.",
+    };
+  }
   const details = hostDetails(error);
   const rule = typeof details?.rule === "string" ? details.rule : null;
   const message = typeof e?.message === "string" && e.message ? e.message : null;
@@ -530,6 +559,9 @@ export const ROSTERING_HOOKS_CALL = {
   useLock: ["x.rostering.lock"],
   useReopen: ["x.rostering.reopen"],
   useExport: ["x.rostering.export"],
+  useFeed: ["x.rostering.feed"],
+  useFeedRotate: ["x.rostering.feedRotate"],
+  useFeedRevoke: ["x.rostering.feedRevoke"],
 } as const;
 
 /**
@@ -696,6 +728,21 @@ function allRosteringHooks(
           api.query("x.rostering.export", input).queryFn(),
         gcTime: 0,
       });
+    },
+    /** Whether I have a calendar feed (never its address). */
+    useFeed() {
+      return useQuery(api.query("x.rostering.feed", {}));
+    },
+    /**
+     * A new calendar address (any old one stops working): shown once. Call it through
+     * `forgetAfter`, keep the path only on screen, and forget it on leaving.
+     */
+    useFeedRotate() {
+      return useMutation({ ...api.mutation("x.rostering.feedRotate"), gcTime: 0 });
+    },
+    /** Turn my calendar feed off. */
+    useFeedRevoke() {
+      return useMutation(api.mutation("x.rostering.feedRevoke"));
     },
   };
 }

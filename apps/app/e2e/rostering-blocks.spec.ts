@@ -227,6 +227,33 @@ test("a team member offers a shift and a qualified colleague takes it", async ({
     // It is gone from Ann's shifts.
     await ann.page.reload();
     await expect(ann.page.locator(`[data-shift="${id}"]`)).toHaveCount(0);
+    // Ben adds his shifts to his phone's calendar: the address is shown once, works, holds the
+    // shift he took, is in no URL of the app, and is gone once he leaves the page.
+    await mount(ben.page, block("rostering-my-calendar", "MyCalendar", { hostUrl: baseURL }));
+    await ben.page.getByRole("button", { name: "Make my calendar address" }).click();
+    const shown = ben.page.getByLabel("Your calendar address (shown this once)");
+    await expect(shown).toHaveValue(/\/api\/v1\/staffing\/feed\/[^/]+\.ics$/);
+    const address = await shown.inputValue();
+    expect(ben.page.url()).not.toContain(new URL(address).pathname);
+    await expect(ben.page.getByRole("link", { name: "Add to calendar" })).toHaveAttribute(
+      "href",
+      address.replace(/^https?:/, "webcal:"),
+    );
+    // The dev server is plain http: the feed is fetched there by its path.
+    const fetched = await ben.context.request.get(new URL(address).pathname);
+    expect(fetched.status()).toBe(200);
+    expect(await fetched.text()).toContain("BEGIN:VCALENDAR");
+    await ben.page.reload();
+    await expect(ben.page.locator('[data-feed="on"]')).toBeVisible();
+    await expect(ben.page.getByTestId("feed-address")).toHaveCount(0);
+    // Switched off, the address no longer answers.
+    await ben.page.getByRole("button", { name: "Switch it off…" }).click();
+    await ben.page
+      .getByRole("alertdialog", { name: "Switch it off" })
+      .getByRole("button", { name: "Switch it off" })
+      .click();
+    await expect(ben.page.locator('[data-feed="off"]')).toBeVisible();
+    expect((await ben.context.request.get(new URL(address).pathname)).status()).toBe(404);
   } finally {
     await ann.context.close();
     await ben.context.close();

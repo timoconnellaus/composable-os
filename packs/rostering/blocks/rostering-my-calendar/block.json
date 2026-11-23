@@ -1,0 +1,11 @@
+{
+  "name": "rostering-my-calendar",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": ["x.rostering.feed", "x.rostering.feedRotate", "x.rostering.feedRevoke"],
+  "files": ["my-calendar.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

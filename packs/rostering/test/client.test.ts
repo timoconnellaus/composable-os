@@ -11,6 +11,7 @@ import {
   createRosteringHooks,
   dateIn,
   dayLabel,
+  feedAddresses,
   personOn,
   ROSTERING_HOOKS_CALL,
   type RosterShift,
@@ -92,6 +93,15 @@ describe("dates and times (display only)", () => {
     expect(clockChange({ date: "2027-04-04", hours: 25 })).toMatch(/back: a 25-hour day/);
     expect(clockChange({ date: "2027-10-03", hours: 23 })).toMatch(/forward: a 23-hour day/);
     expect(clockChange({ date: "2027-06-01", hours: 24 })).toBeNull();
+  });
+
+  it("puts the host's origin before the feed's path, as https and as webcal", () => {
+    expect(
+      feedAddresses("https://admin.example.com/anything", "/api/v1/staffing/feed/abc.ics"),
+    ).toEqual({
+      https: "https://admin.example.com/api/v1/staffing/feed/abc.ics",
+      webcal: "webcal://admin.example.com/api/v1/staffing/feed/abc.ics",
+    });
   });
 
   it("names a shift for a screen reader: what, when, where, who", () => {
@@ -199,6 +209,15 @@ describe("refusals (one designed state each)", () => {
       details: { rule: "pay_period_locked" },
     });
     expect(rosterRefusal(direct).kind).toBe("pay_period_locked");
+  });
+
+  it("a retried new calendar address the host never kept is its own state: make another", () => {
+    const lost = Object.assign(new Error("applied, response not kept"), {
+      code: "conflict",
+      details: { reason: "idempotency_response_lost" },
+    });
+    expect(rosterRefusal(lost)).toMatchObject({ kind: "address_lost" });
+    expect(rosterRefusal(lost).message).toMatch(/Make a new address/);
   });
 
   it("forbidden, not found, a network failure and anything else each have their own state", () => {

@@ -9,6 +9,7 @@
 //   automation waits for connections again and the admins are told.
 // - user.deactivate / user.reactivate: admins, humans only. Deactivation revokes the bindings on
 //   the person's connections and pauses the automations that used them.
+
 import { z } from "zod";
 import {
   type AutomationBinding,
@@ -27,6 +28,7 @@ import { notifyStatements } from "../notifications/send.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { roleHasPermission } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
+import { revokeFeed } from "../staffing/feed.ts";
 import { leaveRoster } from "../staffing/leaving.ts";
 
 /** One declared connection of an automation, with its live binding (if any). */
@@ -426,6 +428,9 @@ export const userDeactivate = defineOperation({
       // the account does not bring an old phone's session back.
       ctx.db.deleteFrom("core_session").where("user_id", "=", user.id),
       ctx.db.deleteFrom("core_device_session").where("user_id", "=", user.id),
+      // Their calendar feed (stage 45 step 5, ADR 0628): its address answers as a missing path
+      // from this batch on, and stays dead if they are reactivated.
+      revokeFeed(ctx.db, user.id),
     );
     // Their future shifts and patterns, confirmed by count (stage 45, ADR 0624).
     const roster = await leaveRoster(ctx, user.id, input.confirm);
@@ -475,6 +480,9 @@ export const userReactivate = defineOperation({
           .updateTable("core_user")
           .set({ deactivated_at: null, updated_at: ctx.now })
           .where("id", "=", user.id),
+        // Reactivating brings no calendar feed back (ADR 0628): one made while they were
+        // deactivated, by a rotate that raced the deactivation, goes too.
+        revokeFeed(ctx.db, user.id),
       );
       ctx.recordChange({
         object: "user",

@@ -100,6 +100,8 @@ and it needs Wrangler 4.36.0 or later.
 | `CUSTOMER_RATE_LIMIT` | customer account and operation | 60 per 60 s | a customer's calls over the HTTP surface (`rate_limited`, HTTP 429) |
 | `CUSTOMER_CODE_RATE_LIMIT` | mailbox asked for (a `+tag`, and Gmail's dots, folded away) | 3 per 60 s | customer sign-in code requests |
 | `CUSTOMER_CODE_ADDRESS_RATE_LIMIT` | client address, hashed (an IPv6 address by its /64) | 10 per 60 s | customer sign-in code requests |
+| `STAFF_FEED_RATE_LIMIT` | a calendar feed, by a hash of its token | 10 per 60 s | fetches of a staff member's calendar feed (ADR 0628): 429 with `Retry-After` when over |
+| `STAFF_FEED_ADDRESS_RATE_LIMIT` | client address, hashed | 120 per 60 s | calendar feed fetches from one address, before any token is looked up (a calendar provider fetches many people's feeds from few addresses) |
 | `CUSTOMER_CODE_NEW_RATE_LIMIT` | one key for the whole host | 20 per 60 s | codes sent to addresses that only "anyone starting a subscription" lets sign in (ADR 0459); over it, nothing is sent, the answer is unchanged and admins are told once an hour. **Unlike the others, a missing binding sends no such code** (shut, not open) |
 
 To change a limit, edit its `simple.limit` (any positive integer) or `simple.period` (`10` or
@@ -107,7 +109,7 @@ To change a limit, edit its `simple.limit` (any positive integer) or `simple.per
 syncs counts eventually, so a client can briefly go over, and a client whose requests reach
 several locations gets roughly the limit in each. That is enough to stop a runaway agent; it is
 not an exact quota. Each `namespace_id` must be an integer that is unique in your account
-(`4101`–`4107` by default): change them if another Worker in the account already uses those ids,
+(`4101`–`4109` by default): change them if another Worker in the account already uses those ids,
 since bindings that share a namespace share counters. If a binding is missing, requests are not
 limited and the Worker logs a warning. Rate-limited requests show up in Workers Logs as 429s.
 
@@ -1031,6 +1033,7 @@ for.
 | Path | When | How it authenticates without Access |
 | --- | --- | --- |
 | `/api/v1/*` | always | The HTTP surface decides the caller itself: a native app's bearer token (looked up by hash), a customer cookie signed with `CUSTOMER_AUTH_SECRET`, or an Access JWT verified against your team's keys, issuer and AUD, never trusted unverified. Anything else is the public. Browsers from other origins are refused unless in `API_ALLOWED_ORIGINS`. Native sign-in routes take a code and store only hashes. `/api/v1/media/<id>` is a published post's picture for a phone or any outside caller: served only when content they may read shows it (`media.serve`). `POST /api/v1/media` is an upload by a staff device token only (`cos content import`, ADR 0470), and `POST /api/v1/media/<id>/captions` a video's captions the same way (`cos courses import`, ADR 0495): no cookie is taken there |
+| `/api/v1/staffing/feed/*` | always (inside `/api/v1/*`; listed so it stays bypassed) | A staff member's private calendar feed (stage 45, ADR 0628), polled by a calendar app that cannot sign in: the 32-byte random token in the address is the credential, looked up by its SHA-256 (the host keeps nothing else of it); only that person's own shifts, while their account is active and holds the Rostering permission; any other token or path is a 404 like a missing route; limited per token and per address. Cloudflare's own request logs record URLs when Workers Logs are on, so an account member reading them could see a feed's address: turn invocation logs off if that matters, and a person can always rotate theirs |
 | `/api/customer-auth/*` | customers | Customer sign-in by emailed code, its own secret and tables |
 | `/api/health` | always | Health and version only (`cos deploy` and monitors read it) |
 | `/gatekeeper/payments/in/*` | payments | The provider's webhook signature (`STRIPE_WEBHOOK_SECRET`) |

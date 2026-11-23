@@ -6,7 +6,7 @@ Status: accepted, 2026-11-24 (stage 45, build step 7). Builds on ADRs
 [0453](0453-pack-hooks-over-the-clients-operations.md), [0470](0470-the-import-door.md),
 [0600](0600-a-pack-role-and-its-grants-add-up.md) and [0620](0620-field-level-exceptions-in-recurring.md)
 to [0627](0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md). Amends ADR 0451 (a role's
-client may carry grants). ADR 0628 is left to the calendar feed (step 5), built beside this step.
+client may carry grants). ADR 0628 is the calendar feed's (step 5), whose screen is built here.
 
 ## Context
 Steps 1 to 6 built the roster's rules in the host and the Rostering pack's tools. Step 7 is the
@@ -60,6 +60,14 @@ sent is forgotten after the call (`forgetAfter`, PR #291's pattern), and the web
 `pagehide` and read them again when the browser brings the page back from its back-forward cache.
 The pay CSV is fetched when asked (the export query run as a mutation, never cached) and handed to
 the person as a file.
+
+**My calendar** (over ADR 0628's feed): the screen shows whether a feed exists (`feed`), makes or
+replaces the address (`feedRotate`, shown once: the host's origin before the path it gives, as
+https to copy and webcal to open a calendar app) and switches it off (`feedRevoke`). The address
+lives only in the screen's state: never stored, never in a URL of the app, cleared on leaving and
+on a back-forward-cache return; the mutation is forgotten after the call. A retried make that the
+host answers `idempotency_response_lost` (it never keeps the reply) has its own state: a new
+address was made and cannot be shown; make another.
 
 **The headless entry is the pack's** (`@composable-os/pack-rostering/client`), as every pack's
 (Bookings', Ticketing's): typed from the tools, hooks over any client that holds them, display
