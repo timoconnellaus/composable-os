@@ -70,6 +70,8 @@ import { Route as AppSubscriptionsIdRouteImport } from './routes/_app/subscripti
 import { Route as ApiAssistantThreadRouteImport } from './routes/api/assistant/thread'
 import { Route as ApiAssistantTurnRouteImport } from './routes/api/assistant/turn'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AppSettingsAgreementsIndexRouteImport } from './routes/_app/settings/agreements.index'
+import { Route as AppSettingsAgreementsIdRouteImport } from './routes/_app/settings/agreements.$id'
 import { Route as AppXObjectIndexRouteImport } from './routes/_app/x/$object/index'
 import { Route as AppXObjectIdRouteImport } from './routes/_app/x/$object/$id'
 import { Route as ApiAssistantThreadStopRouteImport } from './routes/api/assistant/thread.stop'
@@ -388,6 +390,17 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppSettingsAgreementsIndexRoute =
+  AppSettingsAgreementsIndexRouteImport.update({
+    id: '/settings/agreements/',
+    path: '/settings/agreements/',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppSettingsAgreementsIdRoute = AppSettingsAgreementsIdRouteImport.update({
+  id: '/settings/agreements/$id',
+  path: '/settings/agreements/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppXObjectIndexRoute = AppXObjectIndexRouteImport.update({
   id: '/x/$object/',
   path: '/x/$object/',
@@ -471,9 +484,11 @@ export interface FileRoutesByFullPath {
   '/people/': typeof AppPeopleIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/subscriptions/': typeof AppSubscriptionsIndexRoute
+  '/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
   '/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
+  '/settings/agreements/': typeof AppSettingsAgreementsIndexRoute
   '/x/$object/': typeof AppXObjectIndexRoute
 }
 export interface FileRoutesByTo {
@@ -537,9 +552,11 @@ export interface FileRoutesByTo {
   '/people': typeof AppPeopleIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/subscriptions': typeof AppSubscriptionsIndexRoute
+  '/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
   '/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
+  '/settings/agreements': typeof AppSettingsAgreementsIndexRoute
   '/x/$object': typeof AppXObjectIndexRoute
 }
 export interface FileRoutesById {
@@ -605,9 +622,11 @@ export interface FileRoutesById {
   '/_app/people/': typeof AppPeopleIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/subscriptions/': typeof AppSubscriptionsIndexRoute
+  '/_app/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
   '/_app/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
+  '/_app/settings/agreements/': typeof AppSettingsAgreementsIndexRoute
   '/_app/x/$object/': typeof AppXObjectIndexRoute
 }
 export interface FileRouteTypes {
@@ -673,9 +692,11 @@ export interface FileRouteTypes {
     | '/people/'
     | '/settings/'
     | '/subscriptions/'
+    | '/settings/agreements/$id'
     | '/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
+    | '/settings/agreements/'
     | '/x/$object/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -739,9 +760,11 @@ export interface FileRouteTypes {
     | '/people'
     | '/settings'
     | '/subscriptions'
+    | '/settings/agreements/$id'
     | '/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
+    | '/settings/agreements'
     | '/x/$object'
   id:
     | '__root__'
@@ -806,9 +829,11 @@ export interface FileRouteTypes {
     | '/_app/people/'
     | '/_app/settings/'
     | '/_app/subscriptions/'
+    | '/_app/settings/agreements/$id'
     | '/_app/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
+    | '/_app/settings/agreements/'
     | '/_app/x/$object/'
   fileRoutesById: FileRoutesById
 }
@@ -1255,6 +1280,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/settings/agreements/': {
+      id: '/_app/settings/agreements/'
+      path: '/settings/agreements'
+      fullPath: '/settings/agreements/'
+      preLoaderRoute: typeof AppSettingsAgreementsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/agreements/$id': {
+      id: '/_app/settings/agreements/$id'
+      path: '/settings/agreements/$id'
+      fullPath: '/settings/agreements/$id'
+      preLoaderRoute: typeof AppSettingsAgreementsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/x/$object/': {
       id: '/_app/x/$object/'
       path: '/x/$object'
@@ -1337,7 +1376,9 @@ interface AppRouteChildren {
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppSubscriptionsIndexRoute: typeof AppSubscriptionsIndexRoute
+  AppSettingsAgreementsIdRoute: typeof AppSettingsAgreementsIdRoute
   AppXObjectIdRoute: typeof AppXObjectIdRoute
+  AppSettingsAgreementsIndexRoute: typeof AppSettingsAgreementsIndexRoute
   AppXObjectIndexRoute: typeof AppXObjectIndexRoute
 }
 
@@ -1392,7 +1433,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppSubscriptionsIndexRoute: AppSubscriptionsIndexRoute,
+  AppSettingsAgreementsIdRoute: AppSettingsAgreementsIdRoute,
   AppXObjectIdRoute: AppXObjectIdRoute,
+  AppSettingsAgreementsIndexRoute: AppSettingsAgreementsIndexRoute,
   AppXObjectIndexRoute: AppXObjectIndexRoute,
 }
 

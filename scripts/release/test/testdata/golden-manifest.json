@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 690,
+  "coreSchemaVersion": 850,
   "extensionContract": {
     "supported": [
       1
@@ -558,6 +558,18 @@
     {
       "name": "0690_sellable_refund_due.sql",
       "sha256": "9a4a447b20d94873349726ba157412acc88909cf622ce67789ba840beb4b3f59"
+    },
+    {
+      "name": "0770_clear_fixed_role_grants.sql",
+      "sha256": "3a259fde475685273a9b2311b68ea20093ef6aacb0aa0b3dc64d027e2e24d941"
+    },
+    {
+      "name": "0810_recurrence_exceptions.sql",
+      "sha256": "2d744aeb49e99bbaa2254189c3926304ab0c7964d7a8e419922073da58288fb1"
+    },
+    {
+      "name": "0850_agreements.sql",
+      "sha256": "ac44a255fe73e8195da0f8ef6fed7572e561918517d138581094d9f46e2789e5"
     }
   ],
   "product": "crm",

@@ -2,7 +2,7 @@
 // manifests, so they appear in the registry (and so as MCP tools) next to core operations. The
 // handler runs the tool in the sandbox through the extension host.
 import type { CoreDatabase } from "@composable-os/db";
-import type { ExtensionManifest, ToolManifest } from "@composable-os/sdk";
+import { type ExtensionManifest, type ToolManifest, toolPermissions } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { TOOL_OPERATION_RE } from "../approvals/describe.ts";
@@ -34,8 +34,14 @@ export function toolOperation(
   // install refuse the declaration, and this holds if one is in the database anyway.
   const audiences = source === "shipped" ? tool.audiences : undefined;
   // Likewise a tool's permission, which a role of the extension can hold (ADR 0436).
-  const packPermission = source === "shipped" ? tool.permission : undefined;
-  const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}:${(manifest.grantable ?? []).join(",")}`;
+  const packPermissions = source === "shipped" ? toolPermissions(tool) : [];
+  // A tool a role also reaches opens to a grant only when it says so (ADR 0600, as the check does).
+  const roleHeld = new Set(Object.values(manifest.roles ?? {}).flatMap((r) => r.permissions));
+  const lifts = tool.grantLiftsRoleLimits === true || !packPermissions.some((p) => roleHeld.has(p));
+  const packGrantable = lifts
+    ? packPermissions.filter((p) => (manifest.grantable ?? []).includes(p))
+    : [];
+  const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}:${(manifest.grantable ?? []).join(",")}:${[...roleHeld].join(",")}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const op = defineOperation({
@@ -53,10 +59,8 @@ export function toolOperation(
     ...(tool.personApproves
       ? { alwaysReview: ["assistant", "mcp", "automation", "extension"] as const }
       : {}),
-    ...(packPermission ? { packPermission } : {}),
-    ...(packPermission && (manifest.grantable ?? []).includes(packPermission)
-      ? { packPermissionGrantable: true }
-      : {}),
+    ...(packPermissions.length ? { packPermissions } : {}),
+    ...(packGrantable.length ? { packGrantable } : {}),
     async handler(input, ctx) {
       // The pipeline already never dry-runs a tool that may write (approvals/dry-run.ts: that is
       // the guarantee); this keeps the handler safe if it is ever called with a simulation.

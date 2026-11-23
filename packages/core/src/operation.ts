@@ -294,7 +294,8 @@ export interface ExtensionCaller {
     humanOnly: boolean;
     /** A person approves anyone else's call (ADR 0552). */
     personApproves?: boolean;
-    permission: string | null;
+    /** One permission, or several (any one opens the tool, ADR 0600). */
+    permission: string | readonly string[] | null;
     startedBy?: string;
   };
 }
@@ -402,16 +403,18 @@ export interface OperationDefinition<
   output: Out;
   permission: Permission;
   /**
-   * Extension tools only (ADR 0436): the permission the tool declares, `<extension>:<word>`. A
-   * staff account given one of that extension's roles may call the tool only when the role lists
-   * it. Everyone else is held to `permission`, as for any tool.
+   * Extension tools only (ADR 0436): the permissions the tool declares, `<extension>:<word>`, any
+   * one of which opens it (ADR 0600). A staff account given one of that extension's roles may
+   * call the tool only when the role lists one of them, or it was granted one that is grantable.
+   * Everyone else is held to `permission`, as for any tool.
    */
-  packPermission?: string;
+  packPermissions?: readonly string[];
   /**
-   * The extension declares `packPermission` grantable (ADR 0449): a human admin may grant it to a
-   * staff account by name, which then may call the tool whatever its role.
+   * Those of `packPermissions` the installed extension declares grantable (ADR 0449): a human
+   * admin may grant one to a staff account by name, which then may call the tool whatever its
+   * role, a pack role included (ADR 0600).
    */
-  packPermissionGrantable?: boolean;
+  packGrantable?: readonly string[];
   risk: RiskClass;
   /**
    * Core operations only, and only ones open to customers or the public: the handler keeps the
@@ -538,12 +541,17 @@ export function operationProblems(op: AnyOperation): string[] {
     problems.push("output schema missing");
   }
   if (!PERMISSIONS.includes(op.permission)) problems.push("permission missing or unknown");
-  if (op.packPermission !== undefined) {
+  if (op.packPermissions !== undefined) {
     const extension = /^x\.([a-z][a-z0-9]{1,29})\./.exec(op.name ?? "")?.[1];
-    if (!extension) problems.push("packPermission is for extension tools only");
-    else if (!op.packPermission.startsWith(`${extension}:`)) {
-      problems.push(`packPermission is named ${extension}:<word>`);
+    if (!extension) problems.push("packPermissions is for extension tools only");
+    else if (op.packPermissions.some((p) => !p.startsWith(`${extension}:`))) {
+      problems.push(`packPermissions are named ${extension}:<word>`);
     }
+    if ((op.packGrantable ?? []).some((p) => !op.packPermissions?.includes(p))) {
+      problems.push("packGrantable lists packPermissions only");
+    }
+  } else if (op.packGrantable !== undefined) {
+    problems.push("packGrantable needs packPermissions");
   }
   if (!RISK_CLASSES.includes(op.risk)) problems.push("risk class missing or unknown");
   if (op.actors && (op.actors.length === 0 || op.actors.some((a) => !ACTORS.includes(a)))) {

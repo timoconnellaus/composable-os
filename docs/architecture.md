@@ -1096,9 +1096,16 @@ records up to its horizon (56 days by default): a series is due when written, an
 in its zone. `core_recurrence_occurrence` (migration 0560) keys each record on the series and
 its local date in the batch that creates it, so nothing is made twice. 06:00 stays 06:00 across a
 clock change; a time in a change's gap moves forward by the gap, one that happens twice is the
-first. A record staff change (time, copied fields, state) is marked edited and left alone; a
-change to the series reaches the rest at once, in its batch, and moving or cancelling records
-with places taken needs `recurring.change` with the count confirmed. Closures cancel the records
+first. A copied field staff change on one record (a coach swapped) is that record's own field
+exception (`core_recurrence_exception`, migration 0810, with who and when; [ADR
+0620](adr/0620-field-level-exceptions-in-recurring.md)): the series never writes it again and
+still writes the rest; set back by hand to the series' value, or `recurring.follow`, it follows
+again (`recurring.exceptions` reads them). A record whose time or state staff change is detached
+whole and left alone, as are those detached before ADR 0620. A change to the series reaches its
+future records at once, field by field, in its batch, and moving or cancelling records with places
+taken needs `recurring.change` with the count confirmed. A hand edit and a series change guard
+each other per occurrence (migration 0810's `core_recurrence_guard`), so racing they cannot
+overwrite each other, while edits of different records of one series do not contend. Closures cancel the records
 they cover and nothing is made in them (`recurring.close` with the count when they cover booked
 records). Runs and changes are planned from a read and guarded at commit (`core_write_guard`: the
 series' version, each planned record's places), so a race fails as a conflict instead of leaving
@@ -1423,13 +1430,20 @@ migration 0451). While it is held it is all the account may do: the pipeline rea
 every staff call and refuses any other operation before its input is parsed, and the account's
 own role grants nothing. Ticketing's door role checks tickets in and reads events, ticket types
 and tickets. Stage 14a's roles and teams extend this check rather than add another. Tools learn
-who started them from the host (`ctx.caller`), to record who checked a ticket in.
+who started them from the host (`ctx.caller`), to record who checked a ticket in. A role and the
+pack permissions granted to its account add up
+([ADR 0600](adr/0600-a-pack-role-and-its-grants-add-up.md)): `staffAuthority` decides per call
+whether a grant (a tool naming a granted, grantable permission; judged first) or the role allows
+it, and the role's limits (Bookings' coach: today only, ADR 0553) travel only on the role's calls
+and the runs they start. A tool may name several permissions, any one of which opens it.
 
 **Permission grants** ([ADR 0449](adr/0449-permissions-granted-one-by-one.md)). A human admin
 grants a staff account named permissions on top of its role (`user.setPermissions`,
 `core_user.granted_permissions`, migration 0471): `records:publish`, `orders:refund`, and pack
-tool permissions a pack declares `grantable`. Read in the pack role's statement on every call;
-additive to the role, replaced by a pack role, and judged beside an operation's `actors`, so a
+tool permissions a pack declares `grantable` (Bookings' `bookings:desk`, with plain words for the
+admin in `grantableLabels`). Read in the pack role's statement on every call; additive to the role,
+and to a pack role for pack permissions only (core ones are refused to such an account, and a
+permission a role holds cannot be grantable, ADR 0600); judged beside an operation's `actors`, so a
 grant never lets an AI actor publish.
 
 ### Orders
@@ -1562,6 +1576,25 @@ not live or not valid at the spender's time, so the whole batch fails (`invalid_
 "allowance"`). Periods are named by their local start in the holder's zone (`time/local.ts`).
 Holders carry read-only `used` and `left`; `allowance.get` reads a period; `rec_allowance`,
 `rec_allowance_period` and `rec_allowance_use` are queryable.
+
+**Agreements** (stage 44, ADRs [0640](adr/0640-agreement-documents-versions-nobody-changes-published-by-a-person.md)
+and [0641](adr/0641-agreement-points-a-pack-declares-documents-a-person-attaches.md),
+`packages/core/src/agreements/`, `operations/agreement.ts`, `packages/sdk/src/agreements.ts`;
+step 1 built). The documents a business asks people to agree to are core tables, not records
+(migration 0850), in no `rec_*` view: `core_agreement_document` (its kind, state and working copy),
+`core_agreement_version` (each published wording and its terms, with the SHA-256 of everything it
+holds, recomputed on read; triggers refuse every update and delete, an insert over an existing id
+(so `INSERT OR REPLACE`) and an insert that does not match the working copy at its rev),
+`core_agreement_point` and `core_agreement_rev`. Staff with `agreements:manage` (and the assistant
+for them, through the gate) write the working copy; publishing it (small change or agree again, now
+or from a date the minute cron honours), attaching it to points and retiring it are
+`actors: ["human"]`, so no AI actor can do or queue them. An object marks where agreement may be
+needed with the `agreements` behaviour (`point`, `label`, `suggests`, and `enter` and `person` for a
+record a caller makes); in step 1 it is inert. Every publish, attach, detach, retire and scheduled
+version taking effect bumps `core_agreement_rev`, which the guard of step 2 compares at commit.
+Acceptances, `agreementsDue`, enforcement in the orders pipeline and the transition engine, health
+answers, the copy and PDF, signing at the desk and cooling off are the later steps
+(`docs/stages/44-agreements.md`).
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be

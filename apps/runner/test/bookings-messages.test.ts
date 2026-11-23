@@ -416,6 +416,114 @@ describe("a change or a cancellation by the gym (criterion 13)", () => {
     expect(await mailTo(who.email)).toHaveLength(2);
   });
 
+  it("a coach swapped on one class of a series stays when the series moves it; the move is told once (ADR 0620)", async () => {
+    const day = new Date(Date.now() + 3 * DAY);
+    const date = day.toISOString().slice(0, 10);
+    const weekday = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][day.getUTCDay()];
+    const first = await create("bookings.coach", { name: unique("Series coach") });
+    const series = await create("bookings.series", {
+      classType: type,
+      weekdays: [weekday],
+      time: "12:00",
+      length: 60,
+      places: 8,
+      coach: first,
+      firstDate: date,
+      lastDate: date,
+      timezone: "UTC",
+    });
+    await run(
+      "recurring.generate",
+      { object: "bookings.series", id: series },
+      staff({ actor: "automation" }),
+    );
+    const made = await run<{ items: { id: string }[] }>(
+      "record.list",
+      { object: CLASS, filter: { field: "series", op: "eq", value: series } },
+      staff(),
+    );
+    const k = made.items[0]?.id as string;
+    expect(made.items).toHaveLength(1);
+    const who = await member("swapmove");
+    await givePass(who.personId);
+    await book(who, k);
+    await mailsOnce(who.email, 1);
+    // The coach swapped for that date: the class keeps it as its own, and nobody is emailed.
+    const other = await create("bookings.coach", { name: unique("Stand-in") });
+    await run("record.update", { object: CLASS, id: k, values: { coach: other } }, staff());
+    await finished("classChanged", k);
+    expect(await mailTo(who.email)).toHaveLength(1);
+    const own = await run<{ detached: boolean; fields: { field: string }[] }>(
+      "recurring.exceptions",
+      { object: CLASS, id: k },
+      staff(),
+    );
+    expect(own).toMatchObject({ detached: false, fields: [{ field: "coach" }] });
+    // The series moves to 13:00 (a booked class: the count confirmed): the class moves, keeps
+    // its stand-in, and the member is told once.
+    await run(
+      "recurring.change",
+      { object: "bookings.series", id: series, values: { time: "13:00" }, confirm: 1 },
+      staff(),
+    );
+    const moved = await get(CLASS, k);
+    expect(moved).toMatchObject({ coach: other, changed: null });
+    expect(moved.startsAt).toBe(`${date}T13:00:00.000Z`);
+    const mails = await mailsOnce(who.email, 2);
+    expect(mails[1]?.subject).toMatch(/^Class changed: /);
+    expect(mails[1]?.text).toContain("has moved to");
+    await finished("classChanged", k, 2);
+    expect(await mailTo(who.email)).toHaveLength(2);
+  });
+
+  it("following the series puts a class back in the series' room, and that is told once (ADR 0620)", async () => {
+    const day = new Date(Date.now() + 4 * DAY);
+    const date = day.toISOString().slice(0, 10);
+    const weekday = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][day.getUTCDay()];
+    const main = await create("bookings.room", { name: unique("Main room") });
+    const small = await create("bookings.room", { name: unique("Small room") });
+    const series = await create("bookings.series", {
+      classType: type,
+      weekdays: [weekday],
+      time: "09:00",
+      length: 60,
+      places: 8,
+      room: main,
+      firstDate: date,
+      lastDate: date,
+      timezone: "UTC",
+    });
+    await run(
+      "recurring.generate",
+      { object: "bookings.series", id: series },
+      staff({ actor: "automation" }),
+    );
+    const made = await run<{ items: { id: string }[] }>(
+      "record.list",
+      { object: CLASS, filter: { field: "series", op: "eq", value: series } },
+      staff(),
+    );
+    const k = made.items[0]?.id as string;
+    const who = await member("follow");
+    await givePass(who.personId);
+    await book(who, k);
+    await mailsOnce(who.email, 1);
+    // Moved to the small room by hand for that date: told once.
+    await run("record.update", { object: CLASS, id: k, values: { room: small } }, staff());
+    await mailsOnce(who.email, 2);
+    await finished("classChanged", k);
+    // Back to the series' room: the room follows the series again, and the member is told once.
+    expect(
+      await run("recurring.follow", { object: CLASS, id: k, fields: ["room"] }, staff()),
+    ).toEqual({ followed: ["room"], kept: [], reattached: false });
+    expect((await get(CLASS, k)).room).toBe(main);
+    const mails = await mailsOnce(who.email, 3);
+    expect(mails[2]?.subject).toMatch(/^Class changed: /);
+    expect(mails[2]?.text).toContain("It is now in");
+    await finished("classChanged", k, 2);
+    expect(await mailTo(who.email)).toHaveLength(3);
+  });
+
   it("cancelling a class emails each member once; an AI's request sends nothing until approved", async () => {
     const k = await klass(type, 2 * DAY);
     const who = await member("cancelled");

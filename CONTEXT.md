@@ -839,6 +839,18 @@ prefixes its Worker and resource names and never appears in the deployment's dat
 sees it only as a deploy var (`COS_TENANT_ID`), for the **tenant tag** on Platform AI calls and
 for signing its calls back to the control plane.
 
+**Hosted client** (stage 46, proposed; ADR 0610)
+A client product's deployment in our Cloudflare account, in the Workers for Platforms namespace,
+deployed by `cos deploy` from the client's repository. It keeps the names its `product.ts` gives
+it and has no tenant id. Its **tier** is **standard** (settings only, on a standard product's
+release, behind a shared web app), **bespoke** (its own repository, web app and extensions) or
+**own account** (the same, in the client's Cloudflare account).
+_Avoid_: tenant (for a client), multi-tenant
+
+**Fleet** (stage 46, proposed)
+Every hosted client's hosts together. We set its platform version; a **hold** keeps one client
+on its version through a fleet update.
+
 **Control plane**
 `crm-control` on the hosted CRM's `app.` host (`products/crm/apps/control`): sign-up, plans,
 billing, provisioning, rollouts, support grants, export and delete. It never holds customer data.
@@ -1087,8 +1099,11 @@ ADR 0501). A claimant may declare a **waitlist** (`claims.waitlist`, below, ADR 
 A record that declares `recurring`: a weekly rule in local wall-clock time (weekdays, a time, a
 length, from and until dates, a zone) that makes dated records of another object ahead, up to its
 horizon (a timetable line makes its classes). Each record made is its **occurrence**, keyed on the
-series and its local date so it is made once; one edited by staff is the series' no more. 06:00 is
-06:00 across a clock change (stage 31, ADR 0500).
+series and its local date so it is made once. A copied field staff change on one occurrence (its
+coach) is its **field exception**: the series never writes that field again and still writes the
+rest; one whose time or state staff change is **detached** whole and the series' no more. **Follow
+the series** clears exceptions (ADR 0620). 06:00 is 06:00 across a clock change (stage 31, ADR
+0500).
 _Avoid_: recurrence rule, RRULE, schedule (an automation's trigger); `sellable.recurring` (a
 plan paid every period, below), which shares the word and nothing else
 
@@ -1148,8 +1163,16 @@ nothing else follows. A class whose list nobody took has no no-shows (stage 31, 
 _Avoid_: absence, missed class
 
 **Coach** (the Bookings role)
-The pack role `bookings.coach`: the day's classes, a class list and ticking names, nothing else (no
-money, no other people, no booking or cancelling). An account holds one pack role (ADR 0436).
+The pack role `bookings.coach`: the day's classes, a class list and ticking names, today's only;
+nothing else (no money, no other people, no booking or cancelling). An account holds one pack role
+(ADR 0436). A coach who also works the desk is granted the **Desk permission** on top (ADR 0600).
+
+**Desk permission** (Bookings)
+`bookings:desk`, the front desk's tools: find people, book anyone (a walk-in too) into any class,
+cancel and move bookings, give a use back, any day's classes and a class's full list. Every member
+of staff holds them; a human admin grants them to a coach, whose role they add to (the coach's own
+list and ticks stay today's). Not cancelling a class, refunds, or any record read.
+_Avoid_: desk role (it is a permission, not a pack role), front-desk access
 
 **Moved** (a booking)
 A booking staff moved to another class: the new booking is made naming it (`movedFrom`), and in the
@@ -1216,26 +1239,32 @@ by staff.
 A practitioner's own working note about a client. Read by its author only: not the client's screen,
 not shared, never staff.
 
-**Agreement document** (a **document**; stage 44, proposed)
+**Agreement document** (a **document**; stage 44, built in step 1)
 Something a business asks people to agree to: its terms, a waiver, health questions, a parent's
-consent. Its **kind** is a label (`terms`, `waiver`, `health`, `guardian`, `other`, and the
-platform's `care`); only `health` changes how it works. It says how a person agrees (tick and type
-their name, or draw a signature), who agrees (the participant or the payer) and for whom (everyone,
-or dependants only). The business writes every word; the platform ships no legal wording. Core
-tables, not records: in no `rec_*` view.
+consent. Its **kind** is a label fixed when it is made (`terms`, `waiver`, `health`, `guardian`,
+`other`, and later the platform's `care`); only `health` changes how it works. Its **working copy**
+(the draft the editor changes) holds the title, body, tick label, how a person agrees (tick and type
+their name, or draw a signature), who agrees (the participant or the payer), for whom (everyone, or
+dependants only) and a health form's questions, so none of them change until a person publishes. It
+is a draft until first published, then live; **retired** is final. The business writes every word;
+the platform ships no legal wording. Core tables, not records: in no `rec_*` view (ADR 0640).
 _Avoid_: form (stage 29's), contract (what the law may make of it), template
 
-**Version** (of an agreement document; stage 44, proposed)
-One published wording of a document, kept for good: the database refuses any change to it or its
-deletion. Published only by a person with `agreements:manage`, as a **small change** (earlier
-acceptances still count) or **agree again** (they stop counting, so the next booking or purchase
-asks), now or from a date. An AI may draft the working copy and can never publish, not even by
-asking. Not a record's version (`core_publish_version`).
+**Version** (of an agreement document; stage 44, built in step 1)
+One published wording of a document, numbered and kept for good: the database refuses any update or
+deletion of it, by anyone. Published only by a person with `agreements:manage`, from the working
+copy they reviewed (the hash of every term, and its rev), as a **small change** (earlier acceptances still count) or **agree
+again** (they stop counting, so the next booking or purchase asks), now or from a date; the newest
+one in effect is **current**. A published version is never withdrawn. An AI may draft the working
+copy and can never publish, attach or retire, not even by asking. Every publish, attach, detach and
+retire bumps one counter (`core_agreement_rev`) that the guard at commit reads. Not a record's
+version (`core_publish_version`).
 
-**Agreement point** (the `agreements` behaviour; stage 44, proposed)
+**Agreement point** (the `agreements` behaviour; stage 44: declared and attached in step 1, asked
+from step 3)
 A place a pack says agreement may be needed: buying a membership or a pass, making a booking,
-buying a ticket or a course, a care link. The business **attaches** documents to points; nothing is
-needed anywhere by default. The host asks one question, `agreementsDue`, when an order or a
+buying a ticket or a course, a care link. A person with `agreements:manage` **attaches** published
+documents to points; nothing is needed anywhere by default (ADR 0641). The host asks one question, `agreementsDue`, when an order or a
 subscription starts and when a record enters a declared state, and the write's batch carries a guard
 that fails if any document changed since. The host's own moves (a promotion, a paid drop-in booked)
 are never checked.
@@ -1244,9 +1273,10 @@ _Avoid_: requirement (alone), gate (the approval gate)
 **Acceptance** (stage 44, proposed)
 One record that a person agreed to one version of a document: by themselves, by a **guardian** for
 a dependant, by a **guest** with their order (the Person's from the verified payment), or **recorded
-from paper** by a person on the staff (shown as that, never as the member's own). It holds the
-version and the hash of what was shown, who, how (typed, drawn, paper) and when; never the device or
-internet address. Nobody can change it. A drawn **signature** is kept as its strokes. It is
+from paper** by a person on the staff (shown as that, never as the member's own), or **at the desk**
+on the business's tablet in a session a person on the staff started (the member's own, shown as
+"agreed in person on the business's device"). It holds the version and the hash of what was shown,
+who, how (typed, drawn, paper) and when; never the device or internet address. Nobody can change it. A drawn **signature** is kept as its strokes. It is
 **current** while its version is at or after the document's last "agree again" (and, for health,
 within its ask-again months); a document is **due** for a Person at a point where it is attached and
 they have no current acceptance of it. The person is emailed a **copy** with the **signed PDF**,
@@ -1258,6 +1288,20 @@ accept), sign-off
 A `health` document's yes or no questions, a note if yes, and a person's answers. Health
 information: kept apart from every staff bulk path and every AI actor, read on screen only by
 staff with `agreements:health` (each read audited), by the person and by their guardian.
+
+**Minor** (for agreements; stage 44, proposed)
+A Person who is a dependant of a live family link, or whom staff have marked as a minor (the host
+holds no date of birth). Only a guardian's acceptance or a paper form counts for them, never their
+own.
+
+**Desk signing session** (stage 44, proposed)
+A short session a person on the staff starts, from their own signed-in account, for one named Person
+(and the children they will sign for) on the enrolled tablet they choose: a one-time code opens it
+only there (a device an admin enrolled as the business's, every admin told, holding a revocable
+device credential that alone opens nothing). The tablet is signed in as nobody, uses the desk's own
+origin, shows only that Person's due documents, and locks on limits the host keeps. The record says
+"on the device enrolled as [name] by [admin]", never "in person".
+_Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 
 **Cooling off** (stage 44, proposed)
 The days (a Memberships setting; 0, the default, turns it off) in which a new member may cancel a
@@ -1275,7 +1319,7 @@ _Avoid_: session, slot, booking
 **Roster** (stage 45, proposed)
 Every shift in a range, with who works each. The **pattern** is its regular week (a class series'
 coach, a duty series' person); an **exception** is one date changed from it, and only that field
-leaves the series. A **rosterer** may roster others (`rostering:manage`). Not Bookings' tool
+leaves the series (a field exception, built: ADR 0620). A **rosterer** may roster others (`rostering:manage`). Not Bookings' tool
 `roster`, which is a class's list.
 _Avoid_: rota, schedule (an automation's trigger), timetable (the members' classes)
 
@@ -1540,7 +1584,9 @@ _Avoid_: published (stage 28's word for a version), visible (the seam's word for
 **Pack role**
 A fixed staff role a pack declares (ADR 0436): the permissions of its own tools and the objects of
 its own an account given it may read. A human admin gives at most one to a staff account; while
-it is held, it is all that account may do, on every operation. The door role is Ticketing's.
+it is held, it and the pack permissions granted to the account (ADR 0600) are all that account may
+do, on every operation; the role's limits bind only the calls the role allows. The door role is
+Ticketing's.
 Stage 14a's roles and teams will extend it.
 _Avoid_: role (alone, it means admin, member or viewer), team, scope
 
@@ -1552,8 +1598,9 @@ _Avoid_: scanner role, coach role
 **Permission grant**
 A named permission a human admin grants one staff account on top of its role (ADR 0449):
 `records:publish` (a coach who is a member publishes programs), `orders:refund`, or a pack tool's
-permission the pack declares grantable. Read from the account on every call; a pack role replaces
-it; it never lets an AI actor do what only a person may.
+permission the pack declares grantable. Read from the account on every call; it adds up with the
+account's role, and with a pack role too when it is a pack's permission (a core one is refused to a
+fixed role's account, ADR 0600); it never lets an AI actor do what only a person may.
 _Avoid_: role (a role is admin, member or viewer), scope (an MCP token's)
 
 **Through their own records** (`customerVia`)

@@ -3,6 +3,7 @@
 // diffs and reconciles the manifest. `validateManifest` is the contract check `extension.check`
 // runs; it returns structured issues a model can act on.
 import { z } from "zod";
+import { agreementsManifestSchema, checkObjectAgreements } from "./agreements.ts";
 import { allowanceManifestSchema, checkObjectAllowance } from "./allowance.ts";
 import { automationManifestSchema } from "./automation.ts";
 import { checkAutomation } from "./automation-check.ts";
@@ -202,6 +203,7 @@ export const objectManifestSchema = z.object({
   capacity: capacityManifestSchema.optional(),
   sellable: sellableManifestSchema.optional(),
   allowance: allowanceManifestSchema.optional(),
+  agreements: agreementsManifestSchema.optional(),
   states: statesManifestSchema.optional(),
   claims: claimsManifestSchema.optional(),
   unique: uniqueManifestSchema.optional(),
@@ -327,11 +329,13 @@ export const toolManifestSchema = z.object({
   audiences: z.array(z.enum(TOOL_AUDIENCES)).min(1).max(3).optional(),
   customerFields: z.record(z.string().max(80), z.array(z.string().max(40)).max(50)).optional(),
   /** The permission a staff caller needs (`<id>:<word>`), for the extension's roles (ADR 0436). */
-  permission: z.string().max(80).optional(),
+  permission: z.union([z.string().max(80), z.array(z.string().max(80)).min(1).max(5)]).optional(),
   /** Only a person may call it (ADR 0512). */
   humanOnly: z.literal(true).optional(),
   /** A person approves anyone else's call (ADR 0552). */
   personApproves: z.literal(true).optional(),
+  /** The grant opens it without the role's limits, on purpose (ADR 0600). */
+  grantLiftsRoleLimits: z.literal(true).optional(),
   inputSchema: jsonSchemaObject,
   outputSchema: jsonSchemaObject,
 });
@@ -364,6 +368,14 @@ export type RoleManifest = z.infer<typeof roleManifestSchema>;
 
 /** A role's or a tool's permission: `<extension id>:<word>`. */
 export const EXTENSION_PERMISSION_RE = /^([a-z][a-z0-9]{1,29}):([a-z][a-zA-Z0-9]{0,39})$/;
+
+/** A tool's permissions, one or several (any one opens it, ADR 0600); none when it declares none. */
+export function toolPermissions(tool: {
+  permission?: string | readonly string[] | undefined;
+}): string[] {
+  const p = tool.permission;
+  return p === undefined ? [] : typeof p === "string" ? [p] : [...p];
+}
 
 export const viewManifestSchema = z.object({
   label: z.string().min(1).max(100),
@@ -482,6 +494,8 @@ export const manifestSchema = z.object({
   roles: z.record(z.string(), roleManifestSchema).default({}),
   /** Tool permissions an admin may grant one by one (ADR 0449). */
   grantable: z.array(z.string().max(80)).max(20).optional(),
+  /** What each grantable permission gives, in plain words, for the admin (ADR 0600). */
+  grantableLabels: z.record(z.string().max(80), z.string().min(10).max(300)).optional(),
 });
 export type ExtensionManifest = z.infer<typeof manifestSchema>;
 
@@ -657,9 +671,15 @@ export function toManifest(extension: Extension): ExtensionManifest {
           risk: tool.risk ?? "write",
           ...(tool.recordAction ? { recordAction: tool.recordAction } : {}),
           ...(tool.audiences ? { audiences: [...tool.audiences] } : {}),
-          ...(tool.permission ? { permission: tool.permission } : {}),
+          ...(tool.permission
+            ? {
+                permission:
+                  typeof tool.permission === "string" ? tool.permission : [...tool.permission],
+              }
+            : {}),
           ...(tool.humanOnly ? { humanOnly: true as const } : {}),
           ...(tool.personApproves ? { personApproves: true as const } : {}),
+          ...(tool.grantLiftsRoleLimits ? { grantLiftsRoleLimits: true as const } : {}),
           ...(tool.customerFields
             ? {
                 customerFields: Object.fromEntries(
@@ -692,6 +712,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
       ]),
     ),
     ...(extension.grantable ? { grantable: [...extension.grantable] } : {}),
+    ...(extension.grantableLabels ? { grantableLabels: { ...extension.grantableLabels } } : {}),
     ...(extension.requires?.length ? { requires: [...extension.requires] } : {}),
     roles: Object.fromEntries(
       Object.entries(extension.roles ?? {}).map(([name, role]) => [
@@ -797,6 +818,12 @@ export interface ValidateOptions {
    * automation checks; null when unknown (those checks are skipped). Core objects are built in.
    */
   objectFields?: (object: string) => Record<string, FieldTypeName> | null;
+  /**
+   * Further ids no extension may take: the host passes the namespaces of its own permissions
+   * (`agreements`, `orders`, `people`, …), derived from its permission list, so a pack can never
+   * declare a core permission such as `agreements:manage` as its own grantable one.
+   */
+  reservedIds?: readonly string[];
 }
 
 /** Formula environment for a set of field manifests (formula fields compile on demand). */
@@ -836,7 +863,11 @@ export function validateManifest(
   }
   const m = parsed.data;
 
-  if (!EXTENSION_ID_RE.test(m.id) || RESERVED_EXTENSION_IDS.has(m.id)) {
+  if (
+    !EXTENSION_ID_RE.test(m.id) ||
+    RESERVED_EXTENSION_IDS.has(m.id) ||
+    options.reservedIds?.includes(m.id)
+  ) {
     contract(
       "id",
       `Extension id "${m.id}" must be 2-30 lowercase letters or digits, start with a letter, and not be reserved`,
@@ -1015,6 +1046,7 @@ export function validateManifest(
     checkObjectCapacity(m, name, object, contract);
     checkObjectSellable(m, name, object, contract);
     checkObjectAllowance(m, name, object, contract);
+    checkObjectAgreements(m, name, object, contract);
     checkObjectStates(m, name, object, contract);
     checkObjectClaims(m, name, object, contract);
     checkObjectUnique(m, name, object, contract);
@@ -1560,12 +1592,18 @@ export function validateManifest(
       }
     }
     if (tool.permission !== undefined) {
-      const match = EXTENSION_PERMISSION_RE.exec(tool.permission);
-      if (!match || match[1] !== m.id) {
-        contract(
-          `tools.${name}.permission`,
-          `A tool's permission is named ${m.id}:<word> (camelCase), not "${tool.permission}"`,
-        );
+      const permissions = toolPermissions(tool);
+      for (const permission of permissions) {
+        const match = EXTENSION_PERMISSION_RE.exec(permission);
+        if (!match || match[1] !== m.id) {
+          contract(
+            `tools.${name}.permission`,
+            `A tool's permission is named ${m.id}:<word> (camelCase), not "${permission}"`,
+          );
+        }
+      }
+      if (new Set(permissions).size !== permissions.length) {
+        contract(`tools.${name}.permission`, "A tool names each permission once");
       }
       if (tool.audiences && !tool.audiences.includes("staff")) {
         contract(
@@ -1596,20 +1634,55 @@ export function validateManifest(
   }
 
   // Grantable permissions (ADR 0449): permissions this extension's tools declare, for staff.
+  // A permission one of its roles holds is not grantable (ADR 0600): a role's limits (today's
+  // records only) bind what the role gives, and a grant of the same name would lift them.
+  const roleHeld = new Set(Object.values(m.roles).flatMap((role) => role.permissions));
   (m.grantable ?? []).forEach((permission, i) => {
-    const tool = Object.values(m.tools).find((t) => t.permission === permission);
+    const tool = Object.values(m.tools).find((t) => toolPermissions(t).includes(permission));
     if (!tool) {
       contract(
         `grantable.${i}`,
         `"${permission}" is not the permission of any of this extension's tools (tools.<name>.permission)`,
       );
     }
+    if (roleHeld.has(permission)) {
+      contract(
+        `grantable.${i}`,
+        `"${permission}" is held by a role of this extension, so it cannot be granted one by one: name a permission of its own on the tools a grant opens`,
+      );
+    }
   });
+  // A tool a role reaches and a grant opens too is the grant's without the role's limits (ADR
+  // 0600): only where the tool says so, so a grantable permission added to a role's own tool is
+  // refused rather than silently lifting the role's today off it.
+  for (const [name, tool] of Object.entries(m.tools)) {
+    const permissions = toolPermissions(tool);
+    const both =
+      permissions.some((p) => roleHeld.has(p)) &&
+      permissions.some((p) => (m.grantable ?? []).includes(p));
+    if (both && !tool.grantLiftsRoleLimits) {
+      contract(
+        `tools.${name}.permission`,
+        "This tool names a permission a role holds and a grantable one, so a grant would open it without the role's limits: set grantLiftsRoleLimits if that is meant, or give the grant a tool of its own",
+      );
+    }
+    if (tool.grantLiftsRoleLimits && !both) {
+      contract(
+        `tools.${name}.grantLiftsRoleLimits`,
+        "grantLiftsRoleLimits is for a tool naming both a permission a role holds and a grantable one",
+      );
+    }
+  }
+  for (const permission of Object.keys(m.grantableLabels ?? {})) {
+    if (!(m.grantable ?? []).includes(permission)) {
+      contract(`grantableLabels.${permission}`, `"${permission}" is not in grantable`);
+    }
+  }
 
   // Roles (ADR 0436): each holds permissions this extension's tools declare and reads objects
   // of its own, and nothing else, so a role can never reach past the extension that declares it.
   const declaredPermissions = new Set(
-    Object.values(m.tools).flatMap((tool) => (tool.permission ? [tool.permission] : [])),
+    Object.values(m.tools).flatMap((tool) => toolPermissions(tool)),
   );
   for (const [name, role] of Object.entries(m.roles)) {
     const path = `roles.${name}`;

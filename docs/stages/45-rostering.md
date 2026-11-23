@@ -11,17 +11,20 @@ Packs and blocks, Identity), [`CONTEXT.md`](../../CONTEXT.md), ADRs
 [0505](../adr/0505-window-numbers-through-two-relations-and-settings.md),
 [0552](../adr/0552-a-tool-a-person-approves.md), [0553](../adr/0553-attendance-the-coach-role-moves-and-cancelling-a-class.md),
 [0571](../adr/0571-a-calendar-file-made-by-the-email-gatekeeper.md) and
-[0572](../adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); ADR 0600 (a pack
-role and its grants add up, issue [#258](https://github.com/timoconnellaus/composable-os/issues/258),
-on `feat/coach-desk-permissions`, not yet merged); stage [31](31-bookings.md) (all of 31a, and 31b's
-time-range claim); `packages/core/src/recurring/`, `packages/core/src/pack-roles.ts`,
+[0572](../adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md);
+[0600](../adr/0600-a-pack-role-and-its-grants-add-up.md) (a pack role and its grants add up, issue
+[#258](https://github.com/timoconnellaus/composable-os/issues/258), merged as PR #263);
+[0620](../adr/0620-field-level-exceptions-in-recurring.md) (field-level exceptions, this stage's
+step 1); stage [31](31-bookings.md) (all of 31a, and 31b's time-range claim); `packages/core/src/recurring/`, `packages/core/src/pack-roles.ts`,
 `pack-role-today.ts`, `packages/core/src/operations/notification.ts`, `operations/user.ts`,
 `operations/export.ts`, `packages/core/src/extensions/tools.ts`, `packs/bookings` (`index.ts`,
 `tools.ts`, `automations.ts`, `dashboards.ts`), `packages/gatekeeper-email-send/src/calendar.ts`.
 
-Status: **spec proposed** (owner interviewed 2026-11-23; the questions at the end are still open).
-Builds on stage 31a (built) and ADR 0600 (in flight). Replaces the roadmap's placeholder stage 40
-(Rosters), which was never specced. Where this spec guesses, it says **(guess)**.
+Status: **spec agreed** (owner interviewed 2026-11-23 and answered the open questions the same day:
+decisions 14 to 25). Build step 1, field-level exceptions in `recurring`, is built
+([ADR 0620](../adr/0620-field-level-exceptions-in-recurring.md), migration 0810). Builds on stage
+31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
+never specced. Where this spec guesses, it says **(guess)**.
 
 ## Goal
 
@@ -42,12 +45,13 @@ payroll. Members see what they see today: the coach's name on each class.
   horizonDays?, horizonAtLeast? }`. The rule is weekly only, in local wall-clock time. The minute
   cron makes each due series' records ahead, up to the horizon (56 days by default), as the host.
   Each is keyed in `core_recurrence_occurrence` on the series and its local date, so it is made
-  once. `generates` must be another object of the same extension. **An edit to a made record's
-  times, zone, copied fields or state by anyone but the host marks the whole record `changed`**,
-  and the series never writes to it again: one coach swapped on one date detaches that class from
-  every later change to its series (room, places, time). `recurring.change { from }` applies a
-  series change from a date; a change that moves records with places taken needs the count
-  confirmed.
+  once. `generates` must be another object of the same extension. Until step 1, **an edit to a
+  made record's times, zone, copied fields or state by anyone but the host marked the whole record
+  `changed`**, and the series never wrote to it again: one coach swapped on one date detached that
+  class from every later change to its series (room, places, time). **Step 1 changed that** (ADR
+  0620, below): a copied field changed by hand is now a field exception, and only a change of
+  time, zone or state detaches the whole record. `recurring.change { from }` applies a series
+  change from a date; a change that moves records with places taken needs the count confirmed.
 - **Bookings** (`packs/bookings`, stage 31a). `bookings.coach` is a public profile (name, photo,
   bio) with an optional `user` field: the staff account, "if they have one (a visiting coach may
   not)". `bookings.series` and `bookings.class` each have a `coach` relation to it; the series
@@ -61,12 +65,14 @@ payroll. Members see what they see today: the coach's name on each class.
   reaches **today only** (`pack-role-today.ts`), and every class today, not only the coach's own.
   **The word `roster` is already Bookings' tool for a class list**; this stage does not reuse it as
   a tool name.
-- **Pack roles and grants** (ADRs 0436, 0449, and 0600 in flight). An account holds at most one pack
+- **Pack roles and grants** (ADRs 0436, 0449 and 0600, merged). An account holds at most one pack
   role (`core_user.pack_role`), which replaces its role. ADR 0600 makes a pack role and its grants
   add up: a pack-role account may be granted any **pack** permission a shipped pack declares
   `grantable` (`bookings:desk`), never a core permission; a permission a role holds cannot be
   grantable; a tool may name several permissions (`day` is `["bookings:coach", "bookings:desk"]`);
-  the role's today limit applies only to calls that come through the role.
+  the role's today limit applies only to calls that come through the role; a tool that both a role
+  and a grantable permission open sets `grantLiftsRoleLimits` when the grant should lift the role's
+  limits (the review's fix, merged with it).
 - **Every ordinary staff role holds every pack tool.** A tool's core permission is `records:write`
   (or `records:read` for a read tool, `extensions/tools.ts`), which members hold; a pack permission
   only adds a way in. So there is today no pack tool that a member does not hold. Pay totals need
@@ -105,10 +111,32 @@ payroll. Members see what they see today: the coach's name on each class.
 | 7 | Outside commitments are ignored for now: no connection to the calendars or practice systems some staff use elsewhere |
 | 8 | A shift does not block time in any outside system; that comes later with proper integrations |
 | 9 | **Warnings**: someone rostered while unavailable; a class with no coach; someone not qualified for the class type. **Warn rather than refuse, except double-booking one person, which is refused** (the coordinator's recommendation, accepted) |
-| 10 | **Pay**: staff are salaried, part-time or hourly, so the roster feeds a pay period for some people, not all. Recorded reading: each staff member is marked as **counted by time, counted by class, or not counted**; the host totals rostered hours and classes per pay period for those counted and exports them for payroll. **It holds no pay rates, calculates no pay and runs no payroll.** Whether it should hold rates is question 1 |
+| 10 | **Pay**: staff are salaried, part-time or hourly, so the roster feeds a pay period for some people, not all. Recorded reading: each staff member is marked as **counted by time, counted by class, or not counted**; the host totals rostered hours and classes per pay period for those counted and exports them for payroll. **It holds no pay rates, calculates no pay and runs no payroll.** Rates: none (decision 14) |
 | 11 | **All staff see everyone's shifts**; members see only the coach on each class |
 | 12 | **Members are not emailed when a class's coach changes**; the timetable shows the new coach (as Bookings already behaves) |
 | 13 | Start now, in parallel with the rest |
+
+### The owner's answers to the open questions (2026-11-23)
+
+| # | Decision | Was |
+| --- | --- | --- |
+| 14 | **The system holds no pay rates.** It totals hours and classes per pay period for those counted; payroll applies the rates | question 1, (a) |
+| 15 | **A duty shift can carry an optional checklist the person ticks off.** The owner's reasoning: "Part of the point of this software is to make it easy to run the business. So checklists are great, a bit like [a fast-food chain] runs their back of house. It makes automating the business easier." Built as **its own small reusable piece**, not a cleaning feature (below, "Checklists"): duty shifts ship first with a time and a person, and the checklist is the next step without holding the roster up. The coordinator's proposal, put to the owner, who did not object | question 2, (b), as a reusable piece |
+| 16 | **Who rosters: the owner and any admin.** A separate permission, `rostering:manage`, exists so it can be given to someone else later; it is granted to nobody to begin with | question 3, (b) |
+| 17 | **The regular pattern is made into actual shifts 8 weeks ahead**, as classes are | question 4, (a) |
+| 18 | **What counts as worked for pay: the roster as it stands when the pay period is closed** (after corrections), with the class list's ticks shown beside it as evidence | question 5, (a) |
+| 19 | **Set-up and pack-down time is possible but optional**: a number of minutes per class type, default 0, that adds to pay hours only and never makes two classes clash | question 6, (b), optional |
+| 20 | **The pay period is fortnightly.** The period and its start day are a setting, defaulting to fortnightly | question 7 |
+| 21 | **A shift can be offered and taken in the app until 1 hour before it starts** (a setting, default 60 minutes) | question 8, (a) |
+
+The checklist design's four open points, put to the owner afterwards (2026-11-23):
+
+| # | Decision | Was |
+| --- | --- | --- |
+| 22 | **No photos for now.** A step is a tick and an optional note only | the design's photo steps |
+| 23 | **Who sees how checklists went** (done, missed, and who was on the shift): the person themselves, and people who can roster (the owner and admins). Not all staff. A host-enforced read rule | the design's "staff records" |
+| 24 | **Ticking on someone's behalf: yes**, by people who can roster, with a reason, recorded as "ticked by X for Y" (both kept, never shown as the shift person's own tick) | the design's proposal |
+| 25 | **The assistant may draft a template**; a person approves it before it is used | the design's proposal |
 
 ## The design in one page
 
@@ -137,7 +165,12 @@ today limit reaching any member's data.
 
 **Pay totals are kept out of everything staff read in bulk.** Who is counted, and the locked totals
 of each pay period, are core tables in no `rec_*` view, read only through tools that need a
-restricted permission held by admins and by grant.
+restricted permission held by admins and by grant. No rates or amounts are held (decision 14).
+
+**A duty shift may carry a checklist** (decision 15): a reusable platform piece, not part of
+cleaning. A business writes a checklist once, attaches it to a kind of work, and each shift of that
+kind gets a run of it that its person ticks off; what was and was not done is kept, never changed
+once done, for the business to see and later automation to act on.
 
 ### What was weighed and rejected
 
@@ -168,6 +201,7 @@ restricted permission held by admins and by grant.
 | Leaving: future shifts made uncovered on deactivation | **Platform** (`user.deactivate`) | A core operation |
 | Bookings: the class declares `staffed`; one coach profile per account; `personApproves` on the coach fields; prep and pack-down minutes on the class type; uncovered classes on its dashboard | **Pack** (Bookings, additions) | Composition |
 | Rostering: duties, duty series, duty shifts, the `rostering.team` role, tools, settings, notifications' words, the dashboard, hooks and blocks | **Pack** (`packs/rostering`, new) | Composition |
+| **Checklists**: templates and their steps, a run attached to a record, ticks, a completed run kept unchanged, the `checklists` declaration | **Platform** (new, small; core tables) | Reusable by any pack (a duty first; a class type, an event, a new member's first week later) without a pack depending on another, and its rules (who ticks, nothing changes once done) must hold for every actor |
 
 ## The model
 
@@ -253,21 +287,33 @@ Three warnings, worked out by the host for a shift and a person:
   *because* the taker is qualified, so `not_qualified` refuses a take. A taker who is unavailable is
   told and confirms (it is their own time).
 
-### Platform: patterns and exceptions (amends `recurring`)
+### Platform: patterns and exceptions (amends `recurring`; step 1, built)
 - **The series' person is the pattern.** For classes, `bookings.series.coach`, unchanged. For
   duties, `rostering.dutyseries.staff`. Changing it applies from a date to future shifts whose
   person was not changed by hand (`recurring.change { from }`). A change that would double-book
   someone on any date is refused whole, naming the dates; the rosterer settles those dates first.
-- **Field-level exceptions** (an amendment to ADR 0500): a write that changes only a copied field
-  marks **that field** as the occurrence's own (`core_recurrence_occurrence.edited_fields`). The
-  series never writes that field again, and still writes the others. A change of times, zone or
-  state still detaches the whole record, as today. So a coach swapped for one Monday keeps the
-  swap when the owner later moves the class to another room. Host writes of the person (a take) mark
-  the field too, so a series change never overwrites a take.
-- **Back to the pattern**: setting the field back to the series' value clears its mark (guess), and
-  the roster's "back to the pattern" action does that.
+- **Field-level exceptions** ([ADR 0620](../adr/0620-field-level-exceptions-in-recurring.md),
+  amending ADR 0500; built in step 1): a write by anyone but the host that changes a copied field
+  makes **that field** the record's own: a row in `core_recurrence_exception` (migration 0810:
+  record, field, who, when). The series never writes that field again, and still writes the others,
+  field by field. A change of times, zone or state still detaches the whole record, as before. So a
+  coach swapped for one Monday keeps the swap when the owner later moves the class to another room
+  or another time. Every `recurring` declaration gets this; no pack declares anything. Host writes
+  of the person (a take, step 3) must mark the field too (they write it as the host, so step 3
+  writes the exception row in the take's batch), so a series change never overwrites a take.
+- **Back to the pattern**: setting the field by hand back to the series' value clears its exception
+  (decided in step 1: an exception equal to the series' value is indistinguishable from following
+  it). The roster's "back to the pattern" is `recurring.follow { object, id, fields? }`, which also
+  re-attaches a record detached whole when its time is still the series'. `recurring.exceptions`
+  reads a record's exceptions.
+- **Upgrade**: records detached whole before step 1 stay detached whole; nothing generated changes
+  meaning. A person re-attaches one with `recurring.follow`.
+- **Races**: an edit to a series' record and a change of the series guard each other per
+  occurrence (`core_recurrence_guard`), so of the two racing one commits and the other fails as
+  `recurring_stale`; edits of different records of one series, and runs, do not contend. One batch
+  sees what it queued (a hand edit and a series edit of one field in one batch keep the hand's).
 - `changed` stays true for a whole-record edit only. Bookings' `changed` field's description
-  changes to say so.
+  says so.
 
 ### Platform: qualifications
 - `core_staff_qualification` (account, kind object, kind record, who set it, when). Set by a
@@ -311,8 +357,8 @@ why.
   one commits; the rest fail whole and are told who took it (ADR 0437's answer).
 - **The offerer stays responsible until it is taken.** The shift is theirs: in their feed, on their
   list, counted for their pay, and theirs to work if nobody takes it.
-- **The cut-off**: an offer can be made and taken until 1 hour before the shift starts (a setting,
-  guess); then it lapses. Closer to the start, the rosterer reassigns.
+- **The cut-off**: an offer can be made and taken until 1 hour before the shift starts (decision 21;
+  a setting, default 60 minutes); then it lapses. Closer to the start, the rosterer reassigns.
 - **The manager is told**, not asked (decision 5): every take notifies the rosterers, with who gave
   it and who took it.
 - **Undoing a take**: no undo by the two people. The taker can offer it on at once, and a rosterer
@@ -348,7 +394,7 @@ caller from `ctx.caller`, never from input): `staffing.week`, `staffing.check`, 
 | --- | --- | --- |
 | `rostering:team` | the `rostering.team` role | the roster, my shifts, my unavailability, offer, withdraw, take, my feed |
 | `rostering:roster` | ordinary roles (members, viewers for the reads); grantable, held by no role | the same as `rostering:team`, for an account with another pack role (a coach) |
-| `rostering:manage` | admins; grantable; **restricted** | roster anyone, patterns, qualifications, others' unavailability, offer uncovered shifts, mark not worked |
+| `rostering:manage` | admins (the owner and any admin, decision 16); grantable, to nobody at first; **restricted** | roster anyone, patterns, qualifications, others' unavailability, offer uncovered shifts, mark not worked, tick a checklist on someone's behalf |
 | `rostering:pay` | admins; grantable; **restricted** | who is counted, pay periods, totals, lock, reopen, export |
 
 - **A restricted permission** (new platform piece, small): a pack declares a tool permission
@@ -368,7 +414,7 @@ caller from `ctx.caller`, never from input): `staffing.week`, `staffing.check`, 
 - **`personApproves`** on `bookings.class.coach` and `bookings.series.coach`: the assistant and MCP
   may ask to change a coach; a person applies it. This tightens what an AI may do today.
 - Programs' class type gains `rosterBeforeMinutes` and `rosterAfterMinutes` (pay only; default 0,
-  question 6).
+  decision 19), added by Bookings as it adds its booking rules.
 - Bookings' dashboard: classes with no coach in the dates. Its automations are unchanged: a coach
   change still sends members nothing (decision 12).
 - Bookings' existing tool `roster` keeps its name and meaning (the class list).
@@ -376,7 +422,7 @@ caller from `ctx.caller`, never from input): `staffing.week`, `staffing.check`, 
 ### Pack: Rostering (`packs/rostering`)
 | Object | What | Behaviours |
 | --- | --- | --- |
-| `rostering.duty` | Name (Cleaning, Open up), colour, default length, place, what to do (text: question 2), active | none |
+| `rostering.duty` | Name (Cleaning, Open up), colour, default length, place, what to do (text), checklist (optional, step 4b; decision 15), active | none |
 | `rostering.dutyseries` | Duty, weekdays, local start time, length, from, until, zone, staff (a `user` field, the pattern), state (`active`, `ended`) | `recurring`, generating `rostering.shift` |
 | `rostering.shift` | Duty, series (host), starts, ends, zone, staff (a `user` field), staff name (host), notes, state (`scheduled`, `cancelled`), changed (host) | `staffed` (`who: { field: "staff" }`, `kind: "duty"`); `states` |
 
@@ -388,9 +434,83 @@ caller from `ctx.caller`, never from input): `staffing.week`, `staffing.check`, 
   account | null }`, `check`, `qualify`, `qualifications`, `awayFor`, `uncovered`, `markNotWorked`
   (manage, `personApproves`); `payBasis`, `periods`, `periodTotals`, `lock`, `reopen`, `export`
   (pay, `humanOnly`).
-- **Settings** (a person's, `personApproves`): the offer cut-off (60 minutes), the uncovered window
-  (14 days), the duty horizon (56 days), the pay period (below).
+- **Settings** (a person's, `personApproves`): the offer cut-off (60 minutes, decision 21), the
+  uncovered window (14 days), the duty horizon (56 days: 8 weeks, decision 17), the pay period
+  (fortnightly, decision 20; below).
+- **The duty** gains an optional `checklist` (a template, step 4b). Until step 4b it has a "what to
+  do" note only.
 - **Notification words** are the pack's; the host sends them (below).
+
+### Platform: checklists (decision 15)
+A **checklist** is a list of steps the business writes once (close-down clean, opening up, setting
+up for a class type, onboarding a new coach). It is attached to things that happen; each time, a
+person ticks it off, and the host keeps who did what and when. The business sees what was and was
+not done, which is what later automation builds on.
+
+- **Where it lives: the platform**, as a small capability of its own (core tables and operations, a
+  declaration on an object), not a Checklists pack. Rostering's duty uses it without depending on
+  any other pack, and a later class type, event or a new member's first week attaches it the same
+  way. Its two rules (only the right person ticks; a completed run never changes) hold for every
+  actor, so they are the host's (ADRs 0404 and 0405). A Checklists pack is not needed for this
+  stage; one can come later if templates need screens of their own beyond Settings.
+- **The objects** (core tables; ADRs named in "Migrations and numbers"):
+
+  | Table | What |
+  | --- | --- |
+  | `core_checklist` | A **template**: name, what it is for, active, version, who wrote it and when |
+  | `core_checklist_step` | Its **steps**, in order: the text, whether it is required, and whether it asks for a note (optional on any step). No photos (decision 22) |
+  | `core_checklist_run` | A **run**: one template version attached to one record (object, record), its person (the staff account whose shift it is), opened, completed or missed, and when |
+  | `core_checklist_tick` | One **tick** per step of a run: the account that ticked, the account it was for (the run's person), whether on their behalf and why, when, the note, or "not done" with why |
+
+- **Attaching**: an object declares `checklists: { template, who, opens, closes, live }`: the field
+  that names the template (Rostering's `rostering.duty.checklist`, reached from the shift through
+  its duty), the field holding the staff account who ticks (the shift's `staff`), the times it
+  opens and closes (the shift's start and end), and the states in which it applies. A template
+  field is a new field type, `checklist`, that picks an active template. Shipped packs and the
+  org's own extensions only (as `staffed`).
+- **A run is made by the host** when a live record with a template is within a day of opening
+  (guess), copying the template's steps as they are then: editing a template later changes no run
+  already made. A shift with no template has no run. Reassigning the shift moves an unstarted run to
+  the new person; a run with ticks stays with who ticked and the new person continues it.
+- **Who writes templates**: a person holding `checklists:write`, a core permission that admins
+  hold and that can be granted to a member one by one (ADR 0449). **The assistant may draft** a
+  template or its steps (decision 25); a draft is not used until a person approves it
+  (`personApproves` on the template's fields, ADR 0507's shape): it never changes what staff are
+  asked to do on its own.
+- **Who ticks**: the run's person, from their shift, on the web or the app, from when it opens until
+  it closes plus a grace period (2 hours, guess). **A rosterer may tick on someone's behalf**
+  (decision 24), with a reason (a shift worked by someone else on the day). Such a tick records
+  both accounts: the rosterer who ticked and the person it was for, with the reason, and every
+  screen and export shows it as "ticked by X for Y"; it is never shown or counted as the shift
+  person's own tick. Nobody else ticks, and **never an AI actor** (`humanOnly`): a tick says a
+  person did the step.
+- **Done is final**: the person (or a rosterer on their behalf, recorded as above) marks the run
+  done: every required step ticked or marked "not done" with why. A **completed run is
+  immutable**: a trigger refuses any insert, change or delete of its ticks, for everyone. A
+  correction is a note added to the run by a rosterer, kept beside it, never a change to a tick. A
+  run not done by its close and grace is closed by the host as **missed**, with the steps that
+  were not ticked.
+- **Who sees how it went** (decision 23), held by the host for every path: a run, its ticks and
+  whether it was missed are read only by the run's person and by rosterers (`rostering:manage`:
+  the owner and admins, and anyone granted it). Checklist runs are core tables in no `rec_*` view,
+  so no dashboard, `query.sql`, `export.csv` or the assistant's record reads reach them; they are
+  read through tool-only operations that check the caller is the run's person or a rosterer. Other
+  staff see that a shift has a checklist (it is on the roster), never how it went. Templates and
+  their steps are not personal and are readable by every staff account.
+- **What the person and rosterers see**: the person sees their shift's checklist on "my shifts" and
+  ticks it there. Rosterers see each shift's checklist state on the roster (none, not started, in
+  progress, done, missed), a run's ticks with who ticked and for whom, and a Checklists view of
+  runs by template and date with the steps missed.
+- **Its place in the build**: step 4b, after the Rostering pack's duty shifts (step 4), beside
+  steps 5 to 7. Duty shifts ship with a time and a person first; the checklist follows without
+  holding the roster up.
+- **Left out, as follow-ons**: **photos on a step** (left out by the owner's decision 22; when
+  they come, the media path must be checked first: today's media library stores an upload's bytes
+  as given, strips no location or other metadata, and nothing could enforce "the room, not
+  people"); a step missed twice raising a task (the automation this is built for, next);
+  checklists on a class type, an event or a new member's first week (each a
+  `checklists` declaration of its pack); a second person signing a run off; steps that depend on
+  an answer; scores; ticking offline; a checklist with no shift (a daily opening check on its own).
 
 ### Notifications
 In-app notices through `notification.send`, delivered by email as each person's preferences say
@@ -406,6 +526,7 @@ In-app notices through `notification.send`, delivered by email as each person's 
 | Uncovered shifts in the window (daily), or one just uncovered | rosterers | the shifts |
 | Leave added over rostered shifts | rosterers | who, when, and the shifts |
 | A pattern could not be applied on a date (a clash) | rosterers | the date and why |
+| A checklist run was missed (step 4b) | rosterers | the shift, its person and the steps not done |
 
 These are the host's own notices, sent in or after the write that causes them, so a take made by
 any path tells the same people. A rosterer is an account holding `rostering:manage` (admins and
@@ -430,16 +551,19 @@ grants).
   small shared module used by both (an amendment to ADR 0571), so the format is written once.
 
 ### Pay periods
-- **The period** is a setting: weekly, fortnightly or monthly; for weekly and fortnightly, the date
-  one period starts (which fixes the weekday); for monthly, the day of the month (1 to 28). In the
-  organisation's zone. A shift belongs to the period of its local start date.
+- **The period** is a setting (decision 20): weekly, fortnightly (the default) or monthly; for
+  weekly and fortnightly, the date one period starts (which fixes the weekday; the pay screens ask
+  for it before the first period, and until then nothing is totalled); for monthly, the day of the
+  month (1 to 28). In the organisation's zone. A shift belongs to the period of its local start date.
+- **No rates** (decision 14): hours and counts only; payroll applies the rates.
 - **Who is counted** (`core_staff_pay_basis`, set by `rostering:pay`): `by_time`, `by_class` or
   `not_counted` (the default). Salaried staff are not counted.
 - **What is totalled**, per counted person and kind: the number of shifts (classes for class kinds)
-  and the hours (each shift's end minus start, plus the class type's before and after minutes).
+  and the hours (each shift's end minus start, plus the class type's before and after minutes:
+  optional, default 0, decision 19; they never enter the time claim).
   Cancelled shifts and shifts **marked not worked** count for nothing.
-- **Rostered, corrected before the lock** (question 5): the total is the roster as it stands when the
-  period is locked. A rosterer corrects it first: who actually worked a class (reassign it, which
+- **Rostered, corrected before the lock** (decision 18): the total is the roster as it stands when
+  the period is closed (locked). A rosterer corrects it first: who actually worked a class (reassign it, which
   is allowed after the shift for a rosterer), or `markNotWorked` (a core mark on the shift, with a
   reason). The totals screen shows evidence beside each class: whether its list was taken, and by
   whom; a class whose list was ticked by someone other than its rostered coach is flagged for
@@ -529,8 +653,10 @@ coaches, series with their coach, one-off and future classes):
 - Clashes found on import are reported as conflicts and imported uncovered; warnings are listed.
 
 ## Out of scope
-- Pay rates, pay amounts, payroll, tax, award rules, overtime and penalty rates (decision 10;
-  question 1).
+- Pay rates, pay amounts, payroll, tax, award rules, overtime and penalty rates (decisions 10 and
+  14).
+- Checklists' follow-ons (above): the missed-step task, checklists on class types, events and a new
+  member's first week, a second sign-off, conditional steps, offline ticking.
 - Clocking in and out, timesheets beyond the roster, breaks.
 - Leave approval, leave balances.
 - Connections to outside calendars or practice systems, and blocking time in them (decisions 7
@@ -549,13 +675,15 @@ coaches, series with their coach, one-off and future classes):
 2. **Warnings**: putting someone on a shift while they are away (one-off and regular, across a clock
    change), not qualified, or leaving a shift uncovered within the window, is made and answers each
    warning; `staffing.check` gives the same answer first; the audit row records them.
-3. **Patterns**: a class series' coach and a duty series' person fill every shift in the horizon; a
-   coach swapped for one date keeps the swap after the series changes room, places and coach from
-   a later date; setting it back clears the exception; a pattern change that would double-book on
-   any date is refused whole, naming the dates.
+3. **Patterns**: a class series' coach and a duty series' person fill every shift in the horizon (8
+   weeks); a coach swapped for one date keeps the swap after the series changes room, places, time
+   and coach from a later date; setting it back, or "back to the pattern", clears the exception; a
+   record detached before step 1 stays detached until a person makes it follow; a series change and
+   an edit racing leave exactly one applied (step 1, built); a pattern change that would
+   double-book on any date is refused whole, naming the dates.
 4. **The take race**: twenty eligible people taking one offer at once: exactly one is on the shift,
    one time claim moved, the rest told who took it; a take by someone not qualified is refused; a
-   take after the cut-off is refused and the offer has lapsed; the offerer stays on the shift until
+   take later than 1 hour before the start (the default cut-off) is refused and the offer has lapsed; the offerer stays on the shift until
    it is taken; rosterers are told of each take and nobody approves it.
 5. **Offers reach only the eligible**: an offer notifies exactly the qualified, available, free
    accounts (fixture of eight people covering each reason to be left out).
@@ -572,38 +700,52 @@ coaches, series with their coach, one-off and future classes):
 9. **The feed**: a person's feed shows exactly their own shifts in the range, parses as RFC 5545,
    and holds no other staff name and no member data; another person's token, a revoked, rotated or
    made-up token all answer 404; deactivation revokes it.
-10. **Pay totals** match a fixture worked out by hand: a fortnight with hourly, per-class and
-    not-counted staff, a cancelled class, a shift marked not worked, a take mid-period, a class with
+10. **Pay totals** match a fixture worked out by hand: a fortnight (the default period) with hourly,
+    per-class and not-counted staff, a cancelled class, a shift marked not worked, a take mid-period, a class with
     before and after minutes, a shift across midnight and a clock change; the CSV matches it line by
     line; after the lock, a change to a shift in the period is refused; reopening is a person's and
-    audited; nothing of pay is in any `rec_*` view, `query.sql`, a dashboard or `export.csv`.
+    audited; nothing of pay is in any `rec_*` view, `query.sql`, a dashboard or `export.csv`; no
+    rate or amount is held anywhere.
 11. **Members**: stage 22's isolation suite with Rostering installed: a customer and the public read
     a class's coach name, photo and bio and nothing else of staff; every Rostering object is
     invisible to them; a coach swap sends no member email.
 12. **Leaving**: deactivating a coach with future classes and a duty pattern makes each uncovered,
     tells rosterers, cancels their offers and keeps past shifts; `staffing.forget` keeps locked pay
     lines and is refused while an unlocked period counts them.
-13. `pnpm lint typecheck test`, `cos ext check` and `cos ext test` on `packs/rostering` and
+13. **Checklists** (step 4b): a duty with a checklist gives each of its shifts a run of the template
+    as it was; only the shift's person, or a rosterer on their behalf with a reason, ticks it, and
+    an AI actor is refused; a tick on someone's behalf keeps both accounts and reads "ticked by X
+    for Y" everywhere; a step asking for a note is not done without one; a completed run refuses
+    every change to its ticks, for everyone; a run not done by its close is missed, with the steps
+    not ticked, and rosterers are told; a run (missed or not) is read by its person and rosterers
+    only, and by no other staff account, `rec_*` view, dashboard, `query.sql`, `export.csv` or AI
+    read; an assistant's template is not used until a person approves it.
+14. `pnpm lint typecheck test`, `cos ext check` and `cos ext test` on `packs/rostering` and
     `packs/bookings`, the block lint, and one e2e test per journey (the owner rosters a week with a
     warning; a coach offers a shift and another takes it; a cleaner sees their shifts and adds leave;
-    the pay export of a locked period) pass in CI. ADRs for each platform piece; `CONTEXT.md` and
+    a cleaner ticks off a close-down checklist; the pay export of a locked period; and step 1's: a
+    coach swapped on one class, then the series' time changed, the class moves and keeps its coach)
+    pass in CI. ADRs for each platform piece; `CONTEXT.md` and
     `docs/architecture.md` updated.
 
 ## Dependencies
-- Stage 31a (built). ADR 0600 (issue #258, `feat/coach-desk-permissions`) merged before step 4.
+- Stage 31a (built). ADR 0600 (issue #258, PR #263): merged, so step 4 no longer waits on it.
 - 31b's time-range claim is this stage's step 2; whichever builds first builds it, and 31b's spec
   is amended to point here.
 - Nothing from stages 32b, 43 or 44. Stage 33 uses step 7.
 
 ## Migrations and numbers
-The next free block in [`parallel-work.md`](../parallel-work.md), claimed in the build's first
-commit (block AU, migrations 0790 to 0809 and ADRs 0610 to 0619, looks next free on 2026-11-23):
-`core_staff_time` and its triggers, `core_recurrence_occurrence.edited_fields`,
-`core_staff_qualification`, `core_staff_away`, `core_staff_offer` (with a guard kind),
-`core_staff_feed`, `core_staff_pay_basis`, `core_pay_period`, `core_pay_line`, the not-worked mark.
-No `x_*` table is touched by a migration. ADRs the build will need (not written until built):
+Block **AV** in [`parallel-work.md`](../parallel-work.md): migrations 0810 to 0829 and ADRs 0620 to
+0629, claimed by step 1's build (block AU, which this spec first named, went to stage 46, and stage 44
+moved to AX; AS and AT went to routine mail and ADR 0600). Step 1 used migration 0810 (`core_recurrence_exception`, a table of
+its own rather than a column on the occurrence, so each exception carries who and when) and ADR
+0620. The later steps: `core_staff_time` and its triggers, `core_staff_qualification`,
+`core_staff_away`, `core_staff_offer` (with a guard kind), `core_staff_feed`,
+`core_staff_pay_basis`, `core_pay_period`, `core_pay_line`, the not-worked mark, and step 4b's
+`core_checklist`, `core_checklist_step`, `core_checklist_run`, `core_checklist_tick` (with the
+trigger keeping a completed run unchanged). No `x_*` table is touched by a migration. ADRs:
 1. The `staffed` behaviour and the time claim (31b's time-range claim).
-2. Field-level exceptions in `recurring` (amends ADR 0500).
+2. Field-level exceptions in `recurring` (amends ADR 0500): **ADR 0620, written with step 1**.
 3. Warnings in a write's answer, and qualifications and unavailability as core.
 4. Offers and takes: the race, the cut-off.
 5. Restricted pack permissions (amends ADRs 0436, 0449 and 0600).
@@ -611,22 +753,24 @@ No `x_*` table is touched by a migration. ADRs the build will need (not written 
 7. Pay periods: the basis, the totals, the lock, the export.
 8. The Rostering pack and Bookings' additions; leaving and `staffing.forget` (amends ADR 0553's
    coach role note on what a coach reaches).
+9. Checklists: templates, runs, ticks, a completed run kept unchanged, the declaration (step 4b).
 
 ## Suggested build order
 | Step | What | Files it touches | Runs beside stages 31, 32, 43 and 44? |
 | --- | --- | --- | --- |
-| 1 | **Field-level exceptions** in `recurring` | `packages/core/src/recurring/`, `operations/recurring.ts`, a migration | **Yes, now.** Collides only with 31a step 10's import if it matches generated classes (agree the order) |
+| 1 | **Field-level exceptions** in `recurring` (**built**: ADR 0620, migration 0810, `recurring.follow`, `recurring.exceptions`) | `packages/core/src/recurring/`, `operations/recurring.ts`, a migration | Built. 31a step 10's import must write a coach that differs from its series as a field exception (ADR 0620, Consequences) |
 | 2 | **`staffed` and the time claim**: the declaration, `core_staff_time` and its trigger, warnings in the write's answer, `staffing.check`; Bookings' class declares it, `bookings.coach.user` unique | `packages/sdk` (the declaration, contract), `packages/core/src/staffing/` (new), `records/` writes (the claim in the batch), a migration, `packs/bookings/index.ts` | **Yes, now**, but **not beside 31b** (same piece: one session builds it) and agree with stage 44 step 2 on the order of `core_write_guard` migrations |
 | 3 | **Qualifications, unavailability, offers and takes, uncovered**, the host's notices, `user.deactivate`'s answer | `staffing/`, `operations/user.ts` (deactivate), notifications, a migration | After step 2. Beside 43 and 44, which do not touch these files |
-| 4 | **Permissions**: restricted pack permissions; the `rostering.team` role; the Rostering pack's spine (duties, duty series, duty shifts, tools, settings); `personApproves` on Bookings' coach fields | `pack-roles.ts`, `extensions/tools.ts`, `packages/sdk/src/manifest.ts`, `packs/rostering` (new), `packs/bookings/index.ts` | **After ADR 0600 merges** (same files). Not beside other pack-role work |
+| 4 | **Permissions**: restricted pack permissions; the `rostering.team` role; the Rostering pack's spine (duties, duty series, duty shifts with a time and a person, tools, settings); `personApproves` on Bookings' coach fields | `pack-roles.ts`, `extensions/tools.ts`, `packages/sdk/src/manifest.ts`, `packs/rostering` (new), `packs/bookings/index.ts` | ADR 0600 has merged, so after steps 2 and 3. Not beside other pack-role work |
+| 4b | **Checklists**: the templates, steps, runs and ticks, the `checklists` declaration and the `checklist` field type, the immutability trigger, the read rule (the person and rosterers only), Settings → Checklists, the duty's `checklist`, ticking on "my shifts" | `packages/core/src/checklists/` (new), `packages/sdk` (the declaration, the field type), a migration, `packs/rostering` | After step 4, beside 5 to 7: the roster does not wait for it (decision 15) |
 | 5 | **The feed** and the shared calendar writer | `apps/app/src/server/http/` (a route), `access-layout.ts`, `packages/gatekeeper-email-send/src/calendar.ts` (moved), a migration | Beside anything but stage 43 step 3 (sign-in routes) and stage 44 step 4 (the same gatekeeper files): agree the order |
 | 6 | **Pay**: the basis, periods, totals with evidence, lock, export | `staffing/pay.ts` (new), `packs/rostering` tools, a migration | Yes, after step 3 |
-| 7 | **Blocks and hooks**: the week grid, assign, patterns, qualifications, pay (web); my shifts, offers, availability, calendar, the roster (web and native); role clients with grants; `cos rostering import` | `packs/rostering/blocks`, `client/`, `packages/client` codegen (`mobile.roles`), `packages/create-composable-os` | Yes, once steps 3 and 4 are merged |
+| 7 | **Blocks and hooks**: the week grid, assign, patterns, qualifications, pay (web); my shifts, offers, availability, calendar, the roster (web and native); role clients with grants; `cos rostering import`; the checklist blocks once 4b is merged | `packs/rostering/blocks`, `client/`, `packages/client` codegen (`mobile.roles`), `packages/create-composable-os` | Yes, once steps 3 and 4 are merged |
 | 8 | **The first client**: invites, qualifications, patterns from the moved timetable, a fortnight's pay export checked by the owner | The first client's own repository | After 7, with stage 33 |
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be
-rostered safely. Steps 1 and 2 can start today; step 2 is the riskiest (every write that covers a
-shift) and gets the most careful review.
+rostered safely. Step 1 is built; step 2 can start now and is the riskiest (every write that covers
+a shift), so it gets the most careful review.
 
 ## Decided by this spec, open to override
 - **A platform behaviour and a Rostering pack**, not additions to Bookings alone (above).
@@ -638,51 +782,20 @@ shift) and gets the most careful review.
   refused.
 - **Other staff do not see anyone's unavailability.**
 - **No undo of a take**; offer it on, or a rosterer reassigns.
-- **Offers close 1 hour before a shift**; uncovered shifts are surfaced 14 days ahead.
+- **Uncovered shifts are surfaced 14 days ahead** (offers closing 1 hour before is decision 21).
+- **Checklists are the platform's, not a pack's**, a completed run never changes, and an AI never
+  ticks (decision 15's design; decisions 22 to 25 settle photos, who sees, ticking for someone and
+  the assistant).
 - **A private feed, not emailed calendar files**.
 - **Nobody sees their own pay totals through the pay tools**; pay is `rostering:pay`'s, a person
   only.
 - **A cancelled shift counts for nothing**, whoever cancelled it and however late.
 
 ## Questions for the owner
-1. **Should the system hold pay rates (an hourly rate, a rate per class)?**
-   - (a) No: it exports hours and classes, and payroll applies the rates.
-   - (b) Yes: a rate per person (and per kind), and the export shows amounts.
-   **Recommended: (a).** Rates change with awards, ages and agreements; payroll already holds them,
-   and a second copy goes wrong quietly. Amounts are added later if payroll cannot take hours.
-2. **Do cleaning shifts need a checklist, or just a time and a person?**
-   - (a) A time, a person and a short "what to do" note on the duty.
-   - (b) A checklist ticked off on each shift.
-   **Recommended: (a).** It is what was asked; a checklist is a second feature (tasks with ticks and
-   evidence) and can follow when someone needs to prove the clean was done.
-3. **Does anyone other than you roster?**
-   - (a) Only you (admins).
-   - (b) You, and named people you tick (`rostering:manage`).
-   **Recommended: (b), ticked for nobody to begin with.** The permission exists either way; it costs
-   nothing until it is given.
-4. **How far ahead is the pattern made into shifts?**
-   - (a) 8 weeks, as the classes are.
-   - (b) Further (12 or 26 weeks), so staff can plan leave against it.
-   **Recommended: (a).** Classes are already made 8 weeks ahead (or as far as booking opens); one
-   horizon for both keeps the roster whole, and the regular week is on the patterns screen.
-5. **What counts as worked for pay?**
-   - (a) The roster as corrected before the period is locked, with the class list's ticks shown as
-     evidence.
-   - (b) Only classes whose list the rostered coach ticked, plus duty shifts.
-   - (c) Clocking in and out.
-   **Recommended: (a).** Ticks are not always taken, and the coach who ticks is not always the one
-   who ran it; (c) is a new feature. The person locking the period checks the flags.
-6. **Are coaches paid for time before and after a class (setting up, packing down)?**
-   - (a) No, the class's own time.
-   - (b) Yes, a set number of minutes per class type.
-   **Recommended: tell us your rule.** The spec supports both (default 0); it only changes hours.
-7. **What is your pay period?** Weekly, fortnightly or monthly, and the day it starts.
-   **Recommended: your payroll's own.** One setting.
-8. **How close to a shift may it be offered and taken?**
-   - (a) Until 1 hour before.
-   - (b) Until 12 or 24 hours before; after that, you reassign.
-   **Recommended: (a).** It lets a coach who wakes up ill still hand a class over without calling you,
-   and you are told of every take.
+None open. The eight questions of the proposal were answered on 2026-11-23: decisions 14 to 21
+(question 1 is decision 14, question 8 is decision 21); the checklist design's four points the
+same day: decisions 22 to 25. The questions as they were put, with the
+recommendations, are in this file's history.
 
 ## Sources
 Read 2026-11-23, all in this repository: `AGENTS.md`, `CONTEXT.md`, `docs/architecture.md`,

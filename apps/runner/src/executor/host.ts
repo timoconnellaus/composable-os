@@ -132,7 +132,7 @@ export interface RunState {
     humanOnly: boolean;
     /** A person approves anyone else's call (ADR 0552). */
     personApproves?: boolean;
-    permission: string | null;
+    permission: string | readonly string[] | null;
     startedBy?: string;
   };
   /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */

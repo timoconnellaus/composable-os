@@ -108,3 +108,7 @@ type, places required); the pack's own tests (17).
   ([ADR 0552](0552-a-tool-a-person-approves.md)); the class's move is the host's and that tool's.
 - The `moved` state is entered only by the new booking's create (`movedFrom`), and before the old
   class starts ([ADR 0551](0551-staff-bound-windows-and-a-move-only-by-its-new-record.md)).
+
+## Note, 2026-11-23 (ADR 0600)
+`returnUse`'s permission is now `bookings:desk`, the front desk's (it was `bookings:returns`, which
+no role held and nobody could be granted). It stays `humanOnly`, the one person-only mechanism.

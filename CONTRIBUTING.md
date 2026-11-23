@@ -64,7 +64,8 @@ pnpm --filter @composable-os/app exec playwright test deals --project=desktop
 
 `.github/workflows/ci.yml` runs on every pull request and every push to `main`. A change that
 touches only documents (`docs/` or a Markdown file at the root) skips everything but the document
-checks. Otherwise these jobs run in parallel, each on its own runner:
+checks. Otherwise these jobs run in parallel, each on its own runner (some on Namespace, see
+below):
 
 - **Lint** and **Typecheck** (the typecheck job also builds the landing page).
 - **Unit tests**, in eight shards: core in three (vitest `--shard`), the runner, the app in two,
@@ -81,6 +82,36 @@ checks. Otherwise these jobs run in parallel, each on its own runner:
 Two jobs only gather results, and they are the names to require: **Lint, typecheck, unit tests**
 (lint, typecheck, every unit shard and the npm packages) and **E2E smoke (Playwright)** (the e2e shards and the
 control plane).
+
+### Where the jobs run
+
+CI uses two lanes ([ADR 0630](docs/adr/0630-ci-on-namespace-runners.md)), chosen in one place:
+the first step of the `changes` job ("What changed") in `ci.yml`.
+
+- **The fast lane** is the Namespace runner profile `namespace-profile-composable-os`
+  (8 vCPU, a cache volume that holds Playwright's browsers). It runs the jobs on the critical
+  path: the four e2e shards, typecheck, and the unit shards marked `critical` in
+  `scripts/ci-unit-shards.mjs`. The profile runs only eight runners at once across all runs,
+  so nothing else goes there.
+- **The standard lane** is GitHub's `ubuntu-latest`. It runs every other job (lint, the npm
+  packages, the landing page, the control plane, the other unit shards), plus the small jobs
+  that only pick lanes, check documents or gather results.
+- **Pull requests from forks run everything on `ubuntu-latest`**, always. A stranger's change
+  never spends the project's Namespace minutes and never reaches its cache volume. Pull requests
+  from this repository's branches and pushes to `main` use both lanes.
+- **Only `main` writes the cache volume.** That is set on the runner profile in the Namespace
+  account, not in the workflow. Other branches read it.
+- Turborepo's remote cache stays off: unit tests cache nothing between runs.
+- `release.yml`, `install-test.yml`, `marketing.yml`, `upstream-check.yml` and `cla.yml` run on
+  GitHub's runners. npm trusted publishing and provenance need them, and the deploy and test-account
+  tokens stay there.
+
+**If Namespace is down** (fast-lane jobs sit queued with no runner, or fail before their first
+step), set the repository variable `CI_FAST_RUNNER` to `ubuntu-latest` (Settings → Secrets and
+variables → Actions → Variables) and re-run. Every job then runs on GitHub's runners, with no
+commit. Delete the variable to go back. `CI_STANDARD_RUNNER` does the same for the standard lane.
+A shard that moves lanes, or a new shard on the critical path, is a change to
+`scripts/ci-unit-shards.mjs`: measure it first.
 
 To run one unit shard locally, exactly as CI does (`turbo run test` with its filters, so its
 packages' dependencies are type-checked first):

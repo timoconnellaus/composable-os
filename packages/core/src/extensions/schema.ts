@@ -2,6 +2,7 @@
 // built from it, and the rec_* view SQL generated from it (ADR 0023, ADR 0024).
 import type { CoreDatabase } from "@composable-os/db";
 import {
+  type AgreementsManifest,
   type AllowanceManifest,
   type CapacityManifest,
   type ClaimsManifest,
@@ -72,6 +73,8 @@ export interface ObjectDefinitionJson {
   capacity?: CapacityManifest;
   sellable?: SellableManifest;
   allowance?: AllowanceManifest;
+  /** An agreement point (stage 44, ADR 0641), as declared. */
+  agreements?: AgreementsManifest;
   states?: StatesManifest;
   claims?: ClaimsManifest;
   unique?: UniqueManifest;
@@ -1100,6 +1103,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(capacity ? { capacity } : {}),
       ...(sellable ? { sellable } : {}),
       ...(allowance ? { allowance } : {}),
+      ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
       ...claimsDefinition(object, own),
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),

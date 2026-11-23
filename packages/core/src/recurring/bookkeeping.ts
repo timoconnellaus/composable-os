@@ -67,9 +67,240 @@ export function markEditedStatement(object: string, record: string, now: string)
   );
 }
 
+// --- Field-level exceptions (stage 45 step 1, ADR 0620; migration 0810) ---------------------------
+
+/** Makes `field` the record's own: the series no longer writes it. Who and when are the latest. */
+export function setExceptionStatement(
+  object: string,
+  record: string,
+  field: string,
+  by: string,
+  now: string,
+) {
+  return CompiledQuery.raw(
+    "INSERT INTO core_recurrence_exception (object_type, record_id, field, set_by, set_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (object_type, record_id, field) DO UPDATE SET set_by = excluded.set_by, set_at = excluded.set_at",
+    [object, record, field, by, now],
+  );
+}
+
+/** The record's `field` follows its series again. */
+export function clearExceptionStatement(object: string, record: string, field: string) {
+  return CompiledQuery.raw(
+    "DELETE FROM core_recurrence_exception WHERE object_type = ? AND record_id = ? AND field = ?",
+    [object, record, field],
+  );
+}
+
+/** Every exception of a record, when the record is removed with its date's key. */
+export function clearExceptionsStatement(object: string, record: string) {
+  return CompiledQuery.raw(
+    "DELETE FROM core_recurrence_exception WHERE object_type = ? AND record_id = ?",
+    [object, record],
+  );
+}
+
+/** A record detached whole follows its series again (`recurring.follow`). */
+export function reattachStatement(object: string, record: string) {
+  return CompiledQuery.raw(
+    "UPDATE core_recurrence_occurrence SET edited_at = NULL WHERE object_type = ? AND record_id = ?",
+    [object, record],
+  );
+}
+
+// --- What one batch has queued ----------------------------------------------------------------------
+
+type Db = import("kysely").Kysely<import("@composable-os/db").CoreDatabase>;
+interface Ctx {
+  db: Db;
+  write: (...statements: CompiledQuery[]) => void;
+}
+
+/**
+ * What a batch has queued that its own later reads cannot see (ADR 0620): queued writes are not
+ * visible to reads in the same handler, so each guard and plan made later in the batch adds these
+ * to what it reads. Keyed on the context's `write`, which every context sharing the batch shares.
+ */
+export interface BatchState {
+  /** Bumps of a series' version (by the series' key). */
+  seriesBumps: Map<string, number>;
+  /** Bumps of one occurrence's version (by the record's key), with its series and date. */
+  occurrenceBumps: Map<string, { series: string; date: string; n: number }>;
+  /** A series change's bump of every occurrence of a series from a date. */
+  seriesWideBumps: { series: string; from: string }[];
+  /** Field exceptions set (true) or cleared (false), per record. */
+  exceptions: Map<string, Map<string, boolean>>;
+  /** Records detached whole. */
+  detached: Set<string>;
+  /** Values written to a record by hand. */
+  values: Map<string, Record<string, unknown>>;
+  /** A series' values as written. */
+  seriesValues: Map<string, Record<string, unknown>>;
+  /** Occurrences a series change in this batch deleted (a date removed), with their read version. */
+  removed: Map<string, { series: string; date: string; version: number }>;
+}
+
+const batches = new WeakMap<object, BatchState>();
+
+/** The key of a record (or a series) in a batch's state. */
+export const recordKey = (object: string, id: string) => `${object}\u0000${id}`;
+
+/** What this batch has queued so far. */
+export function batchOf(ctx: { write: object }): BatchState {
+  let state = batches.get(ctx.write);
+  if (!state) {
+    state = {
+      seriesBumps: new Map(),
+      occurrenceBumps: new Map(),
+      seriesWideBumps: [],
+      exceptions: new Map(),
+      detached: new Set(),
+      values: new Map(),
+      seriesValues: new Map(),
+      removed: new Map(),
+    };
+    batches.set(ctx.write, state);
+  }
+  return state;
+}
+
+/** Notes an exception set (true) or cleared (false) in this batch. */
+export function noteException(
+  ctx: { write: object },
+  key: string,
+  field: string,
+  set: boolean,
+): void {
+  const state = batchOf(ctx);
+  const fields = state.exceptions.get(key) ?? new Map<string, boolean>();
+  fields.set(field, set);
+  state.exceptions.set(key, fields);
+}
+
+/**
+ * Queues the guard that the series' version is still what was read, counting the bumps this
+ * batch queued before it, so the guard is the version the series has at that point of the batch.
+ */
+export async function guardSeries(ctx: Ctx, object: string, id: string): Promise<void> {
+  const read = await seriesVersion(ctx.db, object, id);
+  const queued = batchOf(ctx).seriesBumps.get(recordKey(object, id)) ?? 0;
+  ctx.write(guardStatement("series", object, id, read + queued));
+}
+
+/** Notes that this batch queued a bump of the series' version (armSeriesStatement). */
+export function noteSeriesBump(ctx: { write: object }, object: string, id: string): void {
+  const map = batchOf(ctx).seriesBumps;
+  const key = recordKey(object, id);
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+/** A guard on one occurrence's version, or on the sum of a series' from a date (migration 0810). */
+function recurrenceGuard(
+  kind: "occurrence" | "occurrences",
+  object: string,
+  record: string,
+  fromDate: string | null,
+  expected: number,
+) {
+  return CompiledQuery.raw(
+    "INSERT INTO core_recurrence_guard (kind, object_type, record_id, from_date, expected) VALUES (?, ?, ?, ?, ?)",
+    [kind, object, record, fromDate, expected],
+  );
+}
+
+/**
+ * A write by hand to one generated record (ADR 0620): guards that its occurrence is as read and
+ * bumps it, so a series change planned before it fails, and it fails if a series change touched it
+ * meanwhile. Edits of other records of the series do not contend with it, nor does a run.
+ */
+export async function guardAndBumpOccurrence(
+  ctx: Ctx,
+  occurrence: {
+    object: string;
+    record: string;
+    seriesObject: string;
+    seriesId: string;
+    date: string;
+    /** The version read with the occurrence row the write was planned from (not read again). */
+    version: number;
+  },
+): Promise<void> {
+  const state = batchOf(ctx);
+  const key = recordKey(occurrence.object, occurrence.record);
+  const series = recordKey(occurrence.seriesObject, occurrence.seriesId);
+  const queued =
+    (state.occurrenceBumps.get(key)?.n ?? 0) +
+    state.seriesWideBumps.filter((b) => b.series === series && occurrence.date >= b.from).length;
+  ctx.write(
+    recurrenceGuard(
+      "occurrence",
+      occurrence.object,
+      occurrence.record,
+      null,
+      occurrence.version + queued,
+    ),
+    CompiledQuery.raw(
+      "UPDATE core_recurrence_occurrence SET version = version + 1 WHERE object_type = ? AND record_id = ?",
+      [occurrence.object, occurrence.record],
+    ),
+  );
+  const entry = state.occurrenceBumps.get(key) ?? { series, date: occurrence.date, n: 0 };
+  entry.n += 1;
+  state.occurrenceBumps.set(key, entry);
+}
+
+/**
+ * A change of a series planned from its occurrences from `from` on (ADR 0620): guards that none of
+ * them was written by hand since they were read (the sum of their versions), then bumps them all,
+ * so a hand edit planned before the change fails rather than land over it.
+ */
+export async function guardAndBumpSeriesOccurrences(
+  ctx: Ctx,
+  seriesObject: string,
+  seriesId: string,
+  from: string,
+): Promise<void> {
+  const state = batchOf(ctx);
+  const series = recordKey(seriesObject, seriesId);
+  const totals = async (date: string) => {
+    const row = await ctx.db
+      .selectFrom("core_recurrence_occurrence")
+      .select((eb) => [eb.fn.sum<number>("version").as("sum"), eb.fn.countAll<number>().as("n")])
+      .where("series_object", "=", seriesObject)
+      .where("series_id", "=", seriesId)
+      .where("local_date", ">=", date)
+      .executeTakeFirst();
+    return { sum: Number(row?.sum ?? 0), n: Number(row?.n ?? 0) };
+  };
+  let expected = (await totals(from)).sum;
+  for (const bump of state.occurrenceBumps.values()) {
+    if (bump.series === series && bump.date >= from) expected += bump.n;
+  }
+  for (const bump of state.seriesWideBumps) {
+    if (bump.series === series) expected += (await totals(bump.from > from ? bump.from : from)).n;
+  }
+  // Rows an earlier change in this batch deleted count for nothing by the time this guard runs:
+  // take off what was counted for them above (their stored version and the bumps before).
+  for (const [key, gone] of state.removed) {
+    if (gone.series !== series || gone.date < from) continue;
+    expected -= gone.version + (state.occurrenceBumps.get(key)?.n ?? 0);
+    expected -= state.seriesWideBumps.filter(
+      (b) => b.series === series && gone.date >= (b.from > from ? b.from : from),
+    ).length;
+  }
+  ctx.write(
+    recurrenceGuard("occurrences", seriesObject, seriesId, from, expected),
+    CompiledQuery.raw(
+      "UPDATE core_recurrence_occurrence SET version = version + 1 WHERE series_object = ? AND series_id = ? AND local_date >= ?",
+      [seriesObject, seriesId, from],
+    ),
+  );
+  state.seriesWideBumps.push({ series, from });
+}
+
 /** The statements that delete an object's bookkeeping, when its table is dropped for good. */
 export function dropRecurringStatements(object: string): CompiledQuery[] {
   return [
+    CompiledQuery.raw("DELETE FROM core_recurrence_exception WHERE object_type = ?", [object]),
     CompiledQuery.raw(
       "DELETE FROM core_recurrence_occurrence WHERE series_object = ? OR object_type = ?",
       [object, object],

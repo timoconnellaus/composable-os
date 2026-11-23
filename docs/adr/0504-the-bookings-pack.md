@@ -183,3 +183,7 @@ priced by the class type's `dropInPrice`, else the organisation's (both a person
 booked when the payment is verified, released when the order expires; a paid one cancelled in
 time, given back or cancelled by the gym owes its money back, which a person approves.
 `paidOtherwise` is now labelled "Paid another way" (a desk payment or a drop-in).
+
+## Note, 2026-11-23 (ADR 0600)
+The desk's tools now name `bookings:desk` (grantable), `returnUse` included (it was
+`bookings:returns`); staff hold them as before, and an admin may grant them to a coach.

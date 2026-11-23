@@ -359,6 +359,7 @@ export function planFromState(
       ...(object.capacity ? { capacity: object.capacity } : {}),
       ...(object.sellable ? { sellable: object.sellable } : {}),
       ...(object.allowance ? { allowance: object.allowance } : {}),
+      ...(object.agreements ? { agreements: object.agreements } : {}),
       ...(object.states ? { states: object.states } : {}),
       ...(object.claims ? { claims: object.claims } : {}),
       ...(object.unique?.length ? { unique: object.unique } : {}),
@@ -758,6 +759,7 @@ export function planFromState(
       ...seedWrites,
       ...capacityBackfill(next, ext, now),
       ...allowanceBackfill(next, ext, orgZone, now),
+      ...exceptionCleanup(next, ext),
     ],
     changes,
     issues,
@@ -965,6 +967,26 @@ export async function planDropHidden(
  * records made before their object declared one, and seed records. Pools first, so a record's
  * counter can name its pool's. Records with counters are left alone.
  */
+/**
+ * Field exceptions (ADR 0620) of fields a series no longer copies: a field taken out of `copy` is
+ * no longer the series' to write, so an exception on it means nothing and `recurring.follow`
+ * would refuse to clear it. Deleted at each reconcile of the series' extension.
+ */
+function exceptionCleanup(state: SchemaState, ext: string): CompiledQuery[] {
+  return state.objects.flatMap((object) => {
+    const declared = object.definition.recurring;
+    if (object.extensionId !== ext || object.status !== "active" || !declared) return [];
+    const generated = `${ext}.${declared.generates}`;
+    const copied = Object.keys(declared.copy ?? {});
+    return [
+      CompiledQuery.raw(
+        `DELETE FROM core_recurrence_exception WHERE object_type = ?${copied.length ? ` AND field NOT IN (${copied.map(() => "?").join(", ")})` : ""}`,
+        [generated, ...copied],
+      ),
+    ];
+  });
+}
+
 function capacityBackfill(state: SchemaState, ext: string, now: string): CompiledQuery[] {
   const objects = state.objects.filter(
     (o) => o.extensionId === ext && o.status === "active" && o.definition.capacity,

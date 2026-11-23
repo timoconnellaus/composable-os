@@ -65,7 +65,7 @@ async function checkAccess(
   input: { role: (typeof ROLES)[number]; packRole: string | null; permissions: string[] },
 ) {
   if (input.packRole !== null) await checkPackRole(ctx, input.packRole, input.role, "packRole");
-  const permissions = await checkGrants(ctx, input.permissions, "permissions");
+  const permissions = await checkGrants(ctx, input.permissions, "permissions", input.packRole);
   return {
     role: input.packRole !== null ? ("viewer" as const) : input.role,
     pack_role: input.packRole,

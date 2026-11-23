@@ -130,3 +130,16 @@ and `apps/app/e2e/bookings.spec.ts` ("a coach ticks who came on a class's list",
 - Ticking, moving, cancelling a class and the class list are staff tools: no customer, a
   guardian included, reaches them. The coach's limit to today is a staff sign-in's; a guardian's
   scope is a customer sign-in's; the two never meet in one call.
+
+## Amendment, 2026-11-23 (issue #258, ADR 0600)
+- **The coach role does not book walk-ins or members, by default**: a coach is given the desk's
+  permission. Bookings declares `bookings:desk` (grantable) on `findPeople`, `bookFor`,
+  `cancelFor`, `move`, `returnUse` (whose permission was `bookings:returns`) and `classList`, and
+  `day` names both `bookings:coach` and `bookings:desk`. A human admin ticks it for a coach on the
+  Users page; the coach then works the desk on any day, and the coach role's own reach (`roster`,
+  the ticks, `markAll`, its reads of `bookings.class`) stays today's. A coach who also scans event
+  tickets still uses an ordinary staff role or a second account: an account holds one pack role.
+- **The limit to today binds what the coach role gives, not the account**: the pipeline carries it
+  only on a call the role allows (`roleLimitsFor`), never on one a grant allows, so it never blocks
+  the desk and a grant never lifts it off the roster or a tick. See
+  [ADR 0600](0600-a-pack-role-and-its-grants-add-up.md).

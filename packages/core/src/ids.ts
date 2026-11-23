@@ -85,6 +85,10 @@ export const ID_PREFIXES = {
   /** A family link: a guardian and a dependant (stage 31a, ADR 0540). */
   personLink: "pln",
   refundDue: "rdu",
+  /** An agreement document (stage 44, ADR 0640). */
+  agreementDocument: "agd",
+  /** A published version of an agreement document, never changed (stage 44, ADR 0640). */
+  agreementVersion: "agv",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
