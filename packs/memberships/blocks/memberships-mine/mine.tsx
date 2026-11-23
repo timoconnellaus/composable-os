@@ -258,7 +258,7 @@ export function MyMemberships({
                   >
                     Keep my membership
                   </Button>
-                ) : ending(sub) || status?.coolOff ? null : (
+                ) : ending(sub) || status?.coolOff?.open ? null : (
                   <Button
                     variant="outline"
                     disabled={busy}
@@ -283,8 +283,7 @@ export function MyMemberships({
                   >
                     Cancel for a full refund
                   </Button>
-                ) : status?.coolOff?.state === "refused" ||
-                  (status?.coolOff?.state === "asked" && status.coolOff.asked === "unknown") ? (
+                ) : status?.coolOff?.askAgain ? (
                   <Button
                     variant="outline"
                     disabled={busy}
@@ -293,7 +292,7 @@ export function MyMemberships({
                     Ask again to end it for a full refund
                   </Button>
                 ) : null}
-                {canChangePlan(sub) && !status?.coolOff && choosing !== sub.id ? (
+                {canChangePlan(sub) && !status?.coolOff?.open && choosing !== sub.id ? (
                   <Button
                     variant="outline"
                     disabled={busy}

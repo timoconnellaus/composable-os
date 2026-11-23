@@ -1373,10 +1373,12 @@ _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 The days (a Memberships setting, `coolingOffDays`; 0, the default, turns it off; a person's to
 change) in which a **new member** (a membership started here, not one moving over with a
 continuation offer, not a pass) may end their membership at once for a full refund of every period
-they paid, whatever they used. The window runs from the provider-confirmed start to the end of the
-last day in the business's time zone; the days are the longer of the setting when they joined and
-the setting now; once per member. Each refund is **owed** once the provider shows the membership
-ended, and waits for a person with `orders:refund`. Nothing is offered in a free trial (nothing
+they paid for the period, whatever they used. The window runs from the provider-confirmed start to
+the end of the last day in the business's time zone; the days are those in force when they joined,
+for good; once per member. A member asks again only inside the window. Each refund is **owed** once
+the provider shows the membership ended because of it, and waits for a person with
+`orders:refund`; an end it did not cause owes nothing as cooled off (it **lapses**). The bookings
+ahead it paid for are cancelled as the business's. Nothing is offered in a free trial (nothing
 paid: the ordinary cancel ends it). What the law asks is the business's to confirm.
 _Avoid_: trial (a plan's free first days), grace period, cancellation (which ends it at the
 period's end, with no refund)

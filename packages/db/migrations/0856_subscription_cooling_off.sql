@@ -7,9 +7,9 @@
 -- what any law requires.
 --
 -- 1. The days in force when the subscription was started (`subscription.start`), kept on its
---    checkout: a setting shortened or turned off later never shortens the window of someone
---    who started under it (the host takes the longer of this and the setting now). Null: started
---    before this migration, or a plan that has no cooling off.
+--    checkout: they are the subscription's days for good. A setting changed later, shorter or
+--    longer, applies only to subscriptions started after it. Null: started before this migration
+--    (0 days), or a plan that has no cooling off.
 ALTER TABLE core_subscription_checkout ADD COLUMN cooling_off_days INTEGER
   CHECK (cooling_off_days IS NULL OR cooling_off_days >= 0);
 
@@ -23,10 +23,15 @@ ALTER TABLE core_subscription_checkout ADD COLUMN cooling_off_days INTEGER
 --
 --   asked     the provider was (or is about to be) asked to end it now; `call_outcome` says
 --             what came of the call: sent, pending (an approval at the gatekeeper), unknown (it
---             may or may not have reached the provider: its next event decides), or null (the
---             Worker stopped between the commit and the call)
---   refused   the provider refused the call: nothing ended. Asked again by the member or staff
---   ended     the provider showed the subscription ended: the refunds are owed
+--             may or may not have reached the provider), or null (the Worker stopped between the
+--             commit and the call). A null or unknown one is resolved by the minute cron's sweep
+--             (it reads the provider, and asks again while the window is open)
+--   refused   the provider refused the call: nothing ended. Asked again by the member while the
+--             window is open, after it by staff only
+--   ended     the provider ended it, within a short time of the last ask: the refunds are owed,
+--             for what was paid up to the window's end and between that ask and the end
+--   lapsed    it ended some other way (an ordinary cancel, failed payments, months later):
+--             nothing is owed as cooled off, and admins are told
 --
 -- No address, name or free text: the holder is held only so a person cools off once (below), and
 -- goes with them on erase (the foreign key) or to the survivor on a merge.
@@ -41,15 +46,24 @@ CREATE TABLE core_subscription_cool_off (
   -- The days that applied and the moment the window closed (the end of the last local day).
   days INTEGER NOT NULL CHECK (days > 0),
   window_ends_at TEXT NOT NULL,
-  state TEXT NOT NULL CHECK (state IN ('asked', 'refused', 'ended')),
+  state TEXT NOT NULL CHECK (state IN ('asked', 'refused', 'ended', 'lapsed')),
   call_outcome TEXT CHECK (call_outcome IS NULL OR call_outcome IN ('sent', 'pending', 'unknown')),
+  -- The first ask (inside the window), and the latest (a retry, or staff finishing it).
   asked_at TEXT NOT NULL,
+  last_asked_at TEXT NOT NULL,
+  -- When the provider ended it (its read), once `ended` or `lapsed`.
   ended_at TEXT,
+  -- When admins were told it is stuck (refused, unanswered): the member's screen says so only then.
+  told_at TEXT,
   updated_at TEXT NOT NULL
 );
 
 CREATE INDEX core_subscription_cool_off_holder_idx
   ON core_subscription_cool_off (holder_person_id);
+
+-- The minute cron's sweep: asks whose answer was lost or never made, oldest first.
+CREATE INDEX core_subscription_cool_off_sweep_idx
+  ON core_subscription_cool_off (state, told_at, updated_at);
 
 -- 3. Once per person (the coordinator's conservative reading of a spec that is silent on it):
 --    a holder who has cooled off one membership here cannot cool off another (subscribe, use the
@@ -78,10 +92,10 @@ BEGIN
     THEN RAISE(ABORT, 'core_cool_off_used') END;
 END;
 
--- An ended cooling off is final: its refunds are owed.
+-- An ended or lapsed cooling off is final.
 CREATE TRIGGER core_subscription_cool_off_final
 BEFORE UPDATE OF state ON core_subscription_cool_off
-WHEN OLD.state = 'ended' AND NEW.state != 'ended'
+WHEN OLD.state IN ('ended', 'lapsed') AND NEW.state != OLD.state
 BEGIN
   SELECT RAISE(ABORT, 'core_cool_off_final');
 END;

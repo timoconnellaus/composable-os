@@ -19,11 +19,14 @@ import { type ExtensionManifest, validateManifest } from "@composable-os/sdk";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   type ActingUser,
+  applyStoredPaymentEvent,
+  COOL_OFF_RELEASE_MAX,
   coolingOffWindow,
   memoryEventSink,
   type PaymentsEvent,
   type ProviderInvoice,
   type ProviderSubscription,
+  recordPaymentEvent,
   runRefundsDue,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
@@ -56,6 +59,7 @@ const grants = {
     plan: "item",
     subscription: "subscription",
     title: "item.title",
+    uses: "item.uses",
   },
   from: "from",
   until: "until",
@@ -99,6 +103,7 @@ function fixture(id: string): ExtensionManifest {
           title: { type: "text", label: "Title", required: true },
           price: { type: "currency", label: "Price", currency: CURRENCY },
           trialDays: { type: "number", label: "Trial days" },
+          uses: { type: "number", label: "Uses" },
           pauseMin: { type: "number", label: "Shortest pause" },
           pauseMax: { type: "number", label: "Longest pause" },
           status: status(),
@@ -137,6 +142,7 @@ function fixture(id: string): ExtensionManifest {
           person: { type: "relation", label: "Member", to: "person", readOnly: true },
           plan: { type: "relation", label: "Plan", to: `${id}.plan`, readOnly: true },
           subscription: { type: "text", label: "Subscription", readOnly: true },
+          uses: { type: "number", label: "Uses", readOnly: true },
           from: { type: "datetime", label: "From", readOnly: true },
           until: { type: "datetime", label: "Until", readOnly: true },
           status: {
@@ -158,6 +164,74 @@ function fixture(id: string): ExtensionManifest {
           ],
         },
         customer: { field: "person", read: ["title", "status"], write: [] },
+        allowance: {
+          holds: {
+            person: "person",
+            uses: "uses",
+            per: "week",
+            from: "from",
+            until: "until",
+            live: ["trialing", "active", "past_due"],
+            emptyIsUnlimited: true,
+            spendsOn: { object: "visit" },
+          },
+        },
+      },
+      // A class with places, and a visit to it that a membership pays for: Bookings' shape.
+      klass: {
+        label: "Class",
+        plural: "Classes",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name", required: true },
+          startsAt: { type: "datetime", label: "Starts", required: true },
+          places: { type: "number", label: "Places" },
+        },
+        capacity: { places: "places", show: "exact" },
+      },
+      visit: {
+        label: "Visit",
+        plural: "Visits",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name", required: true },
+          person: { type: "relation", label: "Person", to: "person" },
+          klass: { type: "relation", label: "Class", to: `${id}.klass`, required: true },
+          holder: { type: "text", label: "Paid by" },
+          state: {
+            type: "select",
+            label: "State",
+            options: ["booked", "attended", "cancelled", "cancelled_by_us"].map((value) => ({
+              value,
+              label: value,
+            })),
+          },
+        },
+        states: {
+          field: "state",
+          initial: "booked",
+          moves: [
+            { from: "booked", to: "attended", by: ["staff"] },
+            { from: "booked", to: "cancelled", by: ["staff"], final: true },
+            {
+              from: ["booked", "attended"],
+              to: "cancelled_by_us",
+              by: ["host"],
+              final: true,
+            },
+          ],
+        },
+        claims: { on: "klass", held: [], confirmed: ["booked", "attended"] },
+        allowance: {
+          spends: {
+            person: "person",
+            holder: "holder",
+            spendIn: ["booked"],
+            returnIn: ["cancelled", "cancelled_by_us"],
+            at: "klass.startsAt",
+            released: "cancelled_by_us",
+          },
+        },
       },
     },
   });
@@ -310,14 +384,66 @@ const cancels = (id: string) =>
   gw.changes.filter((c) => c.method === "cancelSubscription" && c.request.subscriptionId === id);
 
 /** The provider ends it now, as it does once asked (a verified read). */
-const ended = (id: string, overrides: Partial<ProviderSubscription> = {}) =>
-  deliver(
+/**
+ * The provider ends it (a verified read), by default a minute after the cooling off's last ask
+ * (the provider ends it at once when asked), else now.
+ */
+async function ended(id: string, overrides: Partial<ProviderSubscription> = {}) {
+  const asked = await env.DB.prepare(
+    "SELECT last_asked_at FROM core_subscription_cool_off WHERE subscription_id = ?",
+  )
+    .bind(id)
+    .first<{ last_asked_at: string }>();
+  const when = asked
+    ? new Date(Date.parse(asked.last_asked_at) + 60_000).toISOString()
+    : new Date().toISOString();
+  return deliver(
     "deleted",
-    read(id, {
-      status: "canceled",
-      canceledAt: new Date().toISOString(),
-      endedAt: new Date().toISOString(),
-      ...overrides,
+    read(id, { status: "canceled", canceledAt: when, endedAt: when, ...overrides }),
+  );
+}
+
+/** A renewal paid for the period starting `n` months (of 30 days) after START. */
+const renew = (id: string, n: number, amount = 3000) =>
+  deliver(
+    "invoice_paid",
+    read(id),
+    invoice({
+      amountPaid: amount,
+      amountDue: amount,
+      periodStart: new Date(Date.parse(START) + n * 30 * DAY).toISOString(),
+      periodEnd: new Date(Date.parse(START) + (n + 1) * 30 * DAY).toISOString(),
+    }),
+  );
+
+async function coolOffRow(id: string) {
+  return env.DB.prepare("SELECT * FROM core_subscription_cool_off WHERE subscription_id = ?")
+    .bind(id)
+    .first<Record<string, unknown>>();
+}
+
+async function noticeCount(prefix: string) {
+  return (
+    (
+      await env.DB.prepare(
+        "SELECT count(*) AS n FROM core_notifications WHERE substr(dedupe_key, 1, ?) = ?",
+      )
+        .bind(prefix.length, prefix)
+        .first<{ n: number }>()
+    )?.n ?? 0
+  );
+}
+
+const sweep = (clock: () => Date) =>
+  run<{ resolved: number; asked: number; told: number; unread: number }>(
+    "subscription.coolOffSweep",
+    {},
+    context(admin, {
+      actor: "automation",
+      origin: { surface: "system", automationId: "system.orders" },
+      integrations: runtime,
+      events,
+      clock,
     }),
   );
 
@@ -586,7 +712,7 @@ describe("who it covers", () => {
     });
   });
 
-  it("keeps the days in force at the start: shortening never shortens, lengthening lengthens", async () => {
+  it("keeps the days in force at the start, for good: a later change applies only to later starts", async () => {
     const early = await member("early"); // started at 14
     await setDays(0);
     try {
@@ -595,12 +721,20 @@ describe("who it covers", () => {
       const late = await member("late"); // started with none
       expect(await statusOf(late.buyer, late.id, day(13))).toMatchObject({ why: "off" });
       await setDays(30);
-      // The longer of the two for each member.
-      expect(await statusOf(late.buyer, late.id, day(29))).toMatchObject({
-        offered: true,
-        days: 30,
+      // A raise reopens nobody's window: each keeps the days it started with.
+      expect(await statusOf(late.buyer, late.id, day(10))).toMatchObject({
+        offered: false,
+        why: "off",
+        days: 0,
       });
-      expect(await statusOf(early.buyer, early.id, day(29))).toMatchObject({
+      expect(await statusOf(early.buyer, early.id, day(20))).toMatchObject({
+        offered: false,
+        why: "window_passed",
+        days: 14,
+      });
+      // A member who starts after the raise has 30.
+      const later = await member("later");
+      expect(await statusOf(later.buyer, later.id, day(29))).toMatchObject({
         offered: true,
         days: 30,
       });
@@ -792,31 +926,182 @@ describe("who may", () => {
 });
 
 describe("the payment provider", () => {
-  it("lost answer: asked, staff told, the member not told it ended; asked again it is sent once", async () => {
+  it("lost answer: asked, staff told, the member not told it ended; asked again inside the window it is sent once", async () => {
     const { buyer, id } = await member("lost");
     gw.nextCancel = "throw";
     expect(await coolOff(buyer, id, day(3))).toMatchObject({ state: "asked", asked: "unknown" });
     expect((await statusOf(buyer, id, day(3))).coolOff).toMatchObject({
       state: "asked",
       asked: "unknown",
+      askAgain: true,
+      open: true,
+      staffTold: true,
     });
     expect(await subscriptionState(id)).toBe("active");
-    const key = `subscription.cool_off:unknown:${id}:`;
-    const told = await env.DB.prepare(
-      "SELECT count(*) AS n FROM core_notifications WHERE substr(dedupe_key, 1, ?) = ?",
-    )
-      .bind(key.length, key)
-      .first<{ n: number }>();
-    expect(told?.n).toBeGreaterThan(0);
-    // Asked again (after the window, even: it was asked inside it): sent.
-    expect(await coolOff(buyer, id, day(20))).toMatchObject({ asked: "sent" });
-    // Asked a third time: nothing more is asked of the provider.
-    expect(await coolOff(buyer, id, day(20))).toMatchObject({ asked: "sent" });
+    expect(await noticeCount(`subscription.cool_off:unknown:${id}`)).toBeGreaterThan(0);
+    // Asked again inside the window: sent; a third time asks nothing more.
+    expect(await coolOff(buyer, id, day(5))).toMatchObject({ asked: "sent" });
+    expect(await coolOff(buyer, id, day(5))).toMatchObject({ asked: "sent" });
     expect(cancels(id)).toHaveLength(2);
     await ended(id);
-    expect((await coolOff(buyer, id, day(21))).state).toBe("ended");
+    expect((await coolOff(buyer, id, day(6))).state).toBe("ended");
     expect(cancels(id)).toHaveLength(2);
     expect((await owed(id)).map((r) => r.paid)).toEqual([3000]);
+  });
+
+  it("refused in the window, renewals paid: the member cannot ask months later; staff finish it and only the window's payments are owed", async () => {
+    const { buyer, id } = await member("p1");
+    gw.nextCancel = "refused";
+    await refusal(coolOff(buyer, id, day(3)));
+    for (let n = 1; n <= 5; n += 1) await renew(id, n);
+    // Day 180: the member's ask is refused (the window passed); the ordinary cancel is back.
+    const late = await statusOf(buyer, id, day(180));
+    expect(late.coolOff).toMatchObject({ state: "refused", askAgain: false, open: false });
+    expect(late.refund).toBe(3000);
+    expect((await refusal(coolOff(buyer, id, day(180)))).details).toMatchObject({
+      reason: "window_passed",
+    });
+    expect(cancels(id)).toHaveLength(1);
+    // Staff finish what the member asked in time: only the first period (paid in the window).
+    const staffStatus = await run<{ items: Status[] }>(
+      "subscription.coolingOff",
+      { ids: [id] },
+      staff({ clock: day(180) }),
+    );
+    expect(staffStatus.items[0]?.coolOff).toMatchObject({ askAgain: true });
+    expect(await run("subscription.coolOff", { id }, staff({ clock: day(180) }))).toMatchObject({
+      asked: "sent",
+      refund: 3000,
+    });
+    await ended(id);
+    expect((await owed(id)).map((r) => r.paid)).toEqual([3000]);
+    expect((await coolOffRow(id))?.state).toBe("ended");
+  });
+
+  it("an end that is not the cooling off's (failed payments, an ordinary cancel, months later) owes nothing: it lapses and admins are told", async () => {
+    const { buyer, id } = await member("p2");
+    gw.nextCancel = "throw";
+    await coolOff(buyer, id, day(3));
+    for (let n = 1; n <= 4; n += 1) await renew(id, n);
+    // Months later the provider ends it, its retries run out.
+    await ended(id, {
+      endReason: "payment_failed",
+      endedAt: new Date(Date.parse(START) + 150 * DAY).toISOString(),
+    });
+    expect(await owed(id)).toEqual([]);
+    expect(await coolOffRow(id)).toMatchObject({ state: "lapsed" });
+    expect(await noticeCount(`subscription.cool_off_lapsed:${id}`)).toBeGreaterThan(0);
+    expect((await statusOf(buyer, id, day(151))).coolOff).toMatchObject({
+      state: "lapsed",
+      open: false,
+      askAgain: false,
+    });
+    // A lapsed one is final: asking again is refused, naming nobody.
+    expect((await refusal(coolOff(buyer, id, day(151)))).details).toMatchObject({
+      reason: "ended",
+    });
+  });
+
+  it("a crash between the commit and the call: no notice, the member is not told staff know; the sweep reads the provider and asks again once", async () => {
+    const { buyer, id } = await member("crash");
+    // The row the operation's batch commits, and nothing after it (the Worker stopped).
+    const asked = day(3)().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO core_subscription_cool_off (subscription_id, holder_person_id, asked_by, days, window_ends_at, state, asked_at, last_asked_at, updated_at) VALUES (?, ?, 'payer', 14, ?, 'asked', ?, ?, ?)",
+    )
+      .bind(id, buyer.principal.personId, ENDS_14, asked, asked, asked)
+      .run();
+    expect(await noticeCount(`subscription.cool_off:`)).toBeGreaterThanOrEqual(0);
+    const now = await statusOf(buyer, id, day(3));
+    expect(now.coolOff).toMatchObject({
+      asked: null,
+      staffTold: false,
+      askAgain: true,
+      open: true,
+    });
+    // Too soon for the sweep: nothing.
+    expect(await sweep(at(asked, 60_000))).toMatchObject({ asked: 0, resolved: 0 });
+    // The provider still has it running: asked again, once, even if the sweep runs twice.
+    gw.providerReads.set(`fsub_${id}`, { ...read(id) });
+    expect(await sweep(at(asked, 10 * 60_000))).toMatchObject({ asked: 1 });
+    expect(await sweep(at(asked, 11 * 60_000))).toMatchObject({ asked: 0, resolved: 0 });
+    expect(cancels(id)).toHaveLength(1);
+    expect((await coolOffRow(id))?.call_outcome).toBe("sent");
+
+    // Another: the provider had ended it (the call went through before the crash): resolved, no ask.
+    const b = await member("crash-ended");
+    await env.DB.prepare(
+      "INSERT INTO core_subscription_cool_off (subscription_id, holder_person_id, asked_by, days, window_ends_at, state, asked_at, last_asked_at, updated_at) VALUES (?, ?, 'payer', 14, ?, 'asked', ?, ?, ?)",
+    )
+      .bind(b.id, b.buyer.principal.personId, ENDS_14, asked, asked, asked)
+      .run();
+    gw.providerReads.set(`fsub_${b.id}`, { ...read(b.id, { status: "canceled" }) });
+    expect(await sweep(at(asked, 10 * 60_000))).toMatchObject({ resolved: 1, asked: 0 });
+    expect(cancels(b.id)).toHaveLength(0);
+
+    // A third, found only after the window: admins told once, never asked.
+    const c = await member("crash-late");
+    await env.DB.prepare(
+      "INSERT INTO core_subscription_cool_off (subscription_id, holder_person_id, asked_by, days, window_ends_at, state, asked_at, last_asked_at, updated_at) VALUES (?, ?, 'payer', 14, ?, 'asked', ?, ?, ?)",
+    )
+      .bind(c.id, c.buyer.principal.personId, ENDS_14, asked, asked, asked)
+      .run();
+    gw.providerReads.set(`fsub_${c.id}`, { ...read(c.id) });
+    expect(await sweep(day(20))).toMatchObject({ told: 1, asked: 0 });
+    expect(await sweep(day(21))).toMatchObject({ told: 0, asked: 0 });
+    expect(await noticeCount(`subscription.cool_off:stuck:${c.id}`)).toBeGreaterThan(0);
+    expect(cancels(c.id)).toHaveLength(0);
+    expect((await statusOf(c.buyer, c.id, day(20))).coolOff).toMatchObject({ staffTold: true });
+  });
+
+  it("asked again after the holder cooled off another membership: refused as used, never an internal error", async () => {
+    const a = await member("p5");
+    gw.nextCancel = "refused";
+    await refusal(coolOff(a.buyer, a.id, day(2)));
+    const again = await run<{ subscriptionId: string }>(
+      "subscription.start",
+      { plan: { object: PLAN, id: thirty }, returnUrl: RETURN },
+      as(a.buyer),
+    );
+    await confirm(again.subscriptionId);
+    expect(await coolOff(a.buyer, again.subscriptionId, day(3))).toMatchObject({ asked: "sent" });
+    const refused = await refusal(coolOff(a.buyer, a.id, day(4)));
+    expect(refused.code).toBe("conflict");
+    expect(refused.details).toMatchObject({ reason: "used" });
+    // The first's ordinary cancel is back: nothing is under way on it.
+    expect((await statusOf(a.buyer, a.id, day(4))).coolOff).toMatchObject({
+      askAgain: false,
+    });
+  });
+
+  it("an order partly refunded by staff owes only the rest", async () => {
+    const { buyer, id } = await member("partly");
+    const order = await env.DB.prepare(
+      "SELECT id FROM core_order WHERE subscription_id = ? ORDER BY created_at LIMIT 1",
+    )
+      .bind(id)
+      .first<{ id: string }>();
+    // Staff refund 1000 of the 3000 from the order, a person approves, the provider confirms.
+    const asked = await run<{ refunds: { pendingActionId: string | null }[] }>(
+      "order.refund",
+      { id: order?.id, amount: 1000, reason: "A class we cancelled" },
+      staff(),
+    );
+    await run(
+      "approval.approve",
+      { actionIds: asked.refunds.map((r) => r.pendingActionId) },
+      staff(),
+    );
+    await payments.providerRefunds(gw.action);
+    expect((await statusOf(buyer, id, day(2))).refund).toBe(2000);
+    expect(await coolOff(buyer, id, day(2))).toMatchObject({ refund: 2000 });
+    await ended(id);
+    expect((await owed(id)).map((r) => [r.paid, r.refunded])).toEqual([[3000, 1000]]);
+    // The refund the cron asks for is what is left on the order.
+    await runRefundsDue(db, { integrations: runtime });
+    const last = [...gw.refunds.values()].filter((r) => r.orderId === order?.id);
+    // Staff's own 1000, then the 2000 the cooling off owes.
+    expect(last.map((r) => r.amount)).toEqual([1000, 2000]);
   });
 
   it("refused: nothing ended, nothing owed, staff told, asked again; refused as already ended, it counts", async () => {
@@ -846,6 +1131,91 @@ describe("the payment provider", () => {
     const both = await Promise.allSettled([coolOff(buyer, id, day(3)), coolOff(buyer, id, day(3))]);
     expect(both.filter((r) => r.status === "fulfilled").length).toBeGreaterThanOrEqual(1);
     expect(cancels(id)).toHaveLength(1);
+  });
+});
+
+describe("bookings ahead (coordinator's decision, owner asked)", () => {
+  it("are cancelled as the business's when the membership ends by cooling off: places freed, uses back; one attended stands", async () => {
+    const { buyer, id } = await member("bookings");
+    const person = buyer.principal.personId;
+    const klass = await create(`${GYM}.klass`, {
+      name: "Ahead",
+      startsAt: new Date(Date.now() + 3 * DAY).toISOString(),
+      places: 5,
+    });
+    const visit = (name: string) =>
+      create(`${GYM}.visit`, { name, person, klass, state: "booked" });
+    const ahead = await visit("Booked ahead");
+    const ticked = await visit("Ticked");
+    await run(
+      "record.update",
+      { object: `${GYM}.visit`, id: ticked, values: { state: "attended" } },
+      context(admin),
+    );
+    const taken = async () =>
+      (
+        await env.DB.prepare(
+          "SELECT held + taken AS n FROM core_capacity WHERE object_type = ? AND record_id = ?",
+        )
+          .bind(`${GYM}.klass`, klass)
+          .first<{ n: number }>()
+      )?.n ?? 0;
+    expect(await taken()).toBe(2);
+    await coolOff(buyer, id, day(2));
+    // Not before the provider ends it.
+    expect(
+      (
+        await run<{ values: Record<string, unknown> }>(
+          "record.get",
+          { object: `${GYM}.visit`, id: ahead },
+          context(admin),
+        )
+      ).values.state,
+    ).toBe("booked");
+    await ended(id);
+    const stateOf = async (visitId: string) =>
+      (
+        await run<{ values: Record<string, unknown> }>(
+          "record.get",
+          { object: `${GYM}.visit`, id: visitId },
+          context(admin),
+        )
+      ).values.state;
+    expect(await stateOf(ahead)).toBe("cancelled_by_us");
+    expect(await stateOf(ticked)).toBe("attended");
+    expect(await taken()).toBe(1);
+    const open = await env.DB.prepare(
+      "SELECT spender_id FROM core_allowance_use WHERE spender_id IN (?, ?) AND returned_at IS NULL",
+    )
+      .bind(ahead, ticked)
+      .all<{ spender_id: string }>();
+    expect(open.results.map((r) => r.spender_id)).toEqual([ticked]);
+    expect(await noticeCount(`subscription.cooled_off:${id}`)).toBeGreaterThan(0);
+  });
+
+  it("are kept when the membership ends any other way", async () => {
+    const { buyer, id } = await member("kept");
+    const klass = await create(`${GYM}.klass`, {
+      name: "Ahead too",
+      startsAt: new Date(Date.now() + 3 * DAY).toISOString(),
+      places: 5,
+    });
+    const ahead = await create(`${GYM}.visit`, {
+      name: "Booked",
+      person: buyer.principal.personId,
+      klass,
+      state: "booked",
+    });
+    await ended(id);
+    expect(
+      (
+        await run<{ values: Record<string, unknown> }>(
+          "record.get",
+          { object: `${GYM}.visit`, id: ahead },
+          context(admin),
+        )
+      ).values.state,
+    ).toBe("booked");
   });
 });
 
@@ -941,15 +1311,109 @@ describe("cost (D1's 1,000 statements per invocation)", () => {
     await run("subscription.coolOff", { id: many.id }, { ...as(many.buyer, day(3)), db: counted });
     expect(queries).toBeLessThan(40);
     // The event that ends it owes every paid period in one statement.
+    const coolOffQueries = queries;
+    // The event that ends it: every paid period owed in one statement, whatever their number.
+    const endAt = new Date(Date.parse(day(3)().toISOString()) + 60_000).toISOString();
+    const key = await recordPaymentEvent(
+      db,
+      {
+        kind: "subscription",
+        provider: "fake",
+        eventId: `fevt_${unique("s")}`,
+        trigger: "deleted",
+        subscription: read(many.id, { status: "canceled", endedAt: endAt, canceledAt: endAt }),
+        occurredAt: new Date().toISOString(),
+      },
+      payments.connectionId(),
+      new Date().toISOString(),
+    );
     queries = 0;
-    await payments.deliver({
-      kind: "subscription",
-      provider: "fake",
-      eventId: `fevt_${unique("s")}`,
-      trigger: "deleted",
-      subscription: read(many.id, { status: "canceled", endedAt: new Date().toISOString() }),
-      occurredAt: new Date().toISOString(),
-    });
+    await applyStoredPaymentEvent(
+      { crm: counted, integrations: runtime, events, appOrigin: "https://crm.example.com" },
+      key as NonNullable<typeof key>,
+    );
+    const endQueries = queries;
     expect((await owed(many.id)).length).toBe(13);
+    expect(endQueries).toBeLessThan(80);
+    // Reported in the PR: the statements each costs.
+    console.log("cooling off statements", {
+      status: one,
+      coolOff: coolOffQueries,
+      end: endQueries,
+    });
+  });
+
+  it("releasing bookings ahead stays under the limit at the most it releases in one batch", async () => {
+    let queries = 0;
+    const metered = new Proxy(env.DB, {
+      get(target, prop) {
+        if (prop === "prepare") {
+          return (query: string) => {
+            const wrap = (stmt: D1PreparedStatement): D1PreparedStatement =>
+              new Proxy(stmt, {
+                get(s, p) {
+                  if (p === "bind") return (...args: unknown[]) => wrap(s.bind(...args));
+                  if (p === "all" || p === "run" || p === "first" || p === "raw") queries += 1;
+                  const value = Reflect.get(s, p);
+                  return typeof value === "function" ? value.bind(s) : value;
+                },
+              });
+            return wrap(target.prepare(query));
+          };
+        }
+        if (prop === "batch") {
+          return (statements: D1PreparedStatement[]) => {
+            queries += statements.length;
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const counted = createCrmDb(metered);
+    /** The statements the provider's end costs for a cooled-off member with `n` bookings ahead. */
+    const endWith = async (n: number) => {
+      const { buyer, id } = await member(`release-${n}`);
+      for (let i = 0; i < n; i += 1) {
+        const klass = await create(`${GYM}.klass`, {
+          name: `Ahead ${i}`,
+          startsAt: new Date(Date.now() + (3 + i) * DAY).toISOString(),
+          places: 5,
+        });
+        await create(`${GYM}.visit`, {
+          name: `Booked ${i}`,
+          person: buyer.principal.personId,
+          klass,
+          state: "booked",
+        });
+      }
+      await coolOff(buyer, id, day(2));
+      const endAt = new Date(Date.parse(day(2)().toISOString()) + 60_000).toISOString();
+      const key = await recordPaymentEvent(
+        db,
+        {
+          kind: "subscription",
+          provider: "fake",
+          eventId: `fevt_${unique("s")}`,
+          trigger: "deleted",
+          subscription: read(id, { status: "canceled", endedAt: endAt, canceledAt: endAt }),
+          occurredAt: new Date().toISOString(),
+        },
+        payments.connectionId(),
+        new Date().toISOString(),
+      );
+      queries = 0;
+      await applyStoredPaymentEvent(
+        { crm: counted, integrations: runtime, events, appOrigin: "https://crm.example.com" },
+        key as NonNullable<typeof key>,
+      );
+      return queries;
+    };
+    const none = await endWith(0);
+    const three = await endWith(3);
+    const each = Math.ceil((three - none) / 3);
+    console.log("cooling off release statements", { none, three, each });
+    expect(none + each * COOL_OFF_RELEASE_MAX).toBeLessThan(1000);
   });
 });

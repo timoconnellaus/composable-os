@@ -1719,7 +1719,7 @@ order, `payment_ref` null, and approved by a person with `orders:refund`):
 | Case | What is owed |
 | --- | --- |
 | Paid periods before it ended | Each, in full |
-| A period the provider charged as it ended, reported after | That one too, by its own event's batch |
+| A period the provider charged as it ended, reported after | That one too, if its period started in the window or between the ask and the end |
 | An upgrade inside the window | Its prorated charge too (an order of the subscription); the window does not move |
 | A downgrade inside the window | Nothing more (it moves no money); the window does not move |
 | A pause inside the window | What was paid before it; the window does not move |
@@ -1736,10 +1736,10 @@ Deviations and decisions, and why:
   repeat). Conservative: a holder who cooled off one membership here cannot cool off another,
   held by the database on insert (so a merge or an erase is never refused). Per holder, not per
   payer: a parent with two children may cool off each child's once.
-- **The days are the longer of the setting at the start and now** (the coordinator's conservative
-  reading): kept on the checkout, so shortening or turning it off never shortens anyone's window,
-  and lengthening it lengthens everyone's. The spec says the terms state the period; they are the
-  business's text, so the host keeps the number it held when they agreed.
+- **The days are those at the start, for good** (as amended after the review, below): kept on the
+  checkout, so a later change, shorter or longer, applies only to later starts. The spec says the
+  terms state the period; they are the business's text, so the host keeps the number it held when
+  they agreed.
 - **The window ends at the end of the last local day** (the start's day being day 0), not at the
   same time of day: "within 14 days" read generously, and a clock change moves nothing. Day 13 is
   inside and day 15 outside, as criterion 12 says; day 14 is inside.
@@ -1749,16 +1749,53 @@ Deviations and decisions, and why:
   second ask racing the first can never mark a real cooling off refused and lose its refunds.
 - **The app shows, the web acts** (ADR 0490): the native block says until when and that it is
   done on the website, with no amounts (it is `noPurchase`); only the web block has the button.
-- **Bookings ahead are not cancelled**: the spec says they follow a membership ended at once,
-  which today keeps them. Asked of the owner (ADR 0647).
-- **A refused cooling off owes nothing**, even if the subscription ends later another way; it is
-  asked again by the member or staff, and after the window too once asked inside it.
+- **Bookings ahead are cancelled as the business's** (as amended after the review, below).
+- **A refused cooling off owes nothing**, even if the subscription ends later another way.
 
 Not built here: signing at the desk (step 6), stage 43's consent (step 9). Not verified: the real
 payments gatekeeper's `cancelSubscription { when: "now" }` against Stripe in test mode (the host
 is tested with the payments double, the e2e with the fake provider); the closing instant in the
 e2e (the host's clock cannot be moved from a browser: both sides of it, across a clock change,
 are in `packages/core/test/subscription-cooling-off.test.ts`); the native block on a phone.
+
+### Step 7: after the review of PR #299 (2026-11-24)
+
+Fixed in the same PR (ADR 0647 rewritten to match; migration 0856 edited in place, as it was not
+on `main`):
+
+1. **A cooling off that did not end the subscription owed back months of use** (the blocker). Now:
+   what is owed is only the orders for periods up to the window's end, plus any paid between the
+   latest ask and the end it caused; a member asks again only inside the window, after it only
+   staff with `subscriptions:manage` finish one asked in time; only an end within two days of the
+   latest ask is the cooling off's, and any other (an ordinary cancel, failed payments, months
+   later) makes it `lapsed`: nothing owed as cooled off, admins told once. The ordinary cancel is
+   shown again once one has lapsed or been refused past the window. The member's "a full refund
+   of X" is exactly that rule.
+2. **A crash between the commit and the call** wrote no notice and left billing running. The
+   minute cron's sweep (`subscription.coolOffSweep`, a host step, bounded, one read when idle)
+   reads the provider first, asks again while the window is open, else tells admins once. The
+   screens treat null like unknown and say admins were told only when they were.
+3. **Asking again after the holder cooled off another membership** is refused as `used` (the
+   trigger's message is a conflict too), never an internal error.
+4. **Raising the setting reopened closed windows**: the days are those at the start, for good
+   (coordinator's decision, the owner being asked).
+5. **Bookings ahead** (coordinator's decision, the owner being asked): the end the cooling off
+   caused cancels the member's bookings ahead that the membership paid for, as the business's
+   (`cancelled_by_us`), freeing places for the waiting list and giving uses back; attended and
+   late-cancelled ones stand. Platform: `allowance.spends.released` on the spender (checked by the
+   contract), declared by Bookings; at most 60 a batch (measured about 11 statements a booking on
+   36 for the end), staff told of any left.
+6. Tests for a partly refunded order (only the rest owed), the crash and the sweep (resolve,
+   re-ask once, tell once after the window), the after-window staff finish, the lapse, `used` on
+   the existing row, the raise, and the bookings released and kept.
+7. The e2e puts the setting back to what it was; ADR 0647 records the window's start (the host's
+   processing of the first event), the fixed idempotency key, the missing dispute model, and that
+   any pack may declare `coolingOff`.
+8. The site's copy says "once" and excludes members moving over.
+
+Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
+36 plus about 11 for each booking released. cos-runner's main module after these fixes is given in
+the PR.
 
 ## Step 8: build notes (`feat/stage-44-erase`, 2026-11-23)
 

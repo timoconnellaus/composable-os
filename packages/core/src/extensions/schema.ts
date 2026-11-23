@@ -747,6 +747,7 @@ function allowanceDefinition(object: ObjectState): ObjectDefinition["allowance"]
     ...(sp.movedFrom ? { movedFrom: { ...sp.movedFrom } } : {}),
     paidBy: [...(sp.paidBy ?? [])],
     ...(sp.waived ? { waived: sp.waived } : {}),
+    ...(sp.released ? { released: sp.released } : {}),
   };
 }
 

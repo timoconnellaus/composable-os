@@ -879,6 +879,10 @@ export default defineExtension({
           movedFrom: { field: "movedFrom", state: "moved" },
           paidBy: ["memberships.membership", "memberships.pass"],
           waived: "paidOtherwise",
+          // A membership ended by its payer's cooling off (stage 44 step 7, ADR 0647): its
+          // bookings for classes not yet started are cancelled as the gym's, their places freed
+          // for the waiting list and their uses given back.
+          released: "cancelled_by_us",
         },
       },
       // A member reads and changes only their own bookings, and a parent or guardian staff linked

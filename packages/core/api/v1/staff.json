@@ -56419,6 +56419,50 @@
       ]
     },
     {
+      "name": "subscription.coolOffSweep",
+      "description": "The host's minute step for cooling offs whose call to the payment provider was lost or never made: reads the provider first (ended: done), asks again while the cooling-off period is open, else tells admins once. Bounded; nothing when nothing is due. The host's own cron only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "type": "number"
+          },
+          "asked": {
+            "type": "number"
+          },
+          "told": {
+            "type": "number"
+          },
+          "unread": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "resolved",
+          "asked",
+          "told",
+          "unread"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "subscription.coolingOff",
+        "subscription.get",
+        "subscription.list",
+        "subscription.offer.export",
+        "subscription.offer.list"
+      ]
+    },
+    {
       "name": "subscription.coolingOff",
       "description": "Whether each subscription may be ended in its cooling-off period for a full refund: the business's setting (whole days, 0 off), counted from when the payment provider confirmed it to the end of the last day in the business's time zone, for a new member's membership only (not a pass, not one moved over with a continuation offer), once per member. Also says how far a cooling off asked for has got and where its refunds are. The host decides; an app shows the button only when `offered`. A signed-in customer asks about the subscriptions they pay for only; another's is not found. Read-only.",
       "risk": "read",
@@ -56501,7 +56545,7 @@
                 },
                 "refund": {
                   "type": "number",
-                  "description": "Paid and not refunded, in minor units: the refund it would owe"
+                  "description": "What a cooling off asked now owes back, not yet refunded, in minor units"
                 },
                 "currency": {
                   "type": "string"
@@ -56516,9 +56560,10 @@
                           "enum": [
                             "asked",
                             "refused",
-                            "ended"
+                            "ended",
+                            "lapsed"
                           ],
-                          "description": "asked: the payment provider was asked to end it now; refused: the provider refused (nothing ended, ask again); ended: it ended and its refunds are owed"
+                          "description": "asked: the payment provider was asked to end it now; refused: the provider refused (nothing ended); ended: it ended then and its refunds are owed; lapsed: it ended another way later, and nothing is owed as cooled off"
                         },
                         "asked": {
                           "anyOf": [
@@ -56552,13 +56597,25 @@
                             "null"
                           ]
                         },
+                        "askAgain": {
+                          "type": "boolean",
+                          "description": "The caller may ask the provider again now: the member only inside the period"
+                        },
+                        "open": {
+                          "type": "boolean",
+                          "description": "Under way (asked, or refused inside the period): the ordinary cancel waits"
+                        },
+                        "staffTold": {
+                          "type": "boolean",
+                          "description": "Admins were told it is stuck"
+                        },
                         "paid": {
                           "type": "number",
-                          "description": "What was paid on the subscription, in minor units"
+                          "description": "What it owes back (paid up to the end of the period, and between the ask and the end), in minor units"
                         },
                         "refunded": {
                           "type": "number",
-                          "description": "What has been refunded of it so far, in minor units"
+                          "description": "What has been refunded of that so far, in minor units"
                         },
                         "refunds": {
                           "anyOf": [
@@ -56583,6 +56640,9 @@
                         "askedBy",
                         "askedAt",
                         "endedAt",
+                        "askAgain",
+                        "open",
+                        "staffTold",
                         "paid",
                         "refunded",
                         "refunds"

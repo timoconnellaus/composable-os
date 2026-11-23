@@ -87,18 +87,29 @@ async function setUp(page: Page, baseURL: string): Promise<void> {
     id: payments,
     url: "payments://merchant/fake",
   });
+  const before = await op<{ items: { extension: string; values: Record<string, unknown> }[] }>(
+    page.request,
+    "extensionSettings.list",
+    {},
+  );
+  const memberships = before.items.find((e) => e.extension === "memberships");
+  const was = memberships?.values.coolingOffDays;
+  previous = typeof was === "number" ? was : null;
   await op(page.request, "extensionSettings.update", {
     extension: "memberships",
     values: { coolingOffDays: 14 },
   });
 }
 
+/** The cooling-off setting before the test changed it, put back after. */
+let previous: number | null = null;
+
 /** Puts the setting and sign-up back as they were. */
 async function tearDown(page: Page): Promise<void> {
   await op(
     page.request,
     "extensionSettings.update",
-    { extension: "memberships", values: { coolingOffDays: null } },
+    { extension: "memberships", values: { coolingOffDays: previous } },
     false,
   );
   await op(page.request, "outbound.setAutoApprove", { tag: "fake.signin", enabled: false }, false);

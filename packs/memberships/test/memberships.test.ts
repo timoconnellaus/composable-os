@@ -522,6 +522,9 @@ describe("plan changes, pauses and the dashboard (stage 32b, ADRs 0530 to 0532)"
         askedBy: "payer",
         askedAt: "2026-10-11T00:00:00.000Z",
         endedAt: "2026-10-11T00:01:00.000Z",
+        askAgain: false,
+        open: false,
+        staffTold: false,
         paid: 4450,
         refunded: 0,
         refunds: "waiting",
@@ -536,6 +539,19 @@ describe("plan changes, pauses and the dashboard (stage 32b, ADRs 0530 to 0532)"
     expect(
       coolOffProgressWords({ ...ended, coolOff: { ...own, state: "asked", asked: "unknown" } }),
     ).toContain("not heard back");
+    // Never says the business was told unless the host says a notice was written.
+    expect(
+      coolOffProgressWords({ ...ended, coolOff: { ...own, state: "asked", asked: null } }),
+    ).not.toContain("has been told");
+    expect(
+      coolOffProgressWords({
+        ...ended,
+        coolOff: { ...own, state: "asked", asked: "unknown", staffTold: true },
+      }),
+    ).toContain("has been told");
+    expect(coolOffProgressWords({ ...ended, coolOff: { ...own, state: "lapsed" } })).toContain(
+      "ended another way",
+    );
     expect(coolOffRefusalWords({ rule: "cooling_off", reason: "window_passed" })).toContain(
       "has ended",
     );

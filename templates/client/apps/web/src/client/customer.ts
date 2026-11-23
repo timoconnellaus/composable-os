@@ -258,7 +258,7 @@ export type Operations = {
   "subscription.coolingOff": {
     kind: "query";
     input: { ids: string[] };
-    output: { items: ({ subscriptionId: string; offered: boolean; why: (("not_covered") | ("off") | ("continuation") | ("ended") | ("window_passed") | ("used") | ("nothing_paid")) | (null); days: number; until: (string) | (null); endsAt: (string) | (null); refund: number; currency: string; coolOff: ({ state: ("asked") | ("refused") | ("ended"); asked: (("sent") | ("pending") | ("unknown")) | (null); askedBy: ("payer") | ("staff"); askedAt: string; endedAt: (string) | (null); paid: number; refunded: number; refunds: (("waiting") | ("refunded") | ("held")) | (null) }) | (null) })[] };
+    output: { items: ({ subscriptionId: string; offered: boolean; why: (("not_covered") | ("off") | ("continuation") | ("ended") | ("window_passed") | ("used") | ("nothing_paid")) | (null); days: number; until: (string) | (null); endsAt: (string) | (null); refund: number; currency: string; coolOff: ({ state: ("asked") | ("refused") | ("ended") | ("lapsed"); asked: (("sent") | ("pending") | ("unknown")) | (null); askedBy: ("payer") | ("staff"); askedAt: string; endedAt: (string) | (null); askAgain: boolean; open: boolean; staffTold: boolean; paid: number; refunded: number; refunds: (("waiting") | ("refunded") | ("held")) | (null) }) | (null) })[] };
   };
   /**
    * Get one subscription: its plan, price per period, state (trial, active, past due, ended…), the current period and whether it ends when that period does. A signed-in customer gets the subscriptions they pay for only; anyone else's is not found. Read-only.

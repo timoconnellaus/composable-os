@@ -26,17 +26,23 @@
 // caller's own subscription (through the seam) or the checkout it opens.
 import { z } from "zod";
 import { guestAcceptancesSchema } from "../agreements/enforce.ts";
+import { ForbiddenError } from "../errors.ts";
 import { SUBSCRIPTION_STATES } from "../fields/subscription.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
-import { defineOperation, type HandlerContext } from "../operation.ts";
+import { afterCommit, defineOperation, type HandlerContext } from "../operation.ts";
 import {
   requestPause,
   requestPlanChange,
   requestUnpause,
   withdrawPlanChange,
 } from "../subscriptions/changes.ts";
-import { coolingOffFor, coolOff, NOT_OFFERED } from "../subscriptions/cooling-off.ts";
+import {
+  coolingOffFor,
+  coolOff,
+  NOT_OFFERED,
+  sweepCoolOffs,
+} from "../subscriptions/cooling-off.ts";
 import {
   cancelAtPeriodEnd,
   cancelNow,
@@ -570,10 +576,11 @@ export const subscriptionChangeWithdraw = defineOperation({
 const coolOffSchema = z
   .object({
     state: z
-      .enum(["asked", "refused", "ended"])
+      .enum(["asked", "refused", "ended", "lapsed"])
       .describe(
         "asked: the payment provider was asked to end it now; refused: the provider refused " +
-          "(nothing ended, ask again); ended: it ended and its refunds are owed",
+          "(nothing ended); ended: it ended then and its refunds are owed; lapsed: it ended " +
+          "another way later, and nothing is owed as cooled off",
       ),
     asked: z
       .enum(["sent", "pending", "unknown"])
@@ -582,8 +589,19 @@ const coolOffSchema = z
     askedBy: z.enum(["payer", "staff"]),
     askedAt: z.string(),
     endedAt: when,
-    paid: z.number().describe("What was paid on the subscription, in minor units"),
-    refunded: z.number().describe("What has been refunded of it so far, in minor units"),
+    askAgain: z
+      .boolean()
+      .describe("The caller may ask the provider again now: the member only inside the period"),
+    open: z
+      .boolean()
+      .describe("Under way (asked, or refused inside the period): the ordinary cancel waits"),
+    staffTold: z.boolean().describe("Admins were told it is stuck"),
+    paid: z
+      .number()
+      .describe(
+        "What it owes back (paid up to the end of the period, and between the ask and the end), in minor units",
+      ),
+    refunded: z.number().describe("What has been refunded of that so far, in minor units"),
     refunds: z
       .enum(["waiting", "refunded", "held"])
       .nullable()
@@ -611,7 +629,9 @@ const coolingOffStatusSchema = z.object({
     .nullable()
     .describe("The last day of the window (YYYY-MM-DD, the business's time zone)"),
   endsAt: when.describe("The moment the window closes"),
-  refund: z.number().describe("Paid and not refunded, in minor units: the refund it would owe"),
+  refund: z
+    .number()
+    .describe("What a cooling off asked now owes back, not yet refunded, in minor units"),
   currency: z.string(),
   coolOff: coolOffSchema.describe("A cooling off asked for, and how far it has got"),
 });
@@ -684,6 +704,33 @@ export const subscriptionCoolOff = defineOperation({
   },
 });
 
+export const subscriptionCoolOffSweep = defineOperation({
+  name: "subscription.coolOffSweep",
+  description:
+    "The host's minute step for cooling offs whose call to the payment provider was lost or " +
+    "never made: reads the provider first (ended: done), asks again while the cooling-off period " +
+    "is open, else tells admins once. Bounded; nothing when nothing is due. The host's own cron only.",
+  input: z.object({}),
+  output: z.object({
+    resolved: z.number(),
+    asked: z.number(),
+    told: z.number(),
+    unread: z.number(),
+  }),
+  permission: "subscriptions:manage",
+  risk: "write",
+  actors: ["automation"],
+  // The host finishing what a person asked in time: never queued under a floor.
+  hostStep: true,
+  mcp: { expose: false },
+  async handler(_input, ctx) {
+    if (ctx.origin.surface !== "system") {
+      throw new ForbiddenError("Only the host's own cron sweeps cooling offs");
+    }
+    return afterCommit(() => sweepCoolOffs(ctx));
+  },
+});
+
 export const subscriptionOperations = [
   subscriptionStart,
   subscriptionGet,
@@ -697,4 +744,5 @@ export const subscriptionOperations = [
   subscriptionChangeWithdraw,
   subscriptionCoolingOff,
   subscriptionCoolOff,
+  subscriptionCoolOffSweep,
 ] as const;

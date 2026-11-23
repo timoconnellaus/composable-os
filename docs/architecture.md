@@ -1453,7 +1453,8 @@ create and its cancels worked out from the class type's own rule (Bookings' fiel
 class not scheduled), the requested `cancel` the host resolves to in time or late, and an
 allowance spender (`paidBy` the Memberships pack's `membership` and `pass`, the class's start as
 its time, its class type and local weekday and minute copied; `waived` for a walk-in paid at the
-desk, [ADR 0506](adr/0506-a-spender-paid-another-way.md)). It requires Programs. Its tools:
+desk, [ADR 0506](adr/0506-a-spender-paid-another-way.md); `released: "cancelled_by_us"` for its
+bookings ahead when a membership ends by cooling off, ADR 0647). It requires Programs. Its tools:
 `timetable`, `classGet` (public), `book` (joins a full class's waitlist unless asked not to),
 `cancel` (with `state.resolve`'s preview), `leaveWaitlist`, `mine` (with a waiter's position)
 (customers), `bookFor`, `cancelFor`, `day`, `classList` (staff). Hooks, web blocks (the timetable,
@@ -1792,17 +1793,22 @@ a plan's pack names a number setting of its own as the plan's cooling-off days
 Memberships pack's `coolingOffDays`). `subscriptions/cooling-off.ts` is the one definition of who
 may: a subscription started here without a continuation offer, inside the window (from the host's
 record of the provider's confirmation to the end of the last local day, in the business's zone),
-with something paid, once per holder (migration 0856's trigger), the days the longer of the
-setting kept on its checkout at the start and the setting now. `subscription.coolingOff` (customer,
-their own as payer; staff) answers it for up to 20 subscriptions in a fixed number of reads; the
-blocks show the button only when it says so. `subscription.coolOff` (the payer, or staff with
-`subscriptions:manage`; a person only) writes `core_subscription_cool_off` in its batch and, after
-the commit, asks the payments gatekeeper to end the subscription now; a lost or refused answer is
-kept on the row, admins are told, and it is asked again. In the batch of the provider's verified
-event that shows it ended (`followCoolOff`, from `applySubscriptionEvent`), one statement owes back
-every paid order of the subscription in full (`core_sellable_refund_due`, `entered: "cooled_off"`),
-and a period paid later the same way; the minute cron asks the gatekeeper for each, which waits for
-a person with `orders:refund` (ADR 0429). Nothing refunds a card on its own.
+with something paid, once per holder (migration 0856's trigger), the days those kept on its
+checkout at the start, for good. `subscription.coolingOff` (customer, their own as payer; staff)
+answers it for up to 20 subscriptions in a fixed number of statements; the blocks show the button
+only when it says so. `subscription.coolOff` (the payer, or staff with `subscriptions:manage`; a
+person only) writes `core_subscription_cool_off` in its batch and, after the commit, asks the
+payments gatekeeper to end the subscription now; a lost or refused answer is kept on the row and
+admins are told once. The member asks again only inside the window; staff finish one after it. The
+minute cron's `subscription.coolOffSweep` (a host step) resolves an ask whose answer was lost or
+never made, reading the provider first. In the batch of the provider's verified event that shows it
+ended within two days of the latest ask (`followCoolOff`, from `applySubscriptionEvent`), one
+statement owes back each order for a period up to the window's end or between that ask and the end
+(`core_sellable_refund_due`, `entered: "cooled_off"`), and the bookings ahead the membership paid
+for are moved into their spender's `released` state (`allowance.spends.released`: Bookings'
+`cancelled_by_us`); any other end makes it `lapsed`, owing nothing as cooled off. The minute cron
+asks the gatekeeper for each refund, which waits for a person with `orders:refund` (ADR 0429).
+Nothing refunds a card on its own.
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be

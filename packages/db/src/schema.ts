@@ -2123,8 +2123,8 @@ export interface CoreSubscriptionCheckoutTable {
   erased_at: Defaulted<string | null>;
   /**
    * Migration 0856 (stage 44 step 7, ADR 0647): the cooling-off days in force when it was started
-   * (the plan's pack's setting), so a setting shortened later never shortens this member's window.
-   * Null: no cooling off on the plan, or started before it was built.
+   * (the plan's pack's setting): the subscription's days for good, whatever the setting later.
+   * Null: no cooling off on the plan, or started before it was built (0 days).
    */
   cooling_off_days: Defaulted<number | null>;
 }
@@ -2238,10 +2238,12 @@ export interface CoreSubscriptionCoolOffTable {
   asked_by_user: string | null;
   days: number;
   window_ends_at: Timestamp;
-  state: "asked" | "refused" | "ended";
+  state: "asked" | "refused" | "ended" | "lapsed";
   call_outcome: "sent" | "pending" | "unknown" | null;
   asked_at: Timestamp;
+  last_asked_at: Timestamp;
   ended_at: Timestamp | null;
+  told_at: Defaulted<Timestamp | null>;
   updated_at: Timestamp;
 }
 

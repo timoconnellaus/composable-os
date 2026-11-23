@@ -312,6 +312,8 @@ export type AllowanceDefinition =
       readonly paidBy: readonly string[];
       /** A boolean field: while true, entering a spend state spends nothing (ADR 0506). */
       readonly waived?: string | undefined;
+      /** The return state the host moves it into when its holder is cooled off (ADR 0647). */
+      readonly released?: string | undefined;
     };
 
 /** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */

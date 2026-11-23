@@ -97,11 +97,18 @@ export interface CoolingOffStatus {
   refund: number;
   currency: string;
   coolOff: {
-    state: "asked" | "refused" | "ended";
+    state: "asked" | "refused" | "ended" | "lapsed";
     asked: "sent" | "pending" | "unknown" | null;
     askedBy: "payer" | "staff";
     askedAt: string;
     endedAt: string | null;
+    /** The host says this caller may ask the provider again now. */
+    askAgain: boolean;
+    /** Under way: the ordinary cancel waits. */
+    open: boolean;
+    /** Admins were told it is stuck. */
+    staffTold: boolean;
+    /** What it owes back (owed, once ended), and what has been refunded of that. */
     paid: number;
     refunded: number;
     refunds: "waiting" | "refunded" | "held" | null;
@@ -461,12 +468,18 @@ export function coolOffProgressWords(
   if (!c || !status) return null;
   const sum = (n: number) => (amounts ? ` of ${formatMinor(n, status.currency)}` : "");
   const money = sum(c.state === "ended" ? c.paid - c.refunded : status.refund);
+  const told = c.staffTold ? " The business has been told." : "";
+  if (c.state === "lapsed") {
+    return "Your membership ended another way, not in the cooling-off period: ask the business about any refund.";
+  }
   if (c.state === "refused") {
-    return "Ending it in the cooling-off period did not go through: ask again, or ask the business.";
+    return c.askAgain
+      ? `Ending it in the cooling-off period did not go through: ask again.${told}`
+      : `Ending it in the cooling-off period did not go through.${told} Ask the business, or cancel it as usual.`;
   }
   if (c.state === "asked") {
     return c.asked === "unknown" || c.asked === null
-      ? "You asked to end it in the cooling-off period. We have not heard back from the payment provider yet; the business has been told."
+      ? `You asked to end it in the cooling-off period. We have not heard back from the payment provider yet.${told}`
       : "You asked to end it in the cooling-off period. It shows as ended here once the payment provider confirms.";
   }
   switch (c.refunds) {
