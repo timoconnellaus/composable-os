@@ -203,12 +203,14 @@ export async function enforcePurchase(
 /**
  * The engine's check (stage 44 step 3, ADR 0644, amending ADR 0503): a caller's write that makes a
  * record count at its point, judged for the Person its `person` relation names, with the guard
- * queued in the write's batch. It counts when the record:
- *   - is created in one of the point's `enter` states (a booking made booked or waiting);
- *   - moves into one from any other state (a waiter taking a free place: waiting to booked),
- *     except, for an object with `claims`, a move between two states that both hold the place
- *     (a coach unticking a name: attended to booked), which is the same booking, not a new one;
- *   - stays in one while its Person changes (staff giving a booking to someone else).
+ * queued in the write's batch. A state counts when the point lists it (`enter`: booked, waiting)
+ * or, for an object with `claims`, when it holds the place (attended, a no-show): a record made
+ * straight into one of those is a booking too. The write is asked when the record:
+ *   - is created in a state that counts (a booking made booked or waiting, or made attended);
+ *   - moves into one the point lists from any other state (a waiter taking a free place: waiting
+ *     to booked), except, for an object with `claims`, a move between two states that both hold
+ *     the place (a coach unticking a name: attended to booked), which is the same booking;
+ *   - is in a state that counts while its Person changes (staff giving a booking to someone else).
  * The host's own moves (`by: "host"`: promotion, a paid drop-in booked, timed moves, a series'
  * records) are never asked: "agree again" is not retroactive.
  */
@@ -223,25 +225,30 @@ export async function enforceEntry(
   const states = object.states;
   if (!spec?.enter?.length || !spec.person || !states || by === "host") return;
   const field = states.field;
-  const to = after[field];
-  if (typeof to !== "string" || !spec.enter.includes(to)) return;
+  const value = after[field];
+  const to = typeof value === "string" && value !== "" ? value : null;
   const stored = before?.[field];
   const from = typeof stored === "string" && stored !== "" ? stored : null;
   const claims = object.claims;
   const holds = (state: string | null) =>
     state !== null && !!claims && (claims.held.includes(state) || claims.confirmed.includes(state));
-  const entering = before === null || (from !== to && !(holds(from) && holds(to)));
+  const listed = (state: string | null) => state !== null && spec.enter?.includes(state) === true;
+  const counts = (state: string | null) => listed(state) || holds(state);
+  if (!counts(to)) return;
   const personOf = (values: Record<string, unknown> | null) => {
-    const value = values?.[spec.person as string];
-    if (typeof value === "string") return value || null;
-    if (value && typeof value === "object" && "id" in value) {
-      return String((value as { id: unknown }).id) || null;
+    const raw = values?.[spec.person as string];
+    if (typeof raw === "string") return raw || null;
+    if (raw && typeof raw === "object" && "id" in raw) {
+      return String((raw as { id: unknown }).id) || null;
     }
     return null;
   };
   const participant = personOf(after);
-  const changedPerson = before !== null && personOf(before) !== participant;
-  if ((!entering && !changedPerson) || !participant) return;
+  if (!participant) return;
+  const created = before === null;
+  const entered = !created && from !== to && listed(to) && !(holds(from) && holds(to));
+  const changedPerson = !created && personOf(before) !== participant;
+  if (!created && !entered && !changedPerson) return;
   const { rev, due } = await agreementsDueAt(ctx.db, [spec.point], {
     participant,
     payer: null,

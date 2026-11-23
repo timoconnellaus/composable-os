@@ -134,3 +134,10 @@ A live link also lets the guardian agree to an agreement document for the depend
 carries `core_person_link_guard`, and the acceptance table's own insert trigger checks the link
 again. A live dependant counts as a minor: their own acceptance is refused. Ending the link later
 does not undo what the guardian agreed.
+
+## Amended 2026-11-23: a guardian's booking or purchase for a child asks the child's documents (stage 44 step 3, [ADR 0644](0644-enforcement-nobody-pays-or-books-without-what-is-due.md))
+A guardian booking for a dependant (`my.create` with `forPersonId`) or buying their drop-in
+(`order.startHeld` with `forPersonId`) is refused while anything is due for the child; only a
+guardian's acceptance for the child or a paper form counts (the child is a minor), never the
+guardian's own and never the child's. A payer document is the guardian's own, as the payer of a
+drop-in.

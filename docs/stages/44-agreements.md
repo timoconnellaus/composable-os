@@ -30,7 +30,8 @@ declarations).
 
 Status: **spec agreed** (owner interviewed 2026-11-23; the eight questions answered the same day,
 decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 0641; step 2 built on
-`feat/stage-44-acceptances`, ADRs 0642 and 0643, build notes at the end).
+`feat/stage-44-acceptances`, ADRs 0642 and 0643; step 3, enforcement, built on
+`feat/stage-44-enforcement`, ADR 0644; build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -1132,7 +1133,7 @@ with dated notes.
 | --- | --- | --- | --- |
 | 1 | **Documents and versions** (**built**, `feat/stage-44-documents`): tables, the working copy, `agreement.publish` (human only, against the reviewed working copy's hash), scheduling by the minute cron, attach, detach, retire, `core_agreement_rev` (bumped by each), the permission `agreements:manage`; the `agreements` declaration in the SDK and contract (inert); the admin's document list and editor | migration 0850; `packages/core/src/agreements/` (new); `operations/agreement.ts` (new); `packages/sdk` (`agreements.ts`, the declaration and contract checks); the runner's minute tick; the admin settings routes; the registry | Done |
 | 2 | **Acceptances and the one question**: `agreementsDue` and the guard kind (reading step 1's counter); `me.agreements.*`, `recordPaper`, the guardian path, the minor mark (`agreement.setMinor`); signatures; health answers and their isolation (audit redaction, no views), the coach's "health note"; the Person tab, the acceptances and due lists | `agreements/`; a migration remaking `core_write_guard`; `visibility/` (read only: `guardians.ts`'s live link and guard); audit redaction; `open-operations.json`; the admin Person page | **Yes, now** (step 1 is built). The `core_write_guard` remake **collides with any build adding a guard kind** at the same time: agree the order of the two migrations in `parallel-work.md` |
-| 3 | **Enforcement**: `createOrder` and `order.startHeld` (guest acceptances in the batch, settlement in the verified payment's batch and `order.setPerson`, deletion on expiry); `startSubscription`; the transition engine's create and move checks; the points on Memberships and Bookings, then Ticketing and Courses | `orders/orders.ts`, `orders/events.ts`, `orders/guests.ts`, `subscriptions/subscriptions.ts`, `records/states.ts` (create checks), `packs/memberships`, `packs/bookings` (index and `buy`), `packs/ticketing`, `packs/courses` | **Not beside other work in `orders/` or the engine's create checks** (31a step 10, 31b, 32b step 8 if it touches `startSubscription`). Its own window; reviewed as stage 25 was |
+| 3 | **Enforcement** (**built**, `feat/stage-44-enforcement`, ADR 0644): `createOrder` and `order.startHeld` (guest acceptances in the batch, settlement in the verified payment's batch and `order.setPerson`, deletion on expiry); `startSubscription`; the transition engine's create and move checks; the points on Memberships and Bookings, then Ticketing and Courses | `orders/orders.ts`, `orders/events.ts`, `orders/guests.ts`, `subscriptions/subscriptions.ts`, `records/states.ts` (create checks), `packs/memberships`, `packs/bookings` (index and `buy`), `packs/ticketing`, `packs/courses` | **Not beside other work in `orders/` or the engine's create checks** (31a step 10, 31b, 32b step 8 if it touches `startSubscription`). Its own window; reviewed as stage 25 was |
 | 4 | **The copy and the PDF**: the PDF writer module (vendored or our own, noted in `UPSTREAMS.md` if vendored), the gatekeeper's `agreement` part, `callAsHost` purpose `agreements` with the copy's idempotency key, the download routes, the blank PDF | `packages/gatekeeper-email-send` (`validate.ts`, `worker.ts`, a new `agreement.ts`), the fake outbox, `integrations/runtime.ts` (the purpose), `apps/app/src/server/http/` (downloads) | Yes, after step 2 (PR #256 is merged); beside anything but other email-gatekeeper work (issue #259, and `feat/routine-mail` while it is open) |
 | 5 | **Blocks and hooks**: Agree, Before you go on, My agreements, a child's, the checkout and booking steps; the web signature pad (pointer events) and the native one | base-layer blocks, a headless `agreements` entry in `packages/client`, the client template's routes, the Bookings and Memberships web blocks (the inline step) | Yes, once step 2's operations are merged; coordinate with whoever owns the drop-in and timetable blocks |
 | 6 | **Signing at the desk** (decision 22): `core_agreement_desk_device` (admin enrolment announced to every admin, browser and network recorded, rotation idempotent for 60 seconds, a clone revokes) and `core_agreement_desk_session` (bound to the device staff chose, idle and total limits and the bounded heartbeat held on the server); `agreement.desk.enrol` and `revoke` (admins, a person) and `start` and `end` (`agreements:desk`, made grantable to fixed-role accounts, ADR 0600 amended); `desk.claim`, `desk.documents`, `desk.accept`, `desk.heartbeat`, `desk.finish` (public, needing the device credential and the session token); the desk origin (its own hostname, set up by `cos deploy`), its cookies (`HttpOnly`, `Secure`, `SameSite=Strict`), the `Origin` check; HMAC of codes and tokens under an env secret; the lock-out; the staff side's Sign at the desk (with the claiming device) and Desk tablets; the address marks on the Acceptances list, by mailbox, over every path that changes an address; the copy's wording; the desk page at tablet width from the Agree block's web skin. No native work | `agreements/` (a new `desk.ts`), `operations/agreement-desk.ts`, `open-operations.json`, `principals.ts` (the fixed-role grantable list), `apps/app/src/server/identity.ts` and the Worker's routing (the desk origin), `packages/release` and `cos deploy` (the hostname), a new desk route, the admin Person page | After step 2 (it records acceptances) and step 4 (every desk acceptance sends its copy); its page after step 5's Agree block. Beside anything but other work on public paths in `identity.ts` |
@@ -1390,3 +1391,60 @@ health-note list is declared in the manifest (`healthNotes: { list, person }`), 
 be a live record of the list's object, every call is audited, and a coach's today-only limit holds
 on it; a minor mark is never rewritten and a Person is never inserted over one. Migration 0851
 was edited in place again.
+
+## Step 3: build notes (`feat/stage-44-enforcement`, 2026-11-23)
+
+Built: `agreements/enforce.ts` (`enforcePurchase`, `enforceEntry`, the guest acceptances' schema),
+`guestDue` and `agreementsDueAt` in `agreements/due.ts`, a guest's path through `accept.ts`;
+migration 0853 (settlement and deletion of a guest's acceptances, by trigger); ADR 0644; ADRs 0428,
+0435, 0491, 0503, 0540, 0560, 0641 and 0642 amended with dated notes. The points on Memberships
+(`memberships.plan`, `memberships.passtype`, `memberships.pass`), Bookings (`bookings.booking`),
+Ticketing (`ticketing.tickettype`) and Courses (`courses.course`, `courses.bundle`,
+`courses.plan`); the packs' buying tools pass a guest's `agreements` on.
+
+Every path that makes an order, a subscription, a booking or a ticket, and whether it asks:
+
+| Path | Asks? | Why |
+| --- | --- | --- |
+| `order.start` (customer, guest, staff, the assistant, MCP; `x.memberships.buy`, `x.ticketing.orderStart`, `x.courses.buy`) | Yes, `createOrder` | Every order is priced there |
+| `order.startHeld` (`x.bookings.buy`: a member, a guardian for a child, a visitor) | Yes, `createOrder`, at the booking's point, for the booking's Person and the payer | The drop-in is made `held` by the host, so the engine does not ask it again |
+| `subscription.start` (customer, guest, staff naming a holder) | Yes, before the provider's page is opened or an open one handed out again | Every subscription starts there |
+| A continuation offer (`subscription.start` with `offerId`) | Yes | It is a start (decision 8) |
+| `record.create`, `record.update`, `my.create`, `my.update`, the record import, a bulk update, automations, extension code | Yes, the engine | Every caller's write runs `applyTransition` |
+| `x.bookings.book`, `bookFor`, `move` (a new booking), joining a waitlist, a waiter taking a free place | Yes, the engine | Each makes a booking booked or waiting |
+| `x.memberships.givePass` (a pass by hand) | Yes, the engine (`memberships.pass` declares `membership` with `enter: ["active"]`) | Starting a pass, as buying one (decision 6) |
+| `order.honourLate` | Yes, for the order's Person | Keeping the payment makes the purchase; a guest's acceptances went at expiry |
+| A coach unticking (attended to booked), a no-show ticked | No | Between two states that hold the place: the same booking |
+| Promotion from a waitlist, a paid drop-in booked, timed moves, a series' records | No | The host's own moves: "agree again" is not retroactive |
+| What a paid line or a subscription grants (a pass, a ticket, an enrolment, a membership), renewals and period orders | No | The host's, after a purchase that was asked |
+| `order.checkout` of an order already started, a part-paid balance, cancelling, leaving a waitlist | No | Nothing new is bought or booked |
+| A plan change or a pause of a running subscription | No | An existing membership (open to review) |
+| `x.courses.enrol` (staff give access), the courses import | No | Courses' points are on what is sold; giving access is not buying; imported students are moving over |
+| A ticket made by hand | No | Tickets are what a paid line grants |
+
+Deviations from the text above, and why:
+
+- **`memberships.pass` declares the `membership` point too** (`enter: ["active"]`): the spec names
+  only the plan and the pass type, but a pass staff give by hand (`givePass`) is a record made by a
+  caller, not an order, and would otherwise start a pass with nothing agreed. A granted pass is the
+  host's and is not asked.
+- **The engine's rule for a move** is "into a listed state from any other, except between two
+  states that both hold the place" (an object with `claims`): the spec named the cases (a booking
+  made, a waiter taking a free place); a coach unticking a name must not ask (not retroactive).
+- **A change of a record's Person while it is in a listed state asks** (staff giving a booking to
+  someone else): it is that Person's booking from then.
+- **A staff move to another class asks**: it makes a new booking (`movedFrom`).
+- **Settlement and deletion are triggers** (migration 0853), not host code in the payment and
+  expiry paths, so they hold for every writer whatever the batch's order.
+- **A subscription checkout never confirmed** has no expiry the host sees: its guest acceptances
+  are deleted by the minute cron's `agreement.takeEffect` three days on.
+- **A pack tool's refusal** reaches its caller as the tool's error (`extension_error`) with the
+  host's `agreements_due` and documents inside; the Bookings tools' refusal reasons are unchanged
+  (the inline step is step 5's).
+- **`agreements` is redacted from every extension tool's audit**, not only the core operations'.
+- **Not built here**: the reconciler naming an attached document whose point an upgrade would drop
+  ("A point that goes away", above: the attachment is kept and simply asked by no object until it
+  is re-attached; the plan, the review's words and the "point no longer declared" mark are left for
+  the reconciler's own change); "members with a booking ahead first" on the due list; the blocks
+  that show what is due before "Pay" and "Book" (step 5). No e2e journey is in this step: each
+  journey of criterion 16 needs step 5's screens.

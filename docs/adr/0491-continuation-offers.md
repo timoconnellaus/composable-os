@@ -184,3 +184,10 @@ and `packages/create-composable-os/test/offers-import.test.ts`).
 - **The command** finds `--plan <object>:<id>` by its id (`record.get`), not among the first 50.
   Its header says what it does, as the courses import does: problems in the file stop the run;
   rows the host cannot write are listed with their line, and the rest are written.
+
+## Amended 2026-11-23: a continuation needs what is due (stage 44 step 3, [ADR 0644](0644-enforcement-nobody-pays-or-books-without-what-is-due.md))
+Taking a continuation offer is a subscription start: `startSubscription` asks the plan's agreement
+point (the membership terms, a waiver) for the holder and the payer before the offer's page is
+opened or handed out again. A member moving over can sign in and read their offer, and cannot take
+it until they agree (decision 8), so the first charge on the new system follows an acceptance. A
+membership moved with its card is the provider's to charge and is not asked (spec 44).

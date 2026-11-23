@@ -22,6 +22,7 @@ import {
   invokeByName,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
+  runWaitlistDue,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
@@ -132,12 +133,21 @@ const create = async (object: string, values: Record<string, unknown>) =>
 const get = async (object: string, id: string) =>
   (await run<{ values: Record<string, unknown> }>("record.get", { object, id }, staff())).values;
 
+/**
+ * A refusal, as the host's own: a pack tool's call the host refused comes back as the tool's
+ * error, carrying the host's code and details inside (`extension_error`).
+ */
 async function refusal(call: Promise<unknown>) {
   try {
     await call;
   } catch (error) {
     const e = error as { code?: string; message?: string; details?: Record<string, unknown> };
-    return { code: e.code, message: e.message, details: e.details ?? {} };
+    const inner = e.code === "extension_error" ? (e.details ?? {}) : null;
+    return {
+      code: inner ? (inner.code as string | undefined) : e.code,
+      message: e.message,
+      details: ((inner ? inner.details : e.details) ?? {}) as Record<string, unknown>,
+    };
   }
   throw new Error("expected a refusal");
 }
@@ -310,11 +320,12 @@ beforeAll(async () => {
 
 describe("the points the packs declare", () => {
   it("memberships, passes, bookings, tickets and courses each mark theirs", async () => {
-    const { points } = await run<{
-      points: { point: string; objects: { object: string }[] }[];
-    }>("agreement.points", {}, staff());
-    const at = (point: string) =>
-      (points.find((p) => p.point === point)?.objects ?? []).map((o) => o.object).sort();
+    const { items } = await run<{ items: { point: string; objects: string[] }[] }>(
+      "agreement.points",
+      {},
+      staff(),
+    );
+    const at = (point: string) => [...(items.find((p) => p.point === point)?.objects ?? [])].sort();
     expect(at("membership")).toEqual(["memberships.pass", PASSTYPE, PLAN].sort());
     expect(at("booking")).toEqual([BOOKING]);
     expect(at("event")).toEqual(["ticketing.tickettype"]);
@@ -553,8 +564,17 @@ describe("agree again is not retroactive (criterion 3)", () => {
         staff(),
       );
     }
-    // A class with one place, starting soon enough to tick names: a books it, b waits.
-    const id = await klass(yoga, 30 * 60_000, 1);
+    // A class starting soon enough to tick names, where a is booked; and a full class with a
+    // place, later, where a is booked and b waits.
+    const soon = await klass(yoga, 30 * 60_000);
+    const ticked = await run<{ result: string; bookingId: string }>(
+      "x.bookings.book",
+      { classId: soon },
+      as(a.principal),
+    );
+    expect(ticked.result).toBe("booked");
+    await run("x.bookings.markAttended", { bookingId: ticked.bookingId }, staff());
+    const id = await klass(yoga, 6 * HOUR, 1);
     const first = await run<{ result: string; bookingId: string }>(
       "x.bookings.book",
       { classId: id },
@@ -567,18 +587,42 @@ describe("agree again is not retroactive (criterion 3)", () => {
       as(b.principal),
     );
     expect(waiting.result).toBe("waiting");
-    await run("x.bookings.markAttended", { bookingId: first.bookingId }, staff());
 
     await agreeAgain(waiver);
-    // A coach unticking a name moves an existing booking, not a new one.
-    await run("x.bookings.undoAttended", { bookingId: first.bookingId }, staff());
-    expect((await get(BOOKING, first.bookingId)).state).toBe("booked");
-    // Staff cancel a's place: the host moves the waiter in, whatever is due for them now.
-    await run("x.bookings.cancelFor", { bookingId: first.bookingId }, staff());
-    await vi.waitFor(
-      async () => expect((await get(BOOKING, waiting.bookingId)).state).toBe("booked"),
-      { timeout: 15_000 },
+    // No way round through a state that already holds the place: a booking made straight into
+    // "attended", or one ticked and given to someone else, is a booking for them and asks.
+    const straight = await refusal(
+      run(
+        "record.create",
+        {
+          object: BOOKING,
+          values: { class: soon, person: b.principal.personId, state: "attended" },
+        },
+        staff(),
+      ),
     );
+    expect(straight.details.rule).toBe("agreements_due");
+    const handed = await refusal(
+      run(
+        "record.update",
+        { object: BOOKING, id: ticked.bookingId, values: { person: b.principal.personId } },
+        staff(),
+      ),
+    );
+    expect(handed.details.rule).toBe("agreements_due");
+    // A coach unticking a name moves an existing booking, not a new one.
+    await run("x.bookings.undoAttended", { bookingId: ticked.bookingId }, staff());
+    expect((await get(BOOKING, ticked.bookingId)).state).toBe("booked");
+    expect((await get(BOOKING, first.bookingId)).state).toBe("booked");
+    // a cancels in time: the host moves the waiter in, whatever is due for them now.
+    await run(
+      "x.bookings.cancel",
+      { bookingId: first.bookingId, confirm: true, expect: "cancelled" },
+      as(a.principal),
+    );
+    // The minute cron's waitlist step moves the first waiter into the place held for them.
+    expect(await runWaitlistDue(db)).toMatchObject({ promoted: 1 });
+    expect((await get(BOOKING, waiting.bookingId)).state).toBe("booked");
     // Their next booking asks for the new version.
     const next = await klass(yoga, 5 * HOUR);
     expect(

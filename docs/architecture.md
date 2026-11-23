@@ -1582,7 +1582,8 @@ and [0641](adr/0641-agreement-points-a-pack-declares-documents-a-person-attaches
 and [0642](adr/0642-acceptances-a-record-nobody-changes-and-who-may-agree-for-whom.md) and
 [0643](adr/0643-health-answers-read-by-a-person-with-the-permission-every-read-audited.md),
 `packages/core/src/agreements/`, `operations/agreement.ts`, `operations/agreement-acceptance.ts`,
-`packages/sdk/src/agreements.ts`; steps 1 and 2 built). The documents a business asks people to agree to are core tables, not records
+`packages/sdk/src/agreements.ts`; steps 1 to 3 built,
+[0644](adr/0644-enforcement-nobody-pays-or-books-without-what-is-due.md) for step 3). The documents a business asks people to agree to are core tables, not records
 (migration 0850), in no `rec_*` view: `core_agreement_document` (its kind, state and working copy),
 `core_agreement_version` (each published wording and its terms, with the SHA-256 of everything it
 holds, recomputed on read; triggers refuse every update and delete, an insert over an existing id
@@ -1604,9 +1605,16 @@ through the pipeline's `auditReads`), `core_agreement_minor`, and the `agreement
 Person must still agree to at a point; a batch that relied on it carries the guard on the
 counter, so a change committed between the read and the commit fails it. Every acceptance goes
 through `agreements/accept.ts`: `me.agreements.accept` (a customer, for themselves or a live
-dependant) and `agreement.recordPaper` (staff, a person). Enforcement in the orders pipeline and
-the transition engine, the copy and PDF, signing at the desk, cooling off and retention are the
-later steps (`docs/stages/44-agreements.md`).
+dependant) and `agreement.recordPaper` (staff, a person). Step 3 enforces it
+(`agreements/enforce.ts`): `createOrder` (every order, `order.startHeld` included) and
+`startSubscription` (a continuation offer included) ask at the points the bought objects declare,
+and `applyTransition` asks when a caller's record enters a state its point lists (`enter`, for its
+`person`), never for the host's own moves; something due is `agreements_due`, and the batch carries
+the guard (`agreements_changed` when the counter moved). A guest carries their acceptances in the
+buying call (`agreements`), recorded with the order or the subscription checkout and no Person;
+migration 0853's triggers give them the Person when the order is paid (or the checkout confirmed)
+and delete them when an order closes unpaid. The copy and PDF, signing at the desk, cooling off
+and retention are the later steps (`docs/stages/44-agreements.md`).
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be

@@ -24,7 +24,7 @@ import {
 } from "../src/index.ts";
 import { fixtureOperations } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, setPreset, unique } from "./helpers.ts";
+import { context, createUser, setPreset, unique } from "./helpers.ts";
 import { opRequest, outcomeOf, surfaceOver } from "./http-helpers.ts";
 import {
   type Buyer,
@@ -412,6 +412,33 @@ describe("no way round: a signed-in customer", () => {
       { object: VISIT, id: waiting.id, values: { state: "booked" } },
       as(buyer.principal),
     );
+  });
+});
+
+describe("a member moving over (criterion 11)", () => {
+  it("can read their offer, cannot take it until they agree, and can afterwards", async () => {
+    const buyer = await fresh("moving");
+    const freeUntil = new Date(Date.now() + 20 * DAY).toISOString().slice(0, 10);
+    const { results } = await run<{ results: { offerId: string | null }[] }>(
+      "subscription.offer.import",
+      { plan: { object: PLAN, id: plan }, rows: [{ email: buyer.email, freeUntil }] },
+      staff(),
+    );
+    const offerId = results[0]?.offerId as string;
+    expect(offerId).toBeTruthy();
+    const mine = await run<{ offers: { id: string }[] }>(
+      "subscription.offer.mine",
+      {},
+      as(buyer.principal),
+    );
+    expect(mine.offers.map((o) => o.id)).toContain(offerId);
+    const take = () => subscribe(as(buyer.principal), { offerId });
+    const refused = await refusal(take());
+    expect(refused.details.rule).toBe("agreements_due");
+    expect(dueIds(refused)).toEqual([waiver.id, terms.id].sort());
+    expect(gw.subscriptions.some((s) => s.customerEmail === buyer.email)).toBe(false);
+    for (const doc of [waiver, terms]) await accept(buyer.principal, doc);
+    expect((await take()).subscriptionId).toMatch(/^sbs_/);
   });
 });
 
