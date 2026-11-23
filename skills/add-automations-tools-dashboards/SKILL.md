@@ -123,6 +123,20 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    (ADR 0571); nothing else can be attached (Bookings: `bookingConfirmed`). Give each email an
    `idempotencyKey` stable across retries (`${event.runId}:${n}`), so a step retried after a
    failure part way sends nothing twice (ADR 0574).
+   **Routine mail** (ADR 0590) is the exception, and only for a shipped pack (a pack in this
+   repository's `packs/`, or an org's own repository): a fixed email to the person a record belongs
+   to (a booking's confirmation, a reminder) that the host sends without approval. Declare it in
+   the manifest's `routineMail` (a kind about one of your objects or an `order`, its messages'
+   subject and text with `{slot}`s and optional parts `[...]`, a `guardian` version naming
+   `{member}`, and calendar events), each slot a field the host reads (`class.title`, a time in
+   `class.timezone`), one line per pointing record (`each`), a link to a text setting, or a
+   `choice`, `at`, `count` or `flag` the automation passes; add `"routine-mail"` to `modules`; and
+   in a step call `ctx.routineMail.send({ kind, record, message, values })`. Never an address and
+   never words: the host decides who it goes to and fills the rest, holds anything unusual for a
+   person, and keys each email so a retried step sends nothing twice. Keep the `email-send`
+   connection declared: a person binds it, which is their consent. An extension written in the
+   app cannot declare it (the check refuses it). See Bookings: `routine-mail.ts` and
+   `bookingConfirmed`; Ticketing: `ticketsByEmail` (about an order, one line per ticket).
    A `record` trigger's updates of one record within 30 seconds coalesce into one run, whose
    `event.change` is the first: an automation that reads the change sets `rails: {
    debounceSeconds: 0 }`.
@@ -142,7 +156,9 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    `run.undeclared` is empty, then `run.steps`, `run.writes` and `run.notifications`. Test the
    case where the conditions do not hold too. A gatekeeper the extension declares is faked in
    memory: pass `gatekeepers: { "email-send": (call) => ... }` for its answers, and assert
-   `host.gatekeeperCalls` (each with its step). The test host does not evaluate the trigger: assert
+   `host.gatekeeperCalls` (each with its step). Routine mail is recorded in `host.routineSends`
+   (the kind, record, message and values asked for; `routineMail: (send) => ...` for answers);
+   render a message's words with `renderTemplate` to test them (Bookings' test). The test host does not evaluate the trigger: assert
    its declared shape (the sign of `offsetDays`), and pass `period` for `schedule` and
    `dateRelative` runs and assert the dates taken from it. See Deals: `test/automations.test.ts`.
 10. **A headless entry, for client apps (optional, stage 23, ADR 0418).** A pack whose tools a

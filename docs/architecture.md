@@ -334,6 +334,28 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   connection, private activities, suggested contacts and job-change suggestions.
 - **Code**: `integration.call` (MCP), and `codemode:<gatekeeper>` host modules for extension tools and
   Code Mode.
+- **Routine mail** ([ADR 0590](adr/0590-routine-mail.md)): a shipped pack declares fixed member
+  emails (`routineMail` in its manifest: kinds about its records, words with slots the host fills);
+  its automations ask for one with `codemode:routine-mail` naming a kind and a record. The host
+  (`packages/core/src/routine-mail/`) checks the caller is a shipped extension's automation run,
+  chooses the recipients from the record (its customer Person, their live guardians, a paid
+  order's own address), fills and checks every value, holds anything unusual for a person (a link
+  in a name, over 20 a day to one address, an AI's unapproved change, a replay), and
+  writes one `core_routine_mail` row per recipient; the integration host's `sendRoutineMail` sends
+  a row's own words through the automation's bound email-send connection, whose `email.routine`
+  kind the gate applies without review under Balanced and Autonomous (Cautious and the deploy floor
+  still hold it). Off for each pack until a human admin turns it on (until then its emails are
+  ordinary sends). Default deny: every write the pipeline records also writes, in its batch, a
+  mark per field (`core_value_mark`: who stands behind that value, with its hash; a Person's
+  addresses one by one, and which is primary), a copy carrying its sources' marks; an email is
+  routine only when every value its own words and calendar file show, every relation followed to
+  them (an `each` slot's lines included), the record, and its own address have a person's (or a
+  default's) mark for the value they have now, and approving a held email marks exactly what that
+  email showed. A shipped pack's tool a person runs writes as the host except the values they gave
+  it; a runtime extension's tool or automation, a run that used a model or read outside text, and a
+  tool called by such a run write as an AI. The daily caps (20 per mailbox, 2,000 for the
+  organisation) are counted where a row is claimed. Each kind has a human admin's switch (Settings →
+  Routine email), with the log, kept 12 months by default.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.

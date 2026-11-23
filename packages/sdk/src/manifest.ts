@@ -39,6 +39,7 @@ import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
 import { renamedMessage } from "./renamed.ts";
+import { routineMailIssues, routineMailManifestSchema } from "./routine-mail.ts";
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
 import { checkObjectStates, resolveFieldPath, statesManifestSchema } from "./states.ts";
@@ -502,6 +503,8 @@ export const manifestSchema = z.object({
   roles: z.record(z.string(), roleManifestSchema).default({}),
   /** Tool permissions an admin may grant one by one (ADR 0449). */
   grantable: z.array(z.string().max(80)).max(20).optional(),
+  /** A shipped extension's routine mail (ADR 0590). */
+  routineMail: routineMailManifestSchema.optional(),
   /** What each grantable permission gives, in plain words, for the admin (ADR 0600). */
   grantableLabels: z.record(z.string().max(80), z.string().min(10).max(300)).optional(),
 });
@@ -722,6 +725,9 @@ export function toManifest(extension: Extension): ExtensionManifest {
     ...(extension.grantable ? { grantable: [...extension.grantable] } : {}),
     ...(extension.grantableLabels ? { grantableLabels: { ...extension.grantableLabels } } : {}),
     ...(extension.requires?.length ? { requires: [...extension.requires] } : {}),
+    ...(extension.routineMail && Object.keys(extension.routineMail).length
+      ? { routineMail: extension.routineMail }
+      : {}),
     roles: Object.fromEntries(
       Object.entries(extension.roles ?? {}).map(([name, role]) => [
         name,
@@ -1855,6 +1861,11 @@ export function validateManifest(
       contract(`permissions.operations.${i}`, `Extensions cannot be granted ${operation}`);
     }
   });
+  for (const issue of routineMailIssues(m)) contract(issue.path, issue.message);
+  if (perms.modules.includes("routine-mail") && !Object.keys(m.routineMail ?? {}).length) {
+    contract("permissions.modules", 'The "routine-mail" module sends routine mail it declares');
+  }
+
   const usesOps = perms.read.length > 0 || perms.write.length > 0 || perms.operations.length > 0;
   if (usesOps && !perms.modules.includes("ops")) {
     contract("permissions.modules", 'Object or operation permissions need the "ops" module');

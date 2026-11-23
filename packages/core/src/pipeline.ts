@@ -126,6 +126,7 @@ import type { MediaStore } from "./records/media.ts";
 import { touchesPersonApproves } from "./records/person-approves.ts";
 import { ALWAYS_REVIEWED_PUBLISHERS } from "./records/publish.ts";
 import { resolveInputFilter } from "./relative.ts";
+import { type MarkedChange, markStatements, type Standing } from "./routine-mail/marks.ts";
 import { loadApprovalPolicy } from "./settings.ts";
 import type { UpdaterRuntime } from "./updates.ts";
 import { SYSTEM_USER } from "./users.ts";
@@ -169,6 +170,16 @@ export interface InvocationContext {
    * caller's pack role limit to today, held on this call as on the account's own.
    */
   roleToday?: TodayLimits | undefined;
+  /**
+   * Set by platform code only (a tool run, ADR 0590): who stands behind what the tool writes, from
+   * the verified caller that started it (a person, a customer, an AI). Absent: the host.
+   */
+  markStanding?: Standing | undefined;
+  /**
+   * Set by platform code only (a tool a person ran, ADR 0590): the normal forms of the values the
+   * person gave it. What the run writes stands as the host's, except a value equal to one of these.
+   */
+  markGiven?: ReadonlySet<string> | undefined;
   /** Days before a pending action expires (env APPROVAL_EXPIRY_DAYS). Default 7. */
   approvalExpiryDays?: number | undefined;
   /** Set when this call applies an approved pending action. */
@@ -879,6 +890,8 @@ async function invokeOnce<O extends AnyOperation>(
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
     ...(roleToday ? { roleToday } : {}),
+    ...(ctx.markStanding ? { markStanding: ctx.markStanding } : {}),
+    ...(ctx.markGiven ? { markGiven: ctx.markGiven } : {}),
     reason: ctx.reason,
     ...(ctx.approval
       ? {
@@ -1249,6 +1262,7 @@ async function invokeOnce<O extends AnyOperation>(
 
   const statements: (Compilable | CompiledQuery)[] = [...writes];
   const changeRows: { o: string; r: string; a: string; d: string }[] = [];
+  const marked: MarkedChange[] = [];
   for (const change of changes) {
     const diff = change.diff ?? diffRecords(change.before, change.after);
     const assigned = change.assignment ? diff[change.assignment.field] : undefined;
@@ -1256,6 +1270,20 @@ async function invokeOnce<O extends AnyOperation>(
     const timeline = timelineActivity(op.name, change, diff);
     if (timeline) handlerCtx.postActivity(timeline);
     changeRows.push({ o: change.object, r: change.id, a: change.action, d: JSON.stringify(diff) });
+    marked.push(markedChange(change, diff));
+  }
+  // Who stands behind each value written (ADR 0590), in this batch: what routine mail reads.
+  if (op.risk !== "read" && marked.length && !ctx.simulate) {
+    statements.push(
+      ...(await markStatements(
+        ctx.db.query,
+        marked,
+        staffStanding(ctx),
+        ctx.user.id,
+        now,
+        ctx.markGiven,
+      )),
+    );
   }
   statements.push(...activities);
   // Records whose text changed must be re-embedded exactly once (ADR 0154 amendment): where the
@@ -2208,11 +2236,25 @@ async function invokeOutside<O extends AnyOperation>(
 
   const statements: (Compilable | CompiledQuery)[] = [...writes];
   const changeRows: { o: string; r: string; a: string; d: string }[] = [];
+  const marked: MarkedChange[] = [];
   for (const change of changes) {
     const diff = change.diff ?? diffRecords(change.before, change.after);
     const timeline = timelineActivity(op.name, change, diff);
     if (timeline) host.postActivity(timeline);
     changeRows.push({ o: change.object, r: change.id, a: change.action, d: JSON.stringify(diff) });
+    marked.push(markedChange(change, diff));
+  }
+  // A customer's own writes are theirs; the public's, an unauthenticated buyer's (ADR 0590).
+  if (!isRead && marked.length) {
+    statements.push(
+      ...(await markStatements(
+        ctx.db.query,
+        marked,
+        principal.kind === "customer" ? "customer" : "public",
+        principal.kind === "customer" ? principal.customerId : null,
+        now,
+      )),
+    );
   }
   statements.push(...activities);
   const embedding =
@@ -2319,4 +2361,35 @@ async function countOutsideRead(
   } catch (error) {
     console.error("failed to count read", op.name, errorForLog(error));
   }
+}
+
+/** A recorded change as its marks need it: each field's value after it. */
+function markedChange(change: RecordChange, diff: FieldDiff): MarkedChange {
+  const after = Object.fromEntries(Object.entries(diff).map(([k, v]) => [k, v.after]));
+  const before = Object.fromEntries(Object.entries(diff).map(([k, v]) => [k, v.before]));
+  return {
+    object: change.object,
+    id: change.id,
+    action: change.action,
+    after,
+    before,
+    marks: change.marks,
+  };
+}
+
+/**
+ * Who stands behind a staff call's writes (ADR 0590): a person's own call, or an AI's or a tool's
+ * a human approved; never one only the adjudicator approved (ADR 0204's principal), an AI's own,
+ * or the host's (an automation, the system). A tool's and an automation's writes stand as the
+ * runner says (`markStanding`): an AI's for an AI's call, an automation authored in the app, or a
+ * run that used a model; otherwise the host's, with a person's own given values (`markGiven`).
+ */
+function staffStanding(ctx: InvocationContext): Standing {
+  if (ctx.approval) return ctx.approval.approvedBy === "adjudicator" ? "ai" : "person";
+  if (ctx.actor === "human") return "person";
+  if (ctx.actor === "assistant" || ctx.actor === "mcp") return "ai";
+  // A tool's caller's (the runner says), and an automation's: the host's only for a shipped pack's
+  // own automation, an AI's for one authored in the app (ADR 0590, the third review).
+  if (ctx.actor === "extension" || ctx.actor === "automation") return ctx.markStanding ?? "host";
+  return "host";
 }

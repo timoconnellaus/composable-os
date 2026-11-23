@@ -1,6 +1,7 @@
 // Extension tools as operations (ADR 0023): `x.<extension>.<tool>`, built from installed
 // manifests, so they appear in the registry (and so as MCP tools) next to core operations. The
 // handler runs the tool in the sandbox through the extension host.
+
 import type { CoreDatabase } from "@composable-os/db";
 import { type ExtensionManifest, type ToolManifest, toolPermissions } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
@@ -8,6 +9,7 @@ import { z } from "zod";
 import { TOOL_OPERATION_RE } from "../approvals/describe.ts";
 import { ForbiddenError, OperationError, RunsOnApprovalError } from "../errors.ts";
 import { type AnyOperation, defineOperation, markHostTool } from "../operation.ts";
+import { callerMarks } from "../routine-mail/marks.ts";
 import { requireHost } from "./install.ts";
 
 export { TOOL_OPERATION_RE };
@@ -85,6 +87,9 @@ export function toolOperation(
         );
       }
       // Called inside an automation cascade: the tool's own calls stay in it (ADR 0478).
+      // Called by an AI (the assistant, an MCP client): the tool's own writes keep this call as
+      // their root, so what they start knows an AI asked for them, and whether a person approved
+      // it (routine mail holds such a send for a person, ADR 0590).
       const o = ctx.origin;
       const cascade =
         o.rootEventId !== undefined
@@ -95,7 +100,11 @@ export function toolOperation(
               ...(o.automationId ? { automationId: o.automationId } : {}),
               ...(o.runId ? { runId: o.runId } : {}),
             }
-          : undefined;
+          : ctx.auditId &&
+              ctx.principal.kind === "staff" &&
+              (ctx.actor === "assistant" || ctx.actor === "mcp")
+            ? { depth: 0, chain: [], rootEventId: ctx.auditId }
+            : undefined;
       const result = await requireHost(ctx).runTool({
         id: manifest.id,
         commit: row.commit_oid,
@@ -113,6 +122,8 @@ export function toolOperation(
                 ...(ctx.roleToday ? { roleToday: ctx.roleToday } : {}),
                 // Who approved it, for a tool a person approves called by another actor.
                 ...(ctx.approval?.approvedBy ? { approvedBy: ctx.approval.approvedBy } : {}),
+                // A run calling this tool: the weaker of its standing and the tool's wins.
+                ...callerMarks(ctx),
               }
             : {
                 actor: ctx.principal.kind,

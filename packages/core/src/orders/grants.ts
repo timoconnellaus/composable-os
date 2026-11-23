@@ -25,6 +25,7 @@ import type { HandlerContext } from "../operation.ts";
 import { createRecord, updateRecord } from "../operations/record.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type MoveHook, onRecordMove } from "../records/lifecycle.ts";
+import type { MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { addLocalDays, localParts, wallClockToIso } from "../time/local.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
@@ -272,9 +273,36 @@ async function grant(
           values[target] = from(source);
         }
       }
+      // Who stands behind the granted record's values (ADR 0590): what it copies from the item
+      // carries the item's marks; the code is the host's own unguessable value, not anyone's words.
+      const copied: Record<string, MarkSource[]> = {};
+      const generated: string[] = [];
+      for (const [target, source] of Object.entries(grants.set)) {
+        if (source === "code") generated.push(target);
+        else if (source.startsWith("item.")) {
+          const field = source.slice(5);
+          copied[target] = [
+            { object: line.object_type, id: line.record_id, field, value: values[target] },
+          ];
+        } else if (source === "line.title" && item.titleField) {
+          copied[target] = [
+            {
+              object: line.object_type,
+              id: line.record_id,
+              field: item.titleField,
+              value: line.title,
+            },
+          ];
+        }
+      }
       // As the host: it may set the read-only code, and the values are the host's own, so
       // their references were checked when the item and the order were written.
-      const id = await createRecord(ctx, granted, values, { by: "host", checkReferences: false });
+      const id = await createRecord(ctx, granted, values, {
+        by: "host",
+        checkReferences: false,
+        copied,
+        generated,
+      });
       ctx.write(
         ctx.db.insertInto("core_order_grant").values({
           object_type: granted.name,

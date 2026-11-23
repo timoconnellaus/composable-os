@@ -20,10 +20,12 @@ import {
   type ConnectRedeemed,
   type ConnectStart,
   catalogueEntry,
+  claimRoutineMail,
   errorForLog,
   type IntegrationCaller,
   type IntegrationCallResult,
   invokeByName,
+  loadRoutineMailSettings,
   ROLES,
   type Role,
   recordIntegrationEvents,
@@ -33,6 +35,8 @@ import {
   SYNC_BATCH_MAX,
   SYSTEM_USER,
   type SyncConfig,
+  settleRoutineMail,
+  siteOriginOf,
   syncedInWindow,
   syncKindOf,
   vendorBinding,
@@ -864,6 +868,81 @@ export class IntegrationHost extends DurableObject<Env> {
       toJson(await session[input.method](...input.args)),
     );
     return { value, pending: queue.pending, applied: queue.applied, failed: queue.failed };
+  }
+
+  /**
+   * Sends one routine email (ADR 0590): the row of core_routine_mail `id`, which the host wrote
+   * when an automation of a shipped pack asked for it. Only the runner's routine-mail module calls
+   * this. The message and the recipient are the row's, never a caller's; the queue tells the gate
+   * and the gatekeeper whether the host decided it routine. Org connections only, the row's own.
+   */
+  async sendRoutineMail(input: { id: string; resource: string }): Promise<{
+    status: "sent" | "waiting" | "denied" | "failed" | "skipped" | "off";
+    pendingActionId?: string;
+    error?: string;
+  }> {
+    const meta = await this.#meta();
+    if (meta.scope !== "org") throw new Error("Routine mail goes out from org connections only");
+    const db = createCrmDb(this.env.DB).query;
+    const row = await claimRoutineMail(db, input.id, meta.connectionId);
+    if (!row) return { status: "skipped" };
+    // Turned off since it was prepared (F2): nothing is sent.
+    if (row === "off") return { status: "off" };
+    const settings = await loadRoutineMailSettings(db);
+    const caller: QueueCaller = {
+      kind: "system",
+      purpose: "routine-mail",
+      user: await loadUser(this.env, meta.ownerUserId),
+      routine: {
+        id: row.id,
+        kind: row.kind,
+        routine: row.routine,
+        ordinary: row.ordinary,
+        heldReason: row.heldReason,
+        automationId: row.automationId,
+        runId: row.runId,
+        extensionId: row.extensionId,
+        siteOrigin: siteOriginOf(settings.siteOrigin),
+      },
+    };
+    let queue: HostQueue;
+    let receipt: unknown;
+    try {
+      ({ queue, value: receipt } = await this.#withSession(
+        input.resource,
+        caller,
+        async (session) =>
+          toJson(await session.send({ ...row.message, idempotencyKey: `routine:${row.id}` })),
+      ));
+    } catch (error) {
+      // Not sent (the queue full, the sender refused): the row waits for the step's retry.
+      const message = error instanceof Error ? error.message : String(error);
+      await settleRoutineMail(db, row.id, { status: "ready", error: message });
+      throw error;
+    }
+    const pending = queue.pending[0];
+    if (pending) {
+      await settleRoutineMail(db, row.id, { status: "waiting", pendingActionId: pending.actionId });
+      return { status: "waiting", pendingActionId: pending.actionId };
+    }
+    const failed = queue.failed[0];
+    if (failed) {
+      await settleRoutineMail(db, row.id, { status: "failed", error: failed.message });
+      return { status: "failed", error: failed.message };
+    }
+    if (queue.denied.length) {
+      await settleRoutineMail(db, row.id, { status: "denied" });
+      return { status: "denied" };
+    }
+    // Applied now, or (a retried step) the send the key already made: as the gatekeeper says.
+    const sent =
+      queue.applied.length > 0 || (receipt as { status?: unknown } | null)?.status === "sent";
+    if (sent) {
+      await settleRoutineMail(db, row.id, { status: "sent" });
+      return { status: "sent" };
+    }
+    // Waiting since an earlier try of the step (its pending action was recorded then).
+    return { status: "waiting" };
   }
 
   /** A session stub for code (Code Mode, extension tools) acting as `caller`. */

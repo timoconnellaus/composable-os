@@ -16,6 +16,7 @@ import {
   purgeIntegrationEvents,
   purgeNotificationDeliveries,
   purgeNotifications,
+  purgeRoutineMail,
   purgeRunHistory,
   queueEventSink,
   runAuditPurge,
@@ -83,6 +84,9 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
   const runs = await step("run history", () => purgeRunHistory(db.query, now));
   if (runs?.deleted) console.log(`run history: ${runs.deleted} run(s) purged`);
   const agents = await step("finished agents", () => purgeAgentJobs(db.query, now));
+  // The routine email log, after its retention setting (ADR 0590, default 12 months).
+  const routine = await step("routine email log", () => purgeRoutineMail(db.query, now));
+  if (routine?.deleted) console.log(`routine email: ${routine.deleted} log row(s) purged`);
   if (agents?.deleted) console.log(`agents: ${agents.deleted} finished job(s) purged`);
   const compacted = await step("pending action compaction", () =>
     compactPendingActions(db.query, now),

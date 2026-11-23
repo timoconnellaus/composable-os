@@ -1,5 +1,7 @@
 // The Ticketing automations against @composable-os/sdk/testing's in-memory host: their declared
-// triggers, the steps they take, and the mail they hand the email-send gatekeeper. That the host
+// triggers, the steps they take, and the routine email (ADR 0590) they ask the host for: the
+// kind, the record and the message. Who it goes to and what it says are the host's, from the
+// declaration (routine-mail.ts; apps/runner/test/ticketing.test.ts sends it). That the host
 // starts them from an order's first payment, on the day before or after an event, and every
 // morning, is the host's automation engine (apps/runner/test/automations.test.ts and the
 // stage 25 order event test); this tests what the pack does when it runs.
@@ -39,11 +41,8 @@ function host(records: Record<string, Record<string, unknown>[]> = {}, extra = {
   });
 }
 
-const sent = (h: ReturnType<typeof host>) =>
-  h.gatekeeperCalls.map((c) => ({
-    ...c,
-    message: c.args[0] as { to: string[]; subject: string; text: string },
-  }));
+const routineAsked = (h: ReturnType<typeof host>) =>
+  h.routineSends.map(({ step: _step, ...send }) => send);
 
 describe("ticketsByEmail", () => {
   it("is started by an order's first payment, in full or by deposit, and not by the rest", () => {
@@ -71,20 +70,10 @@ describe("ticketsByEmail", () => {
       record: { object: "order", id: "ord_1" },
     });
     expect(run.undeclared).toEqual([]);
-    const mail = sent(h);
-    expect(mail).toHaveLength(1);
-    expect(mail[0]).toMatchObject({
-      gatekeeper: "email-send",
-      connectionId: "mail",
-      method: "send",
-      step: "sendTickets",
-    });
-    expect(mail[0]?.message.to).toEqual(["ann@buyers.test"]);
-    expect(mail[0]?.message.subject).toBe("Your 2 tickets");
-    expect(mail[0]?.message.text).toContain("Shared room: AAAA");
-    expect(mail[0]?.message.text).toContain("Shared room: BBBB");
-    expect(mail[0]?.message.text).not.toContain("CCCC");
-    expect(mail[0]?.message.text).toContain("https://gym.test/tickets?order=ord_1");
+    // About the order: the host sends it to the order's own address, one line per ticket.
+    expect(routineAsked(h)).toEqual([{ kind: "tickets", record: "ord_1", message: "many" }]);
+    expect(h.routineSends[0]?.step).toBe("sendTickets");
+    expect(h.gatekeeperCalls).toEqual([]);
   });
 
   it("sends nothing for an order that granted no ticket", async () => {
@@ -93,7 +82,7 @@ describe("ticketsByEmail", () => {
       record: { object: "order", id: "ord_9" },
     });
     expect(run.undeclared).toEqual([]);
-    expect(h.gatekeeperCalls).toEqual([]);
+    expect(h.routineSends).toEqual([]);
   });
 });
 
@@ -130,11 +119,10 @@ describe("eventReminder", () => {
       record: { object: "ticketing.event", id: "ev1" },
     });
     expect(run.undeclared).toEqual([]);
-    const mail = sent(h);
-    expect(mail.map((m) => m.message.to)).toEqual([["ann@buyers.test"]]);
-    expect(mail[0]?.message.subject).toBe("Tomorrow: Camp");
-    expect(mail[0]?.message.text).toContain("at The gym");
-    expect(mail[0]?.message.text).toContain("2 tickets");
+    // One email per holder, about their first ticket: the host sends it to the ticket's holder.
+    expect(routineAsked(h)).toEqual([
+      { kind: "eventReminder", record: "t1", message: "many", values: { count: 2 } },
+    ]);
   });
 
   it("does not run for an event that is not on sale", async () => {
@@ -143,7 +131,7 @@ describe("eventReminder", () => {
       record: { object: "ticketing.event", id: "ev1" },
     });
     expect(run.steps).toEqual([]);
-    expect(h.gatekeeperCalls).toEqual([]);
+    expect(h.routineSends).toEqual([]);
   });
 });
 
@@ -199,17 +187,13 @@ describe("balanceReminders", () => {
     // A week from the period and the day after it.
     expect(asked.params).toEqual(["2026-11-28", "2026-11-22"]);
     expect(BALANCE_SQL).toContain("o.state = 'part_paid'");
-    const mail = sent(h);
-    expect(mail).toHaveLength(1);
-    expect(mail[0]?.message.subject).toBe("Balance due 2026-11-28");
-    expect(mail[0]?.message.text).toContain("800.00 AUD");
-    expect(mail[0]?.message.text).toContain("https://gym.test/pay?order=ord_1");
+    expect(routineAsked(h)).toEqual([{ kind: "balance", record: "ord_1" }]);
   });
 
   it("sends nothing on a day nothing falls due", async () => {
     const h = host({}, { "query.sql": () => ({ rows: [] }) });
     const run = await h.runAutomation("balanceReminders", { period: "2026-11-21" });
     expect(run.undeclared).toEqual([]);
-    expect(h.gatekeeperCalls).toEqual([]);
+    expect(h.routineSends).toEqual([]);
   });
 });

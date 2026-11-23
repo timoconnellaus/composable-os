@@ -89,3 +89,8 @@ on; with it reviewed, nothing is sent.
   code (sign-in by code is not set up), Autonomous sends every automation's mail anyway.
 - The e2e journey no longer needs a same-domain address or an approval: the admin turns sign-in
   mail on, and the invitee is outside.
+
+## Amended 2026-11-23 (ADR 0590)
+Routine mail follows the same shape for a shipped pack's member email: the integration host's own
+queue (`hostRoutineMail()`, answered only by its `sendRoutineMail` for a row it wrote) and the
+message's shape decide email-send's `email.routine` kind; nothing in the request can claim it.
