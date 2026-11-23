@@ -410,3 +410,231 @@ export const uncovered = defineTool({
   permission: MANAGE,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.uncovered", input)) as never,
 });
+
+export const markNotWorked = defineTool({
+  description:
+    "Mark a shift that has started as not worked, with why (nobody ran the class, they did not " +
+    "come in), so it counts for nothing in its pay period; notWorked false clears the mark. A " +
+    "shift in a locked pay period is refused until the period is reopened. Whoever rosters; an " +
+    "assistant may ask, and a person applies it.",
+  input: z.object({
+    object: z.string().min(1).max(81),
+    id: z.string().min(1).max(64),
+    notWorked: z.boolean().default(true),
+    reason: z.string().trim().min(1).max(500).optional(),
+  }),
+  output: z.object({
+    object: z.string(),
+    id: z.string(),
+    notWorked: z.boolean(),
+    changed: z.boolean(),
+  }),
+  risk: "write",
+  permission: MANAGE,
+  personApproves: true,
+  // Why someone did not work a shift is theirs: kept with the mark, not in the audit log.
+  redact: ["reason"],
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.markNotWorked", input)) as never,
+});
+
+// --- Pay (restricted, a person only: never an assistant, whatever is granted) ---------------------
+
+/** Pay: restricted (held by admins and by grant only, ADR 0625), and every tool `humanOnly`. */
+const PAY = "rostering:pay";
+const basis = z.enum(["by_time", "by_class", "not_counted"]);
+
+export const payBasis = defineTool({
+  description:
+    "Say how a member of staff is counted for pay from a date on (today when left out): " +
+    "by_time (their hours), by_class (their classes and shifts) or not_counted (salaried, the " +
+    "default). No rates are kept: payroll applies them. Whoever handles pay, a person only.",
+  input: z.object({ account: z.string().min(1).max(64), basis, from: localDate.optional() }),
+  output: z.object({ account: z.string(), from: z.string(), changed: z.boolean() }),
+  risk: "write",
+  permission: PAY,
+  humanOnly: true,
+  // How someone is counted is pay: the audit log says whose and from when, not how.
+  redact: ["basis"],
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.payBasis", input)) as never,
+});
+
+export const payBases = defineTool({
+  description:
+    "Who is counted for pay and how (by time, by class, not counted), today and from which " +
+    "dates. Whoever handles pay, a person only.",
+  input: z.object({ account: z.string().min(1).max(64).optional() }),
+  output: z.object({
+    today: z.string(),
+    items: z.array(
+      z.object({
+        account: z.string(),
+        name: z.string(),
+        basis,
+        history: z.array(
+          z.object({ from: z.string(), basis, setBy: z.string(), setAt: z.string() }),
+        ),
+      }),
+    ),
+  }),
+  risk: "read",
+  permission: PAY,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.payBases", input)) as never,
+});
+
+const version = z.object({
+  id: z.string(),
+  version: z.number(),
+  state: z.enum(["locked", "reopened"]),
+  lockedBy: z.string(),
+  lockedByName: z.string(),
+  lockedAt: z.string(),
+  reopenedBy: z.string().nullable(),
+  reopenedAt: z.string().nullable(),
+  reopenReason: z.string().nullable(),
+});
+
+export const periods = defineTool({
+  description:
+    "The pay periods (the pay period setting: fortnightly by default): the current one and the " +
+    "`count` before it, each open or locked, with its versions. Whoever handles pay, a person only.",
+  input: z.object({ count: z.number().int().min(1).max(60).optional() }),
+  output: z.object({
+    setting: z.object({
+      period: z.enum(["weekly", "fortnightly", "monthly"]),
+      start: z.string().nullable(),
+      day: z.number(),
+      zone: z.string(),
+    }),
+    set: z.boolean().describe("False until the date a period starts is set: nothing is totalled"),
+    periods: z.array(
+      z.object({
+        start: z.string(),
+        end: z.string(),
+        zone: z.string(),
+        state: z.enum(["open", "locked"]),
+        ended: z.boolean(),
+        versions: z.array(version),
+      }),
+    ),
+  }),
+  risk: "read",
+  permission: PAY,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.payPeriod.list", input)) as never,
+});
+
+const kindRef = z.object({ object: z.string(), id: z.string() }).nullable();
+
+export const periodTotals = defineTool({
+  description:
+    "One pay period's totals: per counted person and kind of work, the shifts and the hours " +
+    "(whole minutes, and hours to two places), and one line per shift with its evidence (its " +
+    "class list taken, by whom, flagged for review when not by its person). A locked period's " +
+    "are its locked lines; an open one's are a preview from the roster as it stands. Whoever " +
+    "handles pay, a person only.",
+  input: z.object({ start: localDate, version: z.number().int().min(1).optional() }),
+  output: z.object({
+    period: z.object({
+      start: z.string(),
+      end: z.string(),
+      zone: z.string(),
+      locked: z.boolean(),
+      preview: z.boolean(),
+      version: version.nullable(),
+    }),
+    totals: z.array(
+      z.object({
+        account: z.string(),
+        name: z.string(),
+        email: z.string(),
+        basis: z.enum(["by_time", "by_class"]),
+        kind: kindRef,
+        kindName: z.string(),
+        shifts: z.number(),
+        minutes: z.number(),
+        hours: z.string(),
+        notWorked: z.number(),
+        flagged: z.number(),
+      }),
+    ),
+    lines: z.array(
+      z.object({
+        account: z.string(),
+        name: z.string(),
+        email: z.string(),
+        basis: z.enum(["by_time", "by_class"]),
+        object: z.string(),
+        id: z.string(),
+        kind: kindRef,
+        kindName: z.string(),
+        title: z.string(),
+        place: z.string().nullable(),
+        localDate: z.string(),
+        localStart: z.string(),
+        localEnd: z.string(),
+        shiftMinutes: z.number(),
+        beforeMinutes: z.number(),
+        afterMinutes: z.number(),
+        countedMinutes: z.number(),
+        counted: z.boolean(),
+        notWorkedReason: z.string().nullable(),
+        listTaken: z.boolean().nullable(),
+        markedBy: z.string().nullable(),
+        flagged: z.boolean(),
+      }),
+    ),
+    minutes: z.number(),
+    hours: z.string(),
+  }),
+  risk: "read",
+  permission: PAY,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.payPeriod.totals", input)) as never,
+});
+
+export const lock = defineTool({
+  description:
+    "Lock a pay period that has ended: its totals are written from the roster as it stands and " +
+    "never change; shifts inside it can no longer be changed until it is reopened. Correct the " +
+    "roster first (reassign, mark not worked). Whoever handles pay, a person only.",
+  input: z.object({ start: localDate }),
+  output: z.object({ id: z.string(), start: z.string(), end: z.string(), version: z.number() }),
+  risk: "write",
+  permission: PAY,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.payPeriod.lock", input)) as never,
+});
+
+export const reopen = defineTool({
+  description:
+    "Reopen a locked pay period, saying why, to correct its shifts; its locked version is kept. " +
+    "Lock it again for a new version. Whoever handles pay, a person only.",
+  input: z.object({ start: localDate, reason: z.string().trim().min(1).max(500) }),
+  output: z.object({ id: z.string(), start: z.string(), version: z.number() }),
+  risk: "write",
+  permission: PAY,
+  humanOnly: true,
+  redact: ["reason"],
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.payPeriod.reopen", input)) as never,
+});
+
+export const exportPeriod = defineTool({
+  description:
+    "A pay period as a CSV file for payroll: a summary row per person and kind of work (shifts, " +
+    "hours as a decimal and in minutes), then a row per shift. From its locked version, or a " +
+    "preview of an open period, marked as such. No rates and no money. Whoever handles pay, a " +
+    "person only.",
+  input: z.object({ start: localDate, version: z.number().int().min(1).optional() }),
+  output: z.object({
+    filename: z.string(),
+    contentType: z.literal("text/csv"),
+    csv: z.string(),
+    locked: z.boolean(),
+    version: z.number().nullable(),
+  }),
+  risk: "read",
+  permission: PAY,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.payPeriod.export", input)) as never,
+});

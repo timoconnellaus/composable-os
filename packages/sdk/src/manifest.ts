@@ -515,10 +515,15 @@ export const manifestSchema = z.object({
   staffing: z
     .object({
       rosters: z.string().max(80),
+      /** Who reads and locks pay (ADR 0627): a restricted permission of this extension. */
+      pays: z.string().max(80).optional(),
       settings: z
         .object({
           offerCutoffMinutes: z.string().max(64).optional(),
           uncoveredDays: z.string().max(64).optional(),
+          payPeriod: z.string().max(64).optional(),
+          payPeriodStart: z.string().max(64).optional(),
+          payPeriodDay: z.string().max(64).optional(),
         })
         .strict()
         .optional(),
@@ -748,6 +753,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
       ? {
           staffing: {
             rosters: extension.staffing.rosters,
+            ...(extension.staffing.pays ? { pays: extension.staffing.pays } : {}),
             ...(extension.staffing.settings
               ? { settings: { ...extension.staffing.settings } }
               : {}),
@@ -1775,19 +1781,61 @@ export function validateManifest(
         `"${m.staffing.rosters}" must be one of this extension's restricted permissions: who rosters is held by admins and by grant only`,
       );
     }
-    for (const [key, setting] of Object.entries(m.staffing.settings ?? {})) {
+    if (m.staffing.pays !== undefined) {
+      if (!restricted.has(m.staffing.pays) || !(m.grantable ?? []).includes(m.staffing.pays)) {
+        contract(
+          "staffing.pays",
+          `"${m.staffing.pays}" must be one of this extension's restricted, grantable permissions: pay is held by admins and by grant only`,
+        );
+      } else if (m.staffing.pays === m.staffing.rosters) {
+        contract("staffing.pays", "Pay and rostering are two permissions");
+      }
+    }
+    // The pay period (ADR 0627): a select of weekly, fortnightly and monthly; the date one period
+    // starts (text, YYYY-MM-DD); the day of the month (a number). The roster's numbers are numbers.
+    const PERIODS = new Set(["weekly", "fortnightly", "monthly"]);
+    const types: Record<string, "number" | "select" | "text"> = {
+      offerCutoffMinutes: "number",
+      uncoveredDays: "number",
+      payPeriod: "select",
+      payPeriodStart: "text",
+      payPeriodDay: "number",
+    };
+    const pay = ["payPeriod", "payPeriodStart", "payPeriodDay"];
+    const settings = m.staffing.settings ?? {};
+    if (pay.some((k) => (settings as Record<string, unknown>)[k] !== undefined)) {
+      if (m.staffing.pays === undefined) {
+        contract("staffing.settings", "The pay period's settings need staffing.pays");
+      }
+      for (const k of pay) {
+        if ((settings as Record<string, unknown>)[k] === undefined) {
+          contract(`staffing.settings.${k}`, "Declare the pay period's three settings together");
+        }
+      }
+    }
+    for (const [key, setting] of Object.entries(settings)) {
       if (setting === undefined) continue;
       const declared = Object.hasOwn(m.settings, setting) ? m.settings[setting] : undefined;
-      if (declared?.type !== "number") {
+      const type = types[key] ?? "number";
+      if (declared?.type !== type) {
         contract(
           `staffing.settings.${key}`,
-          `"${setting}" must be a number setting of this extension`,
+          `"${setting}" must be a ${type} setting of this extension`,
         );
       } else if (declared.personApproves !== true) {
-        // The roster's numbers decide when offers close and who is warned: a person's to change.
+        // The roster's numbers decide when offers close and who is warned, and the pay period what
+        // is totalled: a person's to change.
         contract(
           `staffing.settings.${key}`,
           `"${setting}" must be a setting a person approves (personApproves): the roster's numbers are never an AI's to change`,
+        );
+      } else if (
+        type === "select" &&
+        (declared.options ?? []).some((o) => !PERIODS.has(o.value))
+      ) {
+        contract(
+          `staffing.settings.${key}`,
+          `"${setting}" offers only weekly, fortnightly and monthly`,
         );
       }
     }

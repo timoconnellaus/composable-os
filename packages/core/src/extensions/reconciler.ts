@@ -1204,6 +1204,7 @@ function staffedTables(state: SchemaState, object: ObjectState): StaffedTables |
     if (!holder || !column) return null;
     account = { table: holder.tableName, column };
   }
+  const kind = field(object, declared.kind)?.columnName;
   return {
     object: object.name,
     table: object.tableName,
@@ -1213,6 +1214,7 @@ function staffedTables(state: SchemaState, object: ObjectState): StaffedTables |
     ends,
     state: stateColumn,
     live: [...declared.live],
+    ...(kind ? { kind } : {}),
   };
 }
 

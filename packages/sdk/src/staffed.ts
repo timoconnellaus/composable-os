@@ -26,6 +26,10 @@ import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifes
  *   series' `recurring.link` on this object, `who` the series field copied onto `who.field`).
  * - `payBefore`, `payAfter` (optional): `kind.field` number paths, minutes counted for pay only
  *   (preparation and pack-down); they never enter the time claim.
+ * - `evidence` (optional): what shows a shift was worked, beside its pay line (ADR 0627): another
+ *   object of this extension whose records name the shift (`link`, a relation to this object) and
+ *   the staff account that marked each (`by`, a user field): a class's bookings, ticked by whoever
+ *   took the list. The host reads only that the list was taken, and by whom.
  *
  * Only shipped packs and the org's own extensions declare it: who works when feeds pay.
  */
@@ -40,6 +44,7 @@ export interface StaffedSpec {
   pattern?: { link: string; who: string };
   payBefore?: { field: string };
   payAfter?: { field: string };
+  evidence?: { object: string; link: string; by: string };
 }
 
 const fieldName = z.string().max(40);
@@ -57,6 +62,7 @@ export const staffedManifestSchema = z
     pattern: z.object({ link: fieldName, who: fieldName }).strict().optional(),
     payBefore: z.object({ field: path }).strict().optional(),
     payAfter: z.object({ field: path }).strict().optional(),
+    evidence: z.object({ object: fieldName, link: fieldName, by: fieldName }).strict().optional(),
   })
   .strict();
 export type StaffedManifest = z.infer<typeof staffedManifestSchema>;
@@ -172,6 +178,27 @@ export function checkObjectStaffed(
         `${at}.${key}.field`,
         `"${declared.field}" must be ${staffed.kind}.<a number field of what it names>`,
       );
+    }
+  }
+
+  // The evidence a shift was worked: another object of this extension naming it, and who marked.
+  if (staffed.evidence) {
+    const { object: other, link, by } = staffed.evidence;
+    const evidence = other !== name && Object.hasOwn(m.objects, other) ? m.objects[other] : undefined;
+    const linkField = evidence ? own(evidence, link) : undefined;
+    if (!evidence) {
+      contract(`${at}.evidence.object`, `"${other}" must be another object of this extension`);
+    } else if (
+      linkField?.type !== "relation" ||
+      linkField.many ||
+      linkField.to !== `${m.id}.${name}`
+    ) {
+      contract(
+        `${at}.evidence.link`,
+        `"${link}" must be a relation field (one record) of ${other} to ${m.id}.${name}`,
+      );
+    } else if (!single(own(evidence, by), ["user"])) {
+      contract(`${at}.evidence.by`, `"${by}" must be a user field of ${other}`);
     }
   }
 }

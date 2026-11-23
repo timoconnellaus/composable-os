@@ -820,6 +820,14 @@ function staffedDefinition(
         ...(declared.who.account ? { account: declared.who.account, object: holder } : {}),
       },
       live: [...declared.live],
+      ...(declared.evidence
+        ? {
+            evidence: {
+              ...declared.evidence,
+              object: `${object.extensionId}.${declared.evidence.object}`,
+            },
+          }
+        : {}),
     },
   };
 }
