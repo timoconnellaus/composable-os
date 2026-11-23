@@ -359,6 +359,7 @@ export function planFromState(
       ...(object.capacity ? { capacity: object.capacity } : {}),
       ...(object.sellable ? { sellable: object.sellable } : {}),
       ...(object.allowance ? { allowance: object.allowance } : {}),
+      ...(object.agreements ? { agreements: object.agreements } : {}),
       ...(object.states ? { states: object.states } : {}),
       ...(object.claims ? { claims: object.claims } : {}),
       ...(object.unique?.length ? { unique: object.unique } : {}),

@@ -736,8 +736,8 @@ coaches, series with their coach, one-off and future classes):
 
 ## Migrations and numbers
 Block **AV** in [`parallel-work.md`](../parallel-work.md): migrations 0810 to 0829 and ADRs 0620 to
-0629, claimed by step 1's build (block AU, which this spec first named, went to stage 44; AS and AT
-to routine mail and ADR 0600). Step 1 used migration 0810 (`core_recurrence_exception`, a table of
+0629, claimed by step 1's build (block AU, which this spec first named, went to stage 46, and stage 44
+moved to AX; AS and AT went to routine mail and ADR 0600). Step 1 used migration 0810 (`core_recurrence_exception`, a table of
 its own rather than a column on the occurrence, so each exception carries who and when) and ADR
 0620. The later steps: `core_staff_time` and its triggers, `core_staff_qualification`,
 `core_staff_away`, `core_staff_offer` (with a guard kind), `core_staff_feed`,
