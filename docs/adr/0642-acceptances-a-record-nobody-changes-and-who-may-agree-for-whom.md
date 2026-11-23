@@ -139,3 +139,8 @@ settle by trigger (migration 0853): to the order's Person once something is paid
 checkout's holder (payer for a payer document) once the provider confirms the subscription; an
 order that closes unpaid deletes them, and the minute cron deletes those of a checkout never
 confirmed after three days.
+
+## Amended 2026-11-23: the copy (stage 44 step 4, [ADR 0645](0645-the-copy-and-the-signed-pdf-host-mail-and-a-second-attachment.md))
+Whether an acceptance's copy went is kept beside it (`core_agreement_copy`, migration 0854); the
+acceptance's own triggers are unchanged. A row a raw writer inserts still makes a copy, to the
+address that row holds: the person named there hears of it, which is what the copy is for.

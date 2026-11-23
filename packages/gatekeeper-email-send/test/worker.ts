@@ -44,16 +44,24 @@ class FakeQueue extends RpcTarget {
   readonly #autoApply: ((id: number) => Promise<void>) | undefined;
   readonly #hostSignIn: boolean;
   readonly #routine: { siteOrigin: string | null } | null;
+  readonly #hostAgreement: boolean;
 
   constructor(
     autoApply?: (id: number) => Promise<void>,
     hostSignIn = false,
     routine: { siteOrigin: string | null } | null = null,
+    hostAgreement = false,
   ) {
     super();
     this.#autoApply = autoApply;
     this.#hostSignIn = hostSignIn;
     this.#routine = routine;
+    this.#hostAgreement = hostAgreement;
+  }
+
+  /** As the CRM's integration host answers: true only for its own agreements mail (ADR 0645). */
+  async isHostAgreementMail(): Promise<boolean> {
+    return this.#hostAgreement;
   }
 
   /** As the CRM's integration host answers: only for its own routine mail, decided routine (ADR 0590). */
@@ -90,6 +98,7 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
       autoApply?: boolean;
       hostSignIn?: boolean;
       hostRoutine?: { siteOrigin: string | null };
+      hostAgreement?: boolean;
     } = {},
   ): Promise<ResourceDescription> {
     const account = this.ctx.exports.EmailSendAccount({});
@@ -103,7 +112,9 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
       options.autoApply ? (id) => facet.applyAction(id) : undefined,
       options.hostSignIn === true,
       options.hostRoutine ?? null,
+      options.hostAgreement === true,
     );
+
     this.#session = (await facet.startSession(queue as never)) as unknown as EmailSendSession;
     return facet.describe();
   }

@@ -1,0 +1,589 @@
+// The copy and the signed PDF (stage 44 step 4, ADR 0645).
+//
+// - What the PDF says (`versionDocument`, `acceptanceDocument`): the values the email gatekeeper's
+//   PDF writer draws, built here from the stored version and acceptance, never stored as a file.
+//   The same values give the same bytes, whether the gatekeeper attaches the file to the copy or
+//   the host's download route serves it. Who sees what follows step 2's rules: a name typed and a
+//   signature drawn are shown to whoever agreed (and to staff, a person); health answers to the
+//   person and their guardian in a download, to staff only with agreements:health, and never in
+//   the copy (decision 21: "your answers are in the app").
+// - The copy (`sendAgreementCopies`): the host's own mail, one per acceptance by a person, to the
+//   address the host's records hold (migration 0854 writes the row and checks the address; no
+//   caller names one). It goes through `callAsHost` with purpose `agreements`, the only queue the
+//   gatekeeper attaches a signed agreement for, with the idempotency key `agreement-copy:<id>`
+//   (ADR 0574): a row is claimed by one sender at a time, a sender that crashed is retried with
+//   the same key (the gatekeeper answers the first send again), and a new key is used only after
+//   a try the gatekeeper proved was not sent. A try whose outcome is unknown is never retried.
+//
+// Nothing here puts a name typed, a signature or an answer in a log, an error or the approval
+// card; the error column holds the gatekeeper's words, which never carry the message.
+import type { CoreDatabase } from "@composable-os/db";
+import { productName } from "@composable-os/product";
+import { product } from "@composable-os/products/active";
+import { type Kysely, sql } from "kysely";
+import { NotFoundError, OperationError } from "../errors.ts";
+import type { IntegrationRuntime } from "../integrations/runtime.ts";
+import { resolveChannelTarget } from "../notifications/channels.ts";
+import { loadDeliverySettings } from "../notifications/preferences.ts";
+import { loadGeneralSettings } from "../settings.ts";
+import type { Signature } from "./capture.ts";
+import { type Question, versionIntact } from "./documents.ts";
+
+type Db = Kysely<CoreDatabase>;
+
+/** A health form's answer, as the PDF lists it. */
+export interface DocumentAnswer {
+  key: string;
+  yes: boolean;
+  note?: string;
+}
+
+/** What the signed PDF says: the gatekeeper's `agreement` values, and the download's. */
+export interface AgreementDocument {
+  business: string;
+  title: string;
+  versionNumber: number;
+  versionHash: string;
+  body: { blocks: unknown[] };
+  tickLabel: string;
+  questions?: { key: string; text: string }[];
+  answers?: DocumentAnswer[] | "in-app" | "withheld";
+  record?: { label: string; value: string }[];
+  signature?: Signature;
+  acceptanceId?: string;
+  blank?: boolean;
+}
+
+/** The idempotency key of an acceptance's copy (ADR 0574): the first try's. */
+export const copyKey = (acceptanceId: string) => `agreement-copy:${acceptanceId}`;
+
+/** The business's name, as its copies and files say it. */
+async function businessName(db: Db): Promise<{ name: string; timezone: string }> {
+  const settings = await loadGeneralSettings(db);
+  return { name: settings.orgName ?? productName(product), timezone: settings.timezone };
+}
+
+/** `2026-11-23 19:05`, in `timeZone`. */
+export function localTime(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
+}
+
+const utcTime = (iso: string) => `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+
+/** A version's words as the PDF draws them, checked against its hash. */
+export async function versionDocument(db: Db, versionId: string): Promise<AgreementDocument> {
+  const v = await db
+    .selectFrom("core_agreement_version as v")
+    .innerJoin("core_agreement_document as d", "d.id", "v.document_id")
+    .selectAll("v")
+    .select("d.kind")
+    .where("v.id", "=", versionId)
+    .executeTakeFirst();
+  if (!v) throw new NotFoundError("agreement version", versionId);
+  // A version whose stored text does not match its hash is never drawn as what was agreed.
+  if (!(await versionIntact(v, v.kind))) {
+    throw new OperationError("conflict", "This version's text does not match its hash.", {
+      rule: "agreement_version_not_intact",
+    });
+  }
+  const { name } = await businessName(db);
+  const questions = v.questions ? (JSON.parse(v.questions) as Question[]) : null;
+  return {
+    business: name,
+    title: v.title,
+    versionNumber: v.number,
+    versionHash: v.hash,
+    body: JSON.parse(v.body) as { blocks: unknown[] },
+    tickLabel: v.tick_label,
+    ...(questions?.length
+      ? { questions: questions.map((q) => ({ key: q.key, text: q.text })) }
+      : {}),
+  };
+}
+
+/** The blank form of a version, to print and sign on paper. */
+export async function blankDocument(db: Db, versionId: string): Promise<AgreementDocument> {
+  return { ...(await versionDocument(db, versionId)), blank: true };
+}
+
+/**
+ * Whose eyes a PDF is for:
+ * - `person`: a person's own file (the copy, emailed to whoever agreed, and `me.agreements.pdf`),
+ *   as `me` sees it: the name typed and the signature only when `me` is who agreed (a guardian's
+ *   are theirs alone, step 2's second review); `answers` says whether the answers are drawn (a
+ *   download) or "in the app" (the copy).
+ * - `staff`: a person on the staff (`agreement.acceptance.pdf`): everything, answers only with
+ *   agreements:health.
+ */
+export type DocumentView =
+  | { kind: "person"; me: string | null; answers: "include" | "in-app" }
+  | { kind: "staff"; answers: boolean };
+
+export interface AcceptanceFacts {
+  id: string;
+  personId: string | null;
+  by: "self" | "guardian" | "guest" | "paper";
+  agentPersonId: string | null;
+  erased: boolean;
+  hasAnswers: boolean;
+  email: string | null;
+}
+
+/** The facts of one acceptance an operation checks before it builds the file. */
+export async function acceptanceFacts(db: Db, id: string): Promise<AcceptanceFacts | null> {
+  const row = await db
+    .selectFrom("core_agreement_acceptance as a")
+    .leftJoin("core_agreement_answer as n", "n.acceptance_id", "a.id")
+    .select(["a.id", "a.person_id", "a.by", "a.agent_person_id", "a.erased_at", "a.email"])
+    .select(sql<number>`n.acceptance_id IS NOT NULL`.as("has_answers"))
+    .where("a.id", "=", id)
+    .executeTakeFirst();
+  if (!row) return null;
+  return {
+    id: row.id,
+    personId: row.person_id,
+    by: row.by,
+    agentPersonId: row.agent_person_id,
+    erased: row.erased_at !== null,
+    hasAnswers: Boolean(row.has_answers),
+    email: row.email,
+  };
+}
+
+const CHANNEL_WORDS: Record<string, string> = {
+  web: "on the website",
+  app: "in the app",
+  desk: "at the desk",
+  paper: "on paper",
+};
+
+/** What one acceptance's PDF says, for `view`. */
+export async function acceptanceDocument(
+  db: Db,
+  acceptanceId: string,
+  view: DocumentView,
+): Promise<AgreementDocument> {
+  const a = await db
+    .selectFrom("core_agreement_acceptance")
+    .selectAll()
+    .where("id", "=", acceptanceId)
+    .executeTakeFirst();
+  if (!a) throw new NotFoundError("acceptance", acceptanceId);
+  const base = await versionDocument(db, a.version_id);
+  const { timezone } = await businessName(db);
+  const ids = [a.person_id, a.agent_person_id].filter((x): x is string => Boolean(x));
+  const people = ids.length
+    ? await db
+        .selectFrom("core_person")
+        .select(["id", "display_name"])
+        .where("id", "in", ids)
+        .execute()
+    : [];
+  const nameOf = (id: string | null) =>
+    (id && people.find((p) => p.id === id)?.display_name) || null;
+  // Whether the name typed and the signature are this view's to see (step 2's rule).
+  const agreedBy = a.by === "guardian" ? a.agent_person_id : a.person_id;
+  const theirs = view.kind === "staff" || (view.me !== null && view.me === agreedBy);
+  const record: { label: string; value: string }[] = [];
+  record.push({
+    label: "For",
+    value:
+      nameOf(a.person_id) ??
+      (a.erased_at
+        ? "A person whose record was erased"
+        : a.by === "guest"
+          ? "A visitor buying without an account"
+          : "Unknown"),
+  });
+  if (a.by === "paper") {
+    const staff = a.recorded_by
+      ? await db
+          .selectFrom("core_user")
+          .select("name")
+          .where("id", "=", a.recorded_by)
+          .executeTakeFirst()
+      : undefined;
+    record.push({
+      label: "Agreed by",
+      value: `Recorded from paper by ${staff?.name ?? "a member of staff"} on ${a.accepted_at.slice(0, 10)}; signed on ${a.signed_on ?? "an unknown date"}`,
+    });
+    if (view.kind === "staff" && a.signed_by)
+      record.push({ label: "Signed by", value: a.signed_by });
+  } else if (a.by === "guardian") {
+    const guardian = theirs ? nameOf(a.agent_person_id) : null;
+    record.push({
+      label: "Agreed by",
+      value:
+        `A parent or guardian${guardian ? `, ${guardian}` : ""}, signed in ${CHANNEL_WORDS[a.channel] ?? ""}`.trim(),
+    });
+  } else if (a.by === "guest") {
+    record.push({
+      label: "Agreed by",
+      value: "The buyer, without an account, with their purchase",
+    });
+  } else {
+    record.push({
+      label: "Agreed by",
+      value: `Themselves, signed in ${CHANNEL_WORDS[a.channel] ?? ""}`.trim(),
+    });
+  }
+  record.push({
+    label: "How",
+    value:
+      a.how === "paper"
+        ? "Signed a printed form of this version"
+        : a.how === "drawn"
+          ? "Ticked the box, typed their name and drew their signature"
+          : "Ticked the box and typed their name",
+  });
+  if (theirs && a.typed_name) {
+    record.push({
+      label: a.by === "paper" ? "Name on the form" : "Name typed",
+      value: a.typed_name,
+    });
+  }
+  record.push({
+    label: a.by === "paper" ? "Recorded at" : "Agreed at",
+    value: `${localTime(a.accepted_at, timezone)} (${timezone}); ${utcTime(a.accepted_at)}`,
+  });
+  if (view.kind === "staff" && a.note) record.push({ label: "Note", value: a.note });
+  record.push({ label: "Acceptance", value: a.id });
+
+  let signature: Signature | undefined;
+  if (theirs && a.how === "drawn") {
+    const row = await db
+      .selectFrom("core_agreement_signature")
+      .select("strokes")
+      .where("acceptance_id", "=", a.id)
+      .executeTakeFirst();
+    if (row) signature = JSON.parse(row.strokes) as Signature;
+  }
+
+  let answers: AgreementDocument["answers"];
+  if (base.questions) {
+    const wantAnswers = view.kind === "staff" ? view.answers : view.answers === "include";
+    if (view.kind === "person" && view.answers === "in-app") answers = "in-app";
+    else if (!wantAnswers) {
+      const has = await db
+        .selectFrom("core_agreement_answer")
+        .select("acceptance_id")
+        .where("acceptance_id", "=", a.id)
+        .executeTakeFirst();
+      if (has) answers = "withheld";
+    } else {
+      const row = await db
+        .selectFrom("core_agreement_answer")
+        .select("answers")
+        .where("acceptance_id", "=", a.id)
+        .executeTakeFirst();
+      if (row) answers = JSON.parse(row.answers) as DocumentAnswer[];
+    }
+  }
+  return {
+    ...base,
+    ...(answers !== undefined ? { answers } : {}),
+    record,
+    ...(signature ? { signature } : {}),
+    acceptanceId: a.id,
+  };
+}
+
+// --- The copy ------------------------------------------------------------------------------------
+
+const BY_WORDS = {
+  self: "You agreed to it yourself, signed in.",
+  guardian:
+    "You agreed to it as a parent or guardian, for someone linked to you: the attached file names who it is for.",
+  guest: "You agreed to it when you bought without an account.",
+  paper: "It was recorded from a paper form.",
+} as const;
+
+/** The copy's subject, text and the gatekeeper's `agreement` values. */
+export async function copyMessage(
+  db: Db,
+  acceptanceId: string,
+): Promise<{ subject: string; text: string; agreement: AgreementDocument & { summary: string } }> {
+  const a = await db
+    .selectFrom("core_agreement_acceptance")
+    .select(["id", "by", "person_id", "agent_person_id", "accepted_at", "signed_on"])
+    .where("id", "=", acceptanceId)
+    .executeTakeFirst();
+  if (!a) throw new NotFoundError("acceptance", acceptanceId);
+  const me = a.by === "guardian" ? a.agent_person_id : a.person_id;
+  const document = await acceptanceDocument(db, acceptanceId, {
+    kind: "person",
+    me,
+    answers: "in-app",
+  });
+  const { timezone } = await businessName(db);
+  const when = `${localTime(a.accepted_at, timezone)} (${timezone}); ${utcTime(a.accepted_at)}`;
+  const lines = [
+    `This is your copy of "${document.title}", version ${document.versionNumber}.`,
+    "",
+    a.by === "paper" && a.signed_on
+      ? `It was recorded from a paper form signed on ${a.signed_on}.`
+      : BY_WORDS[a.by],
+    `${a.by === "paper" ? "Recorded" : "Agreed"}: ${when}.`,
+    "",
+    "The signed agreement is attached as a PDF. You can see it at any time under My agreements, in the app or on the website.",
+  ];
+  if (document.questions) {
+    lines.push(
+      "",
+      "Your answers to the health questions are not in this email or the attached file: they are in the app.",
+    );
+  }
+  lines.push("", `If you did not agree to this, reply to this email or tell ${document.business}.`);
+  const summary =
+    a.by === "paper"
+      ? `recorded from paper, ${utcTime(a.accepted_at)}`
+      : `agreed ${a.by === "guardian" ? "by a parent or guardian" : a.by === "guest" ? "by a buyer without an account" : "by the person"}, ${utcTime(a.accepted_at)}`;
+  return {
+    subject: `${document.business}: your copy of ${document.title}`.replace(/[\r\n]+/g, " "),
+    text: lines.join("\n"),
+    agreement: { ...document, summary },
+  };
+}
+
+export interface CopyDeps {
+  db: Db;
+  integrations?: IntegrationRuntime | undefined;
+  clock?: (() => Date) | undefined;
+}
+
+export interface CopyRun {
+  sent: number;
+  waiting: number;
+  failed: number;
+  retrying: number;
+  /** No email channel is set, or the integration host is not reachable: nothing was tried. */
+  notSetUp: string | null;
+}
+
+/** A try may be claimed again once it has been "sending" this long (a sender that crashed). */
+const STALE_MS = 10 * 60_000;
+const MAX_ATTEMPTS = 8;
+const SWEEP = 25;
+
+const backoff = (attempts: number, now: Date) =>
+  new Date(now.getTime() + Math.min(60, 2 ** attempts) * 60_000).toISOString();
+
+const short = (message: string) => message.replace(/\s+/g, " ").slice(0, 500);
+
+/**
+ * Sends the copies that are due: those of `acceptanceIds` (right after they were recorded), or
+ * every queued one (the minute cron). Each row is claimed by one sender; a claim left by a sender
+ * that crashed is taken again after ten minutes, with the same idempotency key.
+ */
+export async function sendAgreementCopies(
+  deps: CopyDeps,
+  options: { acceptanceIds?: readonly string[] } = {},
+): Promise<CopyRun> {
+  const run: CopyRun = { sent: 0, waiting: 0, failed: 0, retrying: 0, notSetUp: null };
+  const db = deps.db;
+  const now = deps.clock?.() ?? new Date();
+  const at = now.toISOString();
+  const stale = new Date(now.getTime() - STALE_MS).toISOString();
+  let query = db
+    .selectFrom("core_agreement_copy")
+    .select("acceptance_id")
+    .where((eb) =>
+      eb.or([
+        eb.and([
+          eb("state", "=", "queued"),
+          eb.or([eb("next_at", "is", null), eb("next_at", "<=", at)]),
+        ]),
+        eb.and([eb("state", "=", "sending"), eb("claimed_at", "<", stale)]),
+      ]),
+    )
+    .orderBy("queued_at")
+    .limit(SWEEP);
+  if (options.acceptanceIds) {
+    if (!options.acceptanceIds.length) return run;
+    query = query.where("acceptance_id", "in", [...options.acceptanceIds]);
+  }
+  const due = await query.execute();
+  if (!due.length) return run;
+
+  const call = deps.integrations?.callAsHost?.bind(deps.integrations);
+  if (!call) {
+    run.notSetUp = "the integration host is not reachable here";
+    return run;
+  }
+  const settings = await loadDeliverySettings(db);
+  if (!settings.email) {
+    run.notSetUp = "no email channel is set in Settings, Notification delivery";
+    return run;
+  }
+  const resolved = await resolveChannelTarget(db, "email", settings.email);
+  if ("problem" in resolved) {
+    run.notSetUp = resolved.problem;
+    return run;
+  }
+
+  for (const { acceptance_id: id } of due) {
+    // One sender per row: the claim either takes it or finds it taken.
+    const { rows } = await sql<{ send_key: string; attempts: number; to_address: string }>`
+      UPDATE core_agreement_copy
+      SET state = 'sending', claimed_at = ${at}, attempts = attempts + 1
+      WHERE acceptance_id = ${id} AND (
+        (state = 'queued' AND (next_at IS NULL OR next_at <= ${at}))
+        OR (state = 'sending' AND claimed_at < ${stale}))
+      RETURNING send_key, attempts, to_address`.execute(db);
+    const claimed = rows[0];
+    if (!claimed) continue;
+    const settle = (set: {
+      state: "queued" | "sent" | "waiting" | "failed" | "cancelled";
+      error?: string | null;
+      next_at?: string | null;
+      send_key?: string;
+      pending_action_id?: string | null;
+      sent_at?: string | null;
+    }) =>
+      db
+        .updateTable("core_agreement_copy")
+        .set({ claimed_at: null, ...set })
+        .where("acceptance_id", "=", id)
+        .where("state", "=", "sending")
+        .execute();
+
+    const facts = await acceptanceFacts(db, id);
+    if (!facts || facts.erased || !facts.personId) {
+      await settle({ state: "cancelled", next_at: null });
+      continue;
+    }
+    let message: Awaited<ReturnType<typeof copyMessage>>;
+    try {
+      message = await copyMessage(db, id);
+    } catch (error) {
+      await settle({ state: "failed", error: short(errorText(error)) });
+      run.failed += 1;
+      continue;
+    }
+    let result: Awaited<ReturnType<NonNullable<IntegrationRuntime["callAsHost"]>>>;
+    try {
+      result = await call({
+        connectionId: resolved.target.connectionId,
+        resource: resolved.target.resource,
+        method: "send",
+        args: [
+          {
+            to: [claimed.to_address],
+            subject: message.subject,
+            text: message.text,
+            agreement: message.agreement,
+            idempotencyKey: claimed.send_key,
+          },
+        ],
+        purpose: "agreements",
+      });
+    } catch (error) {
+      // Refused before it was queued (nothing was sent): a malformed message is final; anything
+      // else (the queue full, a send with this key in flight, the host unreachable) is tried
+      // again later with the same key.
+      const text = short(errorText(error));
+      if (/Invalid email/.test(text) || claimed.attempts >= MAX_ATTEMPTS) {
+        await settle({ state: "failed", error: text });
+        run.failed += 1;
+      } else {
+        await settle({ state: "queued", error: text, next_at: backoff(claimed.attempts, now) });
+        run.retrying += 1;
+      }
+      continue;
+    }
+    const pending = result.pending[0];
+    const failed = result.failed?.[0];
+    const receipt = result.value as { status?: unknown } | null;
+    if (result.applied.length || receipt?.status === "sent") {
+      await settle({ state: "sent", sent_at: at, error: null, next_at: null });
+      run.sent += 1;
+    } else if (pending) {
+      // The deploy-time floor holds it for a person: it goes when they approve it.
+      await settle({ state: "waiting", pending_action_id: pending.actionId, error: null });
+      run.waiting += 1;
+    } else if (failed?.outcome === "retryable" && claimed.attempts < MAX_ATTEMPTS) {
+      // Known not sent (a rate limit): a new key, since this one now names a send that failed.
+      await settle({
+        state: "queued",
+        error: short(failed.message),
+        next_at: backoff(claimed.attempts, now),
+        send_key: `${copyKey(id)}:${claimed.attempts + 1}`,
+      });
+      run.retrying += 1;
+    } else if (failed) {
+      // Refused for good, or the outcome is unknown: never tried again, so never sent twice.
+      await settle({
+        state: "failed",
+        error: short(
+          failed.outcome === "unknown"
+            ? `It may or may not have gone out: ${failed.message}`
+            : failed.message,
+        ),
+      });
+      run.failed += 1;
+    } else {
+      // Not applied and not waiting: the deploy-time floor refused it, or a retry of a send
+      // already held for a person.
+      await settle({
+        state: "waiting",
+        error: "Not sent at once: the deploy-time approval floor holds or refuses it",
+      });
+      run.waiting += 1;
+    }
+  }
+  return run;
+}
+
+/**
+ * Sends the copies of acceptances just recorded, right after the commit. Best effort: what does
+ * not go now is the minute cron's (`sendAgreementCopies` with no ids), and a failure never fails
+ * the call that recorded the acceptance.
+ */
+export async function sendCopiesNow(
+  deps: CopyDeps,
+  acceptanceIds: readonly string[],
+): Promise<void> {
+  try {
+    await sendAgreementCopies(deps, { acceptanceIds });
+  } catch (error) {
+    // The error's kind only: its message may name the gatekeeper's view of the message.
+    console.error(
+      "agreement copy not sent now; the minute cron tries again",
+      error instanceof Error ? error.name : "error",
+    );
+  }
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** The address a paper form's copy goes to: the Person's sign-in address, or their primary one. */
+export async function paperCopyAddress(db: Db, personId: string): Promise<string | null> {
+  const account = await db
+    .selectFrom("core_customer")
+    .select("email")
+    .where("person_id", "=", personId)
+    .where("status", "=", "active")
+    .where("link_state", "=", "linked")
+    .executeTakeFirst();
+  if (account?.email) return account.email;
+  const email = await db
+    .selectFrom("core_person_emails")
+    .select("email")
+    .where("person_id", "=", personId)
+    .orderBy("is_primary", "desc")
+    .orderBy("position")
+    .executeTakeFirst();
+  return email?.email ?? null;
+}

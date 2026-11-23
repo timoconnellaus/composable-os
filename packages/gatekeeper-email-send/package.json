@@ -9,6 +9,7 @@
   "exports": {
     ".": "./src/worker.ts",
     "./types": "./src/types.d.ts",
+    "./agreement-pdf": "./src/agreement-pdf.ts",
     "./configurator/sender": "./src/configurator/sender-configurator-ui.tsx"
   },
   "scripts": {

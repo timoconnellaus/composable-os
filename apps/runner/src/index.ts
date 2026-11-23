@@ -31,6 +31,7 @@ import {
   type ShippedExtension,
   type ShippedInstallResult,
   type StartRunInput,
+  sendAgreementCopies,
   vendorBinding,
   type WorkingCopy,
   type WorkingCopyOptions,
@@ -311,6 +312,7 @@ export async function minuteTick(env: Env, at: Date) {
       waitlist: null,
       timedMoves: null,
       agreements: null,
+      agreementCopies: null,
       customerSignup: null,
       deferredRuns: null,
     };
@@ -381,6 +383,15 @@ export async function minuteTick(env: Env, at: Date) {
       floor: parseFloor(env.APPROVAL_FLOOR),
     }),
   );
+  // Agreements' copies (stage 44 step 4, ADR 0645): those not sent when they were recorded (a
+  // guest's, once its purchase settled; one whose send failed and may be tried again).
+  const agreementCopies = await minuteStep("agreement copies", () =>
+    sendAgreementCopies({
+      db: createCrmDb(env.DB).query,
+      integrations: integrationRuntime(env),
+      clock: () => at,
+    }),
+  );
   // Customer sign-in (ADR 0459): admins hear within a minute when a plan going on sale opened
   // sign-up to anyone ("anyone starting a subscription" on). Nothing while the switch is off.
   const customerSignup = await minuteStep("customer sign-up", async () => {
@@ -400,7 +411,9 @@ export async function minuteTick(env: Env, at: Date) {
     waitlist,
     timedMoves,
     agreements,
+    agreementCopies,
     customerSignup,
+
     deferredRuns,
   };
 }

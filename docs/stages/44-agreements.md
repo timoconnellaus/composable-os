@@ -31,7 +31,8 @@ declarations).
 Status: **spec agreed** (owner interviewed 2026-11-23; the eight questions answered the same day,
 decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 0641; step 2 built on
 `feat/stage-44-acceptances`, ADRs 0642 and 0643; step 3, enforcement, built on
-`feat/stage-44-enforcement`, ADR 0644; build notes at the end).
+`feat/stage-44-enforcement`, ADR 0644; step 4, the copy and the signed PDF, built on
+`feat/stage-44-copy`, ADR 0645; build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -1458,3 +1459,74 @@ guest's purchase with a minor's address stands, the child stays due for a guardi
 with `agreements:manage` are told. `order.setPerson` takes only a Person with the order's
 address, and a minor only once nothing is due. Left as a follow-up (an issue): staff-given
 enrolments and hand-made tickets are not asked while `givePass` is.
+
+## Step 4: build notes (`feat/stage-44-copy`, 2026-11-23)
+
+Built: migration 0854 (`core_agreement_copy` and its triggers), ADR 0645; ADRs 0571, 0642 and
+0643 amended with dated notes. `agreements/copy.ts` (what the PDF says for each viewer, the copy's
+message, `sendAgreementCopies`), `operations/agreement-copy.ts`, the email gatekeeper's
+`agreement.ts` (the rule) and `agreement-pdf.ts` (the writer), its `validate.ts` and `worker.ts`,
+`callAsHost`'s purpose `agreements` in cos-runner's integration host and queue, the fake outbox,
+the minute cron's "agreement copies" step, and the download routes
+(`apps/app/src/server/http/agreement-pdf.ts`, mounted in `server.ts` and the client-app binding).
+
+Operations:
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `me.agreements.pdf` | customer (hostInternal) | the customer | records:read | read |
+| `agreement.acceptance.pdf` | staff | human | records:read (answers only with agreements:health; a kept or unsettled one with agreements:manage) | read, every download audited |
+| `agreement.version.pdf` | staff | human | records:read | read |
+| `agreement.copy.send` | staff | human | agreements:paper | write |
+
+`agreement.acceptance.get` also says whether the copy went (`copy`).
+
+Every path, and its copy:
+
+| Path | Copy |
+| --- | --- |
+| A customer for themselves (`me.agreements.accept`) | At once after the commit, to their sign-in address |
+| A guardian for a child | At once, to the guardian's sign-in address; the PDF names the guardian and shows their name typed and strokes only to them |
+| A guest with their purchase | When it settles to the purchase's Person (the verified payment, `order.setPerson`, a confirmed subscription), by the minute cron, to the address it was bought with; none if the order closes unpaid |
+| Paper | Only when a person with `agreements:paper` presses "Email a copy", to the Person's sign-in address or primary email; refused when there is none |
+| The desk (step 6) | Made by the same trigger (`self` or `guardian` with an address); step 6 adds the previous address and its words |
+
+Deviations and decisions, and why:
+
+- **A PDF writer of our own**, not a vendored library: about 800 lines with no imports, the
+  standard fonts only, every text a hex string. A library would have added hundreds of KiB and
+  font embedding and parsing this needs none of; nothing is added to `UPSTREAMS.md`. The runner
+  does not carry it (the fake outbox imports only the rule): cos-runner's main module is
+  7,447 KiB.
+- **The gatekeeper's `agreement` part has no field for answers** (only `answers: "in-app"`), where
+  the spec allowed answers "only where the host asked": the copy never asks, and a part that
+  cannot hold them cannot leak them.
+- **The approval card names no one**: "Signed agreement: [title], version [n], agreed by the
+  person / by a parent or guardian / by a buyer without an account, [UTC time]". The spec's
+  "[who]" would have put a name where an AI acting for an approver can read it.
+- **The copy's text names no one either** and has no link: it says what was agreed, when, how,
+  and that it is under My agreements in the app or on the website. A guardian's copy says the
+  attached file names whom it is for.
+- **Who sees a name typed and strokes in a download** follows `me.agreements.get`: only whoever
+  agreed. The copy is built as the recipient's own download is, so for anything but a health form
+  the attachment and the person's download are the same bytes; a health form's download adds the
+  answers. A paper form's signer and note are in staff's file only.
+- **Downloads are operations that return what the PDF says**; the route draws it, so the PDF
+  writer stays out of `packages/core`. Two prefixes, as the media route: `/api/agreements/…`
+  (staff, behind Access) and `/api/v1/agreements/…` (a customer on the host's hostname or over the
+  client-app binding; staff by session too).
+- **A paper form's copy goes to the Person it is for** (for a child, the child's own address), and
+  is refused when they have none; whether a parent should get it instead is left for step 5's
+  screens and the owner.
+- **The copy is not routine mail** (ADR 0590): that is a pack automation's mail held per run, not a
+  general host template path, so the copy uses `callAsHost` as the spec first said.
+- **A deployment with no email channel** keeps copies queued until one is set. A copy the floor
+  holds stays `waiting` after a person approves it (the row does not learn of the later send).
+- **The minute cron's copy step pauses with the automation kill switch**, as every minute step.
+
+Not built here: the "Email a copy" button and the download links on screen (steps 5 and the admin
+Person tab), the desk's copy wording and previous address (step 6), the retention purge of copy
+rows (step 8). Not verified: the PDF in Email Service itself (it is passed as bytes, which the
+binding's types allow) and in mail clients; the copy through the real email-send gatekeeper and
+the real integration host together (each is tested with the other's double: the runner with the
+fake outbox, the gatekeeper with a fake queue).

@@ -5,6 +5,12 @@ export * from "./adjudicator/review.ts";
 export * from "./adjudicator/reviewers.ts";
 export * from "./adjudicator/run.ts";
 export {
+  type AgreementDocument,
+  type CopyRun,
+  copyKey,
+  sendAgreementCopies,
+} from "./agreements/copy.ts";
+export {
   AGREEMENT_FOR,
   AGREEMENT_HOW,
   AGREEMENT_WHO,

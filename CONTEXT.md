@@ -1309,6 +1309,20 @@ built from the stored version, never kept as a file.
 _Avoid_: consent (stage 43's care link word, which becomes an acceptance), signature (one way to
 accept), sign-off
 
+**Copy** and **signed PDF** (of an acceptance; stage 44, built in step 4)
+The **copy** is the email the host sends, as its own mail, to whoever agreed, once per acceptance:
+at once when a person agrees (to their sign-in address; a guardian gets the copy of what they
+agreed for a child), when a guest's purchase settles (to the address it was bought with), and for
+a paper form only when staff press "Email a copy" (to the Person's own address). The address is
+always the host's record, never a caller's, and no AI composes, sends, redirects or reads it
+(ADR 0645). The **signed PDF** is the version's words and the record of the acceptance (who, how,
+when, the name typed, the signature drawn), attached to the copy as `agreement.pdf` and downloaded
+by the person, their guardian or staff; made on demand by one PDF writer, so a download and the
+attachment are the same bytes for the same values. A health form's copy says the answers are in
+the app (decision 21); a download shows them only to the person, their guardian and staff with
+`agreements:health`. The **blank PDF** of a version is the form staff print for paper.
+_Avoid_: receipt, certificate, attachment (alone)
+
 **Health form** and **health answers** (stage 44, built in step 2)
 A `health` document's yes or no questions, a note if yes, and a person's answers. Health
 information: kept apart from every staff bulk path and every AI actor, read on screen only by

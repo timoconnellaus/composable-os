@@ -32,8 +32,9 @@ export type QueueCaller =
   | {
       kind: "system";
       // `payments`: verified payment events (stage 25). `orders`: the host's own calls for an
-      // order, a checkout and its confirmation email (`callAsHost`, ADR 0429).
-      purpose: "sync" | "webhook" | "payments" | "orders" | "probe";
+      // order, a checkout and its confirmation email (`callAsHost`, ADR 0429). `agreements`: the
+      // copy of a signed agreement (`callAsHost`, ADR 0645), the only queue that may attach one.
+      purpose: "sync" | "webhook" | "payments" | "orders" | "probe" | "agreements";
       user: ActingUser;
     }
   | {
@@ -198,6 +199,15 @@ export class HostQueue extends RpcTarget {
   }
 
   /**
+   * Whether this session is the host's own agreements mail (ADR 0645): the copy of a signed
+   * agreement. Email-send attaches the signed PDF only for such a session; the answer comes from
+   * how the host opened the queue, never from anything the caller sent.
+   */
+  async isHostAgreementMail(): Promise<boolean> {
+    return this.#caller.kind === "system" && this.#caller.purpose === "agreements";
+  }
+
+  /**
    * Whether this session is the host's own orders call (`callAsHost`, purpose `orders`): an
    * order's checkout, a subscription's, its portal (ADR 0485). The payments gatekeeper opens a
    * customer's billing portal only for such a session; the answer comes from how the host opened
@@ -242,13 +252,17 @@ export class HostQueue extends RpcTarget {
               userId: this.#caller.user.id,
               userName: this.#caller.user.name,
               role: this.#caller.user.role,
+              // The host's own mail no AI wrote or reads (sign-in codes, an agreement's copy) is
+              // the system's: the outbound check never reads it (ADR 0645).
               origin:
                 this.#caller.purpose === "sign-in"
                   ? { surface: "system" as const, automationId: this.#caller.origin }
-                  : {
-                      surface: "automation" as const,
-                      automationId: `${this.#caller.purpose}:${host.connectionId}`,
-                    },
+                  : this.#caller.purpose === "agreements"
+                    ? { surface: "system" as const, automationId: "system.agreements" }
+                    : {
+                        surface: "automation" as const,
+                        automationId: `${this.#caller.purpose}:${host.connectionId}`,
+                      },
             };
     const submission: OutboundSubmission = {
       connectionId: host.connectionId,
@@ -265,10 +279,13 @@ export class HostQueue extends RpcTarget {
       floor: parseFloor(host.env.APPROVAL_FLOOR),
       // outbound.message (ADR 0238): a message an AI actor wrote is checked before it leaves.
       judge: runnerJudge(host.env),
-      // The host's own message (ADR 0429): only `callAsHost` opens a queue with this purpose.
-      ...(this.#caller.kind === "system" && this.#caller.purpose === "orders"
+      // The host's own message (ADR 0429): only `callAsHost` opens a queue with these purposes
+      // (an agreement's copy, ADR 0645, as an order's confirmation).
+      ...(this.#caller.kind === "system" &&
+      (this.#caller.purpose === "orders" || this.#caller.purpose === "agreements")
         ? { hostMessage: true }
         : {}),
+
       // Routine mail (ADR 0590): the host's decision, which the gate applies only with the
       // gatekeeper's routine kind; anything else from this queue waits for a person.
       ...(routine ? { routineMail: { routine: routine.routine, ordinary: routine.ordinary } } : {}),

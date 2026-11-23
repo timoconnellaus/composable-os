@@ -34,6 +34,14 @@ import {
 } from "@composable-os/gatekeeper-kit/actions";
 import { domainOf, parseDomainList } from "./address";
 import {
+  AGREEMENT_FILENAME,
+  AGREEMENT_KIND,
+  agreementSummary,
+  isAgreementShaped,
+  isHostAgreementMail,
+} from "./agreement";
+import { agreementPdf } from "./agreement-pdf";
+import {
   CALENDAR_FILENAME,
   CANCEL_FILENAME,
   calendarFile,
@@ -42,7 +50,7 @@ import {
 } from "./calendar";
 
 /** A message's calendar events, as a list (one or two). */
-function calendarsOf(message: EmailSendMessage): EmailCalendarEvent[] {
+function calendarsOf(message: ParsedMessage): EmailCalendarEvent[] {
   const c = message.calendar;
   return (c ? (Array.isArray(c) ? c : [c]) : []) as EmailCalendarEvent[];
 }
@@ -64,7 +72,7 @@ import type {
   EmailSendSession,
 } from "./types";
 import TYPES_CODE from "./types.txt";
-import { parseMessage, recipientsOf } from "./validate";
+import { type ParsedMessage, parseMessage, recipientsOf } from "./validate";
 
 const MAIL_ICON = {
   url:
@@ -123,13 +131,14 @@ function splitIdempotencyKey(input: unknown): { key: string | null; rest: unknow
 // ── Actions ─────────────────────────────────────────────────────────
 
 /** What the journal stores for one send: the sender at submit time and the validated message. */
-type StoredEmail = { from: string; message: EmailSendMessage };
+type StoredEmail = { from: string; message: ParsedMessage };
 
 type Actions = {
   send: StoredEmail;
   sendInternal: StoredEmail;
   sendSignIn: StoredEmail;
   sendRoutine: StoredEmail;
+  sendAgreement: StoredEmail;
 };
 type SendKind = keyof Actions;
 
@@ -175,6 +184,9 @@ function describeSend(email: StoredEmail, internal: boolean) {
     if (event.url) builder.inline("Calendar link", event.url);
     if (event.description) builder.verbatim("Calendar description", event.description);
   }
+  // The signed agreement's file, in one line: what, which version, how and when; no name typed,
+  // no signature, no answer (ADR 0645).
+  if (message.agreement) builder.inline("Attachment", agreementSummary(message.agreement));
   return {
     title: sanitizeTitle(`Send email: ${message.subject}`),
     ...builder.finish(),
@@ -206,6 +218,9 @@ const actions = defineActions<EmailHost, Actions>(
     // Routine mail (ADR 0590): the host's own decision, not an admin's switch, lets it apply,
     // so it is not auto-approvable; an independent send, so it never waits behind another.
     sendRoutine: sendDefinition(false, ROUTINE_KIND, false),
+    // The copy of a signed agreement (ADR 0645): the host's own mail, applied by the host's
+    // decision (its `callAsHost`), never by an admin's switch; an independent send.
+    sendAgreement: sendDefinition(false, AGREEMENT_KIND, false),
   },
   // Email Service has no per-user authority to pin: the Worker's own binding sends every email,
   // and apply re-checks the sender domain against the current configuration instead.
@@ -267,9 +282,19 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     assertSenderAllowed(sender, this.#backend.allowedDomains());
     // The host's sign-in mail only from the host's own queue, and only the fixed template; its
     // routine mail only from the host's own queue, and only of routine shape (ADR 0590).
-    const routine = await hostRoutineMail(this.#queue);
-    const kind: SendKind =
-      isSignInCodeMessage(parsed) && (await isHostSignInMail(this.#queue))
+    // A signed agreement only from the host's own agreements mail, and only in the copy's shape:
+    // nothing else may attach a file (ADR 0645).
+    if (parsed.agreement) {
+      if (!isAgreementShaped(parsed) || !(await isHostAgreementMail(this.#queue))) {
+        throw new TypeError(
+          "Invalid email: agreement is attached only by the host, to its copy of a signed agreement.",
+        );
+      }
+    }
+    const routine = parsed.agreement ? null : await hostRoutineMail(this.#queue);
+    const kind: SendKind = parsed.agreement
+      ? "sendAgreement"
+      : isSignInCodeMessage(parsed) && (await isHostSignInMail(this.#queue))
         ? "sendSignIn"
         : routine && isRoutineShaped(parsed, routine.siteOrigin)
           ? "sendRoutine"
@@ -358,14 +383,27 @@ export class EmailSendGatekeeper
         ...(message.text !== undefined ? { text: message.text } : {}),
         ...(message.html !== undefined ? { html: message.html } : {}),
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
-        ...(calendarsOf(message).length
+        ...(calendarsOf(message).length || message.agreement
           ? {
-              attachments: calendarsOf(message).map((event) => ({
-                disposition: "attachment" as const,
-                filename: event.cancelled ? CANCEL_FILENAME : CALENDAR_FILENAME,
-                type: `text/calendar; charset=utf-8; method=${event.cancelled ? "CANCEL" : "PUBLISH"}`,
-                content: calendarFile(event, { address: email.from, to: message.to }, new Date()),
-              })),
+              attachments: [
+                ...calendarsOf(message).map((event) => ({
+                  disposition: "attachment" as const,
+                  filename: event.cancelled ? CANCEL_FILENAME : CALENDAR_FILENAME,
+                  type: `text/calendar; charset=utf-8; method=${event.cancelled ? "CANCEL" : "PUBLISH"}`,
+                  content: calendarFile(event, { address: email.from, to: message.to }, new Date()),
+                })),
+                // The signed agreement, made here from the checked values (ADR 0645).
+                ...(message.agreement
+                  ? [
+                      {
+                        disposition: "attachment" as const,
+                        filename: AGREEMENT_FILENAME,
+                        type: "application/pdf",
+                        content: agreementPdf(message.agreement),
+                      },
+                    ]
+                  : []),
+              ],
             }
           : {}),
       }));

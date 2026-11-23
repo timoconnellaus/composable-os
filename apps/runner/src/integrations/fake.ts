@@ -8,6 +8,15 @@
 // Not a template for production gatekeepers: no PKCE, no credentials, a trivially simple journal.
 // See packages/gatekeeper-email-send and packages/gatekeeper-slack-post for real ones.
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+// The email-send gatekeeper's rule for an agreement's copy (ADR 0645). The module imports only
+// types: the fake makes no PDF.
+import {
+  AGREEMENT_FILENAME,
+  agreementSummary,
+  type EmailAgreement,
+  isAgreementShaped,
+  isHostAgreementMail,
+} from "../../../../packages/gatekeeper-email-send/src/agreement.ts";
 import {
   hostRoutineMail,
   isRoutineShaped,
@@ -247,13 +256,21 @@ export class FakeProvider extends DurableObject<Env> {
     return [...this.ctx.storage.kv.list<FakeMessage>({ prefix: "msg:" })].map(([, m]) => m);
   }
 
-  async recordSent(entry: { action: number; to: string[]; subject: string; text: string }) {
+  async recordSent(entry: {
+    action: number;
+    to: string[];
+    subject: string;
+    text: string;
+    attachments?: string[];
+  }) {
     const sent = this.ctx.storage.kv.get<(typeof entry)[]>("sent") ?? [];
     sent.push(entry);
     this.ctx.storage.kv.put("sent", sent);
   }
 
-  async sent(): Promise<{ action: number; to: string[]; subject: string; text: string }[]> {
+  async sent(): Promise<
+    { action: number; to: string[]; subject: string; text: string; attachments?: string[] }[]
+  > {
     return this.ctx.storage.kv.get("sent") ?? [];
   }
 
@@ -559,6 +576,8 @@ interface Journal {
       text: string;
       /** The host's sign-in mail (ADR 0456): applied whatever waits before it, as email-send does. */
       independent?: boolean;
+      /** The names of what was attached (an agreement's copy, ADR 0645); the fake makes no file. */
+      attachments?: string[];
     }
   >;
 }
@@ -595,6 +614,8 @@ class FakeSession extends RpcTarget {
     text: string;
     internal?: boolean;
     relatedRecords?: string[];
+    idempotencyKey?: string;
+    agreement?: unknown;
   }) {
     return this.#gk.send(this.#queue, message);
   }
@@ -767,6 +788,8 @@ export class FakeGatekeeper extends DurableObject<
       text: string;
       internal?: boolean;
       relatedRecords?: string[];
+      idempotencyKey?: string;
+      agreement?: unknown;
     },
   ): Promise<{ id: number; status: "pending" | "sent" }> {
     this.#require("outbox");
@@ -775,9 +798,39 @@ export class FakeGatekeeper extends DurableObject<
     const text = String(message?.text ?? "").slice(0, 20_000);
     if (!to.length || !subject) throw new Error("send needs `to` and a `subject`");
     const internal = message.internal === true;
+    // A retried send with the same key answers the first one's receipt (ADR 0574), as email-send.
+    const key = typeof message.idempotencyKey === "string" ? message.idempotencyKey : null;
+    if (key) {
+      const known = this.ctx.storage.kv.get<number>(`idem:${key}`);
+      if (known !== undefined) {
+        return {
+          id: known,
+          status: this.#journal().actions[known]?.status === "sent" ? "sent" : "pending",
+        };
+      }
+    }
+    // A signed agreement only from the host's own agreements mail, to one address, as email-send
+    // decides it (ADR 0645). The fake records the attachment's name; it makes no file.
+    const agreement =
+      message.agreement !== undefined && message.agreement !== null
+        ? (message.agreement as EmailAgreement)
+        : null;
+    if (agreement) {
+      if (
+        internal ||
+        !isAgreementShaped({ to, text }) ||
+        typeof agreement.title !== "string" ||
+        !(await isHostAgreementMail(queue))
+      ) {
+        throw new Error(
+          "Invalid email: agreement is attached only by the host, to its copy of a signed agreement.",
+        );
+      }
+    }
     // The host's sign-in mail, decided exactly as the email-send gatekeeper decides it (ADR 0456):
     // the host's own queue says so, and the message is the fixed code template.
     const signIn =
+      !agreement &&
       message.internal === undefined &&
       isSignInCodeMessage({
         to,
@@ -789,7 +842,7 @@ export class FakeGatekeeper extends DurableObject<
       }) &&
       (await isHostSignInMail(queue));
     // Routine mail (ADR 0590), decided exactly as email-send decides it.
-    const routineMail = signIn ? null : await hostRoutineMail(queue);
+    const routineMail = signIn || agreement ? null : await hostRoutineMail(queue);
     const routine =
       routineMail !== null &&
       message.internal === undefined &&
@@ -802,9 +855,11 @@ export class FakeGatekeeper extends DurableObject<
       to,
       subject,
       text,
-      ...(signIn || routine ? { independent: true } : {}),
+      ...(signIn || routine || agreement ? { independent: true } : {}),
+      ...(agreement ? { attachments: [AGREEMENT_FILENAME] } : {}),
     };
     this.ctx.storage.kv.put("journal", journal);
+    if (key) this.ctx.storage.kv.put(`idem:${key}`, id);
     const related = Array.isArray(message.relatedRecords) ? message.relatedRecords.map(String) : [];
     await queue.submitAction(id, {
       title: `Send email: ${subject}`,
@@ -815,17 +870,20 @@ export class FakeGatekeeper extends DurableObject<
         { label: "Subject", value: subject },
         { label: "Body", value: text, syntax: "markdown" },
         ...(related.length ? [{ label: "Related records", value: related.join(", ") }] : []),
+        ...(agreement ? [{ label: "Attachment", value: agreementSummary(agreement) }] : []),
       ],
       descriptionIsComplete: true,
       implementsRevert: false,
       autoApprovable: internal || signIn,
-      actionKind: signIn
-        ? { tag: "fake.signin", label: "Send sign-in codes" }
-        : routine
-          ? { tag: "fake.routine", label: "Send members' routine email" }
-          : internal
-            ? { tag: "fake.internal", label: "Send internal mail" }
-            : { tag: "fake.send", label: "Send mail" },
+      actionKind: agreement
+        ? { tag: "fake.agreement", label: "Send copies of signed agreements" }
+        : signIn
+          ? { tag: "fake.signin", label: "Send sign-in codes" }
+          : routine
+            ? { tag: "fake.routine", label: "Send members' routine email" }
+            : internal
+              ? { tag: "fake.internal", label: "Send internal mail" }
+              : { tag: "fake.send", label: "Send mail" },
     });
     return { id, status: this.#journal().actions[id]?.status === "sent" ? "sent" : "pending" };
   }
@@ -898,8 +956,10 @@ export class FakeGatekeeper extends DurableObject<
       to: entry.to,
       subject: entry.subject,
       text: entry.text,
+      ...(entry.attachments ? { attachments: entry.attachments } : {}),
     });
     entry.status = "sent";
+
     this.ctx.storage.kv.put("journal", journal);
   }
 

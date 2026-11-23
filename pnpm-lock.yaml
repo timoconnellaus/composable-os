@@ -41,6 +41,9 @@ importers:
       '@composable-os/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@composable-os/gatekeeper-email-send':
+        specifier: workspace:*
+        version: link:../../packages/gatekeeper-email-send
       '@composable-os/pack-bookings':
         specifier: workspace:*
         version: link:../../packs/bookings
