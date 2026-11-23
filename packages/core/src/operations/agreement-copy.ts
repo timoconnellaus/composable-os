@@ -107,7 +107,7 @@ export const meAgreementsPdf = defineOperation({
 });
 
 /** A Person staff may see, through the seam; an erased or person-less one is the manager's. */
-async function requireVisible(ctx: HandlerContext, personId: string | null): Promise<void> {
+export async function requireVisible(ctx: HandlerContext, personId: string | null): Promise<void> {
   if (personId) {
     await ctx.records.get("person", personId);
     return;
@@ -148,6 +148,9 @@ export const agreementAcceptancePdf = defineOperation({
     const document = await acceptanceDocument(ctx.db, facts.id, {
       kind: "staff",
       answers: holdsPermission(ctx.user, ctx.permissionGrants, "agreements:health"),
+      // Who signed a paper form and staff's note are free text that may name someone (the review
+      // of PR #288): shown to staff with agreements:manage only.
+      freeText: holdsPermission(ctx.user, ctx.permissionGrants, "agreements:manage"),
     });
     return { filename: filename(document.title, facts.id), document };
   },

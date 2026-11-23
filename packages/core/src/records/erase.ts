@@ -3,7 +3,8 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
-import { queueEraseAgreements } from "../agreements/people.ts";
+import { scrubErasedCopies } from "../agreements/copy.ts";
+import { type AgreementsErased, queueEraseAgreements } from "../agreements/people.ts";
 import { enqueueEmbeddings } from "../ai/embedding.ts";
 import { deleteSummariesStatement } from "../ai/summaries.ts";
 import { queueEraseAllowances } from "../allowance/people.ts";
@@ -70,6 +71,8 @@ export interface EraseCounts {
   memoryLines: number;
   /** Open erase requests closed (and deleted with the person's customer account). */
   eraseRequests: number;
+  /** A person's agreements: what is kept, until when, and what went (ADR 0646). */
+  agreements: AgreementsErased | null;
 }
 
 /** The counts person.erase and organisation.erase report beyond the audit and conversations. */
@@ -84,6 +87,23 @@ export const eraseCountsOutput = {
   eraseRequestsClosed: z
     .number()
     .describe("Open erase requests the erase closed (a person's customer account goes with them)"),
+  agreementsKept: z
+    .object({
+      count: z.number().describe("Acceptances kept, no longer theirs, as the business's evidence"),
+      until: z
+        .string()
+        .nullable()
+        .describe(
+          "When the retention purge deletes them (agreement.retention); null: none kept, or the setting keeps them",
+        ),
+      deleted: z
+        .number()
+        .describe("A buyer's acceptances on an unpaid order or unconfirmed checkout, deleted"),
+    })
+    .optional()
+    .describe(
+      "A person's agreements (ADR 0646): health answers and the minor mark are deleted; each acceptance is kept, detached, until the retention period ends",
+    ),
   bodiesDeleted: z
     .number()
     .describe("Synced email bodies deleted from blob storage now (the rest are retried)"),
@@ -105,6 +125,7 @@ export async function afterErase(
   memoryLinesDeleted: number;
   eraseRequestsClosed: number;
   bodiesDeleted: number;
+  agreementsKept?: { count: number; until: string | null; deleted: number };
 }> {
   let bodiesDeleted = 0;
   if (ctx.blobs && !ctx.simulation) {
@@ -114,7 +135,25 @@ export async function afterErase(
       // Left queued for the cron.
     }
   }
+  // What the email gatekeeper holds of their copies, scrubbed now (ADR 0646); what is not done
+  // here stays owed for the minute cron's copy step.
+  if (counts.agreements && ctx.integrations && !ctx.simulation) {
+    try {
+      await scrubErasedCopies({ db: ctx.db, integrations: ctx.integrations });
+    } catch {
+      // Owed: the minute cron asks again.
+    }
+  }
   return {
+    ...(counts.agreements
+      ? {
+          agreementsKept: {
+            count: counts.agreements.kept,
+            until: counts.agreements.keptUntil,
+            deleted: counts.agreements.deleted,
+          },
+        }
+      : {}),
     suggestionsRemoved: counts.suggestions,
     extensionRowsErased: counts.extensionRows,
     runsRedacted: counts.runs,
@@ -364,9 +403,14 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
         : ctx.db.deleteFrom("core_organisation").where("id", "in", ids),
     );
   }
-  // Their health answers and minor mark go now; their acceptances stay, detached (ADR 0642).
-  // After the Person's row is deleted: the acceptance triggers allow a detach only then.
-  if (subject.object === "person") queueEraseAgreements(ctx, [...recordIds]);
+  // Their health answers and minor mark go now; their acceptances stay, detached, for the
+  // retention period (ADRs 0642 and 0646); a buyer's unpaid ones go; a copy's waiting approval is
+  // turned down. After the Person's row and their orders' addresses are deleted: the acceptance
+  // triggers allow a detach only then.
+  const agreements =
+    subject.object === "person"
+      ? await queueEraseAgreements(ctx, [...recordIds], subject.addresses)
+      : null;
 
   // 5. FTS5 keeps deleted terms in older index segments until they are merged. Merge now, after
   // every delete above, so the erased values leave the search index's storage, not just its
@@ -383,6 +427,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     notifications,
     memoryLines,
     eraseRequests,
+    agreements,
   };
 }
 

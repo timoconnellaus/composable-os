@@ -19,6 +19,7 @@ import {
   purgeRoutineMail,
   purgeRunHistory,
   queueEventSink,
+  runAgreementRetention,
   runAuditPurge,
   runOrderNotices,
   runTrashPurge,
@@ -116,6 +117,15 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
   );
   // Orders (stage 25, ADR 0429): late payments undecided and balances past due, told daily.
   const orders = await step("order notices", () => runOrderNotices(db, now));
+  // Acceptances kept after an erase, past their retention period (stage 44, ADR 0646): deleted,
+  // a bounded number per round; nothing runs and nothing is audited when none is due.
+  const agreements = await step("kept agreements", () =>
+    runAgreementRetention(db, {
+      floor: parseFloor(env.APPROVAL_FLOOR),
+      ...(clock ? { clock } : {}),
+    }),
+  );
+  if (agreements?.purged) console.log(`agreements: ${agreements.purged} kept acceptance(s) purged`);
   return {
     purge,
     expired,
@@ -128,6 +138,7 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
     cacheReview,
     eraseRequests,
     orders,
+    agreements,
     idempotencyKeys,
   };
 }

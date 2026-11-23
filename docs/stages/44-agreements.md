@@ -32,7 +32,8 @@ Status: **spec agreed** (owner interviewed 2026-11-23; the eight questions answe
 decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 0641; step 2 built on
 `feat/stage-44-acceptances`, ADRs 0642 and 0643; step 3, enforcement, built on
 `feat/stage-44-enforcement`, ADR 0644; step 4, the copy and the signed PDF, built on
-`feat/stage-44-copy`, ADR 0645; build notes at the end).
+`feat/stage-44-copy`, ADR 0645; step 8, erase, merge and retention, built on `feat/stage-44-erase`, ADR
+0646; build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -1120,7 +1121,7 @@ no-delete and draft triggers, `core_agreement_point`, `core_agreement_rev`) and 
 5. The copy and the signed PDF: host mail for agreements, and the gatekeeper's second attachment
    (amending ADR 0571).
 6. Cooling off.
-7. Keeping acceptances after erase.
+7. Keeping acceptances after erase (**ADR 0646**, step 8).
 8. Signing at the desk: a session a person starts, a tablet with no sign-in.
 
 ADRs 0428 (a guest's acceptances settle with the order), 0435 (`sellable` and points), 0491 (a
@@ -1139,7 +1140,7 @@ with dated notes.
 | 5 | **Blocks and hooks**: Agree, Before you go on, My agreements, a child's, the checkout and booking steps; the web signature pad (pointer events) and the native one | base-layer blocks, a headless `agreements` entry in `packages/client`, the client template's routes, the Bookings and Memberships web blocks (the inline step) | Yes, once step 2's operations are merged; coordinate with whoever owns the drop-in and timetable blocks |
 | 6 | **Signing at the desk** (decision 22): `core_agreement_desk_device` (admin enrolment announced to every admin, browser and network recorded, rotation idempotent for 60 seconds, a clone revokes) and `core_agreement_desk_session` (bound to the device staff chose, idle and total limits and the bounded heartbeat held on the server); `agreement.desk.enrol` and `revoke` (admins, a person) and `start` and `end` (`agreements:desk`, made grantable to fixed-role accounts, ADR 0600 amended); `desk.claim`, `desk.documents`, `desk.accept`, `desk.heartbeat`, `desk.finish` (public, needing the device credential and the session token); the desk origin (its own hostname, set up by `cos deploy`), its cookies (`HttpOnly`, `Secure`, `SameSite=Strict`), the `Origin` check; HMAC of codes and tokens under an env secret; the lock-out; the staff side's Sign at the desk (with the claiming device) and Desk tablets; the address marks on the Acceptances list, by mailbox, over every path that changes an address; the copy's wording; the desk page at tablet width from the Agree block's web skin. No native work | `agreements/` (a new `desk.ts`), `operations/agreement-desk.ts`, `open-operations.json`, `principals.ts` (the fixed-role grantable list), `apps/app/src/server/identity.ts` and the Worker's routing (the desk origin), `packages/release` and `cos deploy` (the hostname), a new desk route, the admin Person page | After step 2 (it records acceptances) and step 4 (every desk acceptance sends its copy); its page after step 5's Agree block. Beside anything but other work on public paths in `identity.ts` |
 | 7 | **Cooling off**: the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
-| 8 | **Erase, merge, the Trash and retention**: erase keeps acceptances detached, deletes answers, the minor mark and open desk sessions; merge re-points; the purge after the retention period (copy rows with it); a copy that was waiting for a person: its pending approval cancelled, and the email gatekeeper's storage scrubbed of an erased person's copies (the sent history's recipient and subject, and the journal records with the whole message; left here by step 4's reviews) | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
+| 8 | **Erase, merge, the Trash and retention** (**built**, `feat/stage-44-erase`, ADR 0646): erase keeps acceptances detached, deletes answers, the minor mark and open desk sessions; merge re-points; the purge after the retention period (copy rows with it); a copy that was waiting for a person: its pending approval cancelled, and the email gatekeeper's storage scrubbed of an erased person's copies (the sent history's recipient and subject, and the journal records with the whole message; left here by step 4's reviews) | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
 | 9 | **Stage 43's consent** as a `care` acceptance (when stage 43 step 4 is built) | `agreements/`, stage 43's `care.ts` | With stage 43 step 4 |
 | 10 | **The first client**: the business writes and publishes its four documents, attaches them; a moved member's first sign-in in test mode; a visitor's drop-in; a parent for a child; a member at the desk | The first client's own repository and deployment | After 3 to 6; before members pay or train on the new system |
 
@@ -1557,3 +1558,124 @@ error category and its pending approval's id, and cancels any copy not yet sent.
 binding's types allow) and in mail clients; the copy through the real email-send gatekeeper and
 the real integration host together (each is tested with the other's double: the runner with the
 fake outbox, the gatekeeper with a fake queue).
+
+## Step 8: build notes (`feat/stage-44-erase`, 2026-11-23)
+
+Built: migration 0855 (`core_agreement_hold`; the acceptance's update trigger made again with one
+more erasure, a buyer's paid purchase nobody settled; the delete triggers of the acceptance, its
+signature and answers made again to allow the purge; `core_agreement_copy`'s `scrub_due_at` and
+`scrubbed_at`, its erase and update triggers made again and a delete trigger), ADR 0646; ADRs 0320,
+0642 and 0645 amended with dated notes. `agreements/people.ts` (erase, merge counts),
+`agreements/retention.ts` (the setting, the purge's selection, `runAgreementRetention`),
+`agreements/copy.ts` (`scrubErasedCopies`, and the sender marking a scrub owed when its claim was
+taken by an erase), `operations/agreement-retention.ts`; email-send's `scrubAgreementCopy`; the
+integration host's `callAsHost` allows it for purpose `agreements`; the fake outbox does the same;
+the daily maintenance runs the purge; Settings → Agreements → Kept after erase; the merge preview's
+agreement lines.
+
+Operations:
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `agreement.retention` | staff | every actor | records:read | read |
+| `agreement.setRetention` | staff | human | policy:manage | destructive |
+| `agreement.kept.find` | staff | human | agreements:manage | read, every search audited (input redacted) |
+| `agreement.kept.hold` | staff | human | agreements:manage | write |
+| `agreement.purgeKept` | staff | automation, system origin only (`hostStep`) | records:erase | write |
+| `agreement.mergePlan` | staff | every actor (says `person` to an AI) | records:read | read |
+
+`person.erase` returns `agreementsKept { count, until, deleted }`. `agreement.acceptance.get` now
+refuses a kept acceptance (or a buyer's not yet settled) without `agreements:manage`, and reads a
+Person's through the visibility seam, as `agreement.acceptance.pdf` does.
+
+What erase does to each store, and where it is tested (`packages/core/test/agreement-erase.test.ts`,
+`packages/gatekeeper-email-send/test/scrub.test.ts`):
+
+| Store | On erase |
+| --- | --- |
+| Their acceptances | Kept detached: Person and account cleared, `erased_at` set; version, time, how, name typed, address and signature kept |
+| Acceptances they made as a guardian | Kept on the child's record without the guardian, account, name typed or strokes; address kept; the child is due again |
+| A buyer's acceptances with their address or Person: unpaid order, unconfirmed checkout | Deleted with signature and answers |
+| A buyer's acceptances on a paid order nobody settled | Kept detached (the order's address is cleared, so it can never settle) |
+| Health answers | Deleted (a child's on a guardian's acceptance stay with it until the purge) |
+| The minor mark | Deleted |
+| "A health form needs a look" notices of their acceptances | Deleted |
+| `core_agreement_copy` | Address, error and pending action cleared; not sent if not gone; scrub owed if it ever reached the gatekeeper |
+| The host's pending approval of a waiting copy | Turned down; input, reason, preview and simulation redacted |
+| Email-send's journal records of their copies | Dropped; a later send under the key refused |
+| Email-send's history lines of their copies | Recipients and subject blanked (`[erased]`) |
+| Audit, approvals and orders mentioning the addresses their acceptances hold | Redacted by erase's terms (the addresses are added to them) |
+| Their PDFs | Downloadable only by staff with `agreements:manage` (the person has none: their sign-in is gone) |
+
+Deviations and decisions, and why:
+
+- **A legal hold** (`agreement.kept.hold`) is new: the coordinator asked that the purge never take
+  what a hold keeps, and no hold existed. It holds who and when, no reason (free text would be
+  personal data of its own); the audit says who held what.
+- **The retention setting is an admin's** (`policy:manage`, as `audit.setRetention`), not a pack
+  setting with `personApproves`: it is core's, and shortening it deletes evidence. 1 to 50 years;
+  an unreadable value purges nothing.
+- **A buyer's acceptance on a paid order nobody settled** (an address several People share, staff
+  not yet having said whose) is kept detached when an erase clears the order's address: the spec
+  named only unpaid ones. It is evidence of a purchase that can no longer settle to anyone.
+- **An unconfirmed subscription checkout's** buyer acceptances are deleted like an unpaid order's.
+- **The health notice** of an erased person's acceptance is deleted: it names nobody, but beside a
+  kept acceptance it would say that this person answered yes.
+- **The addresses an erased person's acceptances hold** join erase's terms and addresses (an
+  earlier sign-in address, a purchase's address), so the audit, approvals and orders are redacted
+  for them too.
+- **A copy whose send was in flight when the erase landed** reads `cancelled` though it was
+  delivered; the gatekeeper's record of it is scrubbed after. The person got their own copy before
+  they were erased.
+- **The scrub is asked right after the erase and by the minute cron's copy step**, not before the
+  erase commits: a gatekeeper that cannot be reached must not block an erasure, and the copy row
+  keeps the scrub owed (the database clears it only with `scrubbed_at`) until it is done.
+- **The open desk session** (decision 22) has no table yet: step 6 must end a Person's open session
+  on erase and keep a closed one detached with the acceptances it made.
+
+cos-runner's main module is 5,625 KiB as shipped after the second review's fixes, on `main` at 42fe315b (budget 7,168).
+
+A Person purged from the Trash owes the same scrub of their copies (the same trigger). Left for later (an issue to file): a live subscription whose payer is erased keeps billing at
+the provider and the holder keeps what it grants; erase has never ended a subscription, and what
+it should do (cancel at the provider, tell staff, refund) is stage 32's decision. Not built
+here: a download link on the kept page (no screen downloads a PDF yet, as
+step 4 said). Not verified: the scrub against the real email-send and integration host together
+(each is tested with the other's double), and the purge against D1 at a scale of thousands of kept
+acceptances (it is bounded to 100 per round, ten rounds a day, index-ordered).
+
+### Step 8: after the privacy review of PR #288 (2026-11-23)
+
+Fixed in the same PR (ADR 0646 amended; migration 0855 edited in place, as it was not on `main`):
+
+1. **Erasing a child reached the guardian** (a blocker this step introduced): the addresses erase
+   took from agreements included the guardian's on their acceptance for the child. Now only the
+   erased Person's own (`self`, and `guardian` as the agent); more than 50 is refused.
+2. **The scrub goes to the gatekeeper the copy reached** (`via` on the copy row), not the current
+   channel; a gone one is `unreachable`, admins are told once; after 30 days owed the purge goes
+   ahead and audits it. The gatekeeper answers `found` apart from `done`.
+3. **Paper free text** is `agreements:manage`'s only, and a guardian's erase clears it on their
+   dependants' paper forms (coordinator decision, owner to confirm).
+4. **`agreement.acceptance.get` is audited** (the id and whether kept); `kept.find` records the ids
+   it showed.
+5. **Open purchases close on erase**: unpaid orders cancelled by the host; unconfirmed
+   subscription checkouts closed (`core_subscription_checkout.erased_at`, address cleared), so a
+   later confirmation makes nothing (staff are told to cancel and refund it with the provider). A
+   drop-in's late payment is owed back automatically (`oweLateRefund`); another order's is on the
+   paid-late list for staff.
+6. **The retention setting is read one way** in host and database.
+7. A runner test for the integration host's `scrubAgreementCopy`; an e2e journey for Kept after
+   erase (find, open, hold, release); `agreement.erasePreview` on the Erase requests list (the app
+   has no erase button of its own); a typed confirmation of how many records a shorter period makes
+   due; no silent caps in erase's reads.
+
+### Step 8: after the second privacy review of PR #288 (2026-11-24)
+
+Fixed in the same PR (ADR 0646 amended; migration 0855 edited in place): the scrub asks every
+gatekeeper each time and records which finished (`scrub_done`); the purge's 30 days count only
+while every gatekeeper left is gone (`scrub_gone_since`), and its audit names them; a connection
+that needs re-authorising is `inactive`, never gone, with its own notice per connection; erase
+touches only purchases that are the erased Person's or nobody's with their own address (narrowing
+ADR 0320); a guardian's erase clears only paper forms whose text names them; a late payment on an
+order an erase detached (cancelled, or part-paid) is refunded, never honoured; `erasePreview` is a
+person's, reads the Trash and merged records, and counts buyers' acceptances; addresses are read in
+batches and the erased-address list written 20 rows a statement, so nobody is un-erasable.

@@ -1172,10 +1172,34 @@ describe("round two (review)", () => {
         async () => expect((await get(BOOKING, bought.bookingId)).state).toBe("expired"),
         { timeout: 15_000 },
       );
-      expect((await order(bought.orderId))?.state).toBe("paid");
-      expect((await owedRows(bought.orderId)).results).toEqual([
-        { entered: "unmatched", amount: null, ref: null, state: "due" },
-      ]);
+      if (how === "erase") {
+        // Erase closed the unpaid order itself (stage 44 step 8, ADR 0646): the payment that comes
+        // after never makes it paid, and it is owed back automatically, asked for by the host for
+        // a person with orders:refund to approve (ADR 0429), as any payment after a drop-in's
+        // place went back.
+        await vi.waitFor(
+          async () =>
+            expect((await paymentsOf(bought.orderId)).results.map((p) => p.outcome)).toEqual([
+              "late",
+            ]),
+          { timeout: 15_000 },
+        );
+        expect((await order(bought.orderId))?.state).toBe("cancelled");
+        const owed = (await owedRows(bought.orderId)).results;
+        expect(owed).toEqual([
+          {
+            entered: "late",
+            amount: expect.any(Number),
+            ref: (await paymentsOf(bought.orderId)).results[0]?.ref,
+            state: "due",
+          },
+        ]);
+      } else {
+        expect((await order(bought.orderId))?.state).toBe("paid");
+        expect((await owedRows(bought.orderId)).results).toEqual([
+          { entered: "unmatched", amount: null, ref: null, state: "due" },
+        ]);
+      }
       expect(await places(id)).toMatchObject({ held: 0, taken: 0 });
     }
   });

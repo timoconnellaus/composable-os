@@ -368,3 +368,84 @@ describe("keys and lists kept apart by who is sending (the review of PR #283)", 
     }
   });
 });
+
+describe("scrubbing an erased acceptance's copy (stage 44 step 8, ADR 0646)", () => {
+  it("only the host's agreements mail may ask, and the copy's key is never sent again", async () => {
+    const to = `${unique("scrubbed")}@outside.test`;
+    const acceptanceId = `aga_${unique("scrub")}`;
+    await integrations.callAsHost?.({
+      connectionId: target.connectionId,
+      resource: target.resource,
+      method: "send",
+      args: [copy(to, acceptanceId)],
+      purpose: "agreements",
+    });
+    expect(await sentTo(to)).toHaveLength(1);
+    const key = `agreement-copy:${acceptanceId}`;
+    // Every other caller: a person, MCP, the assistant, an automation.
+    for (const extra of [
+      {},
+      {
+        actor: "mcp" as const,
+        origin: { surface: "mcp" as const, sessionId: `cap_${unique("s")}`, clientId: "c" },
+      },
+      {
+        actor: "assistant" as const,
+        origin: { surface: "assistant" as const, sessionId: "ath_s" },
+      },
+      {
+        actor: "automation" as const,
+        origin: { surface: "automation" as const, automationId: "a" },
+      },
+    ]) {
+      await expect(
+        op(
+          admin,
+          "integration.call",
+          { connectionId, resource: "OUTBOX", method: "scrubAgreementCopy", args: [{ key }] },
+          extra,
+        ),
+        JSON.stringify(extra),
+      ).rejects.toThrow(/only the host's own agreements mail/);
+    }
+    // The host's other purposes: refused by the gatekeeper, or by the integration host.
+    await expect(
+      integrations.callAsHost?.({
+        connectionId: target.connectionId,
+        resource: target.resource,
+        method: "scrubAgreementCopy",
+        args: [{ key }],
+        purpose: "orders",
+      }) as Promise<unknown>,
+    ).rejects.toThrow(/only the host's own agreements mail/);
+    await expect(
+      integrations.callAsHost?.({
+        connectionId: target.connectionId,
+        resource: target.resource,
+        method: "scrubAgreementCopy",
+        args: [{ key }],
+        purpose: "sign-in",
+        origin: "system.customer-mail",
+      }) as Promise<unknown>,
+    ).rejects.toThrow(/one send/);
+    const done = await integrations.callAsHost?.({
+      connectionId: target.connectionId,
+      resource: target.resource,
+      method: "scrubAgreementCopy",
+      args: [{ key }],
+      purpose: "agreements",
+    });
+    expect(done?.value).toMatchObject({ done: true, found: true });
+    // Never sent again under that key.
+    await expect(
+      integrations.callAsHost?.({
+        connectionId: target.connectionId,
+        resource: target.resource,
+        method: "send",
+        args: [copy(to, acceptanceId)],
+        purpose: "agreements",
+      }) as Promise<unknown>,
+    ).rejects.toThrow(/^Refused:|erased/);
+    expect(await sentTo(to)).toHaveLength(1);
+  });
+});

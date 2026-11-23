@@ -863,8 +863,12 @@ export class IntegrationHost extends DurableObject<Env> {
       caller = { kind: "system", purpose: "sign-in", origin, user: SYSTEM_USER };
     } else if (input.purpose === "agreements") {
       // The copy of a signed agreement (ADR 0645): one send, by the system user. The queue tells
-      // the gatekeeper it may carry the signed PDF; no other caller's queue does.
-      if (input.method !== "send") throw new Error("Agreements mail is one send");
+      // the gatekeeper it may carry the signed PDF; no other caller's queue does. Or, once its
+      // acceptance is erased, the scrub of that copy (ADR 0646), which the gatekeeper allows only
+      // to this same queue.
+      if (input.method !== "send" && input.method !== "scrubAgreementCopy") {
+        throw new Error("Agreements mail is one send, or the scrub of one copy");
+      }
       caller = { kind: "system", purpose: "agreements", user: SYSTEM_USER };
     } else {
       caller = {

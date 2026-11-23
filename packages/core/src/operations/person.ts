@@ -5,7 +5,11 @@
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
-import { mergeMovesAgreements, queueMergeAgreements } from "../agreements/people.ts";
+import {
+  agreementAddresses,
+  mergeMovesAgreements,
+  queueMergeAgreements,
+} from "../agreements/people.ts";
 import { queueMergeAllowances } from "../allowance/people.ts";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { queueMergeCustomers } from "../customers/merge.ts";
@@ -1345,7 +1349,9 @@ export const personErase = defineOperation({
     "mail sync does not collect them again. Their customer account, its sessions and sign-in " +
     "codes, invites for their addresses and their erase requests are deleted (an open request " +
     "is closed as erased). Their health answers and minor mark are deleted; what they agreed to is " +
-    "kept, no longer theirs. Cannot be undone; use person.delete for a " +
+    "kept, no longer theirs, as the business's evidence until the retention period ends " +
+    "(agreement.retention, counted from the erase), then deleted: agreementsKept says how many " +
+    "and until when. Cannot be undone; use person.delete for a " +
     "reversible delete.",
   input: z.object({ id: personId }),
   output: z.object({
@@ -1371,6 +1377,13 @@ export const personErase = defineOperation({
     await requirePerson(ctx, input.id, { includeDeleted: true });
     const ids = await withMergedRecords(ctx, "person", input.id);
     const subject = await personSubject(ctx.db, ids);
+    // The addresses their agreements were sent to are theirs too (an earlier sign-in address, the
+    // address a purchase was made with): redacted from the audit and approvals as any of theirs,
+    // and their unsettled purchases' acceptances found by them (ADR 0646).
+    for (const address of await agreementAddresses(ctx, ids)) {
+      if (!subject.addresses.includes(address)) subject.addresses.push(address);
+      if (!subject.terms.includes(address)) subject.terms.push(address);
+    }
     // Their family links go with them; a child left with no guardian stays, and staff are told.
     const leftAlone = await dependantsLeftAlone(ctx, ids);
     queueEraseLinks(ctx, ids, leftAlone);

@@ -76,6 +76,13 @@ interface MovePreview {
     deleted: number;
     needs: "people:link" | null;
   } | null;
+  /** What moves of a person's agreements (stage 44, ADR 0646); null for an organisation. */
+  agreements: {
+    acceptances: number;
+    asGuardian: number;
+    minor: boolean;
+    needs: "agreements:manage" | "person" | null;
+  } | null;
 }
 
 /** What would move from `id` onto the survivor: linked activities, tasks, affiliations, children. */
@@ -84,7 +91,7 @@ async function loadMovePreview(
   id: string,
   survivorId: string,
 ): Promise<MovePreview> {
-  const [activities, tasks, affiliations, children, family] = await Promise.all([
+  const [activities, tasks, affiliations, children, family, agreements] = await Promise.all([
     callOp("activity.listForRecord", { object, recordId: id, limit: 100 }),
     callOp("task.list", {
       filter: { field: "linkedRecordId", op: "eq", value: id },
@@ -104,6 +111,8 @@ async function loadMovePreview(
       : null,
     // A person's family links: the host's plan of what moves, ends and is deleted (ADR 0540).
     object === "person" ? callOp("person.link.mergePlan", { survivorId, mergedId: id }) : null,
+    // Their acceptances, made as a guardian too, and the minor mark: counts only (ADR 0646).
+    object === "person" ? callOp("agreement.mergePlan", { survivorId, mergedId: id }) : null,
   ]);
   return {
     activities: activities.items.length,
@@ -115,6 +124,7 @@ async function loadMovePreview(
     familyLinks: family
       ? { moved: family.moved, ended: family.ended, deleted: family.deleted, needs: family.needs }
       : null,
+    agreements,
   };
 }
 
@@ -432,6 +442,32 @@ function MergeChooser({
                     {moves.data.familyLinks.deleted} family link
                     {moves.data.familyLinks.deleted === 1 ? "" : "s"} between these two will be
                     deleted.
+                  </li>
+                )}
+              </>
+            )}
+            {moves.data.agreements !== null && (
+              <>
+                <MoveLine
+                  count={moves.data.agreements.acceptances}
+                  one="signed agreement (unchanged)"
+                  many="signed agreements (unchanged)"
+                />
+                {moves.data.agreements.asGuardian > 0 && (
+                  <MoveLine
+                    count={moves.data.agreements.asGuardian}
+                    one="agreement made as a parent or guardian"
+                    many="agreements made as a parent or guardian"
+                  />
+                )}
+                {moves.data.agreements.minor && (
+                  <li>The mark "a minor: a parent or guardian agrees for them" moves too.</li>
+                )}
+                {moves.data.agreements.needs && (
+                  <li className="text-destructive" role="alert">
+                    {moves.data.agreements.needs === "person"
+                      ? "This moves signed agreements: only a person merges them."
+                      : "This moves signed agreements: merging needs the agreements:manage permission, which you do not hold."}
                   </li>
                 )}
               </>

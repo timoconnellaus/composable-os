@@ -13,6 +13,7 @@ import { releaseAllClaimsOfStatements } from "../capacity/claimants.ts";
 import { erasedWaiter, handOnAfterRelease } from "../capacity/waitlist.ts";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
+import { changeOrder } from "../orders/orders.ts";
 import { chunk, jsonList } from "./common.ts";
 import {
   aboutPattern,
@@ -120,7 +121,9 @@ export async function queueEraseSync(ctx: HandlerContext, s: StoreSubject): Prom
     );
     // The list itself: only hashes. Kept until an admin removes an entry (erasure.allowAddress).
     const hashes = await Promise.all(s.addresses.map(erasedAddressHash));
-    for (const part of chunk(hashes)) {
+    // Four values a row: 20 rows keeps a statement under D1's 100 bound variables, however many
+    // addresses a person had (stage 44 step 8: nobody is un-erasable).
+    for (const part of chunk(hashes, 20)) {
       ctx.write(
         ctx.db
           .insertInto("core_erased_address")
@@ -910,29 +913,33 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
   if (s.object !== "person") return 0;
   const ids = jsonList(s.recordIds);
   const addresses = jsonList(s.addresses.length ? s.addresses.map((a) => a.toLowerCase()) : [""]);
+  // Whose an order or a subscription is (stage 44 step 8, the second review of PR #288, ADR 0646
+  // narrowing ADR 0320): the erased Person's, or nobody's and carrying one of their own
+  // addresses. One that belongs to another identified Person (a guardian's purchase made with a
+  // family address the child's record also holds) is never touched: not cancelled, not closed,
+  // its address not cleared.
+  const theirOrder = sql<SqlBool>`(person_id IN ${ids}
+    OR (person_id IS NULL AND lower(email) IN ${addresses}))`;
+  const theirSubscription = sql<SqlBool>`((payer_person_id IN ${ids} OR holder_person_id IN ${ids})
+      AND (payer_person_id IS NULL OR payer_person_id IN ${ids})
+      AND (holder_person_id IS NULL OR holder_person_id IN ${ids}))
+    OR (payer_person_id IS NULL AND holder_person_id IS NULL AND lower(email) IN ${addresses})`;
   // Who stood behind their values (ADR 0590): hashes, but keyed by their ids or, for what is
   // keyed by an address (a customer invite), their addresses, and their orders' (an order's mark
   // holds an unsalted hash of the address that paid); deleted.
   ctx.write(
-    ctx.db.deleteFrom("core_value_mark").where((eb) =>
-      eb.or([
-        eb("record_id", "in", ids),
-        eb("record_id", "in", addresses),
-        eb.and([
-          eb("object_type", "=", "order"),
-          eb(
-            "record_id",
-            "in",
-            eb
-              .selectFrom("core_order")
-              .select("id")
-              .where((o) =>
-                o.or([o("person_id", "in", ids), o(o.fn("lower", ["email"]), "in", addresses)]),
-              ),
-          ),
+    ctx.db
+      .deleteFrom("core_value_mark")
+      .where((eb) =>
+        eb.or([
+          eb("record_id", "in", ids),
+          eb("record_id", "in", addresses),
+          eb.and([
+            eb("object_type", "=", "order"),
+            eb("record_id", "in", eb.selectFrom("core_order").select("id").where(theirOrder)),
+          ]),
         ]),
-      ]),
-    ),
+      ),
   );
   // Their routine mail (ADR 0590): who was sent what about which record. Deleted, by Person or
   // by address (a guardian's, a paid visitor's), and every row about their records, those sent
@@ -962,24 +969,43 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
       .updateTable("core_subscription_change")
       .set({ reason: "", call_error: null, end_error: null, updated_at: ctx.now })
       .where("subscription_id", "in", (eb) =>
-        eb
-          .selectFrom("core_subscription")
-          .select("id")
-          // A guest's, known only by the address it was started with, too.
-          .where((w) =>
-            w.or([
-              w("payer_person_id", "in", ids),
-              w("holder_person_id", "in", ids),
-              w("email", "in", addresses),
-            ]),
-          ),
+        eb.selectFrom("core_subscription").select("id").where(theirSubscription),
       ),
   );
-  const orders = await ctx.db
-    .selectFrom("core_order")
-    .select("id")
-    .where((eb) => eb.or([eb("person_id", "in", ids), eb("email", "in", addresses)]))
-    .execute();
+  const orders = await ctx.db.selectFrom("core_order").selectAll().where(theirOrder).execute();
+  // Their purchases still open (stage 44 step 8, ADR 0646): an order nothing was paid on is
+  // cancelled by the host, so a payment that comes after the erase never makes it paid (a
+  // drop-in's is owed back automatically, `oweLateRefund`, ADR 0429; another's is on the paid-late
+  // list for staff to refund, never to honour: orders/payments.ts, orders/late.ts). A part-paid
+  // one is detached (it has no Person and no address after the erase): a balance paid later is
+  // handled the same way. A subscription checkout the provider has not confirmed is closed, so a
+  // later confirmation makes nothing (subscriptions/events.ts). Their guest acceptances go with
+  // them (agreements/people.ts).
+  for (const row of orders) {
+    if (row.state === "pending" && row.paid === 0) {
+      await changeOrder(ctx, row, "cancelled", { person_id: null }, "host");
+    }
+  }
+  // An unconfirmed checkout is closed when it is theirs, or when they are its payer (who would be
+  // charged), whoever the holder is (a guardian paying for a child). A holder-only erase with a
+  // live payer leaves the payer's checkout open.
+  ctx.write(
+    ctx.db
+      .updateTable("core_subscription_checkout")
+      .set({ email: null, erased_at: ctx.now })
+      .where("subscription_ref", "is", null)
+      .where("erased_at", "is", null)
+      .where(sql<SqlBool>`(${theirSubscription}) OR payer_person_id IN ${ids}`),
+  );
+  // On any checkout or subscription they are on (payer or holder), an address of their own goes;
+  // nothing else of the other Person's is touched. A live subscription whose payer is erased
+  // keeps billing as the provider runs it (ADR 0646: left for later).
+  const onIt = sql<SqlBool>`(payer_person_id IN ${ids} OR holder_person_id IN ${ids})
+    AND email IS NOT NULL AND lower(email) IN ${addresses}`;
+  ctx.write(
+    ctx.db.updateTable("core_subscription_checkout").set({ email: null }).where(onIt),
+    ctx.db.updateTable("core_subscription").set({ email: null }).where(onIt),
+  );
   for (const part of chunk(orders.map((o) => o.id))) {
     ctx.write(
       ctx.db

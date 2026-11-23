@@ -1682,7 +1682,7 @@ and [0641](adr/0641-agreement-points-a-pack-declares-documents-a-person-attaches
 and [0642](adr/0642-acceptances-a-record-nobody-changes-and-who-may-agree-for-whom.md) and
 [0643](adr/0643-health-answers-read-by-a-person-with-the-permission-every-read-audited.md),
 `packages/core/src/agreements/`, `operations/agreement.ts`, `operations/agreement-acceptance.ts`,
-`packages/sdk/src/agreements.ts`; steps 1 to 4 built,
+`operations/agreement-retention.ts`, `packages/sdk/src/agreements.ts`; steps 1 to 4 and 8 built,
 [0644](adr/0644-enforcement-nobody-pays-or-books-without-what-is-due.md) for step 3). The documents a business asks people to agree to are core tables, not records
 (migration 0850), in no `rec_*` view: `core_agreement_document` (its kind, state and working copy),
 `core_agreement_version` (each published wording and its terms, with the SHA-256 of everything it
@@ -1732,8 +1732,22 @@ field there (the copy says they are in the app). The same writer draws the downl
 (`apps/app/src/server/http/agreement-pdf.ts`): `me.agreements.pdf` (a customer, their own and a
 linked child's, also over the client-app binding), `agreement.acceptance.pdf` (staff, a person,
 answers only with `agreements:health`, every download audited) and `agreement.version.pdf` (a
-version's blank form for paper). Signing at the desk, cooling off and retention are the later
-steps (`docs/stages/44-agreements.md`).
+version's blank form for paper). Step 8 (migration 0855,
+[ADR 0646](adr/0646-erase-merge-and-retention-for-agreements.md)) is **erase, merge and
+retention**: erase (`agreements/people.ts`) deletes an erased Person's health answers, minor mark,
+health notices and a buyer's acceptances on an unpaid order or unconfirmed checkout at once,
+turns down and redacts a waiting copy's approval, and keeps the rest of each acceptance detached
+(`erased_at`) for `agreement_retention` years (default 7, a human admin's setting); only staff with
+`agreements:manage` find (`agreement.kept.find`, by address or name, audited) and open a kept one,
+and may hold it (`core_agreement_hold`). The daily cron's `agreement.purgeKept` (a host step,
+bounded, silent when nothing is due) deletes what is past the period with its copy row, signature
+and answers; migration 0855's triggers refuse every other delete. A copy that ever reached the
+email gatekeeper owes a **scrub** (`scrub_due_at`): the host asks each email-send gatekeeper the copy
+reached (`via`), through its own agreements queue only (`callAsHost`, method `scrubAgreementCopy`), to drop the copy's journal
+records, refuse any later send under its key and blank its history lines; a send in flight during
+the erase is scrubbed after it. Merge moves acceptances unchanged (`agreement.mergePlan` counts
+them for the preview). Signing at the desk and cooling off are the later steps
+(`docs/stages/44-agreements.md`).
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be
