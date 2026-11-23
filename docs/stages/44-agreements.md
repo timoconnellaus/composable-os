@@ -29,7 +29,7 @@ family link's guard) and 0670 (`core_write_guard`), and `packs/bookings/index.ts
 declarations).
 
 Status: **spec agreed** (owner interviewed 2026-11-23; the eight questions answered the same day,
-decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0610 and 0611).
+decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 0641).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -70,7 +70,7 @@ of what was agreed:
 - **Nothing records an agreement.** Before this stage no table held a document, a version a person
   accepted, a signature or health answers. Roadmap stage 29 (Forms, not specced) listed "waivers
   with a signature"; this stage takes waivers from it. (Step 1 is built: documents, versions,
-  publishing and attaching, migration 0790, ADRs 0610 and 0611. Nothing yet records an acceptance.)
+  publishing and attaching, migration 0850, ADRs 0640 and 0641. Nothing yet records an acceptance.)
 - **Orders are priced and checked in one place.** `createOrder` (`orders/orders.ts`) starts every
   order (`order.start`, and `order.startHeld` for a record made held with its order, ADR 0560). Per
   line rules already run there in the order's batch: capacity holds (`claimOrderPlaces`) and the
@@ -226,7 +226,7 @@ document's questions and a person's **health answers**. The **copy** is the emai
 sent; the **signed PDF** is the same document and record as a file. **Cooling off** is the days in
 which a new member may cancel for a full refund.
 
-### Documents and versions (step 1, built: ADR 0610)
+### Documents and versions (step 1, built: ADR 0640)
 
 - **`core_agreement_document`**: id (`agd_…`), **kind** (fixed when the document is made: only
   `health` changes how it works, so it never changes afterwards), state (`draft`: never published;
@@ -335,7 +335,7 @@ An acceptance of document D counts for D while all of these hold:
 
 A newer acceptance of the same document replaces an older one for every purpose; both are kept.
 
-### The `agreements` behaviour: agreement points (the declaration built in step 1: ADR 0611)
+### The `agreements` behaviour: agreement points (the declaration built in step 1: ADR 0641)
 
 An object declares where agreement may be needed (SDK and contract; shipped and reviewed packs, as
 `sellable` is). In step 1 the declaration is inert: it is checked and listed (`agreement.points`),
@@ -1098,8 +1098,8 @@ No block decides anything: the block lint passes, and every refusal comes from t
 
 ## Migrations and numbers
 
-Block **AU** in [`parallel-work.md`](../parallel-work.md): migrations 0790–0809, ADRs 0610–0619.
-Step 1 used migration 0790 (`core_agreement_document`, `core_agreement_version` with its no-update,
+Block **AX** in [`parallel-work.md`](../parallel-work.md): migrations 0850–0869, ADRs 0640–0649.
+Step 1 used migration 0850 (`core_agreement_document`, `core_agreement_version` with its no-update,
 no-delete and draft triggers, `core_agreement_point`, `core_agreement_rev`) and the permission
 `agreements:manage`. Later steps: `core_agreement_acceptance` (its update trigger),
 `core_agreement_signature`, `core_agreement_answer`, `core_agreement_copy`,
@@ -1109,8 +1109,8 @@ no-delete and draft triggers, `core_agreement_point`, `core_agreement_rev`) and 
 `agreements:health`, `agreements:desk`; the retention setting. No `x_*` table is touched. ADRs:
 
 1. Agreements: documents, versions, publishing by a person only, effective dates, "agree again"
-   (**ADR 0610**, step 1).
-2. The `agreements` behaviour: points and attaching documents (**ADR 0611**, step 1);
+   (**ADR 0640**, step 1).
+2. The `agreements` behaviour: points and attaching documents (**ADR 0641**, step 1);
    `agreementsDue` and its guard (step 2 amends it).
 3. Acceptances: the paths, the immutable record, signatures as strokes, the minor mark.
 4. Health answers and their isolation.
@@ -1129,7 +1129,7 @@ with dated notes.
 
 | Step | What | Platform files it touches | Runs beside stage 31, 32 and 43 work? |
 | --- | --- | --- | --- |
-| 1 | **Documents and versions** (**built**, `feat/stage-44-documents`): tables, the working copy, `agreement.publish` (human only, against the reviewed working copy's hash), scheduling by the minute cron, attach, detach, retire, `core_agreement_rev` (bumped by each), the permission `agreements:manage`; the `agreements` declaration in the SDK and contract (inert); the admin's document list and editor | migration 0790; `packages/core/src/agreements/` (new); `operations/agreement.ts` (new); `packages/sdk` (`agreements.ts`, the declaration and contract checks); the runner's minute tick; the admin settings routes; the registry | Done |
+| 1 | **Documents and versions** (**built**, `feat/stage-44-documents`): tables, the working copy, `agreement.publish` (human only, against the reviewed working copy's hash), scheduling by the minute cron, attach, detach, retire, `core_agreement_rev` (bumped by each), the permission `agreements:manage`; the `agreements` declaration in the SDK and contract (inert); the admin's document list and editor | migration 0850; `packages/core/src/agreements/` (new); `operations/agreement.ts` (new); `packages/sdk` (`agreements.ts`, the declaration and contract checks); the runner's minute tick; the admin settings routes; the registry | Done |
 | 2 | **Acceptances and the one question**: `agreementsDue` and the guard kind (reading step 1's counter); `me.agreements.*`, `recordPaper`, the guardian path, the minor mark (`agreement.setMinor`); signatures; health answers and their isolation (audit redaction, no views), the coach's "health note"; the Person tab, the acceptances and due lists | `agreements/`; a migration remaking `core_write_guard`; `visibility/` (read only: `guardians.ts`'s live link and guard); audit redaction; `open-operations.json`; the admin Person page | **Yes, now** (step 1 is built). The `core_write_guard` remake **collides with any build adding a guard kind** at the same time: agree the order of the two migrations in `parallel-work.md` |
 | 3 | **Enforcement**: `createOrder` and `order.startHeld` (guest acceptances in the batch, settlement in the verified payment's batch and `order.setPerson`, deletion on expiry); `startSubscription`; the transition engine's create and move checks; the points on Memberships and Bookings, then Ticketing and Courses | `orders/orders.ts`, `orders/events.ts`, `orders/guests.ts`, `subscriptions/subscriptions.ts`, `records/states.ts` (create checks), `packs/memberships`, `packs/bookings` (index and `buy`), `packs/ticketing`, `packs/courses` | **Not beside other work in `orders/` or the engine's create checks** (31a step 10, 31b, 32b step 8 if it touches `startSubscription`). Its own window; reviewed as stage 25 was |
 | 4 | **The copy and the PDF**: the PDF writer module (vendored or our own, noted in `UPSTREAMS.md` if vendored), the gatekeeper's `agreement` part, `callAsHost` purpose `agreements` with the copy's idempotency key, the download routes, the blank PDF | `packages/gatekeeper-email-send` (`validate.ts`, `worker.ts`, a new `agreement.ts`), the fake outbox, `integrations/runtime.ts` (the purpose), `apps/app/src/server/http/` (downloads) | Yes, after step 2 (PR #256 is merged); beside anything but other email-gatekeeper work (issue #259, and `feat/routine-mail` while it is open) |

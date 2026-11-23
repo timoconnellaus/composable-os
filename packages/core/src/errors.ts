@@ -321,7 +321,7 @@ export function toOperationError(error: unknown): OperationError {
       reason: "not_full",
     });
   }
-  // Agreement documents (migration 0790, ADR 0610): a version nobody changes; a publish of a
+  // Agreement documents (migration 0850, ADR 0640): a version nobody changes; a publish of a
   // working copy changed since it was read, or of a retired document; attaching a document that
   // is not live; two publishes of the same number at once.
   if (message.includes("core_agreement_version_immutable")) {

@@ -1,4 +1,4 @@
-// The `agreements` behaviour (stage 44, ADR 0611): an object marks an agreement point, a place a
+// The `agreements` behaviour (stage 44, ADR 0641): an object marks an agreement point, a place a
 // business may need a person to have agreed to its documents first (buying a membership, making a
 // booking). The pack names the point; the business attaches its own documents to it in the admin.
 // Nothing is needed anywhere until a person publishes a document and attaches it. Its declaration,
@@ -16,7 +16,7 @@ export type AgreementKind = (typeof AGREEMENT_KINDS)[number];
 export const AGREEMENT_POINT_RE = /^[a-z][a-z0-9_]{1,39}$/;
 
 /**
- * An agreement point (ADR 0611).
+ * An agreement point (ADR 0641).
  *
  * - `point`: the point's name. Objects may share one (a membership plan and a pass type are both
  *   "buying a membership or a pass").

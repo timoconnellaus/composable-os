@@ -1,8 +1,8 @@
-// Agreement documents and their versions (stage 44 step 1, ADR 0610): the working copy's checks,
+// Agreement documents and their versions (stage 44 step 1, ADR 0640): the working copy's checks,
 // the hash of what a person is shown, which version is in effect, the counter every change to
-// what is due bumps, and the agreement points installed objects declare (ADR 0611).
+// what is due bumps, and the agreement points installed objects declare (ADR 0641).
 //
-// The tables are core tables, not records (migration 0790): no rec_* view reads them. Versions are
+// The tables are core tables, not records (migration 0850): no rec_* view reads them. Versions are
 // refused any update or delete by the database; the host only ever inserts one.
 import type { CoreDatabase } from "@composable-os/db";
 import { AGREEMENT_KINDS, RICH_TEXT_SCHEMA, validateDocument } from "@composable-os/sdk";
@@ -173,7 +173,7 @@ export function canonicalJson(value: unknown): string {
 }
 
 /**
- * Everything that becomes part of a version (ADR 0610 as amended): what a person is shown and
+ * Everything that becomes part of a version (ADR 0640 as amended): what a person is shown and
  * every term of how it applies. The hash covers all of it, so a publish of a reviewed hash cannot
  * carry a change to who agrees, for whom, how, or when a health form is asked again.
  */
@@ -218,7 +218,7 @@ export interface VersionTiming {
 
 /**
  * What is in effect at `now`: the newest version that has taken effect is current, and acceptances
- * count from the newest `first` or `agree_again` version that has (ADR 0610).
+ * count from the newest `first` or `agree_again` version that has (ADR 0640).
  */
 export function inEffect(
   versions: readonly VersionTiming[],
@@ -234,7 +234,7 @@ export function inEffect(
   return { currentId: current?.id ?? null, agreeFrom };
 }
 
-/** Bumps the counter step 2's guard reads (ADR 0610). Queued in the batch of the change. */
+/** Bumps the counter step 2's guard reads (ADR 0640). Queued in the batch of the change. */
 export function bumpRev(db: Kysely<CoreDatabase>) {
   return db
     .updateTable("core_agreement_rev")
@@ -251,7 +251,7 @@ export async function readRev(db: Kysely<CoreDatabase>): Promise<number> {
   return row?.rev ?? 0;
 }
 
-/** An agreement point as installed objects declare it (ADR 0611). */
+/** An agreement point as installed objects declare it (ADR 0641). */
 export interface AgreementPoint {
   point: string;
   label: string;

@@ -1,4 +1,4 @@
-// Settings → Agreements → a document (stage 44 step 1, ADRs 0610 and 0611): the working copy
+// Settings → Agreements → a document (stage 44 step 1, ADRs 0640 and 0641): the working copy
 // editor (title, body, tick label, how, who, for whom, a health form's questions), Publish (the
 // change against the newest version, small change or everyone agrees again, now or from a date),
 // where it is needed (attach and detach agreement points), its versions, and Retire. The host

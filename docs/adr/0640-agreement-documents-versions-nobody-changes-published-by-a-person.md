@@ -1,4 +1,4 @@
-# ADR 0610: Agreement documents: a working copy, versions nobody changes, published by a person
+# ADR 0640: Agreement documents: a working copy, versions nobody changes, published by a person
 
 Status: accepted, 2026-11-23 (stage 44, build step 1). Stricter than
 [ADR 0480](0480-an-ai-asks-to-publish-a-person-approves.md) (an AI asks to publish a record, a
@@ -17,10 +17,10 @@ Publishable records (ADR 0446) were weighed and rejected (the spec's table): the
 publish, a version can be unpublished and restored, and the permission is `records:publish`.
 
 ## Decision
-- **Core tables, not records** (migration 0790): `core_agreement_document` (the kind, fixed when it
+- **Core tables, not records** (migration 0850): `core_agreement_document` (the kind, fixed when it
   is made; the state, `draft`, `live` or `retired`, retired being final; the working copy with its
   `draft_rev`; the current version; `agree_from`), `core_agreement_version`,
-  `core_agreement_point` (ADR 0611) and `core_agreement_rev`. No `rec_*` view reads them, so
+  `core_agreement_point` (ADR 0641) and `core_agreement_rev`. No `rec_*` view reads them, so
   `query.sql` (which refuses every `core_` name), dashboards, exports, search, embeddings and the
   assistant's bulk reads never see them. Staff read them through `agreement.*` read operations
   (`records:read`); the text is the business's, not personal data.

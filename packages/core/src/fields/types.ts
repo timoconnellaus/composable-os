@@ -118,7 +118,7 @@ export interface ObjectDefinition {
   /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
   allowance?: AllowanceDefinition;
   /**
-   * Extension objects: an agreement point (stage 44, ADR 0611), as declared (it names no field the
+   * Extension objects: an agreement point (stage 44, ADR 0641), as declared (it names no field the
    * registry renames; `person` and `enter` are local names, read only from step 3 on).
    */
   agreements?: {

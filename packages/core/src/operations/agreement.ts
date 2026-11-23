@@ -1,4 +1,4 @@
-// Agreement documents (stage 44 step 1, ADRs 0610 and 0611): a business's terms, waiver, health
+// Agreement documents (stage 44 step 1, ADRs 0640 and 0641): a business's terms, waiver, health
 // questions and a parent's consent, written as a working copy and published as versions nobody can
 // change.
 //
@@ -246,7 +246,7 @@ async function draftOf(
   };
 }
 
-/** Recomputes a stored version's hash from its own content (ADR 0610: reads that matter check). */
+/** Recomputes a stored version's hash from its own content (ADR 0640: reads that matter check). */
 async function intact(v: VersionRow, kind: string): Promise<boolean> {
   return (
     (await versionHash({
@@ -552,7 +552,7 @@ export const agreementDraftSave = defineOperation({
           draft_questions: next.draft_questions,
           draft_ask_again_months: next.draft_ask_again_months,
           // Compare-and-set: the trigger refuses anything but the stored rev plus one, so of two
-          // saves of the same rev only the first applies (migration 0790).
+          // saves of the same rev only the first applies (migration 0850).
           draft_rev: next.draft_rev,
           draft_updated_at: ctx.now,
           draft_updated_by: ctx.user.id,

@@ -1,4 +1,4 @@
-// Agreements (stage 44 step 1, ADR 0610): a person with agreements:manage writes a document's
+// Agreements (stage 44 step 1, ADR 0640): a person with agreements:manage writes a document's
 // working copy, publishes it, then publishes a changed version as "everyone agrees again". The
 // document text is fixture text, not wording anyone should use.
 import { expect, type Page, test } from "@playwright/test";

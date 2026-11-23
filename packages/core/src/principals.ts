@@ -77,7 +77,7 @@ export type Role = (typeof ROLES)[number];
  *   act for whom. Admins only by default, grantable as `orders:refund` is, and a person only
  *   whatever is granted (the operations are `actors: ["human"]`).
  * - `agreements:manage` write agreement documents, and publish, attach, detach and retire them
- *   (stage 44, ADR 0610). Admins only by default, grantable as `orders:refund` is. Publishing,
+ *   (stage 44, ADR 0640). Admins only by default, grantable as `orders:refund` is. Publishing,
  *   attaching, detaching and retiring are a person's whatever is granted (`actors: ["human"]`);
  *   an AI acting for an account that holds it may only write a document's working copy.
  */

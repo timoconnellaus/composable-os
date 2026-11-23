@@ -1,4 +1,4 @@
-# ADR 0611: Agreement points: a pack marks the place, a person attaches the documents
+# ADR 0641: Agreement points: a pack marks the place, a person attaches the documents
 
 Status: accepted, 2026-11-23 (stage 44, build step 1; the declaration is inert until step 3).
 Extends [ADR 0404](0404-behaviours-are-the-vocabulary.md) (behaviours are the vocabulary) and
@@ -23,7 +23,7 @@ the places it could be.
   `agreements:manage`, `actors: ["human"]`) add and remove `core_agreement_point` rows; only a
   `live` document is attached (a trigger refuses it otherwise) and only to a point an installed
   object declares (`agreement.points` lists them). `agreement.retire` detaches it everywhere.
-  Each bumps `core_agreement_rev` (ADR 0610). Nothing is attached by default.
+  Each bumps `core_agreement_rev` (ADR 0640). Nothing is attached by default.
 - **Inert in step 1.** Nothing asks a point yet: step 2 adds `agreementsDue`, step 3 the checks in
   the orders pipeline, `startSubscription` and the transition engine, and the points on
   Memberships, Bookings, Ticketing and Courses. Until then attaching changes what is recorded,

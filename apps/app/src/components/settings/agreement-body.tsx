@@ -1,4 +1,4 @@
-// An agreement document's body as a person is shown it (stage 44, ADR 0610), read-only: the
+// An agreement document's body as a person is shown it (stage 44, ADR 0640), read-only: the
 // blocks a document may hold (no pictures, embeds or buttons), each run of text with its marks.
 // A link is drawn as its own address in full, never as other words (the host refuses link text
 // that is not its address), and it is not a link: what a person agrees to is this text alone.

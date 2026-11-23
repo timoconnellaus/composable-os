@@ -253,7 +253,7 @@ export interface ObjectSpec {
    */
   allowance?: AllowanceSpec;
   /**
-   * An agreement point (see AgreementsSpec, ADR 0611): where a business may need a person to have
+   * An agreement point (see AgreementsSpec, ADR 0641): where a business may need a person to have
    * agreed to its documents first. The business attaches the documents; the pack names the place.
    */
   agreements?: AgreementsSpec;

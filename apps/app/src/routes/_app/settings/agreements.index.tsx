@@ -1,4 +1,4 @@
-// Settings → Agreements (stage 44 step 1, ADR 0610): the business's documents people agree to,
+// Settings → Agreements (stage 44 step 1, ADR 0640): the business's documents people agree to,
 // each with its kind, state, the version in effect and where it is needed, and a new document.
 // Anyone on the staff reads the list; writing and publishing need agreements:manage, which the
 // host checks (a person publishes; the assistant can only draft).

@@ -1,4 +1,4 @@
--- Migration 0790: agreement documents and their versions (stage 44 step 1, ADRs 0610 and 0611).
+-- Migration 0850: agreement documents and their versions (stage 44 step 1, ADRs 0640 and 0641).
 --
 -- A document is something a business asks people to agree to (its terms, a waiver, health
 -- questions, a parent's consent). Staff with `agreements:manage` (and the assistant for them)
@@ -90,7 +90,7 @@ END;
 -- A version is made only from the working copy as it is at commit (the person reviewed that
 -- one, by its rev), of a document that is not retired, numbered next, and holding exactly the
 -- copy's content, field by field. SQLite has no SHA-256, so the hash itself is the host's: every
--- read of a version recomputes it from the stored content (`intact`, ADR 0610).
+-- read of a version recomputes it from the stored content (`intact`, ADR 0640).
 CREATE TRIGGER core_agreement_version_from_draft
 BEFORE INSERT ON core_agreement_version
 BEGIN
@@ -210,7 +210,7 @@ BEGIN
   SELECT RAISE(ABORT, 'core_agreement_version_immutable');
 END;
 
--- Where a document is needed: an agreement point an installed object declares (ADR 0611).
+-- Where a document is needed: an agreement point an installed object declares (ADR 0641).
 CREATE TABLE core_agreement_point (
   document_id TEXT NOT NULL REFERENCES core_agreement_document (id),
   point TEXT NOT NULL,
@@ -267,5 +267,5 @@ BEGIN
 END;
 
 -- Guarded: migrations land out of order (docs/parallel-work.md).
-UPDATE core_meta SET value = '790'
-  WHERE key = 'schema_version' AND CAST(value AS INTEGER) < 790;
+UPDATE core_meta SET value = '850'
+  WHERE key = 'schema_version' AND CAST(value AS INTEGER) < 850;

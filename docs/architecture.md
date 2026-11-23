@@ -1570,11 +1570,11 @@ not live or not valid at the spender's time, so the whole batch fails (`invalid_
 Holders carry read-only `used` and `left`; `allowance.get` reads a period; `rec_allowance`,
 `rec_allowance_period` and `rec_allowance_use` are queryable.
 
-**Agreements** (stage 44, ADRs [0610](adr/0610-agreement-documents-versions-nobody-changes-published-by-a-person.md)
-and [0611](adr/0611-agreement-points-a-pack-declares-documents-a-person-attaches.md),
+**Agreements** (stage 44, ADRs [0640](adr/0640-agreement-documents-versions-nobody-changes-published-by-a-person.md)
+and [0641](adr/0641-agreement-points-a-pack-declares-documents-a-person-attaches.md),
 `packages/core/src/agreements/`, `operations/agreement.ts`, `packages/sdk/src/agreements.ts`;
 step 1 built). The documents a business asks people to agree to are core tables, not records
-(migration 0790), in no `rec_*` view: `core_agreement_document` (its kind, state and working copy),
+(migration 0850), in no `rec_*` view: `core_agreement_document` (its kind, state and working copy),
 `core_agreement_version` (each published wording and its terms, with the SHA-256 of everything it
 holds, recomputed on read; triggers refuse every update and delete, an insert over an existing id
 (so `INSERT OR REPLACE`) and an insert that does not match the working copy at its rev),

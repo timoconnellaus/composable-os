@@ -839,6 +839,18 @@ prefixes its Worker and resource names and never appears in the deployment's dat
 sees it only as a deploy var (`COS_TENANT_ID`), for the **tenant tag** on Platform AI calls and
 for signing its calls back to the control plane.
 
+**Hosted client** (stage 46, proposed; ADR 0610)
+A client product's deployment in our Cloudflare account, in the Workers for Platforms namespace,
+deployed by `cos deploy` from the client's repository. It keeps the names its `product.ts` gives
+it and has no tenant id. Its **tier** is **standard** (settings only, on a standard product's
+release, behind a shared web app), **bespoke** (its own repository, web app and extensions) or
+**own account** (the same, in the client's Cloudflare account).
+_Avoid_: tenant (for a client), multi-tenant
+
+**Fleet** (stage 46, proposed)
+Every hosted client's hosts together. We set its platform version; a **hold** keeps one client
+on its version through a fleet update.
+
 **Control plane**
 `crm-control` on the hosted CRM's `app.` host (`products/crm/apps/control`): sign-up, plans,
 billing, provisioning, rollouts, support grants, export and delete. It never holds customer data.
@@ -1232,7 +1244,7 @@ consent. Its **kind** is a label fixed when it is made (`terms`, `waiver`, `heal
 their name, or draw a signature), who agrees (the participant or the payer), for whom (everyone, or
 dependants only) and a health form's questions, so none of them change until a person publishes. It
 is a draft until first published, then live; **retired** is final. The business writes every word;
-the platform ships no legal wording. Core tables, not records: in no `rec_*` view (ADR 0610).
+the platform ships no legal wording. Core tables, not records: in no `rec_*` view (ADR 0640).
 _Avoid_: form (stage 29's), contract (what the law may make of it), template
 
 **Version** (of an agreement document; stage 44, built in step 1)
@@ -1249,7 +1261,7 @@ version (`core_publish_version`).
 from step 3)
 A place a pack says agreement may be needed: buying a membership or a pass, making a booking,
 buying a ticket or a course, a care link. A person with `agreements:manage` **attaches** published
-documents to points; nothing is needed anywhere by default (ADR 0611). The host asks one question, `agreementsDue`, when an order or a
+documents to points; nothing is needed anywhere by default (ADR 0641). The host asks one question, `agreementsDue`, when an order or a
 subscription starts and when a record enters a declared state, and the write's batch carries a guard
 that fails if any document changed since. The host's own moves (a promotion, a paid drop-in booked)
 are never checked.

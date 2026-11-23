@@ -1042,7 +1042,7 @@ export interface CorePersonLinkTable {
   end_reason: Defaulted<string | null>;
 }
 
-/** Migration 0790 (stage 44, ADR 0610): an agreement document and its working copy. */
+/** Migration 0850 (stage 44, ADR 0640): an agreement document and its working copy. */
 export interface CoreAgreementDocumentTable {
   id: string;
   kind: "terms" | "waiver" | "health" | "guardian" | "other";
@@ -1067,7 +1067,7 @@ export interface CoreAgreementDocumentTable {
   retired_by: Defaulted<string | null>;
 }
 
-/** Migration 0790 (ADR 0610): a published version; the database refuses any update or delete. */
+/** Migration 0850 (ADR 0640): a published version; the database refuses any update or delete. */
 export interface CoreAgreementVersionTable {
   id: string;
   document_id: string;
@@ -1088,7 +1088,7 @@ export interface CoreAgreementVersionTable {
   hash: string;
 }
 
-/** Migration 0790 (ADR 0611): a document attached to an agreement point. */
+/** Migration 0850 (ADR 0641): a document attached to an agreement point. */
 export interface CoreAgreementPointTable {
   document_id: string;
   point: string;
@@ -1096,7 +1096,7 @@ export interface CoreAgreementPointTable {
   attached_by: string;
 }
 
-/** Migration 0790 (ADR 0610): the one counter every change to what is due bumps. */
+/** Migration 0850 (ADR 0640): the one counter every change to what is due bumps. */
 export interface CoreAgreementRevTable {
   id: number;
   rev: Defaulted<number>;

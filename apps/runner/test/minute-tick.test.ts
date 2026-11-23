@@ -76,7 +76,7 @@ describe("the minute cron and the kill switch", () => {
     expect(resumed.notifications).not.toBeNull();
     // The duplicate scan carries on its first job (the name-key backfill) one call per tick.
     expect(resumed.duplicates).toMatchObject({ mode: "continue" });
-    // Agreements (ADR 0610): scheduled versions take effect; nothing is scheduled here.
+    // Agreements (ADR 0640): scheduled versions take effect; nothing is scheduled here.
     expect(resumed.agreements).toEqual({ documents: 0 });
     expect(await state(ids)).toEqual({ outboxPending: false, eventConsumed: true });
   });

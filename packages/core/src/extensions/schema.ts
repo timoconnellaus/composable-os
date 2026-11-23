@@ -73,7 +73,7 @@ export interface ObjectDefinitionJson {
   capacity?: CapacityManifest;
   sellable?: SellableManifest;
   allowance?: AllowanceManifest;
-  /** An agreement point (stage 44, ADR 0611), as declared. */
+  /** An agreement point (stage 44, ADR 0641), as declared. */
   agreements?: AgreementsManifest;
   states?: StatesManifest;
   claims?: ClaimsManifest;

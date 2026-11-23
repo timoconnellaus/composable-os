@@ -374,7 +374,7 @@ export async function minuteTick(env: Env, at: Date) {
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
     }),
   );
-  // Agreements (stage 44, ADR 0610): scheduled versions whose time has come take effect.
+  // Agreements (stage 44, ADR 0640): scheduled versions whose time has come take effect.
   const agreements = await minuteStep("agreements", () =>
     runAgreementsDue(createCrmDb(env.DB), {
       clock: () => at,

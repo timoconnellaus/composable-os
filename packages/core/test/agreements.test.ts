@@ -1,4 +1,4 @@
-// Stage 44 step 1 (ADRs 0610 and 0611): agreement documents, their working copy and versions.
+// Stage 44 step 1 (ADRs 0640 and 0641): agreement documents, their working copy and versions.
 // A published version is never changed or deleted, by an operation or by raw SQL; publishing,
 // attaching, detaching and retiring are a person's act with agreements:manage (every AI actor is
 // refused, not queued); the assistant may write the working copy, through the gate; every change
