@@ -5608,7 +5608,7 @@
                 "type": "null"
               }
             ],
-            "description": "A published version that takes effect later"
+            "description": "A published version that takes effect later (never for a retired document: it never will)"
           },
           "agreeFrom": {
             "type": "number",
@@ -5820,7 +5820,7 @@
                 "type": "null"
               }
             ],
-            "description": "A published version that takes effect later"
+            "description": "A published version that takes effect later (never for a retired document: it never will)"
           },
           "agreeFrom": {
             "type": "number",
@@ -5867,7 +5867,7 @@
     },
     {
       "name": "agreement.draft.save",
-      "description": "Write an agreement document's working copy: any of its title, body (rich text), tick label (the words beside the box), how a person agrees (typed name, or a drawn signature), who agrees (the participant or the payer), for whom (everyone, or only a dependant), and for a health form its questions and after how many months it is asked again. Only what is given changes. It changes no published version and nothing anyone is asked: a person publishes. The assistant may write it for someone who holds agreements:manage.",
+      "description": "Write an agreement document's working copy: any of its title, body (rich text), tick label (the words beside the box), how a person agrees (typed name, or a drawn signature), who agrees (the participant or the payer), for whom (everyone, or only a dependant), and for a health form its questions and after how many months it is asked again. Only what is given changes. It changes no published version and nothing anyone is asked: a person publishes. draftRev, when given, is the copy's rev the change was made against: a copy saved by someone else since is refused. Two saves of the same rev never both apply. The assistant may write it for someone who holds agreements:manage.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -5881,6 +5881,11 @@
             "minLength": 1,
             "maxLength": 64,
             "description": "The document's id (agd_…)"
+          },
+          "draftRev": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           },
           "title": {
             "type": "string",
@@ -6052,7 +6057,8 @@
             ]
           },
           "rev": {
-            "type": "number"
+            "type": "number",
+            "description": "Bumped by every save; publish and a careful save name it"
           },
           "updatedAt": {
             "type": "string"
@@ -6060,9 +6066,13 @@
           "updatedBy": {
             "type": "string"
           },
+          "updatedVia": {
+            "type": "string",
+            "description": "The actor of the last save: human, assistant, mcp, …"
+          },
           "hash": {
             "type": "string",
-            "description": "Hash of what a person would be shown; publish names it"
+            "description": "Hash of everything a version made from it would hold"
           }
         },
         "required": [
@@ -6077,6 +6087,7 @@
           "rev",
           "updatedAt",
           "updatedBy",
+          "updatedVia",
           "hash"
         ],
         "additionalProperties": false
@@ -6193,7 +6204,7 @@
                 "type": "null"
               }
             ],
-            "description": "A published version that takes effect later"
+            "description": "A published version that takes effect later (never for a retired document: it never will)"
           },
           "agreeFrom": {
             "type": "number",
@@ -6293,7 +6304,8 @@
                 ]
               },
               "rev": {
-                "type": "number"
+                "type": "number",
+                "description": "Bumped by every save; publish and a careful save name it"
               },
               "updatedAt": {
                 "type": "string"
@@ -6301,9 +6313,13 @@
               "updatedBy": {
                 "type": "string"
               },
+              "updatedVia": {
+                "type": "string",
+                "description": "The actor of the last save: human, assistant, mcp, …"
+              },
               "hash": {
                 "type": "string",
-                "description": "Hash of what a person would be shown; publish names it"
+                "description": "Hash of everything a version made from it would hold"
               }
             },
             "required": [
@@ -6318,6 +6334,7 @@
               "rev",
               "updatedAt",
               "updatedBy",
+              "updatedVia",
               "hash"
             ],
             "additionalProperties": false
@@ -6388,6 +6405,19 @@
                 },
                 "hash": {
                   "type": "string"
+                },
+                "intact": {
+                  "type": "boolean",
+                  "description": "The hash recomputed from the stored content matches: false means tampering"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "in_effect",
+                    "replaced",
+                    "scheduled",
+                    "never_in_force"
+                  ]
                 }
               },
               "required": [
@@ -6404,7 +6434,9 @@
                 "effectiveFrom",
                 "publishedAt",
                 "publishedBy",
-                "hash"
+                "hash",
+                "intact",
+                "status"
               ],
               "additionalProperties": false
             }
@@ -6533,7 +6565,7 @@
                       "type": "null"
                     }
                   ],
-                  "description": "A published version that takes effect later"
+                  "description": "A published version that takes effect later (never for a retired document: it never will)"
                 },
                 "agreeFrom": {
                   "type": "number",
@@ -6637,7 +6669,7 @@
     },
     {
       "name": "agreement.publish",
-      "description": "Publish an agreement document's working copy as its next version, which nobody can change afterwards. change: small (earlier acceptances still count) or agree_again (everyone must agree to this version before their next booking or purchase); a first version is first. effectiveFrom (left out: now) schedules it; it cannot be in the past or before the newest version's, and a published version cannot be withdrawn. draftHash is the working copy's hash the person reviewed (agreement.publishPreview): a copy changed since is refused. Only a person on the staff with agreements:manage can do this: never the assistant, an MCP client or code. Audited.",
+      "description": "Publish an agreement document's working copy as its next version, which nobody can change afterwards. change: small (earlier acceptances still count) or agree_again (everyone must agree to this version before their next booking or purchase); a first version is first. effectiveFrom (left out: now) schedules it; never in the past or before the newest version's, and never withdrawn. draftHash and draftRev are the preview's: a copy changed since in any field is refused. A person on the staff with agreements:manage only. Audited.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -6667,12 +6699,18 @@
           "draftHash": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
+          },
+          "draftRev": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           }
         },
         "required": [
           "documentId",
           "change",
-          "draftHash"
+          "draftHash",
+          "draftRev"
         ]
       },
       "output": {
@@ -6760,7 +6798,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "A published version that takes effect later"
+                "description": "A published version that takes effect later (never for a retired document: it never will)"
               },
               "agreeFrom": {
                 "type": "number",
@@ -6892,6 +6930,10 @@
               },
               "hash": {
                 "type": "string"
+              },
+              "intact": {
+                "type": "boolean",
+                "description": "The hash recomputed from the stored content matches: false means tampering"
               }
             },
             "required": [
@@ -6910,7 +6952,8 @@
               "effectiveFrom",
               "publishedAt",
               "publishedBy",
-              "hash"
+              "hash",
+              "intact"
             ],
             "additionalProperties": false
           }
@@ -6931,7 +6974,7 @@
     },
     {
       "name": "agreement.publishPreview",
-      "description": "What publishing an agreement document's working copy would make: the version number, whether it is the first, what changed against the newest version (title, body, tick label, questions, how, who, for whom), the working copy's hash to pass to agreement.publish, and why it cannot be published yet if it cannot. Read-only.",
+      "description": "What publishing an agreement document's working copy would make: the exact snapshot (every field a version holds), its number, whether it is the first, which fields changed against the newest version, the hash and rev to pass to agreement.publish, and why it cannot be published yet if it cannot. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -6963,11 +7006,148 @@
           "changed": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "title",
+                "body",
+                "tickLabel",
+                "questions",
+                "how",
+                "who",
+                "forWhom",
+                "askAgainMonths"
+              ]
             }
+          },
+          "snapshot": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "body": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tickLabel": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "questions": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "noteOnYes": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "text",
+                        "noteOnYes"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "how": {
+                "type": "string",
+                "enum": [
+                  "typed",
+                  "drawn"
+                ]
+              },
+              "who": {
+                "type": "string",
+                "enum": [
+                  "participant",
+                  "payer"
+                ]
+              },
+              "forWhom": {
+                "type": "string",
+                "enum": [
+                  "everyone",
+                  "dependants"
+                ]
+              },
+              "askAgainMonths": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "rev": {
+                "type": "number",
+                "description": "Bumped by every save; publish and a careful save name it"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "updatedBy": {
+                "type": "string"
+              },
+              "updatedVia": {
+                "type": "string",
+                "description": "The actor of the last save: human, assistant, mcp, …"
+              },
+              "hash": {
+                "type": "string",
+                "description": "Hash of everything a version made from it would hold"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "terms",
+                  "waiver",
+                  "health",
+                  "guardian",
+                  "other"
+                ]
+              }
+            },
+            "required": [
+              "title",
+              "body",
+              "tickLabel",
+              "questions",
+              "how",
+              "who",
+              "forWhom",
+              "askAgainMonths",
+              "rev",
+              "updatedAt",
+              "updatedBy",
+              "updatedVia",
+              "hash",
+              "kind"
+            ],
+            "additionalProperties": false
           },
           "draftHash": {
             "type": "string"
+          },
+          "draftRev": {
+            "type": "number"
           },
           "latest": {
             "anyOf": [
@@ -7066,6 +7246,10 @@
                   },
                   "hash": {
                     "type": "string"
+                  },
+                  "intact": {
+                    "type": "boolean",
+                    "description": "The hash recomputed from the stored content matches: false means tampering"
                   }
                 },
                 "required": [
@@ -7084,7 +7268,8 @@
                   "effectiveFrom",
                   "publishedAt",
                   "publishedBy",
-                  "hash"
+                  "hash",
+                  "intact"
                 ],
                 "additionalProperties": false
               },
@@ -7104,7 +7289,9 @@
           "number",
           "first",
           "changed",
+          "snapshot",
           "draftHash",
+          "draftRev",
           "latest",
           "problems"
         ],
@@ -7216,7 +7403,7 @@
                 "type": "null"
               }
             ],
-            "description": "A published version that takes effect later"
+            "description": "A published version that takes effect later (never for a retired document: it never will)"
           },
           "agreeFrom": {
             "type": "number",
@@ -7413,6 +7600,10 @@
           },
           "hash": {
             "type": "string"
+          },
+          "intact": {
+            "type": "boolean",
+            "description": "The hash recomputed from the stored content matches: false means tampering"
           }
         },
         "required": [
@@ -7431,7 +7622,8 @@
           "effectiveFrom",
           "publishedAt",
           "publishedBy",
-          "hash"
+          "hash",
+          "intact"
         ],
         "additionalProperties": false
       },
