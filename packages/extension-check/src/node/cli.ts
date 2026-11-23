@@ -105,19 +105,46 @@ export function rolesSummary(
     | {
         id: string;
         roles?: Record<string, { label: string; permissions: string[]; read: string[] }>;
+        grantable?: string[];
+        tools?: Record<string, { permission?: string | string[] }>;
       }
     | null
     | undefined,
 ): string[] {
   const roles = Object.entries(manifest?.roles ?? {});
-  if (!manifest || !roles.length) return [];
+  const grantable = manifest?.grantable ?? [];
+  if (!manifest || (!roles.length && !grantable.length)) return [];
+  const opens = (permission: string) =>
+    Object.entries(manifest.tools ?? {})
+      .filter(([, tool]) =>
+        (typeof tool.permission === "string"
+          ? [tool.permission]
+          : (tool.permission ?? [])
+        ).includes(permission),
+      )
+      .map(([name]) => name);
   return [
-    "This extension declares staff roles. An account given one may do this and nothing else:",
-    ...roles.map(
-      ([name, role]) =>
-        `  role ${manifest.id}.${name} (${role.label}): tools with ${role.permissions.join(", ") || "no permission"}; ` +
-        `reads ${role.read.join(", ") || "nothing"}`,
-    ),
+    ...(roles.length
+      ? [
+          grantable.length
+            ? "This extension declares staff roles. An account given one may do this, and what it is granted below, and nothing else:"
+            : "This extension declares staff roles. An account given one may do this and nothing else:",
+          ...roles.map(
+            ([name, role]) =>
+              `  role ${manifest.id}.${name} (${role.label}): tools with ${role.permissions.join(", ") || "no permission"}; ` +
+              `reads ${role.read.join(", ") || "nothing"}`,
+          ),
+        ]
+      : []),
+    // Granted one by one by a human admin (ADR 0449), to a role's account too (ADR 0600).
+    ...(grantable.length
+      ? [
+          "Permissions an admin may grant one by one (to an account with a role too):",
+          ...grantable.map(
+            (permission) => `  ${permission}: tools ${opens(permission).join(", ") || "none"}`,
+          ),
+        ]
+      : []),
   ];
 }
 

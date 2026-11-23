@@ -315,15 +315,20 @@ staff who should do one job and nothing else (Ticketing's door role: check ticke
 events, ticket types and tickets). A role lists `permissions`, which are permissions its own
 tools declare (`permission: "<id>:<word>"` on the tool, see `add-automations-tools-dashboards`),
 and `read`, objects of its own (`<id>.<object>`) the holder may open and list. A human admin gives
-it to a staff account; while it is held it is all that account may do, on every operation. Use a
-role only for that; ordinary staff need none. Only a pack or the org's own extension may declare
+it to a staff account; while it is held it, and the pack permissions granted to the account, are
+all that account may do, on every operation. Use a role only for that; ordinary staff need none. Only a pack or the org's own extension may declare
 one. See Ticketing: `roles` in `packs/ticketing/index.ts`.
 
 To let some staff call one tool their role does not reach (a viewer at the door), declare its
 permission **grantable** instead (`grantable: ["<id>:<word>"]`, ADR 0449): a human admin grants it
-to an account with `user.setPermissions`, on top of its role. The platform's own grantable
+to an account with `user.setPermissions`, on top of its role, a pack role included: they add up
+(ADR 0600), and the role's limits (`today`) bind only the calls the role allows. Give it plain words
+for the admin's tick (`grantableLabels: { "<id>:<word>": "..." }`). A permission a role holds cannot
+be grantable: name another permission on the tools a grant should open, and when one tool is both
+the role's and the grant's, give it both (`permission: ["<id>:coach", "<id>:desk"]`, any one opens
+it; Bookings' `day`). See Bookings: `grantable` and `bookings:desk`. The platform's own grantable
 permissions are `records:publish` (a coach who is a member publishing programs) and
-`orders:refund`.
+`orders:refund`; they are never granted to an account with a pack role.
 
 ## The rules
 

@@ -58852,7 +58852,7 @@
     },
     {
       "name": "user.grantablePermissions",
-      "description": "List the permissions an admin can grant a staff account one by one, on top of its role: publishing versions of programs and other publishable records, refunding orders, and the tool permissions installed packs declare grantable. Read-only.",
+      "description": "List the permissions an admin can grant a staff account one by one, on top of its role: publishing versions of programs and other publishable records, refunding orders, and the tool permissions installed packs declare grantable. An account with a pack's fixed role may be granted the packs' permissions only (forFixedRole). Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -58878,12 +58878,17 @@
                 },
                 "from": {
                   "type": "string"
+                },
+                "forFixedRole": {
+                  "type": "boolean",
+                  "description": "Whether an account with a pack's fixed role may be granted it (ADR 0600)"
                 }
               },
               "required": [
                 "permission",
                 "label",
-                "from"
+                "from",
+                "forFixedRole"
               ],
               "additionalProperties": false
             }
@@ -59580,7 +59585,7 @@
     },
     {
       "name": "user.setPackRole",
-      "description": "Give a staff account one fixed role a pack declares (user.packRoles lists them), or take it away with role null. While an account holds one, it may do exactly what the role lists and nothing else, whatever its own role, and its role is set to viewer. An admin cannot be given one (change their role first). Admins only, and only a human can call it. Returns the user.",
+      "description": "Give a staff account one fixed role a pack declares (user.packRoles lists them), or take it away with role null. While an account holds one, it may do exactly what the role lists, and what the pack permissions granted to it open (user.setPermissions), and nothing else, whatever its own role; its role is set to viewer. An admin cannot be given one (change their role first), nor an account granted a core permission (take it away first). Admins only, and only a human can call it. Returns the user.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -59685,7 +59690,7 @@
     },
     {
       "name": "user.setPermissions",
-      "description": "Set the permissions a staff account is granted one by one, on top of its role (user.grantablePermissions lists them; an empty list takes them all away). A member granted records:publish publishes programs; one granted orders:refund approves refunds. A grant never lets an AI assistant or MCP client do what only a person may, and an account with a pack role holds only that role. Admins only, and only a human can call it. Returns the user.",
+      "description": "Set the permissions a staff account is granted one by one, on top of its role (user.grantablePermissions lists them; an empty list takes them all away). A member granted records:publish publishes programs; one granted orders:refund approves refunds. A grant never lets an AI assistant or MCP client do what only a person may. An account with a pack's fixed role may be granted the packs' permissions only (a coach given the Bookings desk), which add up with the role. Admins only, and only a human can call it. Returns the user.",
       "risk": "write",
       "audiences": [
         "staff"

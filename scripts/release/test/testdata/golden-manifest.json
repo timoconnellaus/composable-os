@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 750,
+  "coreSchemaVersion": 770,
   "extensionContract": {
     "supported": [
       1
@@ -560,8 +560,8 @@
       "sha256": "9a4a447b20d94873349726ba157412acc88909cf622ce67789ba840beb4b3f59"
     },
     {
-      "name": "0750_routine_mail.sql",
-      "sha256": "91c678f6bc628ece3fa5eabc1fd64b3a569c6960179f780a8f7e6d7d52dcb07f"
+      "name": "0770_clear_fixed_role_grants.sql",
+      "sha256": "3a259fde475685273a9b2311b68ea20093ef6aacb0aa0b3dc64d027e2e24d941"
     }
   ],
   "product": "crm",

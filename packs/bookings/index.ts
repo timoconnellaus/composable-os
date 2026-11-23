@@ -1065,6 +1065,18 @@ export default defineExtension({
       },
     },
   },
+  // The front desk's tools (ADR 0600): find people, book anyone (a walk-in too) into any class,
+  // cancel for them, move them, give a use back, a class's full list and any day's classes. Any
+  // member of staff holds them; an admin grants them to a coach, whose coach role they add to:
+  // the coach's own list and ticks stay today's. Not cancelling a class (its own permission, and
+  // a person's), not refunds (orders:refund), not people, orders, passes or memberships.
+  grantable: ["bookings:desk"],
+  grantableLabels: {
+    "bookings:desk":
+      "Front desk: find people, book anyone (walk-ins too) into any class, cancel or move their " +
+      "bookings, give a use back, and see any day's classes and full lists. For a coach who " +
+      "also works the desk.",
+  },
   tools: {
     timetable,
     classGet,

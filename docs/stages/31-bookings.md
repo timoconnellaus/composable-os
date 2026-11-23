@@ -893,9 +893,13 @@ spec one way, or decided what it left open:
   sweep looks back 14 days.
 - **The coach role** reads its class records and holds `day`, `roster` (names and marks, nothing
   paid), `markAttended`, `undoAttended`, `markNoShow`, `markAll`. **It does not book walk-ins or
-  members** (spec: "book walk-ins and members into a class"): finding someone on file, and the
-  walk-in's duplicate check, show people beyond the lists, which the same sentence rules out. The
-  desk books; the coach ticks. Pack roles still do not combine (ADR 0436 amended).
+  members, by default: a coach is given the desk permission** (spec: "book walk-ins and members
+  into a class"). Finding someone on file, and the walk-in's duplicate check, show people beyond
+  the lists, which the same sentence rules out for the role itself; so the desk's tools name
+  `bookings:desk`, which an admin ticks for a coach who also works the desk (2026-11-23, issue
+  #258, ADR 0600: the owner's "don't make it so it's one or the other"). The grant adds up with the
+  role: the desk any day, the coach's list and ticks still today's. An account still holds one
+  pack role (ADR 0436 amended).
 - **A move is the new booking's create** (`movedFrom`), refused whole when the new class is full
   (its waitlist's holds count: a staff move never takes a held place; raise the places first), was
   cancelled, already has them, or the use cannot be spent then; only before the old class starts.
