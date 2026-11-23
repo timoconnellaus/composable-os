@@ -3,6 +3,7 @@
 // diffs and reconciles the manifest. `validateManifest` is the contract check `extension.check`
 // runs; it returns structured issues a model can act on.
 import { z } from "zod";
+import { agreementsManifestSchema, checkObjectAgreements } from "./agreements.ts";
 import { allowanceManifestSchema, checkObjectAllowance } from "./allowance.ts";
 import { automationManifestSchema } from "./automation.ts";
 import { checkAutomation } from "./automation-check.ts";
@@ -203,6 +204,7 @@ export const objectManifestSchema = z.object({
   capacity: capacityManifestSchema.optional(),
   sellable: sellableManifestSchema.optional(),
   allowance: allowanceManifestSchema.optional(),
+  agreements: agreementsManifestSchema.optional(),
   states: statesManifestSchema.optional(),
   claims: claimsManifestSchema.optional(),
   unique: uniqueManifestSchema.optional(),
@@ -822,6 +824,12 @@ export interface ValidateOptions {
    * automation checks; null when unknown (those checks are skipped). Core objects are built in.
    */
   objectFields?: (object: string) => Record<string, FieldTypeName> | null;
+  /**
+   * Further ids no extension may take: the host passes the namespaces of its own permissions
+   * (`agreements`, `orders`, `people`, …), derived from its permission list, so a pack can never
+   * declare a core permission such as `agreements:manage` as its own grantable one.
+   */
+  reservedIds?: readonly string[];
 }
 
 /** Formula environment for a set of field manifests (formula fields compile on demand). */
@@ -861,7 +869,11 @@ export function validateManifest(
   }
   const m = parsed.data;
 
-  if (!EXTENSION_ID_RE.test(m.id) || RESERVED_EXTENSION_IDS.has(m.id)) {
+  if (
+    !EXTENSION_ID_RE.test(m.id) ||
+    RESERVED_EXTENSION_IDS.has(m.id) ||
+    options.reservedIds?.includes(m.id)
+  ) {
     contract(
       "id",
       `Extension id "${m.id}" must be 2-30 lowercase letters or digits, start with a letter, and not be reserved`,
@@ -1040,6 +1052,7 @@ export function validateManifest(
     checkObjectCapacity(m, name, object, contract);
     checkObjectSellable(m, name, object, contract);
     checkObjectAllowance(m, name, object, contract);
+    checkObjectAgreements(m, name, object, contract);
     checkObjectStates(m, name, object, contract);
     checkObjectClaims(m, name, object, contract);
     checkObjectUnique(m, name, object, contract);

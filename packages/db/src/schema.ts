@@ -1042,6 +1042,66 @@ export interface CorePersonLinkTable {
   end_reason: Defaulted<string | null>;
 }
 
+/** Migration 0850 (stage 44, ADR 0640): an agreement document and its working copy. */
+export interface CoreAgreementDocumentTable {
+  id: string;
+  kind: "terms" | "waiver" | "health" | "guardian" | "other";
+  state: Defaulted<"draft" | "live" | "retired">;
+  draft_title: string;
+  draft_body: Defaulted<string | null>;
+  draft_tick_label: Defaulted<string | null>;
+  draft_questions: Defaulted<string | null>;
+  draft_how: Defaulted<"typed" | "drawn">;
+  draft_who: Defaulted<"participant" | "payer">;
+  draft_for: Defaulted<"everyone" | "dependants">;
+  draft_ask_again_months: Defaulted<number | null>;
+  draft_rev: Defaulted<number>;
+  draft_updated_at: string;
+  draft_updated_by: string;
+  draft_updated_via: Defaulted<string>;
+  current_version_id: Defaulted<string | null>;
+  agree_from: Defaulted<number>;
+  created_at: string;
+  created_by: string;
+  retired_at: Defaulted<string | null>;
+  retired_by: Defaulted<string | null>;
+}
+
+/** Migration 0850 (ADR 0640): a published version; the database refuses any update or delete. */
+export interface CoreAgreementVersionTable {
+  id: string;
+  document_id: string;
+  number: number;
+  title: string;
+  body: string;
+  tick_label: string;
+  questions: string | null;
+  how: "typed" | "drawn";
+  who: "participant" | "payer";
+  for_whom: "everyone" | "dependants";
+  ask_again_months: number | null;
+  change: "first" | "small" | "agree_again";
+  effective_from: string;
+  published_at: string;
+  published_by: string;
+  draft_rev: number;
+  hash: string;
+}
+
+/** Migration 0850 (ADR 0641): a document attached to an agreement point. */
+export interface CoreAgreementPointTable {
+  document_id: string;
+  point: string;
+  attached_at: string;
+  attached_by: string;
+}
+
+/** Migration 0850 (ADR 0640): the one counter every change to what is due bumps. */
+export interface CoreAgreementRevTable {
+  id: number;
+  rev: Defaulted<number>;
+}
+
 /**
  * Migration 0690 (ADR 0560): a refund the host owes on a record bought through `sellable.moves`
  * (a drop-in booking cancelled in time, or its class cancelled). The minute cron asks for it.
@@ -2526,6 +2586,10 @@ export interface CoreDatabase {
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
   core_person_link: CorePersonLinkTable;
+  core_agreement_document: CoreAgreementDocumentTable;
+  core_agreement_version: CoreAgreementVersionTable;
+  core_agreement_point: CoreAgreementPointTable;
+  core_agreement_rev: CoreAgreementRevTable;
   core_person_link_guard: CorePersonLinkGuardTable;
   core_sellable_refund_due: CoreSellableRefundDueTable;
   core_routine_mail: CoreRoutineMailTable;

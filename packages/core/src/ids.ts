@@ -87,6 +87,10 @@ export const ID_PREFIXES = {
   refundDue: "rdu",
   /** A routine email the host was asked to send (ADR 0590). */
   routineMail: "rml",
+  /** An agreement document (stage 44, ADR 0640). */
+  agreementDocument: "agd",
+  /** A published version of an agreement document, never changed (stage 44, ADR 0640). */
+  agreementVersion: "agv",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

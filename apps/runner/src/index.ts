@@ -22,6 +22,7 @@ import {
   type RunToolInput,
   type RunToolResult,
   retryOutbox,
+  runAgreementsDue,
   runDuplicateCron,
   runPublishDue,
   runRecurringDue,
@@ -309,6 +310,7 @@ export async function minuteTick(env: Env, at: Date) {
       recurring: null,
       waitlist: null,
       timedMoves: null,
+      agreements: null,
       customerSignup: null,
       deferredRuns: null,
     };
@@ -372,6 +374,13 @@ export async function minuteTick(env: Env, at: Date) {
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
     }),
   );
+  // Agreements (stage 44, ADR 0640): scheduled versions whose time has come take effect.
+  const agreements = await minuteStep("agreements", () =>
+    runAgreementsDue(createCrmDb(env.DB), {
+      clock: () => at,
+      floor: parseFloor(env.APPROVAL_FLOOR),
+    }),
+  );
   // Customer sign-in (ADR 0459): admins hear within a minute when a plan going on sale opened
   // sign-up to anyone ("anyone starting a subscription" on). Nothing while the switch is off.
   const customerSignup = await minuteStep("customer sign-up", async () => {
@@ -390,6 +399,7 @@ export async function minuteTick(env: Env, at: Date) {
     recurring,
     waitlist,
     timedMoves,
+    agreements,
     customerSignup,
     deferredRuns,
   };

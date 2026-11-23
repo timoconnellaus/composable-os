@@ -12,6 +12,7 @@ import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
+import { CORE_PERMISSION_NAMESPACES } from "../principals.ts";
 import { routineMailAvailableNotice } from "../routine-mail/index.ts";
 import { hasAccessSourceKind } from "../visibility/access.ts";
 // The host's own kinds of access source register themselves when loaded: loaded here too, so the
@@ -98,6 +99,7 @@ export async function checkManifest(
     .filter((name) => name.includes(".") && !name.startsWith(`${id}.`));
   const { manifest, issues } = validateManifest(rawManifest, {
     knownObjects,
+    reservedIds: CORE_PERMISSION_NAMESPACES,
     baseFields: (object) => (isCoreTarget(object) ? coreFormulaFields(object) : {}),
   });
   const all = issues.map(fromManifest);

@@ -2,6 +2,7 @@
 // `defineExtension({...})`. Everything here is plain data plus tool/automation handlers, so the host
 // can turn it into a JSON manifest, validate it, diff it and reconcile it to tables.
 import type { z } from "zod";
+import type { AgreementsSpec } from "./agreements.ts";
 import type { AllowanceSpec } from "./allowance.ts";
 import type { AutomationSpec } from "./automation.ts";
 import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
@@ -260,6 +261,11 @@ export interface ObjectSpec {
    * AllowanceSpec, ADRs 0493 and 0494. The host counts and refuses a spend past the limit.
    */
   allowance?: AllowanceSpec;
+  /**
+   * An agreement point (see AgreementsSpec, ADR 0641): where a business may need a person to have
+   * agreed to its documents first. The business attaches the documents; the pack names the place.
+   */
+  agreements?: AgreementsSpec;
   /** A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both. */
   states?: StatesSpec;
   /**
